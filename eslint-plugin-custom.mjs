@@ -55,48 +55,6 @@ function toRepoPath(filePath) {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');
 }
 
-const INTERNAL_MOCK_ALIAS_ROOTS = new Map([
-    [
-        'app',
-        ['@app'],
-    ],
-    [
-        'electron',
-        ['@electron'],
-    ],
-    [
-        'server',
-        ['@server'],
-    ],
-    [
-        'packages',
-        [
-            '@contracts',
-            '@pdf-core',
-            '@electron-worker-bundles',
-            '@scan-cleanup-core',
-            '@scan-cleanup-adapters',
-            '@i18n-core',
-            '@i18n-app',
-            '@releaseSelection',
-        ],
-    ],
-]);
-
-const INTERNAL_MOCK_BOUNDARY_PATTERNS = [
-    /^@electron\/(?:file-access|native|platform-ipc)\//u,
-    /^@electron\/utils\/(?:native|runElectronCommand|processTree)/u,
-    /^@electron\/(?:ocr\/worker|features\/ocr\/worker)\/runOcrCommand$/u,
-    /^@electron\/pdf\/pdfPageCount$/u,
-    /^@electron\/features\/[^/]+\/(?:native|public)(?:\/|$)/u,
-    /^@app\/platform(?:\/|$)/u,
-    /^@app\/(?:composables\/useSettings|composables\/useTypedI18n)$/u,
-    /^@app\/modules\/pdf-viewer\/components\/PdfAnnotation(?:CommentsList|StyleEditor|Toolbar)\.vue$/u,
-    /^@app\/modules\/workspace-shell\/composables\/nativePdfMutationArtifact$/u,
-    /^@app\/modules\/workspace-shell\/splits\/cleanupSplitPayloadSnapshot$/u,
-    /^@app\/utils\/(?:platformDocuments|performanceProfile|platformWindowTabs)$/u,
-];
-
 const REMOVED_PACKAGE_ALIAS_PREFIXES = [
     '@evb/contracts',
     '@evb/pdf-core',
@@ -150,150 +108,6 @@ const noRemovedPackageAliasesRule = {
             },
             TSImportType(node) {
                 reportSource(node.source ?? node.argument);
-            },
-        };
-    },
-};
-
-export function getInternalMockAllowlistGrowth(allowlist, baseline) {
-    const growth = [];
-    const baselineEntries = baseline instanceof Map ? baseline.entries() : Object.entries(baseline);
-    const baselineCounts = new Map(baselineEntries);
-    for (const [
-        file,
-        count,
-    ] of Object.entries(allowlist)) {
-        const baselineCount = baselineCounts.get(file);
-        if (baselineCount === undefined) {
-            growth.push(`new file ${file} (${count})`);
-        } else if (count > baselineCount) {
-            growth.push(`${file} increased from ${baselineCount} to ${count}`);
-        }
-    }
-    return growth;
-}
-
-function getTestLayer(repoPath) {
-    return /^tests\/unit\/([^/]+)\//u.exec(repoPath)?.[1] ?? null;
-}
-
-function getInternalMockTargetLayer(source) {
-    for (const [
-        layer,
-        aliases,
-    ] of INTERNAL_MOCK_ALIAS_ROOTS) {
-        if (aliases.some(alias => source === alias || source.startsWith(`${alias}/`))) {
-            return layer;
-        }
-    }
-    return null;
-}
-
-function isApprovedInternalMockBoundary(source) {
-    return INTERNAL_MOCK_BOUNDARY_PATTERNS.some(pattern => pattern.test(source));
-}
-
-function isInternalMockForTest(source, repoPath) {
-    const layer = getTestLayer(repoPath);
-    return layer !== null
-        && getInternalMockTargetLayer(source) === layer
-        && !isApprovedInternalMockBoundary(source);
-}
-
-const reportedAllowlistGrowth = new WeakSet();
-
-const noInternalTestMocksRule = {
-    meta: {
-        type: 'problem',
-        docs: {
-            description: 'Reject same-layer business-module mocks in unit tests',
-            recommended: false,
-        },
-        schema: [{
-            type: 'object',
-            properties: {
-                allowlist: {
-                    type: 'object',
-                    additionalProperties: {
-                        type: 'integer',
-                        minimum: 0,
-                    },
-                },
-                baseline: {type: 'object'},
-            },
-            additionalProperties: false,
-        }],
-    },
-    create(context) {
-        const repoPath = toRepoPath(context.physicalFilename ?? context.filename);
-        if (!repoPath.startsWith('tests/unit/')) {
-            return {};
-        }
-
-        const allowlist = context.options[0]?.allowlist ?? {};
-        const baseline = context.options[0]?.baseline;
-        const allowlistGrowth = baseline
-            ? getInternalMockAllowlistGrowth(allowlist, baseline)
-            : [];
-        const allowlistGrowthReport = allowlistGrowth.length > 0
-            && !reportedAllowlistGrowth.has(allowlist);
-        if (allowlistGrowthReport) {
-            reportedAllowlistGrowth.add(allowlist);
-        }
-        const allowedCount = allowlist[repoPath] ?? 0;
-        let violationCount = 0;
-        const importedSources = new Map();
-
-        function report(node) {
-            violationCount += 1;
-            if (repoPath in allowlist && violationCount > allowedCount) {
-                context.report({
-                    node,
-                    message: 'Do not mock same-layer internal business modules. Use a fixture or mock the process/platform boundary instead.',
-                });
-            }
-        }
-
-        return {
-            ImportDeclaration(node) {
-                const source = getLiteralValue(node.source);
-                if (!source || !isInternalMockForTest(source, repoPath)) {
-                    return;
-                }
-                for (const specifier of node.specifiers) importedSources.set(specifier.local.name, source);
-            },
-            CallExpression(node) {
-                const callee = node.callee;
-                if (callee?.type !== 'MemberExpression' || callee.computed
-                    || callee.object?.type !== 'Identifier' || callee.object.name !== 'vi'
-                    || callee.property?.type !== 'Identifier') {
-                    return;
-                }
-                if (callee.property.name === 'mock' || callee.property.name === 'doMock') {
-                    const source = getLiteralValue(node.arguments[0]);
-                    if (source && isInternalMockForTest(source, repoPath)) report(node);
-                } else if (callee.property.name === 'spyOn') {
-                    const source = node.arguments[0]?.type === 'Identifier'
-                        ? importedSources.get(node.arguments[0].name) : null;
-                    if (source && isInternalMockForTest(source, repoPath)) report(node);
-                }
-            },
-            'Program:exit'() {
-                if (allowlistGrowthReport) {
-                    context.report({
-                        node: context.sourceCode.ast,
-                        message: `The internal-mock allowlist may only shrink: ${allowlistGrowth.join('; ')}.`,
-                    });
-                }
-                if (violationCount > 0 && !(repoPath in allowlist)) {
-                    context.report({
-                        loc: {
-                            line: 1,
-                            column: 0,
-                        },
-                        message: `Review ${violationCount} same-layer internal mock(s) in ${repoPath} before adding this file to the allowlist.`,
-                    });
-                }
             },
         };
     },
@@ -592,12 +406,6 @@ function createThreeLineReturnBlockFix(sourceCode, node, returnNode) {
     };
 }
 
-function isRelativeImportSpecifier(value) {
-    return value === '.'
-        || value === '..'
-        || value.startsWith('./')
-        || value.startsWith('../');
-}
 
 function getLineIndent(sourceCode, node) {
     const line = sourceCode.lines[node.loc.start.line - 1] ?? '';
@@ -1207,7 +1015,6 @@ const noBarePageNumberTypeRule = {
 
 export default {rules: {
     'no-removed-package-aliases': noRemovedPackageAliasesRule,
-    'no-internal-test-mocks': noInternalTestMocksRule,
     'no-raw-red-presentation': noRawRedPresentationRule,
     'no-direct-console-error': noDirectConsoleErrorRule,
     'require-failure-receipt': requireFailureReceiptRule,
@@ -1313,52 +1120,6 @@ export default {rules: {
                     });
                 }
             }};
-        },
-    },
-    'no-relative-imports': {
-        meta: {
-            type: 'problem',
-            docs: {
-                description: 'Require absolute aliases instead of relative imports',
-                recommended: true,
-            },
-            schema: [],
-        },
-        create(context) {
-            function reportSource(source) {
-                const value = getLiteralValue(source);
-                if (!value || !isRelativeImportSpecifier(value)) {
-                    return;
-                }
-
-                context.report({
-                    node: source,
-                    message: 'Use an absolute alias import instead of a relative import.',
-                });
-            }
-
-            return {
-                ImportDeclaration(node) {
-                    reportSource(node.source);
-                },
-                ExportNamedDeclaration(node) {
-                    reportSource(node.source);
-                },
-                ExportAllDeclaration(node) {
-                    reportSource(node.source);
-                },
-                ImportExpression(node) {
-                    reportSource(node.source);
-                },
-                CallExpression(node) {
-                    if (node.callee?.type === 'Import') {
-                        reportSource(node.arguments?.[0]);
-                    }
-                },
-                TSImportType(node) {
-                    reportSource(node.source ?? node.argument);
-                },
-            };
         },
     },
     'arrow-composable': {

@@ -218,6 +218,7 @@ describe('changed-area classifier', () => {
             'tests/fixtures/electron/generated-text.pdf',
             'tests/helpers/pdfAnnotationCommentsListHarness.ts',
             'tests/setup.ts',
+            'tests/setupApp.ts',
             'tsconfig.workspace-paths.json',
         ]) {
             expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(true);

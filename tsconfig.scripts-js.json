@@ -17,8 +17,6 @@
         "scripts/architecture/architectureCliArgs.mjs",
         "scripts/architecture/boundary-check.mjs",
         "scripts/architecture/dep-graph.mjs",
-        "scripts/architecture/dupes-regression-check.mjs",
-        "scripts/architecture/dupesRegressionPolicy.mjs",
         "scripts/architecture/runtimeToolBoundaryRules.mjs",
         "scripts/check-build-artifacts-hygiene.mjs",
         "scripts/ci/classify-changed-areas.mjs",

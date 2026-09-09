@@ -25,19 +25,6 @@ const STRICT_BUILD_DUPLICATE_GATES = new Set([
 /** @typedef {{command: string, args: string[]}} IReleaseCheckCommand */
 /** @typedef {{write: (chunk: string) => unknown}} IWritable */
 
-/** @param {NodeJS.ProcessEnv} env @param {string} scriptName @returns {NodeJS.ProcessEnv} */
-function environmentForReleaseCheck(env, scriptName) {
-    if (scriptName !== 'test:coverage') {
-        return env;
-    }
-
-    const testEnv = {...env};
-    delete testEnv[RELEASE_BUILD_RECEIPT_ENV_VAR];
-    delete testEnv[SKIP_ACK_ENV_VAR];
-    delete testEnv[SKIP_LIST_ENV_VAR];
-    return testEnv;
-}
-
 /** @param {string | undefined} rawSkipList @param {{knownScripts?: string[]}} [options] @returns {string[]} */
 export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     const requested = (rawSkipList ?? '')
@@ -203,7 +190,7 @@ export function runLocalReleaseChecks({
         }
 
         runCommand(effectiveCommand.command, effectiveCommand.args, {
-            env: environmentForReleaseCheck(env, scriptName),
+            env,
             stdio: 'inherit',
         });
     }

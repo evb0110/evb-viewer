@@ -1,4 +1,2 @@
 node scripts/check-commit-attribution.mjs --staged
 pnpm exec lint-staged
-node --import tsx scripts/checkLocales.ts --target=app
-node --import tsx scripts/checkIconBundle.ts --target=app

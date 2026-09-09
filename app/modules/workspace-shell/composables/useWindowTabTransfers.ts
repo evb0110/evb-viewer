@@ -51,6 +51,8 @@ interface IPreparedTransferItem {
     session: IWindowTabTransferSessionState | null;
 }
 
+interface IRestoreWorkspacePayloadOptions {retainPayloadOnFailure?: boolean;}
+
 interface IUseWindowTabTransfersOptions {
     activePaneId: Ref<string | null>;
     panes: Ref<IPaneLike[]>;
@@ -281,6 +283,13 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return true;
         }
         const snapshot = getDocumentSession(targetTabId)?.snapshot.value ?? null;
+        // A newly claimed target is intentionally empty until the durable
+        // transfer decision commits. It has no document instance to compare
+        // yet. A non-empty instance here means another document owns the
+        // target, so reject the transfer before it can restore anything.
+        if (!snapshot?.identity.documentInstanceId) {
+            return true;
+        }
         return (expected.documentInstanceId ?? null) === (snapshot?.identity.documentInstanceId ?? null);
     }
 
@@ -462,7 +471,11 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         });
     }
 
-    async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | null) {
+    async function restoreWorkspacePayload(
+        tabId: string,
+        payload: TSplitPayload | null,
+        restoreOptions: IRestoreWorkspacePayloadOptions = {},
+    ) {
         if (!payload) {
             return false;
         }
@@ -477,7 +490,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             restored = await tryRestoreWorkspacePayload(tabId, payload);
             return restored;
         } finally {
-            if (!restored) {
+            if (!restored && !restoreOptions.retainPayloadOnFailure) {
                 await cleanupFailedRestorePayload(tabId, payload);
             }
             options.workspaceRestoreTracker.finish(tabId);
@@ -716,6 +729,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function processIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
         let target: IIncomingTransferTarget | null = null;
+        let transferCommitted = false;
         try {
             target = await prepareIncomingTransferTarget(transfer.transferId);
             if (!target) {
@@ -723,6 +737,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             }
 
             if (!isIncomingTransferSessionCurrent(target.tab.tabId, transfer)) {
+                await rollbackIncomingTransferTarget(target, transfer.payload);
                 await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
@@ -744,7 +759,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return;
             }
 
-            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload);
+            transferCommitted = true;
+            // The source closes after this ACK. Retain its snapshot for recovery
+            // if the target cannot open it.
+            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {retainPayloadOnFailure: true});
             if (!restored) {
                 BrowserLogger.error('tabs', 'Committed incoming transfer could not restore its payload', {transferId: transfer.transferId}, {
                     code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
@@ -766,6 +784,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 context: {},
             });
 
+            if (transferCommitted) {
+                return;
+            }
             if (target) {
                 await rollbackIncomingTransferTarget(target, transfer.payload);
             }

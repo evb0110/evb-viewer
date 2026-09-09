@@ -1365,10 +1365,10 @@ lifecycle tests even when the edited behavior appears unrelated.
 | Changed area | Required focused and affected gates |
 | --- | --- |
 | Documentation only | `git diff --check`; no Markdown-specific repository gate exists. |
-| `scan-cleanup-core/**` | Named Vitest files, lint, typecheck, unit tests, `pnpm run test:coverage`, `pnpm run typecheck:coverage`, `pnpm run validate:iteration`, and `pnpm run build:scan-cleanup`. |
-| `packages/contracts/**` | Contract and codec fixtures, generated-artifact drift check, typecheck, unit tests, `pnpm run test:coverage`, `pnpm run typecheck:coverage`, strict build, and runtime descriptor regeneration when changed. |
+| `scan-cleanup-core/**` | Named Vitest files, lint, typecheck, unit tests, `pnpm run test:coverage`, `pnpm run validate:iteration`, and `pnpm run build:scan-cleanup`. |
+| `packages/contracts/**` | Contract and codec fixtures, generated-artifact drift check, typecheck, unit tests, `pnpm run test:coverage`, strict build, and runtime descriptor regeneration when changed. |
 | `native/**` | Named Cargo filters, `pnpm run lint:rust`, `pnpm run test:rust`, resource matrix, strict build, and applicable export or canonical-identity oracle. |
-| `electron/**` | Named Electron tests, lint, typecheck, `pnpm run test:coverage`, `pnpm run typecheck:coverage`, scan-cleanup and Electron builds, affected validation, and blocking smoke. |
+| `electron/**` | Named Electron tests, lint, typecheck, `pnpm run test:coverage`, scan-cleanup and Electron builds, affected validation, and blocking smoke. |
 | Placement or generated PDF | Uniformity or matched-canvas evidence, native E2E build, one real-app proof, and visual plus semantic PDF verification. |
 
 For a package that adds, moves, or deletes TypeScript source, also run

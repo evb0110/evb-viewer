@@ -238,26 +238,12 @@ Copy `.env.example` files when you need local environment overrides. Do not comm
 
 ## Testing And Verification
 
-### Unit-test mock policy
+### Useful tests
 
-Unit tests must not mock same-layer internal business modules. A test under
-`tests/unit/app/`, `tests/unit/electron/`, `tests/unit/server/`, or
-`tests/unit/packages/` must not use `vi.mock`, `vi.doMock`, or `vi.spyOn` on a
-module reached through the matching `@app`, `@electron`, `@server`, or package
-alias. Alias spelling matters, including scoped `@evb/*` package aliases.
-
-Mock process and platform boundaries instead. Approved examples include
-Electron APIs, filesystem and child-process modules, native-sidecar command
-wrappers, IPC/platform adapters, and network clients. Use fixtures or a small
-harness when the behavior belongs to the same layer. The reviewed allowlist in
-`eslint.internal-mock-allowlist.mjs` records existing exceptions by exact file
-and count. `eslint.internal-mock-allowlist-baseline.mjs` is the independent
-ceiling, so the allowlist may only shrink. A new violating file or an extra
-violation in an allowlisted file fails unit-test lint until the policy is
-reviewed.
-The #319 test-size owner may share this unit-test configuration, but owns the
-max-lines implementation and its allowlist separately. #317 does not change
-that size policy.
+Test observable behavior with the smallest fixture that reproduces the defect.
+Use real collaborators when they clarify the behavior, and mocks when they make
+the test smaller and deterministic. Mock counts and allowlists are not quality
+checks. Remove tests that only freeze source text, file layout, or test inventories.
 
 ```bash
 # Root app lint and fast static checks
@@ -329,8 +315,8 @@ install and build commands.
 produces one strict build and a source/toolchain/target-fingerprinted receipt;
 the package phase reuses those exact outputs only while both the inputs and
 artifact hashes still match. Standalone package verification builds normally.
-Select broader reports, type coverage, duplicate analysis, coverage instrumentation,
-and quarantine E2E only when they answer a concrete question. Run native and
+Select coverage reports, stress tests, and quarantine E2E only when they answer
+a concrete question. Run native and
 platform checks when the changed behavior requires them. For local iteration, use affected or file-scoped loops
 such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or

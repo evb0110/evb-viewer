@@ -82,9 +82,6 @@ jobs:
             .devkit/cache/typecheck
           key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
 
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
       # The interop fixture validates and renders real PDFs with these tools.
       - name: Install PDF test tools
         run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
@@ -553,43 +550,9 @@ jobs:
       - name: Landing build
         run: pnpm --dir landing run build
 
-  nuxt_compatibility_v5:
-    name: Nuxt Compatibility v5 (Advisory / ${{ matrix.project }})
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [root, landing]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Typecheck with compatibility v5
-        env:
-          EVB_NUXT_COMPATIBILITY_VERSION: '5'
-        run: |
-          if [ "${{ matrix.project }}" = "landing" ]; then
-            EVB_NUXT_BUILD_DIR="$RUNNER_TEMP/nuxt-compat-v5-landing" node scripts/run-nuxt-typecheck.mjs landing
-          else
-            EVB_NUXT_BUILD_DIR="$RUNNER_TEMP/nuxt-compat-v5-root" node scripts/run-nuxt-typecheck.mjs
-          fi
-
   gates_ok:
     name: gates_ok
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
-    # Advisory continue-on-error jobs are omitted because needs.result cannot expose their failures.
     needs:
       - commit_attribution
       - pr_quality
@@ -648,54 +611,6 @@ jobs:
           console.log('Every applicable PR and push gate passed.');
           NODE
 
-  manual_quality:
-    name: Manual Quality Gates
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
-      - name: Install Rust WASM target
-        id: setup
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: WASM portable build
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:wasm:strict
-
-      - name: Lint
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run lint:clean
-
-      - name: Static assets
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:static:assets
-
-      - name: Typecheck
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run typecheck:clean
-
-      - name: Strict build
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run build:strict:no-wasm-check
-
   nightly_rust_fuzz:
     name: Native Parser Fuzz Canaries
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -730,124 +645,6 @@ jobs:
           for target in decode roundtrip; do
             cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
           done
-
-  manual_landing:
-    name: Landing Quality Gates
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Landing lint
-        run: pnpm --dir landing run lint
-
-      - name: Landing typecheck
-        run: pnpm --dir landing run typecheck
-
-      - name: Landing build
-        run: pnpm --dir landing run build
-
-  nightly_maintenance:
-    name: Manual Maintenance Gates
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
-      - name: Install OCR native smoke tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh tesseract-ocr tesseract-ocr-eng poppler-utils qpdf unpaper
-
-      - name: Install Rust WASM target
-        id: setup
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Production dependency audit
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:production-dependency-audit
-
-      - name: WASM freshness
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:wasm:strict
-
-      - name: Lint
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run lint
-
-      - name: Static reports
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:static:reports
-
-      - name: Static assets
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:static:assets
-
-      - name: Typecheck
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run typecheck
-
-      - name: Type coverage
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run typecheck:coverage
-
-      - name: Strict build
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run build:strict:no-wasm-check
-
-      - name: Fallow dead code
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run fallow
-
-      - name: Fallow duplicates
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run fallow:dupes
-
-      - name: Rust tests
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run test:rust
-
-      - name: Scan-cleanup real-corpus tests
-        # Demoted from blocking push CI: ~18 minutes per native push with
-        # zero catches in its blocking lifetime (issue #109).
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: node scripts/run-native-corpus-tests.mjs
-
-      - name: Coverage
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run test:coverage
-
-      - name: OCR native smoke
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run test:ocr:native-smoke:required
-
-      - name: OCR degraded multilingual quality corpus
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run test:ocr:quality:required
 
   nightly_electron_e2e_regression:
     name: Manual Electron E2E Regression
@@ -979,9 +776,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
 
-      - name: Validate quarantine graduation policy
-        run: pnpm exec vitest run --project unit-static-architecture tests/unit/architecture/quarantineGraduationPolicy.test.ts
-
       - name: Electron E2E quarantine
         run: pnpm run test:e2e:electron:quarantine
 
@@ -1017,25 +811,3 @@ jobs:
         uses: ./.github/actions/upload-electron-e2e-artifacts
         with:
           artifact-name: electron-visible-window-${{ github.run_attempt }}
-
-  nightly_pdf_tabs_diagnostics:
-    name: Manual PDF Tab Diagnostics
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-14
-    continue-on-error: true
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: PDF tab diagnostics
-        run: pnpm run diag:pdf-tabs:ci

@@ -1,4 +1,4 @@
-import type { TLocale } from '@i18n-core/localeCodes';
+import type { TLocale } from './localeCodes';
 
 interface ICoreLocaleDefinition<TLocaleCode extends string = string> {
     code: TLocaleCode;

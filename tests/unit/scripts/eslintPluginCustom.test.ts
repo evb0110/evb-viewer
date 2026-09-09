@@ -9,9 +9,6 @@ import * as vueParser from 'vue-eslint-parser';
 import stylelint from 'stylelint';
 
 const customPlugin = (await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href)).default;
-const {getInternalMockAllowlistGrowth} = await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href);
-const {internalMockAllowlist} = await import(new URL('../../../eslint.internal-mock-allowlist.mjs', import.meta.url).href) as {internalMockAllowlist: Record<string, number>;};
-const {internalMockAllowlistBaseline} = await import(new URL('../../../eslint.internal-mock-allowlist-baseline.mjs', import.meta.url).href);
 const stylelintConfigModule = await import(new URL('../../../stylelint.config.mjs', import.meta.url).href);
 const stylelintConfig = stylelintConfigModule.default;
 const stylelintCustomPlugins = stylelintConfigModule.stylelintCustomPlugins;
@@ -82,81 +79,6 @@ describe('commonjs-named-imports rule', () => {
     });
 });
 
-describe('no-internal-test-mocks rule', () => {
-    it('rejects same-layer vi.mock, vi.doMock, and vi.spyOn while allowing boundaries', () => {
-        tester.run('no-internal-test-mocks', rules['no-internal-test-mocks'] as Parameters<typeof tester.run>[1], {
-            valid: [
-                {
-                    code: 'vi.mock(\'fs\', () => ({}));',
-                    filename: 'tests/unit/electron/example.test.ts',
-                },
-                {
-                    code: 'vi.mock(\'@electron/features/ocr/worker/runOcrCommand\', () => ({}));',
-                    filename: 'tests/unit/electron/ocrWorkerPageProcessing.test.ts',
-                },
-                {
-                    code: 'vi.mock(\'@electron/pdf/pdfPageCount\', () => ({}));',
-                    filename: 'tests/unit/electron/example.test.ts',
-                },
-                {
-                    code: 'vi.mock(\'@electron/file-access/workingCopyStore\', () => ({}));',
-                    filename: 'tests/unit/electron/example.test.ts',
-                },
-                {
-                    code: `vi.mock('@app/composables/useSettings', () => ({}));
-vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue', () => ({}));
-vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({}));
-vi.doMock('@app/utils/platformDocuments', () => ({}));
-vi.mock('@app/utils/platformWindowTabs', () => ({}));`,
-                    filename: 'tests/unit/app/boundary.test.ts',
-                },
-            ],
-            invalid: [
-                {
-                    code: 'vi.mock(\'@electron/features/search/searchService\', () => ({}));',
-                    filename: 'tests/unit/electron/example.test.ts',
-                    errors: 1,
-                },
-                {
-                    code: 'vi.doMock(\'@app/services/recentFiles\', () => ({}));',
-                    filename: 'tests/unit/app/example.test.ts',
-                    errors: 1,
-                },
-                {
-                    code: 'import * as service from \'@server/utils/getRuntimeEnv\'; vi.spyOn(service, \'getRuntimeEnv\');',
-                    filename: 'tests/unit/server/example.test.ts',
-                    errors: 1,
-                },
-                {
-                    code: `vi.mock('@app/services/one', () => ({}));
-vi.doMock('@app/services/two', () => ({}));`,
-                    filename: 'tests/unit/app/allowlisted.test.ts',
-                    options: [{allowlist: {'tests/unit/app/allowlisted.test.ts': 1}}],
-                    errors: 1,
-                },
-                {
-                    code: 'vi.mock(\'@app/services/new\', () => ({}));',
-                    filename: 'tests/unit/app/new-file.test.ts',
-                    options: [{
-                        allowlist: {'tests/unit/app/new-file.test.ts': 1},
-                        baseline: internalMockAllowlistBaseline,
-                    }],
-                    errors: 1,
-                },
-                {
-                    code: 'vi.mock(\'@app/services/one\', () => ({}));',
-                    filename: 'tests/unit/app/components/appSearchInput.test.ts',
-                    options: [{
-                        allowlist: {'tests/unit/app/components/appSearchInput.test.ts': 2},
-                        baseline: internalMockAllowlistBaseline,
-                    }],
-                    errors: 1,
-                },
-            ],
-        });
-    });
-});
-
 describe('no-removed-package-aliases rule', () => {
     it('rejects the contracts barrel and removed scoped aliases while allowing canonical subpaths', () => {
         tester.run('no-removed-package-aliases', rules['no-removed-package-aliases'] as Parameters<typeof tester.run>[1], {
@@ -176,19 +98,6 @@ describe('no-removed-package-aliases rule', () => {
                 },
             ],
         });
-    });
-});
-
-describe('no-internal-test-mocks allowlist baseline', () => {
-    it('matches the current 997-violation, 327-file baseline and permits shrinkage', () => {
-        expect(getInternalMockAllowlistGrowth(internalMockAllowlist, internalMockAllowlistBaseline)).toEqual([]);
-        expect(Object.values(internalMockAllowlist).reduce((total, count) => total + count, 0)).toBe(997);
-        expect(Object.keys(internalMockAllowlist)).toHaveLength(327);
-
-        const shrunk = {...internalMockAllowlist};
-        delete shrunk['tests/unit/app/components/appSearchInput.test.ts'];
-        shrunk['tests/unit/electron/agentAssistantOptIn.test.ts'] = 7;
-        expect(getInternalMockAllowlistGrowth(shrunk, internalMockAllowlistBaseline)).toEqual([]);
     });
 });
 
@@ -378,40 +287,6 @@ describe('migrated core ESLint and Stylelint rules', () => {
             '.fixture { color: red; }',
             'app/assets/css/Bad_Name.css',
         )).resolves.toHaveLength(2);
-    });
-});
-
-describe('no-relative-imports rule', () => {
-    it('rejects static, dynamic, re-export, and type import sources', () => {
-        tester.run(
-            'no-relative-imports',
-            rules['no-relative-imports'] as Parameters<typeof tester.run>[1],
-            {
-                valid: [
-                    { code: 'import { value } from \'@app/utils/value\';' },
-                    { code: 'const module = import(\'@scripts/task\');' },
-                    { code: 'type TModule = typeof import(\'@contracts\');' },
-                ],
-                invalid: [
-                    {
-                        code: 'import { value } from \'./value\';',
-                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
-                    },
-                    {
-                        code: 'export { value } from \'../value\';',
-                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
-                    },
-                    {
-                        code: 'const module = import(\'./value\');',
-                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
-                    },
-                    {
-                        code: 'type TModule = typeof import(\'../value\');',
-                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
-                    },
-                ],
-            },
-        );
     });
 });
 

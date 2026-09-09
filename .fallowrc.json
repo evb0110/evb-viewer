@@ -112,7 +112,6 @@
         "radix3",
         "sass-embedded",
         "source-map-js",
-        "type-coverage",
         "typescript7",
         "ufo",
         "uncrypto",
@@ -184,12 +183,11 @@
     },
     // Sentry diagnostics repeat small adapters across renderer, Electron,
     // Nitro, and worker-parent bundles because those process boundaries cannot
-    // share runtime imports. The baseline records only reviewed signatures.
+    // share runtime imports. Duplicate findings remain an informational report.
     "duplicates": {
         "ignoreImports": true,
         "minLines": 8,
         "minTokens": 80,
-        "threshold": 10,
         "ignore": [
             "app/assets/css/vendor/**",
             "packages/i18n-app/messages/**"

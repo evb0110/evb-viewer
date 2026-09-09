@@ -26,22 +26,23 @@ covers a risk that the selected plan cannot exercise. See
 
 Keep tests small and useful. Give an invariant one owning suite with the cases
 and platforms it needs. Remove duplicate checks and obsolete test helpers as
-you touch them. Source spelling, file length, line-count reductions, and review
-rounds are not acceptance outcomes.
+you touch them. Remove a check when its value is unclear. Source spelling, file
+length, coverage percentages, mock counts, and review rounds are not acceptance
+outcomes. Keep actual behavior, data-integrity, and security checks.
 
 Use one independent reviewer and one correction follow-up when review adds
 value. Optional suggestions do not reopen acceptance. An extra review needs a
 specific unresolved high-risk question. The pre-push hook checks commit
 attribution. Validation runs through the commands above and hosted CI.
 
-For Electron runtime, native binaries or tools, OCR/DjVu paths, workers, or
-packaging changes, also run:
+For a change to native tool packaging or resource selection, the resource check
+can exercise that boundary:
 
 ```bash
 pnpm run check:resources:matrix
 ```
 
-Once a packaged build exists, verify the packaged tools too:
+For a change that needs packaged-tool proof, use the existing build or hosted CI:
 
 ```bash
 scripts/verify-packaged-native-tools.sh <mac|win|linux> <x64|arm64>

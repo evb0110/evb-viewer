@@ -15,6 +15,10 @@ const scssPreprocessorOptions = { additionalData: `@use "${
 }" as *;\n` };
 
 const unitTestSetupFiles = ['tests/setup.ts'];
+const appUnitTestSetupFiles = [
+    ...unitTestSetupFiles,
+    'tests/setupApp.ts',
+];
 export const unitSlowTestThresholdMs = 300;
 export const electronE2ETeardownTimeoutMs = 30_000;
 
@@ -281,7 +285,7 @@ export const vitestProjects = [
             autoImport: true,
             vueComponents: true,
             processCss: true,
-            setupFiles: unitTestSetupFiles,
+            setupFiles: appUnitTestSetupFiles,
         },
     ),
     createUnitTestProject(
@@ -291,7 +295,7 @@ export const vitestProjects = [
             autoImport: true,
             exclude: staticArchitectureTestFiles,
             vueComponents: true,
-            setupFiles: unitTestSetupFiles,
+            setupFiles: appUnitTestSetupFiles,
         },
     ),
     createUnitTestProject(
@@ -313,7 +317,10 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.unitLanding,
         landingUnitTestFiles,
-        {excludeLanding: false},
+        {
+            excludeLanding: false,
+            setupFiles: appUnitTestSetupFiles,
+        },
     ),
     createUnitTestProject(
         vitestProjectNames.unitStaticArchitecture,

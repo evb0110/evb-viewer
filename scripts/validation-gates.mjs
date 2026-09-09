@@ -95,22 +95,6 @@ const validationStageInputPaths = {
         'scripts',
         'tsconfig*.json',
     ],
-    fallow: [
-        '.fallow-dupes-baseline.json',
-        'app',
-        'electron',
-        'landing',
-        'packages',
-        'packages/scan-cleanup/adapters',
-        'packages/scan-cleanup/core',
-        'scripts',
-        'server',
-        'tests',
-        'nuxt.config.ts',
-        'package.json',
-        'pnpm-lock.yaml',
-        'tsconfig*.json',
-    ],
     lint: [
         'app',
         'electron',
@@ -130,7 +114,6 @@ const validationStageInputPaths = {
         'stylelint.config.mjs',
         'package.json',
         'pnpm-lock.yaml',
-        'tests-as-never-baseline.json',
         'tsconfig*.json',
         'vitest.config.ts',
         'vitest.shared.config.ts',
@@ -154,17 +137,6 @@ const validationStageInputPaths = {
         'package.json',
         'pnpm-lock.yaml',
         'tsconfig*.json',
-    ],
-    'typecheck-coverage': [
-        'app',
-        'electron',
-        'packages',
-        'scripts',
-        'server',
-        'tests',
-        'tsconfig*.json',
-        'package.json',
-        'pnpm-lock.yaml',
     ],
     typecheck: [
         'app',
@@ -197,10 +169,8 @@ const validationToolPackages = [
     'electron-builder',
     'eslint',
     'esbuild',
-    'fallow',
     'nuxt',
     'stylelint',
-    'type-coverage',
     'typescript',
     'tsx',
     'vitest',
@@ -220,11 +190,13 @@ const validationEnvironmentKeys = new Set([
 const toolVersionCache = new Map();
 const lintableSourcePattern = /\.(?:[cm]?[jt]sx?|vue)$/u;
 const ordinaryUnitTestPattern = /^tests\/unit\/.+\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const lintableWorkflowPattern = /^\.github\/.*\.(?:ya?ml)$/u;
 const sharedUnitTestDependencyPatterns = [
     /^tests\/fixtures\//u,
     /^tests\/helpers\//u,
     /^tests\/setup\.ts$/u,
 ];
+const appUnitTestDependencyPattern = /^tests\/setupApp\.ts$/u;
 const validationTiers = new Set([
     'iteration',
     'acceptance',
@@ -232,6 +204,21 @@ const validationTiers = new Set([
     'nightly',
 ]);
 const lintableStylePattern = /\.(?:css|scss|vue)$/u;
+
+/** @param {IValidationClassification} classification @returns {boolean} */
+function isToolingOnlyClassification(classification) {
+    return classification.impacts.tooling && ![
+        'app',
+        'build',
+        'electron',
+        'landing',
+        'native',
+        'packages',
+        'policy',
+        'server',
+        'tests',
+    ].some(impact => classification.impacts[impact]);
+}
 
 /** @typedef {'iteration' | 'acceptance' | 'integration' | 'nightly' | 'lint' | 'lint-all' | 'lint-changed' | 'heavy'} TValidationTier */
 /** @typedef {{args: string[], command: string, id: string, additionalInputPaths?: string[], cachePath?: string, cacheable?: boolean, dependsOn?: string[], env?: NodeJS.ProcessEnv, heavyWeight?: number, inputFingerprint?: string, inputPaths?: string[], inputScope?: string, parallelPhase?: string, priority?: number, tools?: string[], weight?: number}} IValidationStage */
@@ -464,6 +451,13 @@ function selectedTypecheckProjects(files, classification) {
             workspacePackages: true,
         };
     }
+    if (isToolingOnlyClassification(classification)) {
+        return {
+            nuxt: false,
+            projects: [],
+            workspacePackages: false,
+        };
+    }
     const projects = [];
     if (classification.impacts.electron) {
         projects.push('electron/tsconfig.json');
@@ -496,6 +490,12 @@ function selectedUnitProjects(files, classification) {
         return [...unitProjects];
     }
     const projects = [];
+    if (classification.impacts.tooling) {
+        projects.push('unit-scripts', 'unit-policy');
+    }
+    if (files.some(file => appUnitTestDependencyPattern.test(file))) {
+        projects.push('unit-app', 'unit-landing');
+    }
     if (classification.impacts.app) {
         projects.push('unit-app', 'unit-static-architecture');
     }
@@ -509,7 +509,10 @@ function selectedUnitProjects(files, classification) {
         projects.push(...unitProjects);
     }
     if (classification.impacts.scripts || classification.impacts.build || classification.impacts.native) {
-        projects.push('unit-scripts', 'unit-static-architecture');
+        projects.push('unit-scripts');
+        if (!isToolingOnlyClassification(classification)) {
+            projects.push('unit-static-architecture');
+        }
     }
     for (const file of files) {
         if (file.startsWith('tests/e2e/electron/quarantine/')) {
@@ -543,6 +546,7 @@ function getOrdinaryUnitTestFiles(files) {
 /** @param {string[]} files @returns {boolean} */
 function hasLintableChangedFile(files) {
     return files.some(file => lintableSourcePattern.test(file)
+        || lintableWorkflowPattern.test(file)
         || (lintableStylePattern.test(file)
             && (file.startsWith('app/') || file.startsWith('landing/app/'))));
 }
@@ -745,18 +749,28 @@ function affectedPlan(tier, files, classification) {
                     },
                 ));
         } else {
-            stages.push(pnpmRunStage(
-                'electron.blocking-smoke',
-                'test:e2e:electron:blocking-smoke:headless',
-                {
-                    dependsOn: stages.some(item => item.id === 'build.strict')
-                        ? ['build.strict']
-                        : [],
+            const hasStrictBuild = stages.some(item => item.id === 'build.strict');
+            stages.push(hasStrictBuild
+                ? stage('electron.blocking-smoke', 'bash', [
+                    'scripts/test-electron-e2e-headless.sh',
+                    '--no-build',
+                    'e2e-blocking-smoke',
+                ], {
+                    dependsOn: ['build.strict'],
+                    env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                     heavyWeight: 3,
                     inputScope: 'build',
                     weight: 3,
-                },
-            ));
+                })
+                : pnpmRunStage(
+                    'electron.blocking-smoke',
+                    'test:e2e:electron:blocking-smoke:headless',
+                    {
+                        heavyWeight: 3,
+                        inputScope: 'build',
+                        weight: 3,
+                    },
+                ));
         }
     }
     return stages;
@@ -841,19 +855,20 @@ export function getValidationPlan({
                     inputScope: 'build',
                 },
             ));
-            fullStages.push(pnpmRunStage(
-                'electron.blocking-smoke',
-                'test:e2e:electron:blocking-smoke:headless',
-                {
-                    dependsOn: [
-                        'build.strict',
-                        'electron.bundle-integrity',
-                    ],
-                    heavyWeight: 3,
-                    inputScope: 'build',
-                    weight: 3,
-                },
-            ));
+            fullStages.push(stage('electron.blocking-smoke', 'bash', [
+                'scripts/test-electron-e2e-headless.sh',
+                '--no-build',
+                'e2e-blocking-smoke',
+            ], {
+                dependsOn: [
+                    'build.strict',
+                    'electron.bundle-integrity',
+                ],
+                env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+                heavyWeight: 3,
+                inputScope: 'build',
+                weight: 3,
+            }));
         }
         if (
             tier === 'integration'
@@ -894,23 +909,10 @@ export function getValidationPlan({
             cacheable: true,
             inputScope: 'web-deploy',
         }),
-        pnpmRunStage('typecheck.coverage', 'typecheck:coverage', {
-            cacheable: true,
-            heavyWeight: 2,
-            inputScope: 'typecheck-coverage',
-            weight: 2,
-        }),
         pnpmRunStage('test.coverage', 'test:coverage', {
             heavyWeight: 4,
             weight: 4,
         }),
-        ...(tier === 'nightly'
-            ? [pnpmRunStage('fallow.dupes', 'fallow:dupes', {
-                cacheable: true,
-                heavyWeight: 1,
-                inputScope: 'fallow',
-            })]
-            : []),
         pnpmRunStage('native.test', 'test:rust', {
             heavyWeight: 4,
             weight: 4,
@@ -1157,25 +1159,11 @@ function inferValidationTools(stageDefinition) {
             'nuxt',
         ];
     }
-    if (stageDefinition.inputScope === 'typecheck-coverage') {
-        return [
-            'pnpm',
-            'type-coverage',
-            'typescript',
-            'tsx',
-        ];
-    }
     if (stageDefinition.inputScope === 'lint') {
         return [
             'pnpm',
             'eslint',
             'stylelint',
-        ];
-    }
-    if (stageDefinition.inputScope === 'fallow') {
-        return [
-            'pnpm',
-            'fallow',
         ];
     }
     if (stageDefinition.inputScope === 'build') {
@@ -1519,24 +1507,6 @@ async function runLint(argv) {
             heavyWeight: full ? (eslintCacheWarm ? 1 : 2) : 0,
             inputScope: 'lint',
             weight: full ? (eslintCacheWarm ? 1 : 2) : 1,
-        }));
-    }
-    if (
-        full
-        || relevantFiles.some(file => (
-            file.startsWith('tests/')
-            || file === 'package.json'
-            || file === 'scripts/checkTestsAsNever.ts'
-            || file === 'tests-as-never-baseline.json'
-        ))
-    ) {
-        commands.push(nodeStage('lint.tests-as-never', '--import', [
-            'tsx',
-            'scripts/checkTestsAsNever.ts',
-        ], {
-            additionalInputPaths: relevantFiles,
-            cacheable: true,
-            inputScope: 'lint',
         }));
     }
     if (targets.landing.length > 0) {

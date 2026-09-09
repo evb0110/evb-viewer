@@ -43,10 +43,8 @@ architecture rules is recorded in
 
 ## Native and CI
 
-- Local gates passing does not cover CI-only steps (coverage ratchet, rust
-  fmt/clippy on a different toolchain, tripwires): run `cargo fmt --check` and
-  `cargo clippy` before committing Rust, and expect the coverage ratchet to need
-  `--update-baseline` when a change adds large new source areas.
+- Local gates passing does not cover CI-only Rust checks that use a different
+  toolchain: run `cargo fmt --check` and `cargo clippy` before committing Rust.
 - After native scan-cleanup changes, local green from `cargo test --release` is not
   sufficient evidence for CI: the integration targets under `native/*/tests/` (for
   example `page_cli.rs`) must explicitly reflect intentional behavior changes. A

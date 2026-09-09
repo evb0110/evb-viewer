@@ -1,6 +1,8 @@
 # Local checks
 
-Run the smallest check that can detect a defect in the change. The default
+Run the smallest check that can detect a defect in the change. Remove a check
+when its value is unclear. Counts, quotas, source spelling, file layout, and
+duplicated proof are not acceptance criteria. The default
 `pnpm validate` selects affected checks. Use `pnpm validate:iteration` while
 editing and `pnpm validate:integration` when the change needs the affected
 Electron regression lane. Preview or inspect the selected plan before an
@@ -23,16 +25,17 @@ particular file layout.
 ## Routine CI
 
 Each main push still gets CI and the `gates_ok` aggregate used by the release
-cutter. Routine CI runs unit tests without coverage instrumentation. Relevant
+cutter. Routine CI runs the unit suite without coverage instrumentation. Keeping the full
+unit suite on main avoids missing filesystem and auto-import dependencies. Relevant
 browser, Electron, native, and packaging lanes follow the changed areas.
-Coverage and code-metric analysis are explicit diagnostics. See
+Coverage is an optional diagnostic without percentage thresholds. See
 [ci.yml](../.github/workflows/ci.yml) for the current selections.
 
 A failing behavior test needs diagnosis. A broken test or measurement needs
 repair. Passing local tests do not establish behavior on an untested platform.
-There are no source-line or test-file-length acceptance limits. Optional size
-reports should inform a design decision without forcing file splitting or
-blocking publication.
+There are no source-line, test-file-length, assertion-count, or coverage quotas.
+Type checking checks types; tests check behavior. Neither needs a second system
+counting how its source was written.
 
 ## Reuse and parallel work
 
@@ -63,8 +66,7 @@ build during packaging. `node scripts/validation-gates.mjs acceptance --all`
 selects its broad validation portion. These are deliberate selections, not the
 default path for ordinary fixes.
 
-`pnpm validate:nightly` and the manual CI lanes provide broader diagnostics.
-Select stress, fuzz, exhaustive corpora, and platform runs for the risks they
+Select stress, fuzz, exhaustive corpora, and platform commands for the risks they
 exercise. Do not append every available suite to each release or repeat checks
 already completed on the same artifact. Release commands and hosted evidence
 requirements are documented in [releasing.md](./releasing.md).

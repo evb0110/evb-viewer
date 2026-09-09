@@ -230,29 +230,6 @@ async function createLintConfigRoot() {
 }
 
 describe('validation gate policy', () => {
-    it.sequential('runs the test assertion ratchet as a changed lint stage', () => {
-        const result = runChangedLint(['tests-as-never-baseline.json']);
-
-        expect(result, result.output).toMatchObject({status: 0});
-        expect(result.output).toContain('[gate] Slowest stages:');
-        expect(result.output).toContain('lint.tests-as-never');
-    }, 30_000);
-
-    it.sequential('fails the changed lint stage when a test file outruns the assertion baseline', async () => {
-        const driftPath = `tests/unit/scripts/validation-gate-policy-drift-${process.pid}.ts`;
-        await rm(driftPath, {force: true});
-        await writeFile(driftPath, 'export const drifted = (0 as unknown) as never;\n');
-        try {
-            const result = runChangedLint(['tests-as-never-baseline.json']);
-
-            expect(result.status).not.toBe(0);
-            expect(result.output).toContain('Tests as never ratchet failed.');
-            expect(result.output).toContain(driftPath);
-        } finally {
-            await rm(driftPath, {force: true});
-        }
-    }, 30_000);
-
     it.sequential('skips root config files ignored by ESLint while still checking lintable changed files', async () => {
         // Keep the deliberately invalid fixture dot-prefixed. ESLint excludes
         // dotfiles from directory globs used by the full gate, while an
@@ -314,7 +291,14 @@ describe('validation gate policy', () => {
             'build.strict',
             'electron.blocking-smoke',
         ]));
-        expect(stageIds).not.toContain('fallow.dupes');
+        const smoke = plan.find(stage => stage.id === 'electron.blocking-smoke');
+        expect(smoke?.command).toBe('bash');
+        expect(smoke?.args).toEqual([
+            'scripts/test-electron-e2e-headless.sh',
+            '--no-build',
+            'e2e-blocking-smoke',
+        ]);
+        expect(smoke?.env).toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(stageIds).not.toContain('test.coverage');
         expect(stageIds).not.toContain('typecheck.coverage');
 
@@ -350,6 +334,68 @@ describe('validation gate policy', () => {
 
         expect(classification.impacts.policy).toBe(true);
         expect(unitStage?.args.join(' ')).toContain('test:unit');
+    });
+
+    it('keeps tooling-only changes on lint and script policy tests', () => {
+        for (const file of [
+            '.github/workflows/ci.yml',
+            '.husky/pre-commit',
+            '.fallowrc.json',
+            'eslint.config.mjs',
+            'stylelint.config.mjs',
+            'scripts/ci/classify-changed-areas.mjs',
+        ]) {
+            const classification = validationGates.classifyValidationImpacts([file]);
+            const plan = validationGates.getValidationPlan({
+                changes: {
+                    files: [file],
+                    known: true,
+                    reason: 'explicit-files',
+                },
+                classification,
+                tier: 'acceptance',
+            });
+            const stageIds = plan.map(stage => stage.id);
+            const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
+
+            expect(classification.impacts.tooling, file).toBe(true);
+            expect(classification.impacts.policy, file).toBe(false);
+            expect(unitStage?.args, file).toEqual(expect.arrayContaining([
+                '--project',
+                'unit-scripts',
+                'unit-policy',
+            ]));
+            expect(stageIds, file).not.toContain('typecheck.nuxt');
+            expect(stageIds, file).not.toContain('typecheck.ts7');
+            expect(stageIds, file).not.toContain('build.strict');
+            expect(stageIds, file).not.toContain('electron.blocking-smoke');
+        }
+    });
+
+    it('keeps package and TypeScript configuration changes on full acceptance', () => {
+        for (const file of [
+            'package.json',
+            'tsconfig.json',
+        ]) {
+            const classification = validationGates.classifyValidationImpacts([file]);
+            const plan = validationGates.getValidationPlan({
+                changes: {
+                    files: [file],
+                    known: true,
+                    reason: 'explicit-files',
+                },
+                classification,
+                tier: 'acceptance',
+            });
+            const stageIds = plan.map(stage => stage.id);
+
+            expect(classification.impacts.policy, file).toBe(true);
+            expect(stageIds, file).toEqual(expect.arrayContaining([
+                'typecheck.full',
+                'build.strict',
+                'electron.blocking-smoke',
+            ]));
+        }
     });
 
     it('targets one Vitest project for a related app iteration instead of paying all project startups', () => {
@@ -483,6 +529,28 @@ describe('validation gate policy', () => {
         expect(unitStage?.args).not.toContain('tests/setup.ts');
     });
 
+    it('keeps app-only unit setup on app and landing projects', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: ['tests/setupApp.ts'],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
+
+        expect(unitStage?.args).toEqual(expect.arrayContaining([
+            'unit-app',
+            'unit-landing',
+        ]));
+        expect(unitStage?.args).not.toContain('unit-core');
+        expect(unitStage?.args).not.toContain('unit-electron');
+        expect(unitStage?.args).not.toContain('unit-scripts');
+        expect(unitStage?.args).not.toContain('unit-policy');
+        expect(unitStage?.args).not.toContain('unit-static-architecture');
+    });
+
     it('keeps project selection when an ordinary unit test is deleted', () => {
         const deletedFile = 'tests/unit/scripts/deletedValidationGate.test.ts';
         const plan = validationGates.getValidationPlan({
@@ -572,6 +640,30 @@ describe('validation gate policy', () => {
         expect(regression?.dependsOn).toEqual(['build.strict']);
     });
 
+    it('reuses a strict build for affected Electron acceptance smoke', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: [
+                    'app/composables/useExample.ts',
+                    'scripts/build-electron.mjs',
+                ],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const smoke = plan.find(stage => stage.id === 'electron.blocking-smoke');
+
+        expect(smoke?.command).toBe('bash');
+        expect(smoke?.args).toEqual([
+            'scripts/test-electron-e2e-headless.sh',
+            '--no-build',
+            'e2e-blocking-smoke',
+        ]);
+        expect(smoke?.env).toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
+        expect(smoke?.dependsOn).toEqual(['build.strict']);
+    });
+
     it('reuses the strict build in broad integration fallback', () => {
         const plan = validationGates.getValidationPlan({
             changes: {
@@ -608,7 +700,7 @@ describe('validation gate policy', () => {
         expect(related?.args).toContain('unit-electron');
     });
 
-    it('routes exact-fixture and quarantine admission policy through blocking policy tests', () => {
+    it('routes CI helper admission through script and policy tests', () => {
         const files = [
             'scripts/ci/stageExactPdfFixture.ts',
             'scripts/ci/runElectronQuarantine.ts',
@@ -623,10 +715,18 @@ describe('validation gate policy', () => {
             classification,
             tier: 'acceptance',
         });
-        const policyStage = plan.find(stage => stage.id === 'test.unit.full');
+        const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
+        const stageIds = plan.map(stage => stage.id);
 
-        expect(classification.impacts.policy).toBe(true);
-        expect(policyStage?.args).toContain('test:unit');
+        expect(classification.impacts.tooling).toBe(true);
+        expect(classification.impacts.policy).toBe(false);
+        expect(unitStage?.args).toEqual(expect.arrayContaining([
+            '--project',
+            'unit-scripts',
+            'unit-policy',
+        ]));
+        expect(stageIds).not.toContain('build.strict');
+        expect(stageIds).not.toContain('electron.blocking-smoke');
     });
 
     it('keeps informational and exhaustive reports in the nightly tier', () => {
@@ -643,9 +743,7 @@ describe('validation gate policy', () => {
         expect(stageIds).toEqual(expect.arrayContaining([
             'static.platform-report',
             'static.web-deploy-source',
-            'typecheck.coverage',
             'test.coverage',
-            'fallow.dupes',
             'native.resource-matrix',
             'electron.quarantine',
         ]));

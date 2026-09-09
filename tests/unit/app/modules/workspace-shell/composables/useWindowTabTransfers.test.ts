@@ -389,6 +389,7 @@ describe('useWindowTabTransfers', () => {
         };
         const tabsState = ref<ITab[]>([existingTab]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const documentSessionsByTabId = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({});
         const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => ({
@@ -424,6 +425,10 @@ describe('useWindowTabTransfers', () => {
                 pane.activeTabId = tab.id;
                 destinationMounted = true;
                 workspaceRefs.value.set(tab.id, restoredWorkspace);
+                documentSessionsByTabId.value = {[tab.id]: createWorkspaceDocumentController({
+                    tabId: tab.id,
+                    initialRecord: createWorkspaceDocumentRecord({tab}),
+                })};
             }
             return tab;
         });
@@ -453,6 +458,7 @@ describe('useWindowTabTransfers', () => {
             cleanupEmptyPanes: vi.fn(),
             closeTabInState: vi.fn(),
             workspaceRefs,
+            documentSessionsByTabId,
             waitForWorkspace,
             workspaceRestoreTracker: {
                 start: vi.fn(),
@@ -469,10 +475,18 @@ describe('useWindowTabTransfers', () => {
             tab: {
                 fileName: 'sample.pdf',
                 originalPath: requireDocumentRef('/tmp/sample.pdf'),
+                documentInstanceId: requireDocumentInstanceId('instance-a'),
                 isDirty: true,
                 isDjvu: false,
             },
             payload,
+            session: {
+                sessionId: requireSessionId('session-source'),
+                sessionRevision: 0,
+                documentRef: requireDocumentRef('/tmp/sample.pdf'),
+                documentInstanceId: requireDocumentInstanceId('instance-a'),
+                documentRevisionToken: requireDocumentRevisionToken('revision-token-1'),
+            },
         });
 
         expect(createTab).toHaveBeenCalledWith({
@@ -486,7 +500,7 @@ describe('useWindowTabTransfers', () => {
         });
     });
 
-    it('rejects incoming transfers when the restored document instance differs from the transfer session', async () => {
+    it('rejects incoming transfers when a claimed target has a different document instance', async () => {
         const payload = createPayload();
         const existingTab: ITab = {
             id: 'tab-existing',
@@ -612,8 +626,13 @@ describe('useWindowTabTransfers', () => {
             },
         });
 
-        expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(restoredWorkspace.restoreSplitPayload).not.toHaveBeenCalled();
         expect(removeTabFromState).toHaveBeenCalledWith('tab-created');
+        expect(mocks.cleanupSplitPayloadSnapshot).toHaveBeenCalledWith(payload, {
+            logSection: 'tabs',
+            context: 'rollback-created-incoming-transfer-tab',
+            metadata: { tabId: 'tab-created' },
+        });
         expect(mocks.transferAck).toHaveBeenCalledWith({
             transferId: 'transfer-1',
             success: false,
@@ -621,7 +640,7 @@ describe('useWindowTabTransfers', () => {
         });
     });
 
-    it('rolls back reused target tabs when the success ack is rejected', async () => {
+    it('leaves reused target tabs unchanged when the success ack is rejected', async () => {
         const payload = createPayload();
         const placeholderTab: ITab = {
             id: 'tab-placeholder',
@@ -701,18 +720,88 @@ describe('useWindowTabTransfers', () => {
             payload,
         });
 
-        expect(updateTab).toHaveBeenCalledWith('tab-placeholder', {
-            fileName: null,
-            originalPath: null,
-            documentInstanceId: null,
-            isDirty: false,
-            isDjvu: false,
-        });
+        expect(restoredWorkspace.restoreSplitPayload).not.toHaveBeenCalled();
+        expect(updateTab).not.toHaveBeenCalled();
         expect(activateTab).toHaveBeenCalledWith('pane-1', 'tab-placeholder');
         expect(mocks.cleanupSplitPayloadSnapshot).toHaveBeenCalledWith(payload, {
             logSection: 'tabs',
-            context: 'rollback-incoming-transfer-tab',
+            context: 'incoming-transfer-aborted-before-restore',
             metadata: { tabId: 'tab-placeholder' },
         });
+    });
+
+    it.each([
+        false,
+        true,
+    ])('retains a committed transfer snapshot after restore failure, tracker throws: %s', async (trackerThrows) => {
+        const payload = createPayload();
+        const placeholderTab: ITab = {
+            id: 'tab-placeholder',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        };
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-placeholder',
+            tabIds: ['tab-placeholder'],
+        };
+        const restoredWorkspace = createWorkspaceExposeFixture({
+            hasPdf: false,
+            restoreSplitPayload: vi.fn(async () => ({
+                status: 'failed' as const,
+                error: 'restore failed',
+            })),
+        });
+        const transfers = useWindowTabTransfers({
+            activePaneId: ref('pane-1'),
+            panes: ref([pane]),
+            tabs: ref([placeholderTab]),
+            layout: ref(null),
+            createTab: vi.fn(() => placeholderTab),
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => tabId === placeholderTab.id ? placeholderTab : null),
+            getPaneByTabId: vi.fn((tabId: string) => tabId === placeholderTab.id ? pane : null),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            removeTabFromState: vi.fn(),
+            updateTab: vi.fn(),
+            cleanupEmptyPanes: vi.fn(),
+            closeTabInState: vi.fn(),
+            workspaceRefs: ref(new Map<string, IWorkspaceExpose>()),
+            waitForWorkspace: vi.fn(async () => restoredWorkspace),
+            workspaceRestoreTracker: {
+                start: vi.fn(),
+                finish: vi.fn(() => {
+                    if (trackerThrows) throw new Error('restore tracker failed');
+                }),
+            },
+            handleCloseTab: vi.fn(),
+            handoffActiveTabBeforeClose: vi.fn(),
+        });
+
+        await transfers.handleIncomingTabTransfer({
+            transferId: 'transfer-restore-failed',
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'sample.pdf',
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
+                isDirty: true,
+                isDjvu: false,
+            },
+            payload,
+        });
+
+        expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(mocks.transferAck).toHaveBeenCalledWith({
+            transferId: 'transfer-restore-failed',
+            success: true,
+        });
+        expect(mocks.transferAck.mock.invocationCallOrder[0]).toBeLessThan(
+            restoredWorkspace.restoreSplitPayload.mock.invocationCallOrder[0],
+        );
+        expect(mocks.cleanupSplitPayloadSnapshot).not.toHaveBeenCalled();
     });
 });
