@@ -13,6 +13,8 @@ import {
     type ExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
 import { useFailureToast } from '@app/composables/useFailureToast';
+import { isBrowserPlatformActive } from '@app/utils/platform';
+import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 
 interface IUseExternalFileDropOptions {
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
@@ -51,21 +53,44 @@ function isToolDropArea(event: DragEvent) {
 async function getDroppedDocumentPaths(
     droppedFiles: File[],
     notifyRegistrationFailure: (error: unknown) => void,
+    canRegister: () => boolean,
 ) {
     const paths: TDocumentRef[] = [];
+    const ownedPaths = new Set<TDocumentRef>();
     const seen = new Set<TDocumentRef>();
     const documentPicker = getDocumentPickerCapability();
 
     for (const file of droppedFiles) {
-        let droppedPaths: TDocumentRef[];
+        if (!canRegister()) {
+            break;
+        }
+
+        let droppedPaths: Array<{
+            path: TDocumentRef;
+            owned: boolean
+        }>;
         try {
-            droppedPaths = await documentPicker.registerFilesForOpen([file]);
+            if (isBrowserPlatformActive()) {
+                const registered = await browserDocumentStore.registerFileWithOwnership(file);
+                droppedPaths = [{
+                    path: registered.ref,
+                    owned: registered.created,
+                }];
+            } else {
+                droppedPaths = (await documentPicker.registerFilesForOpen([file]))
+                    .map(path => ({
+                        path,
+                        owned: false,
+                    }));
+            }
         } catch (error) {
             notifyRegistrationFailure(error);
             continue;
         }
 
-        for (const path of droppedPaths) {
+        for (const {
+            path, owned,
+        } of droppedPaths) {
             if (!path || seen.has(path)) {
                 continue;
             }
@@ -73,6 +98,9 @@ async function getDroppedDocumentPaths(
             if (isSupportedWorkspaceDocumentPath(path)) {
                 seen.add(path);
                 paths.push(path);
+                if (owned) {
+                    ownedPaths.add(path);
+                }
             } else {
                 BrowserLogger.warn('external-file-drop', 'Dropped file type is unsupported', {
                     kind: 'expected',
@@ -84,7 +112,10 @@ async function getDroppedDocumentPaths(
         }
     }
 
-    return paths;
+    return {
+        paths,
+        ownedPaths,
+    };
 }
 
 export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
@@ -117,6 +148,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
 
     async function processDroppedPaths(
         paths: TDocumentRef[],
+        ownedPaths: Set<TDocumentRef>,
         tokenAtSchedule: number,
     ) {
         if (disposed || tokenAtSchedule !== lifecycleToken) {
@@ -126,7 +158,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         try {
             await openPathsInAppropriateTab(paths);
         } catch (error) {
-            await Promise.allSettled(paths.map(path => (
+            await Promise.allSettled(Array.from(ownedPaths, path => (
                 getDocumentWorkingCopyCapability().cleanupFile(path)
             )));
             throw error;
@@ -160,11 +192,21 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                 // Keep the queue flowing after a single file-open failure.
             })
             .then(async () => {
-                const paths = await getDroppedDocumentPaths(files, notifyRegistrationFailure);
-                if (paths.length === 0) {
+                const registration = await getDroppedDocumentPaths(
+                    files,
+                    notifyRegistrationFailure,
+                    () => !disposed && tokenAtSchedule === lifecycleToken,
+                );
+                if (disposed || tokenAtSchedule !== lifecycleToken) {
+                    await Promise.allSettled(Array.from(registration.ownedPaths, path => (
+                        getDocumentWorkingCopyCapability().cleanupFile(path)
+                    )));
                     return;
                 }
-                await processDroppedPaths(paths, tokenAtSchedule);
+                if (registration.paths.length === 0) {
+                    return;
+                }
+                await processDroppedPaths(registration.paths, registration.ownedPaths, tokenAtSchedule);
             })
             .catch(error => {
                 const failure = BrowserLogger.error(

@@ -167,7 +167,10 @@ export interface IRollbackOcrCatalogV4PreparedOptions {
 }
 
 /** Allows callers to exercise and report the post-rename durability boundary. */
-export interface IOcrCatalogV4DurabilityBoundary {afterRootRename?: (catalogRoot: string, generation: number) => Promise<void>;}
+export interface IOcrCatalogV4DurabilityBoundary {
+    syncDirectory?: (directoryPath: string, sync: () => Promise<void>) => Promise<void>;
+    afterRootRename?: (catalogRoot: string, generation: number) => Promise<void>;
+}
 
 export class OcrCatalogCommittedDurabilityError extends Error {
     readonly code = 'OCR_CATALOG_COMMITTED_DURABILITY_UNCONFIRMED';
@@ -1201,7 +1204,12 @@ async function publishOcrCatalogV4GenerationUnlocked(
         ]);
     }
     try {
-        await syncDirectory(input.catalogRoot);
+        const syncRootDirectory = input.durabilityBoundary?.syncDirectory;
+        if (syncRootDirectory === undefined) {
+            await syncDirectory(input.catalogRoot);
+        } else {
+            await syncRootDirectory(input.catalogRoot, () => syncDirectory(input.catalogRoot));
+        }
         await input.durabilityBoundary?.afterRootRename?.(
             input.catalogRoot,
             input.generation.generation,
@@ -2244,6 +2252,7 @@ async function writeOcrIndexV4Unlocked(
             ...(options.catalogId === undefined ? {} : {catalogId: options.catalogId}),
             ...(options.signal === undefined ? {} : {signal: options.signal}),
             ...(options.assertRevisionCurrent === undefined ? {} : {assertRevisionCurrent: options.assertRevisionCurrent}),
+            ...(options.durabilityBoundary === undefined ? {} : {durabilityBoundary: options.durabilityBoundary}),
         });
         migrated = true;
         current = await readCurrentCatalog(options.catalogRoot);
