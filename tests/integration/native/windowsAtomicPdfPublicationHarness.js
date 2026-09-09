@@ -15,6 +15,7 @@ const [
     resultPath,
     controlPath,
 ] = process.argv.slice(2);
+require('node:fs').writeFileSync(`${resultPath}.launch`, `${String(process.pid)}\n`, 'utf8');
 
 async function waitForPath(path) {
     while (true) {
@@ -29,10 +30,12 @@ async function waitForPath(path) {
 
 async function main() {
     await app.whenReady();
+    await writeFile(`${resultPath}.ready`, `${String(process.pid)}\n`, 'utf8');
     const {commitPdfTempFile} = await import(pathToFileURL(join(
         process.cwd(),
         'electron/features/documents/main/commitPdfTempFile.ts',
     )).href);
+    await writeFile(`${resultPath}.imported`, `${String(process.pid)}\n`, 'utf8');
     if (operation === 'cancel-utility') {
         const controller = new AbortController();
         const commit = commitPdfTempFile(sourcePath, destinationPath, {

@@ -48,8 +48,8 @@ async function readPdfText(path: string) {
     return document.getPageCount();
 }
 
-async function waitForFile(path: string, attempts = 80) {
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
+async function waitForFile(path: string, timeoutMs = 4_000) {
+    for (let attempt = 0; attempt < Math.ceil(timeoutMs / 50); attempt += 1) {
         try {
             await access(path);
             return;
@@ -58,6 +58,25 @@ async function waitForFile(path: string, attempts = 80) {
         }
     }
     throw new Error(`Timed out waiting for ${path}`);
+}
+
+async function waitForHarnessMarker(markerPath: string, resultPath: string) {
+    try {
+        await waitForFile(markerPath, 30_000);
+    } catch (error) {
+        const diagnostics = await Promise.all([
+            `${resultPath}.launch`,
+            `${resultPath}.ready`,
+            `${resultPath}.imported`,
+        ].map(async path => {
+            try {
+                return `${path}: ${(await readFile(path)).toString()}`;
+            } catch {
+                return `${path}: missing`;
+            }
+        }));
+        throw new Error(`${error instanceof Error ? error.message : String(error)}; ${diagnostics.join('; ')}`);
+    }
 }
 
 async function runPublicationHarness(
@@ -183,7 +202,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
 
         const first = await runPublicationHarness('commit', sourcePath, destinationPath, resultPath, controlPath, {barrier: true});
         try {
-            await waitForFile(`${controlPath}.before-publish`, 1_200);
+            await waitForHarnessMarker(`${controlPath}.before-publish`, resultPath);
             first.kill();
             await new Promise<void>(resolvePromise => first.once('close', () => resolvePromise()));
         } finally {
@@ -216,7 +235,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
             utility: true,
         });
         try {
-            await waitForFile(`${controlPath}.before-publish`, 1_200);
+            await waitForHarnessMarker(`${controlPath}.before-publish`, resultPath);
             await writeFile(`${controlPath}.cancel`, 'cancel');
             await new Promise<void>((resolvePromise, reject) => {
                 utility.once('error', reject);
