@@ -1,0 +1,52 @@
+docs/architecture/project6-325-binary-provenance-platform-inventory.md
+  s_c63d7a8363f7e9::t_0040a37eaf31d4 3,20,141,152
+scripts/validateRuntimeBinaryArchiveMembers.ts
+  s_c63d7a8363f7e9::t_52be4e88cd783c 71-75,79-83
+  s_c63d7a8363f7e9::t_aee5544ab2c5d7 5,7-8,14-15,54-59,61-67,76-78,88,104,108-111,115-118,122-123
+  s_c63d7a8363f7e9::t_33178c5a9731e0 112-114
+  s_c63d7a8363f7e9::t_f49250dffe7f2d 105-107
+  s_c63d7a8363f7e9::t_1cedd1b10fc4a9 92-94
+scripts/runRuntimeBinaryArchiveCli.ts
+  s_c63d7a8363f7e9::t_e4f597f30006dc 7,17-21,26-27,31-34,116-122,126,135-154,158,161,166,168-169
+  s_c63d7a8363f7e9::t_5203ad8cf69b03 155-157
+tests/unit/scripts/windowsPopplerBundlePolicy.test.ts
+  s_c63d7a8363f7e9::t_e0f9a977261cb1 5,51-78
+  s_c63d7a8363f7e9::t_eddeb1d957bcc7 35-50,79-80
+scripts/runtimeBinaryManifest.ts
+  s_c63d7a8363f7e9::t_96a94e11cfccc2 18-29,52-87,90
+  s_c63d7a8363f7e9::t_07265ab989deeb 31-34,88-89
+  s_c63d7a8363f7e9::t_df13c1e2ced6ab 35
+tests/unit/scripts/validateRuntimeBinaryArchiveMembers.test.ts
+  s_c63d7a8363f7e9::t_deca37738e3b43 39-66,71,111,122-133,138-139,157-158,163-171
+  s_c63d7a8363f7e9::t_07265ab989deeb 67-70,134-137,159-162
+  s_c63d7a8363f7e9::t_4047a3742257ce 112-121
+  s_c63d7a8363f7e9::t_4dffa8ece24eae 140-156,172
+tests/unit/scripts/runtimeBinaryManifest.test.ts
+  s_c63d7a8363f7e9::t_60e53f3e2344a4 272
+  s_c63d7a8363f7e9::t_9c4f109ffb8a62 271
+  s_c63d7a8363f7e9::t_09033d3193c82d 10-11,30,33,50-65,112-113,117-134,167-189
+  s_c63d7a8363f7e9::t_07265ab989deeb 66-67,135
+  s_c63d7a8363f7e9::t_cba97067abffa8 136-137
+  s_c63d7a8363f7e9::t_07800f6a9f71d1 190-191
+scripts/bundle-tools-windows.sh
+  s_c63d7a8363f7e9::t_51f2e1a3f07d8a 472
+  s_c63d7a8363f7e9::t_f35b460757c09c 479-491
+  s_c63d7a8363f7e9::t_c6390676231648 116-124
+  s_c63d7a8363f7e9::t_78db99e4e50c9f 494,496-498,501,505-526,532-537,541-543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d726a10dbe9b2817a51cd29d8842ab880e14e789",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
