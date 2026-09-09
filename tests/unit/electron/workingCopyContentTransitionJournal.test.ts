@@ -6,7 +6,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
-import * as FsPromises from 'node:fs/promises';
+import type * as FsPromises from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {
@@ -23,6 +23,22 @@ import {
     rollbackWorkingCopyContentTransition,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
 
+const fsMocks = vi.hoisted(() => ({
+    lstat: vi.fn(),
+    stat: vi.fn(),
+}));
+
+vi.mock('node:fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+    fsMocks.lstat.mockImplementation(actual.lstat);
+    fsMocks.stat.mockImplementation(actual.stat);
+    return {
+        ...actual,
+        lstat: fsMocks.lstat,
+        stat: fsMocks.stat,
+    };
+});
+
 interface ITransitionSidecarFixture {
     targetPath: string;
     kind?: string;
@@ -36,6 +52,11 @@ describe('workingCopyContentTransitionJournal', () => {
 
     afterEach(async () => {
         vi.restoreAllMocks();
+        fsMocks.lstat.mockReset();
+        fsMocks.stat.mockReset();
+        const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+        fsMocks.lstat.mockImplementation(actual.lstat);
+        fsMocks.stat.mockImplementation(actual.stat);
         await rm(root, {
             recursive: true,
             force: true,
@@ -88,12 +109,12 @@ describe('workingCopyContentTransitionJournal', () => {
         const pageIdentityPath = `${path}.evb-pages.json`;
         await writeFile(path, 'revision-n');
         await writeFile(pageIdentityPath, 'old-page-identities');
-        const actualStat = FsPromises.stat;
-        vi.spyOn(FsPromises, 'stat').mockImplementation(async target => {
+        const actualStat = await vi.importActual<typeof FsPromises>('node:fs/promises');
+        fsMocks.stat.mockImplementation(async target => {
             if (target === pageIdentityPath) {
                 throw Object.assign(new Error('transient stat failure'), {code: 'EIO'});
             }
-            return actualStat(target);
+            return actualStat.stat(target);
         });
 
         await expect(prepareWorkingCopyContentTransition(
@@ -122,12 +143,12 @@ describe('workingCopyContentTransitionJournal', () => {
             generation: 1,
             publishedAt: '2026-08-27T00:00:00.000Z',
         }));
-        const actualLstat = FsPromises.lstat;
-        vi.spyOn(FsPromises, 'lstat').mockImplementation(async target => {
+        const actualLstat = await vi.importActual<typeof FsPromises>('node:fs/promises');
+        fsMocks.lstat.mockImplementation(async target => {
             if (target === manifestPath) {
                 throw Object.assign(new Error('transient manifest lstat failure'), {code: 'EACCES'});
             }
-            return actualLstat(target);
+            return actualLstat.lstat(target);
         });
 
         await expect(prepareWorkingCopyContentTransition(
