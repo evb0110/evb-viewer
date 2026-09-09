@@ -55,6 +55,7 @@ const state = vi.hoisted(() => ({
     }>(),
     userDataPath: '',
     owners: new Map<string, number>(),
+    liveOwners: new Set<number>(),
     originalPaths: new Map<string, string>(),
     restoredOptions: new Map<string, unknown>(),
     recoveryClaims: new Set<string>(),
@@ -76,7 +77,12 @@ vi.mock('node:fs', async (importOriginal) => {
     };
 });
 
-vi.mock('electron', () => ({app: {getPath: () => state.userDataPath}}));
+vi.mock('electron', () => ({
+    app: {getPath: () => state.userDataPath},
+    webContents: {fromId: (id: number) => state.liveOwners.has(id)
+        ? {isDestroyed: () => false}
+        : undefined},
+}));
 
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOwnerWebContentsId: (path: string) => state.owners.get(path),
@@ -191,6 +197,7 @@ describe('workspace checkpoint store', () => {
         state.userDataPath = await mkdtemp(join(tmpdir(), 'evb-workspace-checkpoint-'));
         state.backingEntries.clear();
         state.owners.clear();
+        state.liveOwners.clear();
         state.originalPaths.clear();
         state.restoredOptions.clear();
         state.recoveryClaims.clear();
@@ -223,6 +230,17 @@ describe('workspace checkpoint store', () => {
         await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
+    });
+
+    it('refuses a live owner claim without changing recovery mappings', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+
+        await saveWorkspaceCheckpoint(checkpoint, 11);
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toBeNull();
+        expect(state.owners.get(workingCopyRef)).toBe(11);
+        expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
     });
 
     it('publishes annotation recovery as a fenced artifact and retires it after acknowledgement', async () => {
@@ -494,7 +512,11 @@ describe('workspace checkpoint store', () => {
             layout: null,
         }, 11);
         await flushPendingWorkspaceCheckpointSave();
-        expect(JSON.parse(await readFile(checkpointPath, 'utf8')).checkpoint.tabs).toEqual([]);
+        const persisted = JSON.parse(await readFile(checkpointPath, 'utf8')) as {
+            checkpoint?: IWorkspaceCheckpoint;
+            records?: Array<{checkpoint: IWorkspaceCheckpoint}>;
+        };
+        expect((persisted.records?.[0]?.checkpoint ?? persisted.checkpoint)?.tabs).toEqual([]);
     });
 
     it('roundtrips a clean lazy working copy across a full main-process restart', async () => {
