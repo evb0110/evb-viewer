@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/utils/error';
+
 import {
     beforeEach,
     describe,
@@ -111,7 +113,10 @@ vi.mock('electron', () => {
 
 vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn(() => [])}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({warn: vi.fn()})}));
-vi.mock('@electron/utils/error', () => ({getErrorMessage: (error: unknown) => String(error)}));
+vi.mock('@electron/utils/error', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getErrorMessage: (error: unknown) => String(error),
+}));
 
 function getBeforeInputHandler(window: IHostZenEscapeTestWindow) {
     return window.webContents.on.mock.calls

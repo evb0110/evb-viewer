@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     describe,
     expect,
@@ -13,16 +15,19 @@ import {
     useScanCleanupPageEta,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
-    key: string,
-    parameters?: Record<string, string | number>,
-) => Object.entries(parameters ?? {}).reduce(
-    (value, [
-        parameter,
-        replacement,
-    ]) => `${value} ${parameter}=${String(replacement)}`,
-    key,
-)})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (
+        key: string,
+        parameters?: Record<string, string | number>,
+    ) => Object.entries(parameters ?? {}).reduce(
+        (value, [
+            parameter,
+            replacement,
+        ]) => `${value} ${parameter}=${String(replacement)}`,
+        key,
+    )}),
+}));
 
 describe('scan cleanup page ETA estimator', () => {
     it('keeps the ETA pending until three page durations are available', () => {

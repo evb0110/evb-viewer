@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
+
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
@@ -53,7 +56,8 @@ const pageOperationFailure = {
     severity: 'error',
 };
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPageOpsCapability: () => pageOpsApi,
     getDocumentOpenCapability: () => {
         const onOpenDocumentDirectBatchProgress = (callback: TBatchProgressListener) => {
@@ -75,11 +79,14 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 }}));
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({ reportRuntimeError })}));
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
-    t: (key: string) => `msg:${key}`,
-    setLocale: vi.fn(async () => {}),
-    loadLocaleMessages: vi.fn(async () => {}),
-})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    useTypedI18n: () => ({
+        t: (key: string) => `msg:${key}`,
+        setLocale: vi.fn(async () => {}),
+        loadLocaleMessages: vi.fn(async () => {}),
+    }),
+}));
 
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;

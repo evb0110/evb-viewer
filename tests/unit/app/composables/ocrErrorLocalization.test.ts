@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     describe,
     expect,
@@ -11,7 +13,10 @@ import {
 import { EN_MESSAGE_SCHEMA } from '@i18n-app';
 import { flattenObject } from 'es-toolkit/object';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 describe('ocrErrorMessageKeys', () => {
     const knownEnKeys = new Set(

@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
+import type * as TViMockOriginalModule2 from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
+
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
@@ -48,12 +51,15 @@ vi.stubGlobal('DOMMatrix', class {
     d = 1;
 });
 
-vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight', () => ({usePdfSearchHighlight: () => ({
-    clearHighlights: clearHighlightsMock,
-    highlightPage: highlightPageMock,
-    scrollToHighlight: vi.fn(),
-    getCurrentMatchRanges: vi.fn(() => []),
-})}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    usePdfSearchHighlight: () => ({
+        clearHighlights: clearHighlightsMock,
+        highlightPage: highlightPageMock,
+        scrollToHighlight: vi.fn(),
+        getCurrentMatchRanges: vi.fn(() => []),
+    }),
+}));
 
 vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes', () => ({usePdfWordBoxes: () => ({
     renderPageWordBoxes: renderPageWordBoxesMock,
@@ -95,7 +101,8 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({TextLayer: class {
     cancel() {}
 }}));
 
-vi.mock('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss', () => ({
+vi.mock('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     getHighlightMode: () => 'dom',
     isHighlightDebugEnabled: () => false,
     isHighlightDebugVerboseEnabled: () => false,

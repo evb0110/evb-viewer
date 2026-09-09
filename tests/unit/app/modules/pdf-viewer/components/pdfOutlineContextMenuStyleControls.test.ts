@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import { requirePageIndex } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
@@ -22,7 +24,10 @@ import type {
 import { BOOKMARK_COLOR_PRESETS } from '@app/constants/pdfColors';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const IconStub = defineComponent({
     props: {name: {

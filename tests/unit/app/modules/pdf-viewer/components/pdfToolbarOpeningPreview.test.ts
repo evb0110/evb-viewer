@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -17,7 +19,10 @@ import {
 } from 'vue';
 import PdfToolbar from '@app/modules/pdf-viewer/components/PdfToolbar.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 vi.mock('@app/composables/useToolbarOverflow', () => ({useToolbarOverflow: () => ({
     toolbarRef: ref<HTMLElement | null>(null),
     collapseTier: ref(0),

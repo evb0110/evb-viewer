@@ -1,3 +1,7 @@
+import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
+import type * as TViMockOriginalModule3 from '@app/utils/platformDocuments';
+
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
@@ -35,9 +39,18 @@ const documentMocks = vi.hoisted(() => ({
     statFile: vi.fn(),
 }));
 
-vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations', () => ({ importEmbeddedShapeAnnotations: vi.fn() }));
-vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: vi.fn()}));
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentFilesCapability: () => documentMocks }));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    importEmbeddedShapeAnnotations: vi.fn(),
+}));
+vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    readDocumentBytes: vi.fn(),
+}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
+    getDocumentFilesCapability: () => documentMocks,
+}));
 
 describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
     beforeEach(() => {

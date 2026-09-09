@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     beforeEach,
     describe,
@@ -102,7 +104,10 @@ vi.mock('node:crypto', async (importOriginal) => {
     };
 });
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
+}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),

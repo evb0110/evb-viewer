@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/modules/workspace-shell/automation/automationReadinessEvents';
+
 import {
     beforeEach,
     describe,
@@ -15,7 +17,10 @@ import type { TPdfSource } from '@app/types/pdfUi';
 
 const mocks = vi.hoisted(() => ({ emitAutomationEvent: vi.fn() }));
 
-vi.mock('@app/modules/workspace-shell/automation/automationReadinessEvents', () => ({ emitAutomationEvent: mocks.emitAutomationEvent }));
+vi.mock('@app/modules/workspace-shell/automation/automationReadinessEvents', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    emitAutomationEvent: mocks.emitAutomationEvent,
+}));
 
 function createOptions(overrides: {
     accepted?: boolean;

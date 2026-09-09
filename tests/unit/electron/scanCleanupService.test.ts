@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     access,
     mkdtemp,
@@ -133,7 +135,8 @@ vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
         pruneScanCleanupGeneratedOutputs: mocks.pruneOutputs,
     };
 });
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getWorkingCopyBackingEntry: () => ({backing: 'materialized'}),
     isWorkingCopyOriginalPathRegistered: mocks.isWorkingCopyOriginalPathRegistered,
 }));

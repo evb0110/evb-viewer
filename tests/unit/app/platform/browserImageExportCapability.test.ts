@@ -1,3 +1,8 @@
+import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+import type * as TViMockOriginalModule2 from '@app/platform/browser-api/browserImageExportConfig';
+import type * as TViMockOriginalModule3 from '@app/platform/browser-api/browserFileName';
+import type * as TViMockOriginalModule4 from '@app/platform/browser-api/browserBytes';
+
 import {
     beforeEach,
     describe,
@@ -42,7 +47,10 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
     getBrowserDocumentFileName: () => 'sample.pdf',
 }));
 
-vi.mock('@app/platform/browser-api/browserYield', () => ({ yieldToBrowser: yieldToBrowserMock }));
+vi.mock('@app/platform/browser-api/browserYield', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    yieldToBrowser: yieldToBrowserMock,
+}));
 vi.mock('@contracts/documentRef', () => ({
     isNativeLegacyDocumentRef: (value: unknown) => typeof value === 'string' && value.startsWith('/'),
     requireDocumentRef: (value: unknown) => value,
@@ -80,7 +88,10 @@ vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
     writeBytesToHandle: (handle: FileSystemFileHandle, data: Uint8Array) => writeBytesToHandleMock(handle, data),
 }));
 
-vi.mock('@app/platform/browser-api/browserImageExportConfig', () => ({ EXPORT_RENDER_SCALE: 1 }));
+vi.mock('@app/platform/browser-api/browserImageExportConfig', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
+    EXPORT_RENDER_SCALE: 1,
+}));
 
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
     createPdfjsDocumentInitFromBrowserDocument: vi.fn(async () => {
@@ -94,9 +105,15 @@ vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
     getPdfjsLib: vi.fn(async () => ({getDocument: getDocumentMock})),
 }));
 
-vi.mock('@app/platform/browser-api/browserFileName', () => ({ ensurePdfExtension: (fileName: string) => fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf` }));
+vi.mock('@app/platform/browser-api/browserFileName', async (importOriginal_3) => ({
+    ...(await importOriginal_3<typeof TViMockOriginalModule3>()),
+    ensurePdfExtension: (fileName: string) => fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`,
+}));
 
-vi.mock('@app/platform/browser-api/browserBytes', () => ({ toUint8Array: (value: Uint8Array | ArrayBuffer) => value instanceof Uint8Array ? value : new Uint8Array(value) }));
+vi.mock('@app/platform/browser-api/browserBytes', async (importOriginal_4) => ({
+    ...(await importOriginal_4<typeof TViMockOriginalModule4>()),
+    toUint8Array: (value: Uint8Array | ArrayBuffer) => value instanceof Uint8Array ? value : new Uint8Array(value),
+}));
 
 const rangeSpy = vi.hoisted(() => vi.fn());
 

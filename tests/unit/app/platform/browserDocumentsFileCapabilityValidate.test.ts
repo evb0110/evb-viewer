@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+
 import {
     beforeEach,
     describe,
@@ -16,7 +18,10 @@ const pdfjsModule = vi.hoisted(() => ({
 }));
 
 vi.mock('pdfjs-dist', () => pdfjsModule);
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: () => Promise.resolve()}));
+vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: () => Promise.resolve(),
+}));
 
 describe('createBrowserDocumentsFileCapability validation', () => {
     beforeEach(() => {

@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalModule2 from '@app/constants/shortcuts';
+import type * as TViMockOriginalModule3 from '@app/utils/isReaderPrintCommandDisabled';
+import type * as TViMockOriginalModule4 from '@app/utils/readerCommandIcons';
+
 import {
     afterEach,
     describe,
@@ -17,17 +22,27 @@ import {
 
 const presenterMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isBrowserRuntime: ref(true)})}));
-vi.mock('@app/constants/shortcuts', () => ({useShortcutLabels: () => ref({
-    exportDocx: '⇧⌘E',
-    openFile: '⌘O',
-    print: '⌘P',
-    save: '⌘S',
-    saveAs: '⇧⌘S',
-})}));
-vi.mock('@app/utils/isReaderPrintCommandDisabled', () => ({isReaderPrintCommandDisabled: () => false}));
-vi.mock('@app/utils/readerCommandIcons', () => ({
+vi.mock('@app/constants/shortcuts', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    useShortcutLabels: () => ref({
+        exportDocx: '⇧⌘E',
+        openFile: '⌘O',
+        print: '⌘P',
+        save: '⌘S',
+        saveAs: '⇧⌘S',
+    }),
+}));
+vi.mock('@app/utils/isReaderPrintCommandDisabled', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
+    isReaderPrintCommandDisabled: () => false,
+}));
+vi.mock('@app/utils/readerCommandIcons', async (importOriginal_3) => ({
+    ...(await importOriginal_3<typeof TViMockOriginalModule4>()),
     getReaderCommandMenuIcon: (command: string) => `icon-${command}`,
     getReaderCommandToolbarIcon: (command: string) => `icon-${command}`,
 }));

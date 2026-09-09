@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
+
 import {
     beforeEach,
     describe,
@@ -71,12 +74,16 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentFilesCapability: () => mocks.documentFilesCapability,
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopyCapability,
     shouldRefreshWorkingCopyAfterSaveAs: mocks.shouldRefreshWorkingCopyAfterSaveAs,
 }));
-vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
+vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    readDocumentBytes: mocks.readDocumentBytes,
+}));
 
 function createPersistenceHarness(isDesktopRuntime = false) {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(isDesktopRuntime) });

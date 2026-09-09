@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import { chromium } from 'playwright';
 import {
     afterEach,
@@ -23,7 +25,10 @@ import {
     unmountAnnotationCommentsLists,
 } from '@tests/helpers/pdfAnnotationCommentsListHarness';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const ACTIVE_COMMENT_INDEX = 2;
 const SIDEBAR_HEIGHT_PX = 480;

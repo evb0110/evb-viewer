@@ -1,3 +1,7 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+import type * as TViMockOriginalModule2 from '@electron/file-access/isAllowedOriginalSavePath';
+import type * as TViMockOriginalModule3 from '@electron/pdf/nativeToolPaths';
+
 import {
     afterEach,
     beforeEach,
@@ -69,7 +73,8 @@ vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
     optimizePdfForSave: (...args: unknown[]) => mocks.optimizePdfForSave(...args),
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
@@ -85,7 +90,10 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
     transitionWorkingCopyContentRevision: (...args: unknown[]) => mocks.transitionWorkingCopyContentRevision(...args),
 }));
-vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
+vi.mock('@electron/file-access/isAllowedOriginalSavePath', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args),
+}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({
     attemptWorkingCopyClone: async (...args: [string, string]) => {
         await mocks.copyFileCopyOnWrite(...args);
@@ -93,7 +101,10 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({
     },
     copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args),
 }));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_2) => ({
+    ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
+    getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => {
     class WorkingCopyMaterializationError extends Error {

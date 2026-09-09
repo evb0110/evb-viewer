@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/utils/platformArch';
+
 import {
     afterEach,
     beforeEach,
@@ -39,7 +41,10 @@ vi.mock('fs', () => ({
 }));
 vi.mock('child_process', () => ({spawn: vi.fn()}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
-vi.mock('@electron/utils/platformArch', () => ({resolvePlatformArchTag: () => 'darwin-arm64'}));
+vi.mock('@electron/utils/platformArch', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    resolvePlatformArchTag: () => 'darwin-arm64',
+}));
 vi.mock('@electron/features/ocr/languageModels', () => ({
     TESSDATA_BEST_REF: 'test-tessdata-resource-version',
     ensureRuntimeTessdataSeeded: () => mocks.ensureRuntimeTessdataSeeded(),
