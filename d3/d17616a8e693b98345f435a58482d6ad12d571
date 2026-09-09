@@ -1,0 +1,36 @@
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_6108dd753ee313::t_c9bf0437fe3dd6 413
+  s_6108dd753ee313::t_4bf2beda0bac89 1114
+  s_6108dd753ee313::t_093f34599312cd 712,734-735
+  s_6108dd753ee313::t_e286c294a760c3 894
+tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentController.test.ts
+  s_6108dd753ee313::t_a10eca538acc7e 171-174,181-184
+  s_6108dd753ee313::t_d8ed35233861a2 152-170,175-180,185-190
+app/modules/workspace-shell/composables/document-session/createDocumentHistory.ts
+  s_6108dd753ee313::t_747d3206bdfa21 199
+tests/unit/app/modules/workspace-shell/composables/createDocumentHistory.test.ts
+  s_6108dd753ee313::t_bbaad55bea852a 83,88-94
+  s_6108dd753ee313::t_0c6feafeda29de 84-87
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_6108dd753ee313::t_18c083038d7d0b 994,998-1002,1014
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_6108dd753ee313::t_4f8c379dbf7c05 358,360-374
+app/modules/workspace-shell/document-sessions/workspaceDocumentController.ts
+  s_6108dd753ee313::t_fd6c649b6e15a1 645,652-678
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d3d17616a8e693b98345f435a58482d6ad12d571",
+  "prompts": {},
+  "sessions": {
+    "s_6108dd753ee313": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08617-9d0e-7ca0-81f7-15da5a4cc49e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
