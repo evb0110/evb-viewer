@@ -49,6 +49,7 @@ function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFil
             kind: pdfKind,
             workingPath: tab.workingCopyRef,
             originalPath: tab.sourceRef,
+            recoveryDirtyBaseline: true,
             ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
         };
     }
@@ -143,6 +144,10 @@ export async function restoreWorkspaceCheckpoint(
                 }
                 const restoreTarget = getRestoreTarget(tab);
                 if (!restoreTarget) {
+                    const failedPath = tab.sourceRef ?? tab.workingCopyRef;
+                    if (failedPath) {
+                        failedPaths.push(failedPath);
+                    }
                     continue;
                 }
                 try {

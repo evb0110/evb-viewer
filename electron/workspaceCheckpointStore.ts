@@ -8,6 +8,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
     decodeWorkspaceCheckpoint,
@@ -87,6 +88,7 @@ let lastCheckpointSaveStartedAtMs = 0;
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
 let claimedWorkspaceCheckpointOwnerWebContentsId: number | null = null;
 let claimedWorkspaceCheckpointPath: string | null = null;
+let lastDurableWorkspaceCheckpoint: IStoredWorkspaceCheckpoint | null = null;
 const discardedCheckpointOwnerGenerations = new Map<number, string>();
 let nextDiscardedCheckpointOwnerGeneration = 1;
 
@@ -392,6 +394,7 @@ async function writeStoredWorkspaceCheckpoint(stored: IStoredWorkspaceCheckpoint
     try {
         await writeFile(tempPath, JSON.stringify(stored, null, 2), 'utf-8');
         await atomicReplace(tempPath, storagePath);
+        lastDurableWorkspaceCheckpoint = stored;
     } catch (error) {
         // A failed write or replace must not leave the sibling .tmp behind, or
         // autosave retries accumulate orphans in userData and worsen a disk-full
@@ -399,6 +402,70 @@ async function writeStoredWorkspaceCheckpoint(stored: IStoredWorkspaceCheckpoint
         await rm(tempPath, {force: true}).catch(() => undefined);
         throw error;
     }
+}
+
+function readDurableWorkspaceCheckpointForSave() {
+    if (lastDurableWorkspaceCheckpoint) {
+        return lastDurableWorkspaceCheckpoint;
+    }
+    let raw: string;
+    try {
+        raw = readFileSync(getStoragePath(), 'utf-8');
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return null;
+        }
+        throw new WorkspaceCheckpointReadError(getStoragePath(), error);
+    }
+    let stored: IStoredWorkspaceCheckpoint | null = null;
+    try {
+        stored = decodeStoredCheckpoint(JSON.parse(raw));
+    } catch (error) {
+        throw new WorkspaceCheckpointReadError(getStoragePath(), error);
+    }
+    if (!stored) {
+        throw new WorkspaceCheckpointReadError(
+            getStoragePath(),
+            new Error('Workspace checkpoint schema decode returned no checkpoint'),
+        );
+    }
+    lastDurableWorkspaceCheckpoint = stored;
+    return stored;
+}
+
+function retainUnresolvedCheckpointTabs(
+    checkpoint: IWorkspaceCheckpoint,
+    durable: IStoredWorkspaceCheckpoint | null,
+) {
+    if (!durable) {
+        return checkpoint;
+    }
+    const previousByTabId = new Map(
+        durable.checkpoint.tabs.map(tab => [
+            tab.tabId,
+            tab,
+        ]),
+    );
+    return {
+        ...checkpoint,
+        tabs: checkpoint.tabs.map((tab) => {
+            if (!tab.isDirty || tab.workingCopyRef) {
+                return tab;
+            }
+            const previous = previousByTabId.get(tab.tabId);
+            if (!previous?.workingCopyRef) {
+                return tab;
+            }
+            return {
+                ...tab,
+                sourceRef: tab.sourceRef ?? previous.sourceRef,
+                workingCopyRef: previous.workingCopyRef,
+                ...(previous.requiresSaveAsOnFirstSave && tab.requiresSaveAsOnFirstSave === undefined
+                    ? {requiresSaveAsOnFirstSave: true}
+                    : {}),
+            };
+        }),
+    } satisfies IWorkspaceCheckpoint;
 }
 
 function settleCheckpointSave(
@@ -565,12 +632,14 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
     }
+    const durable = readDurableWorkspaceCheckpointForSave();
+    const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
     const canonicalCheckpoint = canonicalizeCheckpointSources(
-        checkpoint,
+        checkpointWithRetainedTabs,
         ownerWebContentsId,
         {rejectUnmappedWorkingCopy: true},
     );
-    const lazyWorkingCopies = collectLazyWorkingCopies(checkpoint, ownerWebContentsId);
+    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithRetainedTabs, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
@@ -723,6 +792,11 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             claimedByWebContentsId: newOwnerWebContentsId,
             checkpoint: canonicalCheckpoint,
         });
+        lastDurableWorkspaceCheckpoint = {
+            ...stored,
+            claimedByWebContentsId: newOwnerWebContentsId,
+            checkpoint: canonicalCheckpoint,
+        };
         claimedWorkspaceCheckpointOwnerWebContentsId = newOwnerWebContentsId;
         claimedWorkspaceCheckpointPath = getStoragePath();
         return canonicalCheckpoint;
@@ -775,6 +849,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
             throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
         }
         await rm(storagePath, {force: true});
+        lastDurableWorkspaceCheckpoint = null;
         if (
             claimedWorkspaceCheckpointPath === storagePath
             && claimedWorkspaceCheckpointOwnerWebContentsId === ownerWebContentsId
@@ -789,6 +864,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
 export function clearWorkspaceCheckpoint() {
     return enqueueWorkspaceCheckpointBarrier(async () => {
         await rm(getStoragePath(), {force: true});
+        lastDurableWorkspaceCheckpoint = null;
         claimedWorkspaceCheckpointOwnerWebContentsId = null;
         claimedWorkspaceCheckpointPath = null;
     });

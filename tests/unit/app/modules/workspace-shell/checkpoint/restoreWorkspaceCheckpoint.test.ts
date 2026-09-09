@@ -134,6 +134,7 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(openPathInReservedTab).toHaveBeenCalledWith('old-tab', {
             kind: 'pdf',
             originalPath: '/documents/draft.pdf',
+            recoveryDirtyBaseline: true,
             workingPath: '/tmp/working/draft.pdf',
         });
         expect(workspace.handleGoToPage).toHaveBeenCalledWith(9);
@@ -262,6 +263,7 @@ describe('restoreWorkspaceCheckpoint', () => {
             kind: 'pdf',
             workingPath: '/tmp/working/Combined.pdf',
             originalPath: '/documents/Combined.pdf',
+            recoveryDirtyBaseline: true,
             isGenerated: true,
         });
     });
@@ -307,6 +309,7 @@ describe('restoreWorkspaceCheckpoint', () => {
             kind: 'pdf',
             workingPath: 'browser://documents/scan-recovery.pdf',
             originalPath: 'browser://documents/scan.djvu',
+            recoveryDirtyBaseline: true,
             isGenerated: true,
         });
     });

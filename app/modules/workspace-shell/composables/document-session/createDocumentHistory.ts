@@ -199,9 +199,9 @@ export function createDocumentHistory(
             state.isDirty.value = false;
             return;
         }
-        state.isDirty.value =
-            historyCleanIndex.value < 0 ||
-            historyIndex.value !== historyCleanIndex.value;
+        state.isDirty.value = state.recoveryDirtyBaseline.value
+            || historyCleanIndex.value < 0
+            || historyIndex.value !== historyCleanIndex.value;
     }
 
     async function cleanupPreviousWorkingCopy(path: TDocumentRef, nextPath: TDocumentRef) {
@@ -377,6 +377,7 @@ export function createDocumentHistory(
             recordSnapshotChange?: boolean;
         },
     ) {
+        state.recoveryDirtyBaseline.value = false;
         BrowserLogger.debug('workspace', 'Marking file history clean', () => ({
             hasSnapshot: Boolean(snapshot),
             historyLength: history.value.length,
