@@ -8,7 +8,12 @@ import {
     BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT,
     type IBrowserSearchWorkerPageRecord,
 } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
+import {BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST} from '@app/platform/browser-api/browserSearchWorker.types';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    SEARCH_REGEX_MAX_EXECUTION_MS,
+    SearchRegexLimitError,
+} from '@contracts/search';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,
@@ -35,8 +40,15 @@ type TBrowserSearchWorkerProgressHandler = (progress: {
     total: number;
 }) => void;
 
+interface IBrowserSearchWorkerRequestOptions {
+    onProgress?: TBrowserSearchWorkerProgressHandler;
+    timeoutMs?: number;
+    resetWorkerOnTimeout?: boolean;
+}
+
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS = 60_000;
+export const BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS = SEARCH_REGEX_MAX_EXECUTION_MS + 1_000;
 
 export class BrowserSearchWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -52,6 +64,13 @@ class BrowserSearchWorkerRequestError extends Error {
     }
 }
 
+export class BrowserSearchWorkerTimeoutError extends Error {
+    public constructor(message: string) {
+        super(message);
+        this.name = 'BrowserSearchWorkerTimeoutError';
+    }
+}
+
 interface IBrowserSearchWorkerFailure extends Error {failure?: FailureReceipt;}
 
 function getWorkerFailureReceipt(error: unknown) {
@@ -62,7 +81,8 @@ function getWorkerFailureReceipt(error: unknown) {
 }
 
 function isExpectedWorkerTermination(error: Error) {
-    return getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED';
+    return getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED'
+        || error instanceof SearchRegexLimitError;
 }
 
 function reportWorkerFailure(error: Error) {
@@ -171,6 +191,36 @@ function decodeStreamDocumentTextResult(data: unknown): IBrowserSearchWorkerResu
     return {pageCount: data.pageCount};
 }
 
+function isSearchMatchRange(value: unknown): value is IBrowserSearchWorkerResultMap['matchPageText']['matches'][number] {
+    return isRecord(value)
+        && typeof value.startOffset === 'number'
+        && Number.isSafeInteger(value.startOffset)
+        && value.startOffset >= 0
+        && typeof value.endOffset === 'number'
+        && Number.isSafeInteger(value.endOffset)
+        && value.endOffset > value.startOffset;
+}
+
+function decodeMatchPageTextResult(data: unknown): IBrowserSearchWorkerResultMap['matchPageText'] | null {
+    if (
+        !isRecord(data)
+        || !Array.isArray(data.matches)
+        || data.matches.length > BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST
+        || typeof data.truncated !== 'boolean'
+        || !data.matches.every(isSearchMatchRange)
+    ) {
+        return null;
+    }
+
+    return {
+        matches: data.matches.map(match => ({
+            startOffset: match.startOffset,
+            endOffset: match.endOffset,
+        })),
+        truncated: data.truncated,
+    };
+}
+
 function parseSearchWorkerPage(
     response: unknown,
     expectedType: TBrowserSearchWorkerRequestType,
@@ -208,6 +258,10 @@ function decodeSearchWorkerResult<K extends TBrowserSearchWorkerRequestType>(
 
     if (type === 'streamDocumentText') {
         return decodeStreamDocumentTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
+    }
+
+    if (type === 'matchPageText') {
+        return decodeMatchPageTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
     }
 
     if (type === 'acknowledgePage') {
@@ -270,9 +324,12 @@ function settleSearchWorkerResponse(
         return;
     }
 
-    pending.reject(new Error(typeof response.error === 'string'
+    const errorMessage = typeof response.error === 'string'
         ? response.error
-        : 'Browser search worker returned an invalid error response'));
+        : 'Browser search worker returned an invalid error response';
+    pending.reject(response.errorCode === 'SEARCH_REGEX_LIMIT'
+        ? new SearchRegexLimitError(errorMessage)
+        : new BrowserSearchWorkerRequestError(errorMessage));
     scheduleIdleWorkerTermination();
 }
 
@@ -304,7 +361,7 @@ const browserSearchWorkerClient = new BrowserWorkerClient<IPendingWorkerRequest>
 function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     payload: IBrowserSearchWorkerRequestMap[K],
-    onProgress?: TBrowserSearchWorkerProgressHandler,
+    options: IBrowserSearchWorkerRequestOptions = {},
 ): {
     requestId: number;
     promise: Promise<IBrowserSearchWorkerResultMap[K]>;
@@ -330,10 +387,17 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
                     return true;
                 },
                 reject: error => reject(reportWorkerFailure(error)),
-                ...(onProgress ? { onProgress } : {}),
-            }, () => reportWorkerFailure(new BrowserSearchWorkerRequestError(
-                `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
-            )));
+                ...(options.onProgress ? {onProgress: options.onProgress} : {}),
+            }, () => {
+                const timeoutMs = options.timeoutMs ?? BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS;
+                const timeoutError = reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
+                    `Browser search worker request timed out after ${timeoutMs}ms`,
+                ));
+                if (options.resetWorkerOnTimeout) {
+                    browserSearchWorkerClient.resetWorker(timeoutError);
+                }
+                return timeoutError;
+            }, options.timeoutMs);
 
             try {
                 worker.postMessage(request);
@@ -537,20 +601,23 @@ export function createBrowserSearchWorkerPageStreamRequest(
 export function runBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     payload: IBrowserSearchWorkerRequestMap[K],
-    options: {onProgress?: TBrowserSearchWorkerProgressHandler} = {},
+    options: IBrowserSearchWorkerRequestOptions = {},
 ): Promise<IBrowserSearchWorkerResultMap[K]> {
-    return postBrowserSearchWorkerRequest(type, payload, options.onProgress).promise;
+    return postBrowserSearchWorkerRequest(type, payload, options).promise;
 }
 
 export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     payload: IBrowserSearchWorkerRequestMap[K],
-    options: {onProgress?: TBrowserSearchWorkerProgressHandler} = {},
+    options: IBrowserSearchWorkerRequestOptions = {},
 ) {
-    return postBrowserSearchWorkerRequest(type, payload, options.onProgress);
+    return postBrowserSearchWorkerRequest(type, payload, options);
 }
 
-export function cancelBrowserSearchWorkerRequest(requestId: number) {
+export function cancelBrowserSearchWorkerRequest(
+    requestId: number,
+    options: {resetWorker?: boolean} = {},
+) {
     if (!browserSearchWorkerClient.hasPendingRequest(requestId)) {
         return;
     }
@@ -580,5 +647,14 @@ export function cancelBrowserSearchWorkerRequest(requestId: number) {
         return;
     }
 
-    browserSearchWorkerClient.cancelPendingRequest(requestId, cancelError);
+    browserSearchWorkerClient.cancelPendingRequest(
+        requestId,
+        cancelError,
+        options.resetWorker
+            ? {
+                resetWorker: true,
+                resetError: cancelError,
+            }
+            : {},
+    );
 }

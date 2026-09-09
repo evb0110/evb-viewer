@@ -6,6 +6,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import type * as NodeFs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -25,6 +26,7 @@ import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {
     acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
+    clearWorkspaceCheckpoint,
     flushPendingWorkspaceCheckpointSave,
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
@@ -52,7 +54,22 @@ const state = vi.hoisted(() => ({
     originalPaths: new Map<string, string>(),
     restoredOptions: new Map<string, unknown>(),
     blockCleanup: vi.fn(),
+    failNextCheckpointRead: false,
 }));
+
+vi.mock('node:fs', async (importOriginal) => {
+    const actual = await importOriginal<typeof NodeFs>();
+    return {
+        ...actual,
+        readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+            if (state.failNextCheckpointRead) {
+                state.failNextCheckpointRead = false;
+                throw Object.assign(new Error('injected checkpoint read failure'), {code: 'EIO'});
+            }
+            return actual.readFileSync(...args);
+        },
+    };
+});
 
 vi.mock('electron', () => ({app: {getPath: () => state.userDataPath}}));
 
@@ -167,6 +184,7 @@ describe('workspace checkpoint store', () => {
         state.originalPaths.clear();
         state.restoredOptions.clear();
         state.blockCleanup.mockReset();
+        state.failNextCheckpointRead = false;
     });
 
     afterEach(async () => {
@@ -291,6 +309,40 @@ describe('workspace checkpoint store', () => {
             `workspace checkpoint read failed at ${checkpointPath}`,
         );
         await expect(readdir(state.userDataPath)).resolves.toContain('workspace-checkpoint.json');
+    });
+
+    it('does not replace unread evidence during empty autosave, then retries after the read recovers', async () => {
+        await clearWorkspaceCheckpoint();
+        const checkpointPath = join(state.userDataPath, 'workspace-checkpoint.json');
+        await writeFile(checkpointPath, JSON.stringify({
+            version: 1,
+            ownerWebContentsId: 11,
+            checkpoint,
+        }));
+        state.failNextCheckpointRead = true;
+        await expect(saveWorkspaceCheckpoint({
+            ...checkpoint,
+            tabs: [],
+            panes: [],
+            activePaneId: null,
+            activeTabId: null,
+            layout: null,
+        }, 11)).rejects.toMatchObject({
+            name: 'WorkspaceCheckpointReadError',
+            code: 'WORKSPACE_CHECKPOINT_READ_FAILED',
+        });
+        expect(JSON.parse(await readFile(checkpointPath, 'utf8')).checkpoint.tabs).toHaveLength(1);
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            tabs: [],
+            panes: [],
+            activePaneId: null,
+            activeTabId: null,
+            layout: null,
+        }, 11);
+        await flushPendingWorkspaceCheckpointSave();
+        expect(JSON.parse(await readFile(checkpointPath, 'utf8')).checkpoint.tabs).toEqual([]);
     });
 
     it('roundtrips a clean lazy working copy across a full main-process restart', async () => {

@@ -9,6 +9,7 @@ import {
 import type { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
 import type { ISearchResourcePolicy } from '@electron/features/search/main/searchResourcePolicy';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import {requireRequestId} from '@contracts/shared';
 
 const workerMocks = vi.hoisted(() => ({instances: [] as Array<{
@@ -121,6 +122,7 @@ function dispatchSearch(
         pdfPath?: string;
         senderId?: number;
         warmup?: boolean;
+        useRegex?: boolean;
     } = {},
 ) {
     return service.dispatchSearchRequest(
@@ -135,6 +137,7 @@ function dispatchSearch(
             requestId: requireRequestId(requestId),
             requestIdPrefix: 'search',
             ...(options.warmup === undefined ? {} : {warmup: options.warmup}),
+            ...(options.useRegex === undefined ? {} : {useRegex: options.useRegex}),
         },
     );
 }
@@ -235,6 +238,71 @@ describe('SearchWorkerService', () => {
             truncated: false,
             canceled: true,
         });
+    });
+
+    it('times out regex execution from admission, retires a stalled worker, and fences late results', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS = '500';
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+        const service = await createSearchService();
+        const sender = createSender(42);
+
+        const timedOutSearch = dispatchSearch(service, sender, 'regex-timeout', {
+            senderId: 42,
+            useRegex: true,
+        });
+        let timedOutSettled = false;
+        void timedOutSearch.then(() => { timedOutSettled = true; }, () => { timedOutSettled = true; });
+        await Promise.resolve();
+
+        await vi.advanceTimersByTimeAsync(SEARCH_REGEX_MAX_EXECUTION_MS - 1);
+        expect(timedOutSettled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(timedOutSearch).rejects.toMatchObject({
+            code: 'SEARCH_TIMEOUT',
+            errorEnvelope: {
+                code: 'SEARCH_TIMEOUT',
+                retryable: true,
+            },
+        });
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'cancel',
+            requestId: 'regex-timeout',
+        });
+
+        await vi.advanceTimersByTimeAsync(500);
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'shutdown',
+            reason: 'Search worker did not acknowledge cancellation for request regex-timeout',
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
+
+        const laterSearch = dispatchSearch(service, sender, 'later-search', {senderId: 42});
+        expect(workerMocks.instances).toHaveLength(2);
+
+        workerMocks.instances[0]?.emit('message', {
+            type: 'complete',
+            requestId: 'later-search',
+            response: EMPTY_SEARCH_RESULT,
+        });
+        await Promise.resolve();
+
+        let laterSettled = false;
+        void laterSearch.then(() => { laterSettled = true; }, () => { laterSettled = true; });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(laterSettled).toBe(false);
+
+        emitWorkerComplete(1, 'later-search');
+        await expect(laterSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const cleanupPromise = service.cleanupAll('test cleanup');
+        workerMocks.instances[1]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[1]?.emit('exit', 0);
+        await cleanupPromise;
     });
 
     it('does not finish recoverable cleanup before worker and native daemon shutdown settle', async () => {

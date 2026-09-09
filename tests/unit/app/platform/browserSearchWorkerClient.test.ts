@@ -141,6 +141,7 @@ class FakeWorker {
 
 describe('browserSearchWorkerClient', () => {
     beforeEach(() => {
+        vi.restoreAllMocks();
         vi.resetModules();
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
@@ -395,6 +396,100 @@ describe('browserSearchWorkerClient', () => {
             .rejects.toThrow('Browser search worker returned an invalid result');
     });
 
+    it('returns worker page matches and preserves the regex-limit error type', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                if (request.type === 'matchPageText' && request.payload.query === 'needle') {
+                    worker.dispatchMessage({
+                        id: request.id,
+                        type: request.type,
+                        ok: true,
+                        data: {
+                            matches: [{
+                                startOffset: 3,
+                                endOffset: 9,
+                            }],
+                            truncated: false,
+                        },
+                    });
+                    return;
+                }
+                worker.dispatchMessage({
+                    id: request.id,
+                    ok: false,
+                    error: 'Invalid search regex: pattern is too complex for document search',
+                    errorCode: 'SEARCH_REGEX_LIMIT',
+                });
+            });
+        };
+        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        await expect(runBrowserSearchWorkerRequest('matchPageText', {
+            text: '😀 needle',
+            query: 'needle',
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: true,
+            },
+            maxMatches: 2,
+        })).resolves.toEqual({
+            matches: [{
+                startOffset: 3,
+                endOffset: 9,
+            }],
+            truncated: false,
+        });
+
+        const failedRequest = runBrowserSearchWorkerRequest('matchPageText', {
+            text: 'aaaa',
+            query: '(a+)+$',
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: true,
+            },
+            maxMatches: 2,
+        });
+        await expect(failedRequest).rejects.toMatchObject({
+            name: 'SearchRegexLimitError',
+            code: 'SEARCH_REGEX_LIMIT',
+        });
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('terminates the shared worker when a bounded match request times out', async () => {
+        vi.useFakeTimers();
+        FakeWorker.responder = () => {};
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        const matchRequest = createBrowserSearchWorkerRequest('matchPageText', {
+            text: 'a'.repeat(80_000),
+            query: '(a|aa)+b',
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: true,
+            },
+            maxMatches: 2,
+        }, {
+            timeoutMs: 25,
+            resetWorkerOnTimeout: true,
+        });
+        const siblingRequest = createBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/sibling.pdf'});
+
+        const matchFailure = expect(matchRequest.promise)
+            .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
+        const siblingFailure = expect(siblingRequest.promise)
+            .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
+        await vi.advanceTimersByTimeAsync(25);
+
+        await matchFailure;
+        await siblingFailure;
+        expect(terminateSpy).toHaveBeenCalledOnce();
+    });
+
     it('rejects the active job and sends a request-scoped worker cancel', async () => {
         FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
@@ -421,6 +516,74 @@ describe('browserSearchWorkerClient', () => {
             payload: {requestId: workerRequest.requestId},
         });
         expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeCancel);
+    });
+
+    it('ignores a late result from a canceled request before resolving its replacement', async () => {
+        FakeWorker.responder = () => {};
+        const {
+            cancelBrowserSearchWorkerRequest,
+            createBrowserSearchWorkerRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const staleRequest = createBrowserSearchWorkerRequest('matchPageText', {
+            text: 'stale',
+            query: 'stale',
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: false,
+            },
+            maxMatches: 2,
+        });
+        const staleFailure = expect(staleRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        cancelBrowserSearchWorkerRequest(staleRequest.requestId);
+        await staleFailure;
+
+        const replacementRequest = createBrowserSearchWorkerRequest('matchPageText', {
+            text: 'replacement',
+            query: 'replacement',
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: false,
+            },
+            maxMatches: 2,
+        });
+        const worker = FakeWorker.lastInstance;
+        if (!worker) {
+            throw new Error('Expected a browser search worker');
+        }
+        worker.dispatchMessage({
+            id: staleRequest.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data: {
+                matches: [{
+                    startOffset: 0,
+                    endOffset: 5,
+                }],
+                truncated: false,
+            },
+        });
+        worker.dispatchMessage({
+            id: replacementRequest.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data: {
+                matches: [{
+                    startOffset: 0,
+                    endOffset: 11,
+                }],
+                truncated: false,
+            },
+        });
+
+        await expect(replacementRequest.promise).resolves.toEqual({
+            matches: [{
+                startOffset: 0,
+                endOffset: 11,
+            }],
+            truncated: false,
+        });
     });
 
     it('keeps other in-flight jobs alive when canceling one shared-worker request', async () => {

@@ -43,6 +43,10 @@ import type { TRequestId } from '@contracts/shared';
 import type { IResolvedSearchMatchOptions } from '@pdf-core/pdfSearchCore';
 import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
+import {
+    SearchRegexLimitError,
+    SEARCH_REGEX_MAX_EXECUTION_MS,
+} from '@contracts/search';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: TRequestId;
@@ -54,6 +58,7 @@ interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     isXlarge: boolean;
     shouldWarmup: boolean;
     signal: AbortSignal;
+    regexDeadlineAtMs: number | null;
 }
 
 interface ISearchExecutionResult {
@@ -183,6 +188,15 @@ function throwIfCancelled(
     }
 }
 
+function throwIfRegexDeadlineExceeded(deadlineAtMs: number | null) {
+    if (deadlineAtMs === null || Date.now() < deadlineAtMs) {
+        return;
+    }
+    throw new SearchRegexLimitError(
+        `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
+    );
+}
+
 function sendProgress(
     requestId: TRequestId,
     processed: number,
@@ -268,6 +282,7 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
     if (context.isXlarge || context.shouldWarmup || isNativeSearchAttemptDisabledForRuntime()) {
         return false;
     }
+    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
 
     try {
         const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
@@ -283,6 +298,7 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
             ...(context.pageCount !== undefined ? { pageCount: context.pageCount } : {}),
         });
         throwIfCancelled(context.requestId, context.signal);
+        throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
         if (!nativeResult) {
             return false;
         }
@@ -330,8 +346,10 @@ function createXlargeSearchIndexBuildOptions(context: ISearchRequestContext) {
 }
 
 async function buildXlargeSearchIndex(context: ISearchRequestContext) {
+    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
     const result = await ensureXlargeSearchIndex(createXlargeSearchIndexBuildOptions(context));
     throwIfCancelled(context.requestId, context.signal);
+    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
     return result;
 }
 
@@ -339,6 +357,7 @@ async function tryCompleteWithXlargeSearch(context: ISearchRequestContext) {
     if (!context.isXlarge) {
         return false;
     }
+    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
 
     if (context.shouldWarmup) {
         await buildXlargeSearchIndex(context);
@@ -396,6 +415,7 @@ async function tryCompleteWithXlargeSearch(context: ISearchRequestContext) {
                 ...(context.pageCount === undefined ? {} : {pageCount: context.pageCount}),
             });
             throwIfCancelled(context.requestId, context.signal);
+            throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
             if (!nativeResult) {
                 throw createCapabilityError('invalid-response', 'Native xlarge search returned no result');
             }
@@ -461,11 +481,15 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         matchCase = false,
         wholeWord = false,
         useRegex = false,
+        regexDeadlineAtMs,
     } = request;
 
     const abortController = new AbortController();
     requestAbortControllers.set(requestId, abortController);
     const { signal } = abortController;
+    const effectiveRegexDeadlineAtMs = useRegex
+        ? regexDeadlineAtMs ?? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
+        : null;
     pruneCancelledRequests();
     progressSentAt.delete(requestId);
     throwIfCancelled(requestId, signal);
@@ -475,6 +499,7 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         throw new Error(`PDF not found: ${pdfPath}`);
     }
     throwIfCancelled(requestId, signal);
+    throwIfRegexDeadlineExceeded(effectiveRegexDeadlineAtMs);
 
     const pathSizeBytes = typeof fileStat.size === 'number' && Number.isFinite(fileStat.size)
         ? fileStat.size
@@ -495,6 +520,7 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         wholeWord,
         useRegex,
         signal,
+        regexDeadlineAtMs: effectiveRegexDeadlineAtMs,
     };
     if (pageCount !== undefined) {
         context.pageCount = pageCount;
@@ -535,6 +561,7 @@ async function getRequestSearchIndex(context: ISearchRequestContext) {
     );
     pruneRetainedTextCache(indexEntry);
     throwIfCancelled(requestId, signal);
+    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
     return indexEntry;
 }
 
@@ -639,6 +666,7 @@ function appendPageMatches(
         matchCase: context.matchCase,
         wholeWord: context.wholeWord,
         useRegex: context.useRegex,
+        ...(context.regexDeadlineAtMs === null ? {} : {deadlineAtMs: context.regexDeadlineAtMs}),
     });
 
     for (const pageMatch of pageMatches) {
@@ -690,6 +718,7 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
 
     return (page: IPdfSearchIndex['pages'][number]) => {
         throwIfCancelled(context.requestId, context.signal);
+        throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
         const total = totalPages || Math.max(processedCount + 1, page.pageNumber);
         if (!isPageSearchable(page, total)) {
             return;
@@ -743,6 +772,7 @@ function searchIndex(
 
     for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
         throwIfCancelled(context.requestId, context.signal);
+        throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
 
         const page = indexEntry.index.pages[pageIdx];
         if (!page || !isPageSearchable(page, totalPages)) {
@@ -766,6 +796,8 @@ function searchIndex(
         }
     }
 
+    throwIfCancelled(context.requestId, context.signal);
+    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
     if (processedCount < totalPages) {
         sendProgress(context.requestId, totalPages, totalPages, true);
     } else {

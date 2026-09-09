@@ -2,11 +2,25 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import type {
+    IPdfSearchUtf16Range,
+    IResolvedSearchMatchOptions,
+} from '@contracts/search';
+import {SEARCH_RESULT_LIMIT} from '@contracts/search';
 import type { IBrowserSearchWorkerPageRecord } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
+
+export const BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST = SEARCH_RESULT_LIMIT + 1;
 
 interface IBrowserSearchWorkerRequestMap {
     extractDocumentText: {pdfPath: string;};
     streamDocumentText: {pdfPath: string;};
+    matchPageText: {
+        text: string;
+        query: string;
+        options: IResolvedSearchMatchOptions;
+        maxMatches: number;
+        deadlineAtMs?: number;
+    };
     cancel: {requestId: number;};
     acknowledgePage: {requestId: number;};
 }
@@ -17,6 +31,10 @@ interface IBrowserSearchWorkerResultMap {
         pageTexts: string[];
     };
     streamDocumentText: {pageCount: number;};
+    matchPageText: {
+        matches: IPdfSearchUtf16Range[];
+        truncated: boolean;
+    };
     cancel: {canceled: boolean;};
     acknowledgePage: {acknowledged: boolean;};
 }
@@ -65,6 +83,7 @@ interface IBrowserSearchWorkerErrorResponse {
     id: number;
     ok: false;
     error: string;
+    errorCode?: 'SEARCH_REGEX_LIMIT';
 }
 
 type TBrowserSearchWorkerResponse =
@@ -86,6 +105,38 @@ function parseStreamDocumentTextPayload(value: unknown): IBrowserSearchWorkerReq
         return null;
     }
     return {pdfPath: value.pdfPath};
+}
+
+function parseMatchPageTextPayload(value: unknown): IBrowserSearchWorkerRequestMap['matchPageText'] | null {
+    if (
+        !isRecord(value)
+        || typeof value.text !== 'string'
+        || typeof value.query !== 'string'
+        || !isRecord(value.options)
+        || typeof value.options.matchCase !== 'boolean'
+        || typeof value.options.wholeWord !== 'boolean'
+        || typeof value.options.useRegex !== 'boolean'
+        || typeof value.maxMatches !== 'number'
+        || !Number.isSafeInteger(value.maxMatches)
+        || value.maxMatches < 1
+        || value.maxMatches > BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST
+        || (value.deadlineAtMs !== undefined && (
+            typeof value.deadlineAtMs !== 'number' || !Number.isFinite(value.deadlineAtMs)
+        ))
+    ) {
+        return null;
+    }
+    return {
+        text: value.text,
+        query: value.query,
+        options: {
+            matchCase: value.options.matchCase,
+            wholeWord: value.options.wholeWord,
+            useRegex: value.options.useRegex,
+        },
+        maxMatches: value.maxMatches,
+        ...(value.deadlineAtMs === undefined ? {} : {deadlineAtMs: value.deadlineAtMs}),
+    };
 }
 
 function parseCancelPayload(value: unknown): IBrowserSearchWorkerRequestMap['cancel'] | null {
@@ -125,6 +176,16 @@ export function parseBrowserSearchWorkerRequest(value: unknown): TBrowserSearchW
         }
         case 'streamDocumentText': {
             const payload = parseStreamDocumentTextPayload(value.payload);
+            return payload === null
+                ? null
+                : {
+                    id: value.id,
+                    type: value.type,
+                    payload,
+                };
+        }
+        case 'matchPageText': {
+            const payload = parseMatchPageTextPayload(value.payload);
             return payload === null
                 ? null
                 : {

@@ -271,15 +271,22 @@ describe('useBrowserWorkspaceRecovery', () => {
         expect(mocks.saveRecovery).toHaveBeenCalledWith(
             'window:1',
             3,
-            expect.objectContaining({tabs: expect.arrayContaining([expect.objectContaining({
-                tabId: 'tab-2',
-                workingCopyRef: 'browser://documents/failed-recovery.pdf',
-                isDirty: true,
-            })])}),
-            [
+            expect.objectContaining({tabs: expect.arrayContaining([
+                expect.objectContaining({
+                    tabId: 'tab-1',
+                    workingCopyRef: 'browser://documents/new-recovery.pdf',
+                    isDirty: true,
+                }),
+                expect.objectContaining({
+                    tabId: 'tab-2',
+                    workingCopyRef: 'browser://documents/failed-recovery.pdf',
+                    isDirty: true,
+                }),
+            ])}),
+            expect.arrayContaining([
                 'browser://documents/new-recovery.pdf',
                 'browser://documents/failed-recovery.pdf',
-            ],
+            ]),
         );
         expect(mocks.cleanupDetachedDocument)
             .not.toHaveBeenCalledWith('browser://documents/failed-recovery.pdf');
