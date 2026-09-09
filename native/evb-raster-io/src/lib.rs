@@ -1,4 +1,4 @@
-use std::io::{self, Read, Write};
+use std::io::{self, Cursor, Read, Write};
 
 use crc32fast::Hasher;
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
@@ -22,6 +22,7 @@ pub struct DecodeLimits {
 pub enum PngColorType {
     Gray8 = 0,
     Rgb8 = 2,
+    Indexed = 3,
     GrayAlpha8 = 4,
     Rgba8 = 6,
 }
@@ -30,6 +31,7 @@ impl PngColorType {
         match self {
             Self::Gray8 => 1,
             Self::Rgb8 => 3,
+            Self::Indexed => 1,
             Self::GrayAlpha8 => 2,
             Self::Rgba8 => 4,
         }
@@ -109,6 +111,14 @@ pub fn read_png_passthrough<R: Read>(
     limits: PassthroughLimits,
 ) -> Result<CompressedPng, RasterError> {
     let parsed = walk_chunks(reader, WalkMode::Passthrough(limits))?;
+    if parsed.header.bit_depth != 8
+        || parsed.header.interlace_method != 0
+        || matches!(parsed.header.color_type, PngColorType::Indexed)
+    {
+        return Err(RasterError::invalid(
+            "PNG representation requires pixel normalization",
+        ));
+    }
     let row_bytes = (parsed.header.width as usize)
         .checked_mul(parsed.header.color_type.channels())
         .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
@@ -170,14 +180,124 @@ pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedRas
 /// Decodes the same gray plane as `decode_png(..).gray` without allocating the
 /// colour plane the bilevel and grayscale lanes discard.
 pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayImage, RasterError> {
-    let pixels = PngPixels::read(reader, limits)?;
-    let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
-    let transparency = pixels.transparency;
-    let mut gray = GrayImage::new(width, height, 255);
-    pixels.for_each_row(|y, row| {
-        write_png_row(gray.row_mut(y), None, row, color_type, transparency)
-    })?;
+    let parsed = walk_chunks(reader, WalkMode::Decode(limits))?;
+    let header = parsed.header;
+    if header.bit_depth == 8
+        && header.interlace_method == 0
+        && !matches!(header.color_type, PngColorType::Indexed)
+    {
+        return decode_png_gray_ordinary(parsed);
+    }
+    validate_decoded_rows(&parsed.idat, header)?;
+    let mut decoder = png::Decoder::new(Cursor::new(parsed.reconstruct_for_decode()?));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    decoder.set_limits(png::Limits {
+        bytes: limits
+            .max_compressed_bytes
+            .saturating_add((limits.max_pixels as usize).saturating_mul(8)),
+    });
+    let mut reader = decoder
+        .read_info()
+        .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?;
+    let (output_color, _) = reader.output_color_type();
+    let color_type = match output_color {
+        png::ColorType::Grayscale => PngColorType::Gray8,
+        png::ColorType::Rgb => PngColorType::Rgb8,
+        png::ColorType::GrayscaleAlpha => PngColorType::GrayAlpha8,
+        png::ColorType::Rgba => PngColorType::Rgba8,
+        png::ColorType::Indexed => {
+            return Err(RasterError::invalid("PNG decoder returned indexed pixels"));
+        }
+    };
+    let mut gray = GrayImage::new(header.width as usize, header.height as usize, 255);
+    if header.interlace_method == 0 {
+        let mut y = 0;
+        while let Some(row) = reader
+            .next_row()
+            .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?
+        {
+            let gray_row = normalize_png_row_to_gray(row.data(), color_type);
+            gray.row_mut(y).copy_from_slice(&gray_row);
+            y += 1;
+        }
+    } else {
+        while let Some(interlaced_row) = reader
+            .next_interlaced_row()
+            .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?
+        {
+            let gray_row = normalize_png_row_to_gray(interlaced_row.data(), color_type);
+            if let png::InterlaceInfo::Adam7(info) = interlaced_row.interlace() {
+                png::expand_interlaced_row(
+                    gray.data_mut(),
+                    header.width as usize,
+                    &gray_row,
+                    info,
+                    8,
+                );
+            }
+        }
+    }
     Ok(gray)
+}
+
+fn decode_png_gray_ordinary(parsed: WalkedPng) -> Result<GrayImage, RasterError> {
+    let header = parsed.header;
+    let transparency = parsed.transparency;
+    validate_decoded_rows(&parsed.idat, header);
+    let row_bytes = (header.width as usize)
+        .checked_mul(header.color_type.channels())
+        .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
+    let expected = row_bytes
+        .checked_add(1)
+        .and_then(|value| value.checked_mul(header.height as usize))
+        .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
+    let mut filtered = Vec::with_capacity(expected);
+    ZlibDecoder::new(parsed.idat.as_slice())
+        .take(expected.saturating_add(1) as u64)
+        .read_to_end(&mut filtered)?;
+    if filtered.len() != expected {
+        return Err(RasterError::invalid(format!(
+            "PNG decompressed payload length mismatch: expected {expected} bytes, got {}",
+            filtered.len()
+        )));
+    }
+    let mut gray = GrayImage::new(header.width as usize, header.height as usize, 255);
+    let channels = header.color_type.channels();
+    let mut current = vec![0; row_bytes];
+    let mut previous = vec![0; row_bytes];
+    let mut position = 0usize;
+    for y in 0..header.height as usize {
+        let filter = filtered[position];
+        position += 1;
+        current.copy_from_slice(&filtered[position..position + row_bytes]);
+        position += row_bytes;
+        unfilter(&mut current, &previous, channels, filter)?;
+        write_png_row(
+            gray.row_mut(y),
+            None,
+            &current,
+            header.color_type,
+            transparency,
+        );
+        std::mem::swap(&mut current, &mut previous);
+    }
+    Ok(gray)
+}
+
+fn normalize_png_row_to_gray(source: &[u8], color_type: PngColorType) -> Vec<u8> {
+    let channels = color_type.channels();
+    match color_type {
+        PngColorType::Gray8 | PngColorType::GrayAlpha8 => source
+            .chunks_exact(channels)
+            .map(|pixel| pixel[0])
+            .collect(),
+        PngColorType::Rgb8 | PngColorType::Rgba8 => {
+            source.chunks_exact(channels).map(luma).collect()
+        }
+        PngColorType::Indexed => {
+            unreachable!("indexed PNG pixels are normalized before row conversion")
+        }
+    }
 }
 
 /// Decodes a PNG to opaque RGB pixels. Alpha-bearing input is composited onto
@@ -205,46 +325,96 @@ struct PngPixels {
     color_type: PngColorType,
     row_bytes: usize,
     filtered: Vec<u8>,
+    needs_unfilter: bool,
     transparency: Option<PngTransparencyKey>,
 }
 impl PngPixels {
     fn read<R: Read>(reader: R, limits: DecodeLimits) -> Result<Self, RasterError> {
         let parsed = walk_chunks(reader, WalkMode::Decode(limits))?;
         let header = parsed.header;
-        let row_bytes = (header.width as usize)
-            .checked_mul(header.color_type.channels())
-            .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
-        let expected = header.expected_data_len()?;
-        let mut filtered = Vec::with_capacity(expected);
-        ZlibDecoder::new(parsed.idat.as_slice())
-            .take(expected.saturating_add(1) as u64)
-            .read_to_end(&mut filtered)?;
-        if filtered.len() != expected {
-            return Err(RasterError::invalid(format!(
-                "PNG decompressed payload length mismatch: expected {expected} bytes, got {}",
-                filtered.len()
-            )));
+        if header.bit_depth == 8
+            && header.interlace_method == 0
+            && !matches!(header.color_type, PngColorType::Indexed)
+        {
+            validate_decoded_rows(&parsed.idat, header)?;
+            let row_bytes = (header.width as usize)
+                .checked_mul(header.color_type.channels())
+                .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
+            let expected = row_bytes
+                .checked_add(1)
+                .and_then(|value| value.checked_mul(header.height as usize))
+                .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
+            let mut filtered = Vec::with_capacity(expected);
+            ZlibDecoder::new(parsed.idat.as_slice())
+                .take(expected as u64)
+                .read_to_end(&mut filtered)?;
+            return Ok(Self {
+                width: header.width as usize,
+                height: header.height as usize,
+                color_type: header.color_type,
+                row_bytes,
+                filtered,
+                needs_unfilter: true,
+                transparency: parsed.transparency,
+            });
         }
+        validate_decoded_rows(&parsed.idat, header)?;
+        let mut decoder = png::Decoder::new(Cursor::new(parsed.reconstruct_for_decode()?));
+        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        decoder.set_limits(png::Limits {
+            bytes: limits
+                .max_compressed_bytes
+                .saturating_add((limits.max_pixels as usize).saturating_mul(16)),
+        });
+        let mut reader = decoder
+            .read_info()
+            .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?;
+        let output_size = reader
+            .output_buffer_size()
+            .ok_or_else(|| RasterError::invalid("PNG decoded image size overflow"))?;
+        let mut filtered = vec![0; output_size];
+        let output = reader
+            .next_frame(&mut filtered)
+            .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?;
+        filtered.truncate(output.buffer_size());
+        let color_type = match output.color_type {
+            png::ColorType::Grayscale => PngColorType::Gray8,
+            png::ColorType::Rgb => PngColorType::Rgb8,
+            png::ColorType::GrayscaleAlpha => PngColorType::GrayAlpha8,
+            png::ColorType::Rgba => PngColorType::Rgba8,
+            png::ColorType::Indexed => {
+                return Err(RasterError::invalid("PNG decoder returned indexed pixels"));
+            }
+        };
+        let row_bytes = output.line_size;
         Ok(Self {
             width: header.width as usize,
             height: header.height as usize,
-            color_type: header.color_type,
+            color_type,
             row_bytes,
             filtered,
-            transparency: parsed.transparency,
+            needs_unfilter: false,
+            transparency: None,
         })
     }
 
     fn for_each_row(self, mut row: impl FnMut(usize, &[u8])) -> Result<(), RasterError> {
+        let row_bytes = self.row_bytes;
+        if !self.needs_unfilter {
+            for y in 0..self.height {
+                row(y, &self.filtered[y * row_bytes..(y + 1) * row_bytes]);
+            }
+            return Ok(());
+        }
         let channels = self.color_type.channels();
-        let mut current = vec![0; self.row_bytes];
-        let mut previous = vec![0; self.row_bytes];
+        let mut current = vec![0; row_bytes];
+        let mut previous = vec![0; row_bytes];
         let mut position = 0usize;
         for y in 0..self.height {
             let filter = self.filtered[position];
             position += 1;
-            current.copy_from_slice(&self.filtered[position..position + self.row_bytes]);
-            position += self.row_bytes;
+            current.copy_from_slice(&self.filtered[position..position + row_bytes]);
+            position += row_bytes;
             unfilter(&mut current, &previous, channels, filter)?;
             row(y, &current);
             std::mem::swap(&mut current, &mut previous);
@@ -283,6 +453,9 @@ fn write_png_row(
                     );
                 }
             }
+        }
+        PngColorType::Indexed => {
+            unreachable!("indexed PNG pixels are normalized before row conversion")
         }
         PngColorType::Rgb8 | PngColorType::Rgba8 => {
             for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
@@ -351,6 +524,9 @@ fn write_composited_rgb_row(
                 pixel[1] = composite_channel(source_pixel[1], source_pixel[3]);
                 pixel[2] = composite_channel(source_pixel[2], source_pixel[3]);
             }
+        }
+        PngColorType::Indexed => {
+            unreachable!("indexed PNG pixels are normalized before row conversion")
         }
     }
 }
@@ -806,12 +982,24 @@ struct PngHeader {
     width: u32,
     height: u32,
     color_type: PngColorType,
+    bit_depth: u8,
+    interlace_method: u8,
+    ihdr: [u8; 13],
 }
 impl PngHeader {
     fn expected_data_len(self) -> Result<usize, RasterError> {
-        (self.width as usize)
-            .checked_mul(self.color_type.channels())
-            .and_then(|value| value.checked_add(1))
+        let bits_per_pixel = self
+            .color_type
+            .channels()
+            .checked_mul(self.bit_depth as usize)
+            .ok_or_else(|| RasterError::invalid("Invalid PNG bits per pixel"))?;
+        let row_bytes = (self.width as usize)
+            .checked_mul(bits_per_pixel)
+            .and_then(|value| value.checked_add(7))
+            .map(|value| value / 8)
+            .ok_or_else(|| RasterError::invalid("Invalid PNG image row length"))?;
+        row_bytes
+            .checked_add(1)
             .and_then(|value| value.checked_mul(self.height as usize))
             .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))
     }
@@ -821,7 +1009,24 @@ struct WalkedPng {
     density: Option<PngDensity>,
     idat: Vec<u8>,
     icc_profile: Option<Vec<u8>>,
+    palette: Option<Vec<u8>>,
+    indexed_transparency: Option<Vec<u8>>,
     transparency: Option<PngTransparencyKey>,
+}
+impl WalkedPng {
+    fn reconstruct_for_decode(&self) -> Result<Vec<u8>, RasterError> {
+        let mut png = PNG_SIGNATURE.to_vec();
+        append_png_chunk(&mut png, b"IHDR", &self.header.ihdr)?;
+        if let Some(palette) = &self.palette {
+            append_png_chunk(&mut png, b"PLTE", palette)?;
+        }
+        if let Some(transparency) = &self.indexed_transparency {
+            append_png_chunk(&mut png, b"tRNS", transparency)?;
+        }
+        append_png_chunk(&mut png, b"IDAT", &self.idat)?;
+        append_png_chunk(&mut png, b"IEND", &[])?;
+        Ok(png)
+    }
 }
 fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, RasterError> {
     let mut signature = [0u8; 8];
@@ -834,6 +1039,8 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
     let mut idat = Vec::new();
     let mut idat_len = 0usize;
     let mut icc_profile = None;
+    let mut palette = None;
+    let mut indexed_transparency = None;
     let mut transparency = None;
     loop {
         let mut chunk_header = [0u8; 8];
@@ -859,6 +1066,24 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                     density = read_phys_density(&data);
                 }
             }
+            b"PLTE" if matches!(mode, WalkMode::Decode(_)) => {
+                if palette.is_some() || length == 0 || length > 768 || length % 3 != 0 {
+                    return Err(RasterError::invalid("Invalid PNG palette"));
+                }
+                let mut data = vec![0; length];
+                read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
+                palette = Some(data);
+            }
+            b"tRNS" if matches!(mode, WalkMode::Decode(_)) => {
+                if transparency.is_some() || length > 256 {
+                    return Err(RasterError::invalid("Invalid PNG transparency table"));
+                }
+                let mut data = vec![0; length];
+                read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
+                if header.is_some_and(|header| matches!(header.color_type, PngColorType::Indexed)) {
+                    indexed_transparency = Some(data);
+                }
+            }
             b"iCCP" if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) => {
                 if icc_profile.is_some() {
                     return Err(RasterError::invalid("Duplicate PNG iCCP profile"));
@@ -878,27 +1103,6 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 let mut data = vec![0; length];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
                 icc_profile = Some(decode_icc_profile(&data, max_icc_profile_bytes)?);
-            }
-            b"tRNS" => {
-                let parsed_header =
-                    header.ok_or_else(|| RasterError::invalid("PNG tRNS appeared before IHDR"))?;
-                if idat_len != 0 {
-                    return Err(RasterError::invalid("PNG tRNS appeared after IDAT"));
-                }
-                if transparency.is_some() {
-                    return Err(RasterError::invalid("Duplicate PNG tRNS chunk"));
-                }
-                let expected_length = match parsed_header.color_type {
-                    PngColorType::Gray8 => 2,
-                    PngColorType::Rgb8 => 6,
-                    PngColorType::GrayAlpha8 | PngColorType::Rgba8 => 0,
-                };
-                if length != expected_length {
-                    return Err(RasterError::invalid("Invalid PNG tRNS length"));
-                }
-                let mut data = vec![0; length];
-                read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
-                transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
             }
             b"IDAT" => {
                 let parsed_header =
@@ -956,6 +1160,8 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                     density: None,
                     idat,
                     icc_profile: None,
+                    palette: None,
+                    indexed_transparency: None,
                     transparency: None,
                 });
             }
@@ -970,12 +1176,13 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 density,
                 idat,
                 icc_profile,
+                palette,
+                indexed_transparency,
                 transparency,
             });
         }
     }
 }
-
 fn parse_transparency_key(
     color_type: PngColorType,
     data: &[u8],
@@ -993,9 +1200,9 @@ fn parse_transparency_key(
             }
             Ok(PngTransparencyKey::Rgb([data[1], data[3], data[5]]))
         }
-        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => Err(RasterError::invalid(
-            "PNG tRNS is not valid for alpha color types",
-        )),
+        PngColorType::GrayAlpha8 | PngColorType::Rgba8 | PngColorType::Indexed => Err(
+            RasterError::invalid("PNG tRNS is not valid for this color type"),
+        ),
     }
 }
 fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterError> {
@@ -1004,6 +1211,7 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
     let color_type = match data[9] {
         0 => PngColorType::Gray8,
         2 => PngColorType::Rgb8,
+        3 => PngColorType::Indexed,
         4 => PngColorType::GrayAlpha8,
         6 => PngColorType::Rgba8,
         value => {
@@ -1033,15 +1241,24 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
             )));
         }
     }
-    if data[8] != 8 || data[10] != 0 || data[11] != 0 || data[12] != 0 {
+    let legal_depth = match data[9] {
+        0 => matches!(data[8], 1 | 2 | 4 | 8 | 16),
+        3 => matches!(data[8], 1 | 2 | 4 | 8),
+        2 | 4 | 6 => matches!(data[8], 8 | 16),
+        _ => false,
+    };
+    if !legal_depth || data[10] != 0 || data[11] != 0 || data[12] > 1 {
         return Err(RasterError::invalid(
-            "Only non-interlaced 8-bit grayscale/RGB/RGBA PNG is supported",
+            "Invalid PNG bit depth, compression, filter, or interlace method",
         ));
     }
     Ok(PngHeader {
         width,
         height,
         color_type,
+        bit_depth: data[8],
+        interlace_method: data[12],
+        ihdr: *data,
     })
 }
 fn read_chunk_bytes<R: Read>(
@@ -1052,6 +1269,40 @@ fn read_chunk_bytes<R: Read>(
     reader.read_exact(data)?;
     hasher.update(data);
     Ok(())
+}
+
+fn append_png_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) -> Result<(), RasterError> {
+    let length = u32::try_from(data.len())
+        .map_err(|_| RasterError::too_large("PNG chunk exceeds u32 length"))?;
+    png.extend_from_slice(&length.to_be_bytes());
+    png.extend_from_slice(kind);
+    png.extend_from_slice(data);
+    let mut hasher = Hasher::new();
+    hasher.update(kind);
+    hasher.update(data);
+    png.extend_from_slice(&hasher.finalize().to_be_bytes());
+    Ok(())
+}
+
+fn validate_decoded_rows(idat: &[u8], header: PngHeader) -> Result<(), RasterError> {
+    if header.interlace_method != 0 {
+        return Ok(());
+    }
+    let bits_per_pixel = header
+        .color_type
+        .channels()
+        .checked_mul(header.bit_depth as usize)
+        .ok_or_else(|| RasterError::invalid("Invalid PNG bits per pixel"))?;
+    let row_bytes = (header.width as usize)
+        .checked_mul(bits_per_pixel)
+        .and_then(|value| value.checked_add(7))
+        .map(|value| value / 8)
+        .ok_or_else(|| RasterError::invalid("Invalid PNG image row length"))?;
+    let expected = row_bytes
+        .checked_add(1)
+        .and_then(|value| value.checked_mul(header.height as usize))
+        .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
+    validate_inflated_rows(idat, expected, row_bytes, header.height as usize)
 }
 fn skip_chunk_bytes<R: Read>(
     reader: &mut R,
@@ -1188,12 +1439,13 @@ fn unfilter(
             _ => {
                 return Err(RasterError::invalid(format!(
                     "Unsupported PNG filter: {filter}"
-                )));
+                )))
             }
         });
     }
     Ok(())
 }
+
 fn paeth(left: u8, up: u8, upper_left: u8) -> u8 {
     let prediction = i32::from(left) + i32::from(up) - i32::from(upper_left);
     let distances = (
@@ -1209,6 +1461,7 @@ fn paeth(left: u8, up: u8, upper_left: u8) -> u8 {
         upper_left
     }
 }
+
 fn write_chunk<W: Write>(writer: &mut W, kind: &[u8; 4], data: &[u8]) -> Result<(), RasterError> {
     let length =
         u32::try_from(data.len()).map_err(|_| RasterError::invalid("PNG chunk exceeds u32"))?;

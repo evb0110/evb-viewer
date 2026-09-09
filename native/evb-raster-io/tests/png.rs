@@ -168,6 +168,68 @@ fn decode_matches_scan_cleanup_luma_alpha_and_filter_behavior() {
 }
 
 #[test]
+fn decodes_standard_png_variants_into_the_existing_eight_bit_contract() {
+    let indexed = encode_variant(
+        3,
+        1,
+        png::ColorType::Indexed,
+        png::BitDepth::Two,
+        Some(&[10, 20, 30, 200, 210, 220, 40, 50, 60]),
+        Some(&[255, 0, 255]),
+        &[0b0001_1000],
+    );
+    assert_eq!(
+        decode_png(&indexed[..], DECODE).unwrap().rgb.data(),
+        &[10, 20, 30, 200, 210, 220, 40, 50, 60]
+    );
+    assert_eq!(
+        decode_png_composited_rgb(&indexed[..], DECODE)
+            .unwrap()
+            .data(),
+        &[10, 20, 30, 255, 255, 255, 40, 50, 60]
+    );
+
+    let gray = encode_variant(
+        5,
+        1,
+        png::ColorType::Grayscale,
+        png::BitDepth::One,
+        None,
+        None,
+        &[0b0111_0000],
+    );
+    assert_eq!(
+        decode_png(&gray[..], DECODE).unwrap().gray.data(),
+        &[0, 255, 255, 255, 0]
+    );
+
+    let rgb16 = encode_variant(
+        2,
+        1,
+        png::ColorType::Rgb,
+        png::BitDepth::Sixteen,
+        None,
+        None,
+        &[
+            0x12, 0x34, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd,
+        ],
+    );
+    assert_eq!(
+        decode_png(&rgb16[..], DECODE).unwrap().rgb.data(),
+        &[0x12, 0xab, 0xef, 0x23, 0x67, 0xab]
+    );
+
+    let adam7_pixels = (0..60)
+        .map(|value| ((value * 7 + 10) % 251) as u8)
+        .collect::<Vec<_>>();
+    let adam7 = make_adam7_png(5, 4, &adam7_pixels);
+    assert_eq!(
+        decode_png(&adam7[..], DECODE).unwrap().rgb.data(),
+        adam7_pixels
+    );
+}
+
+#[test]
 fn encoder_is_deterministic_and_round_trips() {
     let gray = [0, 30, 255, 80, 120, 200];
     let gray_pixels = PixelBuffer::Gray {
@@ -333,6 +395,71 @@ fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(format!("{FIXTURES}/{name}")).unwrap()
 }
 
+fn encode_variant(
+    width: u32,
+    height: u32,
+    color: png::ColorType,
+    depth: png::BitDepth,
+    palette: Option<&[u8]>,
+    trns: Option<&[u8]>,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut output = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut output, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(depth);
+        if let Some(palette) = palette {
+            encoder.set_palette(palette);
+        }
+        if let Some(trns) = trns {
+            encoder.set_trns(trns);
+        }
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(data)
+            .unwrap();
+    }
+    output
+}
+
+fn make_adam7_png(width: usize, height: usize, pixels: &[u8]) -> Vec<u8> {
+    const PASSES: [(usize, usize, usize, usize); 7] = [
+        (0, 0, 8, 8),
+        (4, 0, 8, 8),
+        (0, 4, 4, 8),
+        (2, 0, 4, 4),
+        (0, 2, 2, 4),
+        (1, 0, 2, 2),
+        (0, 1, 1, 2),
+    ];
+    let mut rows = Vec::new();
+    for (x_start, y_start, x_step, y_step) in PASSES {
+        let pass_width = width.saturating_sub(x_start).div_ceil(x_step);
+        let pass_height = height.saturating_sub(y_start).div_ceil(y_step);
+        for pass_y in 0..pass_height {
+            rows.push(0);
+            for pass_x in 0..pass_width {
+                let x = x_start + pass_x * x_step;
+                let y = y_start + pass_y * y_step;
+                rows.extend_from_slice(&pixels[(y * width + x) * 3..(y * width + x + 1) * 3]);
+            }
+        }
+    }
+    let mut compressed = ZlibEncoder::new(Vec::new(), Compression::default());
+    compressed.write_all(&rows).unwrap();
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&(width as u32).to_be_bytes());
+    ihdr.extend_from_slice(&(height as u32).to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 1]);
+    append_chunk(&mut png, b"IHDR", &ihdr);
+    append_chunk(&mut png, b"IDAT", &compressed.finish().unwrap());
+    append_chunk(&mut png, b"IEND", &[]);
+    png
+}
+
 fn source_idat(bytes: &[u8]) -> Vec<u8> {
     let mut offset = 8;
     let mut idat = Vec::new();
@@ -420,6 +547,7 @@ impl TestColorType for PngColorType {
         match self {
             PngColorType::Gray8 => 1,
             PngColorType::Rgb8 => 3,
+            PngColorType::Indexed => 1,
             PngColorType::GrayAlpha8 => 2,
             PngColorType::Rgba8 => 4,
         }
