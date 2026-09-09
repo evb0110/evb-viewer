@@ -1,0 +1,11 @@
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  ai_agent 3,22,24-27,125-162,224-365
+app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.ts
+  ai_agent 177,184,210-215,220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "10d748ac73c293f06710a0d2f8076443022e3c4a",
+  "prompts": {}
+}
