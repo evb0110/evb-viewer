@@ -11,7 +11,7 @@ export {extractTextFromPdf} from '@electron/features/search/extractTextFromPdf';
 // fallow-ignore-next-line unused-export -- retained for worker-safe external consumers.
 export {loadPdfjsTextExtractor} from '@electron/features/search/loadPdfjsTextExtractor';
 export {classifyXlargeSearchPathFromFile} from '@electron/features/search/xlargeSearchClassification';
-// eslint-disable-next-line custom/no-relative-imports -- keep the packaged sidecar lazy and module-local.
+// keep the packaged sidecar lazy and module-local.
 const loadSearchIndexSidecar = () => import('./searchIndexSidecar');
 interface ISearchIndexBuilderPublic { loadSearchIndex: (pdfPath: string, expectedRevision?: TDocumentRevisionToken) => Promise<IPdfSearchIndex | null>; }
 interface IRebindSearchIndexes { rebindSearchIndexes: (pdfPath: string, previousRevision: TDocumentRevisionToken, nextRevision: TDocumentRevisionToken) => Promise<boolean>; }
@@ -45,9 +45,9 @@ export {
 export {stringifyLegacyJsonSearchIndex} from '@electron/features/search/stringifyLegacyJsonSearchIndex';
 export {SEARCH_INDEX_SCHEMA_VERSION} from '@electron/features/search/searchIndexSchemaVersion';
 
-// eslint-disable-next-line custom/no-relative-imports -- keep the builder lazy and module-local.
+// keep the builder lazy and module-local.
 const loadSearchIndexBuilderPublic = () => import('./searchIndexBuilderPublic');
-// eslint-disable-next-line custom/no-relative-imports -- keep rebinding lazy and module-local.
+// keep rebinding lazy and module-local.
 const loadRebindSearchIndexes = () => import('./rebindSearchIndexes');
 
 export async function loadSearchIndex(

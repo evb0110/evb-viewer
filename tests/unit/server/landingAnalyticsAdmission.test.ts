@@ -1,4 +1,4 @@
-/* eslint-disable custom/no-relative-imports -- This test intentionally exercises the standalone landing project. */
+/* This test intentionally exercises the standalone landing project. */
 import {
     describe,
     expect,
