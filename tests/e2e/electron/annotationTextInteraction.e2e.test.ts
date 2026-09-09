@@ -8,6 +8,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Page} from 'puppeteer-core';
 import {
+    createCanvas,
+    loadImage,
+} from '@napi-rs/canvas';
+import {
     describe,
     expect,
     it,
@@ -33,6 +37,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
     saveViaWindowHandle,
+    scrollViewerToPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
@@ -66,7 +71,12 @@ async function markupSelectionPoints(page: Page) {
             });
         const first = spans[0]?.firstChild;
         const last = spans[1]?.firstChild;
-        if (!(first instanceof Text) || !(last instanceof Text)) throw new Error('Two visible text lines are required');
+        if (!(first instanceof Text) || !(last instanceof Text)) {
+            throw new Error('Two visible text lines are required');
+        }
+        if (spans[0]?.closest('.page_container') !== spans[1]?.closest('.page_container')) {
+            throw new Error('Markup selection needs two visible lines on the same page');
+        }
         const range = document.createRange();
         // A partial heading followed by a differently sized line matches the
         // reported recording and catches geometry built from unselected text.
@@ -77,7 +87,14 @@ async function markupSelectionPoints(page: Page) {
         range.setStart(last, last.length - 1);
         range.setEnd(last, last.length);
         const end = range.getBoundingClientRect();
+        range.setStart(first, 0);
+        range.setEnd(first, 1);
+        const expandedStart = range.getBoundingClientRect();
         return {
+            expandedStart: {
+                x: expandedStart.left + 0.5,
+                y: expandedStart.top + expandedStart.height / 2,
+            },
             start: {
                 x: start.left + 0.5,
                 y: start.top + start.height / 2,
@@ -90,11 +107,21 @@ async function markupSelectionPoints(page: Page) {
     });
 }
 
-async function dragMarkupSelection(page: Page, points: Awaited<ReturnType<typeof markupSelectionPoints>>, captureBeforeRelease: boolean) {
+async function dragMarkupSelection(page: Page, points: Pick<Awaited<ReturnType<typeof markupSelectionPoints>>, 'start' | 'end'>, captureBeforeRelease: boolean) {
     await page.mouse.move(points.start.x, points.start.y);
-    const hit = await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.text-layer')), points.start);
-    expect(hit, 'Markup drag must start on the rendered text layer').toBe(true);
+    const hit = await page.evaluate(point => {
+        const target = document.elementFromPoint(point.x, point.y);
+        const container = target?.closest('.page_container');
+        return {
+            textLayer: Boolean(target?.closest('.text-layer')),
+            pageNumber: container?.getAttribute('data-page'),
+            top: container?.getBoundingClientRect().top,
+        };
+    }, points.start);
+    expect(hit.textLayer, 'Markup drag must start on the rendered text layer').toBe(true);
     await page.mouse.down();
+    const topAfterPress = await page.$eval(`.page_container[data-page="${hit.pageNumber}"]`, element => element.getBoundingClientRect().top);
+    expect(topAfterPress, 'Starting text selection must not move the page under the pointer').toBeCloseTo(hit.top!, 0);
     await page.mouse.move(points.end.x, points.end.y, {steps: 16});
     if (!captureBeforeRelease) await page.mouse.up();
     const selected = await page.evaluate(() => {
@@ -131,13 +158,51 @@ async function dragMarkupSelection(page: Page, points: Awaited<ReturnType<typeof
     return selected;
 }
 
-async function expectMarkupGeometry(page: Page, expected: ISelectionRect[]) {
+async function expectMarkupGeometry(page: Page, expected: ISelectionRect[], compareUnion = false) {
     const actual = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, elements => elements.map(element => ({
         left: Number(element.getAttribute('x')),
         top: Number(element.getAttribute('y')),
         width: Number(element.getAttribute('width')),
         height: Number(element.getAttribute('height')),
     })));
+    if (compareUnion) {
+        // Compare covered area, allowing the saved union to partition overlapping
+        // line boxes without requiring the original rectangle representation.
+        const rectangles = [
+            ...actual,
+            ...expected,
+        ];
+        const xs = [...new Set(rectangles.flatMap(rect => [
+            rect.left,
+            rect.left + rect.width,
+        ]))].sort((a, b) => a - b);
+        const ys = [...new Set(rectangles.flatMap(rect => [
+            rect.top,
+            rect.top + rect.height,
+        ]))].sort((a, b) => a - b);
+        const contains = (rects: ISelectionRect[], x: number, y: number) => rects.some(rect => (
+            x > rect.left && x < rect.left + rect.width && y > rect.top && y < rect.top + rect.height
+        ));
+        let changedArea = 0;
+        let coveredArea = 0;
+        for (let column = 1; column < xs.length; column += 1) {
+            for (let row = 1; row < ys.length; row += 1) {
+                const x = (xs[column - 1]! + xs[column]!) / 2;
+                const y = (ys[row - 1]! + ys[row]!) / 2;
+                const area = (xs[column]! - xs[column - 1]!) * (ys[row]! - ys[row - 1]!);
+                const expectedContains = contains(expected, x, y);
+                if (expectedContains) coveredArea += area;
+                if (contains(actual, x, y) !== expectedContains) changedArea += area;
+            }
+        }
+        expect(changedArea, 'Merged geometry must cover exactly the selected text area').toBeLessThan(0.00001);
+        const paintedArea = actual.reduce((area, rect) => area + rect.width * rect.height, 0);
+        expect(paintedArea - coveredArea, 'Saved highlight rectangles must not paint the same area twice').toBeLessThan(0.00001);
+        return;
+    }
+    const byPosition = (left: ISelectionRect, right: ISelectionRect) => left.top - right.top || left.left - right.left;
+    actual.sort(byPosition);
+    const expectedByPosition = [...expected].sort(byPosition);
     expect(actual).toHaveLength(expected.length);
     for (const [
         index,
@@ -149,15 +214,52 @@ async function expectMarkupGeometry(page: Page, expected: ISelectionRect[]) {
             'width',
             'height',
         ] as const) {
-            expect(rect[key], `quad ${index} ${key}`).toBeCloseTo(expected[index]![key], 4);
+            expect(rect[key], `quad ${index} ${key}`).toBeCloseTo(expectedByPosition[index]![key], 4);
         }
     }
+}
+
+async function highlightPaintColor(page: Page) {
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const bounds = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, elements => {
+        const visible = elements.map(element => element.getBoundingClientRect()).map(rect => ({
+            left: Math.max(0, Math.ceil(rect.left + 2)),
+            top: Math.max(92, Math.ceil(rect.top + 2)),
+            right: Math.min(innerWidth, Math.floor(rect.right - 2)),
+            bottom: Math.min(innerHeight - 30, Math.floor(rect.bottom - 2)),
+        })).find(rect => rect.right > rect.left && rect.bottom > rect.top);
+        if (!visible) throw new Error('Highlight must have a visible hit area');
+        return {
+            left: visible.left,
+            top: visible.top,
+            width: visible.right - visible.left,
+            height: visible.bottom - visible.top,
+        };
+    });
+    const image = await loadImage(Buffer.from(await page.screenshot()));
+    const canvas = createCanvas(image.width, image.height);
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(bounds.left, bounds.top, bounds.width, bounds.height).data;
+    const colors = new Map<string, number>();
+    for (let index = 0; index < pixels.length; index += 4) {
+        const r = pixels[index]!;
+        const g = pixels[index + 1]!;
+        const b = pixels[index + 2]!;
+        if (r > 175 && g > 95 && r - b > 45 && g - b > 20) {
+            const key = `${r},${g},${b}`;
+            colors.set(key, (colors.get(key) ?? 0) + 1);
+        }
+    }
+    const color = [...colors].sort((a, b) => b[1] - a[1])[0]?.[0];
+    expect(color, 'A visible yellow highlight is required for the overlap comparison').toBeTruthy();
+    return color;
 }
 
 async function expectHighlightPaint(page: Page) {
     let lastMeasurement = '';
     await expect.poll(async () => {
-        const measurement = await page.$eval(`${MARKUP} [data-annotation-visual]`, element => {
+        const measurement = await page.$eval(`${MARKUP} [data-annotation-hit-target]`, element => {
             const rect = element.getBoundingClientRect();
             return {
                 rect: {
@@ -302,7 +404,7 @@ describe('Electron E2E - text interaction contract', () => {
         await session.page.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
         if (source && process.env.EVB_MARKUP_FIXTURE_PAGE) {
             const pageNumber = Number(process.env.EVB_MARKUP_FIXTURE_PAGE);
-            await callWorkspaceCommand(session.page, 'scrollToPage', [pageNumber]);
+            await scrollViewerToPage(session.page, pageNumber);
             await session.page.waitForSelector(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer span`);
         }
         await waitForViewerInteractive(session.page);
@@ -312,6 +414,96 @@ describe('Electron E2E - text interaction contract', () => {
             path,
         };
     }
+
+    it('merges overlapping highlights through undo, save, and reopen', async () => {
+        const textFixture = await createMultiPageTextFixturePdf(`markup-overlap-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(textFixture, {force: true}));
+        const zoom = process.env.EVB_TEXT_INTERACTION_FIXTURE ? 3.8 : 2.92;
+        const {
+            page, path,
+        } = await openFixture(false, zoom, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
+        const initialAnnotations = await readPdfAnnotationSummary(path);
+        const points = await markupSelectionPoints(page);
+        await clickAnnotationTool(page, 'Highlight');
+        const initialSelection = await dragMarkupSelection(page, points, true);
+        await page.waitForSelector(MARKUP);
+        await expectMarkupGeometry(page, initialSelection.rects, true);
+        const before = await highlightPaintColor(page);
+        // Merge into an already saved annotation to exercise its stable PDF
+        // identity and the native geometry rewrite, not only draft creation.
+        await saveViaWindowHandle(page, 30_000);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'first-saved.pdf'));
+
+        await clickAnnotationTool(page, 'Highlight');
+        const expandedSelection = await dragMarkupSelection(page, {
+            ...points,
+            start: points.expandedStart,
+        }, true);
+        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1 && getSelection()?.rangeCount === 0, {}, MARKUP);
+        await expectMarkupGeometry(page, expandedSelection.rects, true);
+        expect(await highlightPaintColor(page), 'Re-highlighting text must not make it darker').toBe(before);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'overlap-selected.png')});
+        }
+        const cards = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text';
+        await expect.poll(() => page.$eval(cards, row => row.textContent?.replace(/\s+/gu, ''))).toBe(expandedSelection.text.replace(/\s+/gu, ''));
+        const texts = await page.$$eval(cards, rows => rows.map(row => row.textContent?.trim()));
+        expect(texts).toHaveLength(1);
+        expect(texts.every(text => text && !text.toLowerCase().includes('no text'))).toBe(true);
+        await page.mouse.click(points.start.x, points.start.y - 120);
+        expect(await page.$$eval(cards, rows => rows.map(row => row.textContent?.trim()))).toEqual(texts);
+        expect(await highlightPaintColor(page), 'Blurring the selection must keep the highlight visible').toBe(before);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'overlap.png')});
+        }
+        await clickVisibleAnnotationControl(page, '.toolbar-action--undo button:not(:disabled)');
+        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, {}, MARKUP);
+        await expectMarkupGeometry(page, initialSelection.rects, true);
+        await expect.poll(() => page.$eval(cards, row => row.textContent?.replace(/\s+/gu, ''))).toBe(initialSelection.text.replace(/\s+/gu, ''));
+        expect(await highlightPaintColor(page)).toBe(before);
+        await clickVisibleAnnotationControl(page, '.toolbar-action--redo button:not(:disabled)');
+        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, {}, MARKUP);
+        await expectMarkupGeometry(page, expandedSelection.rects, true);
+        expect(await highlightPaintColor(page)).toBe(before);
+        await saveViaWindowHandle(page, 30_000);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'merged-saved.pdf'));
+
+        expect(await readPdfAnnotationSummary(path)).toEqual({
+            total: initialAnnotations.total + 1,
+            bySubtype: {
+                ...initialAnnotations.bySubtype,
+                Highlight: (initialAnnotations.bySubtype.Highlight ?? 0) + 1,
+            },
+        });
+        const restarted = await sessions.restart({hard: true});
+        if (!restarted) throw new Error('Highlight overlap save/reopen did not start');
+        const reopened = restarted.page;
+        await reopened.setViewport({
+            width: 1920,
+            height: 1080,
+            deviceScaleFactor: 1,
+        });
+        await openPdfInApp(reopened, path);
+        await waitForPdfLoaded(reopened);
+        await waitForViewerInteractive(reopened);
+        await openAnnotationsTab(reopened);
+        await callWorkspaceCommand(reopened, 'setCustomZoomFromDisplay', [zoom]);
+        await reopened.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
+        await waitForViewerInteractive(reopened);
+        await reopened.evaluate(async () => { await document.fonts.ready; });
+        if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
+            await scrollViewerToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
+        }
+        await waitForViewerInteractive(reopened);
+        await reopened.waitForSelector(MARKUP);
+        expect(await reopened.$$(MARKUP)).toHaveLength(1);
+        await expectMarkupGeometry(reopened, expandedSelection.rects, true);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            await reopened.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'overlap-reopened.png')});
+        }
+        await expect.poll(() => highlightPaintColor(reopened)).toBe(before);
+        await expect.poll(() => reopened.$$eval(cards, rows => rows.map(row => row.textContent?.trim()))).toEqual(texts);
+    });
 
     it.each([
         [
@@ -346,7 +538,7 @@ describe('Electron E2E - text interaction contract', () => {
         await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
         await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
         expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
-        await expectMarkupGeometry(page, expected.rects);
+        await expectMarkupGeometry(page, expected.rects, tool === 'highlight');
         // PDF.js positions lines absolutely, so native Selection.toString can
         // omit their separating spaces. The sidebar adds readable line gaps.
         await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.replace(/\s+/gu, ''))).toBe(expected.text.replace(/\s+/gu, ''));
@@ -356,7 +548,7 @@ describe('Electron E2E - text interaction contract', () => {
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-committed.png`)});
         }
-        await expectMarkupGeometry(page, expected.rects);
+        await expectMarkupGeometry(page, expected.rects, tool === 'highlight');
         // Activating another markup tool after clicking blank space must not
         // turn the consumed cached range into another annotation.
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="underline"]');
@@ -393,11 +585,11 @@ describe('Electron E2E - text interaction contract', () => {
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         });
         if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
-            await callWorkspaceCommand(reopened, 'scrollToPage', [Number(process.env.EVB_MARKUP_FIXTURE_PAGE)]);
+            await scrollViewerToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
         }
         await waitForViewerInteractive(reopened);
         await reopened.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`);
-        await expectMarkupGeometry(reopened, expected.rects);
+        await expectMarkupGeometry(reopened, expected.rects, tool === 'highlight');
         if (tool === 'highlight') await expectHighlightPaint(reopened);
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await reopened.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-reopened.png`)});
@@ -431,12 +623,14 @@ describe('Electron E2E - text interaction contract', () => {
         const expected = await dragMarkupSelection(page, points, true);
         await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
         expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
-        await expectMarkupGeometry(page, expected.rects);
+        await expectMarkupGeometry(page, expected.rects, tool === 'highlight');
         expect(await page.$eval(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`, element => element.getAttribute('aria-pressed'))).toBe('true');
         await page.mouse.click(points.end.x, points.end.y + 150);
         expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
         await dragMarkupSelection(page, points, true);
-        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 2, {timeout: 3_000}, MARKUP);
+        // A merged highlight keeps the count unchanged. Selection consumption
+        // is the completion signal for the second asynchronous drag commit.
+        await page.waitForFunction((selector, count) => document.querySelectorAll(selector).length === count && window.getSelection()?.rangeCount === 0, {timeout: 3_000}, MARKUP, tool === 'highlight' ? 1 : 2);
         expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
         // The active instrument must still be possible to switch off.
         await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);

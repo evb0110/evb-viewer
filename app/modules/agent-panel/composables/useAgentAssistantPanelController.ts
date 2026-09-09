@@ -838,6 +838,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return false;
         }
         const generation = sendGeneration;
+        const previousMessageIds = new Set(messages.value.map(message => message.id));
         const attachments = payload.attachments ?? [];
         isSending.value = true;
         try {
@@ -855,6 +856,19 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 return false;
             }
             applyState(result.state);
+            if (!result.ok) {
+                if (!hasRecordedAssistantPayload(result.state, previousMessageIds, payload)) {
+                    onSendError?.();
+                }
+                handleAssistantActionError(
+                    createResolvedAssistantActionError(
+                        result.error ?? result.state.status.error,
+                        result.errorEnvelope ?? result.state.status.errorEnvelope,
+                    ),
+                    createAssistantActionOptions('send', errorTitle, 'composer'),
+                );
+                return false;
+            }
             return true;
         } catch (error) {
             if (generation === sendGeneration) {
@@ -876,6 +890,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     } = createAssistantSteering({
         chatScope,
         clearComposerImages,
+        composerImages,
         composerError,
         draft,
         handleInterrupt,
@@ -944,8 +959,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             },
             'Failed to send assistant message',
             () => {
-                draft.value = text;
-                replaceComposerImages(attachments);
+                if (draft.value.length === 0 && composerImages.value.length === 0) {
+                    draft.value = text;
+                    replaceComposerImages(attachments);
+                }
             },
         );
     }
@@ -1143,3 +1160,50 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         widthVar,
     };
 };
+
+function hasRecordedAssistantPayload(
+    state: IAgentAssistantState,
+    previousMessageIds: ReadonlySet<string>,
+    payload: IAssistantSubmitPayload,
+) {
+    return state.messages.some(message => (
+        message.role === 'user'
+        && !previousMessageIds.has(message.id)
+        && message.text === payload.text
+        && areAssistantAttachmentsEqual(message.attachments ?? [], payload.attachments ?? [])
+    ));
+}
+
+function areAssistantAttachmentsEqual(
+    left: readonly IAgentAssistantImageAttachment[],
+    right: readonly IAgentAssistantImageAttachment[],
+) {
+    return left.length === right.length && left.every((attachment, index) => {
+        const candidate = right[index];
+        return candidate !== undefined
+            && attachment.id === candidate.id
+            && attachment.name === candidate.name
+            && attachment.mimeType === candidate.mimeType
+            && attachment.sizeBytes === candidate.sizeBytes
+            && attachment.dataUrl === candidate.dataUrl;
+    });
+}
+
+function createResolvedAssistantActionError(
+    error: unknown,
+    errorEnvelope: unknown,
+) {
+    const message = typeof error === 'string'
+        ? error
+        : typeof errorEnvelope === 'object'
+            && errorEnvelope !== null
+            && 'message' in errorEnvelope
+            && typeof errorEnvelope.message === 'string'
+            ? errorEnvelope.message
+            : 'Assistant message was not accepted.';
+    const actionError = new Error(message);
+    if (typeof errorEnvelope === 'object' && errorEnvelope !== null) {
+        Object.assign(actionError, {errorEnvelope});
+    }
+    return actionError;
+}

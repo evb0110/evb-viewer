@@ -210,7 +210,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return false;
         }
 
-        const targetPage = navigationVisualHandoffTargetPage?.value ?? navigationAnchorPage.value;
+        const targetPage = navigationVisualHandoffTargetPage === undefined
+            ? navigationAnchorPage.value
+            : navigationVisualHandoffTargetPage.value;
         if (targetPage === null) {
             return false;
         }

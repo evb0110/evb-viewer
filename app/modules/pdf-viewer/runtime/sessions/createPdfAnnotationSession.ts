@@ -34,7 +34,11 @@ import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import {commitPdfAnnotationParseToStore} from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
+import {
+    applyParsedHighlightTextToStore,
+    commitPdfAnnotationParseToStore,
+} from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
+import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
@@ -46,6 +50,7 @@ import type {
 import {
     asAnnotationId,
     normalizeAnnotationText,
+    type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     getDocumentFilesCapability,
@@ -82,6 +87,7 @@ import { createPdfAnnotationOwnershipRefreshWatch } from '@app/modules/pdf-viewe
 import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolvePdfAnnotationSelectionGeometry } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
 import { deriveSelectedTextForParsedHighlights } from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
+import {resolvePdfAnnotationPreviewTextFromMarkerRects} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 import { subtypeForAnnotationTool } from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
 import type {
@@ -446,6 +452,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }),
         createHighlights: (pages, request: ICreatePdfAnnotationSelectionMarkupRequest) => (
             appAnnotationHistory.runTransaction(() => pages.map(page => {
+                const previewText = page.previewText;
                 const entity = annotationEditorSurface.createHighlightFromSelection(
                     page.pageNumber - 1,
                     page.quadPoints,
@@ -455,6 +462,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                         opacity: request.style.opacity,
                         selectedText: page.selectedText,
                     },
+                    previewText ? {resolveSelectedText: quadPoints => resolvePdfAnnotationPreviewTextFromMarkerRects(
+                        request.subtype,
+                        quadPoints,
+                        previewText.textItems,
+                        previewText.viewport,
+                    )} : undefined,
                 );
                 return entity.identity.id;
             }))
@@ -979,6 +992,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (!committed) {
                 return;
             }
+            const parsedMarkupGeometryByPdfRef = new Map<string, ITextMarkupEntity['quadPoints']>();
+            result.entities.forEach((entry) => {
+                if (entry.kind !== 'highlight') {
+                    return;
+                }
+                parsedMarkupGeometryByPdfRef.set(
+                    pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
+                    entry.quadPoints.map(rect => ({...rect})),
+                );
+            });
             void deriveSelectedTextForParsedHighlights({
                 documentSession,
                 result,
@@ -994,11 +1017,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 ) {
                     return;
                 }
-                selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
-                    const id = targetStore.resolveExternal({pdfRef});
-                    if (id) {
-                        targetStore.updateTextMarkupSelectedText(id, selectedText);
-                    }
+                applyParsedHighlightTextToStore({
+                    targetStore,
+                    selectedTextByPdfRef,
+                    parsedMarkupGeometryByPdfRef,
                 });
             }).catch((error) => {
                 if (!abortController.signal.aborted) {

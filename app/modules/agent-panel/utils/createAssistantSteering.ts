@@ -19,6 +19,7 @@ interface IAssistantSteeringOptions {
     chatScope: ComputedRef<IAgentAssistantChatScope | null>;
     clearComposerImages: () => void;
     composerError: Ref<string>;
+    composerImages: Ref<IAgentAssistantImageAttachment[]>;
     draft: Ref<string>;
     handleInterrupt: () => void;
     isSending: Ref<boolean>;
@@ -90,19 +91,19 @@ export function createAssistantSteering(options: IAssistantSteeringOptions) {
                 return;
             }
             if (requestGeneration !== options.sendGeneration()) {
-                options.draft.value = payload.text;
-                options.replaceComposerImages(payload.attachments ?? []);
+                restorePayloadIfOwned(options, payload);
                 options.queuedSteerSendInFlight.value = false;
                 return;
             }
             if (success) {
                 options.queuedSteer.value = null;
-                options.draft.value = '';
-                options.clearComposerImages();
+                if (isComposerPayloadCurrent(options, payload)) {
+                    options.draft.value = '';
+                    options.clearComposerImages();
+                }
             } else {
                 options.queuedSteer.value = null;
-                options.draft.value = payload.text;
-                options.replaceComposerImages(payload.attachments ?? []);
+                restorePayloadIfOwned(options, payload);
             }
             options.queuedSteerSendInFlight.value = false;
         });
@@ -112,6 +113,27 @@ export function createAssistantSteering(options: IAssistantSteeringOptions) {
         flushQueuedSteerIfReady,
         queueSteer,
     };
+}
+
+function restorePayloadIfOwned(
+    options: IAssistantSteeringOptions,
+    payload: IAssistantSubmitPayload,
+) {
+    if (!isComposerPayloadCurrent(options, payload)) {
+        return;
+    }
+    options.draft.value = payload.text;
+    options.replaceComposerImages(payload.attachments ?? []);
+}
+
+function isComposerPayloadCurrent(
+    options: IAssistantSteeringOptions,
+    payload: IAssistantSubmitPayload,
+) {
+    const attachments = payload.attachments ?? [];
+    return options.draft.value === payload.text
+        && options.composerImages.value.length === attachments.length
+        && options.composerImages.value.every((image, index) => image.id === attachments[index]?.id);
 }
 
 function isCurrentQueue(

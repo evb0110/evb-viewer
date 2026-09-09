@@ -7,9 +7,11 @@ import {
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
+    applyParsedHighlightTextToStore,
     commitPdfAnnotationParseToStore,
     type ICommitPdfAnnotationParseToStoreOptions,
 } from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
+import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
@@ -73,6 +75,86 @@ function commitOptions(
 }
 
 describe('PDF annotation session behavior', () => {
+    it('keeps enrichment tied to current markup geometry', () => {
+        const store = new AnnotationStore();
+        const parsedQuadPoints = [{
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.04,
+        }];
+        const movedQuadPoints = [{
+            left: 0.5,
+            top: 0.2,
+            width: 0.3,
+            height: 0.04,
+        }];
+        const markup: ITextMarkupEntity = {
+            kind: 'text-markup',
+            identity: {
+                id: asAnnotationId('parsed-highlight'),
+                pdfRef: '12 0 R',
+            },
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            subtype: 'Highlight',
+            contents: '',
+            quadPoints: parsedQuadPoints,
+            color: '#ffff00',
+            opacity: 1,
+            selectedText: null,
+        };
+        const created = store.createTextMarkup(markup);
+        const parsedMarkupGeometryByPdfRef = new Map([[
+            '12 0 R',
+            parsedQuadPoints,
+        ]]);
+
+        applyParsedHighlightTextToStore({
+            targetStore: store,
+            selectedTextByPdfRef: new Map([[
+                '12 0 R',
+                'selected text',
+            ]]),
+            parsedMarkupGeometryByPdfRef,
+        });
+        expect(store.get(created.identity.id)).toMatchObject({selectedText: 'selected text'});
+
+        store.updateTextMarkup(created.identity.id, {
+            color: '#00ff00',
+            opacity: 0.5,
+            contents: 'Authored note',
+        });
+        applyParsedHighlightTextToStore({
+            targetStore: store,
+            selectedTextByPdfRef: new Map([[
+                '12 0 R',
+                null,
+            ]]),
+            parsedMarkupGeometryByPdfRef,
+        });
+        expect(store.get(created.identity.id)).toMatchObject({
+            contents: 'Authored note',
+            selectedText: 'selected text',
+        });
+
+        store.updateTextMarkup(created.identity.id, {quadPoints: movedQuadPoints});
+        applyParsedHighlightTextToStore({
+            targetStore: store,
+            selectedTextByPdfRef: new Map([[
+                '12 0 R',
+                'stale text',
+            ]]),
+            parsedMarkupGeometryByPdfRef,
+        });
+        expect(store.get(created.identity.id)).toMatchObject({selectedText: null});
+    });
+
     it('commits current writer results and ignores stale store mutations', () => {
         const store = new AnnotationStore();
         const replaceFromDocument = vi.spyOn(store, 'replaceFromDocument');

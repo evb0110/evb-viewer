@@ -114,6 +114,37 @@ it.each([
     }
 });
 
+it('keeps a markup preview in the sidebar when text extraction temporarily returns null', async () => {
+    const application = applicationWith({
+        ...note('markup-preview'),
+        kind: 'text-markup',
+        subtype: 'Highlight',
+        contents: '',
+        selectedText: 'Selected document text',
+        quadPoints: [rect],
+        opacity: 0.4,
+    });
+    const mounted = mountAnnotationCommentsList({comments: application.listCommentSummaries()});
+    const unsubscribe = application.store.subscribe(() => {
+        void mounted.setComments(application.listCommentSummaries());
+    });
+
+    try {
+        await nextTick();
+        expect(mounted.host.querySelector('.note-item-text')?.textContent).toContain('Selected document text');
+
+        expect(application.store.updateTextMarkupSelectedText(
+            asAnnotationId('markup-preview'),
+            null,
+        )).toBe(false);
+        await nextTick();
+
+        expect(mounted.host.querySelector('.note-item-text')?.textContent).toContain('Selected document text');
+    } finally {
+        unsubscribe();
+    }
+});
+
 it('keeps the shape row identity and author across its first save binding', async () => {
     const application = applicationWith({
         ...note('shape-1'),

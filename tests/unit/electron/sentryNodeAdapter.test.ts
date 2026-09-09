@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {Transport} from '@sentry/core';
+import {
+    createTransport,
+    type Transport,
+} from '@sentry/core';
 import {requireDiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
 import {
     createSentryNodeDiagnosticsTransport,
@@ -29,11 +32,14 @@ const RECORD = requireDiagnosticRecord({
     context: {},
 });
 
-function setup(resolveFilenameDebugIds?: () => Readonly<Record<string, string>>) {
+function setup(
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>,
+    statusCode: number | null = 200,
+) {
     const envelopes: unknown[] = [];
     const send = vi.fn((envelope: unknown) => {
         envelopes.push(envelope);
-        return Promise.resolve({statusCode: 200});
+        return Promise.resolve(statusCode === null ? {} : {statusCode});
     });
     const flush = vi.fn(() => Promise.resolve(true));
     const makeTransport = vi.fn(() => ({
@@ -103,6 +109,99 @@ describe('Sentry Node diagnostics adapter', () => {
         const envelope = envelopes[0] as [unknown, unknown[]];
         expect(envelope[1]).toHaveLength(1);
         expect((envelope[1][0] as [{type: string}, unknown])[0]).toEqual({type: 'event'});
+    });
+
+    it('does not accept a transport result without an explicit numeric status', async () => {
+        const {adapter} = setup(undefined, null);
+
+        await expect(adapter.send?.(RECORD)).resolves.toBe(false);
+    });
+
+    it('keeps the pinned core backoff and buffer drops out of accepted delivery', async () => {
+        const audit = vi.fn();
+        const requests: unknown[] = [];
+        const responses: Array<(value: {
+            statusCode: number;
+            headers: {'x-sentry-rate-limits': string | null; 'retry-after': string | null};
+        }) => void> = [];
+        const adapter = createSentryNodeDiagnosticsTransport({
+            dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
+            identity: {
+                target: 'desktop',
+                release: 'evb-viewer-desktop@0.1.449',
+                dist: 'macos-arm64',
+                environment: 'test',
+            },
+            appVersion: '0.1.449',
+            platform: 'darwin',
+            architecture: 'arm64',
+            audit,
+            makeTransport: options => createTransport(
+                {...options, bufferSize: 16},
+                request => {
+                    requests.push(request);
+                    return new Promise(resolve => responses.push(resolve));
+                },
+            ),
+        });
+
+        const first = adapter.send?.(RECORD);
+        expect(requests).toHaveLength(1);
+        responses.shift()?.({
+            statusCode: 200,
+            headers: {'x-sentry-rate-limits': '60::error', 'retry-after': null},
+        });
+        await expect(first).resolves.toBe(true);
+
+        const backoffRecord = requireDiagnosticRecord({
+            ...RECORD,
+            eventId: `${RECORD.eventId.slice(0, -2)}01`,
+        });
+        await Promise.resolve();
+        const second = adapter.send?.(backoffRecord);
+        await expect(second).resolves.toBe(false);
+        expect(requests).toHaveLength(1);
+
+        const pendingResponses: Array<(value: {statusCode: number}) => void> = [];
+        const overflowAudit = vi.fn();
+        const overflowAdapter = createSentryNodeDiagnosticsTransport({
+            dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
+            identity: {
+                target: 'desktop',
+                release: 'evb-viewer-desktop@0.1.449',
+                dist: 'macos-arm64',
+                environment: 'test',
+            },
+            appVersion: '0.1.449',
+            platform: 'darwin',
+            architecture: 'arm64',
+            audit: overflowAudit,
+            makeTransport: options => createTransport(
+                {...options, bufferSize: 16},
+                () => new Promise(resolve => pendingResponses.push(resolve)),
+            ),
+        });
+        const sends = Array.from({length: 17}, (_, index) => overflowAdapter.send?.(
+            requireDiagnosticRecord({
+                ...RECORD,
+                eventId: `${RECORD.eventId.slice(0, -2)}${index.toString(16).padStart(2, '0')}`,
+            }),
+        ));
+
+        expect(pendingResponses).toHaveLength(16);
+        await expect(sends[16]).resolves.toBe(false);
+        for (const resolve of pendingResponses) {
+            resolve({statusCode: 200});
+        }
+        await expect(Promise.all(sends.slice(0, 16))).resolves.toEqual(
+            Array.from({length: 16}, () => true),
+        );
+        expect(overflowAudit.mock.calls.filter(([entry]) => entry.phase === 'accepted'))
+            .toHaveLength(16);
+        expect(overflowAudit.mock.calls
+            .filter(([entry]) => entry.phase === 'accepted')
+            .map(([entry]) => entry.eventId))
+            .not.toContain(`${RECORD.eventId.slice(0, -2)}10`);
     });
 
     it('emits content-free attempted and accepted audit records', async () => {
