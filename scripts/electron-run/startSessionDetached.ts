@@ -13,6 +13,7 @@ import { DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV } from '@scripts/electron-run/de
 import {
     cleanupStaleSessionArtifacts,
     cleanupSessionStartingAttempt,
+    classifySessionControllerOwnership,
     isSessionRunning,
     isSessionStarting,
     readSessionLogTail,
@@ -116,7 +117,10 @@ export async function startSessionDetached(options: {
 } = {}) {
     const owner = options.owner ?? 'dev';
     const readyTimeoutMs = resolveDetachedSessionReadyTimeoutMs(owner);
-    await cleanupStaleSessionArtifacts();
+    const cleanupResult = await cleanupStaleSessionArtifacts();
+    if (cleanupResult.retained && classifySessionControllerOwnership(getCurrentSessionName()).status !== 'active') {
+        throw new Error(cleanupResult.reason ?? 'Session cleanup was refused because ownership evidence is unresolved.');
+    }
 
     if (await isSessionRunning()) {
         console.log(`Session '${getCurrentSessionName()}' already running.`);
@@ -193,7 +197,10 @@ export async function startSessionDetached(options: {
             cleanupErrors.push(error);
         }
         try {
-            await cleanupSessionStartingAttempt();
+            const cleanupResult = await cleanupSessionStartingAttempt();
+            if (!cleanupResult.completed) {
+                throw new Error(cleanupResult.reason ?? 'Detached startup cleanup was retained.');
+            }
             if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
                 throw new Error('Detached session app temp cleanup was refused because a session-owned Electron process is still alive.');
             }

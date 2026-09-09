@@ -26,6 +26,7 @@ import {
     getSessionInfo,
     getSessionStartingInfo,
     listAllSessionNames,
+    readNuxtOwnerCheck,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     electronUserDataPath,
@@ -179,7 +180,12 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
         console.log('[Nuxt] Left running for fast restart');
         return true;
     }
-    if (hasOtherAliveSessionUsingNuxt(readNuxtSessionShareMetadata(), name, info.nuxtPid, info.nuxtPort)) {
+    const ownerCheck = await readNuxtOwnerCheck(name, info.nuxtPid, info.nuxtPort);
+    if (!ownerCheck.known) {
+        console.warn(ownerCheck.reason ?? `[Nuxt] Refused to terminate PID ${info.nuxtPid}: ownership is unresolved.`);
+        return false;
+    }
+    if (ownerCheck.shared || hasOtherAliveSessionUsingNuxt(readNuxtSessionShareMetadata(), name, info.nuxtPid, info.nuxtPort)) {
         console.log('[Nuxt] Left running (shared with other session)');
         return true;
     }
@@ -314,7 +320,16 @@ export async function stopSingleSession(
             );
         }
     }
-    await cleanupSessionStartingAttempt(name, {killNuxt: options.keepNuxt !== true});
+    const startingCleanup = await cleanupSessionStartingAttempt(name, {
+        killNuxt: options.keepNuxt !== true,
+        starting,
+    });
+    if (!startingCleanup.completed) {
+        if (info) {
+            retainSessionStopArtifacts(name, info);
+        }
+        throw new Error(startingCleanup.reason ?? `Session '${name}' startup cleanup was retained.`);
+    }
     clearSessionStarting(name);
     if (!preserveWorkspaceCheckpoint) {
         if (!cleanupSessionAppTempIfUnowned(name)) {

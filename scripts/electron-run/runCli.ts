@@ -1,7 +1,10 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
+    constants,
+    copyFileSync,
     existsSync,
     readFileSync,
+    statSync,
     unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -76,35 +79,257 @@ function parsePositivePid(value: unknown) {
         : null;
 }
 
-function readLegacyPid(filePath: string) {
-    try {
-        const parsed = safeJsonParse(readFileSync(filePath, 'utf8'), isRecord);
-        return parsePositivePid(parsed.pid);
-    } catch {
-        return null;
-    }
+type TLegacySessionFileKind = 'session' | 'starting';
+type TLegacySessionFileState = 'live' | 'dead' | 'malformed' | 'unreadable';
+
+interface ILegacySessionFileObservation {
+    kind: TLegacySessionFileKind;
+    filePath: string;
+    state: TLegacySessionFileState;
+    pid: number | null;
+    reason: string;
+    source: string | null;
+    device: number | null;
+    inode: number | null;
 }
 
-function stopLegacyProcess(pid: number | null) {
-    if (!pid || !isProcessAlive(pid)) {
-        return;
-    }
-    try {
-        process.kill(pid, 'SIGTERM');
-    } catch {}
+const READ_ONLY_CLI_COMMANDS: ReadonlySet<TCliCommand> = new Set([
+    'status',
+    'list',
+    'health',
+    'logs',
+]);
+
+function legacySessionFileLabel(kind: TLegacySessionFileKind) {
+    return kind === 'session' ? 'session' : 'startup';
 }
 
-function cleanupLegacySessionFile(filePath: string, logCleanup = false) {
+function legacySessionFilePaths() {
+    return [
+        {
+            kind: 'session' as const,
+            filePath: join(projectRoot, '.devkit', 'electron-session.json'),
+        },
+        {
+            kind: 'starting' as const,
+            filePath: join(projectRoot, '.devkit', 'electron-session-starting.json'),
+        },
+    ];
+}
+
+function inspectLegacySessionFile(
+    kind: TLegacySessionFileKind,
+    filePath: string,
+): ILegacySessionFileObservation | null {
     try {
         if (!existsSync(filePath)) {
-            return;
+            return null;
         }
-        stopLegacyProcess(readLegacyPid(filePath));
-        unlinkSync(filePath);
-        if (logCleanup) {
-            console.log('[Migration] Cleaned up legacy session file');
+    } catch {
+        return {
+            kind,
+            filePath,
+            state: 'unreadable',
+            pid: null,
+            reason: 'the legacy metadata path could not be inspected',
+            source: null,
+            device: null,
+            inode: null,
+        };
+    }
+
+    let source: string;
+    try {
+        source = readFileSync(filePath, 'utf8');
+    } catch {
+        return {
+            kind,
+            filePath,
+            state: 'unreadable',
+            pid: null,
+            reason: 'the legacy metadata could not be read',
+            source: null,
+            device: null,
+            inode: null,
+        };
+    }
+
+    let pid: number | null;
+    let fileIdentity: {
+        device: number;
+        inode: number;
+    } | null = null;
+    try {
+        const fileStat = statSync(filePath);
+        fileIdentity = {
+            device: fileStat.dev,
+            inode: fileStat.ino,
+        };
+    } catch {
+        return {
+            kind,
+            filePath,
+            state: 'unreadable',
+            pid: null,
+            reason: 'the legacy metadata changed while it was being inspected',
+            source,
+            device: null,
+            inode: null,
+        };
+    }
+    try {
+        const parsed = safeJsonParse(source, isRecord);
+        pid = parsePositivePid(parsed.pid);
+    } catch {
+        return {
+            kind,
+            filePath,
+            state: 'malformed',
+            pid: null,
+            reason: 'the legacy metadata is not a valid JSON record with a positive numeric PID',
+            source,
+            device: fileIdentity.device,
+            inode: fileIdentity.inode,
+        };
+    }
+
+    if (!pid) {
+        return {
+            kind,
+            filePath,
+            state: 'malformed',
+            pid: null,
+            reason: 'the legacy metadata does not contain a positive numeric PID',
+            source,
+            device: fileIdentity.device,
+            inode: fileIdentity.inode,
+        };
+    }
+
+    let processIsAlive: boolean;
+    try {
+        processIsAlive = isProcessAlive(pid);
+    } catch {
+        return {
+            kind,
+            filePath,
+            state: 'unreadable',
+            pid,
+            reason: 'the recorded PID could not be checked safely',
+            source,
+            device: fileIdentity.device,
+            inode: fileIdentity.inode,
+        };
+    }
+
+    if (processIsAlive) {
+        return {
+            kind,
+            filePath,
+            state: 'live',
+            pid,
+            reason: 'the PID is live, but ownership is ambiguous because legacy metadata has no exact executable, process start-time, project, or session identity',
+            source,
+            device: fileIdentity.device,
+            inode: fileIdentity.inode,
+        };
+    }
+
+    return {
+        kind,
+        filePath,
+        state: 'dead',
+        pid,
+        reason: 'the recorded PID is not running',
+        source,
+        device: fileIdentity.device,
+        inode: fileIdentity.inode,
+    };
+}
+
+function inspectLegacySessionFiles() {
+    return legacySessionFilePaths()
+        .map(({
+            kind,
+            filePath,
+        }) => inspectLegacySessionFile(kind, filePath))
+        .filter((observation): observation is ILegacySessionFileObservation => observation !== null);
+}
+
+function printLegacySessionInspection(observations: readonly ILegacySessionFileObservation[]) {
+    if (observations.length === 0) {
+        return;
+    }
+
+    console.log('Legacy Electron session metadata:');
+    for (const observation of observations) {
+        const label = legacySessionFileLabel(observation.kind);
+        const pid = observation.pid === null ? '' : ` PID ${observation.pid}.`;
+        console.log(`  ${label}: ${observation.filePath}`);
+        console.log(`    Status: ${observation.state}.${pid} ${observation.reason}. Preserved; no process signal was sent.`);
+    }
+}
+
+function archiveDeadLegacySessionFile(observation: ILegacySessionFileObservation) {
+    const archivePath = `${observation.filePath}.migrated`;
+    try {
+        if (!existsSync(observation.filePath)) {
+            throw new Error('the source metadata disappeared before migration');
         }
-    } catch {}
+        const currentSource = readFileSync(observation.filePath, 'utf8');
+        const currentStat = statSync(observation.filePath);
+        if (currentSource !== observation.source
+            || currentStat.dev !== observation.device
+            || currentStat.ino !== observation.inode) {
+            throw new Error('the source metadata changed after inspection');
+        }
+        // COPYFILE_EXCL makes archive creation no-clobber. If interrupted
+        // before the source unlink, both copies remain available for recovery.
+        copyFileSync(observation.filePath, archivePath, constants.COPYFILE_EXCL);
+        const beforeUnlink = statSync(observation.filePath);
+        if (beforeUnlink.dev !== observation.device
+            || beforeUnlink.ino !== observation.inode
+            || readFileSync(observation.filePath, 'utf8') !== observation.source) {
+            throw new Error('the source metadata changed before migration could finish');
+        }
+        unlinkSync(observation.filePath);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+            `Legacy ${legacySessionFileLabel(observation.kind)} metadata at ${observation.filePath} `
+            + `was retained because migration could not complete: ${detail}`,
+        );
+    }
+    console.log(`[Migration] Archived inactive legacy ${legacySessionFileLabel(observation.kind)} metadata at ${archivePath}`);
+}
+
+function migrateLegacySessionFiles(observations: readonly ILegacySessionFileObservation[]) {
+    const unresolvedObservations = observations.filter(observation => (
+        observation.state === 'live'
+        || observation.state === 'malformed'
+        || observation.state === 'unreadable'
+    ));
+    if (unresolvedObservations.length > 0) {
+        const details = unresolvedObservations
+            .map(observation => `${observation.filePath} (${observation.state}${observation.pid ? `, PID ${String(observation.pid)}` : ''})`)
+            .join(', ');
+        throw new Error(
+            `Refused legacy session migration for ${details}: the live PID is ambiguous because `
+            + 'legacy metadata lacks exact executable, process start-time, project, and session identity. '
+            + 'No process was signaled and the metadata was retained. Inspect the live PID, then move or delete the named legacy session file when it is safe.',
+        );
+    }
+
+    for (const observation of observations) {
+        if (observation.state === 'dead') {
+            archiveDeadLegacySessionFile(observation);
+        } else {
+            console.warn(
+                `[Migration] Retained legacy ${legacySessionFileLabel(observation.kind)} metadata at `
+                + `${observation.filePath}: ${observation.reason}.`,
+            );
+        }
+    }
 }
 
 function parsePingResult(value: unknown) {
@@ -131,14 +356,6 @@ function parseHealthResult(value: unknown) {
         ready: typeof value.ready === 'boolean' ? value.ready : undefined,
         health,
     };
-}
-
-function migrateLegacySessionFiles() {
-    const legacySessionFile = join(projectRoot, '.devkit', 'electron-session.json');
-    const legacyStartingFile = join(projectRoot, '.devkit', 'electron-session-starting.json');
-
-    cleanupLegacySessionFile(legacySessionFile, true);
-    cleanupLegacySessionFile(legacyStartingFile);
 }
 
 function printUsage() {
@@ -322,16 +539,20 @@ async function printStatus() {
         }
     } catch {
         console.log('Session file exists but server not responding.');
-        console.log('  Cleaning up stale session file...');
-        try {
-            unlinkSync(sessionFilePath());
-        } catch {}
+        console.log('  Retaining session metadata for ownership recovery.');
         process.exit(1);
     }
 }
 
 async function printSessionListItem(name: string) {
-    await cleanupStaleSessionArtifacts(name);
+    const cleanupResult = await cleanupStaleSessionArtifacts(name);
+    if (cleanupResult.retained) {
+        console.log(`  ${name}`);
+        console.log(`    Status:  retained (${cleanupResult.reason ?? 'ownership is unresolved'})`);
+        console.log('    Cleanup was refused; session evidence was preserved.');
+        console.log('');
+        return;
+    }
     const info = getSessionInfo(name);
     const starting = getSessionStartingInfo(name);
 
@@ -472,10 +693,15 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
 export async function runCli() {
     const parsed = parseCliArgs(process.argv.slice(2));
     setCurrentSessionName(parsed.sessionName);
-    migrateLegacySessionFiles();
     const command = resolveCliCommand(parsed);
 
     try {
+        const legacyObservations = inspectLegacySessionFiles();
+        if (READ_ONLY_CLI_COMMANDS.has(command)) {
+            printLegacySessionInspection(legacyObservations);
+        } else {
+            migrateLegacySessionFiles(legacyObservations);
+        }
         await CLI_COMMAND_HANDLERS[command](parsed.args, parsed);
     } catch (error) {
         console.error('Error:', error instanceof Error ? getErrorMessage(error) : error);

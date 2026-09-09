@@ -1,34 +1,23 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     readdirSync,
     rmSync,
     statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import {
+    cleanupStaleSessionArtifacts,
     getSessionInfo,
     getSessionStartingInfo,
+    type ICleanupStaleSessionArtifactsOptions,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
-    inspectProcessIdentity,
-    findSessionOwnedElectronPids,
-    killVerifiedSessionProcess,
-    matchesSessionProcessIdentity,
-    type ISessionProcessIdentityExpectation,
-} from '@scripts/electron-run/electronRunProcessIdentity';
-import {
-    electronUserDataPath,
     sessionDir,
     sessionsBaseDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    cleanupSessionAppTempIfUnowned,
-    hasWorkspaceRecoveryEvidence,
-} from '@scripts/electron-run/electronRunSessionCleanup';
+import {hasWorkspaceRecoveryEvidence} from '@scripts/electron-run/electronRunSessionCleanup';
 
 const DEFAULT_STALE_E2E_SESSION_AGE_MS = 24 * 60 * 60 * 1000;
-const PROCESS_STOP_GRACE_MS = 1_200;
 
 export interface IE2ESessionDirCandidate {
     name: string;
@@ -49,6 +38,7 @@ export interface ISelectStaleE2ESessionsOptions {
     nowMs?: number;
     maxAgeMs?: number;
     candidates?: IE2ESessionDirCandidate[];
+    cleanupOptions?: ICleanupStaleSessionArtifactsOptions;
 }
 
 export function isE2ESessionName(name: string) {
@@ -91,97 +81,6 @@ function listE2ESessionDirCandidates(): IE2ESessionDirCandidate[] {
     }
 }
 
-async function stopLiveMetadataProcesses(name: string) {
-    const info = getSessionInfo(name);
-    const starting = getSessionStartingInfo(name);
-    const candidates: Array<{
-        pid: number | null | undefined;
-        expectation: ISessionProcessIdentityExpectation;
-    }> = [
-        {
-            pid: info?.pid,
-            expectation: {
-                kind: 'controller',
-                sessionName: name,
-            },
-        },
-        {
-            pid: starting?.pid,
-            expectation: {
-                kind: 'controller',
-                sessionName: name,
-            },
-        },
-        {
-            pid: info?.electronPid,
-            expectation: {
-                kind: 'electron',
-                sessionName: name,
-                cdpPort: info?.cdpPort,
-            },
-        },
-        {
-            pid: info?.nuxtPid ?? starting?.nuxtPid,
-            expectation: {
-                kind: 'nuxt',
-                sessionName: name,
-                nuxtPort: info?.nuxtPort ?? starting?.nuxtPort,
-            },
-        },
-    ];
-    for (const electronPid of starting?.electronPids ?? []) {
-        const cdpPorts = starting?.cdpPorts.length ? starting.cdpPorts : [null];
-        for (const cdpPort of cdpPorts) {
-            candidates.push({
-                pid: electronPid,
-                expectation: {
-                    kind: 'electron',
-                    sessionName: name,
-                    cdpPort,
-                    electronUserDataDir: starting?.electronUserDataDir,
-                },
-            });
-        }
-    }
-    const profileExpectation = {
-        kind: 'electron' as const,
-        sessionName: name,
-        electronUserDataDir: electronUserDataPath(name),
-    } satisfies ISessionProcessIdentityExpectation;
-    for (const electronPid of findSessionOwnedElectronPids(profileExpectation)) {
-        candidates.push({
-            pid: electronPid,
-            expectation: profileExpectation,
-        });
-    }
-    const verifiedOwnedPids = new Set<number>();
-    for (const candidate of candidates) {
-        const pid = candidate.pid;
-        if (!pid || pid === process.pid || pid === process.ppid || !isProcessAlive(pid)) {
-            continue;
-        }
-        const snapshot = inspectProcessIdentity(
-            pid,
-            candidate.expectation.kind === 'nuxt' ? candidate.expectation.nuxtPort : null,
-        );
-        if (!snapshot || !matchesSessionProcessIdentity(snapshot, candidate.expectation)) {
-            console.warn(`[Session '${name}'] Ignoring stale metadata PID ${pid}: process identity was reused or unrelated.`);
-            continue;
-        }
-        verifiedOwnedPids.add(pid);
-        await killVerifiedSessionProcess({
-            pid,
-            expectation: candidate.expectation,
-            graceMs: PROCESS_STOP_GRACE_MS,
-        });
-    }
-
-    for (const electronPid of findSessionOwnedElectronPids(profileExpectation)) {
-        verifiedOwnedPids.add(electronPid);
-    }
-    return [...verifiedOwnedPids].filter(pid => isProcessAlive(pid));
-}
-
 export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOptions = {}): Promise<IStaleE2ESessionPruneResult> {
     const stale = selectStaleE2ESessionDirs(options.candidates ?? listE2ESessionDirCandidates(), options);
     const result: IStaleE2ESessionPruneResult = {
@@ -191,27 +90,37 @@ export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOpti
     };
 
     for (const candidate of stale) {
-        const remainingLivePids = await stopLiveMetadataProcesses(candidate.name);
-        if (remainingLivePids.length > 0) {
+        let cleanupResult;
+        try {
+            cleanupResult = await cleanupStaleSessionArtifacts(candidate.name, options.cleanupOptions);
+        } catch (error) {
             result.refused.push({
                 name: candidate.name,
-                reason: `session-owned process(es) still alive after stop: ${remainingLivePids.join(', ')}`,
+                reason: getErrorMessage(error),
             });
             continue;
         }
-        if (hasWorkspaceRecoveryEvidence(candidate.name)) {
+        if (cleanupResult.retained) {
             result.refused.push({
                 name: candidate.name,
-                reason: 'workspace recovery evidence is present; retained for later recovery',
+                reason: cleanupResult.reason ?? 'automatic stale-artifact cleanup retained the session for safety',
             });
             continue;
         }
 
         try {
-            if (!cleanupSessionAppTempIfUnowned(candidate.name)) {
+            // Cleanup can yield while a new controller recreates metadata. Take
+            // a final filesystem snapshot immediately before recursive removal.
+            // A changed directory or newly recreated metadata means this stale
+            // candidate is no longer safe to delete.
+            const beforeRemoval = statSync(sessionDir(candidate.name));
+            if (beforeRemoval.mtimeMs !== statSync(sessionDir(candidate.name)).mtimeMs
+                || getSessionInfo(candidate.name)
+                || getSessionStartingInfo(candidate.name)
+                || hasWorkspaceRecoveryEvidence(candidate.name)) {
                 result.refused.push({
                     name: candidate.name,
-                    reason: 'session-owned Electron process appeared during temp cleanup; retained for safety',
+                    reason: 'session metadata changed during cleanup; retained for recovery',
                 });
                 continue;
             }

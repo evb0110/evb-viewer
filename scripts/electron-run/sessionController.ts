@@ -50,6 +50,7 @@ import {
 import {
     cleanupStaleSessionArtifacts,
     cleanupSessionStartingAttempt,
+    classifySessionControllerOwnership,
     clearSessionStarting,
     getSessionInfo,
     isSessionRunning,
@@ -107,7 +108,10 @@ export function shouldPreserveWorkspaceRecoveryArtifacts(
 }
 
 async function ensureSessionCanStart() {
-    await cleanupStaleSessionArtifacts();
+    const cleanupResult = await cleanupStaleSessionArtifacts();
+    if (cleanupResult.retained && classifySessionControllerOwnership(getCurrentSessionName()).status !== 'active') {
+        throw new Error(cleanupResult.reason ?? 'Session cleanup was refused because ownership evidence is unresolved.');
+    }
 
     if (await isSessionRunning()) {
         console.log(`Session '${getCurrentSessionName()}' already running. Use \`pnpm electron:run stop --session=${getCurrentSessionName()}\` to stop it.`);
@@ -308,7 +312,7 @@ function getSignalExitCode(signal: NodeJS.Signals) {
 function installStartupSignalCleanup() {
     let active = true;
     let cleanupStarted = false;
-    let cleanupPromise: Promise<void> | null = null;
+    let cleanupPromise: Promise<unknown> | null = null;
 
     const handleStartupSignal = (signal: NodeJS.Signals) => {
         if (!active || cleanupStarted) {
@@ -320,8 +324,16 @@ function installStartupSignalCleanup() {
             .catch((error) => {
                 const message = getErrorMessage(error);
                 console.error(`[Session] Startup cleanup failed: ${message}`);
+                return {
+                    completed: false,
+                    reason: message,
+                };
             })
-            .then(() => {
+            .then((cleanupResult) => {
+                if (!cleanupResult.completed) {
+                    console.warn(`[Session] Startup cleanup retained its artifacts: ${cleanupResult.reason ?? 'ownership was unresolved.'}`);
+                    return;
+                }
                 try {
                     if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
                         console.warn('[Session] Startup app temp cleanup retained the namespace because a session-owned Electron process is still alive.');
@@ -570,7 +582,10 @@ export async function startControlledSession(forceClean = false, options: IStart
     } catch (error) {
         startupSignalCleanup.disarm();
         try {
-            await cleanupSessionStartingAttempt();
+            const cleanupResult = await cleanupSessionStartingAttempt();
+            if (!cleanupResult.completed) {
+                throw new Error(cleanupResult.reason ?? 'Failed-start startup cleanup was retained.');
+            }
         } finally {
             try {
                 if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
