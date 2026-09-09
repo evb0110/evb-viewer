@@ -172,6 +172,14 @@ export class CodexAppServerClient {
         this.notify('initialized');
     }
 
+    isClosed() {
+        return this.closed;
+    }
+
+    hasProvenTermination() {
+        return this.lifecycleCompleted;
+    }
+
     request(method: string, params: unknown, timeoutMs = APP_SERVER_REQUEST_TIMEOUT_MS) {
         if (this.closed) {
             return Promise.reject(new Error('Codex app-server is not running.'));
@@ -271,6 +279,10 @@ export class CodexAppServerClient {
             return this.shutdownPromise;
         }
 
+        if (this.lifecycleCompleted) {
+            return;
+        }
+
         this.closed = true;
         for (const [
             id,
@@ -280,21 +292,23 @@ export class CodexAppServerClient {
             pending.reject(new Error('Codex app-server is shutting down.'));
             this.pending.delete(id);
         }
-        this.shutdownPromise = this.terminateChild();
+        const shutdownPromise = this.terminateChild().finally(() => {
+            if (this.shutdownPromise === shutdownPromise) {
+                this.shutdownPromise = null;
+            }
+        });
+        this.shutdownPromise = shutdownPromise;
         return this.shutdownPromise;
     }
 
     private async terminateChild() {
         this.terminationRequested = true;
-        try {
-            const treeTerminated = await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
-            const childClosed = await this.waitForClose(APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS);
-            if (!treeTerminated || !childClosed) {
-                throw new Error('Codex app-server process tree did not terminate cleanly.');
-            }
-        } finally {
-            this.completeLifecycleOperation();
+        const treeTerminated = await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
+        const childClosed = await this.waitForClose(APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS);
+        if (!treeTerminated || !childClosed) {
+            throw new Error('Codex app-server process tree did not terminate cleanly.');
         }
+        this.completeLifecycleOperation();
     }
 
     private async waitForClose(timeoutMs: number) {
@@ -354,10 +368,6 @@ export class CodexAppServerClient {
         if (nextBytes > APP_SERVER_MAX_STDOUT_RECORD_BYTES) {
             const error = new CodexAppServerRecordTooLargeError(APP_SERVER_MAX_STDOUT_RECORD_BYTES);
             this.failAll(error.message, error);
-            this.shutdownPromise ??= this.terminateChild();
-            void this.shutdownPromise.catch(terminationError => {
-                logger.warn(`Failed to terminate oversized Codex app-server record: ${getErrorMessage(terminationError)}`);
-            });
             return false;
         }
         this.stdoutBuffer += segment;
@@ -482,7 +492,14 @@ export class CodexAppServerClient {
         }
         this.onExit(message);
         if (terminate) {
-            this.shutdownPromise ??= this.terminateChild();
+            if (!this.shutdownPromise) {
+                const shutdownPromise = this.terminateChild().finally(() => {
+                    if (this.shutdownPromise === shutdownPromise) {
+                        this.shutdownPromise = null;
+                    }
+                });
+                this.shutdownPromise = shutdownPromise;
+            }
             void this.shutdownPromise.catch(terminationError => {
                 logger.warn(`Failed to terminate Codex app-server after an error: ${getErrorMessage(terminationError)}`);
             });

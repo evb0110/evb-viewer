@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -14,6 +15,17 @@ import {
 import { requireTabId } from '@contracts/windowTabs';
 
 const mocks = vi.hoisted(() => ({refreshCodexAuthStateAndRuntimeAvailability: vi.fn(async () => undefined)}));
+const runtimeMocks = vi.hoisted(() => ({
+    getCodexCliInfo: vi.fn(async () => ({
+        installed: true,
+        path: '/usr/bin/codex',
+        version: '0.133.0',
+        minimumVersion: '0.133.0',
+        isVersionSupported: true,
+    })),
+    shutdown: vi.fn(),
+    spawnCount: 0,
+}));
 
 vi.mock('electron', () => ({app: {
     getPath: () => '/tmp/evb-viewer',
@@ -26,7 +38,59 @@ vi.mock('@electron/features/agent/assistantProviderAccounts', () => ({
     syncCodexRuntimeStateAfterAuthCheck: vi.fn(),
 }));
 
+vi.mock('@electron/features/agent/codexCli', () => ({
+    getCodexCliInfo: runtimeMocks.getCodexCliInfo,
+    runCodexCli: vi.fn(async () => ({ok: true})),
+}));
+
+vi.mock('@electron/features/agent/codexAppServerClient', () => ({CodexAppServerClient: class {
+    private closed = false;
+    constructor() {
+        runtimeMocks.spawnCount += 1;
+    }
+
+    isClosed() {
+        return this.closed;
+    }
+
+    hasProvenTermination() {
+        return false;
+    }
+
+    async initialize() {}
+
+    async shutdown() {
+        this.closed = true;
+        return runtimeMocks.shutdown();
+    }
+
+    async requestDecoded<T>(method: string): Promise<T> {
+        return (method === 'model/list' ? [] : {data: []}) as T;
+    }
+}}));
+
+vi.mock('@electron/features/agent/mcpServer', () => ({
+    getEmbeddedMcpServerDescriptor: () => ({
+        name: 'evb-viewer',
+        url: 'http://127.0.0.1:1/mcp',
+    }),
+    isEmbeddedMcpServerRunning: () => false,
+    shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
+    startEmbeddedMcpServer: vi.fn(async () => ({
+        descriptor: {
+            name: 'evb-viewer',
+            url: 'http://127.0.0.1:1/mcp',
+        },
+        token: 'test-token',
+    })),
+}));
+
 describe('assistant runtime lifecycle', () => {
+    beforeEach(() => {
+        runtimeMocks.shutdown.mockReset();
+        runtimeMocks.spawnCount = 0;
+    });
+
     it('holds busy state for active work and repairs it after every session becomes terminal', async () => {
         const sessionStore = createAssistantChatSessionStore({persistence: false});
         const session = sessionStore.getSession({
@@ -85,5 +149,44 @@ describe('assistant runtime lifecycle', () => {
         expect(logger.warn).toHaveBeenCalledWith(
             'Recovered an orphaned Codex busy state after all assistant turns became terminal.',
         );
+    });
+
+    it('retains a failed runtime owner and blocks replacement until a retry proves termination', async () => {
+        const sessionStore = createAssistantChatSessionStore({persistence: false});
+        const providerRuntime = createAssistantProviderRuntimeStates({codex: {
+            authState: 'signed-in',
+            runtimeState: 'stopped',
+        }}).codex;
+        const lifecycle = createAssistantRuntimeLifecycle({
+            providerRuntime,
+            sessionStore,
+            getCodexModels: () => [],
+            setCodexModels: vi.fn(),
+            isAssistantFeatureEnabled: vi.fn(async () => true),
+            createAssistantDisabledError: () => 'disabled',
+            shutdownAssistant: vi.fn(async () => undefined),
+            publishCodexState: vi.fn(),
+            handleNotification: vi.fn(),
+            handleExit: vi.fn(),
+            logger: {
+                info: vi.fn(),
+                warn: vi.fn(),
+            },
+        });
+
+        const firstRuntime = await lifecycle.ensureRuntime();
+        const terminationError = new Error('process tree did not terminate cleanly');
+        runtimeMocks.shutdown.mockRejectedValueOnce(terminationError).mockResolvedValueOnce(undefined);
+
+        await expect(lifecycle.shutdownCodexRuntime()).rejects.toBe(terminationError);
+        expect(lifecycle.getRuntime()).toBe(firstRuntime);
+        expect(providerRuntime.runtimeState).toBe('error');
+        expect(runtimeMocks.spawnCount).toBe(1);
+
+        const replacement = await lifecycle.ensureRuntime();
+
+        expect(replacement).not.toBe(firstRuntime);
+        expect(runtimeMocks.spawnCount).toBe(2);
+        expect(providerRuntime.runtimeState).not.toBe('stopped');
     });
 });
