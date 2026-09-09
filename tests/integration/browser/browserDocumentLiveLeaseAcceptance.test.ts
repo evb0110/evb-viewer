@@ -70,6 +70,11 @@ async function installEntry(page: Page) {
     await page.addScriptTag({path: bundlePath});
 }
 
+async function installEntryAtWindow(page: Page, windowId: number) {
+    await page.goto(`${origin}?evbWindowId=${String(windowId)}`);
+    await page.addScriptTag({path: bundlePath});
+}
+
 async function callEntry<T>(page: Page, name: string, argument?: string): Promise<T> {
     const payload = argument === undefined
         ? {entryName: name}
@@ -232,6 +237,32 @@ describe('browser document live lease acceptance in Chromium', () => {
                     0,
                     0,
                 ],
+            });
+        } finally {
+            await context.close();
+            await browser.close();
+        }
+    }, 120_000);
+
+    it('commits a real two-page transfer durably before accepting the target', async () => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext();
+        const source = await context.newPage();
+        const target = await context.newPage();
+        try {
+            await Promise.all([
+                installEntryAtWindow(source, 1),
+                installEntryAtWindow(target, 2),
+            ]);
+            await callEntry(target, '__evbPrepareTransferReceiver');
+            const result = await callEntry<{
+                transferId: string;
+                success: boolean;
+                targetWindowId: number;
+            }>(source, '__evbTransferEmptyTab');
+            expect(result).toMatchObject({
+                success: true,
+                targetWindowId: 2,
             });
         } finally {
             await context.close();

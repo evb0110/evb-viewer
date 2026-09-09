@@ -19,6 +19,7 @@ import {
 } from '@app/platform/browser/browserDocumentLeaseStore';
 import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {writeRecentFilesToStorage} from '@app/platform/browser/browserRecentFilesStore';
+import {browserWindowTabsCapability} from '@app/platform/browserWindowTabs';
 
 const OWNER_ID = 'window:482-live-lease';
 const INLINE_BYTES = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
@@ -291,6 +292,36 @@ async function reclaimAfterConfirmedDeath() {
     };
 }
 
+function prepareTransferReceiver() {
+    browserWindowTabsCapability.notifyRendererReady();
+    browserWindowTabsCapability.onIncomingTransfer(transfer => {
+        void browserWindowTabsCapability.transferAck({
+            transferId: transfer.transferId,
+            success: true,
+        });
+    });
+    return browserWindowTabsCapability.listTargetWindows();
+}
+
+async function transferEmptyTab() {
+    browserWindowTabsCapability.notifyRendererReady();
+    const result = await browserWindowTabsCapability.transfer({
+        target: {
+            kind: 'window',
+            windowId: 2,
+        },
+        tab: {
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        },
+        payload: {kind: 'empty'},
+        timeoutMs: 3_000,
+    });
+    return result;
+}
+
 Reflect.set(globalThis, '__evbSetupLiveLeaseAcceptance', setupLiveLeaseAcceptance);
 Reflect.set(globalThis, '__evbAgeLiveLeaseAcceptance', () => setLeaseHeartbeat(1));
 Reflect.set(globalThis, '__evbSuspendLiveLeaseAcceptance', suspendLiveLeaseAcceptance);
@@ -299,3 +330,5 @@ Reflect.set(globalThis, '__evbInitializeAndSweepLiveLeaseAcceptance', initialize
 Reflect.set(globalThis, '__evbFinalizeLiveLeaseAcceptance', finalizeGeneratedDocument);
 Reflect.set(globalThis, '__evbReopenLiveLeaseAcceptance', reopenGeneratedDocument);
 Reflect.set(globalThis, '__evbReclaimLiveLeaseAcceptance', reclaimAfterConfirmedDeath);
+Reflect.set(globalThis, '__evbPrepareTransferReceiver', prepareTransferReceiver);
+Reflect.set(globalThis, '__evbTransferEmptyTab', transferEmptyTab);
