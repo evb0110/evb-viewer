@@ -162,8 +162,11 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             }
             const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
                 mode: 'snapshot',
-                forceWriterSave: true,
+                saveFlowMode: 'save',
+                forceWriterSave: false,
                 serializeResult: true,
+                ...(workingCopyPath ? {workingPath: workingCopyPath} : {}),
+                ...(options.getNativeSaveTransactionOptions?.() ?? {}),
                 source: {getSourcePdfData: async () => {
                     if (options.pdfData.value) {
                         return options.pdfData.value;
@@ -171,6 +174,43 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
                 }},
             });
+            console.info('[split-debug]', {
+                workingCopyPath,
+                revision: options.documentRevisionToken?.value ?? null,
+                sourceBytes: options.pdfData.value?.byteLength ?? null,
+                source: viewerTransaction?.source ?? null,
+                projection: viewerTransaction?.nativeMutationProjection
+                    ? {
+                        notes: viewerTransaction.nativeMutationProjection.noteTextUpdates.length,
+                        textBoxes: viewerTransaction.nativeMutationProjection.textBoxes?.length ?? 0,
+                        freeText: viewerTransaction.nativeMutationProjection.freeTextEditors.length,
+                    }
+                    : null,
+                fallback: viewerTransaction?.fallbackDecision?.route ?? null,
+            });
+            if (
+                viewerTransaction?.nativeMutationProjection
+                && workingCopyPath
+                && options.documentRevisionToken?.value !== null
+                && options.documentRevisionToken?.value !== undefined
+            ) {
+                const snapshotPath = await consumeNativePdfMutationProjection({
+                    workingPath: workingCopyPath,
+                    expectedDocumentRevisionToken: options.documentRevisionToken.value,
+                    projection: viewerTransaction.nativeMutationProjection,
+                    operation: 'clone',
+                    originalPath: options.originalPath.value,
+                    ...(viewerTransaction.verifyAnnotationSavePath
+                        ? {verifyPathBeforeExpose: viewerTransaction.verifyAnnotationSavePath}
+                        : {}),
+                    ...(viewerTransaction.assertAnnotationSaveCurrent
+                        ? {assertBeforeExpose: viewerTransaction.assertAnnotationSaveCurrent}
+                        : {}),
+                });
+                if (snapshotPath) {
+                    return readDocumentBytes(snapshotPath);
+                }
+            }
             const viewerSnapshot = resolvePdfViewerSaveTransactionFinalBytes(viewerTransaction);
             if (viewerSnapshot) {
                 return viewerSnapshot;
@@ -382,6 +422,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             workingPath: payload.snapshotPath,
             originalPath: payload.originalPath ?? payload.snapshotPath,
             ...(payload.isGenerated ? {isGenerated: true} : {}),
+            ...(payload.isDirty ? {recoveryDirtyBaseline: true} : {}),
         };
         retainDocumentOpenWorkingCopyForRetry(result);
         const outcome = await options.openFileWithViewerLifecycle(result);

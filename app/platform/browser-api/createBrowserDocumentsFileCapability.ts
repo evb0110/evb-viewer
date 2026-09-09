@@ -117,6 +117,7 @@ export function createBrowserDocumentsFileCapability(
 ): IDocumentsFileCapability {
     const { clearSearchCaches } = options;
     const browserNativeMutationBindings = new Map<string, IPdfNativeSaveResult['identityBindings']>();
+    const browserNativeMutationLeases = new Map<string, TDocumentRef>();
     const browserUseNativeAppMessageProvider = options.errorMessageProvider?.useNativeApp
         ?? (() => 'Use the native app for files this large.');
 
@@ -566,6 +567,7 @@ export function createBrowserDocumentsFileCapability(
                     stagedOutput.path,
                     wasmResult.identityBindings,
                 );
+                browserNativeMutationLeases.set(stagedOutput.leaseId, stagedOutput.path);
                 return {
                     applied: true,
                     validation: {
@@ -582,6 +584,37 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.remove(stagedPath).catch(() => undefined);
                 throw error;
             }
+        },
+        async releaseManagedTempFileHandle(leaseId) {
+            const stagedPath = browserNativeMutationLeases.get(leaseId);
+            if (!stagedPath) {
+                return false;
+            }
+            browserNativeMutationLeases.delete(leaseId);
+            browserNativeMutationBindings.delete(stagedPath);
+            await browserDocumentStore.remove(stagedPath).catch(() => undefined);
+            return true;
+        },
+        async cloneStagedPdfNativeMutationToWorkingCopy(stagedOutput, originalPath) {
+            const bytes = await browserDocumentStore.read(stagedOutput.path);
+            if (bytes.byteLength !== stagedOutput.size || await sha256Hex(bytes) !== stagedOutput.sha256) {
+                throw new Error('Browser staged artifact content does not match its receipt');
+            }
+            const clonePath = await browserDocumentStore.createStoredDocument(
+                getBrowserDocumentFileName(stagedOutput.path),
+                bytes,
+                {
+                    mimeType: 'application/pdf',
+                    saveKind: 'pdf',
+                    kind: 'working-copy',
+                    retention: 'transient',
+                    ...(originalPath ? {sourceRef: originalPath} : {}),
+                },
+            );
+            browserNativeMutationLeases.delete(stagedOutput.leaseId);
+            browserNativeMutationBindings.delete(stagedOutput.path);
+            await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
+            return clonePath;
         },
         async commitStagedPdfNativeMutations(
             path,

@@ -264,8 +264,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     function getNativeSaveTransactionOptions(): INativePdfSaveTransactionOptions {
         const documentFiles = getDocumentFilesCapability();
         const canStageNativeMutation = (
-            typeof documentFiles.createManagedTempFileHandle === 'function'
-            && typeof documentFiles.releaseManagedTempFileHandle === 'function'
+            typeof documentFiles.releaseManagedTempFileHandle === 'function'
             && typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
         );
         const canConsumeNativeMutation = (

@@ -28,6 +28,7 @@ interface IBrowserLifecycleTestApi {
         canSave: boolean;
         viewerCapabilities: {save: boolean}
     } | null;
+    handleSaveAs?: () => Promise<boolean>;
     readActiveWorkspaceStateValues?: <TValues extends Record<string, unknown> = Record<string, unknown>>(
         propertyNames: string[],
     ) => TValues;
@@ -377,8 +378,8 @@ describe('browser document lifecycle UI', () => {
     it('proves a dirty viewer transfer after source loss before target authority readback', async () => {
         const browser = await chromium.launch({headless: true});
         const context = await browser.newContext();
-        const source = await context.newPage();
-        const target = await context.newPage();
+            const source = await context.newPage();
+            const target = await context.newPage();
         try {
             await source.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -496,10 +497,23 @@ describe('browser document lifecycle UI', () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Target PDF did not settle after transfer');
             });
-            // The source-side inventory proves the real edit existed. The
-            // transfer snapshot currently loses that app-owned annotation
-            // before target save becomes usable. This boundary test therefore
-            // does not claim target editability or save/reopen survival.
+            await expect.poll(async () => target.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                const state = api.readActiveWorkspaceStateValues?.<{annotationComments?: Array<{
+                    text?: string;
+                    displayText?: string | null;
+                    previewText?: string | null;
+                }>;}>(['annotationComments']);
+                return state?.annotationComments?.some(comment => [
+                    comment.text,
+                    comment.displayText,
+                    comment.previewText,
+                ].includes('durable transfer edit')) ?? false;
+            }), {timeout: 30_000}).toBe(true);
+            await expect.poll(() => target.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.getActiveToolbarSnapshot?.()?.canSave ?? false;
+            }), {timeout: 30_000}).toBe(true);
         } finally {
             await browser.close();
         }

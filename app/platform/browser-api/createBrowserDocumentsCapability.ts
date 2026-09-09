@@ -175,6 +175,9 @@ export function createBrowserDocumentsCapability(
         ...(fileCapability.releaseManagedTempFileHandle
             ? {releaseManagedTempFileHandle: fileCapability.releaseManagedTempFileHandle}
             : {}),
+        ...(fileCapability.cloneStagedPdfNativeMutationToWorkingCopy
+            ? {cloneStagedPdfNativeMutationToWorkingCopy: fileCapability.cloneStagedPdfNativeMutationToWorkingCopy}
+            : {}),
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
