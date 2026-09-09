@@ -110,6 +110,7 @@ describe('browser document lifecycle UI', () => {
             }});
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
             await page.evaluate(() => {
@@ -165,4 +166,186 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 90_000);
+
+    it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await page.evaluate(() => {
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const chooser = await chooserPromise;
+            await chooser.setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
+            ));
+
+            const sourceImage = page.locator('[data-testid="document-page-source-image"]').first();
+            await sourceImage.waitFor({
+                state: 'visible',
+                timeout: 90_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('DjVu viewer open did not settle');
+                }
+            });
+            const sourceEvidence = await page.evaluate(() => ({
+                bodyText: document.body.innerText,
+                sourceImages: document.querySelectorAll('[data-testid="document-page-source-image"]').length,
+                sourcePages: document.querySelectorAll('[data-testid="document-page-source-page"]').length,
+            }));
+            expect(sourceEvidence.sourceImages).toBeGreaterThan(0);
+            expect(sourceEvidence.sourcePages).toBeGreaterThan(0);
+            await page.screenshot({
+                path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-open.png'),
+                fullPage: true,
+            });
+
+            await page.getByRole('button', {name: /Convert to PDF/}).filter({visible: true}).first().click();
+            const dialog = page.getByRole('dialog');
+            await dialog.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const conversionButton = dialog.getByRole('button', {
+                name: 'Convert',
+                exact: true,
+            });
+            await page.waitForFunction(() => {
+                const button = Array.from(document.querySelectorAll('[role="dialog"] button'))
+                    .find(candidate => candidate.textContent?.trim() === 'Convert');
+                return button instanceof HTMLButtonElement && !button.disabled;
+            }, null, {timeout: 90_000});
+            await conversionButton.click();
+            await page.screenshot({
+                path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-after-convert.png'),
+                fullPage: true,
+            });
+
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('Generated PDF reopen did not settle');
+                }
+            });
+            const renderedPdf = page.locator('.page_container--rendered .page_canvas canvas').first();
+            await renderedPdf.waitFor({
+                state: 'visible',
+                timeout: 120_000,
+            });
+            const pdfEvidence = await page.evaluate(() => ({
+                bodyText: document.body.innerText,
+                renderedCanvases: document.querySelectorAll('.page_container--rendered .page_canvas canvas').length,
+            }));
+            expect(pdfEvidence.renderedCanvases).toBeGreaterThan(0);
+            await page.screenshot({
+                path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-pdf-reopen.png'),
+                fullPage: true,
+            });
+        } finally {
+            await browser.close();
+        }
+    }, 240_000);
+
+    it('renders an externally replaced PDF and reopens that persisted Recent file', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await page.evaluate(() => {
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+
+            let openCount = 0;
+            const openWithFile = async (filePath: string) => {
+                const chooserPromise = page.waitForEvent('filechooser');
+                if (openCount === 0) {
+                    await page.getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    }).first().click();
+                } else {
+                    await page.keyboard.press('Control+O');
+                }
+                await (await chooserPromise).setFiles(filePath);
+                openCount += 1;
+                await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                    state: 'visible',
+                    timeout: 60_000,
+                });
+                await page.evaluate(async () => {
+                    const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                    if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                        throw new Error('PDF viewer open did not settle');
+                    }
+                });
+            };
+
+            await openWithFile(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await expect.poll(() => page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent()).toContain('generated-text.pdf');
+
+            await openWithFile(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf',
+            ));
+            const replacementTab = page.locator('[data-tab-list] [role="tab"][aria-selected="true"]');
+            await expect.poll(() => replacementTab.textContent()).toContain('synthetic-annotation-interoperability.pdf');
+            await page.screenshot({
+                path: resolve(process.cwd(), '.devkit/browser-pdf-replacement-rendered.png'),
+                fullPage: true,
+            });
+
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await page.reload({waitUntil: 'domcontentloaded'});
+            const recentReplacement = page.locator(
+                '[data-recent-open-actionable="true"] .recent-open',
+            ).filter({hasText: 'synthetic-annotation-interoperability.pdf'});
+            await recentReplacement.waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await recentReplacement.click();
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await expect.poll(() => page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent()).toContain('synthetic-annotation-interoperability.pdf');
+            await page.screenshot({
+                path: resolve(process.cwd(), '.devkit/browser-pdf-recent-reopen-rendered.png'),
+                fullPage: true,
+            });
+        } finally {
+            await browser.close();
+        }
+    }, 180_000);
 });

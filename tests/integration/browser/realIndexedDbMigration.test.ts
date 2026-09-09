@@ -33,7 +33,17 @@ let server: Server;
 const RECOVERY_DATABASE_NAME = 'evb-viewer-browser-documents';
 const ISSUE_489_PDF_TEXT = '%PDF-1.4\n% issue-489 synthetic dirty PDF\n';
 const ISSUE_489_PDF_REF = 'browser://documents/issue-489-dirty.pdf';
-const CLAIM_ADMISSION_BARRIER_GLOBAL = '__issue489ClaimAdmissionBarrier';
+const RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL = '__issue489RecoveryTransactionBoundaryBarrier';
+
+interface IRecoveryMutationResult {
+    saved: boolean;
+    generation: number;
+}
+
+interface IRecoveryClaimResult {
+    claimed: boolean;
+    generation: number;
+}
 
 function buildRecoveryCheckpoint(capturedAt: number, fileName: string) {
     return {
@@ -66,10 +76,12 @@ function buildRecoveryCheckpoint(capturedAt: number, fileName: string) {
     };
 }
 
-async function armRecoveryTransactionAdmissionBarrier(page: Page) {
+async function observeRecoveryTransactionAdmission(page: Page) {
     await page.evaluate((barrierGlobal) => {
-        const factory = indexedDB;
-        const originalOpen = factory.open;
+        const existing = Reflect.get(globalThis, barrierGlobal);
+        if (existing) {
+            throw new Error('The recovery transaction admission observer is already installed.');
+        }
         const transactionDescriptor = Object.getOwnPropertyDescriptor(
             IDBDatabase.prototype,
             'transaction',
@@ -78,31 +90,12 @@ async function armRecoveryTransactionAdmissionBarrier(page: Page) {
             throw new Error('The Chromium IndexedDB transaction method is not patchable.');
         }
 
-        let interceptedOpen = false;
-        let successHandler: ((event: Event) => void) | null = null;
-        let successEvent: Event | null = null;
-        let openRestored = false;
         let transactionRestored = false;
-        let requestProxy: IDBOpenDBRequest | null = null;
 
         const state = {
-            ready: false,
             transactionAdmitted: false,
-            released: false,
             operation: null as Promise<unknown> | null,
-            release: () => {
-                state.released = true;
-                flushSuccess();
-            },
             cleanup: () => {
-                if (!openRestored) {
-                    Object.defineProperty(factory, 'open', {
-                        configurable: true,
-                        value: originalOpen,
-                        writable: true,
-                    });
-                    openRestored = true;
-                }
                 if (!transactionRestored) {
                     Object.defineProperty(IDBDatabase.prototype, 'transaction', transactionDescriptor);
                     transactionRestored = true;
@@ -111,110 +104,47 @@ async function armRecoveryTransactionAdmissionBarrier(page: Page) {
             },
         };
 
-        const flushSuccess = () => {
-            if (!state.released || !successHandler || !successEvent || !requestProxy) {
-                return;
-            }
-            const handler = successHandler;
-            const event = successEvent;
-            successHandler = null;
-            successEvent = null;
-            if (!openRestored) {
-                Object.defineProperty(factory, 'open', {
-                    configurable: true,
-                    value: originalOpen,
-                    writable: true,
-                });
-                openRestored = true;
-            }
-            handler.call(requestProxy, event);
-        };
-
-        const openForProduction = (...args: [string, number?]) => Reflect.apply(originalOpen, factory, args);
-        const onOpenSuccess = (event: Event) => {
-            state.ready = true;
-            successEvent = event;
-            flushSuccess();
-        };
-        const openWithBarrier = (...args: [string, number?]) => {
-            if (interceptedOpen) {
-                return openForProduction(...args);
-            }
-            interceptedOpen = true;
-            const request = openForProduction(...args);
-            requestProxy = new Proxy(request, {
-                get(target, property, _receiver) {
-                    if (property === 'onsuccess') {
-                        return successHandler;
-                    }
-                    return Reflect.get(target, property, target);
-                },
-                set(target, property, value) {
-                    if (property === 'onsuccess') {
-                        successHandler = typeof value === 'function'
-                            ? value as (event: Event) => void
-                            : null;
-                        Reflect.set(target, property, successHandler ? onOpenSuccess : null, target);
-                        flushSuccess();
-                        return true;
-                    }
-                    return Reflect.set(target, property, value, target);
-                },
-            });
-            return requestProxy;
-        };
-
         const originalTransaction = transactionDescriptor.value as IDBDatabase['transaction'];
-        const transactionWithAdmissionProbe = function(
+        const transactionAtProductionBoundary = function(
             this: IDBDatabase,
             nameOrNames: string | string[],
             mode?: IDBTransactionMode,
             options?: IDBTransactionOptions,
         ) {
             const names = typeof nameOrNames === 'string' ? [nameOrNames] : nameOrNames;
+            const transaction = originalTransaction.call(this, nameOrNames, mode, options);
             if ((mode ?? 'readonly') === 'readwrite' && names.includes('workspace-recovery')) {
                 state.transactionAdmitted = true;
             }
-            return originalTransaction.call(this, nameOrNames, mode, options);
+            return transaction;
         };
 
-        Object.defineProperty(factory, 'open', {
-            configurable: true,
-            value: openWithBarrier,
-            writable: true,
-        });
         Object.defineProperty(IDBDatabase.prototype, 'transaction', {
             ...transactionDescriptor,
-            value: transactionWithAdmissionProbe,
+            value: transactionAtProductionBoundary,
         });
         Reflect.set(globalThis, barrierGlobal, state);
-    }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+    }, RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL);
 }
 
-async function waitForRecoveryTransactionAdmissionBarrier(page: Page) {
+async function waitForRecoveryTransactionAdmission(page: Page) {
     await page.waitForFunction((barrierGlobal) => {
-        const barrier = Reflect.get(globalThis, barrierGlobal) as {ready?: boolean} | undefined;
-        return barrier?.ready === true;
-    }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+        const barrier = Reflect.get(globalThis, barrierGlobal) as {transactionAdmitted?: boolean} | undefined;
+        return barrier?.transactionAdmitted === true;
+    }, RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL);
 }
 
-async function readRecoveryTransactionAdmissionBarrier(page: Page) {
+async function readRecoveryTransactionAdmission(page: Page) {
     return page.evaluate((barrierGlobal) => {
-        const barrier = Reflect.get(globalThis, barrierGlobal) as {
-            ready: boolean;
-            transactionAdmitted: boolean;
-        } | undefined;
+        const barrier = Reflect.get(globalThis, barrierGlobal) as {transactionAdmitted: boolean;} | undefined;
         if (!barrier) {
-            throw new Error('The recovery transaction admission barrier is not installed.');
+            throw new Error('The recovery transaction boundary barrier is not installed.');
         }
-        return {
-            ready: barrier.ready,
-            transactionAdmitted: barrier.transactionAdmitted,
-        };
-    }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+        return {transactionAdmitted: barrier.transactionAdmitted};
+    }, RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL);
 }
 
-async function startClaimAtAdmissionBarrier(
+async function startClaimAfterTransactionAdmissionObservation(
     page: Page,
     sourceOwnerId: string,
     targetOwnerId: string,
@@ -232,7 +162,7 @@ async function startClaimAtAdmissionBarrier(
     }) => {
         const barrier = Reflect.get(globalThis, barrierGlobal) as {operation: Promise<unknown> | null} | undefined;
         if (!barrier) {
-            throw new Error('The recovery transaction admission barrier is not installed.');
+            throw new Error('The recovery transaction boundary barrier is not installed.');
         }
         const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {claimBrowserWorkspaceRecoveryOwner: (
             sourceOwnerId: string,
@@ -252,7 +182,7 @@ async function startClaimAtAdmissionBarrier(
             if (Date.now === installedDateNow) Date.now = originalDateNow;
         });
     }, {
-        barrierGlobal: CLAIM_ADMISSION_BARRIER_GLOBAL,
+        barrierGlobal: RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL,
         generation,
         leaseRevision,
         now,
@@ -261,7 +191,7 @@ async function startClaimAtAdmissionBarrier(
     });
 }
 
-async function startHeartbeatAtAdmissionBarrier(
+async function startHeartbeatAfterTransactionAdmissionObservation(
     page: Page,
     ownerId: string,
     generation: number,
@@ -275,7 +205,7 @@ async function startHeartbeatAtAdmissionBarrier(
     }) => {
         const barrier = Reflect.get(globalThis, barrierGlobal) as {operation: Promise<unknown> | null} | undefined;
         if (!barrier) {
-            throw new Error('The recovery transaction admission barrier is not installed.');
+            throw new Error('The recovery transaction boundary barrier is not installed.');
         }
         const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {touchBrowserWorkspaceRecovery: (
             ownerId: string,
@@ -291,41 +221,28 @@ async function startHeartbeatAtAdmissionBarrier(
             if (Date.now === installedDateNow) Date.now = originalDateNow;
         });
     }, {
-        barrierGlobal: CLAIM_ADMISSION_BARRIER_GLOBAL,
+        barrierGlobal: RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL,
         heartbeatGeneration: generation,
         heartbeatNow: now,
         heartbeatOwner: ownerId,
     });
 }
 
-async function releaseRecoveryTransactionAdmissionBarrier(page: Page) {
-    let result: {
-        result: unknown;
-        transactionAdmitted: boolean;
-    };
+async function awaitRecoveryOperationResult<T>(page: Page) {
+    let result: T;
     try {
-        await page.evaluate((barrierGlobal) => {
-            const barrier = Reflect.get(globalThis, barrierGlobal) as {release: () => void} | undefined;
-            if (!barrier) {
-                throw new Error('The recovery transaction admission barrier is not installed.');
-            }
-            barrier.release();
-        }, CLAIM_ADMISSION_BARRIER_GLOBAL);
         result = await page.evaluate(async (barrierGlobal) => {
             const barrier = Reflect.get(globalThis, barrierGlobal) as {operation: Promise<unknown> | null} | undefined;
             if (!barrier?.operation) {
-                throw new Error('The recovery operation was not started at the admission barrier.');
+                throw new Error('The recovery operation was not started at the transaction boundary.');
             }
-            return {
-                result: await barrier.operation,
-                transactionAdmitted: (Reflect.get(globalThis, barrierGlobal) as {transactionAdmitted: boolean}).transactionAdmitted,
-            };
-        }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+            return barrier.operation;
+        }, RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL) as T;
     } finally {
         await page.evaluate((barrierGlobal) => {
             const barrier = Reflect.get(globalThis, barrierGlobal) as {cleanup: () => void} | undefined;
             barrier?.cleanup();
-        }, CLAIM_ADMISSION_BARRIER_GLOBAL);
+        }, RECOVERY_TRANSACTION_BOUNDARY_BARRIER_GLOBAL);
     }
     return result;
 }
@@ -735,64 +652,55 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 throw new Error('The shared IndexedDB recovery selection was unexpectedly empty.');
             }
 
-            // Barrier 2: B has opened the database but cannot admit its claim transaction yet.
-            await armRecoveryTransactionAdmissionBarrier(pageB);
-            await startClaimAtAdmissionBarrier(
-                pageB,
+            // IndexedDB serializes readwrite transactions. The stale selection
+            // has already committed, so admit and finish A's heartbeat before
+            // admitting B's claim. This tests the legal heartbeat-before-claim
+            // order without pretending the two operations can interleave inside
+            // one transaction.
+            await observeRecoveryTransactionAdmission(pageA);
+            await startHeartbeatAfterTransactionAdmissionObservation(
+                pageA,
                 'window:issue-489-a',
-                'window:issue-489-b',
                 selected.generation,
-                selected.leaseRevision,
-                60_002,
+                30_001,
             );
-            await waitForRecoveryTransactionAdmissionBarrier(pageB);
-            expect(await readRecoveryTransactionAdmissionBarrier(pageB)).toEqual({
-                ready: true,
-                transactionAdmitted: false,
-            });
-
-            // Barrier 3: A renews while B is held immediately before claim admission.
-            const heartbeat = await pageA.evaluate(async () => {
-                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {
-                    touchBrowserWorkspaceRecovery: (
-                        ownerId: string,
-                        generation: number,
-                    ) => Promise<unknown>;
-                    loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>;
-                };
-                const originalDateNow = Date.now;
-                Date.now = () => 30_001;
-                try {
-                    return {
-                        result: await store.touchBrowserWorkspaceRecovery('window:issue-489-a', 1),
-                        record: await store.loadBrowserWorkspaceRecovery('window:issue-489-a'),
-                    };
-                } finally {
-                    Date.now = originalDateNow;
-                }
-            });
-            expect(heartbeat.result).toEqual({
+            await waitForRecoveryTransactionAdmission(pageA);
+            expect(await readRecoveryTransactionAdmission(pageA)).toEqual({transactionAdmitted: true});
+            const heartbeat = await awaitRecoveryOperationResult<IRecoveryMutationResult>(pageA);
+            expect(heartbeat).toEqual({
                 saved: true,
                 generation: 1,
             });
-            expect(heartbeat.record).toEqual(expect.objectContaining({
+            const heartbeatRecord = await pageA.evaluate(async () => {
+                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
+                return store.loadBrowserWorkspaceRecovery('window:issue-489-a');
+            });
+            expect(heartbeatRecord).toEqual(expect.objectContaining({
                 ownerId: 'window:issue-489-a',
                 generation: 1,
                 leaseRevision: 2,
                 updatedAt: 30_001,
             }));
-            expect(await readRecoveryTransactionAdmissionBarrier(pageB)).toEqual({
-                ready: true,
-                transactionAdmitted: false,
-            });
 
-            // Barrier 4: B resumes its stale selection and the claim is fenced by the changed lease revision.
-            const rejected = await releaseRecoveryTransactionAdmissionBarrier(pageB);
-            expect(rejected.result).toEqual({
+            // B now admits the production claim transaction using the revision
+            // captured by its earlier stale selection.
+            await observeRecoveryTransactionAdmission(pageB);
+            await startClaimAfterTransactionAdmissionObservation(
+                pageB,
+                'window:issue-489-a',
+                'window:issue-489-b',
+                selected.generation,
+                selected.leaseRevision,
+                30_002,
+            );
+            await waitForRecoveryTransactionAdmission(pageB);
+            expect(await readRecoveryTransactionAdmission(pageB)).toEqual({transactionAdmitted: true});
+
+            const rejected = await awaitRecoveryOperationResult<IRecoveryClaimResult>(pageB);
+            expect(rejected).toEqual({
                 claimed: false,
                 generation: 1,
             });
-            expect(rejected.transactionAdmitted).toBe(true);
             const rejectedOwner = await pageB.evaluate(async () => {
                 const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
                 return store.loadBrowserWorkspaceRecovery('window:issue-489-a');
@@ -974,9 +882,10 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 throw new Error('The claim-first recovery selection was unexpectedly empty.');
             }
 
-            // The second order admits B's claim before A attempts its renewal.
-            await armRecoveryTransactionAdmissionBarrier(pageB);
-            await startClaimAtAdmissionBarrier(
+            // The second legal order commits B's claim before A attempts its
+            // heartbeat. A's later heartbeat must observe the fence.
+            await observeRecoveryTransactionAdmission(pageB);
+            await startClaimAfterTransactionAdmissionObservation(
                 pageB,
                 'window:issue-489-claim-first',
                 'window:issue-489-b',
@@ -984,33 +893,23 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 selectedForClaimFirst.leaseRevision,
                 30_001,
             );
-            await waitForRecoveryTransactionAdmissionBarrier(pageB);
-            expect(await readRecoveryTransactionAdmissionBarrier(pageB)).toEqual({
-                ready: true,
-                transactionAdmitted: false,
+            await waitForRecoveryTransactionAdmission(pageB);
+            expect(await readRecoveryTransactionAdmission(pageB)).toEqual({transactionAdmitted: true});
+            const claimedFirst = await awaitRecoveryOperationResult<IRecoveryClaimResult>(pageB);
+            expect(claimedFirst).toEqual({
+                claimed: true,
+                generation: 2,
             });
-            await armRecoveryTransactionAdmissionBarrier(pageA);
-            await startHeartbeatAtAdmissionBarrier(
+
+            await observeRecoveryTransactionAdmission(pageA);
+            await startHeartbeatAfterTransactionAdmissionObservation(
                 pageA,
                 'window:issue-489-claim-first',
                 selectedForClaimFirst.generation,
                 30_002,
             );
-            await waitForRecoveryTransactionAdmissionBarrier(pageA);
-            expect(await readRecoveryTransactionAdmissionBarrier(pageA)).toEqual({
-                ready: true,
-                transactionAdmitted: false,
-            });
-            const claimedFirst = await releaseRecoveryTransactionAdmissionBarrier(pageB);
-            expect(claimedFirst.result).toEqual({
-                claimed: true,
-                generation: 2,
-            });
-            expect(claimedFirst.transactionAdmitted).toBe(true);
-            expect(await readRecoveryTransactionAdmissionBarrier(pageA)).toEqual({
-                ready: true,
-                transactionAdmitted: false,
-            });
+            await waitForRecoveryTransactionAdmission(pageA);
+            expect(await readRecoveryTransactionAdmission(pageA)).toEqual({transactionAdmitted: true});
             const claimedTarget = await pageB.evaluate(async () => {
                 const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {loadBrowserWorkspaceRecovery: (ownerId: string) => Promise<unknown>};
                 return store.loadBrowserWorkspaceRecovery('window:issue-489-b');
@@ -1022,12 +921,11 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 checkpoint: initialCheckpoint,
             }));
 
-            const fencedHeartbeat = await releaseRecoveryTransactionAdmissionBarrier(pageA);
-            expect(fencedHeartbeat.result).toEqual({
+            const fencedHeartbeat = await awaitRecoveryOperationResult<IRecoveryMutationResult>(pageA);
+            expect(fencedHeartbeat).toEqual({
                 saved: false,
                 generation: 0,
             });
-            expect(fencedHeartbeat.transactionAdmitted).toBe(true);
             const fencedOldOwner = await pageA.evaluate(async ({
                 checkpoint,
                 generation,
@@ -1075,7 +973,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 pdfRef: ISSUE_489_PDF_REF,
             });
             expect({
-                heartbeat: fencedHeartbeat.result,
+                heartbeat: fencedHeartbeat,
                 ...fencedOldOwner,
             }).toEqual({
                 heartbeat: {

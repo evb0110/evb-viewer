@@ -50,6 +50,7 @@ async function runBrowserDocumentSourceVersionAcceptance() {
         saveKind: 'pdf',
         saveHandle: handle,
     });
+    await browserDocumentStore.touchRecentFile(firstRef);
     const dirtyRef = await browserDocumentStore.cloneAsWorkingCopy(firstRef);
     const dirtyBytes = Uint8Array.of(37, 80, 68, 70, 1);
     await browserDocumentStore.writeForBootstrap(dirtyRef, dirtyBytes, 'browser-source-version-acceptance');
@@ -57,11 +58,7 @@ async function runBrowserDocumentSourceVersionAcceptance() {
         lastModified: 200,
         type: 'application/pdf',
     });
-    const reopenedRef = await browserDocumentStore.registerFile(currentFile, {
-        kind: 'source',
-        saveKind: 'pdf',
-        saveHandle: handle,
-    });
+    const reopenedRef = await browserDocumentStore.refreshSourceVersionIfChanged(firstRef);
     try {
         return {
             firstBytes: Array.from(await browserDocumentStore.read(firstRef)),

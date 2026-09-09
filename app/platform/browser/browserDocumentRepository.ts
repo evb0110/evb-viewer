@@ -323,7 +323,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             files: currentFiles.filter(candidate => candidate.originalPath !== ref),
             value: undefined,
         }));
-        await this.touchRecentFile(freshRef);
         return freshRef;
     }
 
