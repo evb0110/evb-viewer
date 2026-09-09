@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Prints the commit a push run should diff from.
 #
-# A newer push to main cancels the previous in-progress CI run, so the
-# areas that run never verified have to be diffed by the run that replaced
-# it. Starting at the push event's `before` commit, walk back to the last
-# push whose run finished. Commits without a finished run (mid-push
-# commits, a run still being cancelled) are walked past. If the API call
-# fails, the diff keeps `before`, as it did before cancellation existed.
+# A push run can end without a verdict (cancelled by hand) or still be
+# running when the next push starts, and the areas it never verified have
+# to be diffed by the next run. Starting at the push event's `before`
+# commit, walk back to the last push whose run finished. Commits without a
+# finished run (mid-push commits, an unfinished run) are walked past. If
+# the API call fails, the diff keeps `before`.
 #
 # Usage: push-diff-base.sh <before-sha> <head-sha>
 set -euo pipefail
