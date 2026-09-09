@@ -1,0 +1,26 @@
+electron/image/pdfConversion.ts
+  s_c6a81699d5c19b::t_20939f58581201 15-18,32,541-563
+electron/image/pdfCombineShared.ts
+  s_c6a81699d5c19b::t_20939f58581201 499
+tests/unit/electron/pdfConversion.test.ts
+  s_c6a81699d5c19b::t_3e68bbf7b52cf8 438-442,452
+  s_c6a81699d5c19b::t_34f2038df0e715 444,456
+  s_c6a81699d5c19b::t_20939f58581201 50-53,94,266,268-270,297-300,443,445-451,453-455,457-462
+  s_c6a81699d5c19b::t_dcdeca32a4f526 11,267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f49a874483e5de918ef907ff92c4e78feb2d0eb7",
+  "prompts": {},
+  "sessions": {
+    "s_c6a81699d5c19b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08844-44ed-75e2-9f75-6465fad7a8b3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
