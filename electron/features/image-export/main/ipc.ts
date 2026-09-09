@@ -41,7 +41,7 @@ import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeComman
 import type { SetOptional } from 'type-fest';
 import {
     exportDjvuAsMultiPageTiff,
-    exportDjvuPagesAsPng,
+    exportDjvuPagesAsImages,
 } from '@electron/features/image-export/main/djvuImageExport';
 import {
     createMainJobRegistry,
@@ -362,7 +362,10 @@ export async function handlePdfExportImages(
             };
         }
 
-        const { normalizedPath } = normalizeImageExportPath(result.filePath, sourceKind === 'djvu' ? 'png' : 'jpeg');
+        const {
+            normalizedPath,
+            format: imageFormat,
+        } = normalizeImageExportPath(result.filePath, 'jpeg');
         const exportOptions = {
             cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
@@ -371,7 +374,10 @@ export async function handlePdfExportImages(
             onProgress: reportProgress,
         };
         const outputPaths = sourceKind === 'djvu'
-            ? await exportDjvuPagesAsPng(normalizedWorkingCopyPath, normalizedPath, exportOptions)
+            ? await exportDjvuPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
+                ...exportOptions,
+                format: imageFormat,
+            })
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
                 physicalReadPath => exportPdfPagesAsImages(physicalReadPath, normalizedPath, exportOptions),

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     beforeEach,
     describe,
@@ -15,7 +17,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.
 
 vi.mock('@electron/utils/runElectronCommand', () => ({runElectronCommand: mocks.runCommand}));
 
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: mocks.getPdfNativeToolPaths}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: mocks.getPdfNativeToolPaths,
+}));
 
 function createAbortError() {
     const error = new Error('The operation was aborted');

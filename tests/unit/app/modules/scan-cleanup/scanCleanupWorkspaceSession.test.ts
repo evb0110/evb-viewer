@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     beforeEach,
@@ -70,33 +72,36 @@ vi.mock('@contracts/scanCleanupPageOverrides', async importOriginal => {
     };
 });
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
-    key: string,
-    values?: Record<string, unknown>,
-) => {
-    if (key === 'scanCleanup.detectAll.preAnalyzing') {
-        return 'Pre-analyzing pages';
-    }
-    if (key === 'scanCleanup.runCount') {
-        return `${String(values?.completed)} of ${String(values?.total)} pages`;
-    }
-    if (key === 'scanCleanup.runStatus') {
-        return `${String(values?.phase)} — ${String(values?.counter)}`;
-    }
-    if (key === 'scanCleanup.etaMinutes') {
-        return `Current task: about ${String(values?.minutes)} min`;
-    }
-    if (key === 'scanCleanup.etaSeconds') {
-        return `Current task: about ${String(values?.seconds)} sec`;
-    }
-    if (key === 'scanCleanup.runProgress.assembling') {
-        return 'Building PDF';
-    }
-    if (key === 'scanCleanup.runProgress.handoff') {
-        return 'Opening result';
-    }
-    return values?.output === undefined ? key : `${key}:${String(values.output)}`;
-}})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (
+        key: string,
+        values?: Record<string, unknown>,
+    ) => {
+        if (key === 'scanCleanup.detectAll.preAnalyzing') {
+            return 'Pre-analyzing pages';
+        }
+        if (key === 'scanCleanup.runCount') {
+            return `${String(values?.completed)} of ${String(values?.total)} pages`;
+        }
+        if (key === 'scanCleanup.runStatus') {
+            return `${String(values?.phase)} — ${String(values?.counter)}`;
+        }
+        if (key === 'scanCleanup.etaMinutes') {
+            return `Current task: about ${String(values?.minutes)} min`;
+        }
+        if (key === 'scanCleanup.etaSeconds') {
+            return `Current task: about ${String(values?.seconds)} sec`;
+        }
+        if (key === 'scanCleanup.runProgress.assembling') {
+            return 'Building PDF';
+        }
+        if (key === 'scanCleanup.runProgress.handoff') {
+            return 'Opening result';
+        }
+        return values?.output === undefined ? key : `${key}:${String(values.output)}`;
+    }}),
+}));
 
 function previewResult(
     pageNumber: number,

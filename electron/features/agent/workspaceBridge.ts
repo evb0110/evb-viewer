@@ -43,8 +43,14 @@ const LONG_RUNNING_AGENT_ACTION_IDS = new Set([
 ]);
 
 interface ICachedWorkspaceSnapshot {
+    generation: number;
     revision: number;
     snapshot: IAgentWorkspaceSnapshot;
+}
+
+interface IWorkspaceSnapshotLifecycle {
+    generation: number;
+    cleanup: () => void;
 }
 
 interface IPendingRequest<TResponse> {
@@ -59,6 +65,8 @@ interface IPendingRequest<TResponse> {
 const pendingSnapshotRequests = new Map<TRequestId, IPendingRequest<IAgentWorkspaceSnapshot>>();
 const pendingCommandRequests = new Map<TRequestId, IPendingRequest<Record<string, unknown>>>();
 const snapshotCacheByWindowId = new Map<number, ICachedWorkspaceSnapshot>();
+const snapshotLifecycleByWindowId = new Map<number, IWorkspaceSnapshotLifecycle>();
+let nextSnapshotGeneration = 1;
 type TAgentResponseSender = Pick<IpcMainInvokeEvent, 'sender'>;
 
 function rejectPendingRequest<TResponse>(
@@ -130,6 +138,82 @@ function createTargetWindowLifecycleCleanup<TResponse>(
         window.webContents.removeListener('render-process-gone', handleRenderGone);
         window.webContents.removeListener('did-start-navigation', handleNavigation);
     };
+}
+
+function invalidateWorkspaceSnapshotLifecycle(
+    windowId: number,
+    lifecycle: IWorkspaceSnapshotLifecycle,
+    reason: string,
+) {
+    if (snapshotLifecycleByWindowId.get(windowId) !== lifecycle) {
+        return;
+    }
+
+    snapshotLifecycleByWindowId.delete(windowId);
+    snapshotCacheByWindowId.delete(windowId);
+    lifecycle.cleanup();
+
+    for (const [
+        requestId,
+        pending,
+    ] of pendingSnapshotRequests) {
+        if (pending.windowId === windowId) {
+            rejectPendingRequest(
+                pendingSnapshotRequests,
+                requestId,
+                new Error(`Agent renderer request was canceled because the target window ${reason}.`),
+            );
+        }
+    }
+}
+
+function createWorkspaceSnapshotLifecycle(window: BrowserWindow, generation: number) {
+    function handleInvalidation(reason: string) {
+        invalidateWorkspaceSnapshotLifecycle(window.id, lifecycle, reason);
+    }
+    function handleClosed() {
+        handleInvalidation('closed');
+    }
+    function handleRenderGone() {
+        handleInvalidation('renderer exited');
+    }
+    function handleNavigation(
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) {
+        if (isMainFrame && !isInPlace) {
+            handleInvalidation('navigated');
+        }
+    }
+    const lifecycle: IWorkspaceSnapshotLifecycle = {
+        generation,
+        cleanup: () => {
+            window.removeListener('closed', handleClosed);
+            window.webContents.removeListener('render-process-gone', handleRenderGone);
+            window.webContents.removeListener('did-start-navigation', handleNavigation);
+        },
+    };
+
+    window.once('closed', handleClosed);
+    window.webContents.once('render-process-gone', handleRenderGone);
+    window.webContents.on('did-start-navigation', handleNavigation);
+    return lifecycle;
+}
+
+function ensureWorkspaceSnapshotLifecycle(window: BrowserWindow, generation: number) {
+    const existing = snapshotLifecycleByWindowId.get(window.id);
+    if (existing?.generation === generation) {
+        return existing;
+    }
+    if (existing) {
+        existing.cleanup();
+        snapshotLifecycleByWindowId.delete(window.id);
+    }
+    const lifecycle = createWorkspaceSnapshotLifecycle(window, generation);
+    snapshotLifecycleByWindowId.set(window.id, lifecycle);
+    return lifecycle;
 }
 
 function createPendingRequest<TResponse>(
@@ -339,7 +423,14 @@ export function requestAgentWorkspaceSnapshot(
         window,
         timeoutMs,
         signal === undefined ? {} : {signal},
-        () => snapshotCacheByWindowId.delete(window.id),
+        () => {
+            const lifecycle = snapshotLifecycleByWindowId.get(window.id);
+            if (lifecycle) {
+                invalidateWorkspaceSnapshotLifecycle(window.id, lifecycle, 'navigated');
+            } else {
+                snapshotCacheByWindowId.delete(window.id);
+            }
+        },
     );
 
     try {
@@ -473,11 +564,24 @@ export function submitAgentWorkspaceSnapshotResponse(
         return acceptRendererAck();
     }
 
-    const previousRevision = snapshotCacheByWindowId.get(pending.windowId)?.revision ?? 0;
+    const cachedSnapshot = snapshotCacheByWindowId.get(pending.windowId);
+    const previousRevision = cachedSnapshot?.revision ?? 0;
+    const generation = cachedSnapshot?.generation ?? nextSnapshotGeneration++;
+    const responseWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!responseWindow || responseWindow.isDestroyed()) {
+        rejectPendingRequest(
+            pendingSnapshotRequests,
+            rawResponse.requestId,
+            new Error('Agent workspace snapshot response came from a destroyed renderer.'),
+        );
+        return rejectRendererAck('unexpected-sender');
+    }
     snapshotCacheByWindowId.set(pending.windowId, {
+        generation,
         revision: rawResponse.revision ?? previousRevision + 1,
         snapshot: rawResponse.snapshot,
     });
+    ensureWorkspaceSnapshotLifecycle(responseWindow, generation);
     resolvePendingRequest(
         pendingSnapshotRequests,
         rawResponse.requestId,

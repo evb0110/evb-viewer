@@ -73,9 +73,18 @@ every run, and needs an `Adds-Checks:` trailer with the user's words.
 
 - Diagnose from the run: `node scripts/ci/ci-health.mjs --days 7` lists
   failure and cancellation rates, commits whose reruns flipped between red and
-  green, the jobs and steps that fail most, and the slowest green jobs.
+  green, the jobs and steps that fail most, the slowest green jobs, and the
+  first red commit, subject, run, and matching failure lines for each failing
+  job.
 - A failure that starts at one commit and repeats on every later run is a
   regression in that commit, not flake. Fix the product or the test.
+- A `vi.mock` factory for a module under `app/` or `electron/` spreads
+  `await importOriginal()` and overrides only what the test controls. A
+  hand-written partial mock throws `No "<name>" export is defined on the mock`
+  for every test of that module the moment the module gains an export, which
+  breaks other writers' tests without touching them. Modules whose load starts
+  workers, writes files, logs, or touches Electron main-process APIs stay
+  wholesale mocks.
 - An Electron E2E test with a named product or harness failure under
   investigation moves to `tests/e2e/electron/quarantine/` with its reason and
   expiry recorded in `graduation-policy.json`, and moves back when fixed.

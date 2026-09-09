@@ -218,16 +218,17 @@ async function postAnalyticsBatch(
     useBeacon = false,
 ) {
     if (!import.meta.client || events.length === 0) {
-        return true;
+        return 'persisted' as const;
     }
 
     const body = JSON.stringify({ events });
 
     if (useBeacon && typeof navigator.sendBeacon === 'function') {
-        return navigator.sendBeacon(
+        navigator.sendBeacon(
             '/api/analytics/events',
             new Blob([body], { type: 'application/json' }),
         );
+        return 'retryable' as const;
     }
 
     const response = await fetch('/api/analytics/events', {
@@ -237,7 +238,33 @@ async function postAnalyticsBatch(
         keepalive: true,
     });
 
-    return response.ok;
+    let responseBody: unknown = null;
+    try {
+        responseBody = await response.json();
+    } catch {
+        return 'retryable' as const;
+    }
+
+    if (
+        response.ok
+        && typeof responseBody === 'object'
+        && responseBody !== null
+        && 'persisted' in responseBody
+        && responseBody.persisted === true
+    ) {
+        return 'persisted' as const;
+    }
+
+    if (
+        typeof responseBody === 'object'
+        && responseBody !== null
+        && 'retryable' in responseBody
+        && responseBody.retryable === false
+    ) {
+        return 'permanent' as const;
+    }
+
+    return 'retryable' as const;
 }
 
 async function flushAnalyticsQueue(enabledFlag: unknown, useBeacon = false) {
@@ -261,8 +288,8 @@ async function flushAnalyticsQueue(enabledFlag: unknown, useBeacon = false) {
     }
 
     try {
-        const didPersist = await postAnalyticsBatch(batch, useBeacon);
-        if (!didPersist) {
+        const outcome = await postAnalyticsBatch(batch, useBeacon);
+        if (outcome !== 'persisted' && outcome !== 'permanent') {
             analyticsBrowserState.queue = [
                 ...batch,
                 ...analyticsBrowserState.queue,

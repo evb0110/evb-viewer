@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/utils/normalizePossiblyEncodedExistingPath';
+
 import {
     beforeEach,
     describe,
@@ -105,7 +107,10 @@ vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({
     isScanCleanupGeneratedOutputPath: (path: string) => mocks.isScanCleanupGeneratedOutputPath(path),
     touchScanCleanupGeneratedOutput: (path: string) => mocks.touchScanCleanupGeneratedOutput(path),
 }));
-vi.mock('@electron/utils/normalizePossiblyEncodedExistingPath', () => ({normalizePossiblyEncodedExistingPath: () => null}));
+vi.mock('@electron/utils/normalizePossiblyEncodedExistingPath', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    normalizePossiblyEncodedExistingPath: () => null,
+}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),

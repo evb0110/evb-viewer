@@ -16,13 +16,18 @@ that works in this repository, including orchestrators that drive other agents.
 
   ```sh
   pnpm worktrees:prune --into=origin/<integration-branch>
-  pnpm worktrees:prune --into=origin/<integration-branch> --apply
+  pnpm worktrees:prune --into=origin/<integration-branch> \
+    --target=/absolute/path/to/completed-worktree \
+    --completed=/absolute/path/to/completion-receipt.json --apply
   ```
 
   The first call is a dry run that prints every registered worktree with its
-  verdict. The script removes only trees that are clean and whose HEAD is an
-  ancestor of `origin/main` or a `--into` ref. It never deletes branches, the
-  primary checkout, dirty trees, or the tree containing the current directory.
+  verdict. Apply names one completed worktree and a JSON receipt with
+  `status: "completed"`, `taskKey`, `worktreePath`, and its exact 40-character
+  `head`. The script rechecks the receipt, clean state, registration identity,
+  and live process/session ownership immediately before non-force removal. A
+  live or unavailable owner probe keeps the target. It never deletes branches,
+  the primary checkout, dirty trees, or the tree containing the current directory.
 - Do not create a worktree for review, diagnosis, or a read-only look at a
   branch. `git show`, `git diff`, and `gh pr diff` answer those without a
   checkout.

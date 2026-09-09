@@ -85,7 +85,7 @@ import {
     createPdfInfoPageSizeStreamScanner,
     parsePdfInfoPageSizeLine,
 } from '@electron/features/image-export/main/parsePdfInfoPageSizes';
-type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
+export type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
 interface IRenderedPageFile {
     page: number;
@@ -394,6 +394,43 @@ export async function convertRenderedPpmToPng(
     await writeFile(pngPath, addPngPhysicalResolution(pngBytes, dpi));
     await unlink(sourcePath).catch(() => undefined);
     return pngPath;
+}
+
+export async function convertRenderedPpmToImage(
+    sourcePath: string,
+    format: TImageExportFormat,
+    signal?: AbortSignal,
+    cancelGroup?: string,
+    dpi = DEFAULT_RENDER_DPI,
+) {
+    if (format === 'png') {
+        return convertRenderedPpmToPng(sourcePath, signal, cancelGroup, dpi);
+    }
+    const outputPath = sourcePath.replace(/\.ppm$/i, format === 'jpeg' ? '.jpg' : '.tif');
+    if (isNativePdfImageCombineDisabled()) {
+        throw new Error(`Native ${format.toUpperCase()} output service is unavailable for DjVu export`);
+    }
+    const binaryPath = resolveNativePdfImageCombinePath();
+    if (!binaryPath) {
+        throw new Error(`Native ${format.toUpperCase()} output service is unavailable for DjVu export`);
+    }
+    await runNativeToolCommand(binaryPath, [
+        '--format',
+        format === 'tiff' ? 'tiff-single' : format,
+        '--dpi',
+        String(Math.max(1, Math.round(dpi))),
+        '--output',
+        outputPath,
+        '--',
+        sourcePath,
+    ], {
+        timeoutMs: PDFTOPPM_TIMEOUT_MS,
+        commandLabel: `evb-pdf-image-combine(ppm-to-${format})`,
+        ...(signal ? {signal} : {}),
+        ...(cancelGroup ? {cancelGroup} : {}),
+    });
+    await unlink(sourcePath).catch(() => undefined);
+    return outputPath;
 }
 
 async function moveFile(sourcePath: string, targetPath: string) {

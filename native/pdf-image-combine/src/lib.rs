@@ -19,6 +19,9 @@ mod tiff_io;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod wasm;
 
+use jpeg_encoder::{
+    ColorType as JpegColorType, Encoder as JpegEncoder, PixelDensity, SamplingFactor,
+};
 use std::{
     borrow::Cow,
     error::Error,
@@ -32,6 +35,10 @@ use evb_native_support::{
     NativeError, NativeErrorCode,
 };
 use evb_raster_io::{decode_png_gray, write_png, write_png_with_dpi, DecodeLimits, PixelBuffer};
+use tiff::{
+    encoder::{colortype, Rational, TiffEncoder},
+    tags::ResolutionUnit,
+};
 
 use crate::{
     image::{
@@ -1067,6 +1074,71 @@ pub fn encode_netpbm_path_as_png_with_dpi(
         Some(dpi) => write_png_with_dpi(output.file_mut()?, buffer, dpi)?,
         None => write_png(output.file_mut()?, buffer)?,
     };
+    output.publish()?;
+    Ok(())
+}
+
+pub fn encode_netpbm_path_as_jpeg(
+    input_path: &Path,
+    output_path: &Path,
+    max_pixels: u64,
+    dpi: Option<u32>,
+) -> Result<()> {
+    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
+    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
+    let (pixels, color_type) = match netpbm.channels {
+        1 => (Cow::Borrowed(netpbm.pixels.as_slice()), JpegColorType::Luma),
+        3 => (Cow::Borrowed(netpbm.pixels.as_slice()), JpegColorType::Rgb),
+        _ => unreachable!("the Netpbm parser only returns gray or RGB pixels"),
+    };
+    let width = u16::try_from(netpbm.width).map_err(|_| "JPEG width is too large to encode")?;
+    let height = u16::try_from(netpbm.height).map_err(|_| "JPEG height is too large to encode")?;
+    let mut bytes = Vec::new();
+    let mut encoder = JpegEncoder::new(&mut bytes, 90);
+    encoder.set_density(PixelDensity::dpi(
+        dpi.unwrap_or(DEFAULT_DPI).min(u32::from(u16::MAX)) as u16,
+    ));
+    if matches!(color_type, JpegColorType::Rgb) {
+        encoder.set_sampling_factor(SamplingFactor::R_4_2_0);
+    }
+    encoder.encode(&pixels, width, height, color_type)?;
+    let mut output = AtomicOutput::create(output_path)?;
+    output.file_mut()?.write_all(&bytes)?;
+    output.publish()?;
+    Ok(())
+}
+
+pub fn encode_netpbm_path_as_tiff_with_dpi(
+    input_path: &Path,
+    output_path: &Path,
+    max_pixels: u64,
+    dpi: Option<u32>,
+) -> Result<()> {
+    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
+    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
+    let mut output = AtomicOutput::create(output_path)?;
+    {
+        let mut encoder = TiffEncoder::new(output.file_mut()?)?;
+        let resolution = Rational {
+            n: dpi.unwrap_or(DEFAULT_DPI),
+            d: 1,
+        };
+        match netpbm.channels {
+            1 => {
+                let mut image =
+                    encoder.new_image::<colortype::Gray8>(netpbm.width, netpbm.height)?;
+                image.resolution(ResolutionUnit::Inch, resolution);
+                image.write_data(&netpbm.pixels)?;
+            }
+            3 => {
+                let mut image =
+                    encoder.new_image::<colortype::RGB8>(netpbm.width, netpbm.height)?;
+                image.resolution(ResolutionUnit::Inch, resolution);
+                image.write_data(&netpbm.pixels)?;
+            }
+            _ => unreachable!("the Netpbm parser only returns gray or RGB pixels"),
+        }
+    }
     output.publish()?;
     Ok(())
 }

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+
 import {
     mkdtemp,
     rm,
@@ -18,7 +20,7 @@ const mocks = vi.hoisted(() => ({
     getPageCount: vi.fn(),
     getPageSizeWindows: vi.fn(),
     convertPage: vi.fn(),
-    convertPpmToPng: vi.fn(),
+    convertPpmToImage: vi.fn(),
     combineTiff: vi.fn(),
     acquire: vi.fn(),
     promoteStagedFiles: vi.fn(),
@@ -31,11 +33,14 @@ vi.mock('@electron/features/djvu/public', () => ({
     getDjvuPageSizeWindowsForViewing: mocks.getPageSizeWindows,
 }));
 vi.mock('@electron/features/image-export/main/export', () => ({
-    convertRenderedPpmToPng: mocks.convertPpmToPng,
+    convertRenderedPpmToImage: mocks.convertPpmToImage,
     promoteStagedFiles: mocks.promoteStagedFiles,
 }));
 vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner', () => ({tryCombinePagesWithNativeTiffCombiner: mocks.combineTiff}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    mainJobBroker: {acquire: mocks.acquire},
+}));
 
 describe('DjVu image export limits', () => {
     let tempDir = '';
@@ -184,7 +189,7 @@ describe('DjVu image export limits', () => {
                 fileSize: 3,
             };
         });
-        mocks.convertPpmToPng.mockImplementation(async (ppmPath: string) => {
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
             const pngPath = `${ppmPath}.png`;
             await writeFile(pngPath, 'png');
             return pngPath;
@@ -224,7 +229,7 @@ describe('DjVu image export limits', () => {
                 fileSize: 1.5 * 1024 * 1024 * 1024,
             };
         });
-        mocks.convertPpmToPng.mockImplementation(async (ppmPath: string) => {
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
             const pngPath = `${ppmPath}.png`;
             await writeFile(pngPath, 'png');
             return pngPath;
@@ -274,7 +279,7 @@ describe('DjVu image export limits', () => {
                 fileSize: 3,
             };
         });
-        mocks.convertPpmToPng.mockImplementation(async (ppmPath: string) => {
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
             const pngPath = `${ppmPath}.png`;
             await writeFile(pngPath, 'png');
             return pngPath;

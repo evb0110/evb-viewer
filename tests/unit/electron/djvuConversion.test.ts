@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import {
     beforeEach,
     describe,
@@ -197,7 +199,10 @@ vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToo
     ddjvu: '/tools/ddjvu',
     djvused: '/tools/djvused',
 })}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'}),
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

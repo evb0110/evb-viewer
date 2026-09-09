@@ -3,6 +3,7 @@ import type {ChildProcess} from 'node:child_process';
 import {createServer} from 'node:http';
 import {resolve} from 'node:path';
 import {chromium} from 'playwright';
+import type {Page} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -74,6 +75,14 @@ async function waitForServer(url: string) {
     throw new Error(`Timed out waiting for Nuxt:\n${serverOutput.slice(-8_000)}`);
 }
 
+async function waitForOpenFileReady(page: Page) {
+    await page.waitForFunction(() => Boolean(Reflect.get(window, '__evbTestApi')), undefined, {timeout: 30_000});
+    await page.waitForFunction(() => {
+        const api = Reflect.get(window, '__evbTestApi') as {isStartupOpenClaimPending?: () => boolean};
+        return !api.isStartupOpenClaimPending?.();
+    }, undefined, {timeout: 30_000});
+}
+
 async function stopServer() {
     const server = devServer;
     devServer = null;
@@ -136,11 +145,10 @@ describe('browser document lifecycle UI', () => {
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
-            });
-            await page.goto(origin, {waitUntil: 'domcontentloaded'});
-            await page.evaluate(() => {
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
 
             const validChooserPromise = page.waitForEvent('filechooser');
             await page.getByRole('button', {
@@ -202,11 +210,10 @@ describe('browser document lifecycle UI', () => {
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
-            });
-            await page.goto(origin, {waitUntil: 'domcontentloaded'});
-            await page.evaluate(() => {
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
 
             const chooserPromise = page.waitForEvent('filechooser');
             await page.getByRole('button', {
@@ -298,11 +305,10 @@ describe('browser document lifecycle UI', () => {
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
-            });
-            await page.goto(origin, {waitUntil: 'domcontentloaded'});
-            await page.evaluate(() => {
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
 
             let openCount = 0;
             const openWithFile = async (filePath: string) => {
@@ -397,13 +403,9 @@ describe('browser document lifecycle UI', () => {
                 target.goto(`${origin}?evbWindowId=2`, {waitUntil: 'domcontentloaded'}),
             ]);
             await Promise.all([
-                source.waitForFunction(() => Boolean(Reflect.get(window, '__evbTestApi')), undefined, {timeout: 30_000}),
+                waitForOpenFileReady(source),
                 target.waitForFunction(() => Boolean(Reflect.get(window, '__evbTestApi')), undefined, {timeout: 30_000}),
             ]);
-            await source.waitForFunction(() => {
-                const api = Reflect.get(window, '__evbTestApi') as {isStartupOpenClaimPending?: () => boolean};
-                return !api.isStartupOpenClaimPending?.();
-            }, undefined, {timeout: 30_000});
 
             const chooserPromise = source.waitForEvent('filechooser');
             await source.getByRole('button', {
@@ -435,8 +437,6 @@ describe('browser document lifecycle UI', () => {
             });
             await noteEditor.fill('durable transfer edit');
             await expect.poll(() => noteEditor.textContent()).toBe('durable transfer edit');
-            await noteEditor.blur();
-            await source.waitForTimeout(1_000);
             await expect.poll(async () => source.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 const state = api.readActiveWorkspaceStateValues?.<{annotationComments?: Array<{
@@ -449,6 +449,17 @@ describe('browser document lifecycle UI', () => {
                     comment.displayText,
                     comment.previewText,
                 ].includes('durable transfer edit')) ?? false;
+            }), {timeout: 30_000}).toBe(true);
+            await expect.poll(() => noteEditor.isVisible()).toBe(true);
+            await noteEditor.blur();
+            await expect.poll(async () => source.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                const state = api.readActiveWorkspaceStateValues?.<{dirtyState?: {
+                    annotationDirty: boolean;
+                    hasAnnotationChanges: boolean;
+                };}>(['dirtyState']);
+                return state?.dirtyState?.annotationDirty === true
+                    && state.dirtyState.hasAnnotationChanges === true;
             }), {timeout: 30_000}).toBe(true);
             await expect.poll(() => source.locator(
                 '[data-tab-list] [role="tab"][aria-selected="true"]',
@@ -533,6 +544,7 @@ describe('browser document lifecycle UI', () => {
                     window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
                 });
                 await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(reopened);
                 const reopenChooserPromise = reopened.waitForEvent('filechooser');
                 await reopened.getByRole('button', {
                     name: 'Open File',

@@ -161,7 +161,7 @@
                 :model-value="currentPage"
                 :open="pageDropdownOpen"
                 :total-pages="pageDropdownTotalPages"
-                :view-mode="snapshot.viewMode"
+                :view-mode="effectiveViewMode"
                 :page-labels="pageLabels"
                 :navigation-page="navigationPage"
                 :disabled="pageNavigationDisabled"
@@ -282,6 +282,7 @@ import {
     ScanCleanupScissorsIcon,
     scanCleanupRun,
 } from '@app/modules/scan-cleanup/public/runtime';
+import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 const OcrPopup = defineAsyncComponent(
     () => import('@app/modules/ocr-panel/public')
@@ -467,6 +468,10 @@ const viewMode = computed({
     get: () => snapshot.viewMode,
     set: value => emit('update:viewMode', value),
 });
+const effectiveViewMode = computed(() => resolveWorkspaceViewerViewMode(
+    snapshot.viewerCapabilities,
+    snapshot.viewMode,
+));
 const {
     currentPage,
     navigationPage,

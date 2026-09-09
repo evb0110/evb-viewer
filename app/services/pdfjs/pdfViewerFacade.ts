@@ -93,6 +93,11 @@ export interface IPdfTextLayer {
     readonly textContentItemsStr: string[];
 }
 
+export interface IPdfStructTreeLayer {
+    render(): Promise<unknown>;
+    updateTextLayer(): void;
+}
+
 function getUiManagerCapabilities(uiManager: TAnnotationEditorUIManager) {
     return uiManager as TAnnotationEditorUIManager & IPdfjsAnnotationEditorUiManagerCapabilities;
 }
@@ -189,6 +194,15 @@ export function createPdfjsTextLayer(options: ICreatePdfjsTextLayerOptions): IPd
     return new TextLayer(
         options as ConstructorParameters<typeof TextLayer>[0],
     );
+}
+
+export async function createPdfjsStructTreeLayer(options: {
+    page: IPdfPage;
+    rawDims: object;
+}): Promise<IPdfStructTreeLayer> {
+    (globalThis as typeof globalThis & {pdfjsLib?: typeof pdfjsRuntime}).pdfjsLib ??= pdfjsRuntime;
+    const { StructTreeLayerBuilder } = await import('pdfjs-dist/web/pdf_viewer.mjs');
+    return new StructTreeLayerBuilder(options.page, options.rawDims);
 }
 
 export function interceptPdfjsRegisterEditorTypes(

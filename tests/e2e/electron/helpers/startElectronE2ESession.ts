@@ -292,7 +292,10 @@ async function waitForHealthReady(sessionName: string, timeoutMs: number, signal
     while (!signal.aborted && Date.now() - start < timeoutMs) {
         try {
             setCurrentSessionName(sessionName);
-            const health = await sendCommand('health') as {ready?: boolean;};
+            const health = await sendCommand('health', [], undefined, {
+                signal,
+                retryOnTransportFailure: true,
+            }) as {ready?: boolean;};
             successfulResponseCount += 1;
             if (health?.ready) {
                 return;
@@ -481,7 +484,7 @@ async function startElectronE2ESessionWithAutomationEnv(
                 scopedSessionName,
                 `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
                 SESSION_READY_TIMEOUT_MS,
-                () => waitForSessionReady(SESSION_READY_TIMEOUT_MS),
+                signal => waitForSessionReady(SESSION_READY_TIMEOUT_MS, signal),
                 { cleanupOnTimeout: true },
             );
             if (!ready) {

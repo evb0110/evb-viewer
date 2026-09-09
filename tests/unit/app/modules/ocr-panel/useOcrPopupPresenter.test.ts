@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type { IOcrLanguage } from '@contracts/shared';
@@ -41,10 +43,13 @@ const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unk
 });
 
 vi.mock('@app/composables/useOcr', () => ({useOcr: useOcrMock}));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
-    locale: ref('en'),
-    t: translateMock,
-})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({
+        locale: ref('en'),
+        t: translateMock,
+    }),
+}));
 vi.mock('@vueuse/core', () => ({
     useClipboard: () => ({copy: copyClipboardTextMock}),
     useTimeoutFn: () => ({

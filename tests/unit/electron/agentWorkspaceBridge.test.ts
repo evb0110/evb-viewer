@@ -348,9 +348,89 @@ describe('agent workspace bridge', () => {
 
         expect(accepted).toEqual({ accepted: true });
         await expect(pending).resolves.toBe(snapshot);
+        expect(window.listenerCount('closed')).toBe(1);
+        expect(window.webContents.listenerCount('render-process-gone')).toBe(1);
+        expect(window.webContents.listenerCount('did-start-navigation')).toBe(1);
+    });
+
+    it('invalidates a completed snapshot after main-frame navigation', async () => {
+        const window = createFakeWindow(707);
+        mocks.fromWebContents.mockReturnValue(window);
+        const firstSnapshot = createWorkspaceSnapshot();
+        const secondSnapshot = {
+            ...firstSnapshot,
+            capturedAt: requireIsoTimestamp('2026-06-22T00:01:00.000Z'),
+        };
+
+        const firstPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const firstRequest = getSnapshotRequest(window);
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: firstRequest.requestId,
+                windowId: firstRequest.windowId,
+                ok: true,
+                revision: 1,
+                snapshot: firstSnapshot,
+            },
+        )).toEqual({ accepted: true });
+        await expect(firstPending).resolves.toBe(firstSnapshot);
+
+        window.webContents.emit('did-start-navigation', {}, 'app://reload', false, true);
         expect(window.listenerCount('closed')).toBe(0);
         expect(window.webContents.listenerCount('render-process-gone')).toBe(0);
         expect(window.webContents.listenerCount('did-start-navigation')).toBe(0);
+
+        const secondPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const secondRequest = getSnapshotRequest(window, 1);
+        expect(secondRequest.lastSeenRevision).toBeUndefined();
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: secondRequest.requestId,
+                windowId: secondRequest.windowId,
+                ok: true,
+                revision: 1,
+                snapshot: secondSnapshot,
+            },
+        )).toEqual({ accepted: true });
+        await expect(secondPending).resolves.toBe(secondSnapshot);
+    });
+
+    it.each([
+        [
+            'renderer exit',
+            (window: IFakeWindow) => window.webContents.emit('render-process-gone'),
+        ],
+        [
+            'window close',
+            (window: IFakeWindow) => window.emit('closed'),
+        ],
+    ])('invalidates a completed snapshot after %s', async (_name, emitLifecycleEvent) => {
+        const window = createFakeWindow(_name === 'renderer exit' ? 708 : 709);
+        mocks.fromWebContents.mockReturnValue(window);
+        const snapshot = createWorkspaceSnapshot();
+
+        const firstPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const firstRequest = getSnapshotRequest(window);
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: firstRequest.requestId,
+                windowId: firstRequest.windowId,
+                ok: true,
+                revision: 1,
+                snapshot,
+            },
+        )).toEqual({ accepted: true });
+        await expect(firstPending).resolves.toBe(snapshot);
+
+        emitLifecycleEvent(window);
+        const secondPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const secondRequest = getSnapshotRequest(window, 1);
+        expect(secondRequest.lastSeenRevision).toBeUndefined();
+        emitLifecycleEvent(window);
+        await expect(secondPending).rejects.toThrow();
     });
 
     it('resolves unchanged snapshot responses from the per-window cache', async () => {

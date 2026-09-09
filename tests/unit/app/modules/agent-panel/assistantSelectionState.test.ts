@@ -402,4 +402,53 @@ describe('assistantSelectionState', () => {
         ]);
         expect(selectedStatus.speedMode).toBe('fast');
     });
+
+    it('derives Claude speed modes from the selected model tiers', () => {
+        const baseStatus = createAssistantStatus('claude');
+        const providerStatus = createProviderStatus('claude', {
+            models: [
+                {
+                    id: 'claude-opus',
+                    label: 'Claude Opus',
+                    serviceTiers: [
+                        {
+                            id: 'fast',
+                            label: 'Fast',
+                        },
+                        {
+                            id: 'standard',
+                            label: 'Standard',
+                        },
+                    ],
+                },
+                {
+                    id: 'claude-sonnet',
+                    label: 'Claude Sonnet',
+                    serviceTiers: [{
+                        id: 'standard',
+                        label: 'Standard',
+                    }],
+                },
+            ],
+            activeModel: 'claude-opus',
+            availableSpeedModes: [
+                'fast',
+                'standard',
+            ],
+            defaultSpeedMode: 'fast',
+        });
+
+        expect(speedModesForProviderStatus(providerStatus, 'claude-opus')).toEqual([
+            'fast',
+            'standard',
+        ]);
+        expect(speedModesForProviderStatus(providerStatus, 'claude-sonnet')).toEqual(['standard']);
+        expect(createSelectedAssistantStatus(
+            baseStatus,
+            providerStatus,
+            'claude-sonnet',
+            'low',
+            'fast',
+        ).speedMode).toBe('standard');
+    });
 });

@@ -44,6 +44,7 @@ import type {TDocumentImageExportSourceKind} from '@contracts/electronApiDocumen
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
+    resolveWorkspaceViewerViewMode,
     resolveWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
@@ -659,7 +660,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             zoom: options.zoom.value,
             zoomMode: options.zoomMode.value,
             fitMode: options.fitMode.value,
-            viewMode: options.viewMode.value,
+            viewMode: resolveWorkspaceViewerViewMode(
+                options.activeDocumentDriver.value.capabilities,
+                options.viewMode.value,
+            ),
             continuousScroll: options.continuousScroll.value,
             dragMode: options.dragMode.value,
             documentRevisionToken: options.documentRevisionToken.value,
@@ -682,7 +686,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 zoom: options.zoom.value,
                 zoomMode: options.zoomMode.value,
                 fitMode: options.fitMode.value,
-                viewMode: options.viewMode.value,
+                viewMode: resolveWorkspaceViewerViewMode(
+                    driver.capabilities,
+                    options.viewMode.value,
+                ),
                 viewRotation: options.viewRotation.value,
                 currentPage: options.currentPage.value,
                 dragMode: options.dragMode.value,

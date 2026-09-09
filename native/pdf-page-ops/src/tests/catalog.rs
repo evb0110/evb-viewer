@@ -119,6 +119,32 @@
     }
 
     #[test]
+    fn add_implicit_default_page_label_range_only_when_source_needs_a_reset() {
+        let mut sparse = vec![PdfCombinePageLabelRange {
+            page_index: 2,
+            style: Some("r".to_string()),
+            prefix: None,
+            start: None,
+        }];
+        add_implicit_default_page_label_range(&mut sparse, 3);
+        assert_eq!(sparse[0].page_index, 0);
+        assert_eq!(sparse[1].page_index, 2);
+
+        let mut explicit = vec![PdfCombinePageLabelRange {
+            page_index: 0,
+            style: Some("r".to_string()),
+            prefix: None,
+            start: None,
+        }];
+        add_implicit_default_page_label_range(&mut explicit, 3);
+        assert_eq!(explicit.len(), 1);
+
+        let mut empty = Vec::new();
+        add_implicit_default_page_label_range(&mut empty, 0);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
     fn read_catalog_terminates_on_cyclic_outline() {
         let mut document = create_test_document().0;
         let item_id = document.new_object_id();

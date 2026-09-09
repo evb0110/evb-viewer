@@ -6,6 +6,11 @@ use std::{cell::RefCell, slice};
 
 use crate::pdf_conformance_facts;
 use crate::{
+    add_implicit_default_page_label_range, build_browser_page_subset_pdf, read_pdf_combine_catalog,
+    save_document_to_bytes, set_bookmarks, set_page_labels, BookmarkEntry, BookmarksMutation,
+    PageCloneSource, PageLabelRange, PageLabelsMutation,
+};
+use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
     delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
     insert_browser_pdf_pages, load_browser_pdf, read_native_mutations_bytes,
@@ -13,11 +18,6 @@ use crate::{
     serialize_annotation_parse, CropMargins, NativeMutationBytesResult, PageGeometry,
     PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
-};
-use crate::{
-    build_browser_page_subset_pdf, read_pdf_combine_catalog, save_document_to_bytes, set_bookmarks,
-    set_page_labels, BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange,
-    PageLabelsMutation,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
@@ -283,7 +283,11 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
             let mut bookmarks = Vec::new();
             let mut page_labels = Vec::new();
             for (source_index, document) in documents.iter().enumerate() {
-                let source_catalog = read_pdf_combine_catalog(document)?;
+                let mut source_catalog = read_pdf_combine_catalog(document)?;
+                add_implicit_default_page_label_range(
+                    &mut source_catalog.page_labels,
+                    documents[source_index].get_pages().len() as u32,
+                );
                 bookmarks.extend(
                     source_catalog
                         .bookmarks

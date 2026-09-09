@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/constants/storageKeys';
+
 import {
     afterEach,
     describe,
@@ -9,7 +11,10 @@ import type { IOcrWord } from '@contracts/shared';
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { cast } from '@tests/helpers/cast';
 
-vi.mock('@app/constants/storageKeys', () => ({STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'}}));
+vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'},
+}));
 
 const { isOcrDebugEnabled } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled');
 const { transformOcrWordToViewport } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport');

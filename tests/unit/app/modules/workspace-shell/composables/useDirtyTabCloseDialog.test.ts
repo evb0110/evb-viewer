@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     effectScope,
     nextTick,
@@ -14,7 +16,10 @@ import type { ITab } from '@app/types/tabs';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import { requireDocumentRef } from '@contracts/documentRef';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 
 const scopes: Array<ReturnType<typeof effectScope>> = [];
 

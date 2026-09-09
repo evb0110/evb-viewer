@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -26,7 +28,8 @@ const capabilities = vi.hoisted(() => ({
     ) => null as TOpenFileResult | null),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentOpenCapability: () => ({
         openDocumentDirect: capabilities.openDocumentDirect,
         openDocumentDirectBatch: capabilities.openDocumentDirectBatch,

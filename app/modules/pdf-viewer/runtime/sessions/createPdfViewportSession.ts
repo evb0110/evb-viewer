@@ -24,6 +24,7 @@ import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
     getViewportVisibilityFromDom,
     getViewportVisibilityFromLayout,
@@ -153,8 +154,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pageNumber: null,
     });
     const viewportPin = useViewportPagePin({summarizeViewerStateForLog: options.summarizeViewerStateForLog});
+    let getActivePhysicalScrollOrigin = () => 0;
     const scroll = usePdfScroll({
         getPinnedMostVisiblePage: () => viewportPin.getPinnedViewportPage(),
+        getPhysicalScrollOrigin: () => getActivePhysicalScrollOrigin(),
         viewportWritePort,
     });
     const scale = usePdfScale(
@@ -275,7 +278,12 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const domVisibility = getViewportVisibilityFromDom(container, totalPages);
         const visibility = domVisibility.range || domVisibility.mostVisiblePage !== null
             ? domVisibility
-            : getViewportVisibilityFromLayout(container, totalPages, viewportLayoutMetrics.value) ?? domVisibility;
+            : getViewportVisibilityFromLayout(
+                container,
+                totalPages,
+                viewportLayoutMetrics.value,
+                viewportLayoutMetrics.value ? getActivePhysicalScrollOrigin() : 0,
+            ) ?? domVisibility;
         visibleRange.value = visibility.range ?? visibleRange.value;
         return visibleRange.value;
     }
@@ -331,6 +339,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         emitNavigationFeedbackPage: options.emitNavigationFeedbackPage,
         viewportWritePort,
         getPageLayoutMetrics: () => viewportLayoutMetrics.value,
+        getPhysicalScrollOrigin: () => getActivePhysicalScrollOrigin(),
         bindCurrentPageProjection: scroll.bindCurrentPageProjection,
         getDocumentRevision: () => documentSession.captureFence().loadToken,
         getGeometryRevision: () => pageMetricsVersion.value + 1,
@@ -349,6 +358,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         },
         ...openSurfaceViewportCallbacks,
     });
+    getActivePhysicalScrollOrigin = () => {
+        const layout = viewportLayoutMetrics.value;
+        if (!layout) {
+            return 0;
+        }
+        return getLayoutPhysicalScrollOrigin(
+            layout,
+            singlePageScroll.navigationAnchorPage.value ?? currentPage.value,
+        );
+    };
     const transactionController = usePdfViewerTransactionController({
         currentPage,
         visibleRange,

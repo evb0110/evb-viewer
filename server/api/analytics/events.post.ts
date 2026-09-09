@@ -32,6 +32,7 @@ export default defineEventHandler(async (event) => {
         return {
             ok: true,
             persisted: false,
+            retryable: false,
         };
     }
     if (!isTrustedAnalyticsRequest(event)) {
@@ -56,12 +57,14 @@ export default defineEventHandler(async (event) => {
         return {
             ok: false,
             persisted: false,
+            retryable: true,
         };
     }
     if (!db) {
         return {
             ok: true,
             persisted: false,
+            retryable: false,
         };
     }
 
@@ -71,6 +74,7 @@ export default defineEventHandler(async (event) => {
         return {
             ok: true,
             persisted: false,
+            retryable: false,
         };
     }
 
@@ -102,6 +106,7 @@ export default defineEventHandler(async (event) => {
             return {
                 ok: true,
                 persisted: false,
+                retryable: false,
             };
         }
         captureServerFailure({
@@ -116,12 +121,14 @@ export default defineEventHandler(async (event) => {
         return {
             ok: false,
             persisted: false,
+            retryable: true,
         };
     }
 
     return {
         ok: true,
         persisted: true,
+        retryable: false,
         count: parsedEvents.length,
     };
 });

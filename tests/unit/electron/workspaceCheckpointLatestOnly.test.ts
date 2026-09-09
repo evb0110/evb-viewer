@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -44,24 +46,23 @@ vi.mock('node:fs/promises', () => ({
         mocks.staged.set(path, value);
     }),
 }));
-vi.mock('node:fs', () => ({
-    readFileSync: vi.fn(() => {
-        if (mocks.syncReadError) {
-            throw mocks.syncReadError;
-        }
-        if (mocks.persisted === null) {
-            const error = new Error('missing');
-            Object.assign(error, {code: 'ENOENT'});
-            throw error;
-        }
-        return mocks.persisted;
-    }),
-}));
+vi.mock('node:fs', () => ({readFileSync: vi.fn(() => {
+    if (mocks.syncReadError) {
+        throw mocks.syncReadError;
+    }
+    if (mocks.persisted === null) {
+        const error = new Error('missing');
+        Object.assign(error, {code: 'ENOENT'});
+        throw error;
+    }
+    return mocks.persisted;
+})}));
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
     makeSiblingTempPath: () => `/profile/checkpoint-${mocks.tempIndex += 1}.tmp`,
 }));
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     claimWorkingCopyOwnership: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(() => null),
     getWorkingCopyOwnerWebContentsId: vi.fn(() => undefined),
@@ -140,6 +141,79 @@ describe('workspace checkpoint latest-only writer', () => {
             1,
             3,
         ]);
+    });
+
+    it('keeps interleaved trailing saves in separate owner records', async () => {
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const {
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await saveWorkspaceCheckpoint(createCheckpoint(2), 20);
+        const saves = [
+            saveWorkspaceCheckpoint(createCheckpoint(3), 10),
+            saveWorkspaceCheckpoint(createCheckpoint(4), 20),
+        ];
+        await flushPendingWorkspaceCheckpointSave();
+        await Promise.all(saves);
+
+        const journal = JSON.parse(mocks.persisted ?? '{}') as {
+            version: number;
+            records: Array<{
+                ownerWebContentsId: number;
+                checkpoint: IWorkspaceCheckpoint
+            }>;
+        };
+        expect(journal.version).toBe(2);
+        expect(new Map(journal.records.map(record => [
+            record.ownerWebContentsId,
+            record.checkpoint.capturedAt,
+        ]))).toEqual(
+            new Map([
+                [
+                    10,
+                    3,
+                ],
+                [
+                    20,
+                    4,
+                ],
+            ]),
+        );
+    });
+
+    it('discards one owner without deleting another owner record', async () => {
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const {
+            discardWorkspaceCheckpoint,
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await saveWorkspaceCheckpoint(createCheckpoint(2), 20);
+        await flushPendingWorkspaceCheckpointSave();
+        await discardWorkspaceCheckpoint(10);
+
+        const journal = JSON.parse(mocks.persisted ?? '{}') as {
+            version: number;
+            records?: Array<{
+                ownerWebContentsId: number;
+                checkpoint: IWorkspaceCheckpoint
+            }>;
+            ownerWebContentsId?: number;
+            checkpoint?: IWorkspaceCheckpoint;
+        };
+        expect(journal.version).toBe(1);
+        expect(journal.records).toBeUndefined();
+        expect(journal.ownerWebContentsId).toBe(20);
+        expect(journal.checkpoint?.capturedAt).toBe(2);
     });
 
     it('continues with the latest pending checkpoint after an active save fails', async () => {

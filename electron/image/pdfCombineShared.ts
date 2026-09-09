@@ -496,7 +496,7 @@ function needsElectronImageNormalization(sourcePath: string) {
     return extension === '.bmp' || extension === '.gif' || extension === '.webp';
 }
 
-async function stageNativeCombineInputs(
+export async function stageNativeCombineInputs(
     inputPaths: string[],
     signal?: AbortSignal,
 ) {

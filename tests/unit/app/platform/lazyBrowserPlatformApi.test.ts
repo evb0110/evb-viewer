@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/platform/validatePlatformApi';
+
 import {
     beforeEach,
     describe,
@@ -24,7 +26,8 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     error: mocks.browserLoggerError,
 }}));
 
-vi.mock('@app/platform/validatePlatformApi', () => ({
+vi.mock('@app/platform/validatePlatformApi', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     PlatformContractError: class PlatformContractError extends Error {
         readonly failures: unknown[];
 

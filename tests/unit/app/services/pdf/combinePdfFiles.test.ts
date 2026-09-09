@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     afterEach,
     beforeEach,
@@ -54,7 +56,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mocks.hasElectronAPI()}));
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentOpenCapability: () => mocks.documentOpen,
     getDocumentPickerCapability: () => mocks.documentPicker,
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,

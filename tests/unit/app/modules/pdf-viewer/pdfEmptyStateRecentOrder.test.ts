@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
@@ -19,9 +21,12 @@ import {
 import type { IRecentFile } from '@contracts/shared';
 import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, values?: {count?: number}) => (
-    values?.count === undefined ? key : `${key}:${values.count}`
-)})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string, values?: {count?: number}) => (
+        values?.count === undefined ? key : `${key}:${values.count}`
+    )}),
+}));
 
 afterEach(() => {
     document.body.innerHTML = '';
