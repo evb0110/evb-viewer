@@ -1,0 +1,19 @@
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_b94294f4efd706::t_39b9bdee6bcb4a 669-670,676,686,721-723
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f5ebc46b77f49e08cdf6e990a3043e48b5d06171",
+  "prompts": {},
+  "sessions": {
+    "s_b94294f4efd706": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087b2-9a21-7cb0-a308-94d1a6754736",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
