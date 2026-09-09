@@ -157,6 +157,55 @@ async function readPaintedAnnotation(page: Page) {
     });
 }
 
+// The stale repaint lands when the forced page render finishes, so a single
+// sample would miss it. Sample the page canvas across animation frames and
+// report the largest highlight pixel count seen.
+async function maxPageCanvasHighlightPixelsAcrossFrames(page: Page, rect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}, pageNumber = 1) {
+    return page.evaluate(async (input: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+        pageNumber: number;
+    }) => {
+        const count = () => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"] .page_canvas canvas`,
+            );
+            if (!canvas || canvas.width <= 0 || canvas.height <= 0) throw new Error('Page canvas is not painted');
+            const context = canvas.getContext('2d', {willReadFrequently: true});
+            if (!context) throw new Error('Page canvas has no 2d context');
+            const x = Math.max(0, Math.floor(input.left * canvas.width));
+            const y = Math.max(0, Math.floor(input.top * canvas.height));
+            const width = Math.max(1, Math.ceil(input.width * canvas.width));
+            const height = Math.max(1, Math.ceil(input.height * canvas.height));
+            const pixels = context.getImageData(x, y, width, height).data;
+            let highlighted = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+                const r = pixels[index]!;
+                const g = pixels[index + 1]!;
+                const b = pixels[index + 2]!;
+                if (r > 175 && g > 95 && r - b > 45 && g - b > 20) highlighted += 1;
+            }
+            return highlighted;
+        };
+        let max = count();
+        for (let frame = 0; frame < 90; frame += 1) {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            max = Math.max(max, count());
+        }
+        return max;
+    }, {
+        ...rect,
+        pageNumber,
+    });
+}
+
 async function annotationPointerTarget(page: Page, selector = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"], .editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]') {
     return page.evaluate((entitySelector: string) => {
         const entity = document.querySelector<HTMLElement | SVGElement>(entitySelector);
@@ -2193,7 +2242,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForViewerInteractive(page);
         await waitForSidebarAnnotationCount(page, 3);
         await waitForSidebarAnnotationText(page, 'Reachable lifecycle note');
-        await waitForSidebarAnnotationText(page, 'Reachable text box one');
+        await waitForSidebarAnnotationText(page, 'text to be deleted');
         await waitForSidebarAnnotationText(page, 'Reachable text box two');
 
         const linkFixturePath = await createLinkOnlyFixturePdf(
@@ -2684,6 +2733,8 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             notes: 0,
             cards: 1,
         });
+        const persistedHighlight = await readPaintedAnnotation(reopenedPage);
+        if (!persistedHighlight) throw new Error('Reopened highlight is not painted');
         await clickFirstSidebarAnnotationDelete(reopenedPage);
         await expectCanonicalCountsAcrossFrames(reopenedPage, {
             markup: 0,
@@ -2692,6 +2743,12 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         });
         await saveViaVisibleToolbar(reopenedPage, 30_000);
         await waitForPdfAnnotationSubtypeCount(reopenPath, 'Highlight', 0);
+        await waitForActiveTabDirtyState(reopenedPage, false);
+        // The saved file no longer holds the highlight, but PDF.js keeps the
+        // pre-save document. Its next page render must not repaint the deleted
+        // highlight; a zoom step forces that render.
+        expect((await callWorkspaceCommand(reopenedPage, 'handleZoomIn')).called).toBe(true);
+        expect(await maxPageCanvasHighlightPixelsAcrossFrames(reopenedPage, persistedHighlight)).toBe(0);
         await clickEnabledToolbarAction(reopenedPage, 'Undo');
         await expectCanonicalCountsAcrossFrames(reopenedPage, {
             markup: 1,
