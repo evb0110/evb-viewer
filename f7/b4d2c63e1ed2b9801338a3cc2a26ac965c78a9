@@ -1,0 +1,27 @@
+scripts/architecture/boundaryExceptionPolicy.mjs
+  s_d2197edb66589b::t_d1a5a44bdc49e0 1-15
+  s_d2197edb66589b::t_65531a6210df1d 16,18
+docs/architecture/design-principles.md
+  s_d2197edb66589b::t_fb76196b214db5 38-41
+scripts/architecture/boundary-check.mjs
+  s_d2197edb66589b::t_886671f210e003 18-20,594,1286
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_d2197edb66589b::t_2bd07dc693552d 750-753,804
+  s_d2197edb66589b::t_e40c23618f3959 756,798
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f7b4d2c63e1ed2b9801338a3cc2a26ac965c78a9",
+  "prompts": {},
+  "sessions": {
+    "s_d2197edb66589b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0867f-bc35-77c0-b58a-402ea6b0e92d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
