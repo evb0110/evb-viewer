@@ -3,7 +3,12 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TTranslateFn } from '@i18n-app';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import type { TDocxTextPageSource } from '@app/utils/docxStreaming';
+import {
+    resolveDocxParagraphDirection,
+    type TDocxParagraphDirection,
+    type TDocxTextPageSource,
+} from '@app/utils/docxStreaming';
+import {hasRtlOcrLanguage} from '@app/utils/ocr/hasRtlOcrLanguage';
 import {
     getDocumentRefBaseName,
     isBrowserDocumentRef,
@@ -19,12 +24,12 @@ import {
 
 type TDocxBuilder = (
     text: string,
-    hasRtl: boolean,
+    direction: TDocxParagraphDirection,
     signal?: AbortSignal,
 ) => Uint8Array | Promise<Uint8Array>;
 type TDocxChunkBuilder = (
     pages: TDocxTextPageSource,
-    hasRtl: boolean,
+    direction: TDocxParagraphDirection,
     signal?: AbortSignal,
 ) => AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>;
 
@@ -58,7 +63,7 @@ export async function exportTextAsDocx(params: {
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
     pdfDocument: IPdfDocument | null;
-    hasRtl: boolean;
+    hasRtl?: boolean;
     buildDocx: TDocxBuilder;
     buildDocxChunks?: TDocxChunkBuilder;
     signal?: AbortSignal;
@@ -69,6 +74,8 @@ export async function exportTextAsDocx(params: {
     onSuccess?: () => void;
 }) {
     try {
+        let documentHasRtlLanguage = params.hasRtl ?? false;
+        const direction: TDocxParagraphDirection = text => resolveDocxParagraphDirection(text, documentHasRtlLanguage);
         throwIfAborted(params.signal);
         const documentFiles = getDocumentFilesCapability();
         const documentWorkingCopy = getDocumentWorkingCopyCapability();
@@ -120,8 +127,8 @@ export async function exportTextAsDocx(params: {
                     return false;
                 }
                 const docxChunks = params.signal === undefined
-                    ? await params.buildDocxChunks(textPages, params.hasRtl)
-                    : await params.buildDocxChunks(textPages, params.hasRtl, params.signal);
+                    ? await params.buildDocxChunks(textPages, direction)
+                    : await params.buildDocxChunks(textPages, direction, params.signal);
                 if (params.signal === undefined) {
                     await writeDocxFileChunks(outPath, docxChunks);
                 } else {
@@ -148,14 +155,17 @@ export async function exportTextAsDocx(params: {
                     params.setError(params.t('errors.ocr.noText'));
                     return false;
                 }
+                documentHasRtlLanguage ||= hasRtlOcrLanguage(
+                    (catalogPages ?? []).flatMap(page => page.languages ?? []),
+                );
 
                 if (!isBrowserOutput) {
                     if (!params.buildDocxChunks || !writeDocxFileChunks) {
                         throw new Error('DOCX streaming output is unavailable on this desktop platform');
                     }
                     const docxChunks = params.signal === undefined
-                        ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), params.hasRtl)
-                        : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), params.hasRtl, params.signal);
+                        ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction)
+                        : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction, params.signal);
                     if (params.signal === undefined) {
                         await writeDocxFileChunks(outPath, docxChunks);
                     } else {
@@ -177,8 +187,8 @@ export async function exportTextAsDocx(params: {
                     }
                     const text = catalogTextParts.join('\n\n');
                     const docxBytes = params.signal === undefined
-                        ? await params.buildDocx(text, params.hasRtl)
-                        : await params.buildDocx(text, params.hasRtl, params.signal);
+                        ? await params.buildDocx(text, direction)
+                        : await params.buildDocx(text, direction, params.signal);
                     throwIfAborted(params.signal);
                     if (docxBytes.byteLength > BROWSER_DOCX_MAX_OUTPUT_BYTES) {
                         throw new RangeError('Browser DOCX export exceeds its bounded Blob size');

@@ -10,11 +10,15 @@ import {effectScope} from 'vue';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
-import type {TDocxTextPageSource} from '@app/utils/docxStreaming';
+import type {
+    TDocxParagraphDirection,
+    TDocxTextPageSource,
+} from '@app/utils/docxStreaming';
+import type * as DocxStreamingModule from '@app/utils/docxStreaming';
 
 type TDocxChunkBuilder = (
     pages: TDocxTextPageSource,
-    isRtl?: boolean,
+    direction?: TDocxParagraphDirection,
     signal?: AbortSignal,
 ) => AsyncIterable<Uint8Array>;
 
@@ -46,7 +50,7 @@ const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 interface IActualDocxStreamingModule {
     createDocxFromTextChunks: (
         pages: Iterable<string> | AsyncIterable<string>,
-        isRtl?: boolean,
+        direction?: TDocxParagraphDirection,
         signal?: AbortSignal,
     ) => AsyncIterable<Uint8Array>;
     DOCX_STREAM_CHUNK_BYTES: number;
@@ -60,7 +64,13 @@ vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: tr
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/docx', () => ({createDocxFromTextAsync: createDocxFromTextAsyncMock}));
-vi.mock('@app/utils/docxStreaming', () => ({createDocxFromTextChunks: createDocxFromTextChunksMock}));
+vi.mock('@app/utils/docxStreaming', async () => {
+    const actual = await vi.importActual<DocxStreamingModule>('@app/utils/docxStreaming');
+    return {
+        ...actual,
+        createDocxFromTextChunks: createDocxFromTextChunksMock,
+    };
+});
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
 beforeEach(() => {
@@ -104,9 +114,13 @@ describe('useDocxExport', () => {
         );
         expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(
             expect.anything(),
-            true,
+            expect.any(Function),
             expect.any(AbortSignal),
         );
+        const direction = createDocxFromTextChunksMock.mock.calls[0]?.[1];
+        expect(typeof direction).toBe('function');
+        expect((direction as ((text: string) => boolean))('אבג 123')).toBe(true);
+        expect((direction as ((text: string) => boolean))('Latin 123')).toBe(false);
         expect(documentFilesMock.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(documentFilesMock.writeDocxFileChunks).toHaveBeenCalledWith(
             '/tmp/export.docx',

@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import {createDocxFromTextAsync} from '@app/utils/docx';
-import {createDocxFromTextChunks} from '@app/utils/docxStreaming';
+import {
+    createDocxFromTextChunks,
+    resolveDocxParagraphDirection,
+} from '@app/utils/docxStreaming';
 
 describe('createDocxFromTextAsync', () => {
     it('builds a DOCX package while checking the caller signal', async () => {
@@ -13,6 +16,15 @@ describe('createDocxFromTextAsync', () => {
 
         expect(output.byteLength).toBeGreaterThan(0);
         expect(new TextDecoder().decode(output.slice(0, 2))).toBe('PK');
+    });
+
+    it('preserves mixed paragraph direction in the async builder', async () => {
+        const output = await createDocxFromTextAsync('אבג 123\nLatin 456\n123');
+        const xml = new TextDecoder().decode(output);
+
+        expect(xml).toContain('<w:p><w:pPr><w:bidi/></w:pPr>');
+        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">Latin 456');
+        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">123');
     });
 
     it('rejects before building when its signal is already canceled', async () => {
@@ -25,6 +37,23 @@ describe('createDocxFromTextAsync', () => {
 });
 
 describe('createDocxFromTextChunks', () => {
+    it('keeps paragraph direction local to mixed text and leaves numeric paragraphs neutral', async () => {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of createDocxFromTextChunks(['אבג 123\nLatin 456\n123'])) {
+            chunks.push(chunk);
+        }
+        const xml = new TextDecoder().decode(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))));
+        expect(xml).toContain('<w:p><w:pPr><w:bidi/></w:pPr>');
+        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">Latin 456');
+        expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">123');
+    });
+
+    it('uses an RTL language hint only when text has no detected strong direction', () => {
+        expect(resolveDocxParagraphDirection('123', true)).toBe(false);
+        expect(resolveDocxParagraphDirection('漢字', true)).toBe(true);
+        expect(resolveDocxParagraphDirection('Latin', true)).toBe(false);
+    });
+
     it('rejects before producing output when its signal is already canceled', async () => {
         const controller = new AbortController();
         controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
