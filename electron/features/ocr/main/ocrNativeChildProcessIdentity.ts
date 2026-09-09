@@ -50,7 +50,7 @@ async function readPortableProcessIdentity(pid: number): Promise<IOcrNativeChild
             };
         }
         if (process.platform === 'win32') {
-            const {stdout} = await execFileAsync('powershell.exe', [
+            const {stdout} = await execFileAsync('pwsh.exe', [
                 '-NoProfile',
                 '-NonInteractive',
                 '-Command',
