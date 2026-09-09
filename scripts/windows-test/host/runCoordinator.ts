@@ -389,15 +389,88 @@ export async function executeWindowsTestRun(
     const guestPaths = windowsTestGuestRunPaths(runId);
     const messages: string[] = [];
 
-    const acquisition = await acquireHostLease({
-        leaseFile: layout.leaseFile,
-        lockDirectory: layout.lockFile,
-        runId,
-        hostId: dependencies.hostId,
-        lock: dependencies.lock,
-        probe: dependencies.probe,
-        nowIso: () => clock.nowIso(),
-    });
+    let acquisition;
+    try {
+        acquisition = await acquireHostLease({
+            leaseFile: layout.leaseFile,
+            lockDirectory: layout.lockFile,
+            runId,
+            hostId: dependencies.hostId,
+            lock: dependencies.lock,
+            probe: dependencies.probe,
+            nowIso: () => clock.nowIso(),
+            recoverStaleOwner: async (staleLease) => {
+                if (staleLease.vmId === null) {
+                    const staleRun = windowsTestRunLayout(layout.runsDir, staleLease.runId);
+                    const runExists = await stat(staleRun.runDir).then(() => true).catch(() => false);
+                    if (runExists) {
+                        throw new Error(`Stale run ${staleLease.runId} has no bound clone identity; refusing to replace its host exclusion.`);
+                    }
+                    return;
+                }
+                const staleVmId = staleLease.vmId;
+                const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${staleLease.runId}`;
+                const registered = await utmctl.list();
+                const ownedUuid = staleVmId.toLowerCase();
+                const byUuid = registered.filter(entry => entry.uuid.toLowerCase() === ownedUuid);
+                const byName = registered.filter(entry => entry.name === cloneName);
+                if (byUuid.length !== 1 || byName.length !== 1 || byUuid[0] !== byName[0]) {
+                    throw new WindowsTestIdentityGuardError(
+                        'registered-vm-mismatch',
+                        `Refusing stale-owner recovery: run ${staleLease.runId} does not identify one registered owned clone.`,
+                    );
+                }
+                const policy = withOwnedCloneAllowlisted(
+                    destructivePolicyFromConfig(config),
+                    staleLease.vmId,
+                );
+                await assertDestructiveTarget(
+                    {
+                        vmId: staleVmId,
+                        bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
+                    },
+                    policy,
+                    dependencies.identityGuard,
+                );
+                await utmctl.stop(staleVmId, 'request');
+                const stoppedAfterRequest = await pollUntil(
+                    clock,
+                    deadlines.cancelGraceMs,
+                    deadlines.pollIntervalMs,
+                    async () => (await utmctl.status(staleVmId)) === 'stopped' ? true : null,
+                );
+                if (stoppedAfterRequest === null) {
+                    await assertDestructiveTarget(
+                        {
+                            vmId: staleVmId,
+                            bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
+                        },
+                        policy,
+                        dependencies.identityGuard,
+                    );
+                    await utmctl.stop(staleVmId, 'force');
+                    const stoppedAfterForce = await pollUntil(
+                        clock,
+                        deadlines.cancelGraceMs,
+                        deadlines.pollIntervalMs,
+                        async () => (await utmctl.status(staleVmId)) === 'stopped' ? true : null,
+                    );
+                    if (stoppedAfterForce === null) {
+                        throw new Error(`Stale clone ${staleVmId} did not acknowledge stopped status; retaining the host exclusion.`);
+                    }
+                }
+            },
+        });
+    } catch (error) {
+        return {
+            exitCode: windowsTestExitCodes.infrastructureFailed,
+            outcome: 'infrastructure-failed',
+            runId: null,
+            activeRunId: null,
+            summary: null,
+            messages: [`Windows test host recovery refused to replace the existing lease: ${getErrorMessage(error)}.`],
+        };
+    }
     if (!acquisition.acquired) {
         return {
             exitCode: windowsTestExitCodes.busyLease,
@@ -413,6 +486,9 @@ export async function executeWindowsTestRun(
     }
 
     let summary: IWindowsTestRunSummary;
+    // Fail closed. Only the normal completion path after durable summary
+    // persistence may release the lease.
+    let leaseReleaseAllowed = false;
     try {
         await mkdir(runLayout.runDir, {recursive: true});
         const recorder = createTransitionRecorder({
@@ -956,6 +1032,7 @@ export async function executeWindowsTestRun(
                     reason: getErrorMessage(error),
                 });
                 outcome = combineOutcomes(outcome, 'infrastructure-failed');
+                leaseReleaseAllowed = false;
             }
         }
         await recorder.record('complete', `Run ${runId} finished with outcome ${outcome}.`);
@@ -992,10 +1069,15 @@ export async function executeWindowsTestRun(
             evidenceDirectory: runLayout.evidenceDir,
             retainedClone,
         };
+        leaseReleaseAllowed = false;
         await writeFile(runLayout.summaryFile, `${JSON.stringify(summary, null, 4)}\n`, 'utf8');
+        // Keep the lease until the durable summary exists. If teardown or
+        // persistence failed, explicit stop must retain a recovery path.
+        leaseReleaseAllowed = !failures.some(failure => failure.phase === 'tearing-down');
     } finally {
-        // Whatever happened above, the next run must be able to take the lease.
-        await releaseHostLease(layout.leaseFile, runId);
+        if (leaseReleaseAllowed) {
+            await releaseHostLease(layout.leaseFile, runId);
+        }
     }
 
     return {
