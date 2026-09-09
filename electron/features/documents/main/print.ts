@@ -47,6 +47,7 @@ const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
 const PRINT_DATA_TEMP_PREFIX = 'print-data-';
 const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
 const PRINT_LAYOUT_TEMP_PREFIX = 'print-layout-';
+const PRINT_TEMP_BASENAME_MAX_BYTES = 255;
 const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
@@ -73,6 +74,14 @@ function normalizePrintableFileName(fileName?: string) {
         return safeBaseName;
     }
     return `${safeBaseName || 'document'}.pdf`;
+}
+
+function buildOpaquePrintTempPath(prefix: string, operationId: string) {
+    const tempFileName = `${prefix}${operationId}.pdf`;
+    if (Buffer.byteLength(tempFileName, 'utf8') > PRINT_TEMP_BASENAME_MAX_BYTES) {
+        throw new Error('Print temporary filename exceeds the filesystem component limit');
+    }
+    return join(getAppTempDir(), tempFileName);
 }
 
 function scheduleDefaultAppTempCleanup(path: string, delayMs = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS) {
@@ -368,7 +377,8 @@ export async function handlePrintPdfPath(
     const normalizedPageNumbers = normalizedOptions.pageNumbers;
     const requiresLayoutComposition = normalizedOptions.viewMode !== 'single'
         || normalizedOptions.orientation !== 'auto';
-    const cancelGroup = `print-selected-pages:${randomUUID()}`;
+    const operationId = randomUUID();
+    const cancelGroup = `print-selected-pages:${operationId}`;
     const operation = registerPdfPrintOperation(
         context,
         requestId,
@@ -387,8 +397,7 @@ export async function handlePrintPdfPath(
             if (sourceStat.size > PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES) {
                 throw new Error('PDF is too large for advanced print layout');
             }
-            const tempFileName = `${PRINT_LAYOUT_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
-            tempPath = join(getAppTempDir(), tempFileName);
+            tempPath = buildOpaquePrintTempPath(PRINT_LAYOUT_TEMP_PREFIX, operationId);
             await buildPrintablePdfPath({
                 inputPath: resolvedPath,
                 outputPath: tempPath,
@@ -425,8 +434,7 @@ export async function handlePrintPdfPath(
                 },
             );
         }
-        const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
-        tempPath = join(getAppTempDir(), tempFileName);
+        tempPath = buildOpaquePrintTempPath(PRINT_PAGE_TEMP_PREFIX, operationId);
         await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {
             cancelGroup,
             signal: operation.signal,
