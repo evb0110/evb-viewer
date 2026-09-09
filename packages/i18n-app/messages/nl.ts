@@ -334,7 +334,7 @@ export default {
         },
         'preview': {
             'title': 'Live opschoonvoorbeeld',
-            'page': 'Pagina {page} of {total}',
+            'page': 'Pagina {page} van {total}',
             'previous': 'Voorbeeld vorige pagina',
             'next': 'Voorbeeld volgende pagina',
             'comparison': 'Voorbeeldvergelijking',
@@ -767,18 +767,18 @@ export default {
         'customRange': 'Aangepast bereik',
         'customRangePlaceholder': 'bijv. 1-5, 8, 10-12',
         'supersession': {
-            'label': 'Existing text',
+            'label': 'Bestaande tekst',
             'options': {
-                'missing-only': 'OCR missing text only',
-                'replace-evb': 'Re-OCR EVB text',
-                'replace-all': 'Replace all hidden OCR',
+                'missing-only': 'Alleen OCR uitvoeren voor ontbrekende tekst',
+                'replace-evb': 'EVB-tekst opnieuw met OCR verwerken',
+                'replace-all': 'Alle verborgen OCR vervangen',
             },
             'descriptions': {
-                'missing-only': 'Keep existing text and OCR only pages without text.',
-                'replace-evb': 'Replace only the active EVB OCR generation.',
-                'replace-all': 'Replace EVB and foreign hidden OCR; visible native text stays untouched.',
+                'missing-only': 'Alle bestaande tekstlagen behouden en alleen pagina\'s zonder tekst met OCR verwerken.',
+                'replace-evb': 'De actieve EVB-OCR-generatie vervangen; oorspronkelijke en externe tekst blijven behouden.',
+                'replace-all': 'EVB- en externe verborgen OCR-lagen vervangen; zichtbare oorspronkelijke tekst blijft behouden.',
             },
-            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR on selected pages will be removed and replaced.',
+            'replaceAllAcknowledgement': 'Ik begrijp dat verborgen externe OCR-lagen op de geselecteerde pagina\'s worden verwijderd en vervangen.',
         },
         'qualityProfile': {
             'label': 'Kwaliteit',
@@ -794,10 +794,10 @@ export default {
             },
         },
         'preprocessing': {
-            'label': 'Preprocessing',
+            'label': 'Voorbewerking',
             'options': {
-                'off': 'Off',
-                'clean': 'Clean scan',
+                'off': 'Uit',
+                'clean': 'Scan opschonen',
             },
             'help': {
                 'off': 'Gebruik de scan ongewijzigd.',
@@ -805,11 +805,11 @@ export default {
             },
         },
         'pageSegmentation': {
-            'label': 'Text layout',
+            'label': 'Tekstindeling',
             'options': {
                 'auto': 'Auto',
-                'singleBlock': 'Single block',
-                'sparseText': 'Sparse text',
+                'singleBlock': 'Eén tekstblok',
+                'sparseText': 'Verspreide tekst',
             },
             'help': {
                 'auto': 'Detecteer de indeling automatisch.',
