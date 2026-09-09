@@ -1,0 +1,30 @@
+tests/unit/electron/assistantRuntimeLifecycle.test.ts
+  s_ab2c336feebf66::t_81397f36ba1625 2
+  s_ab2c336feebf66::t_2ba20947bc3d93 18-28,41-45,71-72,77-79,84-87,89-93,153-170,175-190
+  s_ab2c336feebf66::t_55a1f839c7307a 46-70,73-76,80-83,171-174
+electron/features/agent/codexAppServerClient.ts
+  s_ab2c336feebf66::t_9a11a79774af31 282-285,295-300,306-309,311
+  s_ab2c336feebf66::t_5126c09692f9be 175-182
+  s_ab2c336feebf66::t_b1f442193e14b7 495-502
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_ab2c336feebf66::t_5126c09692f9be 197,218-220,241-244,249-257,259-286,366-371
+  s_ab2c336feebf66::t_f83678313eff1b 248
+tests/unit/electron/codexAppServerClient.test.ts
+  s_ab2c336feebf66::t_0e636fc088d139 219,233-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "452643f400251ea3c3f2ec5aaa00e9ee16603624",
+  "prompts": {},
+  "sessions": {
+    "s_ab2c336feebf66": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08835-7408-7811-a539-407f4403a410",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
