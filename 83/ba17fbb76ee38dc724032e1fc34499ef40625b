@@ -1,0 +1,41 @@
+tests/unit/scripts/runtimeBinaryManifest.test.ts
+  s_c63d7a8363f7e9::t_910cc066cac518 12-15,22-27,45-52
+  s_a0f9cc7f4f7d39::t_69addf2acc42c8 53-54
+scripts/runtimeBinaryManifest.ts
+  s_c63d7a8363f7e9::t_910cc066cac518 20
+  s_c63d7a8363f7e9::t_c0c746492835ba 1
+  s_c63d7a8363f7e9::t_695bb15ea8a8c0 2-3
+tests/unit/scripts/runtimeBinaryArchive.test.ts
+  s_c63d7a8363f7e9::t_9c6a135b636544 200-206
+scripts/runRuntimeBinaryArchiveCli.ts
+  s_c63d7a8363f7e9::t_9c6a135b636544 26-28
+  s_c63d7a8363f7e9::t_6fdad27eb83c67 90-93
+  s_c63d7a8363f7e9::t_910cc066cac518 51,79
+  s_c63d7a8363f7e9::t_b4d96f5a44c4d4 25,29-31,69,72
+scripts/bundle-tools-windows.sh
+  s_c63d7a8363f7e9::t_910cc066cac518 554,556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "83ba17fbb76ee38dc724032e1fc34499ef40625b",
+  "prompts": {},
+  "sessions": {
+    "s_a0f9cc7f4f7d39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08098-71eb-73f1-a334-9b979bb5c438",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

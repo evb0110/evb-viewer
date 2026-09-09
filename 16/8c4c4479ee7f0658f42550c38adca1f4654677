@@ -1,0 +1,78 @@
+scripts/runtimeBinaryManifest.ts
+  s_c63d7a8363f7e9::t_6e2c59c7a1afc4 11
+  s_c63d7a8363f7e9::t_02b31e6a999127 1-5,8-10,12-37
+  s_c63d7a8363f7e9::t_43a60a5ae7580b 6-7
+scripts/runtimeBinaryArchive.ts
+  s_c63d7a8363f7e9::t_ce6a90b7b95258 63-64,69-70,83,152,157-159,161,180,199,211-213,215
+  s_c63d7a8363f7e9::t_828c3455df39c7 11,20,27,31,58,79,141-149,205,230-234,240,269-273
+  s_c63d7a8363f7e9::t_1e3d6c1123a45d 16,59-62,65-68,73-76,257-260
+  s_e6afbc66b58e4d::t_531dd968d29d3a 261
+scripts/runRuntimeBinaryArchiveCli.ts
+  s_c63d7a8363f7e9::t_ddea267b730d76 1-3,6-9,11,17-20,22-24,37,70,74-78,82-84,91-103,114-117,124-140
+  s_c63d7a8363f7e9::t_43a60a5ae7580b 4-5,10,71-73,85-90,109-112
+  s_c63d7a8363f7e9::t_3b9c9a538b3acf 12-16,25-36,38-69,79-81
+  s_c63d7a8363f7e9::t_e7eec2142be237 21,104-108,118-123
+  s_c63d7a8363f7e9::t_bede21f6c01bc1 113
+scripts/validateRuntimeBinaryArchiveMembers.ts
+  s_c63d7a8363f7e9::t_62ebbdfe1f0738 1-77
+scripts/project6ConsolidationReport.mjs
+  s_c63d7a8363f7e9::t_ed7ed2e8e58fd7 164-166
+tests/unit/scripts/runtimeBinaryArchive.test.ts
+  s_c63d7a8363f7e9::t_4ab234264c644c 223,237,268-269,277,316
+  s_c63d7a8363f7e9::t_e45fcb2c5b4abb 200-205,311-314
+  s_c63d7a8363f7e9::t_9c73122cc18cbc 317,319,456,472-496
+  s_c63d7a8363f7e9::t_338bc1f4d0e7e5 47,51,80,183-199,206-213,286,298-310,315,318,321-326,347-357
+  s_c63d7a8363f7e9::t_b6eb5bf806c638 358
+  s_c63d7a8363f7e9::t_43a60a5ae7580b 462-465
+  s_c63d7a8363f7e9::t_1cb8fe2abfa6ae 144,457-461,466-471
+  s_c63d7a8363f7e9::t_2ccd01f85cabe4 334,383,393,425,431,437,527,534
+  s_c63d7a8363f7e9::t_4c7f813e5c2ae3 72-79,81
+  s_c63d7a8363f7e9::t_b03c1971f2f983 320,328,359-360,362-376,497
+  s_c63d7a8363f7e9::t_c7dc1df0836d8a 82-83
+  s_c63d7a8363f7e9::t_227169cdc0c4d8 327
+  s_c63d7a8363f7e9::t_b83d9b8620be57 329
+  s_c63d7a8363f7e9::t_d96393ae32b756 361
+  s_c63d7a8363f7e9::t_dbe61389875bc9 498
+tests/unit/scripts/runtimeBinaryManifest.test.ts
+  s_c63d7a8363f7e9::t_2ec76902d42127 77,89-90
+  s_c63d7a8363f7e9::t_1a1f6151bf17f1 2-11,15-20,22-44,115-116
+  s_c63d7a8363f7e9::t_43a60a5ae7580b 12-13
+  s_c63d7a8363f7e9::t_4f6b00df552172 14,91-114
+  s_c63d7a8363f7e9::t_3bd234a5f8eec1 1,69-73,75-76,78-83,88
+  s_c63d7a8363f7e9::t_cb7f554574c09d 21,45-68
+  s_c63d7a8363f7e9::t_57173464386490 84-87
+  s_c63d7a8363f7e9::t_4f359119f4bb12 74
+tests/unit/scripts/validateRuntimeBinaryArchiveMembers.test.ts
+  s_c63d7a8363f7e9::t_ddea267b730d76 1-42,68-78
+  s_c63d7a8363f7e9::t_43a60a5ae7580b 43-67
+scripts/bundle-tools-windows.sh
+  s_c63d7a8363f7e9::t_71a2cf4c59b869 524,530-540,550
+  s_c63d7a8363f7e9::t_98fc8481f43f47 541-542,548-549,553-556
+  s_c63d7a8363f7e9::t_18bb186a5435e7 543
+tests/unit/scripts/project6ConsolidationReport.test.ts
+  s_c63d7a8363f7e9::t_0eba58b08e511d 99-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "168c4c4479ee7f0658f42550c38adca1f4654677",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e6afbc66b58e4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cdb-5143-7e02-a580-29471422fbfa",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

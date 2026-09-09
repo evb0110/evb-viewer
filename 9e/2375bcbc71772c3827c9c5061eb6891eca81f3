@@ -1,0 +1,98 @@
+scripts/validation-gates.mjs
+  s_a0f9cc7f4f7d39::t_4902991b4ba351 497,2595-2597
+  s_a0f9cc7f4f7d39::t_37d65a891c3193 223-227,495
+  s_a0f9cc7f4f7d39::t_91d8b07bf018e8 234,543-548,609-615,617-618,656-668,711
+  s_a0f9cc7f4f7d39::t_4440ca74bc7dee 778
+  s_a0f9cc7f4f7d39::t_0d828a77b4a3f6 475
+  s_a0f9cc7f4f7d39::t_84bb5935209277 712
+  s_a0f9cc7f4f7d39::t_309c90b5d69022 222,533-542,594,608,669,674,725,748,759-760,783
+  s_a0f9cc7f4f7d39::t_a6c387ebf35d70 868-877
+  s_a0f9cc7f4f7d39::t_a0dcdc7831ce0a 726-747,749-758
+  s_a0f9cc7f4f7d39::t_fbfb8f8eafd8b4 2648
+  s_a0f9cc7f4f7d39::t_1efbcb554ec28d 523-524
+  s_a0f9cc7f4f7d39::t_a7f83a0f0b8d77 496
+tests/e2e/electron/quarantine/graduation-policy.json
+  s_a0f9cc7f4f7d39::t_f7afcb7201ab4f 9,14,18,22
+CONTRIBUTING.md
+  s_a0f9cc7f4f7d39::t_80e40fa8a63afe 34-35
+  s_a0f9cc7f4f7d39::t_5ec01828983d02 22-25,27-30,32-33,60
+.husky/pre-push
+  s_a0f9cc7f4f7d39::t_345f9ae9dec7bc 1
+package.json
+  s_a0f9cc7f4f7d39::t_783f55b1d307ea 59
+scripts/all-gates-validation-plan.mjs
+  s_a0f9cc7f4f7d39::t_d4794ffb0cd688 36,38,40
+  s_a0f9cc7f4f7d39::t_c7a1adde8e0951 17
+docs/release-guardrails.md
+  s_a0f9cc7f4f7d39::t_9ccf2c2433e2a4 10,16
+tests/e2e/electron/quarantine/README.md
+  s_a0f9cc7f4f7d39::t_f7afcb7201ab4f 3-4,12-22,31
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_a0f9cc7f4f7d39::t_2dc1a3f5cfce05 461-464
+  s_a0f9cc7f4f7d39::t_b995ba564412d6 1644-1646
+  s_a0f9cc7f4f7d39::t_4fed0d6a2964d7 468-469,483-489,550-561
+  s_a0f9cc7f4f7d39::t_49bde54d0fbbf9 465-466
+  s_a0f9cc7f4f7d39::t_475ac5e0261612 256,260
+  s_a0f9cc7f4f7d39::t_16cbba8532dbd2 1710-1711,1713-1716,1722-1726,1733,1736-1740,1742
+  s_a0f9cc7f4f7d39::t_b0d5a3b34ae114 1954-1957
+  s_a0f9cc7f4f7d39::t_f80faa4d9cd7f3 569-651,655
+  s_a0f9cc7f4f7d39::t_f4373ea564449e 652-654
+  s_a0f9cc7f4f7d39::t_64c5d822a944d8 656
+  s_a0f9cc7f4f7d39::t_66b423b584f92c 1647-1649
+  s_a0f9cc7f4f7d39::t_1a7512ac0df588 1696,1745,1781,1960
+.github/workflows/ci.yml
+  s_a0f9cc7f4f7d39::t_d3dc53d525fce8 132-139
+  s_a0f9cc7f4f7d39::t_9a140a10870135 101-102,121,123-131,145,147
+  s_a0f9cc7f4f7d39::t_7bdf569872666a 89-90
+  s_a0f9cc7f4f7d39::t_d34f9200ef626b 92-95
+  s_a0f9cc7f4f7d39::t_4203bcd491c57a 99-100
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_a0f9cc7f4f7d39::t_3c29a3e286bed1 6
+tests/e2e/electron/quarantine/graduation-policy.schema.json
+  s_a0f9cc7f4f7d39::t_f7afcb7201ab4f 26
+docs/web-build.md
+  s_a0f9cc7f4f7d39::t_d8141b3e72ac47 48-52
+tests/unit/scripts/packageScripts.test.ts
+  s_a0f9cc7f4f7d39::t_783f55b1d307ea 326
+tests/unit/architecture/quarantineGraduationPolicy.test.ts
+  s_a0f9cc7f4f7d39::t_f7afcb7201ab4f 176
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_a0f9cc7f4f7d39::t_4b8de0cedf5b2a 367
+  s_a0f9cc7f4f7d39::t_d8f4e49fe92b2b 673-674
+  s_a0f9cc7f4f7d39::t_2e171a3d7ad96c 724,735-739
+  s_a0f9cc7f4f7d39::t_0d828a77b4a3f6 697-700
+  s_a0f9cc7f4f7d39::t_57a699f7d878d9 317
+  s_a0f9cc7f4f7d39::t_f2460ae918e1d8 318-319
+  s_a0f9cc7f4f7d39::t_f6cfb999dd6f4e 447-463
+  s_a0f9cc7f4f7d39::t_4440ca74bc7dee 401-421
+  s_a0f9cc7f4f7d39::t_9f77af99a8bd51 540,550-572
+  s_a0f9cc7f4f7d39::t_42edce21895938 546-549
+  s_a0f9cc7f4f7d39::t_fc83956006b521 424,441-442,445-446,464-485,505-539,541-545
+  s_a0f9cc7f4f7d39::t_d843158168967c 575-594,701
+  s_a0f9cc7f4f7d39::t_d998b06034490d 394-398
+  s_a0f9cc7f4f7d39::t_89fd93c1b9041c 486-504
+  s_a0f9cc7f4f7d39::t_d1bc667337dc13 376-393,399-400,422-423,425-440,443-444,573-574,671-672,679-696
+  s_a0f9cc7f4f7d39::t_ead7a8f4d20075 702
+README.md
+  s_a0f9cc7f4f7d39::t_9ccf2c2433e2a4 255,276,311-313,317-318,322-323
+docs/local-gates.md
+  s_a0f9cc7f4f7d39::t_d7be34355fea25 1,3-7,9,11-86
+scripts/run-all-gates.mjs
+  s_a0f9cc7f4f7d39::t_1b65b61dfe33a6 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9e2375bcbc71772c3827c9c5061eb6891eca81f3",
+  "prompts": {},
+  "sessions": {
+    "s_a0f9cc7f4f7d39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08098-71eb-73f1-a334-9b979bb5c438",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

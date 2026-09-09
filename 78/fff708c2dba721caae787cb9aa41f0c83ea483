@@ -1,0 +1,1125 @@
+.fallowrc.json
+  s_c63d7a8363f7e9::t_153225da9797a6 31,84-86,96-99,163-168,182
+.github/actions/setup-ci-env/action.yml
+  s_c63d7a8363f7e9::t_0871fdebd005bf 1-35
+.github/actions/setup-release-env/action.yml
+  s_c63d7a8363f7e9::t_f64ed2019cf480 24-25,83
+.github/workflows/ci.yml
+  s_c63d7a8363f7e9::t_2e460bdfb6a9f8 71-72,178-179,182,232-233,264-265,340-341,364-365,442-443,479-480,516-517,541-542,573-574,663-664,672-674,746-747,773-774,864-865,868,891-892,895,918-919,922,945-946,949,976-977,980,1006-1007,1010,1034-1035,1038
+.gitignore
+  s_c63d7a8363f7e9::t_e9f5a39c3ab5cb 80-84
+README.md
+  s_c63d7a8363f7e9::t_f0eef315470c79 241-261
+app/modules/pdf-viewer/components/PdfExportScopeDialog.vue
+  s_c63d7a8363f7e9::t_473be868f04e6e 63-64
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_c63d7a8363f7e9::t_396abeb8a9bd4f 150-151
+app/modules/pdf-viewer/components/PdfSidebar.vue
+  s_c63d7a8363f7e9::t_5345a9d0081ccd 123-124
+app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop.ts
+  s_c63d7a8363f7e9::t_8bbedb77dc39ea 8,22
+app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations.ts
+  s_c63d7a8363f7e9::t_a32f96e5c4c32c 23,29
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection.ts
+  s_c63d7a8363f7e9::t_caa9846608ee5c 13-14
+app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts
+  s_c63d7a8363f7e9::t_8432fe7ab499e0 24
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_c63d7a8363f7e9::t_bc948323c8ae34 11-15,27-34,44-47,49
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_c63d7a8363f7e9::t_90d4b31bd94bd0 134-135,138,164-168,170-171,173-174,176,473,502,639
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_c63d7a8363f7e9::t_3b52064f049cf5 60-64,114-119,195,212,220,222,226-244,298-302,333,356-357,441,470,490,527-528,532-533,595,683,685
+app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit.ts
+  s_c63d7a8363f7e9::t_29a32c9ecc4d51 10
+app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt.ts
+  s_c63d7a8363f7e9::t_7d26f744e24155 7,16-23,111
+app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate.ts
+  s_c63d7a8363f7e9::t_e67820e2a9922d 5
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_c63d7a8363f7e9::t_fac8bbb8fa15b6 2,6,65-69,71-73,78,80-82,84-96,117-119,278,303,311,333,449-451,748,770,1124-1139,1143-1146,1151-1156,1160-1170
+app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport.ts
+  s_c63d7a8363f7e9::t_7787c04366f19d 1,3-6,9,11,13-17,19,22-28,31-35,38-47,50-53,55-59,61-72,74-79,81-84,87-118
+app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy.ts
+  s_c63d7a8363f7e9::t_d83eb15d2aed21 1-16,29,65,68-70,73-75,78-80,82-83,115-116,118,120,122-124,132-133,138,145-215
+app/modules/workspace-shell/composables/file-operations/workspaceSaveState.ts
+  s_c63d7a8363f7e9::t_f7a4fa5763d745 1-57
+app/modules/workspace-shell/composables/file-operations/workspaceSaveTiming.ts
+  s_c63d7a8363f7e9::t_62a5111cea3b1f 1-37
+app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.ts
+  s_c63d7a8363f7e9::t_168ab76b5bc7f5 6,42,182,186-189,210
+app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.ts
+  s_c63d7a8363f7e9::t_9bf90bb0c6b784 2,15,41-43,45-50
+app/modules/workspace-shell/composables/usePageOpsHandlers.ts
+  s_c63d7a8363f7e9::t_e5befca7589544 19,29
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_c63d7a8363f7e9::t_68e7eab2e04a24 154-162,253-259,262
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_c63d7a8363f7e9::t_cb1b7c1b4e2b12 424-432
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_c63d7a8363f7e9::t_8799cd7e5eb359 8,33,40,74-77,94,117,121-125,130-131,133,138-142,146-149,152-154,396,399,406-410,416,423,428,435,442,461,465-466,483,510,514-515,533,570,594
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_c63d7a8363f7e9::t_a444fb2a95d04e 17,200
+app/modules/workspace-shell/composables/useWorkspaceInteractionControls.ts
+  s_c63d7a8363f7e9::t_db1bf94a0ba7ea 77,125,271
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_c63d7a8363f7e9::t_feb6136d77b687 29,37,44-47,134,144-145,150,349,906,909,917-924
+app/modules/workspace-shell/composables/useWorkspaceSplitCache.ts
+  s_c63d7a8363f7e9::t_2a82104dda4157 68
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_c63d7a8363f7e9::t_3fb95ee2898b44 2-5,25-28,30,52,68-81,126,299-308,310,331,333,336,348,353-355,360,363-365,380-390,396
+app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts
+  s_c63d7a8363f7e9::t_e09f2b3ebfafd4 16,21
+app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.ts
+  s_c63d7a8363f7e9::t_067304e4b924b3 26-30
+app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.ts
+  s_c63d7a8363f7e9::t_8d2562bc59e934 25,282,284,287-295,299,302,306
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_c63d7a8363f7e9::t_d0ba67996e86ff 16,20
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_c63d7a8363f7e9::t_68b28a536b280a 143,448,456-497,511-518,690,800-803,805,828-830,836,867,883,1168-1169
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_c63d7a8363f7e9::t_ef8395acd2e39f 43,244-265,302,312-316,326,446-478,523-536
+app/platform/browser-api/createBrowserPageOpsCapability.ts
+  s_c63d7a8363f7e9::t_89fd95acf992c1 16-17
+app/types/workspaceExpose.ts
+  s_c63d7a8363f7e9::t_e919582167c833 23,227
+app/utils/document-viewer/pageLabels.ts
+  s_c63d7a8363f7e9::t_ec8f95c9335d2d 1-9,19-47,49-52
+app/utils/pdfPageSelection.ts
+  s_c63d7a8363f7e9::t_73bb691f894f42 4,9,25,56
+coverage-baseline.json
+  s_c63d7a8363f7e9::t_f44ffa9910c5ca 42-43,79,91,144-166,177
+docs/architecture/assistant-production-files.txt
+  s_c63d7a8363f7e9::t_07b6e4617b1a51 64,67,73,87,107
+docs/architecture/design-principles.md
+  s_c63d7a8363f7e9::t_5033f2d1fabd3f 14-16,35-45
+docs/architecture/project6-296-baseline-decision-2026-09-08.md
+  s_c63d7a8363f7e9::t_fb84a27669c30c 1-237
+docs/architecture/project6-306-workspace-driver-capability-inventory.md
+  s_c63d7a8363f7e9::t_d67ac56f6cad01 1-417
+docs/architecture/project6-315-contract-alias-migration-2026-09-09.md
+  s_c63d7a8363f7e9::t_f6041213139f72 1-41
+docs/architecture/project6-317-rebase-integration-blocker.md
+  s_c63d7a8363f7e9::t_385969fe212b00 1-80
+docs/architecture/project6-324-ci-workflow-consolidation-20260908.md
+  s_c63d7a8363f7e9::t_8093c65b1af08e 1-79
+docs/architecture/project6-325-binary-provenance-platform-inventory.md
+  s_c63d7a8363f7e9::t_9b58bba74feec1 1-352
+docs/architecture/project6-331-dependency-placement-2026-09-08.md
+  s_c63d7a8363f7e9::t_236769ba216d5b 1-147
+docs/architecture/project6-consolidation-report.md
+  s_c63d7a8363f7e9::t_802818389c26ae 1-43
+docs/architecture/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_c63d7a8363f7e9::t_bd30c3985866ae 1-355
+docs/release-guardrails.md
+  s_c63d7a8363f7e9::t_0494f7b0705674 65-68
+electron/appVersion.ts
+  s_c63d7a8363f7e9::t_6218e76d175ebf 28
+electron/bootstrap/mainProcess.ts
+  s_c63d7a8363f7e9::t_03a8320bb90b16 1-858
+electron/bootstrap/requestShutdownSaveFlush.ts
+  s_c63d7a8363f7e9::t_f25bb862356bdd 11,34-43,45,48,110,201-206
+electron/features/agent/assistantMcpSessionScope.ts
+  s_c63d7a8363f7e9::t_f45cd3bee144c4 75-85
+electron/features/agent/assistantResultHelpers.ts
+  s_c63d7a8363f7e9::t_15840ef1f90e78 1-34
+electron/features/agent/assistantService.ts
+  s_c63d7a8363f7e9::t_69c5696a1ac40c 1-1111
+electron/features/agent/codexAssistant.ts
+  s_c63d7a8363f7e9::t_48af0ad8101a77 1
+electron/features/agent/createAssistantSessionTurnCoordinator.ts
+  s_c63d7a8363f7e9::t_634837ae50aa8b 84,86-87,90,92,103-115,122-126,137-141,143-144,153-156,158
+electron/features/agent/createCodexAssistantAdapter.ts
+  s_c63d7a8363f7e9::t_a632ad6c235588 1-187
+electron/features/agent/documentText.ts
+  s_c63d7a8363f7e9::t_9a72165af7e655 15-21,28-31
+electron/features/agent/lazyAgentAssistant.ts
+  s_c63d7a8363f7e9::t_7af161f6f65eed 6,13
+electron/features/agent/mcpServer.ts
+  s_c63d7a8363f7e9::t_f2d9c9bbb48955 12,29,230-231,235-250,252-253,255,257,270-271,386
+electron/features/agent/runAssistantShutdownStep.ts
+  s_c63d7a8363f7e9::t_e1c9a48baad47f 1-14
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_c63d7a8363f7e9::t_84f5a785a40ba3 58-64
+electron/features/documents/main/documentSave.service.ts
+  s_c63d7a8363f7e9::t_ce022b534fdcc6 43
+electron/features/documents/main/documentSaveDialogHandlers.ts
+  s_c63d7a8363f7e9::t_2ce433352590c2 19
+electron/features/documents/main/handleCleanupOcrTemp.ts
+  s_c63d7a8363f7e9::t_b355b5dcf55bda 7
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_c63d7a8363f7e9::t_f4e04e8ddf6507 24
+electron/features/documents/main/registerDocumentRevisionInvalidationEffects.ts
+  s_c63d7a8363f7e9::t_736cb54d66875b 2
+electron/features/documents/public/pdfSaveAsOptimization.ts
+  s_c63d7a8363f7e9::t_760947c8e2dcdd 1-5
+electron/features/ocr/contracts.ts
+  s_c63d7a8363f7e9::t_9b4b770a7d502d 3
+electron/features/ocr/languageModels.ts
+  s_c63d7a8363f7e9::t_c7b6cb131ec88e 45,48-49
+electron/features/ocr/main/createOcrWorker.worker.ts
+  s_c63d7a8363f7e9::t_7732353e58c514 13
+electron/features/ocr/main/createOcrWorkingCopyInvalidationController.ts
+  s_c63d7a8363f7e9::t_c8f195d7412081 4
+electron/features/ocr/main/createPendingResultFileStore.ts
+  s_c63d7a8363f7e9::t_b6854357833f1f 4
+electron/features/ocr/main/documentTextCatalog.ts
+  s_c63d7a8363f7e9::t_76d57dcf20cfa1 42-46,52,56,60-68,70
+electron/features/ocr/main/estimateOcrRequestBytes.ts
+  s_c63d7a8363f7e9::t_c6a285331bfd2f 3
+electron/features/ocr/main/jobManager.config.ts
+  s_c63d7a8363f7e9::t_40d1109a07b193 2
+electron/features/ocr/main/jobManager.ts
+  s_c63d7a8363f7e9::t_fce1351b4d80a7 9-10,16-21,25-26,30,36,44,70,74,79,89
+electron/features/ocr/main/nativeToolPaths.ts
+  s_c63d7a8363f7e9::t_06a0b972be47cc 11
+electron/features/ocr/main/ocrCatalogV4.ts
+  s_c63d7a8363f7e9::t_b95bc3c13bc649 52,58
+electron/features/ocr/main/ocrJobWorkerLifecycle.ts
+  s_c63d7a8363f7e9::t_e87df4d958686d 10,15-17,22
+electron/features/ocr/main/ocrOperations.ts
+  s_c63d7a8363f7e9::t_4f6123aa4b7d0f 13,21,26,33-34
+electron/features/ocr/main/ocrQueueCapacity.ts
+  s_c63d7a8363f7e9::t_1b92b842b53d6c 5,9
+electron/features/ocr/main/ocrResourceGovernor.ts
+  s_c63d7a8363f7e9::t_0ea56736fd4082 6
+electron/features/ocr/main/ocrWorkerResourceMessages.ts
+  s_c63d7a8363f7e9::t_81dbfcebe5b1d6 5-6,10
+electron/features/ocr/main/paths.ts
+  s_c63d7a8363f7e9::t_d17487435a4dc2 10-11,19
+electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep.ts
+  s_c63d7a8363f7e9::t_80281e4b90d079 4,8-9,11
+electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts
+  s_c63d7a8363f7e9::t_64b6e7a26580ba 21
+electron/features/ocr/main/runOcr.ts
+  s_c63d7a8363f7e9::t_a3f433e31d025c 2-4,7-8
+electron/features/ocr/main/visitDocumentOcrCatalogPages.ts
+  s_c63d7a8363f7e9::t_19a2b12d7b3e94 1-146
+electron/features/ocr/mainBindings.ts
+  s_c63d7a8363f7e9::t_ca1e6d0233f6db 16
+electron/features/ocr/public.ts
+  s_c63d7a8363f7e9::t_6d0b4c544f0d01 1-36
+electron/features/ocr/public/catalog.ts
+  s_c63d7a8363f7e9::t_b9f39a7b5602b9 1
+electron/features/ocr/public/documentTextCatalog.ts
+  s_c63d7a8363f7e9::t_6c149d95e971e1 1-2
+electron/features/ocr/public/index.ts
+  s_c63d7a8363f7e9::t_0df3a44204192f 1-10
+electron/features/ocr/public/recovery.ts
+  s_c63d7a8363f7e9::t_4ddb2cf72c3044 1
+electron/features/ocr/publicNative.ts
+  s_c63d7a8363f7e9::t_f08aad787174e7 1-8
+electron/features/ocr/worker/assembleSearchablePdfStreaming.ts
+  s_c63d7a8363f7e9::t_7bf1e703d8fa6e 10
+electron/features/ocr/worker/inboundMessage.ts
+  s_c63d7a8363f7e9::t_db190e517874d7 22
+electron/features/ocr/worker/indexWriterV4.ts
+  s_c63d7a8363f7e9::t_bfcc2c5079d1c0 86,88,93
+electron/features/ocr/worker/ocrPageSelectionStream.ts
+  s_c63d7a8363f7e9::t_72b2b3dded2b24 11
+electron/features/ocr/worker/pageTextClassifier.ts
+  s_c63d7a8363f7e9::t_faa38aa1764331 1
+electron/features/ocr/worker/pdfAssembler.ts
+  s_c63d7a8363f7e9::t_e74fbb2718c2a9 26,34
+electron/features/ocr/worker/pdfPageSizeProbe.ts
+  s_c63d7a8363f7e9::t_24f867b71ec9c8 2,7-8
+electron/features/ocr/worker/persistOcrPageCheckpoint.ts
+  s_c63d7a8363f7e9::t_21e28f80d75f52 10
+electron/features/ocr/worker/popplerStage.ts
+  s_c63d7a8363f7e9::t_f073deb56de4bb 6,14,17-19
+electron/features/ocr/worker/selectOcrPagesForSupersession.ts
+  s_c63d7a8363f7e9::t_f6825b8c54a604 10,15-16,23
+electron/features/ocr/worker/tesseractRunner.ts
+  s_c63d7a8363f7e9::t_b7e2b3e0a89175 15-17
+electron/features/ocr/worker/tryPreprocessOcrImage.ts
+  s_c63d7a8363f7e9::t_23f3df12c49340 2
+electron/features/ocr/workerPublic.ts
+  s_c63d7a8363f7e9::t_26b6302efb8e45 1-15
+electron/features/page-ops/domain/pageNumbers.ts
+  s_c63d7a8363f7e9::t_9e31948bfec696 6,16,19,22
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_c63d7a8363f7e9::t_db72e82e5a182b 15
+electron/features/scan-cleanup/createScanCleanupMainBindingsDisposer.ts
+  s_c63d7a8363f7e9::t_d7e52b483afb3e 1-11
+electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer.ts
+  s_c63d7a8363f7e9::t_21f03efa767e62 6-8,13,43-62,90,96-98,119,130,140,149
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_c63d7a8363f7e9::t_ac7659daa80b01 18,63-69,99,318,332,372,589
+electron/features/scan-cleanup/detectionResultStoreDescriptor.ts
+  s_c63d7a8363f7e9::t_2294bd4dbf47f3 16-17
+electron/features/scan-cleanup/detectionResultStoreRegistry.ts
+  s_c63d7a8363f7e9::t_06f97a8e6910b8 2
+electron/features/scan-cleanup/resolveScanCleanupRasterPageSizeStore.ts
+  s_c63d7a8363f7e9::t_d8f2664ae3cc08 1-80
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_c63d7a8363f7e9::t_127ee09394745d 1-556
+electron/features/scan-cleanup/scanCleanupMainBindings.ts
+  s_c63d7a8363f7e9::t_4670721b8dd1ac 7-9,14,16,25-31,50-51
+electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults.ts
+  s_c63d7a8363f7e9::t_6f26f39b2db1a5 1-220
+electron/features/scan-cleanup/scanCleanupPreviewLifecycle.ts
+  s_c63d7a8363f7e9::t_ae19f27a17e697 1-73
+electron/features/scan-cleanup/scanCleanupPreviewPolicy.ts
+  s_c63d7a8363f7e9::t_681527f4b19f1e 1-96
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_c63d7a8363f7e9::t_ab9203c4395d6f 2-60,63-90,93,95,97-101,103-104,107-109,115-116,118,121-130,275,283,285,354,362,364,394-395,397,405,407,443,451,453,461,469,471,601,603-604,610,613,869,872,885-887,958-960,975-979,983-988,991-1004,1006-1007
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_c63d7a8363f7e9::t_ee9208bc7096ae 1-520
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_c63d7a8363f7e9::t_4c7bef7241b5f5 1-615
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_c63d7a8363f7e9::t_2d8c464f209eae 1-639
+electron/features/scan-cleanup/scanCleanupPreviewSupport.ts
+  s_c63d7a8363f7e9::t_d433e2265c8553 1-44
+electron/features/scan-cleanup/scanCleanupRasterMeasurement.ts
+  s_c63d7a8363f7e9::t_de949ad22b0d38 1-181
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_c63d7a8363f7e9::t_0d616d385ad3c3 1-970
+electron/features/scan-cleanup/scanCleanupRasterRetentionIo.ts
+  s_c63d7a8363f7e9::t_443fa48f21eea0 1-325
+electron/features/scan-cleanup/worker/main.ts
+  s_c63d7a8363f7e9::t_e6f3a6b294d15b 15
+electron/features/scan-cleanup/worker/runScanCleanupPipeline.ts
+  s_c63d7a8363f7e9::t_99b41257978797 11,15,22-23,30,82
+electron/features/scan-cleanup/worker/runScanCleanupSidecar.ts
+  s_c63d7a8363f7e9::t_86aa7b308d8180 30-31,107,111,124
+electron/features/search/extractTextFromPdf.ts
+  s_c63d7a8363f7e9::t_72cd9e4efd8db6 16
+electron/features/search/extractTextWithPdfjs.ts
+  s_c63d7a8363f7e9::t_ab6b5e7c312e12 4-7,14,31,34-37,43,47,53-54,62-64,156-162,209,293
+electron/features/search/indexBuilder.ts
+  s_c63d7a8363f7e9::t_b8d014ce7a4f76 23-25,39-41,45-46,49,54
+electron/features/search/loadPdfjsTextExtractor.ts
+  s_c63d7a8363f7e9::t_4e40c81d53afec 4,11
+electron/features/search/nativeSearch.ts
+  s_c63d7a8363f7e9::t_86bdd5a34ebc10 11,40-43,50,275-277
+electron/features/search/nativeSearchIndex.ts
+  s_c63d7a8363f7e9::t_d1c601da279b8b 14
+electron/features/search/parseSearchWorkerInboundMessage.ts
+  s_c63d7a8363f7e9::t_9e7046997f1738 6-8,16-18,20,23,27-41
+electron/features/search/public.ts
+  s_c63d7a8363f7e9::t_5acef8c1d2e2f9 1-8,25,27-107
+electron/features/search/public/index.ts
+  s_c63d7a8363f7e9::t_e373fdc294bc48 1
+electron/features/search/public/textExtraction.ts
+  s_c63d7a8363f7e9::t_c962c832dd142f 1-3
+electron/features/search/publicNative.ts
+  s_c63d7a8363f7e9::t_be23a0b633dcb5 1-67
+electron/features/search/rebindSearchIndexes.ts
+  s_c63d7a8363f7e9::t_11e23349dc7d1d 6-7,11-12,20
+electron/features/search/searchIndexBuilderPublic.ts
+  s_c63d7a8363f7e9::t_1f85728e11691c 1-17
+electron/features/search/searchIndexOperationPolicy.ts
+  s_c63d7a8363f7e9::t_12bbb9e7eb542d 17
+electron/features/search/searchIndexSchemaVersion.ts
+  s_c63d7a8363f7e9::t_718b59511f3ffa 1
+electron/features/search/searchIndexSidecar.ts
+  s_c63d7a8363f7e9::t_0653c982fe84a6 23,28
+electron/features/search/searchIndexSidecarLegacy.ts
+  s_c63d7a8363f7e9::t_c9824b871dedef 19-20,58
+electron/features/search/stringifyLegacyJsonSearchIndex.ts
+  s_c63d7a8363f7e9::t_4ca24f17721bfd 1
+electron/features/search/worker.ts
+  s_c63d7a8363f7e9::t_d0902c8aa0cd88 6-8,15,26-27,31,35-43,273,354
+electron/features/search/worker/ensureSearchIndex.ts
+  s_c63d7a8363f7e9::t_e1f051d11f27b7 7-8,13,302
+electron/features/search/xlargeIndexBuilder.ts
+  s_c63d7a8363f7e9::t_052a86f6da2ca8 7-8,214,220,243-245
+electron/features/search/xlargeSearchClassification.ts
+  s_c63d7a8363f7e9::t_d4dcaa994c316f 1-77
+electron/features/search/xlargeSearchRouting.ts
+  s_c63d7a8363f7e9::t_253ed96cd7f245 10,51,72-83,91-95,105-106,113,158-160
+electron/file-access/documentRevisionStore.ts
+  s_c63d7a8363f7e9::t_36217b6c8bf8d0 51
+electron/file-access/pageIdentityStore.ts
+  s_c63d7a8363f7e9::t_285085263764d0 26,28-29,32-35,69
+electron/file-access/rebindDocumentTextCatalogIfPresent.ts
+  s_c63d7a8363f7e9::t_a4d782e3d08b4d 3-4
+electron/file-access/workingCopyContentTransitionJournal.ts
+  s_c63d7a8363f7e9::t_627a287db8e208 23
+electron/file-access/workingCopyMutationQueue.ts
+  s_c63d7a8363f7e9::t_921caff068e60c 8
+electron/main.ts
+  s_c63d7a8363f7e9::t_4762a9d8a07b89 1
+electron/native-tools/createPdfCombineProgressHandler.ts
+  s_c63d7a8363f7e9::t_481c04c62305ad 1
+electron/native-tools/runNativeToolCommand.ts
+  s_c63d7a8363f7e9::t_58719664459257 8-12,25,32,46-72,74,83,109-111,127-129,153,161,164,186,199-289
+electron/ocr/worker/indexWriter.ts
+  s_c63d7a8363f7e9::t_ab0e912574005a 42-47,56-60
+electron/ocr/worker/main.ts
+  s_c63d7a8363f7e9::t_1204ead6bfccfe 56-57,61,65-66,73,80-82,86,90,95-97,104,637
+electron/ocr/worker/runProductionOcrQualityCase.ts
+  s_c63d7a8363f7e9::t_dc768dc2241fee 8,12
+electron/ocr/worker/writeOcrIndexes.ts
+  s_c63d7a8363f7e9::t_9a46f20c756a8e 11-12
+electron/operation-lifecycle/createMainJobRegistry.ts
+  s_c63d7a8363f7e9::t_00cc7ee47908b0 143-144,407,444-448
+electron/pdf/nativeToolPaths.ts
+  s_c63d7a8363f7e9::t_11313977f429b6 37-41
+electron/pdf/pdfPageSizes.ts
+  s_c63d7a8363f7e9::t_0952c6dc644264 9-10
+electron/pdf/sourceDpiDetection.ts
+  s_c63d7a8363f7e9::t_f60d163a176c9c 6-7
+electron/platform-ipc/featureIpcAdapters.ts
+  s_c63d7a8363f7e9::t_7ba6d22650e801 1-4
+electron/platform-ipc/featureRegistrationTable.ts
+  s_c63d7a8363f7e9::t_15a0d1059bb307 1-307
+electron/platform-ipc/rawIpcRegistration.ts
+  s_c63d7a8363f7e9::t_6c7690a5a3ffaa 1-54
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_c63d7a8363f7e9::t_6cafed57379edd 33,47,93,129-133,143,146-150,164,167-171
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_c63d7a8363f7e9::t_6115152954256f 6-12,16-60,91-96,99,101-102,104-105,107-116,118-158,161-176,181-218
+electron/platform-ipc/registerIpcHandlers.ts
+  s_c63d7a8363f7e9::t_c0ebe2f7a500d4 2,6-7,12-15
+electron/platform-ipc/registerRendererDiagnosticBridge.ts
+  s_c63d7a8363f7e9::t_be91f44bd98d0b 27,189
+electron/platform-ipc/rendererLogBridge.ts
+  s_c63d7a8363f7e9::t_b39400248501ed 430,439
+electron/te.ts
+  s_c63d7a8363f7e9::t_e34d77d3adb257 4-6,8-9
+electron/window.ts
+  s_c63d7a8363f7e9::t_d4d84af4f76f59 30,140,142-145,147,615
+electron/window/windowCloseHandshake.ts
+  s_c63d7a8363f7e9::t_c3ce3df1f114f5 13,23,34,148,151-156
+eslint-plugin-custom.mjs
+  s_c63d7a8363f7e9::t_6666bf0b5b9fee 58-301,1209-1210,1982,2357-2358,2360-2361,2368
+eslint.config.mjs
+  s_c63d7a8363f7e9::t_6e26f84ef80eea 6-7,138,256-257,312-315
+eslint.internal-mock-allowlist-baseline.mjs
+  s_c63d7a8363f7e9::t_71b74d098aaa97 1-1311
+eslint.internal-mock-allowlist.mjs
+  s_c63d7a8363f7e9::t_8bff2ba22120e5 1-331
+landing/nuxt.config.ts
+  s_c63d7a8363f7e9::t_3162bb4a30dd88 5-6
+landing/server/db/schema.ts
+  s_c63d7a8363f7e9::t_1c83f32b2e88aa 11
+native/evb-native-support/src/generated_native_tool_protocols.rs
+  s_c63d7a8363f7e9::t_dbcb14e5625227 3,12-18
+native/evb-native-support/src/lib.rs
+  s_c63d7a8363f7e9::t_3e2ded3b9b5ceb 11-27,32,40-52,183-204,255-259,262
+native/protocol-fixtures/scan-cleanup-manifest-v3-newer-to-older.json
+  s_c63d7a8363f7e9::t_0ba0736558aac2 1-25
+native/protocol-fixtures/scan-cleanup-manifest-v3-older-to-newer.json
+  s_c63d7a8363f7e9::t_773851010310d6 1-15
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_c63d7a8363f7e9::t_811a0ab02403f3 11-12,400-403,411-413,415,417-422,425-426,609-615,618,698,918-938,1037,1040,1072,1152,1178,1217,1470-1475,1503-1508,1537-1542,1758-1765,1767-1772,1778,1780-1783,1844,1947-1948,2031,2114-2115,2117,2120,2123,2126,2129,2132,2135,2341
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_c63d7a8363f7e9::t_794e401f7f3567 184,208-220,231-233,323,897,905,959-985,990,993-1006,1010-1011,1028,1045,1053,1076,1102,1435,1462-1463,1839-1860,2296-2297,2348,2671,2741-2746,3292-3293,3594-3595
+native/scan-cleanup/src/engine/render.rs
+  s_c63d7a8363f7e9::t_1cf46d27e15803 4152
+native/scan-cleanup/src/engine/render/final_composition.rs
+  s_c63d7a8363f7e9::t_b613b8b2666d52 550-552,554,557-560,564-587,590-596
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_c63d7a8363f7e9::t_f1aa215b8b9ef2 127,138-141,203,215-555,1353-1366,1388-1394,1397-1403,1408-1414,1419-1425,1433-1439,1442-1448,1451-1457,1650-1692,1760-1765,1769,1920-1925,1929,1948-2136,2138-2140,2149-2155,2184,2187-2190,2199-2210,2213-2214,2216,2218-2219,2221-2249,2251-2252,2254-2367,2497,2651,2702-2706,2708-2709,2712-2713,2715-2716,2721,2723-2728,2731,2739-2750
+native/scan-cleanup/src/engine/render/region_rendering_tests.rs
+  s_c63d7a8363f7e9::t_effba7dcd2b1df 793-852
+native/scan-cleanup/src/engine/render_tests.rs
+  s_c63d7a8363f7e9::t_048fe677d1f34b 40,51,109
+native/scan-cleanup/src/engine/staged_input.rs
+  s_c63d7a8363f7e9::t_1258984f2826b8 477,480,543,545
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_c63d7a8363f7e9::t_2e0a0de5fcc09b 122,129,139,148-149,180-181,199-200,214-215,232-233,262-263,301-607,1029-1090,1111,1117-1125,1127,1129-1183
+native/scan-cleanup/tests/protocol_version.rs
+  s_c63d7a8363f7e9::t_e5ad760c7db533 12,36-73
+nuxt.config.ts
+  s_c63d7a8363f7e9::t_c1e557e728742c 4-5
+package.json
+  s_c63d7a8363f7e9::t_47cf70a0fdf98d 164,167,172-177,189-192,194,204,208,212,217,222,227
+packages/contracts/nativePdfMutations.ts
+  s_c63d7a8363f7e9::t_b97272fbee29be 1491,1495,1551
+packages/contracts/nativeToolProtocols.ts
+  s_c63d7a8363f7e9::t_c5f982ecfcab0d 1-6,11,41-46,48-59
+packages/contracts/pageNumbers.ts
+  s_c63d7a8363f7e9::t_f34a27f1f56b1d 102
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_c63d7a8363f7e9::t_0ce938c5ff1cc2 899
+packages/contracts/search.ts
+  s_c63d7a8363f7e9::t_a6a14b6c0a5b4d 365,371-374,377-379
+packages/contracts/windowTabs.ts
+  s_c63d7a8363f7e9::t_e58cc69129a5c3 57
+packages/contracts/windowTabsValidation.ts
+  s_c63d7a8363f7e9::t_d2b4ebf5720b62 137,154
+packages/electron-worker-bundles/electronWorkerBundles.js
+  s_c63d7a8363f7e9::t_e594d36abbf026 61
+packages/i18n-app/index.ts
+  s_c63d7a8363f7e9::t_cf420d20f0d345 11
+packages/i18n-app/locales.ts
+  s_c63d7a8363f7e9::t_feb4f9d2a1edd7 1-9
+packages/i18n-core/index.ts
+  s_c63d7a8363f7e9::t_9e68797c282a0e 7,9,15,31,40,45,47
+packages/i18n-core/localeDefinitions.ts
+  s_c63d7a8363f7e9::t_dec278892cfd35 1
+packages/i18n-core/privacyMessages.ts
+  s_c63d7a8363f7e9::t_6d4378bdea83ae 1
+packages/i18n-core/schemaTypes.ts
+  s_c63d7a8363f7e9::t_be7bebe398abf9 5
+packages/pdf-core/index.ts
+  s_c63d7a8363f7e9::t_a66d30e253987d 98-177,180,188-189
+packages/pdf-core/nativePdfMutationPolicy.ts
+  s_c63d7a8363f7e9::t_fcf002c9d0b6f6 1-25,28-29,35-476
+packages/pdf-core/pdfPageLabels.ts
+  s_c63d7a8363f7e9::t_0392b4502e6314 1-994
+packages/pdf-core/pdfPageSelection.ts
+  s_c63d7a8363f7e9::t_07c1b5dd141f10 1-17,19-24,35-37,41,46,51,65-98,100-141,143-147,149-172,174-198,200-206,208-231,233-245,247-272,274-287,289-379,381-399,401-429,431-439,441-452,454-472,474-477,479-1071
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_c63d7a8363f7e9::t_6e1162a9989d76 1-198
+packages/pdf-core/pdfSearchCore.ts
+  s_c63d7a8363f7e9::t_dd52dcf403483d 2,12-20
+packages/release-selection/index.ts
+  s_c63d7a8363f7e9::t_028c9e61df6178 24,33,42,48,51
+packages/release-selection/releaseSelection.ts
+  s_c63d7a8363f7e9::t_77118acaf62635 6
+packages/scan-cleanup/README.md
+  s_c63d7a8363f7e9::t_55dc8c06234c8b 1-7
+packages/scan-cleanup/adapters/createScanCleanupRenderers.ts
+  s_c63d7a8363f7e9::t_5d14d1837381d2 7,11,13,17
+packages/scan-cleanup/adapters/extractPdfMrcLayers.ts
+  s_c63d7a8363f7e9::t_27cbc2b1f4242f 19,21
+packages/scan-cleanup/adapters/index.ts
+  s_c63d7a8363f7e9::t_6c5b5ba24342ae 1-5
+packages/scan-cleanup/core/assembleCompactScanCleanupPages.ts
+  s_c63d7a8363f7e9::t_0a5ac091624203 21,26-27,32-33
+packages/scan-cleanup/core/assertScanCleanupPathWithinRoot.ts
+  s_c63d7a8363f7e9::t_5c5163ae0bff81 14
+packages/scan-cleanup/core/buildManifest.ts
+  s_c63d7a8363f7e9::t_a8d4146c7b63a0 9,15-17
+packages/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix.ts
+  s_c63d7a8363f7e9::t_83e3064ecf8e59 2-3
+packages/scan-cleanup/core/createPagePlanResolver.ts
+  s_c63d7a8363f7e9::t_1cd1cf07af6775 8-10
+packages/scan-cleanup/core/createScanCleanupProgressReporter.ts
+  s_c63d7a8363f7e9::t_4360759e4054ce 9
+packages/scan-cleanup/core/createStagedRasterWindow.ts
+  s_c63d7a8363f7e9::t_1e7655967d1722 2
+packages/scan-cleanup/core/fileBackedResultStore.ts
+  s_c63d7a8363f7e9::t_a2f75d69707e69 6,12,26-39,42-45,111,124,129,343,364-369,373-374,380,387
+packages/scan-cleanup/core/index.ts
+  s_c63d7a8363f7e9::t_08155d92065144 4-8,11-19
+packages/scan-cleanup/core/pageBatches.ts
+  s_c63d7a8363f7e9::t_0133f5b06156f3 5
+packages/scan-cleanup/core/placementAnchors.ts
+  s_c63d7a8363f7e9::t_c4566bfff400de 19
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_c63d7a8363f7e9::t_82974de798f768 28-29,34
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_c63d7a8363f7e9::t_2e2deb52aa3aa4 21,25
+packages/scan-cleanup/core/policy/effectiveOptions.ts
+  s_c63d7a8363f7e9::t_7b1d066b908208 20
+packages/scan-cleanup/core/policy/scanCleanupRepresentationPolicy.ts
+  s_c63d7a8363f7e9::t_a7bff9bd2be0a7 6
+packages/scan-cleanup/core/preserveScanCleanupJsonEvidence.ts
+  s_c63d7a8363f7e9::t_f7fbc0b9305c23 13-24,31,42-50,54-55,62,74,76
+packages/scan-cleanup/core/provenanceStamp.ts
+  s_c63d7a8363f7e9::t_1de502f5090410 27,31
+packages/scan-cleanup/core/rasterLayerDimensions.ts
+  s_c63d7a8363f7e9::t_49753d8352877b 2-15,34,48,66-71,104-105,114-117,122-126,147,226-227,239-240,243-244,264
+packages/scan-cleanup/core/rasterValidation.ts
+  s_c63d7a8363f7e9::t_fa46bff982915c 6-11,16,150,153
+packages/scan-cleanup/core/resolveRasterHandoff.ts
+  s_c63d7a8363f7e9::t_c1352e3be2926a 2,256,268,274,286,303-306
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_c63d7a8363f7e9::t_34f7c1ead3729a 35,39-41,47-48,55,73-76,80,84,88,92-93,98
+packages/scan-cleanup/core/sourceDpiDetection.ts
+  s_c63d7a8363f7e9::t_d7f8275cf1609f 7,12,16
+packages/scan-cleanup/core/sourceTextLayer.ts
+  s_c63d7a8363f7e9::t_ba9ff6e91dd83b 1-2,6-8
+packages/scan-cleanup/core/types.ts
+  s_c63d7a8363f7e9::t_26da81407441ba 17,383-384,395
+packages/scan-cleanup/index.ts
+  s_c63d7a8363f7e9::t_81b3951510f007 1-2
+packages/scan-cleanup/package.json
+  s_c63d7a8363f7e9::t_71f1d712e52cf6 2,7-14
+packages/scan-cleanup/tsconfig.json
+  s_c63d7a8363f7e9::t_6b6d6f78c0ea41 3-4,16-18
+pnpm-lock.yaml
+  s_c63d7a8363f7e9::t_4d9669fc5c8b7e 160-162,175-192,198,201,204,226-237,241-243,271-273,282-285,295-297,316-318,325-327,330,340-342,375,381,393,406,463-470,10578,10580,10698,10987,10993-10994,11158,11161-11162,11175,11177,11184,11244,11247-11248,11261,11263,11270,11348-11356,11419-11420,11599,11601,11617,11662,11664,11680,11802,11804,11807-11808,16609,16799,16801,16813,16816,16820-16821,16838,16840,16842-16844,16847-16848,16875,16889,16892,16980,16982,16984-16986,16988-16990,17017,17031,17034,17122,17125-17126,17131,17142,19173,19182,19226-19250,19447-19461
+scripts/architecture/boundary-check.mjs
+  s_c63d7a8363f7e9::t_1d57bd38d4626d 17-22,44-50,121-123,174-182,238-240,255-258,272-277,283-286,423-436,527-530,835,1489,1566,1629-1636
+scripts/architecture/boundaryExceptionPolicy.mjs
+  s_c63d7a8363f7e9::t_d36d059361d3bf 1-201
+scripts/architecture/dep-graph.mjs
+  s_c63d7a8363f7e9::t_a06f9fa2705f0a 62-65,68-69
+scripts/architecture/formatComparisonRule.mjs
+  s_c63d7a8363f7e9::t_964f3ea00273ef 1-275
+scripts/build-electron.mjs
+  s_c63d7a8363f7e9::t_b72670c7733b04 86,98
+scripts/bundle-tools-windows.sh
+  s_c63d7a8363f7e9::t_35415c2be6a57c 116-124,472,479-491,494,496-498,501,505-526,532-537,541-543,560,566-578,581,583-585,588-602
+scripts/checkCoverageRatchet.ts
+  s_c63d7a8363f7e9::t_bf5193a6703352 50-54,58,61,68-73,76-77,89-92,95-120,227-247,255-262,292-316,319,393-427,450-473,476-477,482-483,501-506
+scripts/checkSearchNativeParity.ts
+  s_c63d7a8363f7e9::t_8d5303d136bfed 14-16
+scripts/checkZeroExecutionCoverage.ts
+  s_c63d7a8363f7e9::t_1db02e00d23350 9-12,232-241,279-295
+scripts/createCliRetention.ts
+  s_c63d7a8363f7e9::t_389dcb1b15ae87 11-12,16
+scripts/diagnostics/scan-cleanup-corpus-verify.mjs
+  s_c63d7a8363f7e9::t_0c283d4ac94965 180,182,186
+scripts/diagnostics/scan-cleanup-preview-harness.mjs
+  s_c63d7a8363f7e9::t_5390ab17141812 88-92,94
+scripts/diagnostics/scan-cleanup-word-loss-audit.mjs
+  s_c63d7a8363f7e9::t_e36679a01f965b 27
+scripts/flattenLayeredManifestPage.ts
+  s_c63d7a8363f7e9::t_5574acc27410bb 2
+scripts/generateNativeToolProtocols.ts
+  s_c63d7a8363f7e9::t_ef1086cb85d1c9 27-29,31-33,35-36,40-43
+scripts/generateReleaseTargetManifest.ts
+  s_c63d7a8363f7e9::t_bf59eb169d4367 41,83
+scripts/nativeResourceManifest.ts
+  s_c63d7a8363f7e9::t_491d2e688d773b 2-6,325,335-337
+scripts/project6ConsolidationReport.mjs
+  s_c63d7a8363f7e9::t_e553a4c4b6f81f 1-588
+scripts/release/generated-release-targets.cjs
+  s_c63d7a8363f7e9::t_947b7f6ffc43b8 41,144,169,212,240,265,290,315,340-343,447,489
+scripts/release/native-tool-smoke-policy.mjs
+  s_c63d7a8363f7e9::t_3744e7c33636a3 3,26-34,71-75,173-179
+scripts/release/policy.mjs
+  s_c63d7a8363f7e9::t_0c9285a892d888 158,280,388
+scripts/runRuntimeBinaryArchiveCli.ts
+  s_c63d7a8363f7e9::t_a9138058f13d63 1-198
+scripts/runtimeBinaryArchive.ts
+  s_c63d7a8363f7e9::t_25319d754d9f29 1-292
+scripts/runtimeBinaryManifest.ts
+  s_c63d7a8363f7e9::t_2bd7a736ac5577 1-90
+scripts/scan-cleanup-convert.ts
+  s_c63d7a8363f7e9::t_3517907790759b 4,7,9,34,38-41,45,50,56,69-70,97-108,981-982
+scripts/scanCleanupCliAdapters.ts
+  s_c63d7a8363f7e9::t_a3df851e977900 37-39,46
+scripts/scanCleanupDetectionCache.ts
+  s_c63d7a8363f7e9::t_e900bfd99395ee 28-29,34
+scripts/stress/stressCalibration.ts
+  s_c63d7a8363f7e9::t_1f740b94978510 5-6
+scripts/stress/stressTypes.ts
+  s_c63d7a8363f7e9::t_0ae1925dc5d3fc 1
+scripts/validateRuntimeBinaryArchiveMembers.ts
+  s_c63d7a8363f7e9::t_355be1c90d7d29 1-125
+scripts/validation-gates.mjs
+  s_c63d7a8363f7e9::t_d368cb532babf8 87-88,104-105,119-120,188-189,1474-1475,1857-1858,1942
+scripts/vitestResolveAlias.ts
+  s_c63d7a8363f7e9::t_ea5798f34f45aa 14-16
+scripts/windows-test/registry/changeSelector.ts
+  s_c63d7a8363f7e9::t_12a04c3e77fd63 113
+tests-as-never-baseline.json
+  s_c63d7a8363f7e9::t_e45bd7328e5055 71,86
+tests/e2e/electron/helpers/fixtures.ts
+  s_c63d7a8363f7e9::t_2a9823cee4615d 40
+tests/e2e/electron/helpers/splitPaneCloseContinuity.ts
+  s_c63d7a8363f7e9::t_d6636e65434d27 104-107,136-139
+tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts
+  s_c63d7a8363f7e9::t_81b1a23b1935ca 9
+tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts
+  s_c63d7a8363f7e9::t_8f1134a52d9ff2 35,40-42,47-49,394,853
+tests/helpers/usePageShortcutsTestFixtures.ts
+  s_c63d7a8363f7e9::t_04977fc0b613a1 1-138
+tests/integration/native/nativeBookmarkContinuation.test.ts
+  s_c63d7a8363f7e9::t_42cf7713dc5872 30-31
+tests/unit/app/composables/useDocxExport.test.ts
+  s_c63d7a8363f7e9::t_ece1011a951224 10
+tests/unit/app/modules/agent-panel/assistantSelectionState.test.ts
+  s_c63d7a8363f7e9::t_6c333e64673fb4 26-27
+tests/unit/app/modules/document-viewer/documentSearchArchitectureBoundaries.test.ts
+  s_c63d7a8363f7e9::t_c7781242bf9e9d 98-102
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_c63d7a8363f7e9::t_879a856c6d22db 28
+tests/unit/app/modules/pdf-viewer/annotations/annotationBackendConformance.test.ts
+  s_c63d7a8363f7e9::t_e4f78d59a03016 9
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveFrontierRollback.test.ts
+  s_c63d7a8363f7e9::t_d1e9b8de58fa01 13
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerCaptureEvents.test.ts
+  s_c63d7a8363f7e9::t_3728e96fce7af0 1-445
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures.ts
+  s_c63d7a8363f7e9::t_bdfbfb10dd9e86 1-287
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEvents.test.ts
+  s_c63d7a8363f7e9::t_dbb7bf0acbceff 24,31,38-45
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerPlacementInteractions.test.ts
+  s_c63d7a8363f7e9::t_cad0be8abf31ec 1-598
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_c63d7a8363f7e9::t_1e064e1626968f 10
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_c63d7a8363f7e9::t_bcaa894a07e402 13
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearch.test.ts
+  s_c63d7a8363f7e9::t_c6b10bd2d4f3f5 20
+tests/unit/app/modules/pdf-viewer/composables/usePdfTextLayerRenderer.test.ts
+  s_c63d7a8363f7e9::t_42e341f1d26e87 17
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c63d7a8363f7e9::t_7abd7eb6eca895 19,46-47
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurfaceRotation.test.ts
+  s_c63d7a8363f7e9::t_fdfa0d6869ef38 1-413
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewCache.test.ts
+  s_c63d7a8363f7e9::t_74c3d450366e43 19
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_c63d7a8363f7e9::t_0bdb4395531d8b 43-44
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgentOcr.test.ts
+  s_c63d7a8363f7e9::t_3bdc7353ba2611 1-251
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_c63d7a8363f7e9::t_ca4385435d27fb 18-22,29-40
+tests/unit/app/modules/workspace-shell/composables/createDocumentHistory.test.ts
+  s_c63d7a8363f7e9::t_7138fad0b87c66 20
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_c63d7a8363f7e9::t_921e4eb75f78b2 16,18-23
+tests/unit/app/modules/workspace-shell/composables/createNativeMarkupMutations.ts
+  s_c63d7a8363f7e9::t_6a62e8206da3be 1-57
+tests/unit/app/modules/workspace-shell/composables/createPointerDownEvent.ts
+  s_c63d7a8363f7e9::t_b4caabbfc88c3d 1-12
+tests/unit/app/modules/workspace-shell/composables/createPrintableSourceDataResolver.test.ts
+  s_c63d7a8363f7e9::t_ebe3d03704a607 12
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_c63d7a8363f7e9::t_ca88eaec5b28d6 103
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlowRestore.test.ts
+  s_c63d7a8363f7e9::t_bfccee7b1f85c4 1-143
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_c63d7a8363f7e9::t_10f5526d1cc981 48-93
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.test.ts
+  s_c63d7a8363f7e9::t_e632b9c36a4d75 10-12
+tests/unit/app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.test.ts
+  s_c63d7a8363f7e9::t_8f37f65f9e283b 44
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindows.test.ts
+  s_c63d7a8363f7e9::t_69168f00a4e52b 15-18
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures.ts
+  s_c63d7a8363f7e9::t_bb5b2c3f96ce44 1-43
+tests/unit/app/modules/workspace-shell/composables/useAppShellTabLifecycle.test.ts
+  s_c63d7a8363f7e9::t_50c556bddfcf8e 37
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.test.ts
+  s_c63d7a8363f7e9::t_6fbf27f79f554a 17,70-92,116,159-160,186-193
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.test.ts
+  s_c63d7a8363f7e9::t_746fa3cc762a01 1,7-11,49-88
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_c63d7a8363f7e9::t_b0c3d25d9b92a4 27-28,42-43,103-104,120,124,143-147
+tests/unit/app/modules/workspace-shell/composables/usePageShortcuts.test.ts
+  s_c63d7a8363f7e9::t_4841f06d9ca176 7,10-12,14-24,27-28,63,76,89,109,133,156,178,208,232,258,284,310,334,355,382,408,431,463,480,496,508,527,558,579,600,622,635,659,699
+tests/unit/app/modules/workspace-shell/composables/usePageShortcutsPaging.test.ts
+  s_c63d7a8363f7e9::t_bf116be771d984 1-172
+tests/unit/app/modules/workspace-shell/composables/usePdfFileNativeMutations.test.ts
+  s_c63d7a8363f7e9::t_9cf25ef4dab3fc 16
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_c63d7a8363f7e9::t_cd4d1460999bec 22-23,40,394-401,508-515,640-647
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfersRestore.test.ts
+  s_c63d7a8363f7e9::t_c729f66dda4398 1-126
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_c63d7a8363f7e9::t_1d7194fb84c34b 17
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_c63d7a8363f7e9::t_70d83ee398013c 64-65,76-85,88-91,145-178
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_c63d7a8363f7e9::t_911932ed38a395 307-310,1114,1153
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrintDriverFallback.test.ts
+  s_c63d7a8363f7e9::t_018d4dfce974b0 1-130
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitCache.test.ts
+  s_c63d7a8363f7e9::t_e1fd6bd7812823 61-87
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_c63d7a8363f7e9::t_06a53a61780590 128,210-354,363,378,499,530
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.test.ts
+  s_c63d7a8363f7e9::t_256ccc56917021 1-107
+tests/unit/app/modules/workspace-shell/composables/workspaceExposeContract.test.ts
+  s_c63d7a8363f7e9::t_4c65ba051d123b 151
+tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentController.test.ts
+  s_c63d7a8363f7e9::t_8b49a0bfdbe827 25
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_c63d7a8363f7e9::t_64fc140fb748d9 21,341-367
+tests/unit/app/modules/workspace-shell/viewers/documentWorkspacePageSourceIntegration.test.ts
+  s_c63d7a8363f7e9::t_b2696110fdb3cb 32,49-52,56-58,102-105,115,169-189
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_c63d7a8363f7e9::t_999cd15fd4b6ed 196-204,208-244,378-402
+tests/unit/app/platform/browserSaveTargets.test.ts
+  s_c63d7a8363f7e9::t_e1dcff6fe58c7a 8
+tests/unit/app/services/pdf-save/createComment.ts
+  s_c63d7a8363f7e9::t_9ce8fa384d221e 1-31
+tests/unit/app/services/pdf-save/nativeMarkupMutationProjection.test.ts
+  s_c63d7a8363f7e9::t_d9060b2c24345b 1-278
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_c63d7a8363f7e9::t_11061f48fa53c0 39,42
+tests/unit/app/services/pdf-save/nativeTextBoxMutations.test.ts
+  s_c63d7a8363f7e9::t_a25cc9c5b035ed 14
+tests/unit/architecture/nativeToolSmokeSourcePolicy.test.ts
+  s_c63d7a8363f7e9::t_e123c120924fc0 37,185-195
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_c63d7a8363f7e9::t_060c7ac1c876f4 108
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_c63d7a8363f7e9::t_9b9f3a85634296 197-198,222,300,384
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_c63d7a8363f7e9::t_34a1ff359ecae3 11
+tests/unit/contracts/nativePdfMutations.textBoxes.test.ts
+  s_c63d7a8363f7e9::t_123046ebc2604e 11
+tests/unit/contracts/ocrIndex.test.ts
+  s_c63d7a8363f7e9::t_c2ab96d2404f3e 10
+tests/unit/contracts/pageNumbers.test.ts
+  s_c63d7a8363f7e9::t_5a9e05ddef16fb 33
+tests/unit/contracts/search.test.ts
+  s_c63d7a8363f7e9::t_2e317104353df4 91,114-117,217
+tests/unit/contracts/windowTabsPlatformFeature.test.ts
+  s_c63d7a8363f7e9::t_d5add632e37a3e 6,68-113
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_c63d7a8363f7e9::t_c3022b42749dda 23-27,29,706-726
+tests/unit/electron/agentDocumentTextSearchValidation.test.ts
+  s_c63d7a8363f7e9::t_1d4a3ade66897e 14,24-33,43-45,51-57,65,69,71,73
+tests/unit/electron/assistantMcpSessionScope.test.ts
+  s_c63d7a8363f7e9::t_b4c464d16859f5 23-24
+tests/unit/electron/assistantTurnLifecycle.test.ts
+  s_c63d7a8363f7e9::t_7194de978db6a5 19
+tests/unit/electron/createPendingResultFileStore.test.ts
+  s_c63d7a8363f7e9::t_5c867681c713df 12
+tests/unit/electron/djvuPdfExport.test.ts
+  s_c63d7a8363f7e9::t_ce597b337e8ba3 18-19
+tests/unit/electron/documentRevisionInvalidationEffects.test.ts
+  s_c63d7a8363f7e9::t_d42beb4feb0808 24,31-33
+tests/unit/electron/documentRevisionStore.test.ts
+  s_c63d7a8363f7e9::t_f53059b387a1ae 27,603
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_c63d7a8363f7e9::t_ef49922c10efde 24,114
+tests/unit/electron/estimateOcrRequestBytes.test.ts
+  s_c63d7a8363f7e9::t_bbdd8518a4cf46 10
+tests/unit/electron/featureRegistrationTable.test.ts
+  s_c63d7a8363f7e9::t_cf70d09d1d8cfb 1-185
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_c63d7a8363f7e9::t_b6df2efdfbfe27 10,159-161
+tests/unit/electron/focusWindowForUserPolicy.test.ts
+  s_c63d7a8363f7e9::t_ed0cda6b51357d 11,15,20,24-29
+tests/unit/electron/getOcrWorkerMessageDisposition.test.ts
+  s_c63d7a8363f7e9::t_dbbd4f43d7cce9 6
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_c63d7a8363f7e9::t_40ed372fa695dd 31
+tests/unit/electron/handleOptimizePdfAsCopy.test.ts
+  s_c63d7a8363f7e9::t_19bff060bec87b 8
+tests/unit/electron/helpers/dualProviderCompletionDriver.ts
+  s_c63d7a8363f7e9::t_c3ce30a138e792 1-133
+tests/unit/electron/ipcRegistrySecurity.test.ts
+  s_c63d7a8363f7e9::t_59e69e797c7b4f 16-17,20,78-90,110-111,159,189-191,195,242,256,258,281-338,351-376
+tests/unit/electron/lazyAgentAssistant.test.ts
+  s_c63d7a8363f7e9::t_60630cac4328d8 29
+tests/unit/electron/mainFailureReporter.test.ts
+  s_c63d7a8363f7e9::t_9d5205a3b82df7 42
+tests/unit/electron/mainJobRegistry.test.ts
+  s_c63d7a8363f7e9::t_ea089c654736a5 1,26,35,68-76
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_c63d7a8363f7e9::t_de6717f3d1ff85 11,25,42-52,54
+tests/unit/electron/nativeSearch.test.ts
+  s_c63d7a8363f7e9::t_5fac069ecf24f3 23-24,39,45,194,211,233,255
+tests/unit/electron/nativeSearchIndex.test.ts
+  s_c63d7a8363f7e9::t_2b2b15b4b78dba 20-22
+tests/unit/electron/nativeSearchInvocation.test.ts
+  s_c63d7a8363f7e9::t_7f12f97a91a1ba 9,29,34,127,180,197,245,266,302,350,407
+tests/unit/electron/ocrCatalogRevisionRebind.test.ts
+  s_c63d7a8363f7e9::t_94a1f20e36c7fd 19-21
+tests/unit/electron/ocrCatalogV4.test.ts
+  s_c63d7a8363f7e9::t_d86c3352beaf3e 39
+tests/unit/electron/ocrCreateWorker.test.ts
+  s_c63d7a8363f7e9::t_0447d29b355b96 22,42
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_c63d7a8363f7e9::t_c31b0c4ec829ab 13-14,20,177-195,198
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_c63d7a8363f7e9::t_ed4f585af3166d 79-80,86-87,108
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_c63d7a8363f7e9::t_72458074ce4c7b 11
+tests/unit/electron/ocrIndexWriterPath.test.ts
+  s_c63d7a8363f7e9::t_92b2f4176227c9 8,82-92
+tests/unit/electron/ocrIndexWriterSidecar.test.ts
+  s_c63d7a8363f7e9::t_f98d9f4fabe599 20-23,25,29
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_c63d7a8363f7e9::t_0c183f76411dd0 32,44
+tests/unit/electron/ocrIpcHandlers.test.ts
+  s_c63d7a8363f7e9::t_4cb68bdb3b0e35 75,81
+tests/unit/electron/ocrJobManager.test.ts
+  s_c63d7a8363f7e9::t_cee24d879ffaac 9,98,102,238,261,309,344,360,409,442,505,536,583,676,735,792,821,864,912,954,1009,1053,1096,1145,1238,1282,1307,1333
+tests/unit/electron/ocrJobManagerProtocol.test.ts
+  s_c63d7a8363f7e9::t_8a70235c72f3d2 6
+tests/unit/electron/ocrJobManifest.test.ts
+  s_c63d7a8363f7e9::t_c2c09c541ebe93 14
+tests/unit/electron/ocrJobStorageBudget.test.ts
+  s_c63d7a8363f7e9::t_c86fcf9823c9c9 18-19
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_c63d7a8363f7e9::t_cf06f7a47205f6 28,63,69,118,159,169,176,180,186,194,217,226,243,268,279,305,322,351,367,374
+tests/unit/electron/ocrMixedDocumentCorpus.test.ts
+  s_c63d7a8363f7e9::t_8ebefd0bb7fa6f 71,74
+tests/unit/electron/ocrPageSelectionStream.test.ts
+  s_c63d7a8363f7e9::t_b8a273fd754afe 10
+tests/unit/electron/ocrPageTextClassifier.test.ts
+  s_c63d7a8363f7e9::t_61dd8304f7c626 25
+tests/unit/electron/ocrPaths.test.ts
+  s_c63d7a8363f7e9::t_4c66d22f0f2d9a 27,43,77,89,106,124,174,202,218,234,255
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_c63d7a8363f7e9::t_7a5559d8512bb9 41-42
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_c63d7a8363f7e9::t_705a887e22a213 83,117,121
+tests/unit/electron/ocrResourceBase.test.ts
+  s_c63d7a8363f7e9::t_0a8c946c8aad7b 31,39,47
+tests/unit/electron/ocrResourceGovernor.test.ts
+  s_c63d7a8363f7e9::t_87a08e9ae332cf 9,41
+tests/unit/electron/ocrRevisionTransitionRecovery.test.ts
+  s_c63d7a8363f7e9::t_d709412cf9468a 16
+tests/unit/electron/ocrRunOcrAbortWindow.test.ts
+  s_c63d7a8363f7e9::t_1a1342698cc1cf 9,19,21,23,28
+tests/unit/electron/ocrRuntimePolicy.test.ts
+  s_c63d7a8363f7e9::t_6e2cce921fc45c 10
+tests/unit/electron/ocrStreamingPdfAssembler.test.ts
+  s_c63d7a8363f7e9::t_474cb04ae5c605 19-20,23
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_c63d7a8363f7e9::t_a34dab8e8896e3 53,90,95
+tests/unit/electron/ocrWorkerHashing.test.ts
+  s_c63d7a8363f7e9::t_60d1c7c6c3ffb2 14
+tests/unit/electron/ocrWorkerInboundMessage.test.ts
+  s_c63d7a8363f7e9::t_9a4493d9343345 10
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_c63d7a8363f7e9::t_ea9c55696b3a88 16,58-60,67
+tests/unit/electron/ocrWorkerPageSizeFallback.test.ts
+  s_c63d7a8363f7e9::t_b012c59ddab72e 15
+tests/unit/electron/ocrWorkerPaths.test.ts
+  s_c63d7a8363f7e9::t_5a773eda8c5805 6
+tests/unit/electron/ocrWorkerPdfPageCount.test.ts
+  s_c63d7a8363f7e9::t_0c4cdcd866f691 8,12
+tests/unit/electron/ocrWorkerPopplerStage.test.ts
+  s_c63d7a8363f7e9::t_3ecac9ea66921d 15,25-26
+tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts
+  s_c63d7a8363f7e9::t_21c51ac2af77a8 16,36,116,159,196,222,254,290,327,348
+tests/unit/electron/ocrWorkerTesseractRunner.test.ts
+  s_c63d7a8363f7e9::t_3f9e2bf5f49bd3 10
+tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts
+  s_c63d7a8363f7e9::t_451cc1b52b6b76 10,29,34
+tests/unit/electron/pageIdentityStore.test.ts
+  s_c63d7a8363f7e9::t_dc23d51f02630c 38
+tests/unit/electron/pageIdentityStoreRevision.test.ts
+  s_c63d7a8363f7e9::t_82ededc648022f 1-457
+tests/unit/electron/pdfMrcExtraction.test.ts
+  s_c63d7a8363f7e9::t_2ff1049973a107 16
+tests/unit/electron/pdfPageSizeStreaming.test.ts
+  s_c63d7a8363f7e9::t_dee2c57003e635 22-23
+tests/unit/electron/pdfTextExtractorCancellation.test.ts
+  s_c63d7a8363f7e9::t_598032b7e14c27 33,44,89,165-208,210,249
+tests/unit/electron/pdfjsTextExtractorCancellation.test.ts
+  s_c63d7a8363f7e9::t_273da14925a014 37,63,75,96,150,210,251,296
+tests/unit/electron/persistentNativeSearchService.test.ts
+  s_c63d7a8363f7e9::t_c9ac5e505d6be9 60,76,94,131,157,175,197,232,269,290,328,363
+tests/unit/electron/preloadFileClient.test.ts
+  s_c63d7a8363f7e9::t_0e365acc79586a 34,43
+tests/unit/electron/protocolHandshakeCancellation.test.ts
+  s_c63d7a8363f7e9::t_c1fd8c68e1e138 10-15,99-129
+tests/unit/electron/publicNativeLazyImports.test.ts
+  s_c63d7a8363f7e9::t_a2cb48b90ec0df 1-21
+tests/unit/electron/readScanCleanupFixtureFile.ts
+  s_c63d7a8363f7e9::t_8f0387a5a03d49 1-20
+tests/unit/electron/realWorkerProtocols.test.ts
+  s_c63d7a8363f7e9::t_64cf81f06014ca 32,133
+tests/unit/electron/rebindSearchIndexes.test.ts
+  s_c63d7a8363f7e9::t_d84dc9a1936403 20-21,26-31,36-37
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_c63d7a8363f7e9::t_d3a4afccd0182d 13,36,77,88-107,122,157,198
+tests/unit/electron/resolveRasterHandoff.test.ts
+  s_c63d7a8363f7e9::t_821d0f24d086af 13
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_c63d7a8363f7e9::t_2d48e45ff0ee18 21-22,28-30
+tests/unit/electron/runNativeToolCommand.test.ts
+  s_c63d7a8363f7e9::t_81e6c28e2b7970 270-286,294-372
+tests/unit/electron/scanCleanupCompletedPageProgress.test.ts
+  s_c63d7a8363f7e9::t_a835a534216d96 7
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_c63d7a8363f7e9::t_56b8c36818f15e 38-39,48-49,56
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_c63d7a8363f7e9::t_72bac104a894e0 2-3,5,9,11,23,25,38-39,45-92,636,754,873,1328,1419,1452-1552,1596,1738
+tests/unit/electron/scanCleanupDetectionLifecycle.test.ts
+  s_c63d7a8363f7e9::t_6854374c732d5f 1-104
+tests/unit/electron/scanCleanupDetectionLifecycleScenarios.ts
+  s_c63d7a8363f7e9::t_e2711f78e3d756 1-1948
+tests/unit/electron/scanCleanupDetectionPlan.test.ts
+  s_c63d7a8363f7e9::t_d13449402d073e 12,20
+tests/unit/electron/scanCleanupDetectionResultStoreDescriptor.test.ts
+  s_c63d7a8363f7e9::t_3d682191ad1c80 16
+tests/unit/electron/scanCleanupDetectionStagedWindow.test.ts
+  s_c63d7a8363f7e9::t_08bbb1e22c35de 2,5,7,10,25,33-34,42-70,293
+tests/unit/electron/scanCleanupDocumentCanvas.test.ts
+  s_c63d7a8363f7e9::t_ee672a45af5585 33,40
+tests/unit/electron/scanCleanupDurability.test.ts
+  s_c63d7a8363f7e9::t_28302d1cd997f0 24
+tests/unit/electron/scanCleanupEffectiveOptions.test.ts
+  s_c63d7a8363f7e9::t_22120ba68e6313 12
+tests/unit/electron/scanCleanupMainBindings.test.ts
+  s_c63d7a8363f7e9::t_4a840c50f41678 1-53
+tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts
+  s_c63d7a8363f7e9::t_f21b20f48b0491 33-37
+tests/unit/electron/scanCleanupPageBatches.test.ts
+  s_c63d7a8363f7e9::t_a5b4492bb6243f 6,10
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_c63d7a8363f7e9::t_b8cff32aff72e2 30,44-45,53-56,60,64-65,73,77-78,5250
+tests/unit/electron/scanCleanupPipelineWarningCapabilities.test.ts
+  s_c63d7a8363f7e9::t_804574f5ba9d79 1-48
+tests/unit/electron/scanCleanupPlacementAnchors.test.ts
+  s_c63d7a8363f7e9::t_ae6da80c53bd64 10,15
+tests/unit/electron/scanCleanupPreview.test.ts
+  s_c63d7a8363f7e9::t_3678ab931bb087 2,5-6,8-11
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_c63d7a8363f7e9::t_57c6a77c878866 1-193
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_c63d7a8363f7e9::t_7f07e59470998f 1-2006
+tests/unit/electron/scanCleanupPreviewIpcAdapter.test.ts
+  s_c63d7a8363f7e9::t_8196030b9f660b 1-243
+tests/unit/electron/scanCleanupPreviewIpcScenarios.ts
+  s_c63d7a8363f7e9::t_a48e19513cf11a 1-1400
+tests/unit/electron/scanCleanupPreviewRendering.test.ts
+  s_c63d7a8363f7e9::t_3eb6f82a76066f 1-136
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_c63d7a8363f7e9::t_72c84d4545ec6a 1-2707
+tests/unit/electron/scanCleanupProgressReporter.test.ts
+  s_c63d7a8363f7e9::t_80906dd9f578ba 16
+tests/unit/electron/scanCleanupProvenanceStamp.test.ts
+  s_c63d7a8363f7e9::t_11f22f38bf2e1a 18,39
+tests/unit/electron/scanCleanupRasterBatch.test.ts
+  s_c63d7a8363f7e9::t_75f99e12e3c0a5 3,6,19-22,30-40,64-65,120-124,129,156,207
+tests/unit/electron/scanCleanupRasterRetention.test.ts
+  s_c63d7a8363f7e9::t_5c2002e82655f7 1-101
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_c63d7a8363f7e9::t_29f3e0ce356d2f 1-1702
+tests/unit/electron/scanCleanupRenderers.test.ts
+  s_c63d7a8363f7e9::t_3c87f3f261fea0 9-10,17
+tests/unit/electron/scanCleanupResultStore.test.ts
+  s_c63d7a8363f7e9::t_ecaa72f1da1abf 2-3,5-6,9,23-29,35-36,61-165
+tests/unit/electron/scanCleanupService.test.ts
+  s_c63d7a8363f7e9::t_66cccf6ced3a14 35-37
+tests/unit/electron/scanCleanupSidecarStageTimings.test.ts
+  s_c63d7a8363f7e9::t_51e97384ac38c1 16-25,192-234,334
+tests/unit/electron/scanCleanupSourceMrcGeometry.test.ts
+  s_c63d7a8363f7e9::t_f98d52eb792da7 6,10
+tests/unit/electron/scanCleanupSplitContiguousPageRuns.test.ts
+  s_c63d7a8363f7e9::t_4c7e4533a15eba 6
+tests/unit/electron/scanCleanupStagedRasterWindow.test.ts
+  s_c63d7a8363f7e9::t_3880b2bc5c3032 7
+tests/unit/electron/scanCleanupTextLayer.test.ts
+  s_c63d7a8363f7e9::t_71d059fa2ab24f 4-6
+tests/unit/electron/scanCleanupWarningEvents.test.ts
+  s_c63d7a8363f7e9::t_8034db281ab9f1 9
+tests/unit/electron/searchIndexBudget.test.ts
+  s_c63d7a8363f7e9::t_0e2759a5dd1c0b 8,22,92,115,150,181,216,313
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_c63d7a8363f7e9::t_a66bdbacc6a74e 9,50,52,62,78,153,189,206,222,237,277,342,375,410,444,505,530,580,640,799,882,990,1069,1234
+tests/unit/electron/searchIndexJsonIdentity.test.ts
+  s_c63d7a8363f7e9::t_f9fcfe1153329b 24,56
+tests/unit/electron/searchIndexSidecar.test.ts
+  s_c63d7a8363f7e9::t_aa933f5fa9d850 36,38
+tests/unit/electron/searchMatch.test.ts
+  s_c63d7a8363f7e9::t_1eb2363e3a453f 16
+tests/unit/electron/searchResultGeometry.test.ts
+  s_c63d7a8363f7e9::t_267cff83265734 8
+tests/unit/electron/searchWorkerCancellation.test.ts
+  s_c63d7a8363f7e9::t_3267831f808b8d 37,98
+tests/unit/electron/searchWorkerInboundValidation.test.ts
+  s_c63d7a8363f7e9::t_cf864d340298ef 1-55
+tests/unit/electron/searchWorkerService.test.ts
+  s_c63d7a8363f7e9::t_d6df85bca67fc0 11
+tests/unit/electron/searchWorkerWarmupAndCache.test.ts
+  s_c63d7a8363f7e9::t_53d3cb2833c032 40,45,59,159,207,269,316,409,490,523,582,625,643,699,733,784,867,931,995,1036
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_c63d7a8363f7e9::t_2a5de291545245 36
+tests/unit/electron/stagedPdfNativeMutationHandlers.test.ts
+  s_c63d7a8363f7e9::t_051c3c80f61215 16
+tests/unit/electron/startupCrashMarker.test.ts
+  s_c63d7a8363f7e9::t_6c9fae98814054 405,430
+tests/unit/electron/tesseract.test.ts
+  s_c63d7a8363f7e9::t_adeafd270b1afa 41-43,78,107,130,154,176,203,235,289,331,377
+tests/unit/electron/tesseractLanguageConfig.test.ts
+  s_c63d7a8363f7e9::t_3db44b55e8aa55 15
+tests/unit/electron/unhandledRejectionRecovery.test.ts
+  s_c63d7a8363f7e9::t_c46ddc3e6f8702 17
+tests/unit/electron/waitForCondition.ts
+  s_c63d7a8363f7e9::t_37744192ec64ce 1-13
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_c63d7a8363f7e9::t_60f43f2e763239 18-28,32-35,38,44,47,86-99,110,126-127,142-196
+tests/unit/electron/workingCopy.test.ts
+  s_c63d7a8363f7e9::t_49b2234ea5284c 30
+tests/unit/electron/workingCopyMutationQueue.test.ts
+  s_c63d7a8363f7e9::t_5434921ea4cf20 48
+tests/unit/electron/workingCopySave.test.ts
+  s_c63d7a8363f7e9::t_dd94d75a6a5685 26
+tests/unit/electron/writeScanCleanupDetectionMetadata.ts
+  s_c63d7a8363f7e9::t_c3a83982808d23 1-53
+tests/unit/electron/xlargeIndexBuilder.test.ts
+  s_c63d7a8363f7e9::t_4b1bb3b960138f 14,24,36-37,122,161,189,209,245,282,324,326,391,393
+tests/unit/electron/xlargeNativeSearch.test.ts
+  s_c63d7a8363f7e9::t_0cbcfd061a16ae 17,32,38,128,156,173
+tests/unit/electron/xlargeSearchRouting.test.ts
+  s_c63d7a8363f7e9::t_0fd61a1dcf96d3 14-15,19,88-194
+tests/unit/packages/rasterLayerDimensions.test.ts
+  s_c63d7a8363f7e9::t_f90dcfdc784dc9 17
+tests/unit/packages/releaseSelection.test.ts
+  s_c63d7a8363f7e9::t_3c11d4a125a419 6-10,50-64
+tests/unit/scripts/boundaryExceptionPolicy.test.ts
+  s_c63d7a8363f7e9::t_14a0a50d98895a 1-144
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_c63d7a8363f7e9::t_a3adddb684e12b 144,239
+tests/unit/scripts/checkCoverageRatchet.test.ts
+  s_c63d7a8363f7e9::t_1e2fefce8a090b 21,47-64,72-75,82-83,88-112,121-123,126-130,178-179,185-367,522-530,537-588
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_c63d7a8363f7e9::t_c846842bf9d1de 29,52,60-66,193-194,233-287,404
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_c63d7a8363f7e9::t_57141657d389d4 447,563,726,1814-1815,1818,1823,1877
+tests/unit/scripts/contractsPortabilityBoundary.test.ts
+  s_c63d7a8363f7e9::t_0c3b2498401c21 1-39
+tests/unit/scripts/depGraph.test.ts
+  s_c63d7a8363f7e9::t_90e12212cc766f 152,159,161,164,181-182,186,469,473-474,576-577,582-583,589-590,724,728
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_c63d7a8363f7e9::t_1adf98b357101f 417
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_c63d7a8363f7e9::t_005ac445f97607 12-14,85-194,723-724,731,735-737,740-742,745,747
+tests/unit/scripts/formatComparisonRule.test.ts
+  s_c63d7a8363f7e9::t_6d5a216ba153e3 1-175
+tests/unit/scripts/nativeToolProtocols.test.ts
+  s_c63d7a8363f7e9::t_f7af6ff10a1f68 31-43,45-65,110-116
+tests/unit/scripts/nativeToolSmokePolicy.test.ts
+  s_c63d7a8363f7e9::t_4a381039dc2f4c 10,30,36-39,71-103,389-393
+tests/unit/scripts/project6-324-ciWorkflowContract.test.ts
+  s_c63d7a8363f7e9::t_dacd8d5b7fa1e2 1-131
+tests/unit/scripts/project6ConsolidationReport.test.ts
+  s_c63d7a8363f7e9::t_1496bf32a8f563 1-142
+tests/unit/scripts/releasePolicy.test.ts
+  s_c63d7a8363f7e9::t_ffe391c0cfb93f 946
+tests/unit/scripts/retiredElectronFeaturePaths.test.ts
+  s_c63d7a8363f7e9::t_fbd339b7b76761 1-17
+tests/unit/scripts/runtimeBinaryArchive.test.ts
+  s_c63d7a8363f7e9::t_ea4f8059e82d36 1-561
+tests/unit/scripts/runtimeBinaryManifest.test.ts
+  s_c63d7a8363f7e9::t_1e4eb3b77c18e4 1-348
+tests/unit/scripts/scanCleanupCorpusPlan.test.ts
+  s_c63d7a8363f7e9::t_8321ec121c59b7 11-14,17-28
+tests/unit/scripts/scanCleanupDetectionCache.test.ts
+  s_c63d7a8363f7e9::t_6b4b496282b250 14-15,24
+tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts
+  s_c63d7a8363f7e9::t_c050e58d8bd747 17-18
+tests/unit/scripts/scanCleanupStagedWindowEndToEnd.test.ts
+  s_c63d7a8363f7e9::t_282418de9320d2 2,5,8,10,26,28-29,44-58,210
+tests/unit/scripts/scanCleanupWordLossAudit.test.ts
+  s_c63d7a8363f7e9::t_87b733463f82dd 35
+tests/unit/scripts/validateRuntimeBinaryArchiveMembers.test.ts
+  s_c63d7a8363f7e9::t_22ff0013f8d391 1-173
+tests/unit/scripts/windowsArm64BundlePolicy.test.ts
+  s_c63d7a8363f7e9::t_bc6494ed32539d 69-71
+tests/unit/scripts/windowsPopplerBundlePolicy.test.ts
+  s_c63d7a8363f7e9::t_c3c19def6c89aa 5,35-80
+tests/unit/server/analyticsMigrationContract.test.ts
+  s_c63d7a8363f7e9::t_db757dd8c423f3 117
+tsconfig.scripts.json
+  s_c63d7a8363f7e9::t_289ceb19e614b1 17
+tsconfig.workspace-paths.json
+  s_c63d7a8363f7e9::t_efabb028bdb23d 12-13
+vitest.config.ts
+  s_c63d7a8363f7e9::t_6b22f9a01598ac 18
+packages/scan-cleanup/core/detection.ts
+  s_c63d7a8363f7e9::t_18c5b030889d8f 1-4,22,27-28,41,45,47,49-50,54,61,67,72,76-79,384-388,424-451,737-740,907-910,943,1097,1108,1131-1134,1151,1160,1179,1234,1458,1484,1534,1548,1569-1572,1622,1671,1738,1771-1772,1778,1780,1782,1791,1821,1827
+packages/scan-cleanup/core/pdfPageSizes.ts
+  s_c63d7a8363f7e9::t_a6045ef1bf2e6c 1-2,20,28
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_c63d7a8363f7e9::t_1c991c37571080 1-2,51,68,72,77,84,92-93,100,104-105,112,119,123-124,135,146-147,152,157,162,169-173,178,185,190-220,2657,2927-2934
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "78fff708c2dba721caae787cb9aa41f0c83ea483",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

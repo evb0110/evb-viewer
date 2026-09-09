@@ -1,0 +1,29 @@
+docs/architecture/project6-296-baseline-decision-2026-09-08.md
+  s_c63d7a8363f7e9::t_203d95b6c1d24a 229-231,235-237
+  s_c63d7a8363f7e9::t_1af17b5fdb0563 189-192
+  s_c63d7a8363f7e9::t_32dca32e1c9675 40,104,194-197,201-202
+  s_c63d7a8363f7e9::t_0553174c4c6358 182,206-207
+scripts/project6LineCounting.mjs
+  s_c63d7a8363f7e9::t_6d0a38ee745fd5 99-102
+  s_c63d7a8363f7e9::t_4fb54528897c33 1-96,103,106,111
+  s_c63d7a8363f7e9::t_c75070e190bd14 97-98
+  s_c63d7a8363f7e9::t_7a847a0e0fc026 104-105,107-110
+scripts/project6ConsolidationReport.mjs
+  s_c63d7a8363f7e9::t_4fb54528897c33 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c8e5818284758527ea6f79a0be278b9d88c98856",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

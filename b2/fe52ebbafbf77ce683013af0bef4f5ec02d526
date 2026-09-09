@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  s_c63d7a8363f7e9::t_86ae06a70c8380 71-72,178-179,182,235-236,267-268,343-344,367-368,445-446,482-483,519-520,544-545,576-577,666-667,675-677,749-750,776-777,867-868,872,895-896,900,923-924,928,951-952,956,983-984,988,1014-1015,1019,1043-1044,1048
+docs/architecture/project6-324-ci-workflow-consolidation-20260908.md
+  s_c63d7a8363f7e9::t_86ae06a70c8380 1-69
+.github/actions/setup-ci-env/action.yml
+  s_c63d7a8363f7e9::t_86ae06a70c8380 1-35
+tests/unit/scripts/project6-324-ciWorkflowContract.test.ts
+  s_c63d7a8363f7e9::t_86ae06a70c8380 1-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b2fe52ebbafbf77ce683013af0bef4f5ec02d526",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

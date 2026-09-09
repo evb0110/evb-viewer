@@ -1,0 +1,67 @@
+tsconfig.workspace-paths.json
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 18-22
+scripts/checkZeroExecutionCoverage.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 229
+scripts/diagnostics/scan-cleanup-corpus-verify.mjs
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 180,182,186
+scripts/architecture/boundary-check.mjs
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 166-174,1489
+scripts/vitestResolveAlias.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 14-16
+scripts/build-electron.mjs
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 86,98
+packages/scan-cleanup/index.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-2
+packages/scan-cleanup/core/detection.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-2
+tests/unit/scripts/checkCoverageRatchet.test.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 59-60,73-74,124-125
+packages/scan-cleanup/core/index.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-19
+packages/scan-cleanup/package.json
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-16
+scripts/diagnostics/scan-cleanup-word-loss-audit.mjs
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 27
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-2
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 59-60,188-189,344
+packages/scan-cleanup/adapters/index.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-5
+vitest.config.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 18
+electron/appVersion.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 28
+scripts/checkCoverageRatchet.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 65-66
+coverage-baseline.json
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 78,90
+packages/scan-cleanup/tsconfig.json
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 3-4,16-18
+packages/scan-cleanup/README.md
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-7
+scripts/diagnostics/scan-cleanup-preview-harness.mjs
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 88-92,94
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 899
+tsconfig.scripts.json
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 17
+packages/scan-cleanup/core/pdfPageSizes.ts
+  s_c63d7a8363f7e9::t_e9cd07f5e45601 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c3646b2d16f4f285b528dd3dcdd05556623a54f2",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

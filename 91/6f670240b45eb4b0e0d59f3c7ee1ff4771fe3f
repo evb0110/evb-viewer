@@ -1,0 +1,46 @@
+tests/unit/scripts/project6ConsolidationReport.test.ts
+  s_c63d7a8363f7e9::t_5353c4e9d898a4 39,47,49-60,104,109-112
+  s_c63d7a8363f7e9::t_87beb4e833436c 23-38,42-46
+  s_c63d7a8363f7e9::t_f62c5be27cf02b 10,12,62-69,97,102-103,117,129-130,132
+  s_c63d7a8363f7e9::t_b44b98fbb26f14 119,125
+  s_c63d7a8363f7e9::t_12e87f37272436 40-41,48
+  s_c63d7a8363f7e9::t_7fed734835e174 100,118,120-124,126-128
+scripts/project6ConsolidationReport.mjs
+  s_c63d7a8363f7e9::t_32a5be49623810 514,545
+  s_c63d7a8363f7e9::t_892a19103f4fcb 395,398-405,413-419,425-431,445,447-453
+  s_c63d7a8363f7e9::t_edc04e25334074 583-587,601-609,614-616,618
+  s_c63d7a8363f7e9::t_ec8915cf76dc55 25-45,47-48,193-194,199-202,301-303
+  s_c63d7a8363f7e9::t_59b01ed03dadf2 195-198,536-543,553
+  s_c63d7a8363f7e9::t_54113ccd74edfa 493-496
+  s_c63d7a8363f7e9::t_4fa914bc71a60d 46
+  s_c63d7a8363f7e9::t_6692c7ba675ab1 549,559-560
+  s_c63d7a8363f7e9::t_8b350fce50bd79 476
+  s_f6f909f8da31ad::t_bea16049cd6408 304,544
+docs/architecture/project6-consolidation-report.md
+  s_c63d7a8363f7e9::t_f89f7efd46bba1 24-36
+  s_c63d7a8363f7e9::t_391e014ddc89f5 19-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "916f670240b45eb4b0e0d59f3c7ee1ff4771fe3f",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f6f909f8da31ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07e12-0958-7ee1-8402-2b101ffe6ea1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

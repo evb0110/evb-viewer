@@ -1,0 +1,32 @@
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_c63d7a8363f7e9::t_a14b32ddca5e09 6
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 69-96
+app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate.ts
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 5
+app/modules/workspace-shell/composables/file-operations/workspaceSaveState.ts
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 1-57
+app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy.ts
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 1-217
+app/modules/workspace-shell/composables/file-operations/workspaceSaveTiming.ts
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 1-37
+app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport.ts
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 1-43
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.test.ts
+  s_c63d7a8363f7e9::t_5a908f14a50d1e 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "31f7f2de9442ecaa9b04a60f5e736fa21a2a7895",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
