@@ -80,6 +80,12 @@ function normalizeWarningBlock(block) {
         .trim();
 }
 
+function normalizeWarningLog(logText) {
+    return logText
+        .replace(ansiEscapePattern, '')
+        .replaceAll(nulCharacter, '');
+}
+
 async function main() {
     const logPathArgument = process.argv[2];
     if (!logPathArgument) {
@@ -101,7 +107,7 @@ async function main() {
         : [];
     const allowlistMatchers = allowedWarningPatterns.map(pattern => new RegExp(pattern, 'u'));
 
-    const warningBlocks = parseWarningBlocks(logRaw);
+    const warningBlocks = parseWarningBlocks(normalizeWarningLog(logRaw));
     const normalizedWarningBlocks = warningBlocks.map(block =>
         normalizeWarningBlock(block),
     );
