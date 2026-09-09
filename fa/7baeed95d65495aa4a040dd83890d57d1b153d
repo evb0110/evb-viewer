@@ -1,0 +1,27 @@
+electron/features/search/publicNative.ts
+  s_d2197edb66589b::t_6810ab02c987b6 14,48,50
+server/db/viewerAnalyticsEvent.ts
+  s_d2197edb66589b::t_29daa662fed2b3 14
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_d2197edb66589b::t_08d16f9dfa8fb0 2-4,35,82-83,86,91-99,111-117,132,141,148,155-159,161-163,165-179
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_d2197edb66589b::t_7230606970ef08 31-33,386,390,403-406,425-426,430-452,495,497,499-502
+tests/unit/server/landingAnalyticsAdmission.test.ts
+  s_d2197edb66589b::t_c0a90eb9f2eead 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fa7baeed95d65495aa4a040dd83890d57d1b153d",
+  "prompts": {},
+  "sessions": {
+    "s_d2197edb66589b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0867f-bc35-77c0-b58a-402ea6b0e92d",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
