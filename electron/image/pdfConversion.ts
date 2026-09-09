@@ -12,7 +12,10 @@ import {
     type ResourceLimits,
 } from 'worker_threads';
 import { createLogger } from '@electron/utils/createLogger';
-import {isImagePath} from '@electron/image/pdfCombineShared';
+import {
+    isImagePath,
+    stageNativeCombineInputs,
+} from '@electron/image/pdfCombineShared';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
@@ -26,6 +29,7 @@ import {
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { assertNever } from '@contracts/assertNever';
 import {
     createPdfCombineOutputTooLargeError,
@@ -534,19 +538,30 @@ export async function createPdfFileFromInputPaths(
         ...(options ?? {}),
         failureMode: 'capability-error' as const,
     };
-    const nativeWrote = await tryWritePdfFromInputPathsNative(
-        normalizedPaths,
-        normalizedOutputPath,
-        nativeOptions,
-    );
-    if (nativeWrote) {
-        return normalizedOutputPath;
+    const staged = await stageNativeCombineInputs(normalizedPaths, options?.signal);
+    let retainStagedInputs = false;
+    try {
+        const nativeWrote = await tryWritePdfFromInputPathsNative(
+            staged.inputPaths,
+            normalizedOutputPath,
+            nativeOptions,
+        );
+        if (nativeWrote) {
+            return normalizedOutputPath;
+        }
+        throw new PdfCombineCapabilityError(
+            'native-failure',
+            'Native PDF combine did not produce an output file for the path-backed input set',
+            {operation: 'pdf-combine'},
+        );
+    } catch (error) {
+        retainStagedInputs = getUnprovenNativeTerminationDetail(error) !== undefined;
+        throw error;
+    } finally {
+        if (!retainStagedInputs) {
+            await staged.cleanup();
+        }
     }
-    throw new PdfCombineCapabilityError(
-        'native-failure',
-        'Native PDF combine did not produce an output file for the path-backed input set',
-        {operation: 'pdf-combine'},
-    );
 }
 
 async function createPdfFromNormalizedInputPaths(
