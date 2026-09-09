@@ -15,8 +15,10 @@ import {
 } from 'vitest';
 import {
     createBlankFixturePdf,
+    createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
+import {countWarmHighlightPixels} from '@tests/e2e/electron/helpers/searchHighlightPaint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAnnotationTool,
@@ -26,6 +28,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openPdfInApp,
+    openDocumentSidebarTab,
     openAnnotationsTab,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -38,6 +41,150 @@ import {
 
 const BOX = '.editor-pane.is-active .pdf-annotation-editor-text-box[data-annotation-kind="text-box"]';
 const PREVIEW = '.editor-pane.is-active .pdf-annotation-editor-text-box-preview';
+
+const MARKUP = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] g[data-annotation-kind="text-markup"]';
+
+interface ISelectionRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+async function markupSelectionPoints(page: Page) {
+    await waitForViewerInteractive(page);
+    await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+    return page.evaluate(() => {
+        const spans = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
+            .filter(candidate => {
+                const rect = candidate.getBoundingClientRect();
+                return candidate.firstChild instanceof Text && (candidate.textContent?.length ?? 0) > 10
+                    && rect.top > 150 && rect.bottom < innerHeight - 200 && rect.right < innerWidth;
+            });
+        const first = spans[0]?.firstChild;
+        const last = spans[1]?.firstChild;
+        if (!(first instanceof Text) || !(last instanceof Text)) throw new Error('Two visible text lines are required');
+        const range = document.createRange();
+        // A partial heading followed by a differently sized line matches the
+        // reported recording and catches geometry built from unselected text.
+        const offset = Math.floor(first.length * 0.35);
+        range.setStart(first, offset);
+        range.setEnd(first, offset + 1);
+        const start = range.getBoundingClientRect();
+        range.setStart(last, last.length - 1);
+        range.setEnd(last, last.length);
+        const end = range.getBoundingClientRect();
+        return {
+            start: {
+                x: start.left + 0.5,
+                y: start.top + start.height / 2,
+            },
+            end: {
+                x: end.right - 0.5,
+                y: end.top + end.height / 2,
+            },
+        };
+    });
+}
+
+async function dragMarkupSelection(page: Page, points: Awaited<ReturnType<typeof markupSelectionPoints>>, captureBeforeRelease: boolean) {
+    await page.mouse.move(points.start.x, points.start.y);
+    const hit = await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.text-layer')), points.start);
+    expect(hit, 'Markup drag must start on the rendered text layer').toBe(true);
+    await page.mouse.down();
+    await page.mouse.move(points.end.x, points.end.y, {steps: 16});
+    if (!captureBeforeRelease) await page.mouse.up();
+    const selected = await page.evaluate(() => {
+        const selection = document.getSelection();
+        if (!selection?.rangeCount) throw new Error(`Mouse drag did not select text: ${document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdfViewer')?.className}`);
+        const range = selection.getRangeAt(0);
+        const rects = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')].flatMap(span => {
+            const node = span.firstChild;
+            if (!(node instanceof Text) || !range.intersectsNode(node)) {
+                return [];
+            }
+            const start = range.startContainer === node ? range.startOffset : 0;
+            const end = range.endContainer === node ? range.endOffset : node.length;
+            if (end <= start) {
+                return [];
+            }
+            const part = document.createRange();
+            part.setStart(node, start);
+            part.setEnd(node, end);
+            const pageRect = span.closest('.page_container')!.getBoundingClientRect();
+            return [...part.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0).map(rect => ({
+                left: (rect.left - pageRect.left) / pageRect.width,
+                top: (rect.top - pageRect.top) / pageRect.height,
+                width: rect.width / pageRect.width,
+                height: rect.height / pageRect.height,
+            }));
+        });
+        return {
+            text: selection.toString(),
+            rects,
+        };
+    });
+    if (captureBeforeRelease) await page.mouse.up();
+    return selected;
+}
+
+async function expectMarkupGeometry(page: Page, expected: ISelectionRect[]) {
+    const actual = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, elements => elements.map(element => ({
+        left: Number(element.getAttribute('x')),
+        top: Number(element.getAttribute('y')),
+        width: Number(element.getAttribute('width')),
+        height: Number(element.getAttribute('height')),
+    })));
+    expect(actual).toHaveLength(expected.length);
+    for (const [
+        index,
+        rect,
+    ] of actual.entries()) {
+        for (const key of [
+            'left',
+            'top',
+            'width',
+            'height',
+        ] as const) {
+            expect(rect[key], `quad ${index} ${key}`).toBeCloseTo(expected[index]![key], 4);
+        }
+    }
+}
+
+async function expectHighlightPaint(page: Page) {
+    let lastMeasurement = '';
+    await expect.poll(async () => {
+        const measurement = await page.$eval(`${MARKUP} [data-annotation-visual]`, element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                rect: {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                },
+                viewport: {
+                    width: innerWidth,
+                    height: innerHeight,
+                },
+                area: rect.width * rect.height,
+                pageRect: element.closest('.page_container')?.getBoundingClientRect().toJSON(),
+            };
+        });
+        lastMeasurement = JSON.stringify(measurement);
+        const paintedPixels = await countWarmHighlightPixels(await page.screenshot(), measurement.rect, measurement.viewport);
+        return measurement.area > 0 ? paintedPixels / measurement.area : 0;
+    }, {
+        timeout: 10_000,
+        message: 'Committed highlight must paint after the reopened page renders',
+    }).toBeGreaterThan(0.2).catch((error: unknown) => {
+        console.error(`Highlight paint geometry: ${lastMeasurement}`);
+        throw error;
+    });
+}
 
 async function frame(page: Page, selector = BOX) {
     return page.$eval(selector, element => {
@@ -64,7 +211,7 @@ async function modifiedKey(page: Page, key: 'Enter' | 'KeyZ' | 'KeyS') {
 }
 
 async function placementPoint(page: Page) {
-    return page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+    return page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]', element => {
         const rect = element.getBoundingClientRect();
         const left = Math.max(rect.left, 340);
         const top = Math.max(rect.top, 150);
@@ -95,7 +242,7 @@ async function resize(page: Page, handle: string, dx: number, dy: number) {
         await document.fonts.ready;
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
-    const selector = `.editor-pane.is-active [data-pdf-annotation-resize-handle="${handle}"]`;
+    const selector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-pdf-annotation-resize-handle="${handle}"]`;
     await page.waitForSelector(selector, {visible: true});
     const point = await page.$eval(selector, element => {
         const rect = element.getBoundingClientRect();
@@ -125,7 +272,7 @@ describe('Electron E2E - text interaction contract', () => {
         sessionName: () => `e2e-text-interaction-${Date.now()}`,
     });
 
-    async function openFixture(keepActive = false, zoom = 2.62) {
+    async function openFixture(keepActive = false, zoom = 2.62, source?: string) {
         const session = sessions.getSession();
         if (!session) throw new Error('Text interaction session did not start');
         await session.page.setViewport({
@@ -136,7 +283,7 @@ describe('Electron E2E - text interaction contract', () => {
         const generated = await createBlankFixturePdf(`text-interaction-${Date.now()}.pdf`);
         const directory = mkdtempSync(join(tmpdir(), 'evb-text-interaction-'));
         const path = join(directory, 'document.pdf');
-        copyFileSync(process.env.EVB_TEXT_INTERACTION_FIXTURE ?? generated, path);
+        copyFileSync(source ?? process.env.EVB_TEXT_INTERACTION_FIXTURE ?? generated, path);
         onTestFinished(() => {rmSync(generated, {force: true}); rmSync(directory, {
             recursive: true,
             force: true,
@@ -149,12 +296,188 @@ describe('Electron E2E - text interaction contract', () => {
         await callWorkspaceCommand(session.page, 'setViewRotation', [0]);
         await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [zoom]);
         await session.page.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
+        if (source && process.env.EVB_MARKUP_FIXTURE_PAGE) {
+            const pageNumber = Number(process.env.EVB_MARKUP_FIXTURE_PAGE);
+            await callWorkspaceCommand(session.page, 'scrollToPage', [pageNumber]);
+            await session.page.waitForSelector(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer span`);
+        }
+        await waitForViewerInteractive(session.page);
         return {
             session,
             page: session.page,
             path,
         };
     }
+
+    it.each([
+        [
+            'highlight',
+            'Highlight',
+        ],
+        [
+            'underline',
+            'Underline',
+        ],
+        [
+            'strikethrough',
+            'StrikeOut',
+        ],
+        [
+            'squiggly',
+            'Squiggly',
+        ],
+    ] as const)('commits %s after selecting text, consumes the selection, and saves matching geometry', async (tool, subtype) => {
+        const textFixture = await createMultiPageTextFixturePdf(`markup-selection-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(textFixture, {force: true}));
+        const {
+            page,
+            path,
+        } = await openFixture(false, 2.92, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
+        const initialAnnotations = await readPdfAnnotationSummary(path);
+        await clickAnnotationTool(page, 'Select');
+        const points = await markupSelectionPoints(page);
+        const expected = await dragMarkupSelection(page, points, false);
+        expect(expected.text.length).toBeGreaterThan(10);
+        expect(expected.rects).toHaveLength(2);
+        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
+        expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
+        await expectMarkupGeometry(page, expected.rects);
+        // PDF.js positions lines absolutely, so native Selection.toString can
+        // omit their separating spaces. The sidebar adds readable line gaps.
+        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.replace(/\s+/gu, ''))).toBe(expected.text.replace(/\s+/gu, ''));
+        expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
+        await page.mouse.click(points.end.x, points.end.y + 150);
+        if (tool === 'highlight') await expectHighlightPaint(page);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-committed.png`)});
+        }
+        await expectMarkupGeometry(page, expected.rects);
+        // Activating another markup tool after clicking blank space must not
+        // turn the consumed cached range into another annotation.
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="underline"]');
+        await page.mouse.click(points.end.x, points.end.y + 150);
+        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
+        await saveViaWindowHandle(page, 30_000);
+        expect(await readPdfAnnotationSummary(path)).toEqual({
+            total: initialAnnotations.total + 1,
+            bySubtype: {
+                ...initialAnnotations.bySubtype,
+                [subtype]: (initialAnnotations.bySubtype[subtype] ?? 0) + 1,
+            },
+        });
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-saved.pdf`));
+        }
+        const restarted = await sessions.restart({hard: true});
+        if (!restarted) throw new Error('Markup save reopen did not start');
+        const reopened = restarted.page;
+        await reopened.setViewport({
+            width: 1920,
+            height: 1080,
+            deviceScaleFactor: 1,
+        });
+        await openPdfInApp(reopened, path);
+        await waitForPdfLoaded(reopened);
+        await waitForViewerInteractive(reopened);
+        await openAnnotationsTab(reopened);
+        await callWorkspaceCommand(reopened, 'setCustomZoomFromDisplay', [2.92]);
+        await reopened.waitForFunction(() => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === '292%');
+        await waitForViewerInteractive(reopened);
+        await reopened.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+        if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
+            await callWorkspaceCommand(reopened, 'scrollToPage', [Number(process.env.EVB_MARKUP_FIXTURE_PAGE)]);
+        }
+        await waitForViewerInteractive(reopened);
+        await reopened.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`);
+        await expectMarkupGeometry(reopened, expected.rects);
+        if (tool === 'highlight') await expectHighlightPaint(reopened);
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            await reopened.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-reopened.png`)});
+        }
+        await expect.poll(() => reopened.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toContain(expected.text.trim().slice(-20));
+    });
+
+    it.each([
+        [
+            'highlight',
+            'Highlight',
+        ],
+        [
+            'underline',
+            'Underline',
+        ],
+        [
+            'strikethrough',
+            'StrikeOut',
+        ],
+        [
+            'squiggly',
+            'Squiggly',
+        ],
+    ] as const)('commits each real drag once while %s stays active', async (tool, subtype) => {
+        const textFixture = await createMultiPageTextFixturePdf(`markup-drag-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(textFixture, {force: true}));
+        const {page} = await openFixture(true, 2.92, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
+        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        const points = await markupSelectionPoints(page);
+        const expected = await dragMarkupSelection(page, points, true);
+        await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
+        expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
+        await expectMarkupGeometry(page, expected.rects);
+        expect(await page.$eval(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`, element => element.getAttribute('aria-pressed'))).toBe('true');
+        await page.mouse.click(points.end.x, points.end.y + 150);
+        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
+        await dragMarkupSelection(page, points, true);
+        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 2, {timeout: 3_000}, MARKUP);
+        expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
+        // The active instrument must still be possible to switch off.
+        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
+    });
+
+    it('annotates text inside a search result without dropping the decorated text nodes', async () => {
+        const textFixture = await createMultiPageTextFixturePdf(`markup-search-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(textFixture, {force: true}));
+        const {page} = await openFixture(true, 2, textFixture);
+        await openDocumentSidebarTab(page, 'Search');
+        await page.type('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-bar input', 'sample');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .search-run-button');
+        const matchSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer .pdf-search-highlight';
+        await page.waitForSelector(matchSelector, {visible: true});
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Highlight');
+        await page.waitForSelector(matchSelector, {visible: true});
+        await waitForViewerInteractive(page);
+        const points = await page.$eval(matchSelector, element => {
+            const node = element.firstChild;
+            if (!(node instanceof Text)) throw new Error('Search result has no text node');
+            const range = document.createRange();
+            range.setStart(node, 0);
+            range.setEnd(node, node.length);
+            const rect = range.getBoundingClientRect();
+            return {
+                start: {
+                    x: rect.left + 0.5,
+                    y: rect.top + rect.height / 2,
+                },
+                end: {
+                    x: rect.right - 0.5,
+                    y: rect.top + rect.height / 2,
+                },
+            };
+        });
+        const expected = await dragMarkupSelection(page, points, true);
+        expect(expected.text).toBe('sample');
+        await page.waitForSelector(MARKUP, {timeout: 3_000});
+        expect(await page.evaluate(() => document.getSelection()?.rangeCount)).toBe(0);
+        await expectMarkupGeometry(page, expected.rects);
+        await openAnnotationsTab(page);
+        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toBe('sample');
+    });
 
     it.each([
         0,
