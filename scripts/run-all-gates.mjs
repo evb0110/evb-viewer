@@ -160,9 +160,18 @@ function gateTimestamp() {
 
 function getProcessGroupId(pid) {
     try {
-        const groupId = Number(execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+        const groupId = Number(execFileSync('ps', [
+            '-p',
+            String(pid),
+            '-o',
+            'pgid=',
+        ], {
             encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
         }).trim());
         return Number.isInteger(groupId) && groupId > 0 ? groupId : null;
     } catch {
@@ -191,8 +200,15 @@ async function stopGateProcess(child, signal) {
         }
         if (child.exitCode === null) {
             try {
-                execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio: 'ignore'});
-            } catch {}
+                execFileSync('taskkill', [
+                    '/PID',
+                    String(child.pid),
+                    '/T',
+                    '/F',
+                ], {stdio: 'ignore'});
+            } catch {
+                // The child may have exited between the identity check and taskkill.
+            }
         }
         return true;
     }

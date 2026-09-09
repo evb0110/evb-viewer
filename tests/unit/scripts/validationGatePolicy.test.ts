@@ -123,8 +123,14 @@ interface IValidationGateModule {
         weight?: number
     }>(
         stages: T[],
-        runStage: (stage: T, context: {signal?: AbortSignal}) => Promise<void>,
-        options?: {capacity?: number; signal?: AbortSignal},
+        runStage: (
+            stage: T,
+            context: {signal?: AbortSignal},
+        ) => Promise<void>,
+        options?: {
+            capacity?: number;
+            signal?: AbortSignal;
+        },
     ) => Promise<void>;
     writeValidationBuildMarker: (options: {
         buildScriptName: string;
@@ -1146,25 +1152,35 @@ describe('validation gate policy', () => {
         const controller = new AbortController();
         const events: string[] = [];
         await expect(validationGates.runStagePool([
-            {id: 'first', weight: 1},
-            {id: 'pending', weight: 1},
+            {
+                id: 'first',
+                weight: 1,
+            },
+            {
+                id: 'pending',
+                weight: 1,
+            },
         ], async (stage, {signal}) => {
             events.push(`start:${stage.id}`);
             if (stage.id === 'first') {
                 signal?.addEventListener('abort', () => events.push('abort:first'), {once: true});
                 controller.abort();
             }
-        }, {capacity: 1, signal: controller.signal})).rejects.toMatchObject({
-            name: 'ValidationInterruptedError',
-        });
-        expect(events).toEqual(['start:first', 'abort:first']);
+        }, {
+            capacity: 1,
+            signal: controller.signal,
+        })).rejects.toMatchObject({name: 'ValidationInterruptedError'});
+        expect(events).toEqual([
+            'start:first',
+            'abort:first',
+        ]);
     });
 
     it.runIf(process.platform !== 'win32')('interrupts a real stage tree and records an interrupted run', async () => {
         const root = await mkdtemp(join(tmpdir(), 'evb-validation-cancellation-'));
         const readyPath = join(root, 'ready');
         const evidenceDir = join(root, 'evidence');
-        const fixtureCode = "const fs=require('node:fs');const {spawn}=require('node:child_process');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(process.env.READY,process.pid+':'+child.pid);setInterval(()=>{},1000);";
+        const fixtureCode = 'const fs=require(\'node:fs\');const {spawn}=require(\'node:child_process\');const child=spawn(process.execPath,[\'-e\',\'setInterval(()=>{},1000)\'],{stdio:\'ignore\'});fs.writeFileSync(process.env.READY,process.pid+\':\'+child.pid);setInterval(()=>{},1000);';
         const runner = spawn(process.execPath, [
             'scripts/validation-gates.mjs',
             'heavy',
@@ -1183,7 +1199,11 @@ describe('validation gate policy', () => {
                 EVB_GATE_SEMAPHORE_DIR: join(root, 'semaphore'),
                 READY: readyPath,
             },
-            stdio: ['ignore', 'pipe', 'pipe'],
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
         });
         let output = '';
         runner.stdout?.on('data', chunk => { output += String(chunk); });
@@ -1219,12 +1239,16 @@ describe('validation gate policy', () => {
             if (fixturePid && isProcessAlive(fixturePid)) {
                 try {
                     process.kill(fixturePid, 'SIGKILL');
-                } catch {}
+                } catch {
+                    // The fixture may have exited during cleanup.
+                }
             }
             if (descendantPid && isProcessAlive(descendantPid)) {
                 try {
                     process.kill(descendantPid, 'SIGKILL');
-                } catch {}
+                } catch {
+                    // The fixture may have exited during cleanup.
+                }
             }
             await forceKillAndWait(runner);
             await rm(root, {force: true, recursive: true});
