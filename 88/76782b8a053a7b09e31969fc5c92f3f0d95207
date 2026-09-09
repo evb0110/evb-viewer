@@ -1,0 +1,32 @@
+.github/actions/setup-release-env/action.yml
+  s_c63d7a8363f7e9::t_544c3695e9d449 83
+docs/architecture/project6-325-binary-provenance-platform-inventory.md
+  s_c63d7a8363f7e9::t_544c3695e9d449 21,142
+scripts/bundle-tools-windows.sh
+  s_c63d7a8363f7e9::t_544c3695e9d449 545,561-566
+scripts/runRuntimeBinaryArchiveCli.ts
+  s_c63d7a8363f7e9::t_544c3695e9d449 48,77,113
+tests/unit/scripts/windowsArm64BundlePolicy.test.ts
+  s_c63d7a8363f7e9::t_27b68e1cdc4798 70
+  s_c63d7a8363f7e9::t_544c3695e9d449 69,71
+tests/unit/scripts/runtimeBinaryManifest.test.ts
+  s_c63d7a8363f7e9::t_544c3695e9d449 6,18-21,102,111,117-119,145-146,149-156
+  s_c63d7a8363f7e9::t_27b68e1cdc4798 147-148
+  s_c63d7a8363f7e9::t_71e8952cb2bb18 157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8876782b8a053a7b09e31969fc5c92f3f0d95207",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
