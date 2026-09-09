@@ -7,6 +7,7 @@ import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
     PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
     createPdfPersistenceAckFrame,
@@ -76,6 +77,7 @@ describe('document persistence frame contracts', () => {
             maxInFlightChunks: PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
             maxTotalBytes: 1024,
             ackTimeoutMs: PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+            progressTimeoutMs: PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS,
             resultTimeoutMs: PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
         };
 
@@ -87,6 +89,10 @@ describe('document persistence frame contracts', () => {
         expect(isSerializedPdfPersistenceLimits({
             ...limits,
             maxChunkBytes: 0,
+        })).toBe(false);
+        expect(isSerializedPdfPersistenceLimits({
+            ...limits,
+            progressTimeoutMs: undefined,
         })).toBe(false);
     });
 

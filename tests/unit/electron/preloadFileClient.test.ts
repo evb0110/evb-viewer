@@ -1063,6 +1063,78 @@ describe('createDocumentsPreloadFileClient', () => {
         await expect(savePromise).resolves.toMatchObject({isValid: true});
     });
 
+    it('starts the negotiated final-result deadline only after complete is sent', async () => {
+        vi.useFakeTimers({toFake: [
+            'setTimeout',
+            'clearTimeout',
+        ]});
+        try {
+            const port1 = new FakeMessagePort();
+            const port2 = new FakeMessagePort();
+            vi.stubGlobal('MessageChannel', class {
+                readonly port1 = port1;
+                readonly port2 = port2;
+            });
+            const ipcRenderer = {
+                invoke: vi.fn(async (channel: string) => {
+                    if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
+                        return {
+                            sessionId: 'session-1',
+                            protocolVersion: 1,
+                            maxChunkBytes: 8 * 1024 * 1024,
+                            maxInFlightChunks: 2,
+                            maxTotalBytes: Number.MAX_SAFE_INTEGER,
+                            ackTimeoutMs: 100,
+                            progressTimeoutMs: 100,
+                            resultTimeoutMs: 20,
+                        };
+                    }
+                    throw new Error(`Unexpected invoke: ${channel}`);
+                }),
+                postMessage: vi.fn(() => {
+                    queueMicrotask(() => port1.emit({type: 'ready'}));
+                }),
+            } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+            let resolveChunk!: () => void;
+            const chunkPosted = new Promise<void>(resolve => {
+                resolveChunk = resolve;
+            });
+            let resolveComplete!: () => void;
+            const completePosted = new Promise<void>(resolve => {
+                resolveComplete = resolve;
+            });
+            port1.onPostMessage = message => {
+                if (isChunkMessage(message)) {
+                    resolveChunk();
+                }
+                if (message.type === 'complete') {
+                    resolveComplete();
+                }
+            };
+            const client = createDocumentsPreloadFileClient(ipcRenderer);
+            const savePromise = client.savePdfData(
+                requireDocumentRef('/tmp/working.pdf'),
+                new Uint8Array([1]),
+                revisionOptions,
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+            await chunkPosted;
+            vi.advanceTimersByTime(25);
+            expect(port1.postedMessages.some(message => isPortMessage(message, 'complete'))).toBe(false);
+            port1.emit({
+                type: 'ack',
+                seq: 0,
+            });
+            await Promise.resolve();
+            await completePosted;
+            vi.runAllTimers();
+            await expect(savePromise).rejects.toThrow('final result');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('streams caller-provided PDF chunks through the persistence port', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();

@@ -3,6 +3,7 @@ import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
     PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
     type ISerializedPdfPersistenceLimits,
@@ -107,6 +108,7 @@ function decodePersistenceLimits(value: Record<PropertyKey, unknown>): ISerializ
         maxInFlightChunks: decodePositiveSafeInteger(value.maxInFlightChunks, 'maxInFlightChunks'),
         maxTotalBytes: decodePositiveSafeInteger(value.maxTotalBytes, 'maxTotalBytes'),
         ackTimeoutMs: decodePositiveSafeInteger(value.ackTimeoutMs, 'ackTimeoutMs'),
+        progressTimeoutMs: decodePositiveSafeInteger(value.progressTimeoutMs, 'progressTimeoutMs'),
         resultTimeoutMs: decodePositiveSafeInteger(value.resultTimeoutMs, 'resultTimeoutMs'),
     };
 }
@@ -123,6 +125,7 @@ function decodePersistenceBeginResult(value: unknown): IBeginSerializedPdfPersis
             maxInFlightChunks: PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
             maxTotalBytes: Number.MAX_SAFE_INTEGER,
             ackTimeoutMs: PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+            progressTimeoutMs: PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS,
             resultTimeoutMs: PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
         };
     }
@@ -152,6 +155,7 @@ function decodeSaveAsBeginResult(value: unknown): IBeginSerializedPdfSaveAsResul
     const maxInFlightChunks = decodeOptionalPositiveSafeInteger(value.maxInFlightChunks, 'maxInFlightChunks');
     const maxTotalBytes = decodeOptionalPositiveSafeInteger(value.maxTotalBytes, 'maxTotalBytes');
     const ackTimeoutMs = decodeOptionalPositiveSafeInteger(value.ackTimeoutMs, 'ackTimeoutMs');
+    const progressTimeoutMs = decodeOptionalPositiveSafeInteger(value.progressTimeoutMs, 'progressTimeoutMs');
     const resultTimeoutMs = decodeOptionalPositiveSafeInteger(value.resultTimeoutMs, 'resultTimeoutMs');
     return {
         sessionId: value.sessionId === null ? null : requireSessionId(value.sessionId),
@@ -163,6 +167,7 @@ function decodeSaveAsBeginResult(value: unknown): IBeginSerializedPdfSaveAsResul
         ...(maxInFlightChunks === undefined ? {} : {maxInFlightChunks}),
         ...(maxTotalBytes === undefined ? {} : {maxTotalBytes}),
         ...(ackTimeoutMs === undefined ? {} : {ackTimeoutMs}),
+        ...(progressTimeoutMs === undefined ? {} : {progressTimeoutMs}),
         ...(resultTimeoutMs === undefined ? {} : {resultTimeoutMs}),
     };
 }

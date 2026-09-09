@@ -55,6 +55,7 @@ import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
     PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
     createPdfPersistenceCancelFrame,
@@ -111,6 +112,7 @@ const PDF_PERSISTENCE_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
 const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
 const PDF_PERSISTENCE_ACK_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS;
+const PDF_PERSISTENCE_PROGRESS_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_PROGRESS_TIMEOUT_MS;
 const PDF_PERSISTENCE_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS;
 const LONG_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
@@ -431,6 +433,7 @@ function assertPersistenceProtocolLimits(value: unknown) {
             maxInFlightChunks: PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS,
             maxTotalBytes: Number.MAX_SAFE_INTEGER,
             ackTimeoutMs: PDF_PERSISTENCE_ACK_TIMEOUT_MS,
+            progressTimeoutMs: PDF_PERSISTENCE_PROGRESS_TIMEOUT_MS,
             resultTimeoutMs: PDF_PERSISTENCE_RESULT_TIMEOUT_MS,
         };
     }
@@ -452,18 +455,21 @@ class PdfPersistencePortLifecycle {
     private readonly trackedPromises: Array<Promise<unknown>> = [];
     private readonly acknowledgements = new Map<number, IPersistencePortDeferred<undefined>>();
     private readonly ready: IPersistencePortDeferred<undefined>;
-    private readonly result: IPersistencePortDeferred<ISerializedPdfPersistencePortResult>;
+    private result: IPersistencePortDeferred<ISerializedPdfPersistencePortResult> | null = null;
+    private progressTimer: ReturnType<typeof setTimeout>;
     private aborted = false;
 
-    public constructor(private readonly port: MessagePort) {
+    public constructor(
+        private readonly port: MessagePort,
+        private readonly limits: ReturnType<typeof assertPersistenceProtocolLimits>,
+    ) {
         this.ready = this.createDeferred<undefined>(
             PDF_PERSISTENCE_READY_TIMEOUT_MS,
             'PDF persistence port did not become ready',
         );
-        this.result = this.createDeferred<ISerializedPdfPersistencePortResult>(
-            PDF_PERSISTENCE_RESULT_TIMEOUT_MS,
-            'PDF persistence port did not return a final result',
-        );
+        this.progressTimer = setTimeout(() => {
+            this.abort(new Error('PDF persistence stream made no progress'));
+        }, limits.progressTimeoutMs);
         port.addEventListener('message', this.handleMessage);
     }
 
@@ -479,7 +485,7 @@ class PdfPersistencePortLifecycle {
             return promise;
         }
         const acknowledgement = this.createDeferred<undefined>(
-            PDF_PERSISTENCE_ACK_TIMEOUT_MS,
+            this.limits.ackTimeoutMs,
             `PDF persistence chunk ${seq} was not acknowledged`,
         );
         this.acknowledgements.set(seq, acknowledgement);
@@ -487,7 +493,31 @@ class PdfPersistencePortLifecycle {
     }
 
     public waitForResult() {
+        if (this.result === null) {
+            throw new Error('PDF persistence final-result phase has not started');
+        }
         return this.result.promise;
+    }
+
+    public noteProgress() {
+        if (this.aborted || this.result !== null) {
+            return;
+        }
+        clearTimeout(this.progressTimer);
+        this.progressTimer = setTimeout(() => {
+            this.abort(new Error('PDF persistence stream made no progress'));
+        }, this.limits.progressTimeoutMs);
+    }
+
+    public beginFinalResultWait() {
+        if (this.result !== null || this.aborted) {
+            return;
+        }
+        clearTimeout(this.progressTimer);
+        this.result = this.createDeferred<ISerializedPdfPersistencePortResult>(
+            this.limits.resultTimeoutMs,
+            'PDF persistence port did not return a final result',
+        );
     }
 
     public abort(error: unknown) {
@@ -497,7 +527,10 @@ class PdfPersistencePortLifecycle {
         this.aborted = true;
         this.port.removeEventListener('message', this.handleMessage);
         this.rejectDeferred(this.ready, error);
-        this.rejectDeferred(this.result, error);
+        clearTimeout(this.progressTimer);
+        if (this.result !== null) {
+            this.rejectDeferred(this.result, error);
+        }
         for (const acknowledgement of this.acknowledgements.values()) {
             this.rejectDeferred(acknowledgement, error);
         }
@@ -514,7 +547,11 @@ class PdfPersistencePortLifecycle {
             return;
         }
         if (payload.type === 'ready') {
+            const wasSettled = this.ready.settled;
             this.resolveDeferred(this.ready, undefined);
+            if (!wasSettled) {
+                this.noteProgress();
+            }
             return;
         }
         if (payload.type === 'ack') {
@@ -522,10 +559,14 @@ class PdfPersistencePortLifecycle {
             if (acknowledgement) {
                 this.acknowledgements.delete(payload.seq);
                 this.resolveDeferred(acknowledgement, undefined);
+                this.noteProgress();
             }
             return;
         }
         if (payload.type === 'result') {
+            if (this.result === null) {
+                return;
+            }
             this.resolveDeferred(this.result, {
                 path: payload.path,
                 validation: payload.validation,
@@ -533,6 +574,9 @@ class PdfPersistencePortLifecycle {
             return;
         }
         if (payload.type === 'staged') {
+            if (this.result === null) {
+                return;
+            }
             this.resolveDeferred(this.result, {
                 path: null,
                 validation: payload.validation,
@@ -604,7 +648,7 @@ async function streamPdfBytesToPersistencePort(
     const limits = assertPersistenceProtocolLimits(beginResult);
     const channel = new MessageChannel();
     channel.port1.start();
-    const lifecycle = new PdfPersistencePortLifecycle(channel.port1);
+    const lifecycle = new PdfPersistencePortLifecycle(channel.port1, limits);
     let portTransferred = false;
     try {
         ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, beginResult.sessionId, [channel.port2]);
@@ -622,6 +666,7 @@ async function streamPdfBytesToPersistencePort(
             }
             // Electron's main-process MessagePort only transfers ports here; transferring the
             // ArrayBuffer drops the structured-clone payload before MessagePortMain receives it.
+            lifecycle.noteProgress();
             const acknowledgement = lifecycle.waitForAcknowledgement(seq);
             channel.port1.postMessage(createPdfPersistenceChunkFrame(seq, bytes));
             inFlightAcks.push(acknowledgement);
@@ -636,6 +681,7 @@ async function streamPdfBytesToPersistencePort(
         await Promise.all(inFlightAcks);
 
         channel.port1.postMessage(createPdfPersistenceCompleteFrame());
+        lifecycle.beginFinalResultWait();
         return await lifecycle.waitForResult();
     } catch (error) {
         if (portTransferred) {
