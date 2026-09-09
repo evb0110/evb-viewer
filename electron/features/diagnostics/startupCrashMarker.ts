@@ -73,7 +73,10 @@ export interface IStartupCrashMarkerOptions {
 
 export interface IStartupCrashMarkerReplayOptions {
     preference: TStartupCrashMarkerPreference;
+    release: string;
+    dist: DesktopDiagnosticDist | null;
     send: (marker: StartupCrashMarkerRecord) => unknown;
+    onDiscard?: (reason: 'build-identity-mismatch') => void;
 }
 
 export interface IStartupCrashMarkerController {
@@ -373,6 +376,14 @@ export function installStartupCrashMarker(
         pendingReplayMarker = null;
         const replayPreference = replayOptions.preference;
         if (marker !== null && isGranted(replayPreference)) {
+            if (marker.release !== replayOptions.release || marker.dist !== replayOptions.dist) {
+                try {
+                    replayOptions.onDiscard?.('build-identity-mismatch');
+                } catch {
+                    // Local discard accounting must never affect startup recovery.
+                }
+                return sentMarker;
+            }
             sentMarker = marker;
             try {
                 observeDeliveryResult(replayOptions.send(marker));
