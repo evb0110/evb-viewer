@@ -18,6 +18,7 @@ import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
@@ -271,6 +272,11 @@ function createState(options?: {
     const getQuickPrintPageMetrics = options?.getQuickPrintPageMetrics ?? vi.fn(async () => null);
     const getPrintableSourceData = options?.getPrintableSourceData ?? vi.fn(async () => Uint8Array.of(9, 8, 7));
     const scope = effectScope();
+    const sourcePdf = ref(options?.sourcePdf ?? null);
+    const workingCopyPath = ref(options?.workingCopyPath === undefined
+        ? '/tmp/document.pdf'
+        : options.workingCopyPath);
+    const fileName = ref(options?.fileName ?? 'document.pdf');
     const state = scope.run(() => useWorkspacePrint({
         totalPages: ref(options?.totalPages ?? 10),
         currentPage: ref(4),
@@ -282,11 +288,9 @@ function createState(options?: {
         ...(options?.selectedPageSelection
             ? {selectedPageSelection: ref(options.selectedPageSelection)}
             : {}),
-        sourcePdf: ref(options?.sourcePdf ?? null),
-        workingCopyPath: ref(options?.workingCopyPath === undefined
-            ? '/tmp/document.pdf'
-            : options.workingCopyPath),
-        fileName: ref(options?.fileName ?? 'document.pdf'),
+        sourcePdf,
+        workingCopyPath,
+        fileName,
         hasPendingUnsavedChanges: ref(options?.hasPendingUnsavedChanges ?? false),
         ...(options?.hasPendingPrintSerializationChanges !== undefined
             ? { hasPendingPrintSerializationChanges: ref(options.hasPendingPrintSerializationChanges) }
@@ -321,6 +325,9 @@ function createState(options?: {
     return {
         getQuickPrintPageMetrics,
         getPrintableSourceData,
+        fileName,
+        sourcePdf,
+        workingCopyPath,
         scope,
         state,
     };
@@ -602,6 +609,123 @@ describe('useWorkspacePrint', () => {
                 title: 'print.requestSent',
             });
             expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('drops an older quick-print continuation when the same scope opens a successor document', async () => {
+        const firstMetrics = Promise.withResolvers<Array<{width: number; height: number}> | null>();
+        const appFrame = createFakeFrame();
+        const getQuickPrintPageMetrics = vi.fn()
+            .mockReturnValueOnce(firstMetrics.promise)
+            .mockResolvedValueOnce([{width: 612, height: 792}]);
+        const firstSource = new Blob([Uint8Array.of(1)], {type: 'application/pdf'});
+        const secondSource = new Blob([Uint8Array.of(2)], {type: 'application/pdf'});
+        const {
+            getPrintableSourceData,
+            scope,
+            sourcePdf,
+            state,
+        } = createState({sourcePdf: firstSource, getQuickPrintPageMetrics});
+        shouldPrintPageMetricsDirectlyMock.mockReturnValue(true);
+        stubDocumentWithFrame(appFrame);
+
+        try {
+            const firstPrint = state.handleQuickPrint();
+            await flushMicrotasks(4);
+            sourcePdf.value = secondSource;
+            firstMetrics.resolve([{width: 612, height: 792}]);
+            await firstPrint;
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(state.isPreparingPrint.value).toBe(false);
+
+            const successorPrint = state.handleQuickPrint();
+            await flushMicrotasks(12);
+            appFrame.frame.trigger('load');
+            await successorPrint;
+
+            expect(getPrintableSourceData).toHaveBeenCalledOnce();
+            expect(appFrame.frameWindow.print).toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cancels quick-print preparation when its document scope closes', async () => {
+        const metrics = Promise.withResolvers<Array<{width: number; height: number}> | null>();
+        const getQuickPrintPageMetrics = vi.fn(() => metrics.promise);
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({getQuickPrintPageMetrics});
+
+        const printPromise = state.handleQuickPrint();
+        await flushMicrotasks(4);
+        scope.stop();
+        metrics.resolve([{width: 612, height: 792}]);
+        await printPromise;
+
+        expect(getPrintableSourceData).not.toHaveBeenCalled();
+        expect(state.isPreparingPrint.value).toBe(false);
+    });
+
+    it('invalidates print when the initiating document revision changes', async () => {
+        const readiness = Promise.withResolvers<boolean>();
+        const sourcePdf = {
+            kind: 'path' as const,
+            path: requireDocumentRef('/tmp/revisioned-print.pdf'),
+            size: 12,
+            revision: requireDocumentRevisionToken('drt1:revision-a'),
+        };
+        const ensurePrintReady = vi.fn(() => readiness.promise);
+        const {
+            getPrintableSourceData,
+            scope,
+            sourcePdf: currentSource,
+            state,
+        } = createState({sourcePdf, ensurePrintReady});
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(4);
+            currentSource.value = {
+                ...sourcePdf,
+                revision: requireDocumentRevisionToken('drt1:revision-b'),
+            };
+            readiness.resolve(true);
+            await printPromise;
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('reports a quick-print metrics rejection and releases its run owner', async () => {
+        const getQuickPrintPageMetrics = vi.fn(async () => {
+            throw new Error('metrics unavailable');
+        });
+        const {
+            scope,
+            state,
+        } = createState({getQuickPrintPageMetrics});
+
+        try {
+            await state.handleQuickPrint();
+
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                title: 'print.failed',
+            }));
         } finally {
             scope.stop();
         }
