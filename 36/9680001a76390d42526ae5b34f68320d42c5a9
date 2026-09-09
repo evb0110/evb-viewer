@@ -1,0 +1,59 @@
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_4c8ba8a68ca045::t_182a24591e731b 204-206
+  s_4c8ba8a68ca045::t_01f83b0632c949 465-468
+  s_4c8ba8a68ca045::t_1db0912c531898 677,680
+  s_4c8ba8a68ca045::t_cf832108b52f1c 816
+  s_4c8ba8a68ca045::t_01b6de82436f1d 151,199-203
+  s_4c8ba8a68ca045::t_d19a00b47a0dbb 693
+  s_4c8ba8a68ca045::t_e17e2201db9a16 43,656,667,679,682,691,699
+  s_4c8ba8a68ca045::t_57a5429f001e66 152-155,172-176,651-655,657-659,661-666,668-676,678,681,683-690,692,694-698,700-732,734
+  s_4c8ba8a68ca045::t_e3e3f011066850 660
+  s_4c8ba8a68ca045::t_d40838cbc48d40 733
+  s_4c8ba8a68ca045::t_764f68ecb365c1 735
+scripts/windows-test/host/runCoordinator.ts
+  s_4c8ba8a68ca045::t_f41571e1ca30ce 1072,1076
+  s_4c8ba8a68ca045::t_3de37cc2d1ba53 410,426-428,430-434
+  s_4c8ba8a68ca045::t_fe6f6f51311900 395-405,415-425,443-444,446-450,461-462
+  s_4c8ba8a68ca045::t_a1dd43ed0eb9f9 406-409,411-414,429,445
+  s_4c8ba8a68ca045::t_92273381499056 392-394,463-473,1035,1074-1075,1078-1080
+  s_4c8ba8a68ca045::t_650099b04fd70a 435,440,451,456,459
+  s_4c8ba8a68ca045::t_9b86bf4f6998b6 436-439,441-442,452-455,457-458,460
+  s_4c8ba8a68ca045::t_001d780c1a1e67 489-491
+tests/unit/scripts/windows-test/hostLock.test.ts
+  s_4c8ba8a68ca045::t_e643fdf68f8fb4 508-510
+  s_4c8ba8a68ca045::t_e65092e2eedfe6 84-86
+  s_4c8ba8a68ca045::t_6aa379615d0da0 1,4-83,87-117,119-121,123-124,126-251,253-273,275-400,402-425,427-440,442-507,511-528
+  s_4c8ba8a68ca045::t_001d780c1a1e67 118,122,125
+  s_4c8ba8a68ca045::t_5496830a35e464 252
+  s_4c8ba8a68ca045::t_77366eeac5d44c 441
+  s_4c8ba8a68ca045::t_7474f2e24ec107 2-3
+  s_4c8ba8a68ca045::t_c28a01d78cbad5 274
+  s_4c8ba8a68ca045::t_7d09bee2eab322 401
+  s_4c8ba8a68ca045::t_034cbca31aaf17 426
+scripts/windows-test/host/hostLock.ts
+  s_4c8ba8a68ca045::t_02c25f20f8aeca 141
+  s_4c8ba8a68ca045::t_5986585fdd058b 142-144,241
+  s_4c8ba8a68ca045::t_20cd58b245d1a0 131,194
+  s_4c8ba8a68ca045::t_29dab54a2c5cde 197
+  s_4c8ba8a68ca045::t_a2040df9de15ac 221
+  s_4c8ba8a68ca045::t_d1d3fa192f0c8f 202,216-220,222-223
+  s_4c8ba8a68ca045::t_001d780c1a1e67 99-101
+  s_4c8ba8a68ca045::t_42b84d02d00066 4,12,88-89,114,116,120,126-130,133-138,145-148,176-177,190
+  s_4c8ba8a68ca045::t_db67a16de36837 2,21,40,78-79,132,139-140,149-164,173,178-189,191-193,195-196,198,224-240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "369680001a76390d42526ae5b34f68320d42c5a9",
+  "prompts": {},
+  "sessions": {
+    "s_4c8ba8a68ca045": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08617-afe0-7770-bf2f-fa955eb6be08",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
