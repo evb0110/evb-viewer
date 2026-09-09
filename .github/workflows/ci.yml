@@ -89,9 +89,10 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      # The unit suite imports Pillow in its Python subprocess fixtures. Keep
-      # that small fixture dependency in the routine lane without installing
-      # the PDF command-line tools used only by native and OCR lanes.
+      # The interop fixture validates and renders real PDFs with these tools.
+      - name: Install PDF test tools
+        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+
       - name: Install unit-test image dependency
         id: setup
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
