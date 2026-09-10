@@ -1,0 +1,28 @@
+app/platform/browser/browserDocumentEntryStorageState.ts
+  s_6fbe3fb2e3e80d::t_3932186667f800 17,68-71
+  s_f6f909f8da31ad::t_149cabe072f405 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "39e51fddf6202e53f6ee13c9231085a2a5ef0b1c",
+  "prompts": {},
+  "sessions": {
+    "s_6fbe3fb2e3e80d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088f1-83c5-7b81-ac21-d1132afda73a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f6f909f8da31ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07e12-0958-7ee1-8402-2b101ffe6ea1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
