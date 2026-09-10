@@ -1,0 +1,23 @@
+scripts/ci/push-diff-base.sh
+  s_3d279d029e00e2::t_260707755bcde0 4-11,31,33-40,45
+scripts/all-gates-validation-plan.mjs
+  s_3d279d029e00e2::t_b4e3eba84fba0c 73-78
+vitest.shared.config.ts
+  s_3d279d029e00e2::t_a3235c1b21a614 81-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "15b05c7029d6861cbd513cff21cacdb4248c72ee",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
