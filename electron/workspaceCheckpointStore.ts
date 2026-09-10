@@ -1222,7 +1222,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             await quarantineCorruptWorkspaceCheckpoint('schema decode returned no checkpoint');
             return null;
         }
-        const stored = journal.records.find((candidate) => {
+        const stored = journal.records.filter((candidate) => {
             const claimant = claimedWorkspaceCheckpointOwnerWebContentsIds.get(candidate.ownerWebContentsId);
             if (claimant !== undefined && claimant !== newOwnerWebContentsId) {
                 return false;
@@ -1251,7 +1251,11 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             return candidate.ownerWebContentsId === newOwnerWebContentsId
                 || savedOwner?.isDestroyed() === true
                 || savedOwner === undefined;
-        });
+        }).reduce<IStoredWorkspaceCheckpoint | null>((newest, candidate) => (
+            newest === null || candidate.checkpoint.capturedAt > newest.checkpoint.capturedAt
+                ? candidate
+                : newest
+        ), null);
         if (!stored) {
             return null;
         }

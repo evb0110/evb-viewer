@@ -186,6 +186,23 @@ describe('workspace checkpoint latest-only writer', () => {
         );
     });
 
+    it('claims the newest eligible owner record first', async () => {
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const {
+            claimWorkspaceCheckpoint,
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        await saveWorkspaceCheckpoint(createCheckpoint(100), 10);
+        await saveWorkspaceCheckpoint(createCheckpoint(200), 20);
+        await flushPendingWorkspaceCheckpointSave();
+
+        await expect(claimWorkspaceCheckpoint(30)).resolves.toMatchObject({capturedAt: 200});
+    });
+
     it('discards one owner without deleting another owner record', async () => {
         mocks.atomicReplace.mockImplementation(async (source: string) => {
             mocks.persisted = mocks.staged.get(source) ?? null;
