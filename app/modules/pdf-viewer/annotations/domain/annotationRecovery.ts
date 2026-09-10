@@ -183,11 +183,12 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
  * recovered edits stay dirty and do not enter authored undo history twice.
  */
 export function restoreCanonicalAnnotationRecovery(
-    store: Pick<AnnotationStore, 'importMany' | 'import'>,
+    store: Pick<AnnotationStore, 'importMany' | 'import' | 'restoreForeignAnnotations'>,
     value: unknown,
 ) {
     const recovery = validateCanonicalAnnotationRecovery(value);
     store.importMany(() => {
+        store.restoreForeignAnnotations(recovery.foreign);
         recovery.entities.forEach(entity => {
             store.import(entity, {preserveSavedBaseline: true});
         });
