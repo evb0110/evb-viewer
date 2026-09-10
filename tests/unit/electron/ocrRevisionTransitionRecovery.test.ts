@@ -164,4 +164,36 @@ describe('OCR revision transition crash recovery', () => {
         });
         await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
     });
+
+    it.each([
+        {catalogBackupMode: 'missing'},
+        {
+            catalogApplyMode: 'rename',
+            descriptorPath: '/tmp/unpaired-descriptor',
+        },
+        {catalogKind: 'v4-root'},
+        {
+            undoCatalogExisted: true,
+            undoCatalogPath: undefined,
+        },
+        {committedAt: 'not-a-timestamp'},
+    ])('fails closed for malformed committed journal fields %#', async (overrides) => {
+        root = await mkdtemp(join(tmpdir(), 'evb-ocr-committed-invalid-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        await writeFile(`${workingCopyPath}.ocr-transition.json`, JSON.stringify({
+            version: 1,
+            transitionId: 'transition-1',
+            state: 'committed',
+            workingCopyPath,
+            targetDocumentRevisionToken: 'revision-1',
+            undoPdfPath: join(root, 'before.pdf'),
+            undoCatalogPath: join(root, 'before-catalog'),
+            undoCatalogExisted: false,
+            committedAt: 1,
+            ...overrides,
+        }));
+
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath))
+            .rejects.toThrow('Invalid OCR revision transition recovery journal');
+    });
 });
