@@ -1,0 +1,24 @@
+electron/utils/workerTask.ts
+  s_bcf5d1313b1c0c::t_929346dd713068 453,456-465,583-585,688,721
+tests/unit/electron/workerTask.test.ts
+  s_bcf5d1313b1c0c::t_efc1cfd5341f44 315-316,352-353,382-383
+  s_bcf5d1313b1c0c::t_929346dd713068 340,342,370-381,384-403,406
+  s_bcf5d1313b1c0c::t_4be38445e89e78 341,345
+  s_bcf5d1313b1c0c::t_9552603d2fa941 346-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "57234157fc685f9ccd97874583d9d9814551c7cf",
+  "prompts": {},
+  "sessions": {
+    "s_bcf5d1313b1c0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a1a-7b9a-7112-96af-7b4d2498cc65",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

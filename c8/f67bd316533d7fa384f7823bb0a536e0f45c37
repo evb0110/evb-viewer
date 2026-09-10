@@ -1,0 +1,23 @@
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_5f1a55127570f9::t_63a0e7bcc8a66d 765-768,772-775
+  s_5f1a55127570f9::t_add10862f2173d 818-820
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_5f1a55127570f9::t_65b34578dfb390 424,426-434,436-459,461-467,469-472
+  s_5f1a55127570f9::t_6e80ceeeb86ac8 425,435,460,468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c8f67bd316533d7fa384f7823bb0a536e0f45c37",
+  "prompts": {},
+  "sessions": {
+    "s_5f1a55127570f9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a2b-e0a9-7181-8b08-933f99762abb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
