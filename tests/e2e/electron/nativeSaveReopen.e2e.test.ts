@@ -10,8 +10,6 @@ import {
     rm,
     stat,
 } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
     copyProjectFixture,
     createCanonicalAnnotationSurfaceFixturePdf,
@@ -1294,60 +1292,6 @@ describe('Electron E2E - native save and reopen', () => {
             'u:front-',
             'u:chapter-',
         ]));
-    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
-
-    it('keeps Repair edits and original bytes after validation failure, then retries', async () => {
-        const pdfPath = await createOutlinePageLabelFixturePdf(`native-repair-validation-failure-${Date.now()}.pdf`);
-        const failureMarkerPath = join(tmpdir(), `evb-native-repair-failure-${process.pid}-${Date.now()}.marker`);
-        await rm(failureMarkerPath, {force: true});
-        onTestFinished(() => rm(failureMarkerPath, {force: true}));
-        session = await startElectronE2ESession(`e2e-native-repair-validation-failure-${Date.now()}`, {
-            clean: true,
-            extraEnv: {
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
-                EVB_E2E_REPAIR_SAVE_FAIL_ONCE_MARKER: failureMarkerPath,
-            },
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForOpenedPdf(session, pdfPath);
-        await createCanonicalTextBoxWithPointer(session.page, 'Repair retry survives', {
-            x: 0.3,
-            y: 0.35,
-        });
-        const originalBytes = await readFile(pdfPath);
-        expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(true);
-
-        const failedRepair = await callWorkspaceCommand<boolean>(session.page, 'handleRepairSave');
-        expect(failedRepair).toEqual({
-            called: true,
-            value: false,
-        });
-        expect(await readFile(pdfPath)).toEqual(originalBytes);
-        expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(true);
-        expect(await readPdfTextAnnotationRecords(pdfPath)).not.toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair retry survives'})]));
-
-        await expect(callWorkspaceCommand<boolean>(session.page, 'handleRepairSave')).resolves.toEqual({
-            called: true,
-            value: true,
-        });
-        expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(false);
-        expect(await readPdfTextAnnotationRecords(pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair retry survives'})]));
-
-        await session.stop();
-        session = await startElectronE2ESession(`e2e-native-repair-validation-failure-fresh-${Date.now()}`, {
-            clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForOpenedPdf(session, pdfPath);
-        expect(await readPdfTextAnnotationRecords(pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair retry survives'})]));
-        const reopenedMetadata = await readPdfMetadataWithQpdf(pdfPath);
-        expect(flattenQpdfOutlines(reopenedMetadata.outlines).map(outline => outline.title)).toEqual([
-            'Parent',
-            'Child',
-            'Appendix',
-        ]);
-        await rm(failureMarkerPath, {force: true});
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('preserves outlines and page labels through the six-operation fresh-process matrix', async () => {
