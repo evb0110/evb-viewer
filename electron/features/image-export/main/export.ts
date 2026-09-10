@@ -950,7 +950,10 @@ export async function exportPdfPagesAsImages(
                         const outputIndex = processedPages;
                         const plannedPath = pageCount === 1
                             ? normalizedPath
-                            : join(outputDirectory, `${outputStem}-${String(outputIndex + 1).padStart(3, '0')}${outputExtension}`);
+                            : buildOutputPathWithSuffix(
+                                join(outputDirectory, `${outputStem}${outputExtension}`),
+                                `-${String(outputIndex + 1).padStart(3, '0')}`,
+                            );
                         const targetPath = resolveOutputPathConflicts(
                             [plannedPath],
                             pageCount === 1,

@@ -290,7 +290,8 @@ describe('image export', () => {
         mocks.stat.mockReset();
         mocks.rename.mockReset();
         mocks.atomicReplace.mockReset();
-        mocks.makeSiblingTempPath.mockClear();
+        mocks.makeSiblingTempPath.mockReset();
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         mocks.managedScratchDirs.length = 0;
         mocks.createManagedScratchTempDir.mockImplementation(async (prefix: string) => {
             const path = await mkdtemp(join(tempDir, prefix));
@@ -1082,6 +1083,23 @@ describe('image export', () => {
         expect(pdftoppmCall?.[1]).not.toContain('-tiff');
         expect(await readFile(firstOutputPath, 'utf8')).toBe('page-1-jpg');
         expect(await readFile(secondOutputPath, 'utf8')).toBe('page-2-jpg');
+    });
+
+    it('keeps long multi-page image export names distinct within the filesystem limit', async () => {
+        const outputPath = join(tempDir, `${'long-export-name-'.repeat(20)}.png`);
+        const firstOutputPath = join(tempDir, `${'long-export-name-'.repeat(20).slice(0, 247)}-001.png`);
+        const secondOutputPath = join(tempDir, `${'long-export-name-'.repeat(20).slice(0, 247)}-002.png`);
+        let stagedPathIndex = 0;
+        mocks.makeSiblingTempPath.mockImplementation(() => join(tempDir, `.staged-image-${stagedPathIndex += 1}.tmp`));
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([
+            firstOutputPath,
+            secondOutputPath,
+        ]);
+
+        expect(Buffer.byteLength(firstOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
+        expect(Buffer.byteLength(secondOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
+        expect(firstOutputPath).not.toBe(secondOutputPath);
     });
 
     it('chooses non-conflicting derived image paths before rendering multi-file exports', async () => {
