@@ -1221,6 +1221,20 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             if (claimant !== undefined && claimant !== newOwnerWebContentsId) {
                 return false;
             }
+            if (
+                candidate.claimedByWebContentsId !== undefined
+                && candidate.claimedByWebContentsId !== newOwnerWebContentsId
+            ) {
+                let persistedClaimant: WebContents | undefined;
+                try {
+                    persistedClaimant = webContents.fromId(candidate.claimedByWebContentsId);
+                } catch {
+                    persistedClaimant = undefined;
+                }
+                if (persistedClaimant && !persistedClaimant.isDestroyed()) {
+                    return false;
+                }
+            }
             let savedOwner: WebContents | undefined;
             try {
                 savedOwner = webContents.fromId(candidate.ownerWebContentsId);
