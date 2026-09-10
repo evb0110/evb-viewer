@@ -675,7 +675,7 @@ export default {
         'rotateClockwise': 'Girar {degrees}° no sentido horário',
         'rotateCounterclockwise': 'Girar {degrees}° no sentido anti-horário',
         'style': 'Estilo',
-        'styleDescription': 'Cor e tamanho da ferramenta selecionada.',
+        'styleDescription': 'Escolha uma ferramenta acima para definir a cor e o tamanho, ou clique em uma anotação para editá-la.',
         'keepActive': 'Manter ferramenta selecionada ativa',
         'draw': 'Desenhar',
         'text': 'Texto',

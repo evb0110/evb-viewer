@@ -210,7 +210,7 @@ export default {
         'rotateClockwise': 'Rotate {degrees}° clockwise',
         'rotateCounterclockwise': 'Rotate {degrees}° counterclockwise',
         'style': 'Style',
-        'styleDescription': 'Color and size for the currently selected tool.',
+        'styleDescription': 'Choose a tool above to set its color and size, or click an annotation to edit it.',
         'keepActive': 'Keep selected tool active',
         'draw': 'Draw',
         'text': 'Text',

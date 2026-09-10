@@ -521,13 +521,14 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .annotation-style-editor-idle {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
+    align-items: flex-start;
     gap: 0.4rem;
     color: var(--ui-text-muted);
 }
 
 .annotation-style-editor-idle-icon {
+    flex: none;
     font-size: var(--app-text-size-ui);
 }
 

@@ -675,7 +675,7 @@ export default {
         'rotateClockwise': '{degrees}° rechtsom draaien',
         'rotateCounterclockwise': '{degrees}° linksom draaien',
         'style': 'Stijl',
-        'styleDescription': 'Kleur en grootte voor het geselecteerde gereedschap.',
+        'styleDescription': 'Kies hierboven een gereedschap om kleur en grootte in te stellen, of klik op een annotatie om die te bewerken.',
         'keepActive': 'Geselecteerd gereedschap actief houden',
         'draw': 'Tekenen',
         'text': 'Tekst',
