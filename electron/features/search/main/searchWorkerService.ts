@@ -1113,9 +1113,7 @@ export class SearchWorkerService {
             this.clearIdleCleanupTimer(state);
             return state;
         }
-        const occupiedWorkerSlots = this.senderSearchStates.size + [...this.workerRetirements.values()]
-            .filter(retirement => !retirement.workerExited)
-            .length;
+        const occupiedWorkerSlots = this.senderSearchStates.size + this.workerRetirements.size;
         if (occupiedWorkerSlots >= maxActiveSenderWorkers) {
             const reusableState = this.findReusableIdleState();
             if (reusableState) {
