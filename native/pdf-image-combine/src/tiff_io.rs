@@ -287,6 +287,7 @@ fn tiff_resolution_value_to_f64(value: TiffIfdValue) -> Option<f64> {
 struct RgbaTiffPage {
     width: u32,
     height: u32,
+    dpi: u32,
     rgba: Vec<u8>,
 }
 
@@ -295,6 +296,7 @@ pub(crate) fn combine_tiff_pages(
     output_path: &Path,
     max_pixels: u64,
     max_pages: usize,
+    dpi: Option<u32>,
 ) -> Result<()> {
     if input_paths.is_empty() {
         return Err("No pages available for TIFF export".into());
@@ -304,13 +306,14 @@ pub(crate) fn combine_tiff_pages(
     }
 
     let validated_inputs = ValidatedInputFiles::open(input_paths, output_path)?;
-    combine_validated_tiff_pages(input_paths, output_path, max_pixels, &validated_inputs)
+    combine_validated_tiff_pages(input_paths, output_path, max_pixels, dpi, &validated_inputs)
 }
 
 fn combine_validated_tiff_pages(
     input_paths: &[PathBuf],
     output_path: &Path,
     max_pixels: u64,
+    dpi: Option<u32>,
     validated_inputs: &ValidatedInputFiles,
 ) -> Result<()> {
     let mut output = AtomicOutput::create(output_path)?;
@@ -322,7 +325,13 @@ fn combine_validated_tiff_pages(
                 let page =
                     read_first_tiff_rgba_page(validated_inputs.clone_file(index)?, max_pixels)?;
                 let mut image = encoder.new_image::<colortype::RGBA8>(page.width, page.height)?;
-                image.resolution(ResolutionUnit::None, Rational { n: 1, d: 1 });
+                image.resolution(
+                    ResolutionUnit::Inch,
+                    Rational {
+                        n: dpi.unwrap_or(page.dpi),
+                        d: 1,
+                    },
+                );
                 image.write_data(&page.rgba)?;
             }
         }
@@ -343,6 +352,7 @@ fn read_first_tiff_rgba_page(mut file: File, max_pixels: u64) -> Result<RgbaTiff
     let mut decoder = Decoder::new(BufReader::new(file))?;
     let (width, height) = decoder.dimensions()?;
     assert_pixel_limit(width, height, max_pixels)?;
+    let dpi = read_tiff_dpi(&mut decoder).unwrap_or(DEFAULT_DPI);
     let color_type = decoder.colortype()?;
     let decoded = decoder.read_image()?;
     let rgba = build_tiff_rgba_payload(width, height, color_type, decoded)?;
@@ -350,6 +360,7 @@ fn read_first_tiff_rgba_page(mut file: File, max_pixels: u64) -> Result<RgbaTiff
     Ok(RgbaTiffPage {
         width,
         height,
+        dpi,
         rgba,
     })
 }
@@ -391,6 +402,7 @@ fn read_first_netpbm_rgba_page(file: File, max_pixels: u64) -> Result<RgbaTiffPa
     Ok(RgbaTiffPage {
         width,
         height,
+        dpi: DEFAULT_DPI,
         rgba,
     })
 }
@@ -545,7 +557,7 @@ mod tests {
         let second_path = temp_tiff_path("combine-second");
         let output_path = temp_tiff_path("combine-output");
         write_rgb_tiff(&first_path, 1, 1, &[255, 0, 0], 72);
-        write_rgb_tiff(&second_path, 1, 1, &[0, 255, 0], 72);
+        write_rgb_tiff(&second_path, 1, 1, &[0, 255, 0], 144);
         fs::write(&output_path, b"old-output").unwrap();
 
         combine_tiff_pages(
@@ -553,6 +565,7 @@ mod tests {
             &output_path,
             1_000_000,
             10,
+            None,
         )
         .unwrap();
 
@@ -561,10 +574,30 @@ mod tests {
         assert_eq!(decoder.colortype().unwrap(), TiffColorType::RGBA(8));
         let first = decoder.read_image().unwrap();
         assert_eq!(decode_u8(first), vec![255, 0, 0, 255]);
+        assert_eq!(
+            decoder
+                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
+            Some(72.0)
+        );
         assert!(decoder.more_images());
         decoder.next_image().unwrap();
         let second = decoder.read_image().unwrap();
         assert_eq!(decode_u8(second), vec![0, 255, 0, 255]);
+        assert_eq!(
+            decoder
+                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
+            Some(144.0)
+        );
         assert!(!decoder.more_images());
 
         let _ = fs::remove_file(first_path);
@@ -585,6 +618,7 @@ mod tests {
             &output_path,
             1_000_000,
             10,
+            Some(300),
         )
         .unwrap();
 
@@ -595,10 +629,30 @@ mod tests {
             decode_u8(decoder.read_image().unwrap()),
             vec![255, 0, 0, 255]
         );
+        assert_eq!(
+            decoder
+                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
+            Some(300.0)
+        );
         decoder.next_image().unwrap();
         assert_eq!(
             decode_u8(decoder.read_image().unwrap()),
             vec![128, 128, 128, 255]
+        );
+        assert_eq!(
+            decoder
+                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
+            Some(300.0)
         );
 
         let _ = fs::remove_file(first_path);
@@ -620,6 +674,7 @@ mod tests {
             &output_path,
             1_000_000,
             10,
+            None,
         );
 
         assert!(result.is_err());

@@ -76,6 +76,8 @@ describe('native TIFF combine wrapper', () => {
                 'tiff',
                 '--inputs-file',
                 expect.any(String),
+                '--dpi',
+                '300',
             ]);
             recordedInputsFile = args[args.indexOf('--inputs-file') + 1]!;
             expect(args).not.toContain(inputPaths[0]);
@@ -90,7 +92,7 @@ describe('native TIFF combine wrapper', () => {
             };
         });
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(true);
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, undefined, 300)).resolves.toBe(true);
         await expect(readFile(outputPath, 'utf8')).resolves.toBe('native-tiff');
         expect(recordedInputs).toBe(`${inputPaths.join('\n')}\n`);
         expect(mocks.runNativeCommand).toHaveBeenCalledWith('/mock/evb-pdf-image-combine', expect.any(Array), {
