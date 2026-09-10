@@ -26,6 +26,7 @@ function createHarness() {
     const textLayerCleanupFns = new Map<TPageNumber, TPdfTextLayerCleanup>();
     const teardownInteraction = vi.fn();
     let renderTextLayerError: Error | null = null;
+    let pendingTextLayer: Promise<void> | null = null;
     // Mirrors the renderer contract: the text layer is torn down and rebuilt
     // only when its content key changes, and relayouted otherwise.
     let renderedContentKey: string | null = null;
@@ -43,6 +44,10 @@ function createHarness() {
             const error = renderTextLayerError;
             renderTextLayerError = null;
             throw error;
+        }
+        if (pendingTextLayer) {
+            await pendingTextLayer;
+            pendingTextLayer = null;
         }
         if (renderedContentKey === harness.contentKey) {
             return;
@@ -115,6 +120,9 @@ function createHarness() {
         failNextTextLayer: (error: Error) => {
             renderTextLayerError = error;
         },
+        holdNextTextLayer: () => {
+            pendingTextLayer = new Promise<void>(() => {});
+        },
         textLayerCleanupFns,
     };
 
@@ -169,5 +177,21 @@ describe('usePdfRendererTextLayerController', () => {
 
         expect(await harness.renderAtScale(1)).toBe(false);
         expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
+    });
+
+    it('cleans the text DOM and stays retryable when the text stage times out', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness();
+        try {
+            harness.holdNextTextLayer();
+            const render = harness.renderAtScale(1);
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            await expect(render).resolves.toBe(false);
+            expect(harness.cleanupTextLayerDom).toHaveBeenCalledOnce();
+            expect(harness.setupTextLayerInteraction).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
