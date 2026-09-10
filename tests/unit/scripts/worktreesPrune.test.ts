@@ -60,7 +60,7 @@ describe('worktrees prune', () => {
         ]);
     });
 
-    it('forgets registrations whose directory is gone and keeps trees whose status is unreadable', () => {
+    it('keeps stale registrations without explicit completion evidence and unreadable trees', () => {
         expect(classifyWorktree({
             isPrimary: false,
             containsCwd: false,
@@ -68,8 +68,8 @@ describe('worktrees prune', () => {
             dirtyEntries: 0,
             mergedInto: [],
         })).toEqual({
-            action: 'remove',
-            reason: 'directory missing; registration is stale',
+            action: 'keep',
+            reason: 'stale registration requires an explicit target',
         });
         expect(classifyWorktree({
             isPrimary: false,
