@@ -1,0 +1,20 @@
+docs/agents/hidden-electron-automation.md
+  s_8f8cd1dcd343cb::t_e1bd106f5d6e1f 22-24
+  s_8f8cd1dcd343cb::t_0c65ffae76c7f3 15-21,25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a2642d83e5aa36e49adf41c6a627cc8d9c8edf71",
+  "prompts": {},
+  "sessions": {
+    "s_8f8cd1dcd343cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a03-cb50-7883-9d3d-288caaf99a7c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
