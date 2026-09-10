@@ -220,7 +220,7 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
-      send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
+      send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
@@ -238,7 +238,7 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
-      send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
+      send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
       os: windows-11-arm
       platform: win
       arch: arm64
@@ -260,7 +260,7 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
-      send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
+      send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
@@ -278,7 +278,7 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
-      send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
+      send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
