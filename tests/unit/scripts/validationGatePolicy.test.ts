@@ -851,7 +851,7 @@ describe('validation gate policy', () => {
         expect(scripts).not.toContain('fallow:all');
         expect(plan.find(stage => stage.id === 'native.test')?.dependsOn)
             .toEqual(['build.prepare']);
-        expect(plan.every(stage => stage.dependsOn.every(id => stageIds.includes(id)))).toBe(true);
+        expect(plan.every(stage => (stage.dependsOn ?? []).every(id => stageIds.includes(id)))).toBe(true);
         expect(plan.filter(stage => stage.cacheable).map(stage => stage.id)).toEqual(expect.arrayContaining([
             'lint.full',
             'typecheck.full',
