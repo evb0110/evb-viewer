@@ -1,0 +1,21 @@
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_6a0f05de823046::t_7275d6ea0409d1 162
+scripts/release/policy.mjs
+  s_6a0f05de823046::t_7275d6ea0409d1 256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "228562e75c3fc6bfb5fce5de87c07a1dc41922db",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f05de823046": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bed-d4d9-76d0-bf34-e20ff4cb9841",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
