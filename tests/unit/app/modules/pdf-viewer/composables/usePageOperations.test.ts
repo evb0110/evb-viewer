@@ -14,6 +14,7 @@ import { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/p
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import {
     createPageMoveRange,
     createPageMoveRanges,
@@ -105,6 +106,9 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
     ensureHistoryBaselineForMutation?: () => Promise<boolean>;
     saveAnnotationsForPageMutation?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    pageLabels?: string[] | null;
+    pageLabelRanges?: IPdfPageLabelRange[];
+    pageLabelsResolved?: boolean;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
     const workingCopyPath = ref(path === null ? null : requireDocumentRef(path));
@@ -129,6 +133,9 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
         onExtractedDocument,
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
         ...(options.runWithDocumentOperationLease ? { runWithDocumentOperationLease: options.runWithDocumentOperationLease } : {}),
+        ...(options.pageLabels !== undefined ? {pageLabels: ref(options.pageLabels)} : {}),
+        ...(options.pageLabelRanges !== undefined ? {pageLabelRanges: ref(options.pageLabelRanges)} : {}),
+        ...(options.pageLabelsResolved !== undefined ? {pageLabelsResolved: ref(options.pageLabelsResolved)} : {}),
     });
 
     return {
@@ -162,6 +169,30 @@ beforeEach(() => {
 });
 
 describe('usePageOperations', () => {
+    it('omits unresolved page labels from mutation metadata', async () => {
+        pageOpsApi.rotate.mockResolvedValueOnce({success: true});
+        const {pageOps} = createHarness('/tmp/work.pdf', {
+            pageLabels: null,
+            pageLabelRanges: [{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }],
+            pageLabelsResolved: false,
+        });
+
+        await expect(pageOps.rotatePages([1], 2, 90)).resolves.toBe(true);
+
+        const options = pageOpsApi.rotate.mock.calls[0]?.[4] as {metadataSnapshot?: {
+            pageLabels?: unknown;
+            pageLabelRanges?: unknown;
+        }};
+        expect(options.metadataSnapshot).toBeDefined();
+        expect(options.metadataSnapshot).not.toHaveProperty('pageLabels');
+        expect(options.metadataSnapshot).not.toHaveProperty('pageLabelRanges');
+    });
+
     it.each([
         [
             'rotate',

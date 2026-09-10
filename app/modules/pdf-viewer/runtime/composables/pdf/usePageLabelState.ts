@@ -46,6 +46,7 @@ export const usePageLabelState = (deps: {
     let pageLabelSyncGeneration = 0;
     let pageLabelRevision = 0;
     let disposed = false;
+    let lastResolvedDocument: IPdfDocument | null = null;
 
     function updatePageLabelModel(
         totalPagesValue: number,
@@ -93,24 +94,40 @@ export const usePageLabelState = (deps: {
             return;
         }
 
+        if (lastResolvedDocument !== null && lastResolvedDocument !== doc) {
+            updatePageLabelModel(totalPages.value, []);
+        }
         pageLabelsResolved.value = false;
+        let resolvedThisSync = false;
 
         try {
             let labels: string[] | null = null;
             if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
                 try {
                     const raw = await doc.getPageLabels();
-                    labels = raw && raw.length === doc.numPages ? raw : null;
+                    if (raw === null) {
+                        labels = null;
+                    } else if (raw.length === doc.numPages && raw.every(label => typeof label === 'string')) {
+                        labels = raw;
+                    } else {
+                        BrowserLogger.debug(
+                            'page-labels',
+                            'Received invalid page labels from PDF document',
+                            {pageCount: doc.numPages},
+                        );
+                        return;
+                    }
                 } catch (error) {
                     BrowserLogger.debug(
                         'page-labels',
                         'Failed to read page labels from PDF document',
                         error,
                     );
-                    labels = null;
+                    return;
                 }
             } else {
                 BrowserLogger.debug('page-labels', 'Skipped dense PDF.js page-label read', {pageCount: doc.numPages});
+                return;
             }
 
             if (!isCurrentSync()) {
@@ -123,8 +140,10 @@ export const usePageLabelState = (deps: {
             updatePageLabelModel(doc.numPages, nextRanges, labels);
             pageLabelsDirty.value = false;
             pageLabelRevision += 1;
+            lastResolvedDocument = doc;
+            resolvedThisSync = true;
         } finally {
-            if (isCurrentSync()) {
+            if (isCurrentSync() && resolvedThisSync) {
                 pageLabelsResolved.value = true;
                 onPageLabelsSynchronized?.();
             }
