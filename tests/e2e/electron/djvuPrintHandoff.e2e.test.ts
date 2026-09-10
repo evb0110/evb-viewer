@@ -33,7 +33,6 @@ const DJVU_OPEN_TIMEOUT_MS = 90_000;
 const PRINT_HANDOFF_SELECTED_PAGES = [
     1,
     2,
-    3,
 ];
 const PRINT_VALIDATION_DPI = 96;
 const smokeDir = resolve(process.cwd(), '.devkit', 'tmp', `djvu-print-handoff-${Date.now()}`);
