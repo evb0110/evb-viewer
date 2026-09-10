@@ -44,4 +44,13 @@ describe('path encoding recovery', () => {
 
         expect(normalizePossiblyEncodedExistingPath(encodeURIComponent(mojibakePath))).toBe(realpathSync.native(filePath));
     });
+
+    it('tries the exact physical path before trimming or repairing it', () => {
+        const fileName = '100% Гиргас .pdf ';
+        const filePath = join(tempRoot, fileName);
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        expect(normalizePossiblyEncodedExistingPath(filePath)).toBe(realpathSync.native(filePath));
+        expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+    });
 });

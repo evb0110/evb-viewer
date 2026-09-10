@@ -212,6 +212,23 @@ describe('recentFiles persistence', () => {
         workingCopyStore.clearWorkingCopyOriginalPaths();
     });
 
+    it('persists the exact original identity when its filename ends in whitespace', async () => {
+        const originalPath = writeFixture('original.pdf ', 'original');
+        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-recent-exact-path');
+        mkdirSync(workingDir, {recursive: true});
+        const workingPath = join(workingDir, 'original.pdf');
+        writeFileSync(workingPath, 'working');
+
+        const recentFiles = await loadRecentFilesModule();
+        const workingCopyStore = await import('@electron/file-access/workingCopyStore');
+        await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+
+        await recentFiles.addRecentFile(workingPath, 42);
+
+        expect(recentFiles.getRecentFilesSync()).toEqual([originalPath]);
+        workingCopyStore.clearWorkingCopyOriginalPaths();
+    });
+
     it('refuses to persist an unmapped managed working-copy temp path', async () => {
         const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-unmapped');
         mkdirSync(workingDir, {recursive: true});
