@@ -1,0 +1,19 @@
+tests/unit/scripts/worktreesPrune.test.ts
+  s_c4c206286b9833::t_5960fdcc25603a 63,71-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "396d249012f88428c325d17666d7d0bc72705082",
+  "prompts": {},
+  "sessions": {
+    "s_c4c206286b9833": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08930-0852-75c2-b82c-13e05635b7dd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
