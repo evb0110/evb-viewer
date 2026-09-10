@@ -700,9 +700,6 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             task.promise,
             rangeFailure.rangeReadFailure,
         ]);
-        if (loadingTask === task) {
-            loadingTask = null;
-        }
         rangeFailure.complete();
         logPdfRenderTrace('pdf-document-get-document-resolve', {
             version,
