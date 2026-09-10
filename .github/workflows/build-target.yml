@@ -395,7 +395,6 @@ jobs:
       - name: Verify installed Windows NSIS journey
         if: runner.os == 'Windows'
         id: nsis_journey
-        continue-on-error: ${{ inputs.arch == 'arm64' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
