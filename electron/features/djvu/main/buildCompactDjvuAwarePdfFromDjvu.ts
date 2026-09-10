@@ -892,6 +892,23 @@ async function buildCompactPageSpec(
         structure,
     );
 
+    const foregroundColorPath = structure.foreground
+        ? await renderForegroundLayer(options, pagePrefix, pageNumber, structure)
+        : null;
+    const foregroundColor = foregroundColorPath
+        ? await analyzeForegroundColor(foregroundColorPath)
+        : null;
+
+    if (foregroundColor && hasRealForegroundColor(foregroundColor)) {
+        return buildPhotoPageSpec(
+            options,
+            pagePrefix,
+            pageNumber,
+            structure,
+            'colored foreground preserved as a full-color image layer instead of averaged RGB',
+        );
+    }
+
     if (!structure.background) {
         return {
             pageNumber,
@@ -912,23 +929,6 @@ async function buildCompactPageSpec(
             effectivePpi: structure.info?.dpi ?? options.sourceDpi,
             manifestLine: createManifestLine('mask', pageSize, [maskPath]),
         };
-    }
-
-    const foregroundColorPath = structure.foreground
-        ? await renderForegroundLayer(options, pagePrefix, pageNumber, structure)
-        : null;
-    const foregroundColor = foregroundColorPath
-        ? await analyzeForegroundColor(foregroundColorPath)
-        : null;
-
-    if (foregroundColor && hasRealForegroundColor(foregroundColor)) {
-        return buildPhotoPageSpec(
-            options,
-            pagePrefix,
-            pageNumber,
-            structure,
-            'colored foreground preserved as a full-color image layer instead of averaged RGB',
-        );
     }
 
     return {

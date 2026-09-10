@@ -212,6 +212,37 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         ]);
     });
 
+    it('preserves a colored foreground on a flat background', async () => {
+        setDjvuDump([{
+            pageNumber: 1,
+            pageBytes: 65_000,
+            maskBytes: 512,
+            background: true,
+            foreground: true,
+        }]);
+        coloredForegroundPages.add(1);
+
+        const result = await buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-flat-color',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'flat-color.pdf'),
+            tempDir,
+            pageCount: 1,
+            sourceDpi: 300,
+            pageSizes: pageSizes(1),
+            pages: [1],
+        });
+
+        const manifest = await readCompactManifest(tempDir);
+        expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
+        expect(result.pageSpecs?.[0]).toMatchObject({kind: 'photo'});
+        expect(renderModesForPage(1)).toEqual([
+            'mask',
+            'foreground',
+            'full',
+        ]);
+    });
+
     it('processes an all-page export in bounded batches and streams the dump manifest', async () => {
         const pageCount = 65;
         setDjvuDump(Array.from({length: pageCount}, (_value, index) => ({
@@ -456,7 +487,6 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
         expect(renderModesForPage(3)).toEqual([
             'mask',
-            'background',
             'foreground',
             'full',
         ]);
