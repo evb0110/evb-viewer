@@ -58,7 +58,7 @@ Use resume only from the release commit for the current package version:
 pnpm run release:resume
 ```
 
-Resume checks that `HEAD` is the version-only release commit and that it exists on `origin/main`. A stale draft is deleted before the same tag and release SHA are dispatched again. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. An already-public release is not redispatched. Check it with `release:status` and repair only the missing supplemental work.
+Resume checks that `HEAD` is the version-only release commit and that it exists on `origin/main`. The same tag and release SHA are dispatched again while any draft and its accepted assets remain in place. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. An already-public release is not redispatched. Check it with `release:status` and repair only the missing supplemental work.
 
 ## When a release run is red
 

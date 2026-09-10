@@ -85,7 +85,17 @@ jobs:
           set -euo pipefail
           checksum_path='artifacts/SHA256SUMS'
           release_version="${RELEASE_TAG#v}"
-          node scripts/release/release-checksums.mjs generate artifacts
+          accepted_artifacts='accepted-artifacts'
+          if release_json="$(gh release view "$RELEASE_TAG" --json assets 2>/dev/null)" \
+            && jq -e '.assets[]? | select(.name == "SHA256SUMS")' >/dev/null <<< "$release_json"; then
+            mkdir "$accepted_artifacts"
+            gh release download "$RELEASE_TAG" --dir "$accepted_artifacts"
+            node scripts/release/release-checksums.mjs verify "$accepted_artifacts" "$release_version"
+            rm -rf artifacts
+            mv "$accepted_artifacts" artifacts
+          else
+            node scripts/release/release-checksums.mjs generate artifacts
+          fi
           node scripts/release/release-checksums.mjs verify artifacts "$release_version"
           if [ "$DRILL" = 'true' ]; then
             node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$checksum_path" --drill

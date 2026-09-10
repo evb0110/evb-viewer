@@ -531,15 +531,6 @@ export async function resumeRelease(options = {}) {
             `Release ${tag} is already public. Run \`pnpm run release:status ${tag}\` to inspect it.`,
         );
     }
-    if (release?.isDraft) {
-        runCommand('gh', [
-            'release',
-            'delete',
-            tag,
-            '--yes',
-        ], {stdio: 'inherit'});
-    }
-
     await publishReleaseCommitFn({
         tag,
         targetSha,

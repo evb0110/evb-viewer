@@ -157,7 +157,7 @@ describe('cut-release', () => {
         });
     });
 
-    it('repairs a draft by deleting it and redispatching the current release SHA', async () => {
+    it('repairs a draft without deleting it and redispatches the current release SHA', async () => {
         const commands: string[] = [];
         let publishedOptions: Parameters<typeof publishReleaseCommit>[1];
         let publishedRequest: Parameters<typeof publishReleaseCommit>[0] | undefined;
@@ -205,7 +205,7 @@ describe('cut-release', () => {
 
         await resumeRelease(options);
 
-        expect(commands).toContain('gh release delete v0.1.446 --yes');
+        expect(commands).not.toContain('gh release delete v0.1.446 --yes');
         expect(publishedRequest).toEqual({
             tag: 'v0.1.446',
             targetSha: HEAD_SHA,
