@@ -201,6 +201,9 @@ class FakeCodexAppServerProcess extends EventEmitter {
                 respond();
                 return;
             }
+            case 'thread/resume':
+                this.respond(request.id, { thread: { id: request.params?.threadId } });
+                return;
             case 'turn/start': {
                 this.turnCount += 1;
                 const turnNumber = this.turnCount;
@@ -1288,7 +1291,7 @@ describe('agent assistant opt-in gating', () => {
         expect(state.messages.map(message => message.text)).not.toContain('late text');
     });
 
-    it('starts fresh Codex threads for inactive document sessions after app-server exit', async () => {
+    it('resumes Codex threads for inactive document sessions after app-server exit', async () => {
         const documentA = createDocumentScope('a.pdf');
         const documentB = createDocumentScope('b.pdf');
         configureEnabledAssistantRuntime();
@@ -1321,8 +1324,8 @@ describe('agent assistant opt-in gating', () => {
 
         expect(processes).toHaveLength(2);
         const restartedMethods = processes[1]?.requestMethods ?? [];
-        expect(restartedMethods).toContain('thread/start');
-        expect(restartedMethods.indexOf('thread/start')).toBeLessThan(restartedMethods.indexOf('turn/start'));
+        expect(restartedMethods).toContain('thread/resume');
+        expect(restartedMethods.indexOf('thread/resume')).toBeLessThan(restartedMethods.indexOf('turn/start'));
     });
 
     it('evicts least-recently-used idle document chat sessions', async () => {

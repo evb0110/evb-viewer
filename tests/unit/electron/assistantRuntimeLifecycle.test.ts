@@ -14,6 +14,11 @@ import {
 } from '@electron/features/agent/assistantTurnLifecycle';
 import { requireTabId } from '@contracts/windowTabs';
 
+interface IRuntimeRequest {
+    method: string;
+    params: unknown;
+}
+
 const mocks = vi.hoisted(() => ({refreshCodexAuthStateAndRuntimeAvailability: vi.fn(async () => undefined)}));
 const runtimeMocks = vi.hoisted(() => ({
     getCodexCliInfo: vi.fn(async () => ({
@@ -24,7 +29,7 @@ const runtimeMocks = vi.hoisted(() => ({
         isVersionSupported: true,
     })),
     shutdown: vi.fn(),
-    requests: [] as Array<{method: string; params: unknown}>,
+    requests: [] as IRuntimeRequest[],
     spawnCount: 0,
 }));
 
@@ -66,12 +71,15 @@ vi.mock('@electron/features/agent/codexAppServerClient', () => ({CodexAppServerC
     }
 
     async requestDecoded<T>(method: string, params: unknown): Promise<T> {
-        runtimeMocks.requests.push({method, params});
+        runtimeMocks.requests.push({
+            method,
+            params,
+        });
         if (method === 'model/list') {
             return [] as T;
         }
         if (method === 'thread/resume') {
-            return {thread: {id: (params as {threadId: string}).threadId}} as T;
+            return {thread: {id: 'thread-preserved'}} as T;
         }
         return {data: []} as T;
     }
