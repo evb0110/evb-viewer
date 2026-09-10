@@ -62,6 +62,28 @@ import {
 
 const logger = createLogger('working-copy');
 
+const WORKING_COPY_FILE_PREFIX = 'document';
+const WORKING_COPY_PRESERVED_EXTENSIONS = [
+    '.pdf',
+    '.djvu',
+    '.djv',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.tif',
+    '.tiff',
+    '.bmp',
+    '.webp',
+    '.gif',
+] as const;
+
+function getWorkingCopyFileName(fileName: string, ensurePdfExtension = false) {
+    const lowerName = fileName.toLowerCase();
+    const extension = WORKING_COPY_PRESERVED_EXTENSIONS.find(candidate => lowerName.endsWith(candidate))
+        ?? (ensurePdfExtension ? '.pdf' : '');
+    return `${WORKING_COPY_FILE_PREFIX}${extension}`;
+}
+
 interface IWorkingCopyPhaseTiming {
     durationMs: number;
     phase: string;
@@ -148,8 +170,7 @@ async function createWorkingCopyWithOutcomeInternal(
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
     try {
-        const fileName = basename(originalPath);
-        const workingPath = join(workDir, fileName);
+        const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
         const materializationMode = getWorkingCopyMaterializationMode();
         let admissionSnapshot: Awaited<ReturnType<typeof captureWorkingCopyAdmissionSnapshot>> | undefined;
@@ -298,11 +319,7 @@ export async function createWorkingCopyFromPath(
 
     const workDir = createWorkingDirectory();
     try {
-        const fileName = basename(sourcePath);
-        const normalizedName = fileName.toLowerCase().endsWith('.pdf')
-            ? fileName
-            : `${fileName}.pdf`;
-        const workingPath = join(workDir, normalizedName);
+        const workingPath = join(workDir, getWorkingCopyFileName(basename(sourcePath), true));
 
         await copyFileCopyOnWrite(sourcePath, workingPath);
         if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
@@ -363,11 +380,7 @@ export async function createWorkingCopyFromData(
 
     const workDir = createWorkingDirectory();
     try {
-        const baseName = basename(fileName);
-        const normalizedName = baseName.toLowerCase().endsWith('.pdf')
-            ? baseName
-            : `${baseName}.pdf`;
-        const workingPath = join(workDir, normalizedName);
+        const workingPath = join(workDir, getWorkingCopyFileName(basename(fileName), true));
 
         await writeFile(workingPath, data);
         if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {

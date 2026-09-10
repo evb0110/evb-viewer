@@ -10,6 +10,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     renameSync,
     readFileSync,
     realpathSync,
@@ -108,6 +109,34 @@ describe('workingCopy', () => {
             vi.doUnmock('@electron/file-access/workingCopyDecryption');
             vi.resetModules();
         }
+    });
+
+    it('bounds internal names for near-limit multibyte source filenames', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
+        const {
+            createWorkingCopy,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {getWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {getWorkingCopyRevisionSidecarPath} = await import('@electron/file-access/documentRevisionSidecar');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const sourceName = `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`;
+        const originalPath = join(tempRoot, sourceName);
+        const originalBytes = Buffer.from('%PDF-1.7\nlong source fixture\n');
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 17);
+        const workingDirectoryEntries = readdirSync(dirname(workingPath));
+
+        expect(readFileSync(workingPath)).toEqual(originalBytes);
+        expect(getWorkingCopyOriginalPath(workingPath, 17)?.originalPath).toBe(realpathSync.native(originalPath));
+        expect(basename(workingPath)).toBe('document.pdf');
+        expect(Buffer.byteLength(basename(workingPath), 'utf8')).toBeLessThan(100);
+        expect(existsSync(getWorkingCopyRevisionSidecarPath(workingPath))).toBe(true);
+        expect(workingDirectoryEntries.every(entry => Buffer.byteLength(entry, 'utf8') <= 255)).toBe(true);
+        expect(existsSync(originalPath)).toBe(true);
     });
 
     it('rejects invalid passwords at the main-process working-copy boundary', async () => {
