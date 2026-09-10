@@ -201,6 +201,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     let pendingPagesToInvalidate: number[] | null = null;
     let isLoadFromSourceActive = false;
     let viewerResidencyState: TViewerResidencyState = options.isActive?.value === false ? 'warm' : 'active';
+    let residencyTransitionGeneration = 0;
     let pendingRangeReadFailure: {
         version: number;
         receipt: FailureReceipt;
@@ -1001,8 +1002,19 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         });
     }
 
-    function cleanupInactiveDocumentCaches() {
-        const document = pdfDocument.value;
+    function cleanupInactiveDocumentCaches(
+        document: IPdfDocument | null,
+        transitionGeneration: number,
+    ) {
+        if (
+            document === null
+            || document !== pdfDocument.value
+            || transitionGeneration !== residencyTransitionGeneration
+            || options.isActive?.value !== false
+            || options.isAnySaving?.value === true
+        ) {
+            return;
+        }
         const decision = resolvePdfViewerResidencyDecision({
             isActive: false,
             isAnySaving: options.isAnySaving?.value === true,
@@ -1016,7 +1028,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
         void Promise.resolve(document.cleanup())
             .then(() => {
-                if (options.isActive?.value === false) {
+                if (
+                    document === pdfDocument.value
+                    && transitionGeneration === residencyTransitionGeneration
+                    && options.isActive?.value === false
+                    && options.isAnySaving?.value !== true
+                ) {
                     viewerResidencyState = resolvePostReclaimResidencyState(viewerResidencyState);
                 }
             })
@@ -1114,14 +1131,18 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     });
 
     watch(() => options.isActive?.value ?? true, (active) => {
+        const transitionGeneration = ++residencyTransitionGeneration;
         if (!active) {
+            const document = pdfDocument.value;
             viewerResidencyState = 'warm';
-            runGuardedTask(() => enqueueLifecycleOperation(() => invalidate('deactivated')), {
+            runGuardedTask(() => enqueueLifecycleOperation(async () => {
+                await invalidate('deactivated');
+                cleanupInactiveDocumentCaches(document, transitionGeneration);
+            }), {
                 category: 'user-visible-operation',
                 scope: 'pdf-viewer',
                 message: 'Failed to deactivate PDF document session',
             });
-            cleanupInactiveDocumentCaches();
             return;
         }
         viewerResidencyState = 'active';
