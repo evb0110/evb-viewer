@@ -1926,7 +1926,8 @@ export async function acquireHeavyGate({
                     retain = false,
                 } = {}) => {
                     if (retain || ownedPids.some(pid => isPidAlive(pid)) || ownedGroupIds.some(pid => isProcessGroupAlive(pid))) {
-                        await writeFile(holderPath, JSON.stringify({
+                        const retainedHolderPath = `${holderPath}.retained-${randomUUID()}`;
+                        await writeFile(retainedHolderPath, JSON.stringify({
                             acquiredAt: new Date().toISOString(),
                             id,
                             ownedGroupIds,
@@ -1936,6 +1937,12 @@ export async function acquireHeavyGate({
                             retained: true,
                             weight: heldWeight,
                         }), 'utf8');
+                        try {
+                            await rename(retainedHolderPath, holderPath);
+                        } catch (error) {
+                            await unlink(retainedHolderPath).catch(() => undefined);
+                            throw error;
+                        }
                         return;
                     }
                     await unlink(holderPath).catch(() => undefined);
