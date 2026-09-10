@@ -158,7 +158,6 @@ export const usePdfTextLayerRenderer = (deps: {
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
         pageIndex: TPageIndex,
-        viewport?: IPdfViewport,
     ): readonly IOcrWord[] {
         if (!currentMatchValue || currentMatchValue.pageIndex !== pageIndex) {
             return [];
@@ -266,6 +265,7 @@ export const usePdfTextLayerRenderer = (deps: {
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
         pageIndex: TPageIndex,
+        viewport?: IPdfViewport,
     ) {
         clearWordBoxes(container);
 
