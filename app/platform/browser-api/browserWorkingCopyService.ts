@@ -262,18 +262,19 @@ export async function openDocumentPaths(
             mimeType: 'application/pdf',
             saveKind: 'pdf',
             kind: 'source',
-            retention: 'transient',
+            retention: 'durable',
         },
     ).catch(async () => browserDocumentStore.registerFile(
         new File([combinedPdf], generatedName, {type: 'application/pdf'}),
         {
             kind: 'source',
-            retention: 'transient',
+            retention: 'durable',
             saveKind: 'pdf',
         },
     ));
     const workingPath =
         await browserDocumentStore.cloneAsWorkingCopy(originalPath);
+    await touchRecentFileForOpen(originalPath);
     browserDocumentStore.unload(originalPath);
 
     return {

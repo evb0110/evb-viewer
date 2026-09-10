@@ -804,7 +804,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         ]});
     });
 
-    it.skip('converts DjVu files before combining mixed browser batches', async () => {
+    it('converts DjVu files before combining mixed browser batches', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
         const pdfBytes = await createPdfBytes();
@@ -831,6 +831,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 pdfPath: outputPath,
             };
         });
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        const combinedDocument = await PDFDocument.create();
+        combinedDocument.addPage();
+        combinedDocument.addPage();
+        browserPdfCombineWorkerMock.run.mockResolvedValue({
+            data: new Uint8Array(await combinedDocument.save()),
+        });
 
         const result = await createCombinedPdfFromPaths([
             pdfRef,
@@ -845,7 +852,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             expect.objectContaining({
                 pdfStrategy: 'compact-djvu-aware',
                 subsample: 2,
-                preserveBookmarks: false,
+                preserveBookmarks: true,
                 jobId: expect.stringMatching(/^browser-pdf-combine-djvu-/u),
             }),
         );
@@ -1009,7 +1016,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
     });
 
-    it.skip('does not add direct-batch PDF or DjVu sources to recents when opening a generated PDF', async () => {
+    it('publishes only the generated PDF to recents when opening a direct-batch PDF and DjVu', async () => {
         const {
             capability,
             browserDocumentStore,
@@ -1033,6 +1040,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             await browserDocumentStore.write(outputRef, pdfBytes);
             return {success: true};
         });
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: pdfBytes});
 
         const result = await capability.openDocumentDirectBatch([
             pdfRef,
@@ -1043,7 +1052,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             kind: 'pdf',
             isGenerated: true,
         }));
-        await expect(capability.recentFiles.get()).resolves.toEqual([]);
+        await expect(capability.recentFiles.get()).resolves.toEqual([
+            expect.objectContaining({
+                originalPath: result!.originalPath,
+                fileName: expect.stringMatching(/^combined-\d+\.pdf$/u),
+            }),
+        ]);
     });
 
     it('keeps recent entries when direct browser handle reopen is denied', async () => {
