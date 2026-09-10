@@ -82,6 +82,7 @@ const electronE2EBlockingSmokeTestFiles = [
     'tests/e2e/electron/annotationTextInteraction.e2e.test.ts',
     'tests/e2e/electron/annotationControls.e2e.test.ts',
     'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
+    'tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts',
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
     'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
 ];
