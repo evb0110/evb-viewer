@@ -240,7 +240,30 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
-        run: gh release edit "$RELEASE_TAG" --draft=false
+        run: |
+          set -euo pipefail
+          promotion_error="$RUNNER_TEMP/release-promotion-error.txt"
+          if gh release edit "$RELEASE_TAG" --draft=false 2> "$promotion_error"; then
+            exit 0
+          fi
+
+          # GitHub can commit the promotion and lose the response. Read its
+          # authoritative state before reporting failure so a retry cannot
+          # mistake a public release for an unsuccessful promotion.
+          release_state_error="$RUNNER_TEMP/release-promotion-state-error.txt"
+          if release_json="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish 2> "$release_state_error")"; then
+            if [ "$(jq -r '.isDraft' <<< "$release_json")" = 'false' ]; then
+              echo "::notice::GitHub promotion response was lost, but $RELEASE_TAG is public at $(jq -r '.targetCommitish' <<< "$release_json")."
+              exit 0
+            fi
+            echo "::error::GitHub promotion did not complete; release $RELEASE_TAG remains a draft."
+            printf '%s\n' "$release_json"
+          else
+            echo "::error::GitHub promotion outcome is unresolved; authoritative release state could not be read."
+            cat "$release_state_error"
+          fi
+          cat "$promotion_error"
+          exit 1
 
       - name: Assert drill release remains a draft
         if: ${{ inputs.drill }}
