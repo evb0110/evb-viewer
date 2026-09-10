@@ -1,5 +1,17 @@
 # Hidden Electron automation
 
+## Development target
+
+For feature debugging or UI acceptance, use the running Electron dev app from
+the current checkout. Identify it through the current
+`.devkit/sessions/<session>/session.json`, then attach to that session's exact
+Electron PID, profile, and CDP port. A generic `Electron` app-name match is not
+enough because packaged and stale automation apps can use the same identity.
+
+`/Applications/EVB Viewer.app` is the installed packaged app, not the default
+development target. Use it only when the task explicitly covers packaged or
+release behavior. Keep that scope separate from source and dev-app acceptance.
+
 On the user's Mac, all agent-owned Electron runs must start without a window,
 focus change, or Dock icon. This includes packaged smoke tests and ad hoc CDP
 probes. `app.dock.hide()` and `app.setActivationPolicy('accessory')` run after
