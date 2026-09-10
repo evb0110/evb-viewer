@@ -44,6 +44,7 @@ pub struct CompressedPng {
     /// Concatenated original IDAT bytes; never decoded or re-encoded.
     pub idat: Vec<u8>,
     pub icc_profile: Option<Vec<u8>>,
+    pub transparency: Option<PngTransparencyKey>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PngDensity {
@@ -57,6 +58,13 @@ pub struct PngMetadata {
     pub color_type: PngColorType,
     pub density: Option<PngDensity>,
     pub icc_profile: Option<Vec<u8>>,
+    pub transparency: Option<PngTransparencyKey>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PngTransparencyKey {
+    Gray(u8),
+    Rgb([u8; 3]),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodedRaster {
@@ -117,6 +125,7 @@ pub fn read_png_passthrough<R: Read>(
         density: parsed.density,
         idat: parsed.idat,
         icc_profile: parsed.icc_profile,
+        transparency: parsed.transparency,
     })
 }
 pub fn read_png_metadata<R: Read>(
@@ -130,6 +139,7 @@ pub fn read_png_metadata<R: Read>(
         color_type: parsed.header.color_type,
         density: parsed.density,
         icc_profile: parsed.icc_profile,
+        transparency: parsed.transparency,
     })
 }
 pub fn read_png_dimensions<R: Read>(
@@ -142,11 +152,18 @@ pub fn read_png_dimensions<R: Read>(
 pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedRaster, RasterError> {
     let pixels = PngPixels::read(reader, limits)?;
     let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
+    let transparency = pixels.transparency;
     let mut gray = GrayImage::new(width, height, 255);
     let mut rgb = RgbImage::new(width, height, [255; 3]);
     pixels.for_each_row(|y, row| {
         let rgb_row = &mut rgb.data_mut()[y * width * 3..(y + 1) * width * 3];
-        write_png_row(gray.row_mut(y), Some(rgb_row), row, color_type);
+        write_png_row(
+            gray.row_mut(y),
+            Some(rgb_row),
+            row,
+            color_type,
+            transparency,
+        );
     })?;
     Ok(DecodedRaster { gray, rgb })
 }
@@ -155,8 +172,11 @@ pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedRas
 pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayImage, RasterError> {
     let pixels = PngPixels::read(reader, limits)?;
     let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
+    let transparency = pixels.transparency;
     let mut gray = GrayImage::new(width, height, 255);
-    pixels.for_each_row(|y, row| write_png_row(gray.row_mut(y), None, row, color_type))?;
+    pixels.for_each_row(|y, row| {
+        write_png_row(gray.row_mut(y), None, row, color_type, transparency)
+    })?;
     Ok(gray)
 }
 
@@ -168,10 +188,11 @@ pub fn decode_png_composited_rgb<R: Read>(
 ) -> Result<RgbImage, RasterError> {
     let pixels = PngPixels::read(reader, limits)?;
     let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
+    let transparency = pixels.transparency;
     let mut rgb = RgbImage::new(width, height, [255; 3]);
     pixels.for_each_row(|y, row| {
         let rgb_row = &mut rgb.data_mut()[y * width * 3..(y + 1) * width * 3];
-        write_composited_rgb_row(rgb_row, row, color_type);
+        write_composited_rgb_row(rgb_row, row, color_type, transparency);
     })?;
     Ok(rgb)
 }
@@ -184,6 +205,7 @@ struct PngPixels {
     color_type: PngColorType,
     row_bytes: usize,
     filtered: Vec<u8>,
+    transparency: Option<PngTransparencyKey>,
 }
 impl PngPixels {
     fn read<R: Read>(reader: R, limits: DecodeLimits) -> Result<Self, RasterError> {
@@ -209,6 +231,7 @@ impl PngPixels {
             color_type: header.color_type,
             row_bytes,
             filtered,
+            transparency: parsed.transparency,
         })
     }
 
@@ -234,16 +257,30 @@ fn write_png_row(
     rgb_row: Option<&mut [u8]>,
     source: &[u8],
     color_type: PngColorType,
+    transparency: Option<PngTransparencyKey>,
 ) {
     let channels = color_type.channels();
     match color_type {
         PngColorType::Gray8 | PngColorType::GrayAlpha8 => {
             for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
-                *target = pixel[0];
+                *target = if transparency == Some(PngTransparencyKey::Gray(pixel[0])) {
+                    255
+                } else {
+                    pixel[0]
+                };
             }
             if let Some(rgb_row) = rgb_row {
-                for (target, value) in rgb_row.chunks_exact_mut(3).zip(gray_row.iter().copied()) {
-                    target.fill(value);
+                for (target, pixel) in rgb_row
+                    .chunks_exact_mut(3)
+                    .zip(source.chunks_exact(channels))
+                {
+                    target.fill(
+                        if transparency == Some(PngTransparencyKey::Gray(pixel[0])) {
+                            255
+                        } else {
+                            pixel[0]
+                        },
+                    );
                 }
             }
         }
@@ -256,7 +293,12 @@ fn write_png_row(
                     .chunks_exact_mut(3)
                     .zip(source.chunks_exact(channels))
                 {
-                    target.copy_from_slice(&pixel[..3]);
+                    if transparency == Some(PngTransparencyKey::Rgb([pixel[0], pixel[1], pixel[2]]))
+                    {
+                        target.fill(255);
+                    } else {
+                        target.copy_from_slice(&pixel[..3]);
+                    }
                 }
             }
         }
@@ -267,11 +309,20 @@ fn composite_channel(value: u8, alpha: u8) -> u8 {
     ((u32::from(value) * u32::from(alpha) + 255 * u32::from(255 - alpha) + 127) / 255) as u8
 }
 
-fn write_composited_rgb_row(target: &mut [u8], source: &[u8], color_type: PngColorType) {
+fn write_composited_rgb_row(
+    target: &mut [u8],
+    source: &[u8],
+    color_type: PngColorType,
+    transparency: Option<PngTransparencyKey>,
+) {
     match color_type {
         PngColorType::Gray8 => {
             for (pixel, value) in target.chunks_exact_mut(3).zip(source.iter().copied()) {
-                pixel.fill(value);
+                pixel.fill(if transparency == Some(PngTransparencyKey::Gray(value)) {
+                    255
+                } else {
+                    value
+                });
             }
         }
         PngColorType::GrayAlpha8 => {
@@ -280,7 +331,19 @@ fn write_composited_rgb_row(target: &mut [u8], source: &[u8], color_type: PngCol
             }
         }
         PngColorType::Rgb8 => {
-            target.copy_from_slice(source);
+            for (pixel, source_pixel) in target.chunks_exact_mut(3).zip(source.chunks_exact(3)) {
+                if transparency
+                    == Some(PngTransparencyKey::Rgb([
+                        source_pixel[0],
+                        source_pixel[1],
+                        source_pixel[2],
+                    ]))
+                {
+                    pixel.fill(255);
+                } else {
+                    pixel.copy_from_slice(source_pixel);
+                }
+            }
         }
         PngColorType::Rgba8 => {
             for (pixel, source_pixel) in target.chunks_exact_mut(3).zip(source.chunks_exact(4)) {
@@ -758,6 +821,7 @@ struct WalkedPng {
     density: Option<PngDensity>,
     idat: Vec<u8>,
     icc_profile: Option<Vec<u8>>,
+    transparency: Option<PngTransparencyKey>,
 }
 fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, RasterError> {
     let mut signature = [0u8; 8];
@@ -770,6 +834,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
     let mut idat = Vec::new();
     let mut idat_len = 0usize;
     let mut icc_profile = None;
+    let mut transparency = None;
     loop {
         let mut chunk_header = [0u8; 8];
         reader.read_exact(&mut chunk_header)?;
@@ -813,6 +878,27 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 let mut data = vec![0; length];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
                 icc_profile = Some(decode_icc_profile(&data, max_icc_profile_bytes)?);
+            }
+            b"tRNS" => {
+                let parsed_header =
+                    header.ok_or_else(|| RasterError::invalid("PNG tRNS appeared before IHDR"))?;
+                if idat_len != 0 {
+                    return Err(RasterError::invalid("PNG tRNS appeared after IDAT"));
+                }
+                if transparency.is_some() {
+                    return Err(RasterError::invalid("Duplicate PNG tRNS chunk"));
+                }
+                let expected_length = match parsed_header.color_type {
+                    PngColorType::Gray8 => 2,
+                    PngColorType::Rgb8 => 6,
+                    PngColorType::GrayAlpha8 | PngColorType::Rgba8 => 0,
+                };
+                if length != expected_length {
+                    return Err(RasterError::invalid("Invalid PNG tRNS length"));
+                }
+                let mut data = vec![0; length];
+                read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
+                transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
             }
             b"IDAT" => {
                 let parsed_header =
@@ -870,6 +956,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                     density: None,
                     idat,
                     icc_profile: None,
+                    transparency: None,
                 });
             }
         }
@@ -883,8 +970,32 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 density,
                 idat,
                 icc_profile,
+                transparency,
             });
         }
+    }
+}
+
+fn parse_transparency_key(
+    color_type: PngColorType,
+    data: &[u8],
+) -> Result<PngTransparencyKey, RasterError> {
+    match color_type {
+        PngColorType::Gray8 => {
+            if data.len() != 2 || data[0] != 0 {
+                return Err(RasterError::invalid("Invalid PNG grayscale tRNS key"));
+            }
+            Ok(PngTransparencyKey::Gray(data[1]))
+        }
+        PngColorType::Rgb8 => {
+            if data.len() != 6 || data.chunks_exact(2).any(|sample| sample[0] != 0) {
+                return Err(RasterError::invalid("Invalid PNG RGB tRNS key"));
+            }
+            Ok(PngTransparencyKey::Rgb([data[1], data[3], data[5]]))
+        }
+        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => Err(RasterError::invalid(
+            "PNG tRNS is not valid for alpha color types",
+        )),
     }
 }
 fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterError> {
