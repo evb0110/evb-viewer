@@ -1,6 +1,8 @@
 use super::*;
 use serde::de::{self, MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     process::{Command, Stdio},
     thread,
@@ -17,6 +19,8 @@ const MAX_QPDF_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
 const QPDF_STRUCTURE_TIMEOUT: Duration = Duration::from_secs(110);
 const QPDF_STALE_FILE_AGE: Duration = Duration::from_secs(10 * 60);
 const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
+#[cfg(test)]
+static TEST_QPDF_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // Keep this argument set compatible with the oldest qpdf shipped by the
 // supported Linux packaging image. qpdf 10 rejects the newer
 // --decode-level/--json-stream-data options; the JSON object section already
@@ -994,8 +998,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let input_path = std::env::temp_dir().join(format!("evb-qpdf-status-input-{nonce}.pdf"));
-        let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-status-command-{nonce}"));
+        let sequence = TEST_QPDF_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let stem = format!("evb-qpdf-status-{}-{nonce}-{sequence}", std::process::id());
+        let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
+        let qpdf_path = std::env::temp_dir().join(format!("{stem}-command"));
 
         let mut input = Document::with_version("1.4");
         let catalog_id = input.add_object(dictionary! { "Type" => "Catalog" });
