@@ -240,11 +240,11 @@ function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | nu
 }
 
 export function isPdfPath(filePath: string) {
-    return extname(filePath).toLowerCase() === '.pdf';
+    return extname(filePath.trimEnd()).toLowerCase() === '.pdf';
 }
 
 export function isDjvuPath(filePath: string) {
-    const extension = extname(filePath).toLowerCase();
+    const extension = extname(filePath.trimEnd()).toLowerCase();
     return extension === '.djvu' || extension === '.djv';
 }
 
