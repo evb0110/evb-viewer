@@ -1,0 +1,19 @@
+tests/helpers/createPlatformApiFixture.ts
+  s_cb5a5aab846329::t_f2af61e16e264d 118-121,123-125,138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "447739c1129fd4c3fc0df4bcb8649506f8d6d2d4",
+  "prompts": {},
+  "sessions": {
+    "s_cb5a5aab846329": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b3b-617a-75a2-b815-35710df84339",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
