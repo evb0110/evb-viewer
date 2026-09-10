@@ -2242,7 +2242,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForViewerInteractive(page);
         await waitForSidebarAnnotationCount(page, 3);
         await waitForSidebarAnnotationText(page, 'Reachable lifecycle note');
-        await waitForSidebarAnnotationText(page, 'text to be deleted');
+        await waitForSidebarAnnotationText(page, 'Reachable text box one');
         await waitForSidebarAnnotationText(page, 'Reachable text box two');
 
         const linkFixturePath = await createLinkOnlyFixturePdf(

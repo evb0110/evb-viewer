@@ -2,6 +2,7 @@
 
 import {
     PDFDocument,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFString,
@@ -34,7 +35,7 @@ async function createAnnotatedFixture() {
             PDFNumber.of(40),
             PDFNumber.of(40),
         ],
-        Contents: PDFString.of('before'),
+        Contents: PDFHexString.fromText('до Привет café'),
         T: PDFString.of('Browser acceptance'),
         NM: PDFString.of('browser-acceptance-note'),
         M: PDFString.of('D:20260101000000Z'),
@@ -87,7 +88,7 @@ async function runUnderCapFlow() {
                 updates: [{
                     objectNumber: note.objectNumber,
                     generationNumber: note.generationNumber,
-                    text: 'after',
+                    text: 'после Привет café',
                 }],
                 geometryUpdates: [{
                     objectNumber: note.objectNumber,
@@ -121,9 +122,9 @@ async function runUnderCapFlow() {
         const parsedAfter = await capability.parsePdfAnnotations(workingPath, {expectedDocumentRevisionToken: reopenedRevision.token});
         const reopenedNote = parsedAfter.entities.find(entity => entity.kind === 'note');
         return {
-            openedWithAnnotations: note.contents === 'before',
+            openedWithAnnotations: note.contents === 'до Привет café',
             canonicalWriterVerified: committed.nativeMutationPostconditionsVerified,
-            savedAndReopened: reopenedNote?.contents === 'after'
+            savedAndReopened: reopenedNote?.contents === 'после Привет café'
                 && reopenedNote.color === '#00aaff'
                 && reopenedNote.open === true,
         };
