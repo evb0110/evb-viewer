@@ -1,0 +1,23 @@
+app/platform/browser-api/browserSearch.worker.ts
+  s_2a4578b974931e::t_411c81fdf6c67f 61-65
+tests/unit/app/platform/browserSearchWorker.test.ts
+  s_2a4578b974931e::t_411c81fdf6c67f 108-156
+app/platform/browser-api/loadBrowserPdfjsDocument.ts
+  s_2a4578b974931e::t_411c81fdf6c67f 34-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "71a8e328d78198dba413f63c46b2d0e4b2dccb56",
+  "prompts": {},
+  "sessions": {
+    "s_2a4578b974931e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c2c-e616-7d61-b53a-4ea30cc85a02",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

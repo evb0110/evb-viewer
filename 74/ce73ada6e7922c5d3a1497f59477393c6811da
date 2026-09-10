@@ -1,0 +1,32 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts
+  s_b315db4cb886fa::t_e6a5561d61a9cd 4,161,320,970,1006
+tests/unit/app/composables/pdfWordBoxGeometry.test.ts
+  s_b315db4cb886fa::t_bcd418dfaf3d2d 94,113-132
+  s_b315db4cb886fa::t_e6a5561d61a9cd 89-93,95-112,133
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController.ts
+  s_b315db4cb886fa::t_e6a5561d61a9cd 249
+app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport.ts
+  s_b315db4cb886fa::t_bcd418dfaf3d2d 32-35
+  s_b315db4cb886fa::t_18923af455257f 28-30
+app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays.ts
+  s_b315db4cb886fa::t_bcd418dfaf3d2d 23-29,36-37
+  s_b315db4cb886fa::t_e6a5561d61a9cd 3,6,16,32-35,38-49
+app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes.ts
+  s_b315db4cb886fa::t_e6a5561d61a9cd 16-17,30,39-41,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "74ce73ada6e7922c5d3a1497f59477393c6811da",
+  "prompts": {},
+  "sessions": {
+    "s_b315db4cb886fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c05-672e-7b63-8367-7ab32d306748",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
