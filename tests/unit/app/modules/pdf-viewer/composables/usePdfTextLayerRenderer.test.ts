@@ -201,6 +201,10 @@ describe('usePdfTextLayerRenderer', () => {
         const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getStructTree: vi.fn(async () => ({role: 'Document'})),
+            getTextContent: vi.fn(async () => ({items: [{
+                str: 'Heading',
+                hasEOL: false,
+            }]})),
             streamTextContent: vi.fn(() => ({items: [{
                 str: 'Heading',
                 hasEOL: false,
@@ -244,6 +248,10 @@ describe('usePdfTextLayerRenderer', () => {
         const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getStructTree: vi.fn(async () => null),
+            getTextContent: vi.fn(async () => ({items: [{
+                str: 'Readable text',
+                hasEOL: false,
+            }]})),
             streamTextContent: vi.fn(() => ({items: [{
                 str: 'Readable text',
                 hasEOL: false,
