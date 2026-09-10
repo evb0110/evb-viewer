@@ -8,6 +8,8 @@ import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides
 import {
     resolveEffectiveScanCleanupOptions,
     resolveScanCleanupCanvasPageDpi,
+    resolveScanCleanupDocumentGuardrail,
+    resolveScanCleanupPlannedDpi,
     resolveScanCleanupRequestedRenderDpi,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 
@@ -88,6 +90,41 @@ describe('effective scan cleanup options', () => {
 
         expect(resolveScanCleanupCanvasPageDpi(input)).toBe(360);
         expect(resolveScanCleanupCanvasPageDpi({...input})).toBe(360);
+    });
+
+    it('budgets uniform renders from physical page geometry, including rotated anisotropic sources', () => {
+        const guardrail = resolveScanCleanupDocumentGuardrail(
+            {
+                dpi: 600,
+                width: 9_600,
+                height: 4_800,
+            },
+            600,
+            {
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 1_152,
+                heightPoints: 1_152,
+                rotation: 90,
+            },
+        );
+
+        expect(guardrail).toEqual({
+            dpi: 72,
+            width: 1_152,
+            height: 1_152,
+        });
+        expect(resolveScanCleanupPlannedDpi({
+            sourceDpi: 600,
+            outputCarriesBinaryLayer: true,
+            sourceRasterDetected: true,
+            maxPixels: 60_000_000,
+            guardrail,
+        })).toMatchObject({
+            requestedRenderDpi: 600,
+            dpi: 484,
+        });
     });
 
     it('reuses only non-destructive observed layout labels while preserving explicit page choices', () => {

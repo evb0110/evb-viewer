@@ -231,27 +231,21 @@ function resolveSafeRenderDpi(
 }
 
 /**
- * The pixel guardrail a page can be planned against without rendering it: the
- * raster row pdfimages reported, or the page's own paper turned the way it is
- * displayed, which is what a size probe would have measured. A page outside a
- * run's scope is planned from this, so the document's pixel grid is the same
- * whether or not that page was one of the pages cleaned.
+ * The pixel guardrail a page can be planned against without rendering it. The
+ * physical CropBox is authoritative because the render request uses one scalar
+ * DPI for both axes. Source-raster dimensions remain quality evidence, but an
+ * anisotropic source image cannot describe the dimensions of that uniform
+ * render. A page outside a run's scope is planned from this, so the document's
+ * pixel grid is the same whether or not that page was one of the pages cleaned.
  */
 export function resolveScanCleanupDocumentGuardrail(
-    detected: {
+    _detected: {
         width: number;
         height: number
     } | undefined,
-    sourceDpi: number | undefined,
+    _sourceDpi: number | undefined,
     pageSize: IPdfPageSize | undefined,
 ) {
-    if (detected !== undefined && sourceDpi !== undefined) {
-        return {
-            dpi: sourceDpi,
-            width: detected.width,
-            height: detected.height,
-        };
-    }
     if (pageSize === undefined) {
         return undefined;
     }
