@@ -1,0 +1,37 @@
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_dbed9be90ea49f::t_5dbbef33b84175 92,259,264,325-330,335,351-357
+  s_dbed9be90ea49f::t_1c3bfac58c5f18 86-91,260-263,265-304,311-324,331-334,336-341,347-350,358-363,369-378
+  s_dbed9be90ea49f::t_13235343965ddc 305-310
+  s_dbed9be90ea49f::t_efce1b9289cd54 342-346,364-368
+  s_dbed9be90ea49f::t_6d6c9dfb9e7561 614
+  s_dbed9be90ea49f::t_55293b31695e19 646-658
+  s_dbed9be90ea49f::t_f76248fdcad33e 379
+  s_dbed9be90ea49f::t_789ea046ab4923 659
+tests/unit/electron/scanCleanupService.test.ts
+  s_dbed9be90ea49f::t_18a8d16cda4f40 41,301-304
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_dbed9be90ea49f::t_328f81ef17b986 45,473
+electron/features/scan-cleanup/detectionResultStoreRegistry.ts
+  s_dbed9be90ea49f::t_328f81ef17b986 10,53,61
+packages/contracts/scan-cleanup/detectionSignature.ts
+  s_dbed9be90ea49f::t_328f81ef17b986 1-51
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_dbed9be90ea49f::t_ecfe29700a5e3d 569
+  s_dbed9be90ea49f::t_2d50c7e87d4969 600-602,631-633
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5ada7d32c747435eae0ebf1d8c2ef045e07b95e1",
+  "prompts": {},
+  "sessions": {
+    "s_dbed9be90ea49f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088cb-46d0-7c41-84f7-781c76b63679",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
