@@ -456,6 +456,7 @@ export async function buildResolvedOutline(
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
     createId: TCreateBookmarkId,
+    options: { resolveDestinations?: boolean } = {},
 ): Promise<IBookmarkItem[]> {
     const root: IBookmarkItem[] = [];
     const stack: Array<{
@@ -483,12 +484,14 @@ export async function buildResolvedOutline(
         if (!frame) {
             break;
         }
-        const destinationTarget = await resolveDestinationTarget(
-            pdfDocument,
-            frame.item.dest,
-            destinationCache,
-            refIndexCache,
-        );
+        const destinationTarget = options.resolveDestinations === false
+            ? null
+            : await resolveDestinationTarget(
+                pdfDocument,
+                frame.item.dest,
+                destinationCache,
+                refIndexCache,
+            );
         const children: IBookmarkItem[] = [];
         const resolvedPageIndex = destinationTarget?.pageIndex ?? null;
         const pageIndex = resolvedPageIndex === null
