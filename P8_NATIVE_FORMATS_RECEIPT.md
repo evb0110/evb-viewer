@@ -11,6 +11,7 @@
 - Source fix commit: `175ad3a539c17f97d25af4aeeff5e087ee597b3b`.
 - Source follow-up commits: `506d45706` preserves exact paths in revision sidecars; `a4e5a01b8` preserves exact native paths through open/save routing and working-copy creation. Receipt/report commits are not intended for main integration.
 - Source follow-up commit: `a7bf93db5` preserves trailing whitespace in native format classification and renderer file-open grants. Focused tests pass, but the fresh hidden runtime still rejects the literal trailing-space PDF before completion, so the deeper path normalization boundary remains open.
+- Source follow-up commit: `0356ee6df` preserves the recognized PDF suffix when naming a working copy from a whitespace-terminated POSIX filename. The fresh runtime still rejects the fixture before adoption, so this remains a necessary boundary fix rather than a completed acceptance.
 
 ## Verification
 
@@ -39,6 +40,8 @@
 - Hidden macOS Electron native page-ops insertion through the real `pageOps.insertFile` IPC and automation file grant accepted the transparent PNG and produced a qpdf-valid two-page working copy. The renderer automation snapshot remained at one page after the direct native mutation, so renderer state synchronization is handed to owner `03fb9179`, not changed here.
 - Existing selected-format/rollback export coverage: 6 Electron unit files and 149 tests passed (`imageExportIpc`, image export, DjVu export paths/PDF export/compact export, and page-ops IPC handlers). Native dialog interception is not available in the hidden package, so no false claim is made for a native picker dialog journey.
 - Fresh hidden Electron retry after `a7bf93db5`: the automation grant succeeds, but direct open of `report.pdf ` still returns `Invalid or non-existent file`; the exact ordinary `report exact.pdf` flow remains the qualified #519 result. This points to a further native path normalization or source-selection boundary, not the suffix classifier alone.
+- Fresh hidden Electron retry after `0356ee6df`, with the ordinary sibling temporarily moved aside: the automation grant returned `true`, but direct open of `.devkit/analysis/p8-e17-20260911/report.pdf ` still returned `Invalid or non-existent file`. The sibling was restored. This is durable evidence of a deeper native IPC/path-admission boundary.
+- Process reconciliation: reported Nuxt PIDs 93230/93232, sass 93193, and esbuild 93213 belonged to the task-owned orphaned `p8-e20` Nuxt parent started at 02:43:57. That task-owned tree was stopped. Other workers' checkout processes were observed and left untouched.
 
 ## Issue dispositions
 
@@ -61,7 +64,7 @@
 - #517 LEGACY-E12: already landed in `1fb345c9e`. Existing long multibyte filename coverage is present; the focused unit checks passed. Full native open/edit/save/reopen and packaged Windows acceptance remain open.
 - #558 LEGACY-E07-ACCEPTANCE: already qualified by `0250054e4`; source and test remain on current main. The configured Electron mixed-size runtime acceptance was not rerun.
 - #518 LEGACY-E16: negative POSIX decision recorded. Exact 65 MiB and 513 MiB valid fixtures completed three same-byte atomic-replacement cycles each; every replacement was rejected and unchanged witnesses passed within the 12,000 ms ceiling. POSIX uses sample-only capture, so automatic full-content approval is not safe. Windows cycles, cancellation gates, and full memory/read-volume instrumentation remain open.
-- #519 LEGACY-E17: exact ordinary POSIX path acceptance is qualified in hidden Electron. `report exact.pdf` opened, edited, saved, qpdf-validated, and reopened with the exact path retained. The supported suffix and renderer grant now preserve trailing whitespace in source, but fresh runtime open of `report.pdf ` still fails with `Invalid or non-existent file`; the deeper normalization boundary and full save/recovery collision matrix remain open.
+- #519 LEGACY-E17: exact ordinary POSIX path acceptance is qualified in hidden Electron. `report exact.pdf` opened, edited, saved, qpdf-validated, and reopened with the exact path retained. Source now preserves trailing whitespace in suffix classification, grants, and working-copy naming, but fresh runtime open of `report.pdf ` still fails with `Invalid or non-existent file`; the deeper native IPC/path-admission boundary and full save/recovery collision matrix remain open.
 
 - #361 IM-4: source-boundary reset is already landed in `01e2d0df6`; the native catalog code was not changed here.
 - #362 IM-5: unread-label preservation is already landed in `d57770025`; the compact-range reopen assertion still exposes a browser state representation gap, reported to the coordinator without independent browser edits.
@@ -70,4 +73,4 @@
 
 ## Gaps and processes
 
-The remaining gaps are browser caller/state handling for compact label representation, renderer refresh after direct image insertion, desktop image picker/drop UI injection, exact browser/native pixel parity, packaged OS checks, #518 Windows/cancellation instrumentation, literal trailing-space extension policy, the full #519 save/recovery collision matrix, selected-format/rollback native dialog journeys, and the headless page-insert dialog path in the compact-label journey. No Electron, native full-build, or other long-lived process was left running by this lane. No hosted CI, release, issue closure, or Project status change was performed.
+The remaining gaps are browser caller/state handling for compact label representation, renderer refresh after direct image insertion, desktop image picker/drop UI injection, exact browser/native pixel parity, packaged OS checks, #518 Windows/cancellation instrumentation, the deeper native IPC/path-admission boundary for literal trailing-space filenames, the full #519 save/recovery collision matrix, selected-format/rollback native dialog journeys, and the headless page-insert dialog path in the compact-label journey. No owned Electron process was left running by this lane. Other workers' processes were preserved. No hosted CI, release, issue closure, or Project status change was performed.
