@@ -18,7 +18,6 @@ import {
     rename,
     rm,
     unlink,
-    writeFile,
 } from 'node:fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -445,7 +444,7 @@ export async function handleReplaceWorkingCopyFromPath(
                 ]);
                 throw error;
             }
-            await writeFile(journalPath, JSON.stringify({
+            await writeFileAtomic(journalPath, Buffer.from(JSON.stringify({
                 version: 1,
                 transitionId,
                 state: 'prepared',
@@ -464,7 +463,7 @@ export async function handleReplaceWorkingCopyFromPath(
                     descriptorPath: stagedDescriptorPath,
                 } : {}),
                 createdAt: Date.now(),
-            }), 'utf8');
+            }), 'utf8'));
             let transitionPublished = false;
             try {
                 const transitionEvent = await transitionWorkingCopyContentRevision(
@@ -472,7 +471,7 @@ export async function handleReplaceWorkingCopyFromPath(
                     'ocr-apply',
                     async nextRevision => {
                         try {
-                            await writeFile(journalPath, JSON.stringify({
+                            await writeFileAtomic(journalPath, Buffer.from(JSON.stringify({
                                 version: 1,
                                 transitionId,
                                 state: 'prepared',
@@ -492,7 +491,7 @@ export async function handleReplaceWorkingCopyFromPath(
                                     descriptorPath: stagedDescriptorPath,
                                 } : {}),
                                 createdAt: Date.now(),
-                            }), 'utf8');
+                            }), 'utf8'));
                             await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
                             if (preparedDescriptor) {
                                 await publishPreparedOcrCatalog({
@@ -554,7 +553,7 @@ export async function handleReplaceWorkingCopyFromPath(
                     senderId,
                 );
                 transitionPublished = true;
-                await writeFile(journalPath, JSON.stringify({
+                await writeFileAtomic(journalPath, Buffer.from(JSON.stringify({
                     version: 1,
                     transitionId,
                     state: 'committed',
@@ -572,7 +571,7 @@ export async function handleReplaceWorkingCopyFromPath(
                         descriptorPath: stagedDescriptorPath,
                     } : {}),
                     committedAt: Date.now(),
-                }), 'utf8');
+                }), 'utf8'));
             } finally {
                 await Promise.all([
                     ...(transitionPublished ? [] : [unlink(pdfBackupPath).catch(() => undefined)]),

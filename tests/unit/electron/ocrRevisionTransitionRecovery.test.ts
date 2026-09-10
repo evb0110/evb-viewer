@@ -96,6 +96,7 @@ describe('OCR revision transition crash recovery', () => {
             .resolves.toBe('partially-applied-catalog');
         await expect(readFile(`${workingCopyPath}.ocr-transition.json`, 'utf8'))
             .resolves.toContain('"state":"committed"');
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(false);
         await expect(readFile(pdfBackupPath, 'utf8')).resolves.toBe('exact-before-pdf');
         await expect(readFile(join(catalogBackupPath, 'manifest.json'), 'utf8'))
             .resolves.toBe('exact-before-catalog');
