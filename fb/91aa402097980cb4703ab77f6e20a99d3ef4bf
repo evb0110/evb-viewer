@@ -1,0 +1,21 @@
+electron/workspaceCheckpointStore.ts
+  s_a8abcabcc76f4f::t_1e804de540a2ce 666
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_a8abcabcc76f4f::t_1e804de540a2ce 472-499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fb91aa402097980cb4703ab77f6e20a99d3ef4bf",
+  "prompts": {},
+  "sessions": {
+    "s_a8abcabcc76f4f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a54-183f-7f63-a110-63445e567537",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
