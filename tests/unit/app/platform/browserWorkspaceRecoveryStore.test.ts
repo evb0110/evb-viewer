@@ -232,6 +232,34 @@ describe('browserWorkspaceRecoveryStore', () => {
         }
     });
 
+    it('does not steal a journal whose heartbeat is ahead of the claimant clock', async () => {
+        const now = vi.spyOn(Date, 'now').mockReturnValue(2_000);
+        try {
+            await saveBrowserWorkspaceRecovery(
+                'window:clock-ahead',
+                0,
+                checkpoint,
+                [requireDocumentRef('browser://documents/recovery.pdf')],
+            );
+
+            now.mockReturnValue(1_000);
+            await expect(claimBrowserWorkspaceRecoveryOwner(
+                'window:clock-ahead',
+                'window:clock-skewed',
+                1,
+                1,
+            )).resolves.toEqual({
+                claimed: false,
+                generation: 1,
+            });
+            await expect(loadBrowserWorkspaceRecovery('window:clock-ahead'))
+                .resolves.toEqual(expect.objectContaining({ownerId: 'window:clock-ahead'}));
+            await expect(loadBrowserWorkspaceRecovery('window:clock-skewed')).resolves.toBeNull();
+        } finally {
+            now.mockRestore();
+        }
+    });
+
     it('decodes a legacy recovery record with updatedAt as its initial lease revision', async () => {
         await saveBrowserWorkspaceRecovery(
             'window:legacy',

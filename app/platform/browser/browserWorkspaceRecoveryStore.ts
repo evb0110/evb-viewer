@@ -291,8 +291,7 @@ export async function claimBrowserWorkspaceRecoveryOwner(
                         && source.leaseRevision !== expectedLeaseRevision
                     )
                     || (
-                        source.updatedAt <= now
-                        && now - source.updatedAt < RECOVERY_OWNER_LEASE_TIMEOUT_MS
+                        now - source.updatedAt < RECOVERY_OWNER_LEASE_TIMEOUT_MS
                     )
                 ) {
                     setResult({
