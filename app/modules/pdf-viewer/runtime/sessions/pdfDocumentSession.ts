@@ -996,14 +996,32 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     function invalidateAndCleanup(reason: string) {
         sourceLoader.cancelPendingOpen();
-        runGuardedTask(() => enqueueLifecycleOperation(async () => {
-            await invalidate(reason);
+        const invalidation = invalidate(reason);
+        runGuardedTask(async () => {
+            await invalidation;
             cleanup();
             options.emitDocument?.(null);
-        }), {
+        }, {
             category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to invalidate PDF document session',
+        });
+    }
+
+    function scheduleSourceReplacement(isReload: boolean) {
+        sourceLoader.cancelPendingOpen();
+        const invalidation = invalidate('source-replaced');
+        const activeScheduledLoadToken = scheduledLoadToken;
+        runGuardedTask(async () => {
+            await invalidation;
+            if (activeScheduledLoadToken !== scheduledLoadToken) {
+                return;
+            }
+            await load(isReload);
+        }, {
+            category: 'user-visible-operation',
+            scope: 'pdf-viewer',
+            message: 'Failed to load replacement PDF source',
         });
     }
 
@@ -1127,12 +1145,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (newSrc === oldSrc) {
             return;
         }
-        scheduledLoadToken += 1;
         if (!newSrc) {
             invalidateAndCleanup('source-cleared');
             return;
         }
-        scheduleLoad(Boolean(oldSrc));
+        scheduleSourceReplacement(Boolean(oldSrc));
     });
 
     watch(() => options.isActive?.value ?? true, (active) => {

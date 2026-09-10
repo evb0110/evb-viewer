@@ -367,6 +367,64 @@ describe('PdfDocumentSession transitions', () => {
         ]);
     });
 
+    it('starts a replacement from the source watcher while the previous load is unresolved', async () => {
+        const sourceA = new Blob(['a'], {type: 'application/pdf'});
+        const sourceB = new Blob(['b'], {type: 'application/pdf'});
+        const pendingA = createDeferredLoadingTask(createDocumentProxy('a'));
+        const documentB = createDocumentProxy('b');
+        pdfjsState.getDocument
+            .mockReturnValueOnce(pendingA.task)
+            .mockReturnValueOnce({
+                promise: Promise.resolve(documentB),
+                destroy: vi.fn(async () => undefined),
+            });
+        const source = ref<Blob | null>(sourceA);
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+
+        session.scheduleLoad();
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        source.value = sourceB;
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
+        });
+
+        expect(session.document.value).toBe(documentB);
+        pendingA.settle();
+        await session.dispose();
+    });
+
+    it('clears a pending source without waiting for its loader to resolve', async () => {
+        const pendingA = createDeferredLoadingTask(createDocumentProxy('a'));
+        pdfjsState.getDocument.mockReturnValueOnce(pendingA.task);
+        const source = ref<Blob | null>(new Blob(['a'], {type: 'application/pdf'}));
+        const emitDocument = vi.fn();
+        const session = createPdfDocumentSession({
+            src: computed(() => source.value as never),
+            emitDocument,
+        });
+
+        session.scheduleLoad();
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        source.value = null;
+
+        await vi.waitFor(() => {
+            expect(pendingA.task.destroy).toHaveBeenCalledOnce();
+        });
+        expect(session.document.value).toBeNull();
+        expect(session.loadState.value.status).toBe('idle');
+        expect(emitDocument).toHaveBeenLastCalledWith(null);
+
+        pendingA.settle();
+        await session.dispose();
+    });
+
     it('suppresses a superseded load rejection but emits the current load failure', async () => {
         const staleLoad = Promise.withResolvers<ReturnType<typeof createDocumentProxy>>();
         const currentFailure = new Error('current PDF parse failed');
