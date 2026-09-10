@@ -55,6 +55,9 @@ import {
     normalizePdfCombineOutputLimit,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 
 interface INativePdfAssemblerProgress {
     processed: number;
@@ -415,25 +418,50 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?:
         const mutationsDir = await mkdtemp(join(tmpdir(), 'pdf-catalog-mutations-'));
         try {
             const mutationsPath = join(mutationsDir, 'mutations.json');
-            await writeFile(mutationsPath, JSON.stringify(catalog), 'utf8');
-            await runNativeCommand(pageOpsPath, [
-                'save-mutations',
-                '--input',
-                outputPath,
-                '--output',
-                outputPath,
-                '--mutations-file',
-                mutationsPath,
-                '--qpdf',
-                getPdfNativeToolPaths().qpdf,
-                '--modified-at',
-                'D:19700101000000Z',
-                '--append',
-            ], {
-                commandLabel: 'pdf-page-ops(save-mutations-catalog)',
-                timeoutMs: QPDF_TIMEOUT_MS,
-                ...(signal ? {signal} : {}),
-            });
+            const nativeCatalog: IPdfNativeMutationSet = {
+                pageLabels: {
+                    totalPages: catalog.pageLabels.totalPages,
+                    ranges: catalog.pageLabels.ranges.map(range => ({
+                        startPage: range.startPage,
+                        style: range.style ?? null,
+                        prefix: range.prefix,
+                        startNumber: range.startNumber,
+                    })),
+                },
+                bookmarks: {
+                    totalPages: catalog.bookmarks.totalPages,
+                    untitledLabel: catalog.bookmarks.untitledLabel,
+                    items: catalog.bookmarks.items.map(toNativeCatalogBookmark),
+                },
+            };
+            const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(nativeCatalog);
+            for (const [
+                chunkIndex,
+                mutationChunk,
+            ] of mutationChunks.entries()) {
+                const chunkMutationsPath = chunkIndex === 0
+                    ? mutationsPath
+                    : join(mutationsDir, `mutations-${chunkIndex}.json`);
+                await writeFile(chunkMutationsPath, JSON.stringify(mutationChunk), 'utf8');
+                await runNativeCommand(pageOpsPath, [
+                    'save-mutations',
+                    '--input',
+                    outputPath,
+                    '--output',
+                    outputPath,
+                    '--mutations-file',
+                    chunkMutationsPath,
+                    '--qpdf',
+                    getPdfNativeToolPaths().qpdf,
+                    '--modified-at',
+                    'D:19700101000000Z',
+                    '--append',
+                ], {
+                    commandLabel: 'pdf-page-ops(save-mutations-catalog)',
+                    timeoutMs: QPDF_TIMEOUT_MS,
+                    ...(signal ? {signal} : {}),
+                });
+            }
         } finally {
             await rm(mutationsDir, {
                 recursive: true,
@@ -475,6 +503,16 @@ interface IPdfCombineCatalogMutations {
         totalPages: number;
         untitledLabel: string;
         items: IPdfCatalogBookmark[]
+    };
+}
+
+function toNativeCatalogBookmark(
+    bookmark: IPdfCatalogBookmark,
+): NonNullable<IPdfNativeMutationSet['bookmarks']>['items'][number] {
+    return {
+        ...bookmark,
+        pageIndex: bookmark.pageIndex === null ? null : requirePageIndex(bookmark.pageIndex),
+        items: bookmark.items.map(toNativeCatalogBookmark),
     };
 }
 

@@ -249,6 +249,63 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mutationJson).toContain('"pageIndex":1');
     });
 
+    it('keeps the requested destination unpublished when a catalog continuation fails', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        vi.stubEnv('EVB_TEST_NATIVE_PAGE_OPS', '1');
+        const bookmarks = Array.from({length: 5_001}, (_, index) => ({
+            title: `Bookmark ${index}`,
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }));
+        mocks.readFile
+            .mockImplementationOnce(async (_path: string, encoding?: string) => encoding === 'utf8'
+                ? JSON.stringify({
+                    bookmarks,
+                    pageLabels: [],
+                })
+                : new Uint8Array())
+            .mockImplementationOnce(async (_path: string, encoding?: string) => encoding === 'utf8'
+                ? JSON.stringify({
+                    bookmarks: [],
+                    pageLabels: [],
+                })
+                : new Uint8Array());
+        mocks.runNativeCommand
+            .mockImplementationOnce(async () => undefined)
+            .mockImplementationOnce(async () => undefined)
+            .mockImplementationOnce(async () => undefined)
+            .mockImplementationOnce(async () => {
+                throw new Error('catalog continuation failed');
+            });
+
+        await expect(tryWritePdfFromInputPathsNative(
+            [
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+            ],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).rejects.toMatchObject({
+            code: 'native-failure',
+            name: 'PdfCombineCapabilityError',
+        });
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(4);
+        expect(mocks.runQpdfCommand).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+                '/tmp/final.pdf.tmp',
+            ]),
+            expect.any(Object),
+        );
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
     it('restarts implicit decimal labels at an unlabeled source boundary', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         vi.stubEnv('EVB_TEST_NATIVE_PAGE_OPS', '1');
