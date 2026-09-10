@@ -40,7 +40,16 @@ const smokeDir = resolve(process.cwd(), '.devkit', 'tmp', `djvu-print-handoff-${
 const capturedPdfPath = join(smokeDir, 'captured-print.pdf');
 const renderedFirstPagePrefix = join(smokeDir, 'captured-first-page');
 const renderedFirstPagePath = `${renderedFirstPagePrefix}.png`;
-const djvuFixture = resolveDjvuFixturePath();
+const djvuFixture = resolveDjvuFixturePath({
+    corpusFixturePath: resolve(
+        process.cwd(),
+        'tests',
+        'fixtures',
+        'djvu',
+        'sources',
+        'mixed-dpi.djvu',
+    ),
+});
 const runDjvuPrintHandoffOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
 const printHandoffSessionEnv = {
