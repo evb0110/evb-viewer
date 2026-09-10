@@ -1,0 +1,25 @@
+packages/pdf-core/pdfPrintLayout.ts
+  s_5210e56504802e::t_3b271d7716dcb8 181
+  s_5210e56504802e::t_85e0fdf304d108 153,176
+tests/unit/packages/pdf-core/pdfPrintLayout.test.ts
+  s_5210e56504802e::t_3b271d7716dcb8 51,82,121-132
+  s_5210e56504802e::t_7e45d6cc7c7884 133
+  s_5210e56504802e::t_4484d92b0d8c43 4,134-136
+  s_5210e56504802e::t_58f60199f236ac 137-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d58a58240e30a899a46f23f9857766cd0908a3d5",
+  "prompts": {},
+  "sessions": {
+    "s_5210e56504802e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a3b-dc73-7490-93e8-6d3e26fd29c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
