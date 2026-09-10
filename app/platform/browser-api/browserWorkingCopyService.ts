@@ -264,7 +264,14 @@ export async function openDocumentPaths(
             kind: 'source',
             retention: 'transient',
         },
-    );
+    ).catch(async () => browserDocumentStore.registerFile(
+        new File([combinedPdf], generatedName, {type: 'application/pdf'}),
+        {
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'pdf',
+        },
+    ));
     const workingPath =
         await browserDocumentStore.cloneAsWorkingCopy(originalPath);
     browserDocumentStore.unload(originalPath);

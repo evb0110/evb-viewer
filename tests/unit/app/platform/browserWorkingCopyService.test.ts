@@ -14,6 +14,7 @@ import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocument
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 
 const wasmRun = vi.hoisted(() => vi.fn());
+const combinedPdfRun = vi.hoisted(() => vi.fn());
 
 vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
     isBrowserPageOpsWasmFailure: (value: unknown) => (
@@ -24,6 +25,9 @@ vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
         && 'error' in value
     ),
     tryRunBrowserPageOpsWithWasm: wasmRun,
+}));
+vi.mock('@app/platform/browser-api/createCombinedPdfFromPaths', () => ({
+    createCombinedPdfFromPaths: combinedPdfRun,
 }));
 const PDF_SOURCE_OPTIONS = {
     mimeType: 'application/pdf',
@@ -61,6 +65,7 @@ describe('browser working-copy decryption', () => {
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
         wasmRun.mockReset();
+        combinedPdfRun.mockReset();
     });
 
     afterEach(() => {
@@ -322,5 +327,27 @@ describe('browser working-copy decryption', () => {
         });
         expect((await browserDocumentStore.requireEntry(sourcePath)).memoryOnly).toBe(true);
         expect(browserDocumentStore.getRecentFiles()).toEqual([]);
+    });
+
+    it('opens a generated PDF in memory when exposed IndexedDB refuses access', async () => {
+        vi.stubGlobal('indexedDB', {open: () => { throw new Error('IndexedDB access denied'); }});
+        combinedPdfRun.mockResolvedValueOnce(DECRYPTED_PDF);
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        const sourcePath = await browserDocumentStore.registerFile(
+            new File([DECRYPTED_PDF], 'volatile-source.pdf', {type: 'application/pdf'}),
+            PDF_SOURCE_OPTIONS,
+        );
+
+        const result = await openDocumentPaths([sourcePath, sourcePath]);
+
+        expect(result).toEqual(expect.objectContaining({
+            kind: 'pdf',
+            isGenerated: true,
+        }));
+        expect((await browserDocumentStore.requireEntry(result!.originalPath)).memoryOnly).toBe(true);
+        expect((await browserDocumentStore.requireEntry(result!.workingPath)).memoryOnly).toBe(true);
     });
 });
