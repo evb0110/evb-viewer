@@ -367,8 +367,17 @@ class BrowserHandlePdfSink implements IFinalizablePdfSink {
         outputPath: TDocumentRef,
         saveHandle: FileSystemFileHandle,
         saveName: string,
+        signal?: AbortSignal,
     ) {
-        return new BrowserHandlePdfSink(outputPath, saveHandle, saveName, await saveHandle.createWritable());
+        throwIfCanceled(signal);
+        const writable = await saveHandle.createWritable();
+        try {
+            throwIfCanceled(signal);
+            return new BrowserHandlePdfSink(outputPath, saveHandle, saveName, writable);
+        } catch (error) {
+            await writable.abort().catch(() => undefined);
+            throw error;
+        }
     }
 
     public async write(bytes: Uint8Array) {
@@ -395,14 +404,26 @@ class BrowserHandlePdfSink implements IFinalizablePdfSink {
     }
 }
 
-async function createBrowserDjvuPdfOutputSink(outputPath: TDocumentRef) {
+async function createBrowserDjvuPdfOutputSink(
+    outputPath: TDocumentRef,
+    signal?: AbortSignal,
+) {
+    throwIfCanceled(signal);
     const saveTarget = await browserDocumentStore.getSaveTarget(outputPath);
+    throwIfCanceled(signal);
     if (saveTarget.saveHandle) {
-        return BrowserHandlePdfSink.create(outputPath, saveTarget.saveHandle, saveTarget.saveName);
+        return BrowserHandlePdfSink.create(outputPath, saveTarget.saveHandle, saveTarget.saveName, signal);
     }
     const sink = new BrowserChunkedPdfSink(outputPath, saveTarget.saveName);
-    await sink.init();
-    return sink;
+    throwIfCanceled(signal);
+    try {
+        await sink.init();
+        throwIfCanceled(signal);
+        return sink;
+    } catch (error) {
+        await sink.abort().catch(() => undefined);
+        throw error;
+    }
 }
 
 interface IDjvuJobRecord {
@@ -648,7 +669,7 @@ async function buildPdfWithOptionalBookmarks(options: {
     onPageProcessed?: (processed: number, total: number) => void;
     onBookmarksStart?: () => void;
 }) {
-    const sink = await createBrowserDjvuPdfOutputSink(options.outputPath);
+    const sink = await createBrowserDjvuPdfOutputSink(options.outputPath, options.signal);
 
     try {
         let bookmarks: IPdfBookmarkEntry[] = [];
@@ -670,6 +691,7 @@ async function buildPdfWithOptionalBookmarks(options: {
             bookmarks,
         });
         await writer.start();
+        throwIfCanceled(options.signal);
 
         const renderWorkers = await createPdfRenderWorkers({
             worker: options.worker,
@@ -692,6 +714,7 @@ async function buildPdfWithOptionalBookmarks(options: {
             options.onBookmarksStart?.();
         }
         await writer.finish();
+        throwIfCanceled(options.signal);
         return await sink.finish();
     } catch (error) {
         await sink.abort().catch((abortError: unknown) => {
@@ -704,10 +727,13 @@ async function buildPdfWithOptionalBookmarks(options: {
 async function writePdfBytesToOutput(
     outputPath: TDocumentRef,
     bytes: Uint8Array,
+    signal?: AbortSignal,
 ) {
-    const sink = await createBrowserDjvuPdfOutputSink(outputPath);
+    const sink = await createBrowserDjvuPdfOutputSink(outputPath, signal);
     try {
+        throwIfCanceled(signal);
         await sink.write(bytes);
+        throwIfCanceled(signal);
         return await sink.finish();
     } catch (error) {
         await sink.abort().catch((abortError: unknown) => {
@@ -754,7 +780,8 @@ async function buildCompactPhotoPdfWithWasm(options: {
     }
 
     throwIfCanceled(options.signal);
-    const outcome = await tryCombineImageInputsWithWasm([], {pageSpecs});
+    const outcome = await tryCombineImageInputsWithWasm([], {pageSpecs}, options.signal);
+    throwIfCanceled(options.signal);
     if (outcome.status === 'fatal') {
         // Compact DjVu export returns one complete PDF byte value from WASM.
         // Preserve the shared browser output-cap envelope instead of turning
@@ -772,7 +799,7 @@ async function buildCompactPhotoPdfWithWasm(options: {
                 : 'temporarily-unavailable'),
         );
     }
-    return writePdfBytesToOutput(options.outputPath, outcome.data);
+    return writePdfBytesToOutput(options.outputPath, outcome.data, options.signal);
 }
 
 function pickSamplePageNumbers(pageCount: number, maxSamples: number) {

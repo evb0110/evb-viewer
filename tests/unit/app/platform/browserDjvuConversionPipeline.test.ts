@@ -13,6 +13,7 @@ import {
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
     withBrowserDjvuWorker,
+    cancelBrowserDjvuConversion,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -26,6 +27,8 @@ const mocks = vi.hoisted(() => ({
     loggerError: vi.fn(),
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
+    renderPageAsPpm: vi.fn(),
+    tryCombine: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
@@ -37,6 +40,26 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
 }}));
+vi.mock('@app/platform/browser-api/tryCombineImageInputsWithWasm', () => ({tryCombineImageInputsWithWasm: mocks.tryCombine}));
+vi.mock('@app/platform/browser-api/browserDjvuRasterizer', () => ({
+    DJVU_COMPACT_PHOTO_PPI_CAP: 300,
+    DjvuCanceledError: class DjvuCanceledError extends Error {
+        public constructor() {
+            super('DjVu conversion canceled');
+            this.name = 'DjvuCanceledError';
+        }
+    },
+    positiveInteger: (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.trunc(value)
+        : null,
+    renderDjvuPage: vi.fn(),
+    renderDjvuPageAsPpm: mocks.renderPageAsPpm,
+    throwIfDjvuCanceled: (signal?: AbortSignal) => {
+        if (signal?.aborted) {
+            throw new Error('DjVu conversion canceled');
+        }
+    },
+}));
 
 const browserFailure: FailureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
@@ -315,6 +338,84 @@ describe('browserDjvuConversionPipeline', () => {
             expect(mocks.loggerError).toHaveBeenCalledOnce();
         } finally {
             stat.mockRestore();
+        }
+    });
+
+    it('does not create the compact output sink when WASM admission is canceled', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget');
+        const worker = {
+            doc: {getPagesSizes: () => ({run: async () => [{
+                width: 100,
+                height: 100,
+                dpi: 300,
+            }]})},
+            terminate: vi.fn(),
+        };
+        const admission = Promise.withResolvers<{
+            status: 'success';
+            data: Uint8Array;
+        }>();
+        mocks.createWorker.mockResolvedValueOnce(worker);
+        mocks.getPageSizes.mockResolvedValueOnce([{
+            width: 100,
+            height: 100,
+            dpi: 300,
+        }]);
+        mocks.renderPageAsPpm.mockResolvedValueOnce({
+            input: {
+                fileName: 'page.ppm',
+                data: new Uint8Array([
+                    0x50,
+                    0x36,
+                ]),
+            },
+            pageSize: {
+                widthPoints: 72,
+                heightPoints: 72,
+            },
+        });
+        mocks.tryCombine.mockImplementationOnce((_inputs, _options, signal?: AbortSignal) => {
+            signal?.addEventListener('abort', () => admission.resolve({
+                status: 'success',
+                data: new Uint8Array([
+                    0x25,
+                    0x50,
+                    0x44,
+                    0x46,
+                ]),
+            }), {once: true});
+            return admission.promise;
+        });
+
+        try {
+            const jobId = requireJobId('djvu-compact-admission-cancel');
+            const conversion = runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId,
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: false,
+                },
+            );
+            await vi.waitFor(() => expect(mocks.tryCombine).toHaveBeenCalledOnce());
+
+            expect(cancelBrowserDjvuConversion(jobId)).toEqual({canceled: true});
+            await expect(conversion).resolves.toMatchObject({
+                success: false,
+                expected: {
+                    kind: 'expected',
+                    code: 'canceled',
+                },
+            });
+            expect(getSaveTarget).not.toHaveBeenCalled();
+        } finally {
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
         }
     });
 });

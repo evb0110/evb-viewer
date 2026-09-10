@@ -273,6 +273,31 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
     });
 
+    it('stops before WASM allocation when admission is canceled after module loading', async () => {
+        const wasmMock = createWasmExportsMock();
+        const admission = Promise.withResolvers<{instance: {exports: object}}>();
+        const instantiateMock = vi.fn(() => admission.promise);
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: instantiateMock,
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const controller = new AbortController();
+        const combining = tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }], undefined, controller.signal);
+
+        await vi.waitFor(() => expect(instantiateMock).toHaveBeenCalledOnce());
+        controller.abort();
+        admission.resolve({instance: {exports: wasmMock.exports}});
+
+        await expect(combining).rejects.toMatchObject({name: 'AbortError'});
+        expect(wasmMock.alloc).not.toHaveBeenCalled();
+        expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).not.toHaveBeenCalled();
+    });
+
     it('encodes layered page specs as a version 4 WASM request', async () => {
         const wasmMock = createWasmExportsMock({output: new Uint8Array([
             4,
