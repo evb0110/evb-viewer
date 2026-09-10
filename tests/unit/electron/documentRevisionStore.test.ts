@@ -403,6 +403,63 @@ describe('documentRevisionStore', () => {
         ]);
     });
 
+    it('serializes overlapping content transitions before admitting the next revision', async () => {
+        const originalPath = join(tempRoot, 'overlapping-transition-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-overlapping-transition', 'overlapping-transition.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'original');
+        writeFileSync(workingPath, 'before-transition');
+
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {
+            ensureWorkingCopyRevision,
+            getWorkingCopyRevision,
+            transitionWorkingCopyContentRevision,
+        } = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+        const initial = await ensureWorkingCopyRevision(workingPath, 7);
+        let releaseFirst!: () => void;
+        const firstCommitStarted = new Promise<void>(resolve => {
+            releaseFirst = resolve;
+        });
+        let firstCommitEntered!: () => void;
+        const firstCommitReady = new Promise<void>(resolve => {
+            firstCommitEntered = resolve;
+        });
+        const first = transitionWorkingCopyContentRevision(
+            workingPath,
+            'save-sync',
+            async nextRevision => {
+                expect(nextRevision.contentRevision).toBe(2);
+                firstCommitEntered();
+                await firstCommitStarted;
+            },
+            7,
+        );
+        await firstCommitReady;
+
+        let secondCommitEntered = false;
+        const second = transitionWorkingCopyContentRevision(
+            workingPath,
+            'page-ops',
+            async nextRevision => {
+                secondCommitEntered = true;
+                expect(nextRevision.contentRevision).toBe(3);
+            },
+            7,
+        );
+        await Promise.resolve();
+        expect(secondCommitEntered).toBe(false);
+
+        releaseFirst();
+        await expect(first).resolves.toMatchObject({contentRevision: 2});
+        await expect(second).resolves.toMatchObject({contentRevision: 3});
+        await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({
+            contentRevision: 3,
+        });
+        expect(initial.contentRevision).toBe(1);
+    });
+
     it('rolls back document bytes and page identities when revision publication fails after rebase', async () => {
         let failedRevisionWrite = false;
         vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
