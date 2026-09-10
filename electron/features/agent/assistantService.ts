@@ -687,7 +687,8 @@ async function ensureClaudeAssistantSession(
         // are fixed at query() start. Keep local message history and rebuild only
         // when the SDK session configuration would differ.
         if (
-            session.claudeSession.effort === normalizedEffort
+            session.claudeSession.isUsable
+            && session.claudeSession.effort === normalizedEffort
             && session.claudeSession.fastMode === desiredFastMode
         ) {
             session.model = normalizedModel;
