@@ -40,6 +40,7 @@ describe('contracts portability boundary', () => {
     it('rejects Node runtime imports, dynamic loads and globals while allowing portable code', () => {
         const rejectedSources = [
             'import {createHash} from \'node:crypto\';',
+            'import fs = require(\'fs\');',
             'export {readFile} from \'fs\';',
             'const crypto = await import(\'crypto\');',
             'const fs = require(\'node:fs\');',
