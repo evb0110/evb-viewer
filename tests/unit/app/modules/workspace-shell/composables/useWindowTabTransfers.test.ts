@@ -726,6 +726,7 @@ describe('useWindowTabTransfers', () => {
         });
 
         expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(restoredWorkspace.handleCloseFileFromUi).toHaveBeenCalledWith({persist: false});
         expect(updateTab).toHaveBeenCalledWith('tab-placeholder', expect.objectContaining({
             fileName: null,
             originalPath: null,
