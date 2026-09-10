@@ -756,7 +756,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     private async assertPhysicalSourceBaseCurrent(workingRef: string, sourceRef: string) {
         const workingEntry = await this.requireEntry(workingRef);
         const sourceEntry = await this.requireEntry(sourceRef);
-        if (!workingEntry.sourceBaseWitness || !sourceEntry.saveHandle || !sourceEntry.sourceWitness) {
+        if (!workingEntry.sourceBaseWitness || !sourceEntry.saveHandle) {
             return;
         }
         const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);

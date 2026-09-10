@@ -139,6 +139,10 @@ describe('BrowserDocumentStore source registration', () => {
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
         await store.writeForBootstrap(workingRef, Uint8Array.of(9, 8, 7), 'materialize-working-copy');
 
+        // Older persisted source records may have the handle and content
+        // witness without the redundant sourceWitness marker.
+        delete (await store.requireEntry(sourceRef)).sourceWitness;
+
         const openingWitness = (await store.requireEntry(workingRef)).sourceBaseWitness;
         currentFile = new File([Uint8Array.of(
             37,
