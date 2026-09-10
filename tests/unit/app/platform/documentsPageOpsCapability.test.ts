@@ -878,4 +878,30 @@ describe('createBrowserPageOpsCapability', () => {
         expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(2, 'browser://documents/picked/insert.pdf');
         expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
     });
+
+    it('rejects oversized completed insert output before replacing the working copy', async () => {
+        const input = new Uint8Array([1]);
+        browserDocumentStoreMock.stat.mockResolvedValue({size: input.byteLength});
+        browserDocumentStoreMock.read.mockResolvedValue(input);
+        browserPageOpsWorkerMock.canUse.mockReturnValue(true);
+        browserPageOpsWorkerMock.run.mockResolvedValue({
+            data: new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
+            pageCount: 2,
+        });
+
+        const clearSearchCaches = vi.fn();
+        const pageOps = createPageOps({clearSearchCaches});
+
+        await expect(pageOps.insertFile(
+            'browser://documents/work.pdf',
+            1,
+            1,
+            ['browser://documents/picked/insert.pdf'],
+        )).rejects.toThrow(
+            'Inserting pages is unavailable in the browser for PDFs larger than 16MB',
+        );
+
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+        expect(clearSearchCaches).not.toHaveBeenCalled();
+    });
 });

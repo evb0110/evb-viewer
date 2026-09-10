@@ -411,8 +411,12 @@ export function createBrowserPageOpsCapability(
         data: Uint8Array,
         pageCount: number,
         mutationOptions: IPageOpsMutationOptions | undefined,
+        label: string,
         pageIdentityDelta?: IPageIdentityDelta,
     ): Promise<IStoredPageMutationResult> {
+        if (data.byteLength > BROWSER_PAGE_OP_PDF_MAX_BYTES) {
+            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_PDF_MAX_BYTES);
+        }
         if (mutationOptions === undefined) {
             await browserDocumentStore.write(workingCopyPath, data);
         } else {
@@ -449,6 +453,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Deleting pages',
                     createDeletePageIdentityDelta(_totalPages, selectedPages),
                 );
             });
@@ -556,6 +561,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Reordering pages',
                     createReorderPageIdentityDelta(newOrder.length, newOrder),
                 );
             });
@@ -719,6 +725,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Inserting pages',
                     createInsertPageIdentityDelta(
                         _totalPages,
                         afterPage,
@@ -750,6 +757,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Rotating pages',
                 );
             });
         },
@@ -777,6 +785,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Cropping pages',
                 );
             });
         },
@@ -802,6 +811,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Removing page crops',
                 );
             });
         },
