@@ -98,9 +98,9 @@ import {
     getDjvuPageSizesForViewing,
 } from '@electron/features/djvu/main/pagePreview';
 import {
-    canPrintSourcePdfDirectly,
     normalizePrintPageNumbers,
 } from '@pdf-core';
+import { buildPrintablePdfPath } from '@electron/features/documents/main/buildPrintablePdfPath';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     createMainJobRegistry,
@@ -805,7 +805,9 @@ async function runDjvuPrintPath(
 ): Promise<IDjvuPrintResult> {
     const tempDir = await mkdtemp(join(getAppTempDir(), 'djvu-print-work-'));
     const finalPdfPath = join(getAppTempDir(), `${PRINT_DJVU_TEMP_PREFIX}${jobId}.pdf`);
+    const composedPdfPath = join(getAppTempDir(), `${PRINT_DJVU_TEMP_PREFIX}${jobId}-layout.pdf`);
     let finalPdfHandedToPrint = false as boolean;
+    const requiresPrintLayout = options.viewMode !== 'single' || options.orientation !== 'auto';
 
     logger.info(`[${jobId}] Preparing DjVu for print: ${djvuPath}`);
     const sendProgress = (progress: IDjvuProgress) => {
@@ -850,11 +852,6 @@ async function runDjvuPrintPath(
                 : await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal));
             throwIfCanceled(job.signal);
 
-            const shouldPrintConvertedPdfDirectly = canPrintSourcePdfDirectly({
-                ...(selectedPages ? {pageNumbers: selectedPages} : {}),
-                viewMode: options.viewMode,
-                orientation: options.orientation,
-            });
             const convertedPdfPath = finalPdfPath;
             const strategy = resolveDjvuPrintPdfExportStrategy(options.pdfStrategy);
             const convertResult = strategy === 'compact-djvu-aware'
@@ -917,15 +914,28 @@ async function runDjvuPrintPath(
             }
             throwIfCanceled(job.signal);
 
-            const printablePdfPath = convertedPdfPath;
-
             sendProgress({
                 jobId,
                 phase: 'optimizing' as const,
                 percent: DJVU_OPTIMIZE_PROGRESS_PERCENT,
             });
-            await optimizeGeneratedPdfForInteraction(printablePdfPath, { signal: job.signal });
+            await optimizeGeneratedPdfForInteraction(convertedPdfPath, { signal: job.signal });
             throwIfCanceled(job.signal);
+            const printablePdfPath = requiresPrintLayout
+                ? composedPdfPath
+                : convertedPdfPath;
+            if (requiresPrintLayout) {
+                await buildPrintablePdfPath({
+                    inputPath: convertedPdfPath,
+                    outputPath: composedPdfPath,
+                    printOptions: {
+                        viewMode: options.viewMode,
+                        orientation: options.orientation,
+                    },
+                    signal: job.signal,
+                });
+                throwIfCanceled(job.signal);
+            }
             sendProgress({
                 jobId,
                 phase: 'printing' as const,
@@ -937,7 +947,6 @@ async function runDjvuPrintPath(
                 resolveDjvuPrintDocumentTitle(djvuPath, options.fileName, selectedPages),
                 {
                     signal: job.signal,
-                    ...(shouldPrintConvertedPdfDirectly ? {} : {surface: 'rasterized-html'}),
                 },
             );
             if (job.signal.aborted) {
@@ -948,7 +957,7 @@ async function runDjvuPrintPath(
                     error: 'DjVu print preparation canceled',
                 };
             }
-            finalPdfHandedToPrint = printResult.success && printablePdfPath === finalPdfPath;
+            finalPdfHandedToPrint = printResult.success;
             logger.info(`[${jobId}] DjVu print handoff complete: success=${printResult.success} canceled=${printResult.canceled === true}`);
             if (printResult.success) {
                 job.handoff(requireDocumentRef(printablePdfPath), {
@@ -1000,8 +1009,11 @@ async function runDjvuPrintPath(
             force: true,
             recursive: true,
         }).catch(() => undefined);
-        if (!finalPdfHandedToPrint) {
+        if (requiresPrintLayout || !finalPdfHandedToPrint) {
             await rm(finalPdfPath, { force: true }).catch(() => undefined);
+        }
+        if (!finalPdfHandedToPrint) {
+            await rm(composedPdfPath, { force: true }).catch(() => undefined);
         }
     }
 }

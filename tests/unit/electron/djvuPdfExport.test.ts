@@ -81,6 +81,7 @@ const mocks = vi.hoisted(() => {
         getWorkerTaskFailureReceipt: vi.fn(),
         adoptDjvuViewingPath: vi.fn(),
         allowOpenPath: vi.fn(),
+        buildPrintablePdfPath: vi.fn(),
     };
 });
 
@@ -137,6 +138,7 @@ vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.getAppT
 vi.mock('@electron/features/djvu/main/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: mocks.allowOpenPath}));
 vi.mock('@electron/features/djvu/main/viewing', () => ({adoptDjvuViewingPath: mocks.adoptDjvuViewingPath}));
+vi.mock('@electron/features/documents/main/buildPrintablePdfPath', () => ({buildPrintablePdfPath: mocks.buildPrintablePdfPath}));
 vi.mock('@electron/features/djvu/main/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: mocks.loggerInfo,
@@ -317,6 +319,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.embedBookmarksIntoPdfFile.mockResolvedValue(123);
         mocks.optimizeGeneratedPdfForInteraction.mockResolvedValue(null);
         mocks.printManagedTempPdfPath.mockResolvedValue({ success: true });
+        mocks.buildPrintablePdfPath.mockResolvedValue({bytes: 1024});
         mocks.createDjvuPdfBookmarkTask.mockImplementation((
             _inputPdfPath: string,
             _outputPdfPath: string,
@@ -1224,7 +1227,6 @@ describe('handleDjvuConvertToPdf', () => {
             'book p1-2',
             {
                 signal: expect.any(AbortSignal),
-                surface: 'rasterized-html',
             },
         );
         expect(mocks.printManagedTempPdfPath.mock.invocationCallOrder[0])
@@ -1234,6 +1236,41 @@ describe('handleDjvuConvertToPdf', () => {
             status: 'completed',
             artifactPath: expectedFinalPath,
         });
+    });
+
+    it('composes DjVu print layout before handing off non-default options', async () => {
+        const event = createOperationContext(16);
+        const result = await handleDjvuPrintPath(
+            event,
+            trustedDjvuPath,
+            {
+                requestId: requireRequestId('print-facing'),
+                fileName: 'book.djvu',
+                viewMode: 'facing',
+                orientation: 'landscape',
+            },
+        );
+
+        const expectedJobId = asJobId('djvu-print-print-facing');
+        const expectedConvertedPath = `/tmp/evb-viewer/print-djvu-${expectedJobId}.pdf`;
+        const expectedComposedPath = `${expectedConvertedPath.slice(0, -4)}-layout.pdf`;
+        expect(result).toMatchObject({success: true, jobId: expectedJobId});
+        expect(mocks.buildPrintablePdfPath).toHaveBeenCalledWith({
+            inputPath: expectedConvertedPath,
+            outputPath: expectedComposedPath,
+            printOptions: {
+                viewMode: 'facing',
+                orientation: 'landscape',
+            },
+            signal: expect.any(AbortSignal),
+        });
+        expect(mocks.printManagedTempPdfPath).toHaveBeenCalledWith(
+            {window: null},
+            expectedComposedPath,
+            'book',
+            {signal: expect.any(AbortSignal)},
+        );
+        expect(mocks.rm).toHaveBeenCalledWith(expectedConvertedPath, {force: true});
     });
 
     it('adds the selected DjVu page number to the native print save title', async () => {
@@ -1265,7 +1302,6 @@ describe('handleDjvuConvertToPdf', () => {
             'book p50',
             {
                 signal: expect.any(AbortSignal),
-                surface: 'rasterized-html',
             },
         );
     });
