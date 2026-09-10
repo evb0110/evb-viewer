@@ -1386,7 +1386,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('renders the canonical annotation surface once and keeps PDF.js read-only', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const { page } = session;
         const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
@@ -1528,7 +1528,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('supports keyboard editing for every canonical kind and atomic mixed selection history', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const {page} = session;
         const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
@@ -1816,7 +1816,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('places a stamp through the editor layer and round-trips its edited geometry', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
@@ -2008,7 +2008,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('creates and edits a text box through the active workspace pointer path', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const { page } = session;
 
@@ -2123,7 +2123,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('saves focused canonical text-box drafts across two saves and reopen', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
@@ -2228,7 +2228,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('opens writer annotations in the canonical sidebar and excludes link annotations', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const { page } = session;
 
@@ -2359,7 +2359,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const { page } = session;
 
@@ -2389,7 +2389,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('round-trips a canonical sticky note after editing, recoloring, and moving it', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
@@ -2512,7 +2512,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Annotation lifecycle session did not start');
         }
         const {page} = session;
         const fixture = await createForeignNoteReplyFixturePdf(
