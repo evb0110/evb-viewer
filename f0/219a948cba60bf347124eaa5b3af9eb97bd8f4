@@ -1,0 +1,23 @@
+scripts/windows-test/host/hostLease.ts
+  s_973a8405ca040e::t_f2cf9148b1e6d8 163-168,171-197
+scripts/windows-test/host/runCoordinator.ts
+  s_973a8405ca040e::t_f2cf9148b1e6d8 631-636,1084-1089
+tests/unit/scripts/windows-test/hostLease.test.ts
+  s_973a8405ca040e::t_f2cf9148b1e6d8 155-160,227-232,234-239,243-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f0219a948cba60bf347124eaa5b3af9eb97bd8f4",
+  "prompts": {},
+  "sessions": {
+    "s_973a8405ca040e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08aad-b28a-7823-b01f-1e952aad085a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
