@@ -156,6 +156,20 @@ describe('Sentry release identity contract', () => {
     });
 
     it('uses immutable production and preview web dists', () => {
+        expect(resolveSentryBuildIdentity({
+            target: 'web',
+            version: '1.2.3',
+            environment: {
+                EVB_SENTRY_ENVIRONMENT: 'preview',
+                EVB_WEB_BUILD_ID: 'build-41',
+            },
+        })).toEqual({
+            target: 'web',
+            release: 'evb-viewer-web@1.2.3',
+            dist: 'preview-build-41',
+            environment: 'preview',
+        });
+
         expect(resolveWebDiagnosticDist({
             environment: {
                 EVB_WEB_BUILD_ID: 'build-42',
@@ -267,6 +281,14 @@ describe('Sentry release identity contract', () => {
             release: identity.release,
             dist: identity.dist,
         });
+    });
+
+    it('requires explicit host identity for desktop resolution', () => {
+        expect(resolveDesktopDiagnosticDist({
+            platform: 'linux',
+            architecture: 'arm64',
+        })).toBe('linux-arm64');
+        expect(() => resolveDesktopDiagnosticDist()).toThrow(/Cannot resolve/u);
     });
 
     it('marks only explicit diagnostics or release builds as eligible', () => {

@@ -23,6 +23,8 @@ const desktopIdentity = diagnosticsEligible
         target: 'desktop',
         version: packageJson.version,
         environment: process.env,
+        platform: process.platform,
+        architecture: process.arch,
     })
     : null;
 const desktopDsn = diagnosticsEligible
