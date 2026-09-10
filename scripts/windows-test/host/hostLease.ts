@@ -160,24 +160,39 @@ export async function acquireHostLease(request: IHostLeaseRequest): Promise<IHos
     }, request.lockOptions);
 }
 
-export async function bindLeaseToVm(leaseFile: string, runId: string, vmId: string) {
-    const lease = await readHostLease(leaseFile);
-    if (lease === null || lease.runId !== runId) {
-        return null;
-    }
-    const updated: IWindowsTestLease = {
-        ...lease,
-        vmId,
-    };
-    await writeHostLease(leaseFile, updated);
-    return updated;
+export interface IHostLeaseMutationRequest {
+    leaseFile: string;
+    lockDirectory: string;
+    runId: string;
+    lock: IHostLockDependencies;
+    lockOptions?: IHostLockOptions;
 }
 
-export async function releaseHostLease(leaseFile: string, runId: string) {
-    const lease = await readHostLease(leaseFile);
-    if (lease !== null && lease.runId !== runId) {
-        return false;
-    }
-    await rm(leaseFile, {force: true});
-    return true;
+export async function bindLeaseToVm(
+    request: IHostLeaseMutationRequest,
+    vmId: string,
+) {
+    return withHostLock(request.lockDirectory, request.lock, async () => {
+        const lease = await readHostLease(request.leaseFile);
+        if (lease === null || lease.runId !== request.runId) {
+            return null;
+        }
+        const updated: IWindowsTestLease = {
+            ...lease,
+            vmId,
+        };
+        await writeHostLease(request.leaseFile, updated);
+        return updated;
+    }, request.lockOptions);
+}
+
+export async function releaseHostLease(request: IHostLeaseMutationRequest) {
+    return withHostLock(request.lockDirectory, request.lock, async () => {
+        const lease = await readHostLease(request.leaseFile);
+        if (lease !== null && lease.runId !== request.runId) {
+            return false;
+        }
+        await rm(request.leaseFile, {force: true});
+        return true;
+    }, request.lockOptions);
 }
