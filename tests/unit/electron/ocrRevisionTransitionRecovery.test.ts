@@ -172,6 +172,8 @@ describe('OCR revision transition crash recovery', () => {
             descriptorPath: '/tmp/unpaired-descriptor',
         },
         {catalogKind: 'v4-root'},
+        {descriptorPath: 7},
+        {descriptorPath: null},
         {
             undoCatalogExisted: true,
             undoCatalogPath: undefined,

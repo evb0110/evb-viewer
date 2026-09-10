@@ -116,6 +116,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
             || journal.catalogApplyMode === 'copy'
             || journal.catalogApplyMode === 'rename')
         && (journal.catalogKind === undefined || journal.catalogKind === 'v4-root')
+        && (journal.descriptorPath === undefined || typeof journal.descriptorPath === 'string')
         && ((journal.catalogKind === 'v4-root') === (typeof journal.descriptorPath === 'string'))
         && typeof journal.committedAt === 'number'
         && Number.isFinite(journal.committedAt)
