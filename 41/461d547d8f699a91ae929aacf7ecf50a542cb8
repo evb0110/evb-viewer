@@ -1,0 +1,35 @@
+electron/features/image-export/main/export.ts
+  s_5e363799d7b531::t_ee7dc36cb232e7 486-497,499-502,515-521,575,577-585
+  s_5e363799d7b531::t_7f54c2ca137962 459-469,471,552
+  s_5e363799d7b531::t_97a135f69e8fc5 533-534,610
+  s_5e363799d7b531::t_e4e29fc6e6ff73 470,472-485,498,503-514,522-532,535-542,550,601-607,624-628
+  s_5e363799d7b531::t_574e605c65645e 596-599,629-632
+tests/unit/electron/djvuImageExportLimits.test.ts
+  s_5e363799d7b531::t_6b7e7d56e893f1 31-32,44-46
+  s_5e363799d7b531::t_e60565a27e35ff 242
+  s_5e363799d7b531::t_574e605c65645e 27-30
+  s_5e363799d7b531::t_8f481047dda097 219-232,234-241,243-261
+  s_5e363799d7b531::t_a6f8c78b9671b1 233
+electron/features/image-export/main/djvuImageExport.ts
+  s_5e363799d7b531::t_c6cd1b721cdcad 21,23,26,175,182,277,279-282,287-288
+  s_5e363799d7b531::t_574e605c65645e 283-286
+tests/unit/electron/imageExport.test.ts
+  s_5e363799d7b531::t_8f481047dda097 1284-1314
+  s_5e363799d7b531::t_5ea76c85760eef 234-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "41461d547d8f699a91ae929aacf7ecf50a542cb8",
+  "prompts": {},
+  "sessions": {
+    "s_5e363799d7b531": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08927-3ae9-7950-906f-8e5f8a29a992",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
