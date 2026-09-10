@@ -124,6 +124,7 @@ const lastCheckpointSaveStartedAtMs = new Map<number, number>();
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
 const claimedWorkspaceCheckpointOwnerWebContentsIds = new Map<number, number>();
 const lastDurableWorkspaceCheckpoints = new Map<number, IStoredWorkspaceCheckpoint>();
+const recoveryClaimGenerationsByOwner = new Map<number, Map<string, number>>();
 let shouldMigrateLegacyWorkspaceJournal = false;
 const discardedCheckpointOwnerGenerations = new Map<number, string>();
 let nextDiscardedCheckpointOwnerGeneration = 1;
@@ -719,12 +720,17 @@ function assertDurableSourceProvenance(
     }
 }
 
-function releaseRecoveryClaims(checkpoint: IWorkspaceCheckpoint | null) {
+function releaseRecoveryClaims(ownerWebContentsId: number, checkpoint: IWorkspaceCheckpoint | null) {
+    const generations = recoveryClaimGenerationsByOwner.get(ownerWebContentsId);
     for (const tab of checkpoint?.tabs ?? []) {
         if (tab.workingCopyRef) {
-            releaseWorkingCopyRecovery(tab.workingCopyRef);
+            const generation = generations?.get(tab.workingCopyRef);
+            if (generation !== undefined) {
+                releaseWorkingCopyRecovery(tab.workingCopyRef, generation);
+            }
         }
     }
+    recoveryClaimGenerationsByOwner.delete(ownerWebContentsId);
 }
 
 async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
@@ -1393,7 +1399,11 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
         await writeStoredWorkspaceCheckpoint(claimedStored);
         for (const tab of canonicalCheckpoint.tabs) {
             if (tab.workingCopyRef) {
-                claimWorkingCopyRecovery(tab.workingCopyRef);
+                const generation = claimWorkingCopyRecovery(tab.workingCopyRef);
+                const generations = recoveryClaimGenerationsByOwner.get(stored.ownerWebContentsId)
+                    ?? new Map<string, number>();
+                generations.set(tab.workingCopyRef, generation);
+                recoveryClaimGenerationsByOwner.set(stored.ownerWebContentsId, generations);
             }
         }
         claimedWorkspaceCheckpointOwnerWebContentsIds.set(
@@ -1444,7 +1454,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
             record.ownerWebContentsId !== stored.ownerWebContentsId
         )));
         await removeAnnotationRecoveryArtifacts(stored.checkpoint);
-        releaseRecoveryClaims(stored.checkpoint);
+        releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
         claimedWorkspaceCheckpointOwnerWebContentsIds.delete(stored.ownerWebContentsId);
         lastDurableWorkspaceCheckpoints.delete(stored.ownerWebContentsId);
         return true;
@@ -1471,7 +1481,7 @@ export function clearWorkspaceCheckpoint() {
                 .map(record => removeAnnotationRecoveryArtifacts(record.checkpoint)),
         ]);
         for (const checkpoint of journal.records) {
-            releaseRecoveryClaims(checkpoint.checkpoint);
+            releaseRecoveryClaims(checkpoint.ownerWebContentsId, checkpoint.checkpoint);
         }
         lastDurableWorkspaceCheckpoints.clear();
         claimedWorkspaceCheckpointOwnerWebContentsIds.clear();
@@ -1496,7 +1506,7 @@ export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
                 record.ownerWebContentsId !== ownerWebContentsId
             )));
             await removeAnnotationRecoveryArtifacts(stored.checkpoint);
-            releaseRecoveryClaims(stored.checkpoint);
+            releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
             lastDurableWorkspaceCheckpoints.delete(ownerWebContentsId);
             claimedWorkspaceCheckpointOwnerWebContentsIds.delete(ownerWebContentsId);
         });
