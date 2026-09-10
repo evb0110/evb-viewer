@@ -9,18 +9,17 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     clearSessionStarting,
     getSessionStartingInfo,
-    isSessionRunning,
     markSessionStarting,
     recordSessionStartingAttempt,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     electronUserDataPath,
     sessionDir,
-    sessionFilePath,
     sessionStartingFilePath,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
@@ -93,6 +92,32 @@ describe('electron run session artifacts', () => {
         'headers',
         'body',
     ])('bounds readiness when the controller stalls during %s', async (stallStage) => {
+        vi.resetModules();
+        vi.doMock('@scripts/electron-run/electronRunProcessIdentity', () => ({
+            findSessionOwnedElectronPids: () => [],
+            inspectProcessIdentity: () => ({
+                pid: 1,
+                platform: process.platform,
+                command: 'fixture-controller',
+                cwd: null,
+                environment: '',
+                descendantPids: [],
+                pidsOnExpectedPort: [],
+            }),
+            killVerifiedSessionProcess: () => false,
+            matchesSessionProcessIdentity: () => true,
+        }));
+        const {isSessionRunning: isFreshSessionRunning} = await import('@scripts/electron-run/electronRunSessionArtifacts');
+        const {
+            sessionDir: freshSessionDir,
+            sessionFilePath: freshSessionFilePath,
+            setCurrentSessionName: setFreshSessionName,
+        } = await import('@scripts/electron-run/electronRunSessionPaths');
+        setFreshSessionName(testSessionName);
+        rmSync(freshSessionDir(), {
+            recursive: true,
+            force: true,
+        });
         resetTestSession();
         const server = createServer((_request, response) => {
             if (stallStage === 'body') {
@@ -110,10 +135,10 @@ describe('electron run session artifacts', () => {
             server.close();
             throw new Error('readiness fixture did not expose a TCP port');
         }
-        mkdirSync(sessionDir(), {recursive: true});
-        writeFileSync(sessionFilePath(), JSON.stringify({
+        mkdirSync(freshSessionDir(), {recursive: true});
+        writeFileSync(freshSessionFilePath(), JSON.stringify({
             port: address.port,
-            pid: process.pid,
+            pid: 1,
             cdpPort: 39202,
             electronPid: null,
             nuxtPid: null,
@@ -121,7 +146,7 @@ describe('electron run session artifacts', () => {
         }));
         const startedAt = Date.now();
         try {
-            await expect(isSessionRunning(testSessionName, AbortSignal.timeout(50))).resolves.toBe(false);
+            await expect(isFreshSessionRunning(testSessionName, AbortSignal.timeout(50))).resolves.toBe(false);
             expect(Date.now() - startedAt).toBeLessThan(1000);
         } finally {
             await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
