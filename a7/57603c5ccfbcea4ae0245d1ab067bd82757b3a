@@ -1,0 +1,22 @@
+electron/file-access/workingCopyCreation.ts
+  s_4f1478e41f99f7::t_6e34a03348591c 65,79-81,84-86,173,322,383
+  s_4f1478e41f99f7::t_d9c71da148b39c 66-78,82-83
+tests/unit/electron/workingCopy.test.ts
+  s_4f1478e41f99f7::t_e505a1128f1f9a 13,114-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a757603c5ccfbcea4ae0245d1ab067bd82757b3a",
+  "prompts": {},
+  "sessions": {
+    "s_4f1478e41f99f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088e3-c13b-7fe2-a2f5-7d0a5c967e7a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
