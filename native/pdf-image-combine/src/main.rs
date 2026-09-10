@@ -118,6 +118,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             &config.output_path,
             max_pixels,
             read_limit("EVB_TIFF_COMBINE_MAX_PAGES", 10_000, 1, 100_000) as usize,
+            config.dpi,
         )?;
         return Ok(());
     }

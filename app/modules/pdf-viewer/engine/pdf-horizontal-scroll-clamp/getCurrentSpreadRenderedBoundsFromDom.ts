@@ -34,6 +34,12 @@ export function getCurrentSpreadRenderedBoundsFromDom(options: {
         if (!pageElement) {
             return null;
         }
+        // Buffered pages can retain the outgoing page's dimensions while the
+        // active spread is being recomputed. Let the metric snapshot own the
+        // bounds until every page in the row is current.
+        if (pageElement.classList.contains('page_container--buffered')) {
+            return null;
+        }
 
         const pageRect = pageElement.getBoundingClientRect();
         const pageWidth = pageRect.width || pageElement.offsetWidth || pageElement.clientWidth;

@@ -41,6 +41,36 @@ describe('createPdfSearchMatchScroller', () => {
         expect(scheduleRenderForSinglePage).not.toHaveBeenCalled();
     });
 
+    it('rotates the navigation marker with the visible page highlight', () => {
+        const revealSearchNavigationTarget = vi.fn();
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => document.createElement('div'),
+            getCurrentSearchMatch: () => ({
+                pageIndex: requirePageIndex(2),
+                pageWidth: 200,
+                pageHeight: 400,
+                rotation: 90,
+                words: [{
+                    x: 20,
+                    y: 80,
+                    width: 40,
+                    height: 20,
+                }],
+            }),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            revealSearchNavigationTarget,
+        });
+
+        scroller.requestScrollToMatch(2);
+
+        const marker = revealSearchNavigationTarget.mock.calls[0]?.[1]?.markerRect;
+        expect(marker?.left).toBeCloseTo(0.75);
+        expect(marker?.top).toBeCloseTo(0.1);
+        expect(marker?.width).toBeCloseTo(0.05);
+        expect(marker?.height).toBeCloseTo(0.2);
+    });
+
     it('emits a page request when word geometry is unavailable', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({

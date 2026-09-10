@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
+import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {
     commitBrowserStoreStagedArtifact,
     createBrowserStoreStagedArtifact,
@@ -147,6 +148,33 @@ describe('browser staged artifact commit', () => {
             stagedRef,
             stagedRevision.token,
         )).rejects.toThrow('different browser target ref');
+        await expect(store.exists(stagedRef)).resolves.toBe(true);
+    });
+
+    it('rejects an oversized staged output before replacing the target', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument('oversized-source.pdf', Uint8Array.of(1), PDF_OPTIONS);
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const stagedBytes = Uint8Array.of(2);
+        const stagedRef = await store.createStoredDocument('oversized-output.pdf', stagedBytes, {
+            ...PDF_OPTIONS,
+            kind: 'output',
+            retention: 'transient',
+        });
+        const workingRevision = await store.getDocumentRevision(workingRef);
+        const stagedArtifact = await createBrowserStoreStagedArtifact(store, stagedRef, {
+            leaseId: 'browser-oversized-output-lease',
+            sha256: sha256(stagedBytes),
+            validations: stagedValidations(),
+        });
+
+        await expect(commitBrowserStoreStagedArtifact(
+            store,
+            {...stagedArtifact, size: BROWSER_MAX_FULL_READ_BYTES + 1},
+            workingRef,
+            workingRevision.token,
+        )).rejects.toThrow('exceeds the browser full-read limit');
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1));
         await expect(store.exists(stagedRef)).resolves.toBe(true);
     });
 

@@ -98,4 +98,40 @@ describe('landing analytics client', () => {
         });
         await vi.waitFor(() => expect(values.get('evb.analytics.pending.v1')).toContain('/privacy'));
     });
+
+    it('drops a permanently rejected queued event during replay', async () => {
+        const values = new Map([
+            ['evb.analytics.pending.v1', JSON.stringify([{
+                path: '/api/analytics/pageView',
+                payload: {path: '/privacy', referrer: null},
+                requestId: 'rejected-event',
+            }])],
+        ]);
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => values.get(key) ?? null,
+            setItem: (key: string, value: string) => values.set(key, value),
+        });
+        const fetch = vi.mocked(globalThis.fetch);
+        fetch
+            .mockResolvedValueOnce(createResponse({
+                ok: true,
+                persisted: false,
+                retryable: false,
+            }) as never)
+            .mockResolvedValue(createResponse({
+                ok: true,
+                persisted: true,
+            }) as never);
+        const {trackPageView} = await import('@landing/app/utils/analytics');
+
+        trackPageView({path: '/features', referrer: null});
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+        expect(JSON.parse(values.get('evb.analytics.pending.v1') ?? '[]')).toEqual([]);
+        trackPageView({path: '/docs', referrer: null});
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+        expect(fetch.mock.calls[2]?.[0]).toBe('/api/analytics/pageView');
+        expect(fetch.mock.calls.some(([, init]) => String(init?.body).includes('/privacy'))).toBe(true);
+        expect(fetch.mock.calls.filter(([, init]) => String(init?.body).includes('/privacy'))).toHaveLength(1);
+    });
 });

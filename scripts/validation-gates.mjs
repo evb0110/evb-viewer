@@ -2060,12 +2060,69 @@ function isProcessGroupAlive(pid) {
     }
 }
 
-async function waitForProcessGroupExit(pid, timeoutMs) {
+function collectDescendantPidsUnix(rootPid) {
+    if (process.platform === 'win32' || !Number.isInteger(rootPid) || rootPid < 1) {
+        return [];
+    }
+    try {
+        const output = execFileSync('ps', [
+            '-eo',
+            'pid=,ppid=',
+        ], {
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        const childrenByParent = new Map();
+        for (const line of output.split('\n')) {
+            const [pidText, ppidText] = line.trim().split(/\s+/u);
+            const pid = Number(pidText);
+            const ppid = Number(ppidText);
+            if (!Number.isInteger(pid) || !Number.isInteger(ppid) || pid < 1 || ppid < 1) {
+                continue;
+            }
+            const children = childrenByParent.get(ppid) ?? [];
+            children.push(pid);
+            childrenByParent.set(ppid, children);
+        }
+        const descendants = [];
+        const pending = [rootPid];
+        while (pending.length > 0) {
+            const parentPid = pending.pop();
+            for (const childPid of childrenByParent.get(parentPid) ?? []) {
+                descendants.push(childPid);
+                pending.push(childPid);
+            }
+        }
+        return descendants;
+    } catch {
+        return [];
+    }
+}
+
+function getLiveProcessGroups(pids) {
+    const groupIds = new Set();
+    for (const pid of pids) {
+        const groupId = getProcessGroupId(pid);
+        if (groupId !== null && isProcessGroupAlive(groupId)) {
+            groupIds.add(groupId);
+        }
+    }
+    return groupIds;
+}
+
+async function waitForOwnedProcessesExit(groupIds, pids, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
-    while (isProcessGroupAlive(pid) && Date.now() < deadline) {
+    const hasSurvivor = () => [
+        ...groupIds,
+    ].some(groupId => isProcessGroupAlive(groupId)) || pids.some(isPidAlive);
+    while (hasSurvivor() && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 50));
     }
-    return !isProcessGroupAlive(pid);
+    return !hasSurvivor();
 }
 
 async function stopSpawnedProcess(child, signal) {
@@ -2098,12 +2155,23 @@ async function stopSpawnedProcess(child, signal) {
             ownedPids: [pid],
         };
     }
+    const descendantPids = collectDescendantPidsUnix(pid);
+    const ownedGroupIds = getLiveProcessGroups([
+        pid,
+        ...descendantPids,
+    ]);
     if (process.platform === 'win32') {
         child.kill(signal);
     } else {
-        process.kill(-pid, signal);
+        for (const ownedGroupId of ownedGroupIds) {
+            try {
+                process.kill(-ownedGroupId, signal);
+            } catch {
+                // A captured group may exit between discovery and signalling.
+            }
+        }
     }
-    if (await waitForProcessGroupExit(pid, processTerminationGraceMs)) {
+    if (await waitForOwnedProcessesExit(ownedGroupIds, descendantPids, processTerminationGraceMs)) {
         return {
             owned: true,
             ownedPids: [],
@@ -2120,25 +2188,29 @@ async function stopSpawnedProcess(child, signal) {
         } catch {
             // The child may have exited between the identity check and taskkill.
         }
-    } else if (getProcessGroupId(pid) === pid) {
-        process.kill(-pid, 'SIGKILL');
     } else {
-        return {
-            owned: false,
-            ownedGroupIds: [pid],
-            ownedPids: [pid],
-        };
+        for (const ownedGroupId of ownedGroupIds) {
+            if (isProcessGroupAlive(ownedGroupId)) {
+                try {
+                    process.kill(-ownedGroupId, 'SIGKILL');
+                } catch {
+                    // The group may exit between the liveness check and SIGKILL.
+                }
+            }
+        }
     }
-    if (await waitForProcessGroupExit(pid, processTerminationGraceMs)) {
+    if (await waitForOwnedProcessesExit(ownedGroupIds, descendantPids, processTerminationGraceMs)) {
         return {
             owned: true,
             ownedPids: [],
         };
     }
+    const remainingGroupIds = [...ownedGroupIds].filter(isProcessGroupAlive);
+    const remainingPids = descendantPids.filter(isPidAlive);
     return {
         owned: false,
-        ownedGroupIds: [pid],
-        ownedPids: [pid],
+        ownedGroupIds: remainingGroupIds,
+        ownedPids: remainingPids,
     };
 }
 

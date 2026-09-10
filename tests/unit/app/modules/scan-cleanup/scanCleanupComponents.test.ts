@@ -5762,6 +5762,53 @@ describe('Scan cleanup components', () => {
         expect(settings.marginsMm.topMm).toBe(25);
     });
 
+    it('rejects dewarp depths outside the executable range', async () => {
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'auto' as const,
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            autoDewarp: true,
+            autoDewarpDepth: undefined as number | undefined,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const updateSetting = vi.fn((key: string, value: unknown) => {
+            if (key === 'autoDewarpDepth') settings.autoDewarpDepth = value as number;
+        });
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            Object.assign(settingsPanelProps(settings, 'all'), {'onUpdate-setting': updateSetting}),
+        )}));
+
+        const depth = harness.host.querySelector<HTMLInputElement>(
+            '[aria-label="scanCleanup.advanced.autoDewarpDepth"]',
+        );
+        expect(depth).not.toBeNull();
+        for (const invalidValue of ['0.4', '4.1']) {
+            depth!.value = invalidValue;
+            depth!.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        await nextTick();
+        expect(updateSetting).not.toHaveBeenCalledWith('autoDewarpDepth', expect.anything());
+
+        depth!.value = '1.8';
+        depth!.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(updateSetting).toHaveBeenCalledWith('autoDewarpDepth', 1.8);
+    });
+
     it('starts the deskew stepper at the neutral angle and states the range it accepts', async () => {
         const settings = reactive({
             preserveOriginalQuality: false,

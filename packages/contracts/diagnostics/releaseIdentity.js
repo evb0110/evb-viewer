@@ -328,8 +328,8 @@ export function resolveSentryBuildTarget(environment = {}) {
 
 export function resolveDesktopDiagnosticDist({
     environment = {},
-    platform = process.platform,
-    architecture = process.arch,
+    platform,
+    architecture,
 } = {}) {
     const explicit = consistentNonEmpty(environment, [
         'EVB_SENTRY_DIST',
@@ -464,8 +464,8 @@ export function resolveSentryBuildIdentity({
     deployment,
     release,
     environment = {},
-    platform = process.platform,
-    architecture = process.arch,
+    platform,
+    architecture,
 } = {}) {
     const inferredTarget = inferSentryBuildTarget(environment);
     const configuredTarget = consistentNonEmpty(environment, [

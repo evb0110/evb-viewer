@@ -338,6 +338,8 @@ async function runViewerPrebuiltBuild({
         target: 'web',
         version: packageJson.version,
         environment: buildEnvironment,
+        platform: process.platform,
+        architecture: process.arch,
     });
     await stageSourcemaps({
         identity,

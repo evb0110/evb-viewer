@@ -51,6 +51,8 @@ export function resolveReleaseIdentityForEnvironment({
         target,
         version,
         environment,
+        platform: process.platform,
+        architecture: process.arch,
     });
 }
 

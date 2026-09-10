@@ -488,7 +488,8 @@ export function isWorkingCopyRevisionCurrent(
     return reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath)
         .catch(() => null)
         .then(() => readWorkingCopyRevisionSidecar(workingCopyPath))
-        .then(sidecar => sidecar?.token === token);
+        .then(sidecar => sidecar?.token === token)
+        .catch(() => false);
 }
 
 export async function assertWorkingCopyRevisionCurrent(

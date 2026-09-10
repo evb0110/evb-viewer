@@ -24,6 +24,7 @@ import {
 } from 'yaml-eslint-parser';
 
 interface IWorkflowStep {
+    'continue-on-error'?: boolean | string;
     env?: Record<string, unknown>;
     if?: string;
     run?: string;
@@ -364,6 +365,21 @@ describe('CI topology policy', () => {
         }
     });
 
+    it('requires the installed Windows journey for every release architecture', async () => {
+        const jobs = parseWorkflowJobs(await readProjectFile('.github/workflows/build-target.yml'));
+        const buildJob = jobs.build;
+        if (buildJob === undefined) {
+            throw new Error('build-target workflow must define its build job.');
+        }
+
+        const installedJourney = buildJob.steps?.find(step => step.run?.includes('NSIS installer was not produced.'));
+        if (installedJourney === undefined) {
+            throw new Error('Windows release builds must define the installed NSIS journey.');
+        }
+
+        expect(installedJourney['continue-on-error']).toBeUndefined();
+    });
+
     it('runs changed lint only for a valid base and falls back to full lint otherwise', async () => {
         const jobs = parseWorkflowJobs(await readProjectFile('.github/workflows/ci.yml'));
         const lintScript = jobs.pr_quality?.steps?.find(step =>
@@ -413,5 +429,20 @@ describe('CI topology policy', () => {
             expect(result.status, scenario.eventName).toBe(0);
             expect(calls, scenario.eventName).toEqual([scenario.expectedCommand]);
         }
+    });
+
+    it('re-reads GitHub promotion state after a lost edit response', async () => {
+        const source = await readProjectFile('.github/workflows/publish-chain.yml');
+        const promotionStart = source.indexOf('      - name: Promote verified GitHub draft');
+        const promotionEnd = source.indexOf('      - name: Assert drill release remains a draft');
+        expect(promotionStart).toBeGreaterThanOrEqual(0);
+        expect(promotionEnd).toBeGreaterThan(promotionStart);
+
+        const promotionStep = source.slice(promotionStart, promotionEnd);
+        expect(promotionStep).toContain('gh release edit "$RELEASE_TAG" --draft=false');
+        expect(promotionStep).toContain('gh release view "$RELEASE_TAG" --json isDraft,targetCommitish');
+        expect(promotionStep).toContain("[ \"$(jq -r '.isDraft' <<< \"$release_json\")\" = 'false' ]");
+        expect(promotionStep).toContain('outcome is unresolved');
+        expect(promotionStep).toContain('remains a draft');
     });
 });

@@ -519,6 +519,28 @@ describe('SearchWorkerService', () => {
         await expect(secondSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
     });
 
+    it('does not admit a replacement while retired worker ownership is unresolved', async () => {
+        const service = await createSearchService({maxActiveSenderWorkers: 1});
+        const sender = createSender(42);
+
+        const failedSearch = dispatchSearch(service, sender, 'search-1', {senderId: 42});
+        workerMocks.instances[0]?.emit('error', new Error('worker failed'));
+        await expect(failedSearch).rejects.toThrow('worker failed');
+
+        workerMocks.instances[0]?.emit('message', {
+            type: 'shutdown-complete',
+            error: 'native daemon ownership unresolved',
+        });
+        workerMocks.instances[0]?.emit('exit', 1);
+
+        await expect(dispatchSearch(service, sender, 'search-2', {senderId: 42}))
+            .rejects.toMatchObject({code: 'SEARCH_WORKER_LIMIT'});
+        expect(workerMocks.instances).toHaveLength(1);
+
+        const shutdownPromise = service.shutdown('test cleanup');
+        await expect(shutdownPromise).rejects.toThrow('Search worker shutdown failed');
+    });
+
     it('returns an existing warmup singleflight before allocating sender worker state', async () => {
         const service = await createSearchService();
         const firstSender = createSender(41);

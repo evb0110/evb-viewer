@@ -154,7 +154,7 @@
 
         <div v-else class="annotation-style-editor-idle" role="status" aria-live="polite">
             <UIcon name="i-ph-sliders-horizontal" class="annotation-style-editor-idle-icon" />
-            <span class="annotation-style-editor-idle-label">{{ t('annotations.styleDescription') }}</span>
+            <span class="annotation-style-editor-idle-label">{{ hasAnnotations ? t('annotations.styleDescription') : t('annotations.styleDescriptionNoAnnotations') }}</span>
         </div>
     </div>
 </template>
@@ -197,6 +197,7 @@ interface IProps {
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     selectedAnnotations?: readonly AnnotationEntity[];
     canRotate?: ((delta: -90 | 90) => boolean) | undefined;
+    hasAnnotations?: boolean;
 }
 
 const { t } = useTypedI18n();
@@ -207,6 +208,7 @@ const {
     selectedTextBox = null,
     selectedAnnotations = [],
     canRotate = undefined,
+    hasAnnotations = false,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -521,13 +523,14 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .annotation-style-editor-idle {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
+    align-items: flex-start;
     gap: 0.4rem;
     color: var(--ui-text-muted);
 }
 
 .annotation-style-editor-idle-icon {
+    flex: none;
     font-size: var(--app-text-size-ui);
 }
 

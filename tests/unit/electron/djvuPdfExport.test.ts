@@ -1129,15 +1129,27 @@ describe('handleDjvuConvertToPdf', () => {
 
     it('stops between partial writes when export is canceled', async () => {
         let cancelPromise: Promise<unknown> | undefined;
+        let cancelAcknowledged = false;
+        const cleanupStarted = createDeferred<void>();
+        const cleanupRelease = createDeferred<void>();
         const write = vi.fn()
             .mockImplementationOnce(async (_buffer: Buffer, _offset: number, _length: number) => {
                 cancelPromise = handleDjvuCancel(
                     createOperationContext(7),
                     asJobId('djvu-convert-convert-123'),
-                );
+                ).then(result => {
+                    cancelAcknowledged = true;
+                    return result;
+                });
                 return {bytesWritten: 1};
             })
             .mockResolvedValue({bytesWritten: 1});
+        mocks.rm.mockImplementation(async (path: string) => {
+            if (path === '/tmp/.staged-output.tmp') {
+                cleanupStarted.resolve();
+                await cleanupRelease.promise;
+            }
+        });
         mocks.open.mockImplementation(async (_path: string, flags: string) => {
             if (flags === 'r') {
                 return {
@@ -1165,6 +1177,9 @@ describe('handleDjvuConvertToPdf', () => {
             '/tmp/canceled.pdf',
             {preserveBookmarks: false},
         );
+        await cleanupStarted.promise;
+        expect(cancelAcknowledged).toBe(false);
+        cleanupRelease.resolve();
         const result = await conversionPromise;
         await cancelPromise;
 

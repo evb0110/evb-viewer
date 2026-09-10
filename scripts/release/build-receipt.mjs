@@ -198,6 +198,8 @@ function buildSentryIdentity(env, projectRoot) {
         target: resolveSentryBuildTarget(env),
         version: readPackageVersion(projectRoot, env),
         environment: env,
+        platform: process.platform,
+        architecture: process.arch,
     });
 }
 

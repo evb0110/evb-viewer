@@ -239,6 +239,56 @@ describe('assistant app-server pipeline', () => {
         ]));
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('non-JSON'));
 
+        coordinator.claimSessionTurn(session);
+        store.addMessage(session, {
+            role: 'assistant',
+            text: 'partial response',
+            pending: true,
+        });
+        const clearRuntimeForExit = vi.fn();
+        const exitController = createAssistantAppServerNotificationController({
+            addMessage: store.addMessage,
+            appendAssistantDelta: store.appendAssistantDelta,
+            clearLoginState,
+            clearRuntimeForExit,
+            codexProviderRuntime: runtimes.codex,
+            completeSessionTurn: coordinator.completeSessionTurn,
+            currentCodexSelection: () => selection,
+            getPendingLoginId: () => 'login-2',
+            errorSessionTurn: coordinator.errorSessionTurn,
+            getActiveChatSession: () => store.getActiveSession('codex'),
+            getAuthReturnWindow: () => null,
+            getChatSessionByThreadId: store.getSessionByThreadId,
+            getRememberedScope: () => scope,
+            logger: mocks.logger,
+            markSessionTurnRunning: coordinator.markSessionTurnRunning,
+            noFocus: true,
+            publishAssistantEvent: event => events.push(event),
+            publishState: vi.fn(),
+            reconcileFailedTurnMessages: (target, error) => {
+                for (const message of target.messages) {
+                    if (message.role === 'assistant' && message.pending) {
+                        message.pending = false;
+                    }
+                }
+                target.lastError = error;
+            },
+            refreshAuthStateAndRuntimeAvailability: vi.fn(async () => undefined),
+            sessionStore: store,
+            supersedeSessionTurn: coordinator.supersedeSessionTurn,
+            upsertAssistantMessage: store.upsertAssistantMessage,
+        });
+
+        exitController.handleExit('Codex app-server exited.');
+
+        expect(clearRuntimeForExit).toHaveBeenCalledOnce();
+        expect(session.turnOwner.phase).toBe('error');
+        expect(session.providerThreadId).toBe('thread-1');
+        expect(session.messages.at(-1)).toMatchObject({
+            text: 'partial response',
+            pending: false,
+        });
+
         await client.shutdown();
     });
 });

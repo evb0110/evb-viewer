@@ -1061,11 +1061,19 @@ describe('documentRevisionStore', () => {
         const {
             assertWorkingCopyMutationAllowed,
             hasWorkingCopySyncRequired,
+            isWorkingCopyRevisionCurrent,
         } = await import('@electron/file-access/documentRevisionStore');
-        const {readWorkingCopyRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
+        const {
+            readWorkingCopyRevisionJournalEntries,
+            readWorkingCopyRevisionSidecar,
+        } = await import('@electron/file-access/documentRevisionSidecar');
 
         expect(() => readWorkingCopyRevisionJournalEntries(workingPath)).toThrow(/invalid/u);
         expect(readFileSync(journalPath, 'utf8')).toBe(invalidJournal);
+        await expect(readWorkingCopyRevisionSidecar(workingPath)).rejects.toThrow(/invalid/u);
+        await expect(isWorkingCopyRevisionCurrent(workingPath, requireDocumentRevisionToken('drt1:journal:1:current')))
+            .resolves
+            .toBe(false);
         expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow(/recovery journal/u);
         expect(hasWorkingCopySyncRequired(workingPath)).toBe(true);
 

@@ -12,24 +12,26 @@ export async function loadBrowserPdfjsDocument(
     path: string,
 ): Promise<IPdfDocument> {
     let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+    let loadingTask: ReturnType<TBrowserPdfjsLib['getDocument']> | null = null;
+    let destroyPromise: Promise<void> | null = null;
+    let destroyTask: (() => Promise<void>) | null = null;
     const rangeReadFailure = new Promise<never>((_resolve, reject) => {
         rejectRangeReadFailure = reject;
     });
-    const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
+    const task = loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
         const reject = rejectRangeReadFailure;
-        rejectRangeReadFailure = null;
         reject?.(error);
+        void destroyTask?.().catch(() => {});
     }}));
+    destroyTask = () => destroyPromise ??= loadingTask!.destroy();
     try {
         const loadedDocument = await Promise.race([
-            loadingTask.promise,
+            task.promise,
             rangeReadFailure,
         ]);
-        return adaptPdfjsDocument(loadedDocument, () => loadingTask.destroy());
+        return adaptPdfjsDocument(loadedDocument, () => destroyTask!());
     } catch (error) {
-        await loadingTask.destroy();
+        await destroyTask!();
         throw error;
-    } finally {
-        rejectRangeReadFailure = null;
     }
 }

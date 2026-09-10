@@ -407,7 +407,7 @@ export function decodeScanCleanupGlobalPreferences(
             : defaults.normalizeIllumination,
         readingOrder: stored.readingOrder === 'rtl' ? 'rtl' : 'ltr',
         thickness: typeof stored.thickness === 'number' && Number.isFinite(stored.thickness)
-            ? Math.min(5, Math.max(-5, stored.thickness))
+            ? Math.min(5, Math.max(-5, Math.trunc(stored.thickness)))
             : defaults.thickness,
         crop: typeof stored.crop === 'boolean' ? stored.crop : defaults.crop,
         matchPageSize: typeof stored.matchPageSize === 'boolean' ? stored.matchPageSize : defaults.matchPageSize,

@@ -127,6 +127,34 @@ describe('browserPageOpsWorkerClient', () => {
         vi.stubGlobal('Worker', FakeWorker);
     });
 
+    it('rejects malformed catalog bookmark fields through the shared codec', async () => {
+        const {decodeBrowserPdfCatalog} = await import('@contracts/browserPdfCatalog');
+        const baseBookmark = {
+            title: 'Chapter',
+            pageIndex: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{...baseBookmark, pageIndex: undefined}],
+            pageLabels: [],
+        }, {maxPageLabels: 2_048})).toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{...baseBookmark, pageYRatio: 'bad'}],
+            pageLabels: [],
+        }, {maxPageLabels: 2_048})).toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{...baseBookmark, pageYRatio: 0.25}],
+            pageLabels: [{pageIndex: 0, prefix: 'Page '}],
+        }, {maxPageLabels: 2_048})).toEqual({
+            bookmarks: [{...baseBookmark, pageYRatio: 0.25}],
+            pageLabels: [{pageIndex: 0, prefix: 'Page '}],
+        });
+    });
+
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
         const {runBrowserPageOpsWorkerRequest} = await import(
             '@app/platform/browser-api/browserPageOpsWorkerClient'

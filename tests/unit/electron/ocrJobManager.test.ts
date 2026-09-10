@@ -1015,6 +1015,42 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         );
     });
 
+    it('sends a terminal failure when the worker exits cleanly without a result', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
+
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
+            createContext(176),
+            'job-176',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-176',
+        });
+
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+        mocks.sendPlatformEvent.mockClear();
+
+        worker?.emit('exit', 0);
+
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
+            undefined,
+            'ocr:complete',
+            expect.objectContaining({
+                requestId: 'job-176',
+                success: false,
+                errors: ['Worker exited without returning an OCR result'],
+                errorEnvelope: expect.objectContaining({
+                    code: 'OCR_INTERNAL_ERROR',
+                    message: 'Worker exited without returning an OCR result',
+                }),
+            }),
+            expect.any(Function),
+        );
+    });
+
     it('forwards successful completion even when cleanup completion never arrives', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

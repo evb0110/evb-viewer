@@ -115,8 +115,14 @@ function createBasePlatformApiFixture(manifest: IPlatformRuntimeManifest) {
     return api;
 }
 
-function assertPlatformApiFixture(api: Record<string, unknown>): asserts api is Record<string, unknown> & IPlatformApi {
+function assertPlatformApiFixture(
+    api: Record<string, unknown>,
+    backend: TPlatformBackend,
+): asserts api is Record<string, unknown> & IPlatformApi {
     for (const descriptor of PLATFORM_API_DESCRIPTOR.methods) {
+        if (!descriptor.required[backend]) {
+            continue;
+        }
         if (typeof readPath(api, descriptor.path) !== 'function') {
             throw new TypeError(`Missing platform API fixture method ${descriptor.path.join('.')}`);
         }
@@ -129,6 +135,6 @@ export function createPlatformApiFixture<TOverrides extends TPlatformApiFixtureO
 }: ICreatePlatformApiFixtureOptions<TOverrides>): IPlatformApi & TOverrides {
     const api = createBasePlatformApiFixture(manifest);
     deepMerge(api, overrides);
-    assertPlatformApiFixture(api);
+    assertPlatformApiFixture(api, manifest.backend);
     return api as IPlatformApi & TOverrides;
 }

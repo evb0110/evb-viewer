@@ -537,12 +537,15 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             || active.terminatedByUs
             || active.terminalResultSent;
 
-        if (code !== 0 && !wasCompletedOrTerminated) {
-            log.error(`Worker exited with code ${code} for job ${job.requestId}`, {
+        if (!wasCompletedOrTerminated && !active.pendingCompletionResult) {
+            const error = code === 0
+                ? 'Worker exited without returning an OCR result'
+                : `Worker exited unexpectedly with code ${code}`;
+            log.error(`Worker exited without a result for job ${job.requestId}`, {
                 code: 'MAIN_OCR_OPERATION_FAILED',
                 context: {},
             });
-            sendJobFailure(active, `Worker exited unexpectedly with code ${code}`);
+            sendJobFailure(active, error);
             active.terminalResultSent = true;
         } else if (active.pendingCompletionResult && !active.terminalResultSent) {
             sendPendingCompletionResult(active);

@@ -32,6 +32,8 @@ export async function stageDesktopRendererSourcemaps({
         target: 'desktop',
         version: packageJson.version,
         environment,
+        platform: process.platform,
+        architecture: process.arch,
     });
     const stage = await stageSourcemaps();
     return stage({

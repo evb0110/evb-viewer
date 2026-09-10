@@ -628,7 +628,12 @@ export async function executeWindowsTestRun(
                 policy,
                 dependencies.identityGuard,
             );
-            await bindLeaseToVm(layout.leaseFile, runId, clonedVmId);
+            await bindLeaseToVm({
+                leaseFile: layout.leaseFile,
+                lockDirectory: layout.lockFile,
+                runId,
+                lock: dependencies.lock,
+            }, clonedVmId);
             await throwIfCanceled('leased');
 
             await recorder.record('booting', `Starting owned clone ${clonedVmId} cloned from the stopped golden image.`);
@@ -1076,7 +1081,12 @@ export async function executeWindowsTestRun(
         leaseReleaseAllowed = !failures.some(failure => failure.phase === 'tearing-down');
     } finally {
         if (leaseReleaseAllowed) {
-            await releaseHostLease(layout.leaseFile, runId);
+            await releaseHostLease({
+                leaseFile: layout.leaseFile,
+                lockDirectory: layout.lockFile,
+                runId,
+                lock: dependencies.lock,
+            });
         }
     }
 

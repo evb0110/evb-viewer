@@ -5,6 +5,10 @@ import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import {
+    BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
+    decodeBrowserPdfCatalog,
+} from '@contracts/browserPdfCatalog';
 import type {
     IPdfNativeAnnotationIdentityBinding,
     IPdfNativeMutationSet,
@@ -114,8 +118,6 @@ const RESPONSE_SAVE_MUTATIONS = 4;
 const RESPONSE_JSON = 5;
 const MAX_U32 = 0xffff_ffff;
 const MAX_DOCUMENTS = 500;
-const MAX_BOOKMARK_DEPTH = 256;
-const MAX_BOOKMARK_ITEMS = 100_000;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
 
@@ -590,61 +592,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function isOptionalNonNegativeInteger(value: unknown) {
-    return value === undefined
-        || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
-}
-
-function isCatalogBookmark(
-    value: unknown,
-    depth: number,
-    state: {count: number},
-): value is IBrowserPdfCombineCatalog['bookmarks'][number] {
-    if (!isRecord(value) || depth >= MAX_BOOKMARK_DEPTH || state.count >= MAX_BOOKMARK_ITEMS) {
-        return false;
-    }
-    if (
-        typeof value.title !== 'string'
-        || (value.pageIndex !== null && !isOptionalNonNegativeInteger(value.pageIndex))
-        || (value.namedDest !== null && typeof value.namedDest !== 'string')
-        || typeof value.bold !== 'boolean'
-        || typeof value.italic !== 'boolean'
-        || (value.color !== null && typeof value.color !== 'string')
-        || (value.pageYRatio !== undefined
-            && value.pageYRatio !== null
-            && (typeof value.pageYRatio !== 'number' || !Number.isFinite(value.pageYRatio)))
-        || !Array.isArray(value.items)
-        || value.items.length > MAX_BOOKMARK_ITEMS
-    ) {
-        return false;
-    }
-    state.count += 1;
-    return value.items.every(item => isCatalogBookmark(item, depth + 1, state));
-}
-
-function isPdfCombineCatalog(value: unknown): value is IBrowserPdfCombineCatalog {
-    if (!isRecord(value) || !Array.isArray(value.bookmarks) || !Array.isArray(value.pageLabels)) {
-        return false;
-    }
-    if (value.bookmarks.length > MAX_BOOKMARK_ITEMS || value.pageLabels.length > 2048) {
-        return false;
-    }
-    const state = {count: 0};
-    if (!value.bookmarks.every(bookmark => isCatalogBookmark(bookmark, 0, state))) {
-        return false;
-    }
-    return value.pageLabels.every(range => {
-        if (!isRecord(range)) {
-            return false;
-        }
-        return isOptionalNonNegativeInteger(range.pageIndex)
-            && typeof range.pageIndex === 'number'
-            && (range.style === undefined || typeof range.style === 'string')
-            && (range.prefix === undefined || typeof range.prefix === 'string')
-            && (range.start === undefined || (typeof range.start === 'number' && Number.isSafeInteger(range.start) && range.start >= 0));
-    });
-}
-
 function isPdfConformanceFacts(value: unknown): value is IBrowserPdfConformanceFacts {
     return isRecord(value)
         && typeof value.isSigned === 'boolean'
@@ -738,7 +685,7 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         }
         const value: unknown = readJsonResult(output);
         if (type === 'readCatalog') {
-            return isPdfCombineCatalog(value)
+            return decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})
                 ? value as IBrowserPageOpsWasmResultMap[K]
                 : null;
         }

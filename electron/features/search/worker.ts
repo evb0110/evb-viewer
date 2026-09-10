@@ -727,17 +727,6 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
         processedCount += 1;
         const wasTruncated = truncated;
         const previousResultCount = results.length;
-        if (!truncated) {
-            const pageResult = appendPageMatches({
-                context,
-                page,
-                results,
-                globalMatchIndex,
-            });
-            globalMatchIndex = pageResult.globalMatchIndex;
-            truncated = pageResult.truncated;
-        }
-
         if (results.length !== previousResultCount || (!wasTruncated && truncated)) {
             const resultDelta = results.slice(previousResultCount);
             sendProgress(context.requestId, processedCount, total, true, {

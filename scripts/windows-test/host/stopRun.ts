@@ -101,6 +101,10 @@ async function stopOwnedClone(
     const status = await dependencies.utmctl.status(vmId).catch(() => 'unknown');
     if (status !== 'stopped') {
         await dependencies.utmctl.stop(vmId, 'force');
+        const statusAfterForce = await dependencies.utmctl.status(vmId).catch(() => 'unknown');
+        if (statusAfterForce !== 'stopped') {
+            throw new Error(`Owned clone ${vmId} did not acknowledge stopped status after a forced stop; retaining the host exclusion.`);
+        }
     }
 }
 
@@ -170,10 +174,11 @@ export async function requestWindowsTestStop(
                 messages.push('The lease owner reappeared; leaving recovery to it.');
                 return;
             }
-            if (current.vmId !== null) {
-                await stopOwnedClone(request, dependencies, current.vmId);
-                messages.push(`Stopped the orphaned clone ${current.vmId} and retained it for inspection.`);
+            if (current.vmId === null) {
+                throw new Error(`Stale run ${current.runId} has no bound clone identity; retaining the host exclusion.`);
             }
+            await stopOwnedClone(request, dependencies, current.vmId);
+            messages.push(`Stopped the orphaned clone ${current.vmId} and retained it for inspection.`);
             await rm(dependencies.layout.leaseFile, {force: true});
             messages.push('Released the stale lease; the incomplete run directory was preserved.');
             recovered = true;

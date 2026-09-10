@@ -15,7 +15,12 @@ before_sha="$1"
 head_sha="$2"
 
 if [ -z "$before_sha" ] || [ "$before_sha" = "0000000000000000000000000000000000000000" ]; then
-    git rev-parse "${head_sha}^" 2>/dev/null || printf '%s\n' "$head_sha"
+    parent_sha="$(git rev-parse --verify --quiet "${head_sha}^" 2>/dev/null || true)"
+    if [ -n "$parent_sha" ]; then
+        printf '%s\n' "$parent_sha"
+    else
+        printf '%s\n' 'unavailable-push-base'
+    fi
     exit 0
 fi
 

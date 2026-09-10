@@ -36,6 +36,8 @@ import {
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import { DOCUMENTS_STORE } from '@app/platform/browser/browserDocumentConstants';
+import { runObjectStoreTransaction } from '@app/platform/browser/browserDocumentIdb';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 
 let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
@@ -47,6 +49,8 @@ interface IBrowserSettingsReadResult {
     settings: ISettingsData;
     persisted: boolean;
 }
+
+const BROWSER_SETTINGS_STORAGE_LOCK_KEY = '__evb_browser_settings_storage_lock__';
 
 function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
     if (!safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))) {
@@ -146,6 +150,56 @@ function writeBrowserSettingsBootstrapCookies(
         : '';
     document.cookie = `${BROWSER_LOCALE_COOKIE_KEY}=${encodeURIComponent(nextSettings.locale)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
     document.cookie = `${BROWSER_THEME_COOKIE_KEY}=${encodeURIComponent(nextSettings.theme)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
+}
+
+async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>) {
+    const transactionResult = await runObjectStoreTransaction<
+        {saved: true} | {error: unknown}
+    >(
+        DOCUMENTS_STORE,
+        'readwrite',
+        (store, setResult) => {
+            const lockRead = store.get(BROWSER_SETTINGS_STORAGE_LOCK_KEY);
+            lockRead.onsuccess = () => {
+                try {
+                    const currentSettings = readLatestBrowserSettingsForSave();
+                    const nextSettings = sanitizeSettings({
+                        ...currentSettings,
+                        ...settings,
+                    });
+                    writeBrowserSettingsToStorage(nextSettings);
+                    writeBrowserSettingsBootstrapCookies(nextSettings);
+                    settingsState = nextSettings;
+                    browserSettingsLoaded = true;
+                    setResult({saved: true});
+                } catch (error) {
+                    setResult({error});
+                }
+            };
+        },
+    );
+    if (transactionResult) {
+        if ('error' in transactionResult) {
+            throw transactionResult.error;
+        }
+        return;
+    }
+
+    // IndexedDB is the cross-page serialization boundary. Do not report a
+    // successful localStorage mutation when that boundary cannot be acquired.
+    if (typeof indexedDB !== 'undefined') {
+        throw new Error('Failed to serialize browser settings persistence');
+    }
+
+    const currentSettings = readLatestBrowserSettingsForSave();
+    const nextSettings = sanitizeSettings({
+        ...currentSettings,
+        ...settings,
+    });
+    writeBrowserSettingsToStorage(nextSettings);
+    writeBrowserSettingsBootstrapCookies(nextSettings);
+    settingsState = nextSettings;
+    browserSettingsLoaded = true;
 }
 
 function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } = {}): IBrowserSettingsReadResult | null {
@@ -249,15 +303,8 @@ export const browserSettingsCapability: ISettingsCapability = {
         }
 
         return Promise.resolve().then(() => {
-            const currentSettings = readLatestBrowserSettingsForSave();
-            const nextSettings = sanitizeSettings({
-                ...currentSettings,
-                ...settings,
-            });
-            writeBrowserSettingsToStorage(nextSettings);
-            writeBrowserSettingsBootstrapCookies(nextSettings);
-            settingsState = nextSettings;
-            browserSettingsLoaded = true;
+            return runSerializedBrowserSettingsSave(settings);
+        }).then(() => {
             if (
                 diagnosticsSaveRevision === null
                 || diagnosticsSaveRevision === diagnosticsPreferenceRevision

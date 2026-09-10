@@ -152,7 +152,12 @@ describe('windows test host lock and lease', () => {
             probe: deadOwnerProbe,
             nowIso: () => '2026-09-04T11:00:00.000Z',
         });
-        await bindLeaseToVm(layout.leaseFile, OTHER_RUN_ID, CLONE_VM_ID);
+        await bindLeaseToVm({
+            leaseFile: layout.leaseFile,
+            lockDirectory: layout.lockFile,
+            runId: OTHER_RUN_ID,
+            lock: lockDependencies(4_242, deadOwnerProbe),
+        }, CLONE_VM_ID);
 
         const recovered: IWindowsTestLease[] = [];
         const newOwnerProbe = fakeProbe(new Map([[
@@ -219,10 +224,48 @@ describe('windows test host lock and lease', () => {
             nowIso: () => '2026-09-04T12:00:00.000Z',
         });
 
-        expect(await releaseHostLease(layout.leaseFile, OTHER_RUN_ID)).toBe(false);
+        expect(await releaseHostLease({
+            leaseFile: layout.leaseFile,
+            lockDirectory: layout.lockFile,
+            runId: OTHER_RUN_ID,
+            lock: lockDependencies(4_242, probe),
+        })).toBe(false);
         expect(await readHostLease(layout.leaseFile)).not.toBeNull();
-        expect(await releaseHostLease(layout.leaseFile, RUN_ID)).toBe(true);
+        expect(await releaseHostLease({
+            leaseFile: layout.leaseFile,
+            lockDirectory: layout.lockFile,
+            runId: RUN_ID,
+            lock: lockDependencies(4_242, probe),
+        })).toBe(true);
         expect(await readHostLease(layout.leaseFile)).toBeNull();
+    });
+
+    it('serializes lease mutations behind the host lock', async () => {
+        const probe = fakeProbe(new Map([[
+            4_242,
+            'Fri Sep  4 12:00:00 2026',
+        ]]));
+        await acquireHostLease({
+            leaseFile: layout.leaseFile,
+            lockDirectory: layout.lockFile,
+            runId: RUN_ID,
+            hostId: 'test-host',
+            lock: lockDependencies(4_242, probe),
+            probe,
+            nowIso: () => '2026-09-04T12:00:00.000Z',
+        });
+        const lock = await acquireHostLock(layout.lockFile, lockDependencies(4_242, probe));
+        const mutation = {
+            leaseFile: layout.leaseFile,
+            lockDirectory: layout.lockFile,
+            runId: RUN_ID,
+            lock: lockDependencies(4_243, probe),
+            lockOptions: {attempts: 1, retryDelayMs: 0},
+        };
+
+        await expect(bindLeaseToVm(mutation, CLONE_VM_ID)).rejects.toBeInstanceOf(HostLockBusyError);
+        await expect(releaseHostLease(mutation)).rejects.toBeInstanceOf(HostLockBusyError);
+        await lock.release();
     });
 
     it('reports a malformed lease file instead of treating the VM as free', async () => {

@@ -1148,8 +1148,9 @@ pub fn combine_tiff_paths(
     output_path: &Path,
     max_pixels: u64,
     max_pages: usize,
+    dpi: Option<u32>,
 ) -> Result<()> {
-    combine_tiff_pages(input_paths, output_path, max_pixels, max_pages)
+    combine_tiff_pages(input_paths, output_path, max_pixels, max_pages, dpi)
 }
 
 #[cfg(test)]

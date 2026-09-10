@@ -401,6 +401,9 @@ export class ClaudeAgentAssistantSession {
         attachments: IAgentAssistantImageAttachment[],
         model: string,
     ) {
+        if (this.retirementPromise) {
+            throw new Error('Claude assistant session is still retiring a previous turn.');
+        }
         this.ensureStarted();
         await this.setModel(model);
         const promptQueue = this.promptQueue;

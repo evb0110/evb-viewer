@@ -1180,7 +1180,7 @@ describe('validation gate policy', () => {
         const root = await mkdtemp(join(tmpdir(), 'evb-validation-cancellation-'));
         const readyPath = join(root, 'ready');
         const evidenceDir = join(root, 'evidence');
-        const fixtureCode = 'const fs=require(\'node:fs\');const {spawn}=require(\'node:child_process\');const child=spawn(process.execPath,[\'-e\',\'setInterval(()=>{},1000)\'],{stdio:\'ignore\'});fs.writeFileSync(process.env.READY,process.pid+\':\'+child.pid);setInterval(()=>{},1000);';
+        const fixtureCode = 'const fs=require(\'node:fs\');const {spawn}=require(\'node:child_process\');const child=spawn(process.execPath,[\'-e\',\'setInterval(()=>{},1000)\'],{detached:true,stdio:\'ignore\'});child.unref();fs.writeFileSync(process.env.READY,process.pid+\':\'+child.pid);setInterval(()=>{},1000);';
         const runner = spawn(process.execPath, [
             'scripts/validation-gates.mjs',
             'heavy',
@@ -1235,6 +1235,16 @@ describe('validation gate policy', () => {
             expect(output).toContain('Validation interrupted');
             expect(isProcessAlive(fixturePid!)).toBe(false);
             expect(isProcessAlive(descendantPid!)).toBe(false);
+            const afterCancellation = await validationGates.acquireHeavyGate({
+                capacity: 1,
+                env: {},
+                id: 'after-cancellation',
+                root: join(root, 'semaphore'),
+                waitMs: 25,
+                weight: 1,
+            });
+            expect(afterCancellation.coordinated).toBe(true);
+            await afterCancellation.release();
             const evidenceFiles = await readdir(evidenceDir);
             const evidenceFile = evidenceFiles.find(file => file.endsWith('.ndjson'));
             expect(evidenceFile).toBeDefined();

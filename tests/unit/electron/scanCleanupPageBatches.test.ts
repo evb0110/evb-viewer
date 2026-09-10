@@ -84,6 +84,15 @@ describe('scan-cleanup page batching', () => {
         expect(processed[SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES]).toBe(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1);
     });
 
+    it('rejects a custom batch size above the native manifest ceiling', () => {
+        expect(() => [...iterateScanCleanupPageBatches(
+            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
+            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
+        )]).toThrow(
+            `Scan cleanup batch size must not exceed ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} pages`,
+        );
+    });
+
     it('stops before the next batch when cancellation arrives', async () => {
         const controller = new AbortController();
         const batches: number[] = [];

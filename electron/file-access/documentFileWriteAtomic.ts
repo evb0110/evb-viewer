@@ -8,11 +8,8 @@ import {
     unlink,
 } from 'fs/promises';
 import {
-    basename,
     dirname,
-    join,
 } from 'path';
-import { randomUUID } from 'crypto';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
@@ -20,7 +17,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
-import {atomicReplace} from '@electron/utils/atomicReplace';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
 
 const log = createLogger('documentFileWriteAtomic');
 
@@ -79,10 +76,7 @@ export async function writeFileAtomic(resolvedPath: string, payload: Uint8Array)
     assertNoSymlinkPathSegments(resolvedPath);
 
     const directoryPath = dirname(resolvedPath);
-    const temporaryPath = join(
-        directoryPath,
-        `.${basename(resolvedPath)}.${process.pid}.${randomUUID()}.tmp`,
-    );
+    const temporaryPath = makeSiblingTempPath(resolvedPath);
 
     const handle = await openFileHandle(temporaryPath, 'wx');
     try {
@@ -119,10 +113,7 @@ export async function copyFileAtomic(
     assertNoSymlinkPathSegments(resolvedTargetPath);
 
     const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = join(
-        directoryPath,
-        `.${basename(resolvedTargetPath)}.${process.pid}.${randomUUID()}.tmp`,
-    );
+    const temporaryPath = makeSiblingTempPath(resolvedTargetPath);
 
     try {
         const cloneOutcome = await measureCopyPhase(options.onPhase, 'clone', () =>
@@ -231,10 +222,7 @@ export async function publishImmutableFileAtomic(
     assertNoSymlinkPathSegments(resolvedSourcePath);
     assertNoSymlinkPathSegments(resolvedTargetPath);
     const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = join(
-        directoryPath,
-        `.${basename(resolvedTargetPath)}.${process.pid}.${randomUUID()}.tmp`,
-    );
+    const temporaryPath = makeSiblingTempPath(resolvedTargetPath);
     try {
         await linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath);
     } catch (error) {

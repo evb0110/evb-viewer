@@ -1,3 +1,4 @@
+import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {
     isBrowserLegacyDocumentRef,
     type TDocumentRef,
@@ -110,6 +111,11 @@ export async function commitBrowserStoreStagedArtifact(
     }
     if (!isBrowserLegacyDocumentRef(targetRef) || targetRef === decoded.path) {
         throw new Error('Browser staged commit requires a different browser target ref');
+    }
+    if (decoded.size > BROWSER_MAX_FULL_READ_BYTES) {
+        throw new Error(
+            `Browser staged PDF output exceeds the browser full-read limit of ${BROWSER_MAX_FULL_READ_BYTES} bytes`,
+        );
     }
     const expectedRevision = parseDocumentRevisionToken(expectedTargetRevisionToken);
     if (expectedRevision === null) {

@@ -30,6 +30,9 @@ type TBrowserSearchDocumentRequest = IBrowserSearchWorkerRequest<
 
 async function loadBrowserSearchDocument(request: TBrowserSearchDocumentRequest) {
     let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+    let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
+    let destroyPromise: Promise<void> | null = null;
+    let destroyTask: (() => Promise<void>) | null = null;
     const rangeReadFailure = new Promise<never>((_resolve, reject) => {
         rejectRangeReadFailure = reject;
     });
@@ -41,24 +44,24 @@ async function loadBrowserSearchDocument(request: TBrowserSearchDocumentRequest)
     // load itself; the page loop below only observes cancellation once loading
     // has resolved, which for a large ranged PDF can keep range reads alive.
     activeLoadCancellers.set(request.id, (error) => cancelLoad?.(error));
-    const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, request.payload.pdfPath, {onRangeReadFailure: (error) => {
+    const task = loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, request.payload.pdfPath, {onRangeReadFailure: (error) => {
         const reject = rejectRangeReadFailure;
-        rejectRangeReadFailure = null;
         reject?.(error);
+        void destroyTask?.().catch(() => {});
     }}));
+    destroyTask = () => destroyPromise ??= loadingTask!.destroy();
     try {
         const document = await Promise.race([
-            loadingTask.promise,
+            task.promise,
             rangeReadFailure,
             loadCancellation,
         ]);
-        return adaptPdfjsDocument(document, () => loadingTask.destroy());
+        return adaptPdfjsDocument(document, () => destroyTask!());
     } catch (error) {
-        await loadingTask.destroy();
+        await destroyTask!();
         canceledRequestIds.delete(request.id);
         throw error;
     } finally {
-        rejectRangeReadFailure = null;
         cancelLoad = null;
         activeLoadCancellers.delete(request.id);
     }
