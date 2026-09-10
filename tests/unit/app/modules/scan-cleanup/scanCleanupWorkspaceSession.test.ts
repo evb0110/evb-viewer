@@ -529,7 +529,10 @@ describe('scan cleanup workspace session detection guidance', () => {
             error: 'test stop',
             errorCode: 'internal' as const,
         });
-        const mounted = mountSession(`ink-summary-${Date.now()}`, {totalPages: () => 20_001});
+        const mounted = mountSession(`ink-summary-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 20_001,
+        });
         mounted.session.settings.values.pageAlignment = 'ink';
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
 
@@ -601,6 +604,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         }];
         harness.emitDetection(state);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request.pageNumber === 1
+            && request.placementAnchors?.full?.yNormalized === 0
+        ))).toBe(true));
 
         expect(mounted.session.run.runDisabledReason.value).not.toContain('20,000');
         await mounted.session.run.run();

@@ -211,6 +211,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         lifecycleDocumentKey,
         ownerId,
         pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,
+        placementAnchorSummary: detection.placementAnchorSummary,
         placementAnchorsByPage,
         previewPage: selection.leader,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
