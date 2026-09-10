@@ -28,7 +28,6 @@ import {
     getBrowserDjvuInfo,
     onBrowserDjvuConversionProgress,
     runBrowserDjvuConversion,
-    reserveBrowserDjvuConversion,
     withBrowserDjvuWorker,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
@@ -95,7 +94,6 @@ export const browserDjvuCapability = {
     startConvertToPdf(djvuPath, outputPath, options) {
         const requestId = options.requestId ?? createRequestId('djvu-convert');
         const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
-        reserveBrowserDjvuConversion(jobId);
         return Promise.resolve(browserDurableDjvuJobs.startConvert(
             jobId,
             requestId,

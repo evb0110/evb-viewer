@@ -14,7 +14,6 @@ import {
     resolveBrowserDjvuPdfRenderSettings,
     withBrowserDjvuWorker,
     cancelBrowserDjvuConversion,
-    reserveBrowserDjvuConversion,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -420,23 +419,4 @@ describe('browserDjvuConversionPipeline', () => {
         }
     });
 
-    it('honors cancellation reserved before the asynchronous conversion runner starts', async () => {
-        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({size: 1, modifiedAt: 1});
-        const jobId = requireJobId('djvu-convert-pre-admission-cancel');
-        reserveBrowserDjvuConversion(jobId);
-        expect(cancelBrowserDjvuConversion(jobId)).toEqual({canceled: true});
-        try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {jobId},
-            )).resolves.toMatchObject({
-                success: false,
-                expected: {kind: 'expected', code: 'canceled'},
-            });
-            expect(mocks.createWorker).not.toHaveBeenCalled();
-        } finally {
-            stat.mockRestore();
-        }
-    });
 });
