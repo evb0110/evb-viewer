@@ -1,6 +1,7 @@
 import {
     degrees,
     PDFArray,
+    PDFDict,
     PDFDocument,
     PDFName,
     PDFNumber,
@@ -130,7 +131,9 @@ describe('pdf print layout', () => {
         expect(printablePdf.context.enumerateIndirectObjects().some(([
             , object,
         ]) => object instanceof PDFStream
-            && object.dict.lookupMaybe(PDFName.of('BBox'), PDFArray))).toBe(false);
+            && object.dict.lookupMaybe(PDFName.of('Resources'), PDFDict)
+                ?.lookupMaybe(PDFName.of('XObject'), PDFDict)
+                ?.has(PDFName.of('PrintAnnot')))).toBe(false);
     });
 
     it('uses the displayed dimensions of a rotated page for single-page printing', async () => {
