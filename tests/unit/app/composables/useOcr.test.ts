@@ -219,6 +219,65 @@ describe('useOcr', () => {
         }
     });
 
+    it('keeps ownership and reports an unconfirmed manual cancellation', async () => {
+        vi.useFakeTimers();
+        let completeHandler: ((result: {
+            requestId: string;
+            success: boolean;
+            errors: string[];
+        }) => void) | null = null;
+        const completeUnsubscribe = vi.fn();
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return completeUnsubscribe;
+        });
+        mockOcr.cancel
+            .mockRejectedValueOnce(new Error('cancel transport down'))
+            .mockResolvedValueOnce({canceled: true});
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
+            await vi.waitFor(() => {
+                expect(mockOcr.createSearchablePdf).toHaveBeenCalledTimes(1);
+            });
+
+            await expect(ocr.cancelOcr()).resolves.toMatchObject({
+                canceled: false,
+                reason: 'failed',
+                error: 'cancel transport down',
+            });
+            expect(ocr.progress.value.isRunning).toBe(true);
+            expect(ocr.progress.value.status).toBe('cancel-requested');
+            expect(ocr.error.value).toBe('cancel transport down');
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(ocr.progress.value.isRunning).toBe(true);
+            expect(ocr.progress.value.status).toBe('cancel-requested');
+            expect(completeUnsubscribe).not.toHaveBeenCalled();
+
+            await expect(ocr.cancelOcr()).resolves.toEqual({canceled: true});
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            completeHandler?.({
+                requestId,
+                success: false,
+                errors: ['OCR canceled'],
+            });
+            await runPromise;
+
+            expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(ocr.progress.value.status).toBe('cancelled');
+        } finally {
+            scope.stop();
+            vi.useRealTimers();
+        }
+    });
+
     it('acknowledges late canceled OCR results that require cleanup', async () => {
         interface IOcrCompleteTestResult {
             requestId: string;

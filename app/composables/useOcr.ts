@@ -101,6 +101,7 @@ export const useOcr = () => {
     let timeoutRunToken: symbol | null = null;
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
     let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelRequestPromise: Promise<IOcrCancelResult> | null = null;
     let disposed = false;
     let activeDocxAbortController: AbortController | null = null;
 
@@ -183,7 +184,9 @@ export const useOcr = () => {
         clearCancelCleanupTimer();
         cancelCleanupTimer = setTimeout(() => {
             BrowserLogger.debug('ocr', 'OCR cancel completion watch timed out', { requestId });
-            finishCancelCompletionWatch(requestId);
+            if (ocrRunLifecycle.getCancelingRequestId() === requestId) {
+                error.value = t('errors.ocr.cancel');
+            }
         }, OCR_CANCEL_COMPLETION_GRACE_MS);
     }
 
@@ -206,6 +209,7 @@ export const useOcr = () => {
                     });
                 });
         }
+        error.value = null;
         finishCancelCompletionWatch(result.requestId);
     }
 
@@ -774,6 +778,10 @@ export const useOcr = () => {
     }
 
     async function cancelOcr(): Promise<IOcrCancelResult> {
+        if (ocrRunLifecycle.getCancelingRequestId() !== null && cancelRequestPromise !== null) {
+            return cancelRequestPromise;
+        }
+
         const requestIdToCancel = ocrRunLifecycle.cancelActiveRun();
 
         const rejectPending = pendingOcrReject;
@@ -789,7 +797,22 @@ export const useOcr = () => {
         }
 
         beginCancelingRequest(requestIdToCancel);
-        return cancelBackendRequest(requestIdToCancel, 'manual');
+        const requestPromise = cancelBackendRequest(requestIdToCancel, 'manual').then((cancelResult) => {
+            if (ocrRunLifecycle.getCancelingRequestId() === requestIdToCancel) {
+                if (cancelResult.canceled) {
+                    error.value = null;
+                } else {
+                    error.value = cancelResult.error ?? t('errors.ocr.cancel');
+                }
+            }
+            return cancelResult;
+        }).finally(() => {
+            if (cancelRequestPromise === requestPromise) {
+                cancelRequestPromise = null;
+            }
+        });
+        cancelRequestPromise = requestPromise;
+        return requestPromise;
     }
 
     onScopeDispose(() => {

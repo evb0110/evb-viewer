@@ -284,6 +284,14 @@
                 >
                     <AppProgressBar :value="progressPercent" />
                     <span class="progress-text">{{ viewState === 'applying' ? applyingStatusText : progressStatusText }}</span>
+                    <span
+                        v-if="progress.status === 'cancel-requested' && effectiveError"
+                        class="progress-error"
+                        role="alert"
+                        aria-live="assertive"
+                    >
+                        {{ effectiveError }}
+                    </span>
                 </div>
 
                 <!-- RESULTS STATE -->
@@ -333,7 +341,7 @@
                     variant="outline"
                     icon="i-ph-x"
                     :label="t('ocr.cancel')"
-                    :disabled="progress.status === 'cancel-requested'"
+                    :disabled="progress.status === 'cancel-requested' && !effectiveError"
                     @click="handleCancel"
                 />
             </template>
