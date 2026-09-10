@@ -53,14 +53,7 @@
 
       <div>
         <h2>{{ privacy.contact.heading }}</h2>
-        <p>
-          {{ privacy.contact.intro }}
-          <a
-            href="https://github.com/evb0110/evb-viewer/issues"
-            target="_blank"
-            rel="noreferrer"
-          >{{ privacy.contact.linkLabel }}</a>.
-        </p>
+        <p>{{ privacy.contact.body }}</p>
       </div>
     </section>
   </main>
