@@ -1,0 +1,23 @@
+app/platform/browser-api/browserDjvuCapability.ts
+  s_f37744108e7759::t_cfc5ac0c1bdbe4 31,98
+app/platform/browser-api/browserDjvuConversionPipeline.ts
+  s_f37744108e7759::t_e7f7a6d10c3ee3 460-465,467-468,477-478,480-482
+  s_f37744108e7759::t_b1cffb9815d119 457-458,466,479,484-486,1127-1129
+  s_f37744108e7759::t_69c803dca678f8 508
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c4aaeb729149dc7032b4aa71e2b1d33e23570a34",
+  "prompts": {},
+  "sessions": {
+    "s_f37744108e7759": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ec91-7dd0-aaa3-5f83e251c2c2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
