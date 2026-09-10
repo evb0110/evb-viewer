@@ -1,0 +1,34 @@
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_f599785391dca6 2140
+tests/e2e/electron/annotationControls.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_d58596e21290dd 1
+  s_bfcd3c2ec84d8f::t_68806dab8d1e93 23,518-564,572-576,581-589
+  s_bfcd3c2ec84d8f::t_04e9ab5bc6b3d7 565-571
+  s_bfcd3c2ec84d8f::t_7c100c494f6933 580
+  s_bfcd3c2ec84d8f::t_b1214d350302bb 2-3,577-579
+  s_99215893d645f6::t_65c2934f9f6db6 590-591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c3151ac941a475773b8989c70191e3955bb5414f",
+  "prompts": {},
+  "sessions": {
+    "s_99215893d645f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b90-b25c-76e3-8943-d00dc2c6ba9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bfcd3c2ec84d8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-2e36-7c60-81dd-110c27330f8b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
