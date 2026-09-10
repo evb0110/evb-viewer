@@ -1,0 +1,19 @@
+electron/features/ocr/main/ocrWorkerResourceMessages.ts
+  s_72c68fc3874e4b::t_e4554d9df0ff8e 75-85,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0d137b63e55afa8c81ad995264b9099f727d57e",
+  "prompts": {},
+  "sessions": {
+    "s_72c68fc3874e4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bb0-9f0f-7332-9863-bb0b1d25e580",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

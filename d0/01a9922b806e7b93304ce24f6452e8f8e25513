@@ -1,0 +1,21 @@
+app/platform/browser/browserDocumentMaintenance.ts
+  s_cfe230ee762ce0::t_8d2d942dbe422b 544
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_cfe230ee762ce0::t_8d2d942dbe422b 199-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d001a9922b806e7b93304ce24f6452e8f8e25513",
+  "prompts": {},
+  "sessions": {
+    "s_cfe230ee762ce0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ba9-c8a2-77e3-901d-dd97c6a54452",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
