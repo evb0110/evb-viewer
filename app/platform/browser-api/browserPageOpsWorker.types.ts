@@ -7,33 +7,15 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import type {
+    IBrowserPdfCatalog,
+    IBrowserPdfCatalogBookmark,
+    IBrowserPdfCatalogPageLabelRange,
+} from '@contracts/browserPdfCatalog';
 
 interface IPageMutationWorkerResult {
     data: Uint8Array;
     pageCount: number;
-}
-
-interface IBrowserPdfCombineBookmarkEntry {
-    title: string;
-    pageIndex: number | null;
-    pageYRatio?: number | null;
-    namedDest: string | null;
-    bold: boolean;
-    italic: boolean;
-    color: string | null;
-    items: IBrowserPdfCombineBookmarkEntry[];
-}
-
-interface IBrowserPdfCombinePageLabelRange {
-    pageIndex: number;
-    style?: string;
-    prefix?: string;
-    start?: number;
-}
-
-interface IBrowserPdfCombineCatalog {
-    bookmarks: IBrowserPdfCombineBookmarkEntry[];
-    pageLabels: IBrowserPdfCombinePageLabelRange[];
 }
 
 interface IBrowserPdfConformanceFacts {
@@ -329,9 +311,9 @@ export type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
     IPageMutationWorkerResult,
-    IBrowserPdfCombineBookmarkEntry,
-    IBrowserPdfCombinePageLabelRange,
-    IBrowserPdfCombineCatalog,
+    IBrowserPdfCatalogBookmark as IBrowserPdfCombineBookmarkEntry,
+    IBrowserPdfCatalogPageLabelRange as IBrowserPdfCombinePageLabelRange,
+    IBrowserPdfCatalog as IBrowserPdfCombineCatalog,
     IBrowserPdfConformanceFacts,
     IBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequest,

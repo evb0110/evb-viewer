@@ -1,7 +1,5 @@
 import type {
-    IBrowserPdfCombineBookmarkEntry,
     IBrowserPdfCombineCatalog,
-    IBrowserPdfCombinePageLabelRange,
     IBrowserPdfConformanceFacts,
     IBrowserPageOpsWorkerRequest,
     IBrowserPageOpsWorkerRequestMap,
@@ -12,6 +10,10 @@ import type {
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import {decodePageGeometry} from '@contracts/decodePageGeometry';
 import {isRecord} from '@contracts/runtimeGuards';
+import {
+    BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
+    decodeBrowserPdfCatalog,
+} from '@contracts/browserPdfCatalog';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -154,82 +156,10 @@ function decodeAnnotationParseWorkerResult(data: unknown) {
         : null;
 }
 
-function decodePdfCombineBookmark(value: unknown, depth: number, count: {value: number}): IBrowserPdfCombineBookmarkEntry | null {
-    if (
-        !isRecord(value)
-        || depth >= 256
-        || count.value >= 100_000
-        || typeof value.title !== 'string'
-        || (value.pageIndex !== null && (typeof value.pageIndex !== 'number' || !Number.isSafeInteger(value.pageIndex) || value.pageIndex < 0))
-        || (value.namedDest !== null && typeof value.namedDest !== 'string')
-        || typeof value.bold !== 'boolean'
-        || typeof value.italic !== 'boolean'
-        || (value.color !== null && typeof value.color !== 'string')
-        || !Array.isArray(value.items)
-    ) {
-        return null;
-    }
-    count.value += 1;
-    const items: IBrowserPdfCombineBookmarkEntry[] = [];
-    for (const item of value.items) {
-        const decoded = decodePdfCombineBookmark(item, depth + 1, count);
-        if (decoded === null) {
-            return null;
-        }
-        items.push(decoded);
-    }
-    return {
-        title: value.title,
-        pageIndex: value.pageIndex,
-        ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio as number | null}),
-        namedDest: value.namedDest,
-        bold: value.bold,
-        italic: value.italic,
-        color: value.color,
-        items,
-    };
-}
-
 function decodePdfCombineCatalog(data: unknown): IBrowserPdfCombineCatalog | null {
-    if (!isRecord(data) || !Array.isArray(data.bookmarks) || !Array.isArray(data.pageLabels)) {
-        return null;
-    }
-    if (data.bookmarks.length > 100_000 || data.pageLabels.length > 100_000) {
-        return null;
-    }
-    const count = {value: 0};
-    const bookmarks: IBrowserPdfCombineBookmarkEntry[] = [];
-    for (const bookmark of data.bookmarks) {
-        const decoded = decodePdfCombineBookmark(bookmark, 0, count);
-        if (decoded === null) {
-            return null;
-        }
-        bookmarks.push(decoded);
-    }
-    const pageLabels: IBrowserPdfCombinePageLabelRange[] = [];
-    for (const value of data.pageLabels) {
-        if (
-            !isRecord(value)
-            || typeof value.pageIndex !== 'number'
-            || !Number.isSafeInteger(value.pageIndex)
-            || value.pageIndex < 0
-            || (value.style !== undefined && typeof value.style !== 'string')
-            || (value.prefix !== undefined && typeof value.prefix !== 'string')
-            || (value.start !== undefined && (typeof value.start !== 'number' || !Number.isSafeInteger(value.start) || value.start < 0))
-        ) {
-            return null;
-        }
-        pageLabels.push({
-            pageIndex: value.pageIndex,
-            ...(value.style === undefined ? {} : {style: value.style}),
-            ...(value.prefix === undefined ? {} : {prefix: value.prefix}),
-            ...(value.start === undefined ? {} : {start: value.start}),
-        });
-    }
-    return {
-        bookmarks,
-        pageLabels,
-    };
+    return decodeBrowserPdfCatalog(data, {
+        maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
+    });
 }
 
 function decodePdfConformanceFacts(data: unknown): IBrowserPdfConformanceFacts | null {
