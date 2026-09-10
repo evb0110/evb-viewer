@@ -1,0 +1,22 @@
+scripts/ci/push-diff-base.sh
+  s_6c4227cf89def7::t_ccb3f55278e657 18-23
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_6c4227cf89def7::t_50c4d316f27f74 25,111-119,363-370,372-374
+  s_6c4227cf89def7::t_ed34cde5bab0a8 371,375-377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "36faabf00aed68606249189632ce51696212ad40",
+  "prompts": {},
+  "sessions": {
+    "s_6c4227cf89def7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08afa-4363-75c1-9c41-19ca85b6a433",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
