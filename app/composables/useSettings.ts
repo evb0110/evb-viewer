@@ -156,11 +156,15 @@ export const useSettings = () => {
     });
 
     async function load() {
-        return loadSettingsState();
+        const loadedSettings = await loadSettingsState();
+        if (loadedSettings !== null) {
+            rememberSavedSettings(loadedSettings);
+        }
+        return loadedSettings;
     }
 
     async function loadOrThrow() {
-        const loadedSettings = await loadSettingsState();
+        const loadedSettings = await load();
         if (loadedSettings === null) {
             throw new Error(settingsLoadError.value ?? 'Settings could not be loaded.');
         }
