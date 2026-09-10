@@ -25,11 +25,14 @@ export function transformOcrWordToViewport(
 
     const sx = pageWidth / imagePx.w;
     const sy = pageHeight / imagePx.h;
+    const viewBox = Array.isArray(viewport.viewBox) ? viewport.viewBox : [];
+    const pageX = viewBox[0] ?? 0;
+    const pageY = viewBox[1] ?? 0;
 
-    const pdfX = word.x * sx;
-    const pdfY = pageHeight - (word.y + word.height) * sy;
-    const pdfX2 = (word.x + word.width) * sx;
-    const pdfY2 = pageHeight - word.y * sy;
+    const pdfX = pageX + word.x * sx;
+    const pdfY = pageY + pageHeight - (word.y + word.height) * sy;
+    const pdfX2 = pageX + (word.x + word.width) * sx;
+    const pdfY2 = pageY + pageHeight - word.y * sy;
 
     const rawRect: unknown = viewport.convertToViewportRectangle([
         pdfX,

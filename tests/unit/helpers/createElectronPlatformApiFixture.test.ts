@@ -5,8 +5,13 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRef } from '@contracts/documentRef';
+import type { IPdfSearchProgress } from '@contracts/search';
+import { requireRequestId } from '@contracts/shared';
 import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
-import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
+import {
+    createDefaultPlatformApiFixtureMethod,
+    type IPlatformApiFixtureEventMethod,
+} from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import type { TPlatformApiFixtureOverrides } from '@tests/helpers/createPlatformApiFixture';
 
@@ -75,6 +80,33 @@ describe('createElectronPlatformApiFixture', () => {
         await expect(api.search.cancel()).resolves.toEqual({canceled: false});
         await expect(api.search.resetCache()).resolves.toBe(true);
         expect(api.search.onProgress(() => undefined)).toEqual(expect.any(Function));
+    });
+
+    it('delivers typed fixture events until the subscriber unsubscribes', () => {
+        const api = createElectronPlatformApiFixture();
+        const event = api.search.onProgress as typeof api.search.onProgress & IPlatformApiFixtureEventMethod;
+        const first = vi.fn();
+        const second = vi.fn();
+        const unsubscribeFirst = api.search.onProgress(first);
+        api.search.onProgress(second);
+        const progress: IPdfSearchProgress = {
+            requestId: requireRequestId('search-fixture'),
+            processed: 1,
+            total: 2,
+            status: 'running',
+        };
+
+        event.emit(progress);
+        unsubscribeFirst();
+        unsubscribeFirst();
+        event.emit(progress);
+
+        expect(first).toHaveBeenCalledOnce();
+        expect(second).toHaveBeenCalledTimes(2);
+        event.dispose();
+        event.dispose();
+        event.emit(progress);
+        expect(second).toHaveBeenCalledTimes(2);
     });
 
     it('resolves valid undefined results without consuming examples during construction', async () => {

@@ -13,6 +13,8 @@ import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-bo
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 export const usePdfWordBoxes = () => {
+    const viewportByPageContainer = new WeakMap<HTMLElement, IPdfViewport>();
+
     function clearWordBoxes(container: HTMLElement) {
         const boxes = container.querySelectorAll('.pdf-word-box');
         boxes.forEach(box => box.remove());
@@ -25,6 +27,7 @@ export const usePdfWordBoxes = () => {
         pdfPageHeight: number | undefined,
         currentMatchWords?: Set<string>,
         rotation: TOcrIndexRotation = 0,
+        viewport?: IPdfViewport,
     ) {
         const canvas = pageContainer.querySelector<HTMLCanvasElement>('canvas');
         if (!canvas) {
@@ -33,6 +36,9 @@ export const usePdfWordBoxes = () => {
 
         const renderedPageWidth = canvas.offsetWidth;
         const renderedPageHeight = canvas.offsetHeight;
+        if (viewport) {
+            viewportByPageContainer.set(pageContainer, viewport);
+        }
 
         if (words && words.length > 0 && pdfPageWidth && pdfPageHeight) {
             const scaleX = renderedPageWidth / pdfPageWidth;
@@ -72,6 +78,7 @@ export const usePdfWordBoxes = () => {
             renderedPageHeight,
             currentMatchWords,
             rotation,
+            viewport ?? viewportByPageContainer.get(pageContainer),
         );
 
         let boxContainer = pageContainer.querySelector<HTMLElement>('.pdf-word-boxes-layer');

@@ -1,6 +1,7 @@
 import type {
     IPdfPage,
     IPdfTextContent,
+    IPdfViewport,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     pageNumberToPageIndex,
@@ -157,6 +158,7 @@ export const usePdfTextLayerRenderer = (deps: {
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
         pageIndex: TPageIndex,
+        viewport?: IPdfViewport,
     ): readonly IOcrWord[] {
         if (!currentMatchValue || currentMatchValue.pageIndex !== pageIndex) {
             return [];
@@ -315,6 +317,7 @@ export const usePdfTextLayerRenderer = (deps: {
             geometrySource.pageHeight,
             currentMatchWords.size > 0 ? currentMatchWords : undefined,
             geometrySource.rotation ?? 0,
+            viewport,
         );
     }
 
@@ -964,6 +967,7 @@ export const usePdfTextLayerRenderer = (deps: {
         pageNumber: number,
         canvas: HTMLCanvasElement | null,
         debugInfo?: IHighlightDebugInfo,
+        viewport?: IPdfViewport,
     ) {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(pageNumber));
         const searchMatches = toValue(deps.searchPageMatches);
@@ -999,7 +1003,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const signature = buildPageHighlightSignature(pageMatchData, currentMatch);
         if (hasGeometryHighlights) {
             clearHighlights(textLayerDiv);
-            renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex);
+            renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex, viewport);
             if (canvas) {
                 maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
             }
