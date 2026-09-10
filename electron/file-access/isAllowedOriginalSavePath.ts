@@ -13,5 +13,5 @@ export function isAllowedOriginalSavePath(path: string) {
     if (!isAbsolute(path)) {
         return false;
     }
-    return ALLOWED_SAVE_EXTENSIONS.has(extname(path).toLowerCase());
+    return ALLOWED_SAVE_EXTENSIONS.has(extname(path.trimEnd()).toLowerCase());
 }
