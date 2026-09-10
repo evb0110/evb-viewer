@@ -37,7 +37,11 @@ import {
 import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
-import {registerScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {
+    claimScanCleanupDetectionResultStore,
+    registerScanCleanupDetectionResultStore,
+    releaseScanCleanupDetectionResultStores,
+} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     beginMainOperationShutdown,
@@ -327,6 +331,40 @@ describe('scan cleanup service', () => {
         }
         expect(result.error).toContain('20,000');
         expect(mocks.runWorker).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
+        await releaseScanCleanupDetectionResultStores([detectionResultStoreId]);
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a completed detection store claimable across retries until its owner releases it', async () => {
+        const close = vi.fn(async () => undefined);
+        const resultStore: IScanCleanupDetectionResultStore = {
+            pageCount: 20_001,
+            resultCount: 20_001,
+            append: async () => undefined,
+            replace: async () => undefined,
+            getPage: async () => undefined,
+            readRange: async () => [],
+            forEachChunk: async () => undefined,
+            close,
+        };
+        const input = {
+            detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
+            documentRevision: owner.documentRevision,
+            ownerId: owner.ownerId,
+            resultStore,
+            sourcePdfPath: startRequest.sourcePdfPath,
+        };
+        const storeId = registerScanCleanupDetectionResultStore(input);
+        const first = claimScanCleanupDetectionResultStore(storeId, input);
+        const second = claimScanCleanupDetectionResultStore(storeId, input);
+
+        expect(first).not.toBeNull();
+        expect(second).not.toBeNull();
+        await first!.release();
+        expect(close).not.toHaveBeenCalled();
+        await second!.release();
+        await releaseScanCleanupDetectionResultStores([storeId]);
         expect(close).toHaveBeenCalledOnce();
     });
 
