@@ -1,0 +1,19 @@
+scripts/release/policy.mjs
+  s_1f6ed51d7b9a45::t_caba5e1f534ec6 255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "03bdad3f2eb27d23fb4cee35f6e9f120cd20b058",
+  "prompts": {},
+  "sessions": {
+    "s_1f6ed51d7b9a45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bc4-a3fc-75b2-9b01-89bbe754e542",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
