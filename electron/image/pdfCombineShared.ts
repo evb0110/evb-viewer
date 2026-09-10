@@ -605,7 +605,9 @@ export async function createCombinedPdf(
         assertOutputLimit(nativeOutput, limits);
         return nativeOutput;
     } catch (error) {
-        retainStagedInputs = getUnprovenNativeTerminationDetail(error) !== undefined;
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            retainStagedInputs = true;
+        }
         throw error;
     } finally {
         if (!retainStagedInputs) {
