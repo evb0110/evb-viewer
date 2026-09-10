@@ -1,0 +1,20 @@
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_9101c274d99da1::t_f6de37a227b4a1 240-257,266-268,277
+  s_9101c274d99da1::t_04c44063b2a4e7 258-265,269-276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f095118d8e325acc75cf92e10fa5ba9c99d295ae",
+  "prompts": {},
+  "sessions": {
+    "s_9101c274d99da1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088d6-bb8e-7690-a8f5-ad424492b912",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
