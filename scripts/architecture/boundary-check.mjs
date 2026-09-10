@@ -1033,6 +1033,14 @@ function checkContractsRuntimeBoundary(filePath, sourceFiles) {
                 if (hasRuntimeBinding && isNodeRuntimeModuleSpecifier(specifier)) {
                     record(specifier, 'Portable contracts must not import Node runtime modules.');
                 }
+            } else if (
+                ts.isImportEqualsDeclaration(node)
+                && ts.isExternalModuleReference(node.moduleReference)
+            ) {
+                const specifier = getStaticString(node.moduleReference.expression);
+                if (!node.isTypeOnly && specifier && isNodeRuntimeModuleSpecifier(specifier)) {
+                    record(specifier, 'Portable contracts must not import Node runtime modules.');
+                }
             } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
                 const specifier = node.moduleSpecifier.text;
                 if (!node.isTypeOnly && isNodeRuntimeModuleSpecifier(specifier)) {
