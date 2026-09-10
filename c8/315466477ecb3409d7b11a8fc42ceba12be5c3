@@ -1,0 +1,30 @@
+tests/unit/app/platform/browserDjvuConversionPipeline.test.ts
+  s_b39e9a92d0d47e::t_7df40e4a22f870 16,30-31,44-62,343-350,356-362,368-370,375-383,390-419
+  s_b39e9a92d0d47e::t_226be254a4e2f7 43,363-367,371-374,384-389
+  s_b39e9a92d0d47e::t_b05604f272adad 351-355
+  s_b39e9a92d0d47e::t_9af529b1b77c2e 420
+app/platform/browser-api/tryCombineImageInputsWithWasm.ts
+  s_b39e9a92d0d47e::t_b523e32455ccf7 713-717
+  s_b39e9a92d0d47e::t_c7e1b4a22a65ac 709-712,718-721,735,737,763,771
+app/platform/browser-api/browserDjvuConversionPipeline.ts
+  s_b39e9a92d0d47e::t_81057218cb9f90 419-426
+  s_b39e9a92d0d47e::t_c7e1b4a22a65ac 370,372-380,407-411,413,415,418,672,694,717,730,732,734,736,783-784,802
+tests/unit/app/platform/browserPdfImageCombineWasm.test.ts
+  s_b39e9a92d0d47e::t_fc92a41d946b14 276-300
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c8315466477ecb3409d7b11a8fc42ceba12be5c3",
+  "prompts": {},
+  "sessions": {
+    "s_b39e9a92d0d47e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0889e-e9d9-7422-8d20-dd0289d02346",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
