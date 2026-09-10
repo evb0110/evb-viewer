@@ -38,6 +38,13 @@ describe('scan-cleanup settings file decoder', () => {
             .toBe('top-center');
     });
 
+    it('migrates persisted thickness to the executable integer range', () => {
+        expect(decodeScanCleanupGlobalPreferences({thickness: 0.5}).thickness).toBe(0);
+        expect(decodeScanCleanupGlobalPreferences({thickness: -0.5}).thickness).toBe(-0);
+        expect(decodeScanCleanupGlobalPreferences({thickness: 8.5}).thickness).toBe(5);
+        expect(decodeScanCleanupGlobalPreferences({thickness: -8.5}).thickness).toBe(-5);
+    });
+
     it('migrates the pre-ink schema: its un-chosen top-center becomes ink, explicit choices survive', () => {
         const base = createDefaultScanCleanupSettingsFile();
         const preInk = (pageAlignment: string) => ({
