@@ -83,6 +83,13 @@ import {
     removeScanCleanupDetectionResultStoreDescriptor,
     type IScanCleanupDetectionResultStoreDescriptor,
 } from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/detectionSignature';
+import {
+    isScanCleanupOutputMode,
+    isScanCleanupOutputModeRecommendationReason,
+} from '@contracts/scan-cleanup/outputModeGuards';
+import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 interface IScanCleanupJobResult {
     completedPageNumbers: number[];
@@ -247,6 +254,127 @@ function resolveCompletedPageMetadata(
         completedPageNumbers,
         ...(inputPages > retainedCount ? {completedPageNumbersTruncated: true} : {}),
     };
+}
+
+function scanCleanupStorePageNumbers(request: IScanCleanupStartRequest) {
+    if (request.sourcePageNumbers !== undefined) {
+        return request.sourcePageNumbers;
+    }
+    if (request.sourcePageRange !== undefined) {
+        return request.sourcePageRange;
+    }
+    return null;
+}
+
+function validateScanCleanupDetectionRecord(
+    result: unknown,
+    expectedPageNumber: number,
+) {
+    if (
+        typeof result !== 'object'
+        || result === null
+        || (result as {pageNumber?: unknown}).pageNumber !== expectedPageNumber
+    ) {
+        throw new Error(`Scan cleanup detection store is missing page ${String(expectedPageNumber)}`);
+    }
+    const record = result as {
+        recommendedOutputMode?: unknown;
+        recommendedOutputModeConfidence?: unknown;
+        recommendedOutputModeReason?: unknown;
+        softAlphaForegroundRecommendation?: unknown;
+    };
+    if (record.recommendedOutputMode !== undefined && !isScanCleanupOutputMode(record.recommendedOutputMode)) {
+        throw new Error(`Scan cleanup detection store has an invalid recommendation for page ${String(expectedPageNumber)}`);
+    }
+    if (record.recommendedOutputModeConfidence !== undefined && (
+        typeof record.recommendedOutputModeConfidence !== 'number'
+        || !Number.isFinite(record.recommendedOutputModeConfidence)
+        || record.recommendedOutputModeConfidence < 0
+        || record.recommendedOutputModeConfidence > 1
+    )) {
+        throw new Error(`Scan cleanup detection store has an invalid recommendation confidence for page ${String(expectedPageNumber)}`);
+    }
+    if (record.recommendedOutputModeReason !== undefined
+        && !isScanCleanupOutputModeRecommendationReason(record.recommendedOutputModeReason)) {
+        throw new Error(`Scan cleanup detection store has an invalid recommendation reason for page ${String(expectedPageNumber)}`);
+    }
+    if (record.softAlphaForegroundRecommendation !== undefined
+        && typeof record.softAlphaForegroundRecommendation !== 'boolean') {
+        throw new Error(`Scan cleanup detection store has an invalid foreground recommendation for page ${String(expectedPageNumber)}`);
+    }
+    if (record.recommendedOutputMode === undefined && (
+        record.recommendedOutputModeConfidence !== undefined
+        || record.recommendedOutputModeReason !== undefined
+    )) {
+        throw new Error(`Scan cleanup detection store has incomplete recommendation data for page ${String(expectedPageNumber)}`);
+    }
+    return record;
+}
+
+async function admitScanCleanupDetectionStore(
+    request: IScanCleanupStartRequest,
+    store: NonNullable<ReturnType<typeof claimScanCleanupDetectionResultStore>>['resultStore'],
+) {
+    if (
+        !Number.isSafeInteger(store.pageCount)
+        || store.pageCount < 1
+        || store.resultCount !== store.pageCount
+    ) {
+        throw new Error('Scan cleanup detection store is incomplete');
+    }
+    const selectedPages = scanCleanupStorePageNumbers(request);
+    if (selectedPages !== null && (
+        Array.isArray(selectedPages)
+            ? selectedPages.some(page => page < 1 || page > store.pageCount)
+            : selectedPages.startPageNumber < 1 || selectedPages.endPageNumber > store.pageCount
+    )) {
+        throw new Error('Scan cleanup source page is outside the detected document');
+    }
+    const pageOverride = (pageNumber: number) => getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        requirePageNumber(pageNumber),
+    );
+    const validate = async (pageNumber: number) => {
+        const record = validateScanCleanupDetectionRecord(
+            await store.getPage(pageNumber),
+            pageNumber,
+        );
+        const override = pageOverride(pageNumber);
+        const automatic = request.options.preserveOriginalQuality !== true
+            && !override.excluded
+            && (override.outputModeOverride ?? request.options.outputMode) === 'auto';
+        if (automatic && record.recommendedOutputMode === undefined) {
+            throw new Error(`Scan cleanup detection store has no automatic recommendation for page ${String(pageNumber)}`);
+        }
+    };
+    if (selectedPages !== null) {
+        if (Array.isArray(selectedPages)) {
+            for (const pageNumber of selectedPages) await validate(pageNumber);
+        } else {
+            for (let pageNumber = selectedPages.startPageNumber; pageNumber <= selectedPages.endPageNumber; pageNumber += 1) {
+                await validate(pageNumber);
+            }
+        }
+        return;
+    }
+    let expectedPageNumber = 1;
+    await store.forEachChunk(async results => {
+        for (const result of results) {
+            validateScanCleanupDetectionRecord(result, expectedPageNumber);
+            const override = pageOverride(expectedPageNumber);
+            const automatic = request.options.preserveOriginalQuality !== true
+                && !override.excluded
+                && (override.outputModeOverride ?? request.options.outputMode) === 'auto';
+            if (automatic
+                && (result as {recommendedOutputMode?: unknown}).recommendedOutputMode === undefined) {
+                throw new Error(`Scan cleanup detection store has no automatic recommendation for page ${String(expectedPageNumber)}`);
+            }
+            expectedPageNumber += 1;
+        }
+    });
+    if (expectedPageNumber !== store.pageCount + 1) {
+        throw new Error('Scan cleanup detection store is incomplete');
+    }
 }
 
 function completedProgress(
@@ -483,6 +611,7 @@ export function createScanCleanupService(
                     : claimScanCleanupDetectionResultStore(
                         request.detectionResultStoreId,
                         {
+                            detectionSignature: createScanCleanupDetectionSignature(request.options),
                             documentRevision: request.documentRevision,
                             ownerId: request.ownerId,
                             sourcePdfPath: request.sourcePdfPath,
@@ -513,6 +642,20 @@ export function createScanCleanupService(
                         error: SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
                         errorCode: 'too-large',
                     };
+                }
+                if (detectionResultStoreLease !== null) {
+                    try {
+                        await admitScanCleanupDetectionStore(request, detectionResultStoreLease.resultStore);
+                    } catch (error) {
+                        await detectionResultStoreLease.resultStore.close().catch(() => undefined);
+                        detectionResultStoreLease = null;
+                        return {
+                            started: false,
+                            jobId,
+                            error: error instanceof Error ? error.message : 'Detection results are incomplete',
+                            errorCode: 'invalid-request',
+                        };
+                    }
                 }
                 const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
                 const {

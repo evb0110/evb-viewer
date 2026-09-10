@@ -42,6 +42,7 @@ import type {
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createLogger} from '@electron/utils/createLogger';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/detectionSignature';
 
 const logger = createLogger('scan-cleanup-detection');
 function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
@@ -469,6 +470,7 @@ export function scanCleanupDetectionOwner(
                         );
                         if (detection.resultStore.pageCount > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
                             const resultStoreId = registerScanCleanupDetectionResultStore({
+                                detectionSignature: createScanCleanupDetectionSignature(request.options),
                                 documentRevision: request.documentRevision,
                                 ownerId: request.ownerId,
                                 resultStore: detection.resultStore,

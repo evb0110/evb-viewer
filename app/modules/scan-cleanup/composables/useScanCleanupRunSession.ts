@@ -566,6 +566,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
+            const hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
             if (
                 requestedPageNumbers === null
                 && runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
@@ -596,7 +597,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
-            const pagePlanEvidenceMissing = requestedPageNumbers === null
+            const pagePlanEvidenceMissing = hasAuthoritativeDetectionStore
+                ? false
+                : requestedPageNumbers === null
                 ? detectionEvidenceComplete === undefined
                     ? pagePlanEvidence.size < runPageCount.value
                     : !detectionEvidenceComplete
@@ -625,7 +628,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     missingAutomaticModeDecisions = true;
                 }
             };
-            if (requestedPageNumbers === null) {
+            if (hasAuthoritativeDetectionStore) {
+                missingAutomaticModeDecisions = false;
+            } else if (requestedPageNumbers === null) {
                 // The completed detection result store is authoritative for a
                 // full-document run. Walking 1..N here would recreate the
                 // million-page allocation this session deliberately avoids.

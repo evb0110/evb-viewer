@@ -38,6 +38,7 @@ import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@elec
 import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {registerScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/detectionSignature';
 import {
     beginMainOperationShutdown,
     resetMainOperationLifecycleForTests,
@@ -297,6 +298,10 @@ describe('scan cleanup service', () => {
             close,
         };
         const detectionResultStoreId = registerScanCleanupDetectionResultStore({
+            detectionSignature: createScanCleanupDetectionSignature({
+                ...startRequest.options,
+                pageAlignment: 'ink',
+            }),
             documentRevision: owner.documentRevision,
             ownerId: owner.ownerId,
             resultStore,

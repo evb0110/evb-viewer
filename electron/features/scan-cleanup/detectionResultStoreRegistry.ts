@@ -7,6 +7,7 @@ import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/type
  * file descriptor.
  */
 export interface IScanCleanupDetectionResultStoreLease {
+    detectionSignature: string;
     documentRevision: string;
     ownerId: string;
     resultStore: IScanCleanupDetectionResultStore;
@@ -49,7 +50,7 @@ export function registerScanCleanupDetectionResultStore(input: Omit<
 /** Claim a store only for the owner and document that produced it. */
 export function claimScanCleanupDetectionResultStore(
     storeId: string,
-    owner: Pick<IScanCleanupDetectionResultStoreLease, 'documentRevision' | 'ownerId' | 'sourcePdfPath'>,
+    owner: Pick<IScanCleanupDetectionResultStoreLease, 'detectionSignature' | 'documentRevision' | 'ownerId' | 'sourcePdfPath'>,
 ): IScanCleanupDetectionResultStoreLease | null {
     const registered = registeredStores.get(storeId);
     if (
@@ -57,6 +58,7 @@ export function claimScanCleanupDetectionResultStore(
         || registered.documentRevision !== owner.documentRevision
         || registered.ownerId !== owner.ownerId
         || registered.sourcePdfPath !== owner.sourcePdfPath
+        || registered.detectionSignature !== owner.detectionSignature
     ) {
         return null;
     }
