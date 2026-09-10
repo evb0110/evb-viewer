@@ -175,17 +175,21 @@ export async function startSessionDetached(options: {
     await waitForDetachedChildSpawn(child);
     child.unref();
 
-    const start = Date.now();
+    const deadline = Date.now() + readyTimeoutMs;
     let ready = false;
-    while (Date.now() - start < readyTimeoutMs) {
-        if (await isSessionRunning()) {
+    while (Date.now() < deadline) {
+        const remainingMs = deadline - Date.now();
+        if (await isSessionRunning(getCurrentSessionName(), AbortSignal.timeout(remainingMs))) {
             ready = true;
             break;
         }
         if (child.pid && !isProcessAlive(child.pid) && !isSessionStarting()) {
             break;
         }
-        await delay(300);
+        const delayMs = Math.min(300, deadline - Date.now());
+        if (delayMs > 0) {
+            await delay(delayMs);
+        }
     }
     if (!ready) {
         const cleanupErrors: unknown[] = [];
