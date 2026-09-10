@@ -85,27 +85,9 @@ export function classifyWorktree(worktree) {
         };
     }
     if (worktree.missing) {
-        if (!worktree.selectedTarget) {
-            return {
-                action: 'keep',
-                reason: 'stale registration requires an explicit target',
-            };
-        }
-        if (!worktree.completedTask) {
-            return {
-                action: 'keep',
-                reason: 'completed-task evidence required',
-            };
-        }
-        if (worktree.ownerStatus !== 'absent') {
-            return {
-                action: 'keep',
-                reason: worktree.ownerReason ?? 'live-owner probe did not prove absence',
-            };
-        }
         return {
-            action: 'remove',
-            reason: 'targeted stale registration with no live owner',
+            action: 'keep',
+            reason: 'stale registration cleanup requires a safe metadata-only operation',
         };
     }
     if (worktree.dirtyEntries === null) {
@@ -493,26 +475,12 @@ export async function pruneWorktrees(options) {
             completion: latestCompletion,
         }))
             .find(entry => entry.path === worktree.path);
-        if (!latest || latest.head !== worktree.head || latest.missing !== worktree.missing || latest.action !== 'remove') {
+        if (!latest || latest.head !== worktree.head || latest.action !== 'remove') {
             console.error(`kept ${worktree.path}: target changed or safety checks no longer pass`);
             continue;
         }
         if (worktree.missing) {
-            if (existsSync(worktree.path)) {
-                console.error(`kept ${worktree.path}: target reappeared before stale-registration removal`);
-                continue;
-            }
-            try {
-                git([
-                    'worktree',
-                    'remove',
-                    worktree.path,
-                ]);
-                removed.push(worktree.path);
-                console.log(`forgot ${worktree.path} (directory already gone)`);
-            } catch (error) {
-                console.error(`failed to forget ${worktree.path}: ${getCliErrorMessage(error)}`);
-            }
+            console.error(`kept ${worktree.path}: stale registration cleanup requires a safe metadata-only operation`);
             continue;
         }
         const sizeKiB = directorySizeKiB(worktree.path);
