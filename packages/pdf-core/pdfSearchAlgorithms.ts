@@ -1,4 +1,5 @@
 import {
+    assertSafePdfSearchRegex,
     buildPdfSearchRegex,
     SearchRegexLimitError,
     SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES,
@@ -137,6 +138,12 @@ export function* iteratePdfSearchMatches(
     matcherOrQuery: RegExp | string,
     options?: ISearchMatchOptions,
 ) {
+    if (matcherOrQuery instanceof RegExp && options?.useRegex === true) {
+        assertSafePdfSearchRegex(matcherOrQuery.source, {
+            matchCase: Boolean(options.matchCase),
+            wholeWord: Boolean(options.wholeWord),
+        });
+    }
     const normalizedText = typeof matcherOrQuery === 'string'
         ? normalizeSearchTextWithOffsets(text)
         : null;

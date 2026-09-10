@@ -356,6 +356,11 @@ describe('findPdfSearchMatches', () => {
         ]);
     });
 
+    it('validates precompiled regex inputs when regex search is enabled', () => {
+        expect(() => findPdfSearchMatches('a'.repeat(40), /(a|aa)+b/u, {useRegex: true}))
+            .toThrow('pattern is too complex for document search');
+    });
+
     it('rejects regex patterns that are unsafe for document search', () => {
         expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', { useRegex: true }))
             .toThrow('pattern is too complex for document search');
