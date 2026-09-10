@@ -1,0 +1,40 @@
+electron/features/ocr/worker/pdfAssembler.ts
+  s_56c01aa4ec023b::t_9814069602ef81 53,426-442,490-510,512
+  s_f6f909f8da31ad::t_43e621edba495b 511,513
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_56c01aa4ec023b::t_e1deb9d9eb37c2 190-222,584-593,598-612
+  s_56c01aa4ec023b::t_c409cbe31a441c 594-597
+  s_84b26508fd572f::t_646f7ab81e83fe 613
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fc06e991b6d446584e0aa662639e60aae5380667",
+  "prompts": {},
+  "sessions": {
+    "s_56c01aa4ec023b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08be4-a444-7fe3-90c8-e4872af2e863",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_84b26508fd572f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bd3-465e-7fe1-b6cb-330efe4a0217",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f6f909f8da31ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07e12-0958-7ee1-8402-2b101ffe6ea1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
