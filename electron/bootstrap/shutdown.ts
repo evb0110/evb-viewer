@@ -26,6 +26,7 @@ interface IShutdownStep {
 export interface IShutdownContext {
     preserveRecoveryState: boolean;
     reason: 'fatal' | 'graceful' | 'recovery-relaunch' | 'system-shutdown';
+    retryablePreservationFailure?: boolean;
 }
 
 interface ICreateShutdownCoordinatorOptions {
@@ -177,6 +178,13 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             });
         }
 
+        if (context.retryablePreservationFailure === true && !isFatalShutdownInProgress) {
+            isGracefulQuitRequested = false;
+            shutdownPromise = null;
+            options.logger.warn('Graceful quit was held for a retryable preservation failure');
+            return;
+        }
+
         if (armForceExit) {
             startBestEffortCleanupDeadline();
         }
@@ -228,6 +236,9 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             clearGracefulQuitForceTimer();
             clearSystemShutdownForceTimer();
             if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
+                return;
+            }
+            if (shutdownContext?.retryablePreservationFailure === true) {
                 return;
             }
             isQuittingAfterCleanup = true;

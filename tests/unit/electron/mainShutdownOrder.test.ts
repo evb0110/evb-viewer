@@ -21,6 +21,17 @@ describe('main shutdown ordering', () => {
         expect(beginShutdownIndex).toBeGreaterThan(shutdownStepIndex);
     });
 
+    it('preserves loaded assistant history before closing main operation admission', () => {
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
+        const assistantIndex = source.indexOf('label: \'assistant-history-preservation\'');
+        const shutdownStepIndex = source.indexOf('label: \'main-operation-shutdown\'');
+        const preserveCallIndex = source.indexOf('preserveAssistantStateForShutdownIfLoaded()', assistantIndex);
+
+        expect(assistantIndex).toBeGreaterThan(-1);
+        expect(preserveCallIndex).toBeGreaterThan(assistantIndex);
+        expect(shutdownStepIndex).toBeGreaterThan(assistantIndex);
+    });
+
     it('settles cancelled materialization flights before closing read handles or deleting working copies', () => {
         const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const cancelIndex = source.indexOf('cancelAllMainOperations(\'app shutdown\')');

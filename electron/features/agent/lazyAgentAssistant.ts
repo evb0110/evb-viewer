@@ -85,3 +85,15 @@ export async function shutdownAgentAssistantIfLoaded() {
     const runtime = await runtimeModulePromise;
     await runtime.shutdownAgentAssistant();
 }
+
+export async function preserveAssistantStateForShutdownIfLoaded() {
+    if (runtimeModule) {
+        await runtimeModule.preserveAssistantStateForShutdown();
+        return;
+    }
+    if (!runtimeModulePromise) {
+        return;
+    }
+    const runtime = await runtimeModulePromise;
+    await runtime.preserveAssistantStateForShutdown();
+}

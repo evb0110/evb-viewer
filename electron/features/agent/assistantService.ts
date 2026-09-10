@@ -1182,15 +1182,26 @@ export async function resetAgentAssistantChat(
     );
 }
 
+async function stopAssistantRuntimeForShutdown() {
+    assistantHeartbeatTimer?.dispose();
+    assistantHeartbeatTimer = null;
+    syncAssistantHeartbeat = () => {};
+    authReturnWindow = null;
+    pendingLoginId = null;
+    await runAssistantShutdownStep('Codex runtime', () => runtimeLifecycle.shutdownCodexRuntime({shutdownMcp: false}), logger);
+    await runAssistantShutdownStep('Claude runtime', () => shutdownClaudeAssistantRuntime({shutdownMcp: false}), logger);
+}
+
+export function preserveAssistantStateForShutdown() {
+    return assistantFeatureLifecycle.shutdown(async () => {
+        await stopAssistantRuntimeForShutdown();
+        await sessionStore.flushPersistence();
+    });
+}
+
 export function shutdownAgentAssistant() {
     return assistantFeatureLifecycle.shutdown(async () => {
-        assistantHeartbeatTimer?.dispose();
-        assistantHeartbeatTimer = null;
-        syncAssistantHeartbeat = () => {};
-        authReturnWindow = null;
-        pendingLoginId = null;
-        await runAssistantShutdownStep('Codex runtime', () => runtimeLifecycle.shutdownCodexRuntime({shutdownMcp: false}), logger);
-        await runAssistantShutdownStep('Claude runtime', () => shutdownClaudeAssistantRuntime({shutdownMcp: false}), logger);
+        await stopAssistantRuntimeForShutdown();
         await runAssistantShutdownStep('assistant session persistence', () => sessionStore.flushPersistence(), logger);
         await runAssistantShutdownStep('active assistant session', () => sessionStore.clearActiveSession(), logger);
         await runAssistantShutdownStep('embedded MCP server', () => shutdownEmbeddedMcpServer(), logger);

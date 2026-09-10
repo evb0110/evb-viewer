@@ -261,6 +261,28 @@ describe('shutdown coordinator', () => {
         );
     });
 
+    it('holds graceful quit for a retryable preservation failure', async () => {
+        let attempt = 0;
+        const fixture = createCoordinator({runPreservationSteps: async context => {
+            attempt += 1;
+            if (attempt === 1) {
+                context.retryablePreservationFailure = true;
+            }
+        }});
+
+        fixture.coordinator.requestGracefulQuit();
+        await vi.waitFor(() => {
+            expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
+        });
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+
+        fixture.coordinator.requestGracefulQuit();
+        await vi.waitFor(() => {
+            expect(fixture.app.quit).toHaveBeenCalledOnce();
+        });
+        expect(fixture.app.exit).not.toHaveBeenCalled();
+    });
+
     it('records pending critical paths before ordinary cleanup may delete working copies', async () => {
         vi.useFakeTimers();
         const skipPaths = new Set<string>();

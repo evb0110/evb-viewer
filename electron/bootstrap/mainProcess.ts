@@ -58,7 +58,10 @@ import {
 import { warmNativeToolProtocolHandshakes } from '@electron/native-tools/warmNativeToolProtocolHandshakes';
 import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
 import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
-import { shutdownAgentAssistantIfLoaded } from '@electron/features/agent/lazyAgentAssistant';
+import {
+    preserveAssistantStateForShutdownIfLoaded,
+    shutdownAgentAssistantIfLoaded,
+} from '@electron/features/agent/lazyAgentAssistant';
 import {
     recoverOcrJobManager,
     shutdownOcrJobManager,
@@ -498,6 +501,17 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
     createPreservationSteps: context => {
         workingCopyCleanupSkipPaths.clear();
         return [
+            {
+                label: 'assistant-history-preservation',
+                run: async () => {
+                    try {
+                        await preserveAssistantStateForShutdownIfLoaded();
+                    } catch (error) {
+                        context.retryablePreservationFailure = true;
+                        throw error;
+                    }
+                },
+            },
             {
                 label: 'renderer-save-flush',
                 timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + 500,
