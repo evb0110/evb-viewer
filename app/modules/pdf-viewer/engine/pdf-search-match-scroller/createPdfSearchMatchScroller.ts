@@ -7,6 +7,7 @@ import type {
     IPdfSearchExcerpt,
     ISearchMatchOptions,
 } from '@contracts/search';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
 import {
     pageIndexToPageNumber,
     requirePageIndex,
@@ -29,6 +30,7 @@ interface ICurrentSearchMatch {
     excerpt?: IPdfSearchExcerpt | undefined;
     pageWidth?: number | undefined;
     pageHeight?: number | undefined;
+    rotation?: TOcrIndexRotation | undefined;
     words?: readonly ICurrentSearchMatchWord[] | undefined;
 }
 
@@ -118,12 +120,37 @@ function resolveCurrentMatchMarkerRect(
     const bottom = Math.max(...boxes.map(word => word.y + word.height));
     const normalizedLeft = clampRatio(left / currentMatch.pageWidth);
     const normalizedTop = clampRatio(top / currentMatch.pageHeight);
-    return {
+    const normalizedRect = {
         left: normalizedLeft,
         top: normalizedTop,
         width: clampRatio(right / currentMatch.pageWidth) - normalizedLeft,
         height: clampRatio(bottom / currentMatch.pageHeight) - normalizedTop,
     };
+    switch (currentMatch.rotation ?? 0) {
+        case 90:
+            return {
+                left: 1 - normalizedRect.top - normalizedRect.height,
+                top: normalizedRect.left,
+                width: normalizedRect.height,
+                height: normalizedRect.width,
+            };
+        case 180:
+            return {
+                left: 1 - normalizedRect.left - normalizedRect.width,
+                top: 1 - normalizedRect.top - normalizedRect.height,
+                width: normalizedRect.width,
+                height: normalizedRect.height,
+            };
+        case 270:
+            return {
+                left: normalizedRect.top,
+                top: 1 - normalizedRect.left - normalizedRect.width,
+                width: normalizedRect.height,
+                height: normalizedRect.width,
+            };
+        case 0:
+            return normalizedRect;
+    }
 }
 
 function resolveCurrentMatchTextAnchor(
