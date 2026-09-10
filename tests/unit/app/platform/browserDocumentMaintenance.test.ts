@@ -196,6 +196,45 @@ describe('browserDocumentMaintenance', () => {
         expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
+    it('retains a recovery-owned broken chunked record', async () => {
+        const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/broken-recovery.pdf';
+        const record = {
+            ref,
+            fileName: 'broken-recovery.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            data: new Uint8Array(),
+            fileSize: 8,
+            updatedAt: 1,
+            storageMode: 'chunked',
+            chunkCount: 2,
+            chunkSize: 4,
+            chunkGeneration: 'recovery-generation',
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.recoveryRecordsAtDelete = [{snapshotRefs: [ref]}];
+        documentIdbMocks.liveLeasesAtDelete = [];
+        documentIdbMocks.transferAuthoritiesAtDelete = [];
+        chunkMocks.loadAllChunkKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [],
+        });
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
+    });
+
     it('skips maintenance pruning when persisted IndexedDB records are unavailable', async () => {
         const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
         const entries = new Map([[

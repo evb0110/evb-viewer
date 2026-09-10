@@ -541,6 +541,7 @@ export async function sweepBrowserDocumentMaintenance(
                 const finalRefs = new Set([
                     ...transactionRefsToRemove,
                     ...Array.from(transactionBrokenChunkRefs)
+                        .filter(ref => !leasedRefs.has(ref))
                         .filter(ref => !liveLeaseProtection.leasedRefs.has(ref))
                         .filter(ref => !transferProtection.leasedRefs.has(ref)),
                 ]);
