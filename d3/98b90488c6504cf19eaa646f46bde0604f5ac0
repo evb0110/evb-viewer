@@ -1,0 +1,21 @@
+electron/file-access/documentFileWriteAtomic.ts
+  s_9a6b9380a05953::t_e7399aa64b450d 20,79,116,225
+tests/unit/electron/documentFileWriteAtomic.test.ts
+  s_9a6b9380a05953::t_2c3b3f093ffe18 128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d398b90488c6504cf19eaa646f46bde0604f5ac0",
+  "prompts": {},
+  "sessions": {
+    "s_9a6b9380a05953": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b4a-af1d-7e33-a097-13954e79ea8e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
