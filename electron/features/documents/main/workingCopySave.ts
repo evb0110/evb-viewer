@@ -62,6 +62,7 @@ const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
     10 * 60 * 1000,
     1_000,
 );
+const E2E_REPAIR_SAVE_FAIL_ONCE_MARKER_ENV = 'EVB_E2E_REPAIR_SAVE_FAIL_ONCE_MARKER';
 
 function requireSenderId(context: IDocumentsSenderIdContext): number {
     if (typeof context.senderId !== 'number') {
@@ -224,6 +225,12 @@ async function repairPdfWithQpdf(
         cancelGroup: string;
     },
 ) {
+    const failOnceMarker = process.env[E2E_REPAIR_SAVE_FAIL_ONCE_MARKER_ENV]?.trim();
+    if (failOnceMarker && !existsSync(failOnceMarker)) {
+        await writeFile(failOnceMarker, 'repair validation failure injected');
+        await writeFile(outputPath, 'repair validation failure');
+        return;
+    }
     await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         inputPath,
         outputPath,

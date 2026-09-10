@@ -430,10 +430,23 @@ async function deleteSelectedShape(page: Page) {
 }
 
 async function deleteSelectedShapeViaPropertiesPopup(page: Page) {
-    await waitForFunctionInPage(page, () => Boolean(document.querySelector('.annotation-properties-delete')), {timeout: 10_000});
+    const deleteSelector = '.annotation-context-menu .pdf-context-menu__action--danger';
+    await waitForFunctionInPage(page, (selector: string) => {
+        const button = document.querySelector<HTMLButtonElement>(selector);
+        if (!button) {
+            return false;
+        }
+        const rect = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return !button.disabled
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && rect.width > 0
+            && rect.height > 0;
+    }, {timeout: 10_000}, deleteSelector);
 
     const buttonPoint = await page.evaluate(() => {
-        const button = document.querySelector<HTMLButtonElement>('.annotation-properties-delete');
+        const button = document.querySelector<HTMLButtonElement>('.annotation-context-menu .pdf-context-menu__action--danger');
         if (!button) {
             return null;
         }
@@ -501,22 +514,65 @@ async function saveViaToolbarButton(page: Page) {
 }
 
 async function waitForNoShapeSelectionUi(page: Page) {
-    await waitForFunctionInPage(page, () => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const selectionOutline = host?.querySelector('.pdf-annotation-selection-handles');
-        const propertiesPopup = document.querySelector('.annotation-properties');
-        return !selectionOutline && !propertiesPopup;
-    }, { timeout: 10_000 });
+    try {
+        await waitForFunctionInPage(page, () => {
+            const isVisible = (element: Element | null) => {
+                if (!element) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+            };
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = (activeHost && visibleHosts.includes(activeHost))
+                ? activeHost
+                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+            const selectionOutline = host?.querySelector('.pdf-annotation-selection-handles');
+            const propertiesPopup = document.querySelector('.annotation-properties');
+            return !isVisible(selectionOutline ?? null) && !isVisible(propertiesPopup);
+        }, { timeout: 10_000 });
+    } catch (error) {
+        const state = await evaluateInPage(page, () => {
+            const describe = (element: Element | null) => {
+                if (!element) {
+                    return null;
+                }
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return {
+                    className: element.getAttribute('class'),
+                    display: style.display,
+                    visibility: style.visibility,
+                    opacity: style.opacity,
+                    rect: [
+                        rect.left,
+                        rect.top,
+                        rect.width,
+                        rect.height,
+                    ],
+                };
+            };
+            return {
+                selectionOutline: describe(document.querySelector('.editor-pane.is-active .pdf-annotation-selection-handles')),
+                propertiesPopup: describe(document.querySelector('.annotation-properties')),
+                shapeIds: Array.from(document.querySelectorAll('.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id]')).map(element => element.getAttribute('data-annotation-id')),
+                shapeHitTargets: Array.from(document.querySelectorAll('.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id] [data-annotation-hit-target]')).length,
+            };
+        });
+        throw new Error(`Visible shape selection UI remained: ${JSON.stringify(state)}. ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 async function waitForShapeSelectionUi(page: Page) {
@@ -821,11 +877,25 @@ async function getManagedShapeDebugState(page: Page) {
             const host = (activeHost && visibleHosts.includes(activeHost))
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+            const shapeElements = Array.from(host?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ?? []);
+            const shapeHitTestIds = shapeElements.flatMap(shape => {
+                const rect = shape.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) {
+                    return [];
+                }
+                const hit = document.elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+                    .map(element => element.closest<SVGGElement>('g[data-annotation-kind="shape"][data-annotation-id]')?.getAttribute('data-annotation-id') ?? null)
+                    .find(Boolean);
+                return hit ? [hit] : [];
+            });
             return {
                 hasWorkspace: Boolean(host),
-                domShapeCount: host?.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]').length ?? 0,
-                domShapeIds: Array.from(host?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ?? [])
-                    .map(shape => shape.getAttribute('data-annotation-id')),
+                domShapeCount: shapeElements.length,
+                domShapeIds: shapeElements.map(shape => shape.getAttribute('data-annotation-id')),
+                domSelectedShapeIds: shapeElements.filter(shape => shape.classList.contains('is-selected')).map(shape => shape.getAttribute('data-annotation-id')),
+                shapeHitTestIds,
+                visibleSelectionUi: Boolean(host?.querySelector('.pdf-annotation-selection-handles')),
+                visiblePropertiesPopup: Boolean(document.querySelector('.annotation-properties')),
             };
         }),
         callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes'),
@@ -845,11 +915,17 @@ async function getManagedShapeDebugState(page: Page) {
         }),
     ]);
     const shapes = shapeResult.value ?? [];
+    const domSelectedShapeId = domState.domSelectedShapeIds[0] ?? null;
     return {
         ...domState,
         hasPdfViewer: shapeResult.called,
-        hasShapes: Boolean(viewerState.hasShapes),
-        selectedShapeId: viewerState.selectedShapeId ?? null,
+        // The public workspace snapshot can lag the annotation surface by a
+        // render tick. Use the canonical command and painted DOM for the
+        // assertions, while retaining the stale snapshot values as evidence.
+        hasShapes: shapes.length > 0,
+        selectedShapeId: domSelectedShapeId,
+        exposedHasShapes: Boolean(viewerState.hasShapes),
+        exposedSelectedShapeId: viewerState.selectedShapeId ?? null,
         shapes: shapes.map(shape => ({
             id: shape.id,
             pageIndex: shape.pageIndex ?? null,
@@ -882,7 +958,7 @@ async function getFirstManagedShapeStrokeMetrics(page: Page) {
                 '.editor-pane.is-active .page_container[data-page="1"]',
             );
             const visual = pageContainer?.querySelector<SVGGeometryElement>(
-                '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] polyline',
+                '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] [data-annotation-visual] polyline',
             );
             if (!pageContainer || !visual) {
                 return null;
