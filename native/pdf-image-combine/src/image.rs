@@ -331,15 +331,16 @@ fn read_png_page_from_reader<R: std::io::Read>(
         return png_composited_flate_page(&bytes, metadata, max_pixels, default_dpi);
     }
 
-    let png = read_png_passthrough(
+    match read_png_passthrough(
         bytes.as_slice(),
         PassthroughLimits {
             max_pixels,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
-    )?;
-
-    Ok(png_flate_page(png, default_dpi))
+    ) {
+        Ok(png) => Ok(png_flate_page(png, default_dpi)),
+        Err(_) => png_normalized_flate_page(&bytes, metadata, max_pixels, default_dpi),
+    }
 }
 
 fn read_bounded_reader<R: Read>(reader: R) -> Result<Vec<u8>> {
@@ -363,6 +364,7 @@ fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
     let (colors, color_space) = match png.color_type {
         PngColorType::Gray8 => (1, "DeviceGray"),
         PngColorType::Rgb8 => (3, "DeviceRGB"),
+        PngColorType::Indexed => unreachable!("indexed PNGs are normalized before passthrough"),
         PngColorType::GrayAlpha8 | PngColorType::Rgba8 => {
             unreachable!("the passthrough reader rejects alpha-bearing PNG color types")
         }
@@ -416,6 +418,45 @@ fn png_composited_flate_page(
             data: compressed,
             decode_params: format!(
                 "<< /Predictor 12 /Colors 3 /BitsPerComponent 8 /Columns {} >>",
+                png.width
+            ),
+        },
+    })
+}
+
+fn png_normalized_flate_page(
+    bytes: &[u8],
+    png: PngMetadata,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+) -> Result<ImagePage> {
+    let decoded = decode_png(
+        bytes,
+        DecodeLimits {
+            max_pixels,
+            max_dimension: png.width.max(png.height),
+            max_compressed_bytes: bytes.len(),
+        },
+    )?;
+    let (pixels, colors, color_space, columns) = if matches!(png.color_type, PngColorType::Gray8) {
+        (decoded.gray.into_data(), 1, "DeviceGray", png.width)
+    } else {
+        (decoded.rgb.into_data(), 3, "DeviceRGB", png.width)
+    };
+    let compressed =
+        deflate_up_filtered_slices(&pixels, columns as usize * colors, png.height as usize)?;
+    let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
+    Ok(ImagePage {
+        width: png.width,
+        height: png.height,
+        dpi_x,
+        dpi_y,
+        color_space,
+        icc_profile: png.icc_profile,
+        payload: ImagePayload::RawFlate {
+            data: compressed,
+            decode_params: format!(
+                "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {} >>",
                 png.width
             ),
         },
@@ -500,6 +541,17 @@ fn read_png_jpeg_page(
             (1, Cow::Owned(decoded.gray.into_data()))
         }
         PngColorType::Rgb8 if png.transparency.is_none() => {
+            let decoded = decode_png(
+                bytes,
+                DecodeLimits {
+                    max_pixels,
+                    max_dimension: png.width.max(png.height),
+                    max_compressed_bytes: bytes.len(),
+                },
+            )?;
+            (3, Cow::Owned(decoded.rgb.into_data()))
+        }
+        PngColorType::Indexed => {
             let decoded = decode_png(
                 bytes,
                 DecodeLimits {

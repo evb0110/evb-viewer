@@ -243,7 +243,7 @@ pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayI
 fn decode_png_gray_ordinary(parsed: WalkedPng) -> Result<GrayImage, RasterError> {
     let header = parsed.header;
     let transparency = parsed.transparency;
-    validate_decoded_rows(&parsed.idat, header);
+    validate_decoded_rows(&parsed.idat, header)?;
     let row_bytes = (header.width as usize)
         .checked_mul(header.color_type.channels())
         .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
@@ -1082,6 +1082,10 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
                 if header.is_some_and(|header| matches!(header.color_type, PngColorType::Indexed)) {
                     indexed_transparency = Some(data);
+                } else {
+                    let parsed_header = header
+                        .ok_or_else(|| RasterError::invalid("PNG tRNS appeared before IHDR"))?;
+                    transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
                 }
             }
             b"iCCP" if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) => {
@@ -1103,6 +1107,33 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 let mut data = vec![0; length];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
                 icc_profile = Some(decode_icc_profile(&data, max_icc_profile_bytes)?);
+            }
+            b"tRNS" => {
+                let parsed_header =
+                    header.ok_or_else(|| RasterError::invalid("PNG tRNS appeared before IHDR"))?;
+                if idat_len != 0 {
+                    return Err(RasterError::invalid("PNG tRNS appeared after IDAT"));
+                }
+                if matches!(parsed_header.color_type, PngColorType::Indexed) {
+                    return Err(RasterError::invalid(
+                        "Indexed PNG transparency requires decode mode",
+                    ));
+                }
+                if transparency.is_some() {
+                    return Err(RasterError::invalid("Duplicate PNG tRNS chunk"));
+                }
+                let expected_length = match parsed_header.color_type {
+                    PngColorType::Gray8 => 2,
+                    PngColorType::Rgb8 => 6,
+                    PngColorType::GrayAlpha8 | PngColorType::Rgba8 => 0,
+                    PngColorType::Indexed => unreachable!(),
+                };
+                if length != expected_length {
+                    return Err(RasterError::invalid("Invalid PNG tRNS length"));
+                }
+                let mut data = vec![0; length];
+                read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
+                transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
             }
             b"IDAT" => {
                 let parsed_header =
