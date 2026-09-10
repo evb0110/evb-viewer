@@ -77,6 +77,35 @@ describe('createElectronPlatformApiFixture', () => {
         expect(api.search.onProgress(() => undefined)).toEqual(expect.any(Function));
     });
 
+    it('resolves valid undefined results without consuming examples during construction', async () => {
+        const api = createElectronPlatformApiFixture();
+
+        await expect(api.settings.save({theme: 'dark'})).resolves.toBeUndefined();
+        await expect(api.shell.openExternal('https://example.test/')).resolves.toBeUndefined();
+        await expect(api.windowTabs.resumeWorkspaceCheckpoint('1')).resolves.toBeUndefined();
+
+        let calls = 0;
+        const method = createDefaultPlatformApiFixtureMethod({
+            path: [
+                'settings',
+                'save',
+            ],
+            kind: 'async',
+            required: {
+                electron: true,
+                browser: true,
+            },
+            browserLazy: 'forwarded',
+        }, () => {
+            calls += 1;
+            return undefined;
+        });
+
+        expect(calls).toBe(0);
+        await expect((method as (value: unknown) => Promise<undefined>)({})).resolves.toBeUndefined();
+        expect(calls).toBe(1);
+    });
+
     it('rejects overrides that remove a required manifest method', () => {
         const overrides = asFixtureOverrides({documentFiles: {readFile: undefined}});
 

@@ -77,7 +77,7 @@ function createAsyncDefault(path: string) {
 export function createDefaultPlatformApiFixtureMethod(
     descriptor: IPlatformMethodDescriptor, example?: () => unknown,
 ) {
-    if (example && example() !== undefined) {
+    if (example !== undefined) {
         return descriptor.kind === 'async'
             ? vi.fn(async () => example())
             : vi.fn(() => example());
