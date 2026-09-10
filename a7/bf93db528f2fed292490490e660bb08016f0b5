@@ -1,0 +1,21 @@
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_1b452cdf36f007::t_c63a37aeb7933d 273,713-714
+electron/image/pdfConversion.ts
+  s_1b452cdf36f007::t_9bc4d14ee5485d 243,247,256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a7bf93db528f2fed292490490e660bb08016f0b5",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
