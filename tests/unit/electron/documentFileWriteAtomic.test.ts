@@ -125,7 +125,7 @@ describe('documentFileWriteAtomic', () => {
             await expect(publishImmutableFileAtomic(sourcePath, targetPath)).resolves.toBeUndefined();
 
             expect(atomicReplaceSpy).toHaveBeenCalledWith(
-                expect.stringContaining('.target.pdf.'),
+                expect.stringMatching(/(?:^|[/\\])\.[0-9a-f]{16}\.tmp$/u),
                 targetPath,
                 expect.objectContaining({
                     durable: false,
