@@ -220,6 +220,40 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
         expect(release).toHaveBeenCalledOnce();
     });
 
+    it('waits for the spawned utility PID before attempting termination', async () => {
+        const assignedPid = {value: undefined as number | undefined};
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            postMessage: vi.fn(),
+        });
+        Object.defineProperty(child, 'pid', {get: () => assignedPid.value});
+        mocks.fork.mockReturnValueOnce(child);
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+        });
+
+        child.emit('message', {
+            type: 'result',
+            ok: true,
+            bytes: 1024,
+            sha256: 'a'.repeat(64),
+        });
+        await Promise.resolve();
+        expect(mocks.terminateProcessTree).not.toHaveBeenCalled();
+
+        assignedPid.value = 8127;
+        child.emit('spawn');
+        await expect(result).resolves.toEqual({
+            bytes: 1024,
+            sha256: 'a'.repeat(64),
+        });
+        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8127, expect.any(Object));
+    });
+
     it('prices fingerprint admission as one bounded interactive utility slot', async () => {
         mocks.brokerAcquire.mockRejectedValueOnce(new Error('stop after admission'));
 

@@ -23,7 +23,7 @@ interface IDocumentSaveUtilityResult {
 
 interface IRetainedDocumentSaveUtility {
     child: ReturnType<typeof utilityProcess.fork>;
-    pid: number;
+    pid?: number;
     releaseResourceLease: () => void;
     retryTermination: () => Promise<boolean>;
 }
@@ -44,6 +44,10 @@ export async function retryRetainedDocumentSaveUtilityProcesses() {
         return proven;
     }));
     return results.every(Boolean);
+}
+
+export async function shutdownRetainedDocumentSaveUtilityProcesses() {
+    await retryRetainedDocumentSaveUtilityProcesses();
 }
 
 export async function runDocumentSaveUtilityProcess(options: {
@@ -91,15 +95,33 @@ export async function runDocumentSaveUtilityProcess(options: {
         }
         let settled = false;
         let childExited = false;
-        const pid = child.pid;
+        let spawned = false;
+        let pid = child.pid;
+        let resolveSpawnState!: () => void;
+        const spawnState = new Promise<void>(resolve => {
+            resolveSpawnState = resolve;
+        });
+        const waitForSpawnState = async () => {
+            if (spawned || childExited) {
+                return;
+            }
+            await Promise.race([
+                spawnState,
+                new Promise<void>(resolve => {
+                    const timer = setTimeout(resolve, 2_500);
+                    timer.unref();
+                }),
+            ]);
+        };
         let terminationInFlight: Promise<boolean> | null = null;
         const stopChild = async () => {
             if (terminationInFlight) {
                 return terminationInFlight;
             }
             const attempt = (async () => {
+                await waitForSpawnState();
                 if (pid === undefined) {
-                    return true;
+                    return childExited;
                 }
                 try {
                     return await terminateProcessTree(pid, {
@@ -176,7 +198,12 @@ export async function runDocumentSaveUtilityProcess(options: {
         );
         timeout.unref();
         options.signal?.addEventListener('abort', abort, {once: true});
-        child.once('spawn', () => child.postMessage(options.request));
+        child.once('spawn', () => {
+            spawned = true;
+            pid = child.pid;
+            resolveSpawnState();
+            child.postMessage(options.request);
+        });
         child.once('message', (value) => {
             const result = decodeDocumentSaveUtilityResult(value);
             if (!result) {
@@ -197,6 +224,7 @@ export async function runDocumentSaveUtilityProcess(options: {
         });
         child.once('exit', code => {
             childExited = true;
+            resolveSpawnState();
             if (!settled) {
                 void finish(new Error(`${options.utilityName} exited before completion (${code})`));
             }
