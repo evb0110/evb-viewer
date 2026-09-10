@@ -8,7 +8,8 @@
 - Branch: `t3code/native-pdf-page-image-print`
 - Tested source: `433379503df745c11c4be2301a9755333a24811e`; receipt commit `7632c4a4930a60696c5e01c1e6e7ef0888151c61` remains preserved above it.
 - Task-scoped test correction commit: `24cf22df92b7651c1a7eeb96457b328c2af8c738`.
-- Branch tip before this receipt refresh: `f4810edde6409dec0d9d238af29487ffc5ba2751`; this documentation-only refresh is `9a451d2f9124e4de190cbdfaf2289c9ac7a8c3bc`. Receipt/report commits are not intended for main integration.
+- Source fix commit: `175ad3a539c17f97d25af4aeeff5e087ee597b3b`.
+- Branch tip before this receipt refresh: `320cd8ae95d6c43808db5f795c03555de8257fb6`; receipt/report commits are not intended for main integration.
 
 ## Verification
 
@@ -25,6 +26,13 @@
 - `pnpm exec vitest run --project unit-electron tests/unit/electron/pathEncoding.test.ts tests/unit/electron/openPathCapabilities.test.ts tests/unit/electron/recentFiles.test.ts tests/unit/electron/originalPathSaveWitness.test.ts tests/unit/electron/workingCopySave.test.ts --reporter=dot`: passed, 5 files and 57 tests.
 - `pnpm exec vitest run --project browser-integration tests/integration/browser/browserPageOpsAcceptance.test.ts --reporter=dot`: passed, 1 file and 1 test.
 - `pnpm exec vitest run --project native-integration tests/integration/native/nativeBookmarkContinuation.test.ts tests/integration/native/nativePdfSave.test.ts --reporter=dot`: passed, 2 files and 2 tests.
+- `pnpm exec vitest run --project unit-electron tests/unit/electron/pdfConversion.test.ts tests/unit/electron/pdfCombineSharedNative.test.ts tests/unit/electron/nativePdfAssembler.test.ts --reporter=dot`: passed, 3 files and 49 tests after the desktop decoder fallback.
+- `pnpm run build:electron`: passed after the source fix.
+- Hidden macOS Electron print against a disposable three-page mixed-DPI DjVu assembled with `djvm`: passed, 1 test. Selected pages 1, 2, and 3 produced a nonblank three-page PDF. The existing two-page test fixture selection was restored afterward.
+- Existing macOS print-composition acceptance against its generated four-page PDF: passed, 1 selected test. It produced three landscape sheets and verified first-page-single, facing, and trailing-page half-sheet ink placement.
+- Hidden macOS Electron production combine through `documentOpen.openDocumentDirectBatch` plus the existing automation file-grant hook: valid BMP, GIF, and WebP all accepted after the fallback, producing a qpdf-valid three-page working copy with rendered sizes 24x16, 32x20, and 40x24. Normalized scratch directories were absent after completion.
+- Hidden macOS Electron PNG control through the same production route: accepted a transparent 36x22 PNG, producing a qpdf-valid one-page working copy and a rendered 36x22 nonblank page.
+- POSIX #518 witness probe over exact 68,157,440-byte (65 MiB) and 537,919,488-byte (513 MiB) valid PDFs: three cycles per fixture. Unchanged witness assertions passed; every same-byte atomic replacement was rejected. Capture/assert/replacement checks were 0-2 ms because POSIX uses the existing bounded sample witness. This is decisive negative evidence for automatic full-content replacement approval; the guard remains intact.
 
 ## Issue dispositions
 
@@ -32,9 +40,9 @@
 - #355 NPDF-4: browser number-tree support is already landed in `0756ecb3c`; this lane did not duplicate the browser caller change.
 - #356 NPDF-5: browser label preservation is already landed in `945451192`; this lane did not duplicate the browser caller change.
 - #357 NPDF-7: native canonical qpdf-name handling is already landed in `7aa34b221`; large-file annotation acceptance remains with the annotation owner.
-- #358 IM-1: already landed in `545eef1` on current main. Native and focused Node image-combine coverage passed. Desktop open/combine/insert and packaged OS acceptance remain unrun; no existing headless image-picker journey was available.
-- #359 IM-2: already landed in `5e9cc6120`. Native PNG variant tests passed, including indexed, low-bit grayscale, 16-bit RGB and interlaced decoding. Browser WASM and desktop PDF rendering acceptance remain open.
-- #360 IM-3: already landed in `573e5062f`. Native tRNS tests passed for grayscale and RGB white compositing. Browser/native parity and full desktop round-trip acceptance remain open.
+- #358 IM-1: source fallback is fixed in `175ad3a53`. Production macOS combine accepted generated BMP, GIF, and WebP through the real file-grant/open batch route, preserving page order and dimensions. Desktop insert still needs the picker/drop injection path; packaged OS acceptance remains open.
+- #359 IM-2: already landed in `5e9cc6120`. Native PNG variant tests and fresh browser WASM/image metadata/export checks passed, plus the desktop PNG control. Packaged OS acceptance remains open.
+- #360 IM-3: already landed in `573e5062f`. Native tRNS tests and fresh browser/image export checks passed; the desktop transparent PNG control was qpdf-valid and rendered at the expected size. Exact cross-engine pixel-bucket parity remains open.
 - #363 IM-6: already landed in `db08f8f46`. Native catalog, focused Electron assembler, browser page-ops, and native save/continuation integration checks passed; multi-request production acceptance remains open.
 - #364 PE-01: already landed in `54762ca5e`. No separate native check was required in this lane; Electron export filename acceptance remains open.
 - #367 PE-04: already landed in `dc32412c9`. Existing source/test coverage was not runnable without Node dependencies; native print preparation acceptance remains open.
@@ -43,10 +51,10 @@
 - #513 LEGACY-E03: already landed in `3c1ceed78` lineage on current main. Native image-combine checks passed; packaged desktop EXIF acceptance remains open.
 - #514 LEGACY-E04: already landed in `7abe858e7` lineage on current main. Native TIFF orientation tests passed; packaged desktop import acceptance remains open.
 - #515 LEGACY-E05: already landed in `c515b46da`. Native TIFF resolution tests passed; desktop multi-page TIFF export acceptance remains open.
-- #516 LEGACY-E06: already landed in `e4c60b6ee`. Existing unit coverage identifies facing/landscape composition, and the corrected hidden DjVu print journey passed the selected mixed-DPI page handoff. A three-page facing-page run and packaged-platform handoff remain open.
+- #516 LEGACY-E06: already landed in `e4c60b6ee`. Corrected hidden DjVu print handoff passed with the generated three-page mixed-DPI fixture, and the existing macOS facing-first-single acceptance passed with three landscape sheets and independent raster placement assertions. Packaged-platform handoff remains open.
 - #517 LEGACY-E12: already landed in `1fb345c9e`. Existing long multibyte filename coverage is present; the focused unit checks passed. Full native open/edit/save/reopen and packaged Windows acceptance remain open.
 - #558 LEGACY-E07-ACCEPTANCE: already qualified by `0250054e4`; source and test remain on current main. The configured Electron mixed-size runtime acceptance was not rerun.
-- #518 LEGACY-E16: no implementation change. Existing witness tests pass and retain the safe rejection of same-byte atomic replacement outside the bounded fallback. The required exact-65-MiB/exact-513-MiB three-cycle POSIX/Windows measurement matrix was not run and remains incomplete.
+- #518 LEGACY-E16: negative POSIX decision recorded. Exact 65 MiB and 513 MiB valid fixtures completed three same-byte atomic-replacement cycles each; every replacement was rejected and unchanged witnesses passed within the 12,000 ms ceiling. POSIX uses sample-only capture, so automatic full-content approval is not safe. Windows cycles, cancellation gates, and full memory/read-volume instrumentation remain open.
 - #519 LEGACY-E17: current exact-first path implementation is present. Focused path encoding, exact trailing-whitespace path, recent-file identity, save-witness, and native save integration checks passed. The requested POSIX Electron open/reopen journey and full save/recovery collision matrix remain open.
 
 - #361 IM-4: source-boundary reset is already landed in `01e2d0df6`; the native catalog code was not changed here.
@@ -56,4 +64,4 @@
 
 ## Gaps and processes
 
-The remaining gaps are browser caller/state handling for compact label representation, image-import desktop and browser visual parity, packaged OS checks, full #518 measurement research, the POSIX #519 Electron journey, selected-format/rollback Electron journeys, and the headless page-insert dialog path in the compact-label journey. No Electron, native full-build, or other long-lived process was left running by this lane. No hosted CI, release, issue closure, or Project status change was performed.
+The remaining gaps are browser caller/state handling for compact label representation, desktop image insertion picker/drop, exact browser/native pixel parity, packaged OS checks, #518 Windows/cancellation instrumentation, the POSIX #519 Electron open/reopen journey, selected-format/rollback Electron journeys, and the headless page-insert dialog path in the compact-label journey. No Electron, native full-build, or other long-lived process was left running by this lane. No hosted CI, release, issue closure, or Project status change was performed.
