@@ -23,8 +23,19 @@ import {
     readDocumentRecoveryJournal,
 } from '@electron/file-access/documentRecoveryJournal';
 import {writeFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
 
 const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
+
+function hasWorkingCopyIdentity(journalPath: unknown, workingCopyPath: string) {
+    if (typeof journalPath !== 'string') {
+        return false;
+    }
+    const normalizedJournalPath = normalizePathForLookup(journalPath);
+    const normalizedWorkingCopyPath = normalizePathForLookup(workingCopyPath);
+    return normalizedJournalPath.length > 0
+        && normalizedJournalPath === normalizedWorkingCopyPath;
+}
 
 async function isLegacyCatalogWithinBudget(path: string) {
     let totalBytes = 0;
@@ -102,7 +113,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
         isRecord(journal)
         && journal.version === 1
         && journal.state === 'committed'
-        && journal.workingCopyPath === workingCopyPath
+        && hasWorkingCopyIdentity(journal.workingCopyPath, workingCopyPath)
         && typeof journal.transitionId === 'string'
         && typeof journal.targetDocumentRevisionToken === 'string'
         && typeof journal.undoPdfPath === 'string'
@@ -132,7 +143,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
     }
     if (
         typeof journal.workingCopyPath !== 'string'
-        || journal.workingCopyPath !== workingCopyPath
+        || !hasWorkingCopyIdentity(journal.workingCopyPath, workingCopyPath)
         || typeof journal.transitionId !== 'string'
         || typeof journal.pdfBackupPath !== 'string'
         || (journal.catalogBackupPath !== undefined && typeof journal.catalogBackupPath !== 'string')
