@@ -154,6 +154,20 @@ const runtimeLifecycle = createAssistantRuntimeLifecycle({
     isAssistantFeatureEnabled,
     createAssistantDisabledError,
     shutdownAssistant: () => shutdownAgentAssistant(),
+    settleCodexTurn: (session, reason) => {
+        abortActiveEmbeddedMcpRequests(
+            session.scopeBinding ?? getAssistantTurnScope(session.turnOwner),
+            reason,
+        );
+        for (const message of session.messages) {
+            if (message.role === 'assistant' && message.pending) {
+                message.pending = false;
+            }
+        }
+        supersedeSessionTurn(session);
+        sessionStore.recordSessionSnapshot(session);
+        publishAssistantEvent({type: 'turn-completed'}, session.scope, session);
+    },
     publishCodexState: (
         scope: IAgentAssistantChatScope | null | undefined,
         selection: IAssistantSelection | undefined,
