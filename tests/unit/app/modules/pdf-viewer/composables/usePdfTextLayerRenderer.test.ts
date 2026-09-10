@@ -205,7 +205,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getStructTree: vi.fn(async () => ({role: 'Document'})),
-            getTextContent: vi.fn(async () => ({items: [
+            streamTextContent: vi.fn(() => ({items: [
                 {
                     str: 'Heading',
                     id: 'mc-heading',
@@ -217,10 +217,6 @@ describe('usePdfTextLayerRenderer', () => {
                     hasEOL: false,
                 },
             ]})),
-            streamTextContent: vi.fn(() => ({items: [{
-                str: 'Heading',
-                hasEOL: false,
-            }]})),
         });
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
@@ -262,10 +258,6 @@ describe('usePdfTextLayerRenderer', () => {
         const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getStructTree: vi.fn(async () => null),
-            getTextContent: vi.fn(async () => ({items: [{
-                str: 'Readable text',
-                hasEOL: false,
-            }]})),
             streamTextContent: vi.fn(() => ({items: [{
                 str: 'Readable text',
                 hasEOL: false,
