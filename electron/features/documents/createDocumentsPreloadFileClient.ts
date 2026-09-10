@@ -354,10 +354,15 @@ function createDocxExportFileCapability(
             for await (const chunk of chunks) {
                 throwIfAborted(signal);
                 const checkedChunk = assertDocxExportChunk(chunk);
+                // Async generators crossing the contextBridge can yield a
+                // renderer-realm typed array proxy. Copy it in preload before
+                // sending it through Electron IPC, whose structured clone
+                // rejects that proxy even though it passes the byte checks.
+                const ipcChunk = Uint8Array.from(checkedChunk);
                 await invoke(
                     DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
                     sessionId,
-                    checkedChunk,
+                    ipcChunk,
                 );
                 throwIfAborted(signal);
                 wroteChunk = true;
