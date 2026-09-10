@@ -128,7 +128,6 @@ function resolvePdfNumber(value: PDFNumber | undefined, fallback: number) {
 
 function resolveAppearanceStream(
     annotation: PDFDict,
-    context: PDFDocument['context'],
 ) {
     const appearance = annotation.lookupMaybe(PDFName.of('AP'), PDFDict);
     const normalAppearance = appearance?.lookup(PDFName.of('N'));
@@ -151,9 +150,7 @@ function resolveAppearanceStream(
         return undefined;
     }
 
-    return normalAppearance.values()
-        .map(value => context.lookupMaybe(value, PDFStream))
-        .find((value): value is PDFStream => value !== undefined);
+    return undefined;
 }
 
 function flattenPrintableAnnotationAppearances(
@@ -176,12 +173,12 @@ function flattenPrintableAnnotationAppearances(
         for (let index = 0; index < annotations.size(); index += 1) {
             const annotation = annotations.lookup(index, PDFDict);
             const flags = annotation.lookupMaybe(flagsName, PDFNumber)?.asNumber() ?? 0;
-            const isPrintable = (flags & 4) !== 0 && (flags & (1 | 2)) === 0;
+            const isPrintable = (flags & 4) !== 0 && (flags & (1 | 2 | 32)) === 0;
             if (!isPrintable) {
                 continue;
             }
 
-            const appearance = resolveAppearanceStream(annotation, sourcePdf.context);
+            const appearance = resolveAppearanceStream(annotation);
             if (!appearance) {
                 throw new Error(`Printable annotation on page ${pageNumber} has no normal appearance`);
             }

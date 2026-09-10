@@ -72,6 +72,7 @@ interface IProvisionalWorkingCopyRevision {
     sidecar: IWorkingCopyRevisionSidecar;
 }
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
+const workingCopyContentTransitionQueue = new Map<string, Promise<void>>();
 
 function requireDocumentRef(value: string): TDocumentRef {
     const parsed = parseDocumentRef(value);
@@ -94,6 +95,22 @@ async function measureRevisionTransitionPhase<T>(
 
 function getRevisionQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
+}
+
+function enqueueWorkingCopyContentTransition<T>(
+    workingCopyPath: string,
+    operation: () => Promise<T>,
+) {
+    const queueKey = getRevisionQueueKey(workingCopyPath);
+    const previousTail = workingCopyContentTransitionQueue.get(queueKey) ?? Promise.resolve();
+    const operationPromise = previousTail.then(operation, operation);
+    const nextTail = operationPromise.then(() => undefined, () => undefined);
+    workingCopyContentTransitionQueue.set(queueKey, nextTail);
+    return operationPromise.finally(() => {
+        if (workingCopyContentTransitionQueue.get(queueKey) === nextTail) {
+            workingCopyContentTransitionQueue.delete(queueKey);
+        }
+    });
 }
 
 function isExistingFile(workingCopyPath: string) {
@@ -374,7 +391,7 @@ export async function markWorkingCopyRevisionChanged(
  * transition. The caller must make `commit` rollback its file mutations when
  * it throws; no new revision is externally visible until it succeeds.
  */
-export async function transitionWorkingCopyContentRevision(
+async function runWorkingCopyContentRevisionTransition(
     workingCopyPath: string,
     reason: TDocumentRevisionChangeReason,
     commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
@@ -433,6 +450,25 @@ export async function transitionWorkingCopyContentRevision(
     };
     notifyRevisionChanged(event);
     return event;
+}
+
+export function transitionWorkingCopyContentRevision(
+    workingCopyPath: string,
+    reason: TDocumentRevisionChangeReason,
+    commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
+    senderId?: number,
+    onPhase?: (phase: string, durationMs: number) => void,
+    contentBackupMode: 'copy-on-write' | 'hard-link' = 'copy-on-write',
+): Promise<IDocumentRevisionChangedEvent> {
+    return enqueueWorkingCopyContentTransition(workingCopyPath, () =>
+        runWorkingCopyContentRevisionTransition(
+            workingCopyPath,
+            reason,
+            commit,
+            senderId,
+            onPhase,
+            contentBackupMode,
+        ));
 }
 
 export async function markWorkingCopyContentChanged(

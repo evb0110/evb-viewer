@@ -421,6 +421,55 @@ describe('workspace save failure surfacing', () => {
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
+    it('does not acknowledge metadata edited after the Repair frontier was captured', async () => {
+        const annotationSaveState = ref('annotation-frontier-before');
+        const bookmarkSaveState = ref('bookmark-frontier-before');
+        const pageLabelSaveState = ref('page-label-frontier-before');
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/work.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const repairWorkingCopy = vi.fn(async () => {
+            annotationSaveState.value = 'annotation-frontier-after';
+            bookmarkSaveState.value = 'bookmark-frontier-after';
+            pageLabelSaveState.value = 'page-label-frontier-after';
+            return {
+                success: true,
+                outPath: requireDocumentRef('/tmp/source.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            bookmarksDirty: ref(true),
+            pageLabelsDirty: ref(true),
+            bookmarkItems: ref([{
+                title: 'Pending bookmark',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }]),
+            trySavePdfNativeMutations,
+            repairWorkingCopy,
+            getAnnotationSaveStateToken: () => annotationSaveState.value,
+            getBookmarksSaveStateToken: () => bookmarkSaveState.value,
+            getPageLabelsSaveStateToken: () => pageLabelSaveState.value,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleRepairSave()).resolves.toBe(true);
+
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
+        expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
+    });
+
     it('reports a rejected persist result', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),

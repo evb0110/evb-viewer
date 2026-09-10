@@ -29,26 +29,34 @@ function repairUtf8BytesReadAsLatin1(value: string) {
 }
 
 function addCandidate(candidates: string[], seen: Set<string>, candidate: string | null | undefined) {
-    const normalized = candidate?.trim();
-    if (!normalized || seen.has(normalized)) {
+    if (!candidate || !candidate.trim() || seen.has(candidate)) {
         return;
     }
 
-    seen.add(normalized);
-    candidates.push(normalized);
+    seen.add(candidate);
+    candidates.push(candidate);
+}
+
+function addTrimmedCandidate(candidates: string[], seen: Set<string>, candidate: string | null | undefined) {
+    addCandidate(candidates, seen, candidate?.trim());
 }
 
 function getPossiblyEncodedPathCandidates(filePath: string) {
     const candidates: string[] = [];
     const seen = new Set<string>();
-    const trimmedPath = filePath.trim();
-    addCandidate(candidates, seen, trimmedPath);
+    addCandidate(candidates, seen, filePath);
 
-    const decodedPath = decodeURIComponentRepeatedly(trimmedPath);
+    const decodedPath = decodeURIComponentRepeatedly(filePath);
     addCandidate(candidates, seen, decodedPath);
 
     for (const candidate of [...candidates]) {
         addCandidate(candidates, seen, repairUtf8BytesReadAsLatin1(candidate));
+    }
+
+    for (const candidate of [...candidates]) {
+        addTrimmedCandidate(candidates, seen, candidate);
+        addTrimmedCandidate(candidates, seen, decodeURIComponentRepeatedly(candidate));
+        addTrimmedCandidate(candidates, seen, repairUtf8BytesReadAsLatin1(candidate));
     }
 
     return candidates;

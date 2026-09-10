@@ -1631,6 +1631,7 @@ export default {
             'electronPlatformContract': 'Il bridge desktop è obsoleto o incompatibile. Riavvia l’app per caricare il contratto preload corrente.',
             'reload': 'Ricarica app',
             'copy': 'Copia dettagli',
+            'errorId': 'ID errore',
             'dismiss': 'Ignora',
             'source': 'Origine',
             'count': 'Conteggio',

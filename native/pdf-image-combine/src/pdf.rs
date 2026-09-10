@@ -514,7 +514,7 @@ impl<W: IoWrite> PdfWriter<W> {
         placement: Option<&PdfImagePlacement>,
         rotation_degrees: u16,
     ) -> Result<()> {
-        validate_rotation_degrees(rotation_degrees)?;
+        let (rotation_degrees, mirror_horizontal) = resolve_image_transform(rotation_degrees)?;
         if let Some(size) = page_size {
             validate_page_size(size)?;
         }
@@ -567,19 +567,37 @@ impl<W: IoWrite> PdfWriter<W> {
         }
 
         let content_stream = if let Some(placement) = placement {
-            format!(
-                "q {:.4} 0 0 {:.4} {:.4} {:.4} cm /{} Do Q\n",
-                placement.width_points,
-                placement.height_points,
-                placement.x_points,
-                placement.y_points,
-                image_name
-            )
+            if mirror_horizontal {
+                format!(
+                    "q -{:.4} 0 0 {:.4} {:.4} {:.4} cm /{} Do Q\n",
+                    placement.width_points,
+                    placement.height_points,
+                    placement.x_points + placement.width_points,
+                    placement.y_points,
+                    image_name,
+                )
+            } else {
+                format!(
+                    "q {:.4} 0 0 {:.4} {:.4} {:.4} cm /{} Do Q\n",
+                    placement.width_points,
+                    placement.height_points,
+                    placement.x_points,
+                    placement.y_points,
+                    image_name,
+                )
+            }
         } else {
-            format!(
-                "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
-                page_width, page_height, image_name
-            )
+            if mirror_horizontal {
+                format!(
+                    "q -{:.4} 0 0 {:.4} {:.4} 0 cm /{} Do Q\n",
+                    page_width, page_height, page_width, image_name,
+                )
+            } else {
+                format!(
+                    "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
+                    page_width, page_height, image_name,
+                )
+            }
         };
         let content_dict = format!("<< /Length {} >>", content_stream.len());
         self.push_stream_object(
@@ -1386,11 +1404,14 @@ fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_rotation_degrees(rotation_degrees: u16) -> Result<()> {
-    if matches!(rotation_degrees, 0 | 90 | 180 | 270) {
-        Ok(())
-    } else {
-        Err("Image rotation must be 0, 90, 180, or 270 degrees".into())
+fn resolve_image_transform(value: u16) -> Result<(u16, bool)> {
+    match value {
+        0 | 90 | 180 | 270 => Ok((value, false)),
+        360 => Ok((0, true)),
+        450 => Ok((90, true)),
+        540 => Ok((180, true)),
+        630 => Ok((270, true)),
+        _ => Err("Image transform must be 0, 90, 180, 270, 360, 450, 540, or 630".into()),
     }
 }
 
@@ -1801,6 +1822,14 @@ mod tests {
         assert!(invalid
             .add_page_with_size_and_rotation(&page, &page_size, None, 45)
             .is_err());
+
+        let mut mirrored = PdfWriter::new(Vec::new(), None).unwrap();
+        mirrored
+            .add_page_with_size_and_rotation(&page, &page_size, None, 360)
+            .unwrap();
+        let mirrored = String::from_utf8_lossy(&mirrored.finish().unwrap()).into_owned();
+        assert!(mirrored.contains("/MediaBox [0 0 100.0000 200.0000]"));
+        assert!(mirrored.contains("q -100.0000 0 0 200.0000 100.0000 0 cm /Im1 Do Q"));
     }
 
     #[test]

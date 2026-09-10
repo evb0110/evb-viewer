@@ -1251,6 +1251,23 @@ describe('workingCopy', () => {
         }
     });
 
+    it('resolves a working copy for an original whose filename ends in whitespace', async () => {
+        const {
+            findWorkingCopyPathByOriginalPath,
+            isKnownWorkingCopyOriginalPath,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'document.pdf ');
+        const workingPath = join(tempRoot, 'working.pdf');
+        writeFileSync(originalPath, 'original');
+        writeFileSync(workingPath, 'working');
+
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+
+        expect(findWorkingCopyPathByOriginalPath(originalPath, 42)).toBe(workingPath);
+        expect(isKnownWorkingCopyOriginalPath(originalPath, 42)).toBe(true);
+    });
+
     it('preserves case for Windows paths when no ancestor can be resolved', async () => {
         const nativeRealpath = vi.fn(() => {
             throw new Error('Windows path has no resolvable ancestor');

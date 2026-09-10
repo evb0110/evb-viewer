@@ -282,6 +282,30 @@ describe('createCombinedPdf native image fast path', () => {
         });
     });
 
+    it('cleans staged image inputs after a later native termination proof', async () => {
+        mocks.headerPrefix = createBmpCoreHeader(10, 20);
+        const termination = Promise.withResolvers<boolean>();
+        mocks.nativeCombine.mockImplementationOnce(async (_paths: string[], combineOptions: {onTerminationProof?: (proof: Promise<boolean>) => void;}) => {
+            combineOptions.onTerminationProof?.(termination.promise);
+            throw new Error('native image tree is still running');
+        });
+
+        const pending = createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`});
+        await expect(pending).rejects.toThrow('native image tree is still running');
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+            recursive: true,
+            force: true,
+        });
+
+        termination.resolve(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+            recursive: true,
+            force: true,
+        });
+    });
+
     it.each([
         [
             'BMP',

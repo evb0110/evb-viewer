@@ -40,6 +40,7 @@ function mountDialog(
     detail: string | null = 'Error: renderer failed',
     initiallyOpen = true,
     failure: FailureReceipt | null = null,
+    errorIdLabel = 'Error ID',
 ) {
     const host = document.createElement('div');
     document.body.append(host);
@@ -53,6 +54,7 @@ function mountDialog(
         description: 'Reload the application to recover.',
         detail,
         detailLabel: 'Details',
+        errorIdLabel,
         failure,
         reloadLabel: 'Reload',
         copyLabel: 'Copy Details',
@@ -187,18 +189,19 @@ describe('AppFatalRuntimeDialog', () => {
         expect(mounted.workspace().hasAttribute('inert')).toBe(true);
     });
 
-    it('shows one short Error ID and copies the full receipt with local details', async () => {
+    it('shows one short localized Error ID and copies the full receipt with local details', async () => {
         const failure: FailureReceipt = {
             eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
             code: 'UNCLASSIFIED_RENDERER_ERROR',
             occurredAt: requireEpochMs(Date.now()),
             severity: 'error',
         };
-        const mounted = mountDialog('Renderer stack details', true, failure);
+        const mounted = mountDialog('Renderer stack details', true, failure, 'Идентификатор ошибки');
         await nextTick();
 
         const dialog = mounted.dialog();
-        expect(dialog.textContent).toContain('Error ID');
+        expect(dialog.textContent).toContain('Идентификатор ошибки');
+        expect(dialog.textContent).not.toContain('Error ID');
         expect(dialog.textContent).toContain('01234567');
         expect(dialog.textContent).not.toContain(failure.eventId);
 

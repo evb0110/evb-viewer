@@ -447,6 +447,27 @@ describe('workspace checkpoint store', () => {
             .toEqual(grantedCheckpoint);
     });
 
+    it('rejects an unproven source-only save without replacing the last valid record', async () => {
+        const grantedPdfPath = join(state.userDataPath, 'granted.pdf');
+        await writeFile(grantedPdfPath, '%PDF-1.7 synthetic checkpoint fixture');
+        const grantedCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(grantedPdfPath),
+                workingCopyRef: null,
+                isDirty: false,
+            }],
+        };
+        allowOpenPath(grantedPdfPath, 11);
+
+        await saveWorkspaceCheckpoint(grantedCheckpoint, 11, 11);
+        await expect(saveWorkspaceCheckpoint(grantedCheckpoint, 11))
+            .rejects.toThrow('no sender-bound authorization');
+        expect(JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')).checkpoint)
+            .toEqual(grantedCheckpoint);
+    });
+
     it('keeps legacy source-only evidence but refuses to authorize it on claim', async () => {
         const legacyPath = join(state.userDataPath, 'legacy.txt');
         await writeFile(legacyPath, 'legacy checkpoint fixture');
@@ -466,6 +487,34 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(22))
             .rejects.toThrow('no durable authorization provenance');
         expect(() => requireOpenPath(legacyPath, 22)).toThrow('Path not allowed');
+        expect(await readdir(state.userDataPath)).toContain('workspace-checkpoint.json');
+    });
+
+    it('does not reuse source-only provenance for a forged working-copy ref', async () => {
+        const sourcePath = join(state.userDataPath, 'source.pdf');
+        const forgedWorkingCopyPath = '/tmp/evb-working/forged.pdf';
+        await writeFile(sourcePath, '%PDF-1.7 synthetic checkpoint fixture');
+        await writeFile(join(state.userDataPath, 'workspace-checkpoint.json'), JSON.stringify({
+            version: 1,
+            ownerWebContentsId: 11,
+            checkpoint: {
+                ...checkpoint,
+                tabs: [{
+                    ...checkpoint.tabs[0]!,
+                    sourceRef: requireDocumentRef(sourcePath),
+                    workingCopyRef: requireDocumentRef(forgedWorkingCopyPath),
+                }],
+            },
+            sourceProvenance: [{
+                kind: 'open-grant',
+                ownerWebContentsId: 11,
+                sourceRef: sourcePath,
+            }],
+        }));
+
+        await expect(claimWorkspaceCheckpoint(22))
+            .rejects.toThrow('no durable authorization provenance');
+        expect(state.owners.has(forgedWorkingCopyPath)).toBe(false);
         expect(await readdir(state.userDataPath)).toContain('workspace-checkpoint.json');
     });
 

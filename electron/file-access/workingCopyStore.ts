@@ -745,14 +745,13 @@ function getCurrentWorkingCopyForRegistryKey(registryKey: string, senderWebConte
 }
 
 export function findWorkingCopyPathByOriginalPath(originalPath: string, senderWebContentsId?: number) {
-    const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
-    if (!normalizedOriginalPath) {
+    if (typeof originalPath !== 'string' || !originalPath.trim()) {
         return null;
     }
 
     if (typeof senderWebContentsId === 'number') {
         const senderScopedPath = getCurrentWorkingCopyForRegistryKey(
-            makeCurrentRegistryKey(normalizedOriginalPath, senderWebContentsId),
+            makeCurrentRegistryKey(originalPath, senderWebContentsId),
             senderWebContentsId,
         );
         if (senderScopedPath) {
@@ -761,17 +760,16 @@ export function findWorkingCopyPathByOriginalPath(originalPath: string, senderWe
     }
 
     return getCurrentWorkingCopyForRegistryKey(
-        makeCurrentRegistryKey(normalizedOriginalPath),
+        makeCurrentRegistryKey(originalPath),
         senderWebContentsId,
     );
 }
 
 export function isKnownWorkingCopyOriginalPath(originalPath: string, senderWebContentsId?: number) {
-    const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
-    if (!normalizedOriginalPath) {
+    if (typeof originalPath !== 'string' || !originalPath.trim()) {
         return false;
     }
-    const lookupOriginalPath = normalizePathForLookup(normalizedOriginalPath);
+    const lookupOriginalPath = normalizePathForLookup(originalPath);
     return Array.from(workingCopyMap.values())
         .some(entry => (
             canUseWorkingCopyEntry(entry, senderWebContentsId)
@@ -787,11 +785,10 @@ export function isKnownWorkingCopyOriginalPath(originalPath: string, senderWebCo
  * WebContents owner so one window cannot retire another window's source.
  */
 export function isWorkingCopyOriginalPathRegistered(originalPath: string) {
-    const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
-    if (!normalizedOriginalPath) {
+    if (typeof originalPath !== 'string' || !originalPath.trim()) {
         return false;
     }
-    const lookupOriginalPath = normalizePathForLookup(normalizedOriginalPath);
+    const lookupOriginalPath = normalizePathForLookup(originalPath);
     return Array.from(workingCopyMap.values())
         .some(entry => normalizePathForLookup(entry.originalPath) === lookupOriginalPath);
 }

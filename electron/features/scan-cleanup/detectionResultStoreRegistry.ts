@@ -13,34 +13,52 @@ export interface IScanCleanupDetectionResultStoreLease {
     resultStore: IScanCleanupDetectionResultStore;
     sourcePdfPath: string;
     storeId: string;
+    release(): Promise<void>;
 }
 
-interface IRegisteredStore extends IScanCleanupDetectionResultStoreLease {expiry: ReturnType<typeof setTimeout>;}
+interface IRegisteredStore extends Omit<IScanCleanupDetectionResultStoreLease, 'release'> {
+    borrowers: number;
+    closed: boolean;
+    expiry: ReturnType<typeof setTimeout>;
+    retired: boolean;
+}
 
 const RESULT_STORE_HANDOFF_TTL_MS = 10 * 60 * 1000;
 const registeredStores = new Map<string, IRegisteredStore>();
 
 function closeStore(store: IRegisteredStore) {
+    if (store.closed) {
+        return Promise.resolve();
+    }
+    store.closed = true;
     clearTimeout(store.expiry);
     return store.resultStore.close().catch(() => undefined);
+}
+
+function closeIfRetired(store: IRegisteredStore) {
+    return store.retired && store.borrowers === 0 ? closeStore(store) : Promise.resolve();
 }
 
 /** Register one completed document-scale result store for the next run. */
 export function registerScanCleanupDetectionResultStore(input: Omit<
     IScanCleanupDetectionResultStoreLease,
-    'storeId'
+    'release' | 'storeId'
 >) {
     const storeId = `scan-cleanup-results-${randomUUID()}`;
     const registered: IRegisteredStore = {
         ...input,
+        borrowers: 0,
+        closed: false,
         expiry: setTimeout(() => {
             const current = registeredStores.get(storeId);
             if (current === registered) {
                 registeredStores.delete(storeId);
-                void closeStore(registered);
+                registered.retired = true;
+                void closeIfRetired(registered);
             }
         }, RESULT_STORE_HANDOFF_TTL_MS),
         storeId,
+        retired: false,
     };
     registered.expiry.unref();
     registeredStores.set(storeId, registered);
@@ -62,9 +80,19 @@ export function claimScanCleanupDetectionResultStore(
     ) {
         return null;
     }
-    registeredStores.delete(storeId);
-    clearTimeout(registered.expiry);
-    return registered;
+    registered.borrowers += 1;
+    let released = false;
+    return {
+        ...registered,
+        release: async () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            registered.borrowers -= 1;
+            await closeIfRetired(registered);
+        },
+    };
 }
 
 /** Release a still-unclaimed store when its owning service is disposed. */
@@ -74,7 +102,8 @@ async function releaseScanCleanupDetectionResultStore(storeId: string) {
         return;
     }
     registeredStores.delete(storeId);
-    await closeStore(registered);
+    registered.retired = true;
+    await closeIfRetired(registered);
 }
 
 /** Close all stores registered by one preview service. */

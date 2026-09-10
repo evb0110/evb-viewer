@@ -43,7 +43,7 @@
                 id="fatal-runtime-error-id"
                 class="mt-4 text-sm text-dimmed"
             >
-                <span class="font-medium text-default">Error ID</span>
+                <span class="font-medium text-default">{{ errorIdLabel }}</span>
                 <code class="ml-2 break-all">{{ shortFailureId }}</code>
             </p>
             <div
@@ -94,6 +94,7 @@ const props = defineProps<{
     description: string;
     detail: string | null;
     detailLabel: string;
+    errorIdLabel: string;
     failure?: FailureReceipt | null;
     open: boolean;
     reloadLabel: string;

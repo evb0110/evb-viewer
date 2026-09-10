@@ -160,8 +160,12 @@ describe('pixelsToPdfPoints', () => {
 
 describe('readJpegExifOrientation', () => {
     it.each([
+        2,
         3,
+        4,
+        5,
         6,
+        7,
         8,
     ] as const)('reads orientation %i from a little-endian EXIF IFD', (orientation) => {
         const jpeg = bytes([

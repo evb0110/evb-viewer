@@ -53,3 +53,7 @@ export interface IScanCleanupMarginsMm {
 export const SCAN_CLEANUP_MARGIN_MAX_MM = 25;
 
 export interface IScanCleanupPreviewAffine {matrix: number[][];}
+
+/** Manual cutters stay inside this interval so both output leaves remain usable. */
+export const SCAN_CLEANUP_MANUAL_SPLIT_MIN = 0.02;
+export const SCAN_CLEANUP_MANUAL_SPLIT_MAX = 0.98;

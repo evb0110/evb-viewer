@@ -621,6 +621,11 @@ function buildSourceProvenance(
     ownerWebContentsId: number,
     sourceAuthorizationOwner: number | WebContents | undefined,
 ) {
+    const sourceAuthorizationOwnerId = sourceAuthorizationOwner === undefined
+        ? undefined
+        : typeof sourceAuthorizationOwner === 'number'
+            ? sourceAuthorizationOwner
+            : sourceAuthorizationOwner.id;
     const provenance = new Map<string, IStoredSourceProvenance>();
     for (const tab of checkpoint.tabs) {
         if (!tab.sourceRef) {
@@ -638,9 +643,10 @@ function buildSourceProvenance(
             });
             continue;
         }
-        if (sourceAuthorizationOwner !== undefined) {
-            requireOpenPath(tab.sourceRef, sourceAuthorizationOwner);
+        if (sourceAuthorizationOwnerId !== ownerWebContentsId) {
+            throw new Error('Workspace checkpoint source has no sender-bound authorization');
         }
+        requireOpenPath(tab.sourceRef, sourceAuthorizationOwner!);
         provenance.set(`${tab.workingCopyRef ?? ''}\u0000${tab.sourceRef}`, {
             kind: 'open-grant',
             ownerWebContentsId,
@@ -663,10 +669,7 @@ function assertDurableSourceProvenance(
         const entry = provenance.find(candidate => (
             candidate.sourceRef === tab.sourceRef
             && candidate.ownerWebContentsId === stored.ownerWebContentsId
-            && (
-                candidate.kind === 'open-grant'
-                || candidate.workingCopyRef === tab.workingCopyRef
-            )
+            && candidate.workingCopyRef === tab.workingCopyRef
         ));
         if (entry) {
             continue;

@@ -377,7 +377,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
     });
 
-    it('encodes catalog metadata and page rotation as a version 5 WASM request', async () => {
+    it.each([90, 630] as const)('encodes catalog metadata and page transform %i as a version 5 WASM request', async (rotationDegrees) => {
         const wasmMock = createWasmExportsMock({output: new Uint8Array([
             4,
             5,
@@ -415,7 +415,7 @@ describe('tryCombineImageInputsWithWasm', () => {
                     widthPoints: 72,
                     heightPoints: 36,
                 },
-                rotationDegrees: 90,
+                rotationDegrees,
                 image: {
                     fileName: 'page.ppm',
                     data: new Uint8Array([
@@ -479,7 +479,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         offset += 4;
         expect(view.getUint32(offset, true)).toBe(1);
         offset += 4 + 8 + 8 + 4 + 4;
-        expect(view.getUint32(offset, true)).toBe(90);
+        expect(view.getUint32(offset, true)).toBe(rotationDegrees);
     });
 
     it('skips WASM for mixed PDF inputs', async () => {

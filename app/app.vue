@@ -7,6 +7,7 @@
             :detail="fatalRuntimeError?.detail ?? null"
             :failure="fatalRuntimeError?.failure ?? null"
             :detail-label="t('errors.runtime.details')"
+            :error-id-label="t('errors.runtime.errorId')"
             :reload-label="t('errors.runtime.reload')"
             :copy-label="t('errors.runtime.copy')"
             :copied="recentlyCopiedFatalDetail"

@@ -17,6 +17,7 @@ interface IShutdownSaveFlushReportingDeps {
     workingCopyPath: TReadableRef<TDocumentRef | null>;
     hasPendingUnsavedChanges: TReadableRef<boolean>;
     saveForExternalRead: () => Promise<boolean> | boolean;
+    flushAdditionalState?: () => Promise<void> | void;
     systemCapability?: Pick<ISystemCapability, 'onShutdownSaveFlushRequest'>;
 }
 
@@ -78,6 +79,7 @@ export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingD
     const systemCapability = deps.systemCapability ?? getSystemCapability();
     const unsubscribe = systemCapability.onShutdownSaveFlushRequest(async (): Promise<IShutdownSaveFlushResponse> => {
         const capturedWorkingCopyPath = deps.workingCopyPath.value;
+        await deps.flushAdditionalState?.();
         if (!capturedWorkingCopyPath || !deps.hasPendingUnsavedChanges.value) {
             return {};
         }

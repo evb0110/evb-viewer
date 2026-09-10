@@ -229,8 +229,10 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
 // EPIC v5 places this block after the common request header and before the
 // page specs. Counts and string lengths are little-endian u32 values. A
 // missing optional string uses u32::MAX, and a missing page-y ratio uses a
-// quiet NaN. V5 page specs retain the v4 fields and add rotation_degrees as a
-// u32 immediately after ppi_cap.
+// quiet NaN. V5 page specs retain the v4 fields and add an image transform
+// value as a u32 immediately after ppi_cap. Values 0, 90, 180, and 270 are
+// rotations. Values 360, 450, 540, and 630 add a horizontal mirror to those
+// rotations.
 fn parse_catalog_block(
     request: &[u8],
     offset: &mut usize,
@@ -607,7 +609,7 @@ fn read_u8_range(
 fn read_rotation_degrees(request: &[u8], offset: &mut usize) -> Result<u16> {
     let value = read_u32_le(request, offset)?;
     match value {
-        0 | 90 | 180 | 270 => Ok(value as u16),
+        0 | 90 | 180 | 270 | 360 | 450 | 540 | 630 => Ok(value as u16),
         _ => Err("Invalid image-combine WASM rotation_degrees".into()),
     }
 }

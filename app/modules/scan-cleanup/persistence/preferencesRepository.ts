@@ -11,6 +11,7 @@ import {
 } from '@app/utils/localStorage';
 import {
     migrateScanCleanupDocumentOverridesV1,
+    migrateScanCleanupPageOverrideV1,
     warnScanCleanupOverrideMigrationV1,
 } from '@app/modules/scan-cleanup/persistence/migrations/v1';
 import {
@@ -197,8 +198,18 @@ export function loadScanCleanupDocumentPageOverrideDefaults(
     if (entry?.pageOverrideDefaults === undefined) {
         return null;
     }
+    const migration = migrateScanCleanupPageOverrideV1(entry.pageOverrideDefaults);
+    if (migration.migratedLegacyGeometry) {
+        const entries = loadDocumentEntries(storage);
+        entries[documentKey] = {
+            ...(entry ?? {}),
+            pageOverrideDefaults: migration.value,
+        };
+        storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
+        warnScanCleanupOverrideMigrationV1();
+    }
     try {
-        return decodeScanCleanupPageOverride(entry.pageOverrideDefaults);
+        return decodeScanCleanupPageOverride(migration.value);
     } catch {
         return null;
     }

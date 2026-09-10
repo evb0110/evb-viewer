@@ -263,18 +263,23 @@ describe('shutdown coordinator', () => {
 
     it('holds graceful quit for a retryable preservation failure', async () => {
         let attempt = 0;
-        const fixture = createCoordinator({runPreservationSteps: async context => {
-            attempt += 1;
-            if (attempt === 1) {
-                context.retryablePreservationFailure = true;
-            }
-        }});
+        const cleanup = vi.fn(async () => {});
+        const fixture = createCoordinator({
+            runBestEffortCleanupSteps: cleanup,
+            runPreservationSteps: async context => {
+                attempt += 1;
+                if (attempt === 1) {
+                    context.retryablePreservationFailure = true;
+                }
+            },
+        });
 
         fixture.coordinator.requestGracefulQuit();
         await vi.waitFor(() => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
+        expect(cleanup).toHaveBeenCalledOnce();
 
         fixture.coordinator.requestGracefulQuit();
         await vi.waitFor(() => {

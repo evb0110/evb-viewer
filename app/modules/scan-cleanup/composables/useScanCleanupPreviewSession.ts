@@ -5,12 +5,15 @@ import {
     type IScanCleanupOptions,
     type IScanCleanupDocumentPrior,
     type IScanCleanupPagePlanEvidence,
+    type IScanCleanupPlacementAnchorSummary,
+    type IScanCleanupPlacementAnchor,
     type IScanCleanupRawPreviewEvent,
     type IScanCleanupRawPreviewResult,
     type IScanCleanupPreviewRequest,
     type IScanCleanupPreviewResult,
     type TScanCleanupErrorCode,
     type TScanCleanupOutputMode,
+    type TScanCleanupOutputHalf,
     type TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import {
@@ -27,6 +30,7 @@ import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPag
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
+    resolveScanCleanupOutputPlacement,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
 } from '@contracts/scanCleanupPageOverrides';
@@ -91,6 +95,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
+    placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
     previewPage: Ref<number>;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
@@ -424,7 +429,28 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function placementAnchorsFor(pageNumber: number) {
         const anchors = options.placementAnchorsByPage.value.get(pageNumber);
-        return anchors === undefined || Object.keys(anchors).length === 0 ? undefined : anchors;
+        if (anchors !== undefined && Object.keys(anchors).length > 0) {
+            return anchors;
+        }
+        const summary = options.placementAnchorSummary?.value ?? null;
+        if (summary === null || !options.settings.matchPageSize) {
+            return undefined;
+        }
+        const pageOverride = getScanCleanupPageOverride(
+            options.settings.pageOverrides,
+            requirePageNumber(pageNumber),
+        );
+        const summaryAnchors = summary.samples
+            .filter(sample => sample.pageNumber === pageNumber && resolveScanCleanupOutputPlacement(
+                options.settings.pageAlignment,
+                pageOverride,
+                sample.half,
+            ) === 'ink')
+            .reduce<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>((resolved, sample) => {
+                resolved[sample.half] = sample.anchor;
+                return resolved;
+            }, {});
+        return Object.keys(summaryAnchors).length === 0 ? undefined : summaryAnchors;
     }
 
     function presentationKey(key: string) {

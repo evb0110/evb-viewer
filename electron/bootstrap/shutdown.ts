@@ -182,7 +182,6 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             isGracefulQuitRequested = false;
             shutdownPromise = null;
             options.logger.warn('Graceful quit was held for a retryable preservation failure');
-            return;
         }
 
         if (armForceExit) {

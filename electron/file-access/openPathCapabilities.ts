@@ -28,12 +28,11 @@ export const OPEN_PATH_CAPABILITY_TTL_MS = (() => {
 })();
 
 function normalizeOpenPath(filePath: string) {
-    const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
-    if (!normalizedPath) {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
         return null;
     }
 
-    return normalizePossiblyEncodedExistingPath(normalizedPath);
+    return normalizePossiblyEncodedExistingPath(filePath);
 }
 
 function pruneAllowedPathMap(

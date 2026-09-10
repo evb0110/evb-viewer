@@ -103,6 +103,19 @@ describe('open path capabilities', () => {
         expect(() => requireOpenPath(filePath)).toThrow('Path not allowed');
     });
 
+    it('authorizes an exact path whose filename ends in whitespace', async () => {
+        const filePath = join(tempRoot, 'exact-percent-%25.pdf ');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const {
+            allowOpenPath,
+            requireOpenPath,
+        } = await import('@electron/file-access/openPathCapabilities');
+
+        expect(allowOpenPath(filePath)).toBe(filePath);
+        expect(requireOpenPath(filePath)).toBe(filePath);
+    });
+
     it('clears grants when the owning webContents is destroyed', async () => {
         const filePath = join(tempRoot, 'owned.pdf');
         writeFileSync(filePath, new Uint8Array([1]));

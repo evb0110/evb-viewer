@@ -44,6 +44,7 @@ interface IAssistantAppServerNotificationsOptions {
         completeOptions?: ICompleteAssistantTurnOptions,
     ) => boolean;
     currentCodexSelection: () => IAssistantSelection;
+    getPendingLoginId: () => string | null;
     errorSessionTurn: (
         session: IAssistantChatSession,
         generation: number,
@@ -299,6 +300,12 @@ export function createAssistantAppServerNotificationController(options: IAssista
         }
 
         if (method === 'account/login/completed') {
+            const loginId = getStringParam(params, 'loginId');
+            const pendingLoginId = options.getPendingLoginId();
+            if (pendingLoginId === null || loginId !== pendingLoginId) {
+                options.logger.info('Ignoring assistant login completion for a non-current login attempt.');
+                return;
+            }
             const success = isRecord(params) && params.success === true;
             const error = isRecord(params) && typeof params.error === 'string' ? params.error : null;
             if (success) {

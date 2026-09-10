@@ -634,7 +634,7 @@ export function createScanCleanupService(
                     // The renderer keeps only a bounded result window. A
                     // completed detection must carry the document-wide
                     // bounded calibration before an xlarge ink run starts.
-                    await detectionResultStoreLease.resultStore.close().catch(() => undefined);
+                    await detectionResultStoreLease.release();
                     detectionResultStoreLease = null;
                     return {
                         started: false,
@@ -647,7 +647,7 @@ export function createScanCleanupService(
                     try {
                         await admitScanCleanupDetectionStore(request, detectionResultStoreLease.resultStore);
                     } catch (error) {
-                        await detectionResultStoreLease.resultStore.close().catch(() => undefined);
+                        await detectionResultStoreLease.release();
                         detectionResultStoreLease = null;
                         return {
                             started: false,
@@ -829,7 +829,7 @@ export function createScanCleanupService(
                             throw error;
                         } finally {
                             lease?.release();
-                            await detectionResultStoreLease?.resultStore.close().catch(() => undefined);
+                            await detectionResultStoreLease?.release();
                             if (detectionResultStoreDescriptor !== null) {
                                 await removeScanCleanupDetectionResultStoreDescriptor(
                                     detectionResultStoreDescriptor,
@@ -858,7 +858,7 @@ export function createScanCleanupService(
                 };
             } catch (error) {
                 if (startedHandle === null) {
-                    await detectionResultStoreLease?.resultStore.close().catch(() => undefined);
+                    await detectionResultStoreLease?.release();
                 }
                 throw error;
             } finally {

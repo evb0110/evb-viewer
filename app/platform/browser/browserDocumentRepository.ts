@@ -981,6 +981,10 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             this.fileHandleRefs.update(ref, entry.saveHandle);
         }
         entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
+        if (entry.kind === 'source' && entry.saveHandle) {
+            const metadata = await readFileHandleMetadata(entry.saveHandle);
+            entry.contentToken = await createBrowserFileContentWitness(metadata.file);
+        }
         if (options.saveName) {
             entry.saveName = options.saveName;
             entry.fileName = options.saveName;

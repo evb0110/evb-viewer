@@ -1631,6 +1631,7 @@ export default {
             'electronPlatformContract': 'De desktopbridge is verouderd of incompatibel. Start de app opnieuw om het huidige preload-contract te laden.',
             'reload': 'App opnieuw laden',
             'copy': 'Details kopiëren',
+            'errorId': 'Fout-ID',
             'dismiss': 'Sluiten',
             'source': 'Bron',
             'count': 'Aantal',

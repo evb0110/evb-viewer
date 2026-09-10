@@ -382,4 +382,41 @@ describe('file-backed scan-cleanup settings store', () => {
         const persisted = JSON.parse(await readFile(filePath, 'utf8'));
         expect(Object.keys(persisted.documentOverrides)).toEqual([freshHash]);
     });
+
+    it('merges a legacy document when pruning also changes the store', async () => {
+        const filePath = await createStoreFile();
+        const now = SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS * 2 + 1_000_000;
+        const expiredHash = 'b'.repeat(64);
+        const sourceSha256 = 'c'.repeat(64);
+        const legacyDocumentKey = '/documents/legacy-scan.pdf';
+        const initial = createDefaultScanCleanupSettingsFile();
+        initial.documentOverrides = {
+            [expiredHash]: {lastUsedAtMs: now - SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS - 1},
+        };
+        await writeFile(filePath, JSON.stringify(initial), 'utf8');
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            now: () => now,
+        });
+
+        const loaded = await store.get({
+            legacyStorage: {
+                settingsRaw: null,
+                documentOverridesRaw: JSON.stringify({[legacyDocumentKey]: {
+                    updatedAt: now,
+                    outputMode: 'grayscale',
+                }}),
+                exportedAtMs: now,
+            },
+            sourceSha256,
+            legacyDocumentKey,
+        });
+
+        expect(loaded.documentOverrides).toEqual({
+            [sourceSha256]: {
+                outputMode: 'grayscale',
+                lastUsedAtMs: now,
+            },
+        });
+    });
 });

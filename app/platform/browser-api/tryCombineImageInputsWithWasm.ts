@@ -600,10 +600,14 @@ function buildV3WasmRequest(
         input,
         name: getEncodedName(input, encoder),
     })));
-    const version = options?.catalog
+    const version = options?.catalog || pageSpecs.some(spec => spec.rotationDegrees !== undefined)
         ? REQUEST_VERSION_CATALOG
         : REQUEST_VERSION_PAGE_SPECS;
-    const catalog = options?.catalog ? encodeCatalogBlock(options.catalog) : null;
+    const catalog = version === REQUEST_VERSION_CATALOG
+        ? options?.catalog
+            ? encodeCatalogBlock(options.catalog)
+            : new Uint8Array(8)
+        : null;
     const request = new Uint8Array(getV4RequestLength(
         pageSpecs,
         encodedPageInputs,
@@ -632,7 +636,7 @@ function buildV3WasmRequest(
         offset = writeU32(view, offset, boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
         if (version === REQUEST_VERSION_CATALOG) {
             const rotationDegrees = spec.rotationDegrees ?? 0;
-            if (rotationDegrees !== 0 && rotationDegrees !== 90 && rotationDegrees !== 180 && rotationDegrees !== 270) {
+            if (![0, 90, 180, 270, 360, 450, 540, 630].includes(rotationDegrees)) {
                 throw new Error('Invalid WASM page spec rotation');
             }
             offset = writeU32(view, offset, rotationDegrees);

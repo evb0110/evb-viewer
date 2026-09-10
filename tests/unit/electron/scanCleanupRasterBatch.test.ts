@@ -124,6 +124,53 @@ describe('scan cleanup raster batch renderer', () => {
         expect(fileSystem.rm).toHaveBeenCalledOnce();
     });
 
+    it('keeps published rasters when scratch cleanup fails', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
+        roots.push(root);
+        const runCommand = vi.fn(async (_binary: string, args: string[]) => {
+            const prefix = args.at(-1)!;
+            await writeFile(`${prefix}-0001.png`, PNG);
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        });
+        const fileSystem = createFileSystem();
+        const cleanupError = new Error('scratch cleanup failed');
+        vi.mocked(fileSystem.rm).mockRejectedValueOnce(cleanupError);
+        const log = vi.fn();
+        const outputPath = join(root, 'page-1.png');
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, fileSystem);
+
+        await expect(renderBatch({
+            dpi: 150,
+            log,
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: '/source.pdf',
+            targets: [{
+                limits: {
+                    expectedHeightPx: 1,
+                    expectedWidthPx: 1,
+                    maxDimensionPx: 100,
+                    maxPixels: 10_000,
+                },
+                outputPath,
+                pageNumber: 1,
+            }],
+        })).resolves.toEqual([{
+            height: 1,
+            pageNumber: 1,
+            width: 1,
+        }]);
+        expect(await readFile(outputPath)).toEqual(PNG);
+        expect(log).toHaveBeenCalledWith(
+            'warn',
+            'Scan cleanup could not remove raster batch scratch directory: scratch cleanup failed',
+        );
+    });
+
     it('rejects non-contiguous windows before starting Poppler', async () => {
         const runCommand = vi.fn();
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
