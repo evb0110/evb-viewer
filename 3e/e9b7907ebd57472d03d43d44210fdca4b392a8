@@ -1,0 +1,25 @@
+packages/contracts/browserPdfCatalog.ts
+  s_b331c599af4670::t_c0b76b2e0d28f4 26-31,41-46,49-50,66,84-92,97-98,105
+app/platform/browser-api/browserPdfCombineWorker.types.ts
+  s_b331c599af4670::t_48787f37b80021 7
+  s_b331c599af4670::t_c0b76b2e0d28f4 5,22-27,257
+tests/unit/app/platform/browserWorkerRequestParsers.test.ts
+  s_b331c599af4670::t_48787f37b80021 188-192,203-206,210-213,219-222,236-258
+  s_b331c599af4670::t_daefadf0123967 173-187,193-202,207-209,214-218,223-235,259-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3ee9b7907ebd57472d03d43d44210fdca4b392a8",
+  "prompts": {},
+  "sessions": {
+    "s_b331c599af4670": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-b691-7901-9244-ca07665899f5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
