@@ -808,7 +808,7 @@ describe('validation gate policy', () => {
         expect(plan.find(stage => stage.id === 'typecheck.ts7')?.args)
             .toContain('tsconfig.scripts.json');
         expect(plan.find(stage => stage.id === 'typecheck.ts7')?.args)
-            .not.toContain('tsconfig.scripts-js.json');
+            .toContain('tsconfig.scripts-js.json');
     });
 
     it('consolidates the full local gate sequence without duplicate unit or build work', () => {

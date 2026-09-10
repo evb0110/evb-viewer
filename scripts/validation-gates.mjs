@@ -50,6 +50,7 @@ const allTs7Projects = [
     'electron/tsconfig.json',
     'tests/tsconfig.json',
     'tsconfig.scripts.json',
+    'tsconfig.scripts-js.json',
     'server/tsconfig.json',
 ];
 // ESLint holds one TypeScript program per tsconfig in the flat config, and the
@@ -469,7 +470,7 @@ function selectedTypecheckProjects(files, classification) {
         projects.push('tests/tsconfig.json');
     }
     if (classification.impacts.scripts || classification.impacts.build || classification.impacts.native) {
-        projects.push('tsconfig.scripts.json');
+        projects.push('tsconfig.scripts.json', 'tsconfig.scripts-js.json');
     }
     if (classification.impacts.server) {
         projects.push('server/tsconfig.json');
