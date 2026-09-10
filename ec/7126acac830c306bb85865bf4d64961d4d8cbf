@@ -1,0 +1,21 @@
+tests/unit/scripts/windows-test/hostStopRun.test.ts
+  s_abdacea50eaeaf::t_9689c933f4004d 39,43,54,255,258,261-282,285-289
+scripts/windows-test/host/stopRun.ts
+  s_abdacea50eaeaf::t_9689c933f4004d 104-107,177-178,180-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ec7126acac830c306bb85865bf4d64961d4d8cbf",
+  "prompts": {},
+  "sessions": {
+    "s_abdacea50eaeaf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08aaa-9d04-7d53-88be-0c579d7949bd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
