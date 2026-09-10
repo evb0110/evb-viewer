@@ -517,7 +517,7 @@ export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath
 }
 
 export async function readWorkingCopyRevisionSidecar(workingCopyPath: string) {
-    await reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath).catch(() => undefined);
+    await reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath);
     return readWorkingCopyRevisionSidecarFile(workingCopyPath);
 }
 
