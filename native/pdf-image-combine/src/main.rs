@@ -723,10 +723,10 @@ fn read_rotation_values(path: &Path, expected: usize) -> Result<Vec<u16>> {
     if values.len() != expected
         || values
             .iter()
-            .any(|value| !matches!(value, 0 | 90 | 180 | 270))
+            .any(|value| !matches!(value, 0 | 90 | 180 | 270 | 360 | 450 | 540 | 630))
     {
         return Err(
-            "Image rotation list must contain one value per input and only 0, 90, 180, or 270"
+            "Image transform list must contain one value per input and only 0, 90, 180, 270, 360, 450, 540, or 630"
                 .into(),
         );
     }

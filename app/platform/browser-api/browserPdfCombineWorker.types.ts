@@ -27,7 +27,7 @@ interface IBrowserPdfCombineWasmPageSpec {
     pageSize: IBrowserPdfCombinePageSize;
     jpegQuality?: number;
     ppiCap?: number;
-    rotationDegrees?: 0 | 90 | 180 | 270;
+    rotationDegrees?: 0 | 90 | 180 | 270 | 360 | 450 | 540 | 630;
     foregroundColor?: TBrowserPdfCombineRgb;
     image?: IBrowserPdfCombineInput;
     background?: IBrowserPdfCombineInput;
@@ -189,6 +189,10 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
             || value.rotationDegrees === 90
             || value.rotationDegrees === 180
             || value.rotationDegrees === 270
+            || value.rotationDegrees === 360
+            || value.rotationDegrees === 450
+            || value.rotationDegrees === 540
+            || value.rotationDegrees === 630
             ? value.rotationDegrees
             : null;
     const foregroundColor = parseOptionalRgb(value.foregroundColor);

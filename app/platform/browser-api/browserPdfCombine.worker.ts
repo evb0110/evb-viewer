@@ -139,12 +139,21 @@ function validateWorkerInput(
     consumeDecodedWorkingSet(budget, metadata.width, metadata.height, input.fileName);
 }
 
-function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 270 {
+function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 270 | 360 | 450 | 540 | 630 {
     const metadata = readBrowserRasterImageMetadata(input.data, getBrowserFileExtension(input.fileName));
     if (!metadata) {
         return 0;
     }
-    return metadata.orientation === 3 ? 180 : metadata.orientation === 6 ? 90 : metadata.orientation === 8 ? 270 : 0;
+    switch (metadata.orientation) {
+        case 2: return 360;
+        case 3: return 180;
+        case 4: return 540;
+        case 5: return 450;
+        case 6: return 90;
+        case 7: return 630;
+        case 8: return 270;
+        default: return 0;
+    }
 }
 
 function buildExifRotationPreprocessing(inputs: IBrowserPdfCombineInput[]): IBrowserPdfCombineWasmImagePreprocessing | undefined {

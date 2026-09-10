@@ -195,13 +195,13 @@ function readExifOrientationSegment(data: Uint8Array, payloadOffset: number, pay
         if (entryOffset + 12 > payloadOffset + payloadLength) break;
         if (readUint16(data, entryOffset, littleEndian) === 0x0112) {
             const orientation = readUint16(data, entryOffset + 8, littleEndian);
-            return orientation === 3 || orientation === 6 || orientation === 8 ? orientation : 1;
+            return orientation >= 2 && orientation <= 8 ? orientation as 2 | 3 | 4 | 5 | 6 | 7 | 8 : 1;
         }
     }
     return 1;
 }
 
-export function readJpegExifOrientation(data: Uint8Array): 1 | 3 | 6 | 8 {
+export function readJpegExifOrientation(data: Uint8Array): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 {
     if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
         return 1;
     }

@@ -206,6 +206,19 @@ function createNativeRotationFileContents(rotationDegrees: readonly number[]) {
     return `${rotationDegrees.join('\n')}\n`;
 }
 
+function exifOrientationToPdfTransform(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
+    switch (orientation) {
+        case 2: return 360;
+        case 3: return 180;
+        case 4: return 540;
+        case 5: return 450;
+        case 6: return 90;
+        case 7: return 630;
+        case 8: return 270;
+        default: return 0;
+    }
+}
+
 async function isStructurallyPlausiblePdfFile(outputPath: string) {
     const handle = await open(outputPath, 'r');
     try {
@@ -513,7 +526,7 @@ async function readInputRotationDegrees(inputPaths: string[], signal?: AbortSign
             return null;
         }
         const orientation = readJpegExifOrientation(metadata);
-        rotations.push(orientation === 3 ? 180 : orientation === 6 ? 90 : orientation === 8 ? 270 : 0);
+        rotations.push(exifOrientationToPdfTransform(orientation));
     }
     return rotations;
 }
