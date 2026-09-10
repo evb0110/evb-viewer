@@ -1515,8 +1515,8 @@ export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
             )));
             await removeAnnotationRecoveryArtifacts(stored.checkpoint);
             releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
-            lastDurableWorkspaceCheckpoints.delete(ownerWebContentsId);
-            claimedWorkspaceCheckpointOwnerWebContentsIds.delete(ownerWebContentsId);
+            lastDurableWorkspaceCheckpoints.delete(stored.ownerWebContentsId);
+            claimedWorkspaceCheckpointOwnerWebContentsIds.delete(stored.ownerWebContentsId);
         });
     } catch (error) {
         if (discardedCheckpointOwnerGenerations.get(ownerWebContentsId) === generation) {
