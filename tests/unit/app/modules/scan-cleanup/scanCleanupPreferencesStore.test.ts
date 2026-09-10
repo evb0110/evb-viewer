@@ -18,6 +18,7 @@ import {
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
     flushScanCleanupPreferencesStore,
@@ -187,6 +188,35 @@ describe('scan cleanup renderer preference store', () => {
         expect(settings!.values.marginsMm.topMm).toBe(19);
         expect(settings!.values.pageOverrides['1']?.rotationDegrees).toBe(90);
         expect(settings!.documentSettingsReady.value).toBe(true);
+        app.unmount();
+        host.remove();
+    });
+
+    it('keeps cleanup settings unavailable when document hydration fails', async () => {
+        const failure = new Error('document settings unavailable');
+        capability.value.getSettings
+            .mockResolvedValueOnce(createDefaultScanCleanupSettingsFile())
+            .mockRejectedValueOnce(failure);
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+
+        let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => 'failed-hydration'),
+                sourceSha256: computed(() => 'f'.repeat(64)),
+                legacyDocumentKey: computed(() => '/documents/failed-hydration.pdf'),
+            });
+            return () => h('div');
+        }}));
+        app.mount(host);
+
+        await vi.waitFor(() => expect(settings!.loadingDocument.value).toBe(false));
+
+        expect(settings!.documentSettingsReady.value).toBe(false);
+        expect(settings!.values.outputMode).toBe(DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE);
         app.unmount();
         host.remove();
     });
