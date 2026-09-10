@@ -440,7 +440,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }
         if (source === 'search') {
             request.searchNavigationId = scrollOptions?.searchNavigationId;
-            request.readiness = 'text-layer';
+            // Search highlights are painted over the page raster. Committing
+            // after text-layer readiness can expose a stale or blank canvas
+            // frame while the authoritative target raster is still settling.
+            // Wait for the fresh page canvas before moving the viewport.
+            request.readiness = 'page-canvas';
             request.postArrival = 'search-highlight';
         } else if (source === 'annotation') {
             request.readiness = 'annotation-editor';
