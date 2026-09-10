@@ -1,0 +1,23 @@
+.github/workflows/publish-chain.yml
+  s_2acf018b3efbee::t_ca1b64e8f88bc6 88-98
+tests/unit/scripts/cutRelease.test.ts
+  s_2acf018b3efbee::t_ca1b64e8f88bc6 160,208
+docs/releasing.md
+  s_2acf018b3efbee::t_ca1b64e8f88bc6 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d5de93fcd6677f3ba0cf57ac876c2e351142f996",
+  "prompts": {},
+  "sessions": {
+    "s_2acf018b3efbee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08952-3df3-7a42-93fb-4d2387592676",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

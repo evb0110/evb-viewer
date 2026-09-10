@@ -1,0 +1,34 @@
+electron/bootstrap/shutdown.ts
+  s_88329d0cbcc28f::t_bae89dd6f14728 241-243
+  s_88329d0cbcc28f::t_c5c77d8360f788 29,181-185
+  s_88329d0cbcc28f::t_a799b502e50c58 186-187
+tests/unit/electron/shutdownCoordinator.test.ts
+  s_88329d0cbcc28f::t_c5c77d8360f788 264-265,272-285
+  s_88329d0cbcc28f::t_9331129478cf5f 266-271
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_88329d0cbcc28f::t_c5c77d8360f788 24-34
+electron/features/agent/assistantService.ts
+  s_88329d0cbcc28f::t_c5c77d8360f788 1185,1193-1201,1204
+  s_88329d0cbcc28f::t_9331129478cf5f 1186-1192
+electron/bootstrap/mainProcess.ts
+  s_88329d0cbcc28f::t_c5c77d8360f788 62-64,504-514
+  s_88329d0cbcc28f::t_4536af4320506e 61
+electron/features/agent/lazyAgentAssistant.ts
+  s_88329d0cbcc28f::t_c5c77d8360f788 88-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ad01763a25742eb245b85209b95bf0dc2f743260",
+  "prompts": {},
+  "sessions": {
+    "s_88329d0cbcc28f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08982-0686-78c0-9d01-0a7c9a2da633",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

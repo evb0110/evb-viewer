@@ -1,0 +1,19 @@
+scripts/electron-run/startSessionDetached.ts
+  s_21f786fadd6b3e::t_ab614014565b30 178,180-182,189-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "35c677479c640af08044b36ac053e7196eb578f9",
+  "prompts": {},
+  "sessions": {
+    "s_21f786fadd6b3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08937-8c76-7141-8dd0-caae54b520f5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_ac38b651f6fa07::t_4b24ce87a2d1ef 92,248-253
+electron/features/agent/assistantService.ts
+  s_ac38b651f6fa07::t_4b24ce87a2d1ef 157-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "36a985d41721c7533140e48692703a59ca816cde",
+  "prompts": {},
+  "sessions": {
+    "s_ac38b651f6fa07": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08980-4d1b-7683-9620-414e5e659afe",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

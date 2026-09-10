@@ -1,0 +1,28 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_466679239302bc::t_0a5854a587f6a1 101,144,146
+  s_466679239302bc::t_d34fce15ee6f63 49,97-99,108-119,126,130,143
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_466679239302bc::t_d34fce15ee6f63 88,102,104,329,345-346,355-360,365-375,380-396
+  s_466679239302bc::t_5c8955313263ef 361-364,376-379
+  s_466679239302bc::t_a43495fc6f0e39 397
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_466679239302bc::t_d84a700bdd1d7f 172-186,191-195
+  s_466679239302bc::t_d34fce15ee6f63 17,109-111,136-138
+  s_466679239302bc::t_5c8955313263ef 187-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d57770025786bdca1e387654d54e64e6eef77ad5",
+  "prompts": {},
+  "sessions": {
+    "s_466679239302bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08912-5d63-7842-989c-abf3f4c66478",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+tests/unit/electron/compactDjvuPdfExport.test.ts
+  s_1abaf10fd5139d::t_346a88f85803c5 215-245
+electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts
+  s_1abaf10fd5139d::t_490e0fe9384276 895-911
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c7e5fb01c4bf196224f82290c06f41087c548b85",
+  "prompts": {},
+  "sessions": {
+    "s_1abaf10fd5139d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0899a-6a63-7242-984f-c4bc39a483d9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

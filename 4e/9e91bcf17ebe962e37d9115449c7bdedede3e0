@@ -1,0 +1,23 @@
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_8d27e7c7440db5::t_35b3d67a355031 287-294,344
+app/composables/useOcr.ts
+  s_8d27e7c7440db5::t_35b3d67a355031 104,187-189,212,781-784,800-815
+tests/unit/app/composables/useOcr.test.ts
+  s_8d27e7c7440db5::t_8c2a4e9435ddaf 222-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4e9e91bcf17ebe962e37d9115449c7bdedede3e0",
+  "prompts": {},
+  "sessions": {
+    "s_8d27e7c7440db5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a089ea-96b9-7522-99f3-faf246e6c915",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

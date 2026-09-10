@@ -1,0 +1,19 @@
+.github/workflows/release-artifacts.yml
+  s_07d41a8681e136::t_b24e2c31211304 223,241,263,281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d01826cbbc0c45473ee1dbbb14acfd4fb65c432a",
+  "prompts": {},
+  "sessions": {
+    "s_07d41a8681e136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0894f-1062-7d42-b2b7-e33e99e14a6c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
