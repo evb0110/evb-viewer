@@ -16,6 +16,36 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
 const FINGERPRINT_TIMEOUT_MS = 2 * 60_000;
 
+interface IDocumentSaveUtilityResult {
+    bytes: number;
+    sha256: string;
+}
+
+interface IRetainedDocumentSaveUtility {
+    child: ReturnType<typeof utilityProcess.fork>;
+    pid: number;
+    releaseResourceLease: () => void;
+    retryTermination: () => Promise<boolean>;
+}
+
+const retainedDocumentSaveUtilities = new Map<IRetainedDocumentSaveUtility['child'], IRetainedDocumentSaveUtility>();
+
+export function getRetainedDocumentSaveUtilityCount() {
+    return retainedDocumentSaveUtilities.size;
+}
+
+export async function retryRetainedDocumentSaveUtilityProcesses() {
+    const results = await Promise.all([...retainedDocumentSaveUtilities.values()].map(async retained => {
+        const proven = await retained.retryTermination();
+        if (proven) {
+            retained.releaseResourceLease();
+            retainedDocumentSaveUtilities.delete(retained.child);
+        }
+        return proven;
+    }));
+    return results.every(Boolean);
+}
+
 export async function runDocumentSaveUtilityProcess(options: {
     cwd: string;
     serviceName: string;
@@ -47,10 +77,7 @@ export async function runDocumentSaveUtilityProcess(options: {
         releaseResourceLease();
         throw error;
     }
-    return new Promise<{
-        bytes: number;
-        sha256: string;
-    }>((resolve, reject) => {
+    return new Promise<IDocumentSaveUtilityResult>((resolve, reject) => {
         let child: ReturnType<typeof utilityProcess.fork>;
         try {
             child = utilityProcess.fork(workerPath, [], {
@@ -64,43 +91,71 @@ export async function runDocumentSaveUtilityProcess(options: {
         }
         let settled = false;
         let childExited = false;
-        const retainResourceLeaseUntilExit = () => {
-            if (childExited) {
-                releaseResourceLease();
+        const pid = child.pid;
+        let terminationInFlight: Promise<boolean> | null = null;
+        const stopChild = async () => {
+            if (terminationInFlight) {
+                return terminationInFlight;
+            }
+            const attempt = (async () => {
+                if (pid === undefined) {
+                    return true;
+                }
+                try {
+                    return await terminateProcessTree(pid, {
+                        graceMs: 2_500,
+                        isTargetAlive: () => child.pid === pid && !childExited,
+                        // utilityProcess.fork does not create a detached POSIX process
+                        // group. A group probe can therefore miss this live child.
+                        preferProcessGroup: false,
+                    });
+                } catch {
+                    return false;
+                }
+            })();
+            terminationInFlight = attempt;
+            void attempt.finally(() => {
+                if (terminationInFlight === attempt) {
+                    terminationInFlight = null;
+                }
+            });
+            return attempt;
+        };
+        const retainUntilTerminationProof = () => {
+            if (pid === undefined) {
                 return;
             }
-            child.once('exit', releaseResourceLease);
+            const retained = {
+                child,
+                pid,
+                releaseResourceLease,
+                retryTermination: stopChild,
+            } satisfies IRetainedDocumentSaveUtility;
+            retainedDocumentSaveUtilities.set(child, retained);
         };
-        const stopChild = async () => {
-            const pid = child.pid;
-            if (pid === undefined) {
-                return true;
-            }
-            return terminateProcessTree(pid, {
-                graceMs: 2_500,
-                isTargetAlive: () => child.pid !== undefined,
-                // utilityProcess.fork does not create a detached POSIX process
-                // group. A group probe can therefore miss this live child.
-                preferProcessGroup: false,
-            });
-        };
-        const finish = async (error?: Error, result?: {
-            bytes: number;
-            sha256: string;
-        }) => {
+        const finish = async (error?: Error, result?: IDocumentSaveUtilityResult) => {
             if (settled) {
                 return;
             }
             settled = true;
             clearTimeout(timeout);
             options.signal?.removeEventListener('abort', abort);
-            const terminated = await stopChild();
-            if (!terminated) {
-                retainResourceLeaseUntilExit();
-                if (!error && result) {
-                    resolve(result);
-                    return;
+            const termination = stopChild();
+            if (!error && result) {
+                retainUntilTerminationProof();
+                resolve(result);
+                const terminated = await termination;
+                if (terminated) {
+                    releaseResourceLease();
+                    if (pid !== undefined) {
+                        retainedDocumentSaveUtilities.delete(child);
+                    }
                 }
+                return;
+            }
+            const terminated = await termination;
+            if (!terminated) {
+                retainUntilTerminationProof();
                 reject(markUnprovenNativeTermination(
                     error ?? new Error(`${options.utilityName} process did not terminate cleanly.`),
                     `${options.utilityName} process (pid=${child.pid ?? 'unknown'}) was not proven dead`,
@@ -108,7 +163,7 @@ export async function runDocumentSaveUtilityProcess(options: {
                 return;
             }
             releaseResourceLease();
-            if (error) reject(error); else resolve(result!);
+            reject(error);
         };
         const abort = () => {
             void finish(abortErrorFromSignal(options.signal!));
@@ -142,7 +197,6 @@ export async function runDocumentSaveUtilityProcess(options: {
         });
         child.once('exit', code => {
             childExited = true;
-            releaseResourceLease();
             if (!settled) {
                 void finish(new Error(`${options.utilityName} exited before completion (${code})`));
             }
