@@ -2137,7 +2137,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
 
-        const initialText = `Focused text box ${Date.now()}`;
+        const initialText = `Focused Привет café ’ box ${Date.now()}`;
         const firstDraft = `${initialText} first`;
         const secondDraft = `${firstDraft} second`;
         const annotationId = await createCanonicalTextBoxWithPointer(page, initialText, {
