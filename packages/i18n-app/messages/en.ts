@@ -211,6 +211,7 @@ export default {
         'rotateCounterclockwise': 'Rotate {degrees}° counterclockwise',
         'style': 'Style',
         'styleDescription': 'Choose a tool above to set its color and size, or click an annotation to edit it.',
+        'styleDescriptionNoAnnotations': 'Choose a tool above to set its color and size.',
         'keepActive': 'Keep selected tool active',
         'draw': 'Draw',
         'text': 'Text',

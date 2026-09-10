@@ -676,6 +676,7 @@ export default {
         'rotateCounterclockwise': 'Um {degrees}° gegen den Uhrzeigersinn drehen',
         'style': 'Stil',
         'styleDescription': 'Wählen Sie oben ein Werkzeug, um Farbe und Größe festzulegen, oder klicken Sie auf eine Anmerkung, um sie zu bearbeiten.',
+        'styleDescriptionNoAnnotations': 'Wählen Sie oben ein Werkzeug, um Farbe und Größe festzulegen.',
         'keepActive': 'Ausgewähltes Werkzeug aktiv halten',
         'draw': 'Zeichnen',
         'text': 'Text',

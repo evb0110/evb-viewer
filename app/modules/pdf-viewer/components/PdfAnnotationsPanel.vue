@@ -30,6 +30,7 @@
                 :settings="settings"
                 :selected-annotations="propertySelection"
                 :can-rotate="canRotateAnnotations"
+                :has-annotations="comments.length > 0"
                 @update-setting="emit('update-setting', $event)"
                 @update-properties="emit('update-properties', $event)"
             />

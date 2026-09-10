@@ -676,6 +676,7 @@ export default {
         'rotateCounterclockwise': 'Girar {degrees}° no sentido anti-horário',
         'style': 'Estilo',
         'styleDescription': 'Escolha uma ferramenta acima para definir a cor e o tamanho, ou clique em uma anotação para editá-la.',
+        'styleDescriptionNoAnnotations': 'Escolha uma ferramenta acima para definir a cor e o tamanho.',
         'keepActive': 'Manter ferramenta selecionada ativa',
         'draw': 'Desenhar',
         'text': 'Texto',
