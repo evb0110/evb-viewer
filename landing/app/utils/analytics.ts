@@ -18,6 +18,8 @@ interface IQueuedAnalyticsRequest {
     payload: TAnalyticsPayload;
 }
 
+type TAnalyticsRequestOutcome = 'persisted' | 'permanent-rejection' | 'retryable-failure';
+
 const ANALYTICS_QUEUE_STORAGE_KEY = 'evb.analytics.pending.v1';
 const MAX_QUEUED_ANALYTICS_REQUESTS = 20;
 let replayPromise: Promise<void> | null = null;
@@ -111,12 +113,15 @@ function enqueueAnalyticsRequest(request: IQueuedAnalyticsRequest) {
     }
 }
 
-async function sendAnalyticsRequest(request: IQueuedAnalyticsRequest, queueOnFailure: boolean) {
+async function sendAnalyticsRequest(
+    request: IQueuedAnalyticsRequest,
+    queueOnFailure: boolean,
+): Promise<TAnalyticsRequestOutcome> {
     if (typeof fetch !== 'function') {
         if (queueOnFailure) {
             enqueueAnalyticsRequest(request);
         }
-        return false;
+        return 'retryable-failure';
     }
 
     try {
@@ -133,22 +138,24 @@ async function sendAnalyticsRequest(request: IQueuedAnalyticsRequest, queueOnFai
         } catch {
             // A non-JSON response is a failed persistence acknowledgement.
         }
-        if (!response.ok || !isAnalyticsResponsePersisted(responseBody)) {
-            const retryable = typeof responseBody === 'object'
-                && responseBody !== null
-                && 'retryable' in responseBody
-                && responseBody.retryable === false;
-            if (queueOnFailure && !retryable) {
-                enqueueAnalyticsRequest(request);
-            }
-            return false;
+        if (response.ok && isAnalyticsResponsePersisted(responseBody)) {
+            return 'persisted';
         }
-        return true;
+
+        const permanentRejection = typeof responseBody === 'object'
+            && responseBody !== null
+            && 'retryable' in responseBody
+            && responseBody.retryable === false;
+        const outcome = permanentRejection ? 'permanent-rejection' : 'retryable-failure';
+        if (queueOnFailure && outcome === 'retryable-failure') {
+            enqueueAnalyticsRequest(request);
+        }
+        return outcome;
     } catch {
         if (queueOnFailure) {
             enqueueAnalyticsRequest(request);
         }
-        return false;
+        return 'retryable-failure';
     }
 }
 
@@ -163,7 +170,7 @@ async function replayQueuedAnalyticsRequests() {
         }
         writeQueuedAnalyticsRequests([]);
         for (const request of queued) {
-            if (!await sendAnalyticsRequest(request, false)) {
+            if (await sendAnalyticsRequest(request, false) === 'retryable-failure') {
                 enqueueAnalyticsRequest(request);
             }
         }
