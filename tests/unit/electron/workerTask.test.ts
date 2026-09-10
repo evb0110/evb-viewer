@@ -312,7 +312,8 @@ describe('workerTask', () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('user canceled task');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
@@ -336,13 +337,20 @@ describe('workerTask', () => {
         mocks.workerRecords[0]?.emit('error', new Error('generic worker failure'));
 
         await expect(taskPromise).rejects.toBe(abortReason);
+        expect(getUnprovenNativeTerminationDetail(abortReason)).toContain(
+            'ended before acknowledging cancellation',
+        );
     });
 
-    it('preserves the pending abort reason when a cooperatively canceled worker exits', async () => {
+    it.each([
+        0,
+        1,
+    ])('marks a canceled worker exit as unproven before acknowledgement (code %i)', async code => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('navigation canceled task');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
@@ -359,9 +367,43 @@ describe('workerTask', () => {
         await Promise.resolve();
         abortController.abort(abortReason);
 
-        mocks.workerRecords[0]?.emit('exit', 1);
+        mocks.workerRecords[0]?.emit('exit', code);
 
         await expect(taskPromise).rejects.toBe(abortReason);
+        expect(getUnprovenNativeTerminationDetail(abortReason)).toContain(
+            'ended before acknowledging cancellation',
+        );
+    });
+
+    it('does not mark a canceled worker after a terminal acknowledgement', async () => {
+        mocks.throwConstructorError = false;
+        const abortController = new AbortController();
+        const abortReason = new Error('acknowledged cancellation');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+
+        const taskPromise = runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: { ok: true },
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            signal: abortController.signal,
+            createCancelMessage: reason => ({
+                type: 'cancel',
+                reason,
+            }),
+        });
+
+        await Promise.resolve();
+        abortController.abort(abortReason);
+        mocks.workerRecords[0]?.emit('message', {
+            type: 'result',
+            ok: false,
+            error: 'canceled',
+        });
+
+        await expect(taskPromise).rejects.toBe(abortReason);
+        expect(getUnprovenNativeTerminationDetail(abortReason)).toBeUndefined();
     });
 
     it('waits for force termination of a non-cooperative worker before settling', async () => {

@@ -450,7 +450,18 @@ function attachWorkerHandlers<T>({
     let cooperativeCancelTimer: NodeJS.Timeout | null = null;
     let hasPendingCancelError = false;
     let pendingCancelError: unknown;
+    let cancellationAcknowledged = false;
     let firstMessageObserved = false;
+
+    const markUnprovenPendingCancellation = () => {
+        if (!hasPendingCancelError || cancellationAcknowledged) {
+            return;
+        }
+        pendingCancelError = markUnprovenNativeTermination(
+            pendingCancelError,
+            `worker ${options.workerPath} ended before acknowledging cancellation; native processes it spawned were never confirmed stopped`,
+        );
+    };
 
     const cleanup = () => {
         if (timeout) {
@@ -569,6 +580,9 @@ function attachWorkerHandlers<T>({
             restartInactivityTimeout();
             return;
         }
+        if (hasPendingCancelError && parseResultWorkerPayload(payload) !== null) {
+            cancellationAcknowledged = true;
+        }
         finalize(() => {
             if (hasPendingCancelError) {
                 // The cancellation is the outcome, so the abort reason stays the
@@ -671,6 +685,7 @@ function attachWorkerHandlers<T>({
         }
         finalize(() => {
             if (hasPendingCancelError) {
+                markUnprovenPendingCancellation();
                 reject(pendingCancelError);
                 return;
             }
@@ -703,6 +718,7 @@ function attachWorkerHandlers<T>({
         }
         finalize(() => {
             if (hasPendingCancelError) {
+                markUnprovenPendingCancellation();
                 reject(pendingCancelError);
                 return;
             }
