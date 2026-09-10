@@ -196,7 +196,7 @@ describe('usePdfTextLayerRenderer', () => {
     it('projects a tagged structure tree after text rendering and removes it on rebuild', async () => {
         const structure = document.createElement('div');
         structure.className = 'structTree';
-        structure.innerHTML = '<span role="heading" aria-level="1" aria-owns="mc-heading"></span><span role="list"><span role="listitem" aria-owns="mc-item">Item</span></span><span role="table"><span role="row"><span role="columnheader">Name</span></span></span>';
+        structure.innerHTML = '<span role="heading" aria-level="1" aria-owns="mc-heading" aria-label="Published title"></span><span role="list"><span role="listitem" aria-owns="mc-item"></span></span><span role="table"><span role="row"><span role="columnheader">Name</span></span></span>';
         const updateTextLayer = vi.fn();
         structTreeRuntimeMock.create.mockResolvedValue({
             render: vi.fn(async () => structure),
@@ -241,9 +241,9 @@ describe('usePdfTextLayerRenderer', () => {
         expect(updateTextLayer).toHaveBeenCalledOnce();
         expect(canvasHost.querySelector('.structTree')).toBe(structure);
         expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-level')).toBe('1');
-        expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-label')).toBe('Heading');
+        expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-label')).toBe('Published title');
         expect(canvasHost.querySelector('[role="listitem"]')?.getAttribute('aria-label')).toBe('Item');
-        expect(canvasHost.querySelector('[role="listitem"]')?.textContent).toBe('Item');
+        expect(canvasHost.querySelector('[role="listitem"]')?.textContent).toBe('');
         expect(canvasHost.querySelector('[role="columnheader"]')?.textContent).toBe('Name');
 
         renderer.cleanupTextLayerDom(textLayerDiv);
