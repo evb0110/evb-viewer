@@ -22,6 +22,7 @@ import {
 } from 'vitest';
 
 const classifierPath = resolve(process.cwd(), 'scripts/ci/classify-changed-areas.mjs');
+const pushDiffBasePath = resolve(process.cwd(), 'scripts/ci/push-diff-base.sh');
 
 interface IChangedAreaClassification { matched: boolean }
 
@@ -105,6 +106,15 @@ function runClassifierForRange(root: string, base: string, head: string, include
         files: string[];
         result: Record<string, IChangedAreaClassification>;
     };
+}
+
+function runPushDiffBase(root: string, before: string, head: string) {
+    const result = spawnSync('bash', [pushDiffBasePath, before, head], {
+        cwd: root,
+        encoding: 'utf8',
+    });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout.trim();
 }
 
 const { classifyChangedFiles } = await import(
@@ -345,6 +355,26 @@ describe('changed-area classifier', () => {
 
             expect(classification.files).toContain('landing/app/pages/removed.vue');
             expect(classification.result.landing?.matched).toBe(true);
+        } finally {
+            removeTemporaryDirectorySync(root);
+        }
+    });
+
+    it('leaves the push base unavailable for a first root push', () => {
+        const root = createTempRepository();
+        try {
+            const source = join(root, 'app/app.vue');
+            mkdirSync(resolve(source, '..'), {recursive: true});
+            writeFileSync(source, '<template />\n', 'utf8');
+            const head = commitAll(root, 'first root commit');
+
+            const base = runPushDiffBase(
+                root,
+                '0000000000000000000000000000000000000000',
+                head,
+            );
+            expect(base).toBe('unavailable-push-base');
+            expect(runClassifierForRange(root, base, head).files).toBeNull();
         } finally {
             removeTemporaryDirectorySync(root);
         }
