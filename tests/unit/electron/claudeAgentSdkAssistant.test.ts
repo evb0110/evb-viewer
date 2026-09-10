@@ -545,6 +545,9 @@ describe('claudeAgentSdkAssistant', () => {
         expect(session.isUsable).toBe(false);
         expect(session.isRetiring).toBe(true);
         expect(query.close).not.toHaveBeenCalled();
+        await expect(session.sendMessage('B', [], 'opus')).rejects.toThrow(
+            'Claude assistant session is still retiring a previous turn.',
+        );
 
         resolveInterrupt?.();
         await interruptPromise;
