@@ -11,6 +11,7 @@ import {
 import {
     createMultiPageTextFixturePdf, readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
+import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     startElectronE2ESession,
@@ -52,6 +53,8 @@ interface IRecoveryAutomationState {
     dirtyState?: IRecoveryDirtyState;
 }
 
+const RECOVERED_ANNOTATION_TEXT = 'Project 8 recovered annotation';
+
 async function createRecoveredSession(label: string): Promise<IRecoveredSession> {
     const pdfPath = await createMultiPageTextFixturePdf(`project8-close-${label}-${Date.now()}.pdf`, 2);
     const sessionName = `e2e-project8-close-${label}-${Date.now()}`;
@@ -62,6 +65,10 @@ async function createRecoveredSession(label: string): Promise<IRecoveredSession>
     });
     await waitForPdfLoaded(session.page, 60_000);
     await waitForViewerInteractive(session.page, 60_000);
+    await createCanonicalTextBoxWithPointer(session.page, RECOVERED_ANNOTATION_TEXT, {
+        x: 0.4,
+        y: 0.3,
+    });
     const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
     expect((await callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).called).toBe(true);
     await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
@@ -93,6 +100,13 @@ async function createRecoveredSession(label: string): Promise<IRecoveredSession>
     });
     await waitForPdfLoaded(session.page, 60_000);
     await waitForViewerInteractive(session.page, 60_000);
+    await session.page.waitForFunction((expectedText: string) => Array.from(
+        document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        ),
+    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {
+        timeout: 60_000,
+    }, RECOVERED_ANNOTATION_TEXT);
     const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
     expect(state.dirtyState?.fileDirty).toBe(true);
     const recoveredWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
