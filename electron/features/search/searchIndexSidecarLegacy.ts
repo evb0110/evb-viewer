@@ -6,12 +6,12 @@ import {
     COMPACT_SEARCH_INDEX_MAX_PAGE_TEXT_BYTES,
     COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE,
     COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
-    createCompactSearchIndexEncoding,
     type ICompactSearchIndexPage,
     type ICompactSearchIndexPageRecord,
     type ICompactSearchIndexPayload,
     type ICompactSearchIndexTextSource,
 } from '@contracts/searchIndexSidecar';
+import {createCompactSearchIndexEncoding} from '@node-runtime/searchIndexSidecar';
 import {
     readBufferAt,
     throwIfAborted,
