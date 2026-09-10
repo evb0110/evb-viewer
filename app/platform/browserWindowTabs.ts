@@ -52,6 +52,7 @@ function buildTransferAuthorityRecord(
         add(transfer.payload.originalPath);
         add(transfer.payload.snapshotPath);
     }
+    const expired = Date.now() >= deadlineAt;
     return {
         id: transferAuthorityId(transfer.transferId),
         transferId: transfer.transferId,
@@ -60,13 +61,14 @@ function buildTransferAuthorityRecord(
         sourceInstanceNonce,
         targetWindowId: transfer.targetWindowId,
         targetInstanceNonce,
-        generation: 1,
-        state: 'pending',
+        generation: expired ? 2 : 1,
+        state: expired ? 'aborted' : 'pending',
         targetReady: false,
         deadlineAt,
         payload: transfer,
         backingRefs: Array.from(refs, ref => ({ref})),
         createdAt: Date.now(),
+        ...(expired ? {decidedAt: Date.now()} : {}),
     };
 }
 async function createTransferAuthority(

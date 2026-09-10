@@ -15,7 +15,19 @@ const recoveryMocks = vi.hoisted(() => ({
     RECOVERY_OWNER_LEASE_TIMEOUT_MS: 30_000,
 }));
 
+const transferAuthorityMocks = vi.hoisted(() => ({
+    abortBrowserTransferAuthority: vi.fn(),
+    loadBrowserTransferAuthority: vi.fn(),
+    mutateBrowserTransferAuthority: vi.fn(),
+}));
+
+type TAuthorityMutation = (
+    current: null,
+    store: {put: (value: unknown) => void},
+) => unknown;
+
 vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
+vi.mock('@app/platform/browser/browserDocumentIdb', () => transferAuthorityMocks);
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 
@@ -139,6 +151,13 @@ describe('browserWindowTabsCapability', () => {
             claimed: false,
             generation: 0,
         });
+        transferAuthorityMocks.abortBrowserTransferAuthority.mockResolvedValue(null);
+        transferAuthorityMocks.loadBrowserTransferAuthority.mockResolvedValue(null);
+        transferAuthorityMocks.mutateBrowserTransferAuthority.mockImplementation(
+            async (_transferId: string, mutate: (current: null, store: {put: () => void}) => unknown) => (
+                mutate(null, {put: vi.fn()})
+            ),
+        );
         stubBrowserGlobals();
     });
 
@@ -581,5 +600,59 @@ describe('browserWindowTabsCapability', () => {
             },
         });
         expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('does not resurrect a transfer when authority creation finishes after the source deadline', async () => {
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        externalWindow.postMessage({
+            type: 'announce',
+            windowId: 200,
+            instanceNonce: 'target-instance',
+            label: 'Target',
+            ready: true,
+        });
+        messages.length = 0;
+
+        let finishMutation: (() => void) | undefined;
+        let authorityMutation: TAuthorityMutation | undefined;
+        let createdAuthority: unknown;
+        transferAuthorityMocks.mutateBrowserTransferAuthority.mockImplementationOnce(
+            (_transferId: string, mutate: TAuthorityMutation) => new Promise(resolve => {
+                authorityMutation = mutate;
+                finishMutation = () => {
+                    createdAuthority = mutate(null, {put: vi.fn()});
+                    resolve(createdAuthority);
+                };
+            }),
+        );
+
+        const transfer = browserWindowTabsCapability.transfer({
+            target: {
+                kind: 'window',
+                windowId: 200,
+            },
+            tab: {
+                fileName: 'source.pdf',
+                originalPath: '/source.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            payload: {kind: 'empty'},
+            timeoutMs: 1,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(transferAuthorityMocks.abortBrowserTransferAuthority).toHaveBeenCalledOnce();
+        expect(authorityMutation).toEqual(expect.any(Function));
+        expect(finishMutation).toEqual(expect.any(Function));
+
+        finishMutation?.();
+
+        await expect(transfer).resolves.toMatchObject({success: false});
+        expect(createdAuthority).toMatchObject({state: 'aborted'});
+        expect(messages).not.toContainEqual(expect.objectContaining({type: 'transfer'}));
     });
 });
