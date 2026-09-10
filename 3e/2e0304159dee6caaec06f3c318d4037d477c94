@@ -1,0 +1,22 @@
+app/platform/browser-api/browserDurableDjvuJobs.ts
+  s_f37744108e7759::t_5f7202cf6b205b 99-105
+tests/unit/app/platform/browserDurableDjvuJobs.test.ts
+  s_f37744108e7759::t_ce58dd9d70e63c 152-155
+  s_f37744108e7759::t_1a4f6c135939b3 147-151,156-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3e2e0304159dee6caaec06f3c318d4037d477c94",
+  "prompts": {},
+  "sessions": {
+    "s_f37744108e7759": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ec91-7dd0-aaa3-5f83e251c2c2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
