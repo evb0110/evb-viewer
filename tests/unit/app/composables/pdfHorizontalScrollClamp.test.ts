@@ -3,9 +3,55 @@ import {
     expect,
     it,
 } from 'vitest';
+import { getCurrentSpreadRenderedBoundsFromDom } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
+function createDomPage(options: {
+    page: number;
+    left: number;
+    width: number;
+    buffered?: boolean;
+}) {
+    return {
+        classList: {
+            contains: (className: string) => options.buffered === true
+                && className === 'page_container--buffered',
+        },
+        clientWidth: options.width,
+        dataset: {page: String(options.page)},
+        getBoundingClientRect: () => ({
+            left: options.left,
+            width: options.width,
+        }),
+        offsetLeft: options.left,
+        offsetWidth: options.width,
+    } as unknown as HTMLElement;
+}
+
 describe('resolvePageBoundedHorizontalScroll', () => {
+    it('falls back from buffered DOM spread bounds', () => {
+        const bufferedPage = createDomPage({
+            page: 1,
+            left: 20,
+            width: 1_200,
+            buffered: true,
+        });
+        const container = {
+            getBoundingClientRect: () => ({left: 0}),
+            querySelector: (selector: string) => selector === '.page_container[data-page="1"]'
+                ? bufferedPage
+                : null,
+            scrollLeft: 0,
+        } as unknown as HTMLElement;
+
+        expect(getCurrentSpreadRenderedBoundsFromDom({
+            container,
+            pageNumber: 1,
+            viewMode: 'single',
+            totalPages: 1,
+        })).toBeNull();
+    });
+
     it('locks horizontal scroll to the active page when the page fits the viewport', () => {
         const result = resolvePageBoundedHorizontalScroll({
             scrollLeft: 1200,
