@@ -1,0 +1,40 @@
+packages/i18n-app/messages/en.ts
+  s_5a387e58132e39::t_26e886d3bc4327 214
+packages/i18n-app/messages/ptBr.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+packages/i18n-app/messages/pt.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+packages/i18n-app/messages/de.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+packages/i18n-app/messages/nl.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+packages/i18n-app/messages/fr.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+packages/i18n-app/messages/ru.ts
+  s_5a387e58132e39::t_26e886d3bc4327 214
+  s_5a387e58132e39::t_ecf3207d18568c 213
+packages/i18n-app/messages/es.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue
+  s_5a387e58132e39::t_12902f8f873669 157,200,211
+packages/i18n-app/messages/it.ts
+  s_5a387e58132e39::t_26e886d3bc4327 679
+app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue
+  s_5a387e58132e39::t_12902f8f873669 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1ef980c4be3288d39917604e2892b7934ead7268",
+  "prompts": {},
+  "sessions": {
+    "s_5a387e58132e39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44e16024-84ca-411a-82f1-7c620426507f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

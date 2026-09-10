@@ -1,0 +1,19 @@
+scripts/vitestResolveAlias.ts
+  s_74d0c724afb76b::t_06e8161ce8a206 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c6787e37127011c5775fcdb3ee1c723ad97cc4cf",
+  "prompts": {},
+  "sessions": {
+    "s_74d0c724afb76b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b7f-2381-79f3-af4e-73e1a4387694",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
