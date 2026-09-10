@@ -1,0 +1,34 @@
+packages/pdf-core/pdfPrintLayout.ts
+  s_ddeaae338eac5a::t_334a9387ccd82e 716
+  s_ddeaae338eac5a::t_498cc3e88f5789 3,190,197-198,202-203,211,275
+  s_ddeaae338eac5a::t_06a33914ee3092 150-151
+  s_ddeaae338eac5a::t_2407bdf360bfe2 256
+  s_ddeaae338eac5a::t_48fc71d81f6005 206-209,221,229-234
+  s_ddeaae338eac5a::t_b1e66bfdc142c8 235,252-253
+  s_ddeaae338eac5a::t_697bb9708cfa6a 189,210
+  s_ddeaae338eac5a::t_cab3c796d0a436 5,7-14,125-149,152-169,171-188,199-201,204-205,220,222-228,257-260,264,268-274,276-278,285-290,293-300
+  s_ddeaae338eac5a::t_86f440f89103d1 191-196,212-219,236-251,254-255,261-263,265-267
+  s_ddeaae338eac5a::t_8020af241cf729 170,279-284,291-292
+tests/unit/packages/pdf-core/pdfPrintLayout.test.ts
+  s_ddeaae338eac5a::t_1fc04c6deaff18 7-12,50-51,56-58,60-62,69-74,81-87,89-100,118-119
+  s_ddeaae338eac5a::t_27e9f7a7d27732 13,59
+  s_ddeaae338eac5a::t_86f440f89103d1 52-55,63-68,75-80,102-104,110-115
+  s_ddeaae338eac5a::t_d1bc23a4d416f3 3,5-6,105-109,116-117
+  s_ddeaae338eac5a::t_2edcbf1f4a3779 101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ae1a365edc4c849667cc07253f375b0b83fa21c4",
+  "prompts": {},
+  "sessions": {
+    "s_ddeaae338eac5a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08889-0ba2-7d32-9329-f2d2b7e95168",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
