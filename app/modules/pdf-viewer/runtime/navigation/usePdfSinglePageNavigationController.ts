@@ -189,7 +189,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         beginLayoutGeometryReplacement: options.beginLayoutGeometryReplacement,
         awaitMetrics: async (intent, signal) => {
             const resolved = intent.navigation
-                ? await resolvePdfNavigationTarget(intent.navigation.target, options.pdfDocument.value)
+                ? await resolvePdfNavigationTarget(intent.navigation.target, options.pdfDocument.value, signal)
                 : null;
             if (resolved) {
                 resolvedTargets.set(intent.id, resolved);

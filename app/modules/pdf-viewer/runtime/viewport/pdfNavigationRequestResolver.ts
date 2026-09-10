@@ -40,7 +40,11 @@ function normalizedPointRect(top: number): IAnnotationMarkerRect {
 export async function resolvePdfNavigationTarget(
     target: TPdfNavigationTarget,
     pdfDocument: IPdfDocument | null,
+    signal?: AbortSignal,
 ): Promise<IResolvedPdfNavigationTarget> {
+    if (signal?.aborted) {
+        throw new DOMException('PDF navigation was superseded', 'AbortError');
+    }
     if (target.kind === 'page') {
         return {
             page: target.page,
@@ -60,7 +64,10 @@ export async function resolvePdfNavigationTarget(
         };
     }
     if (!pdfDocument) throw new DOMException('Named destination requires a PDF document', 'AbortError');
-    const destination = await resolveBookmarkDestinationTarget(pdfDocument, target.destination);
+    const destination = await resolveBookmarkDestinationTarget(pdfDocument, target.destination, signal);
+    if (signal?.aborted) {
+        throw new DOMException('PDF navigation was superseded', 'AbortError');
+    }
     if (!destination) throw new DOMException('Named destination could not be resolved', 'AbortError');
     return {
         page: destination.page,

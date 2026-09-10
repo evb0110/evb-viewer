@@ -321,6 +321,29 @@ describe('pdfOutlineHelpers', () => {
         expect(getPageIndex).toHaveBeenCalledTimes(1);
     });
 
+    it('stops stale named-destination resolution before scheduling page lookup', async () => {
+        const destination = Promise.withResolvers<unknown[] | null>();
+        const getDestination = vi.fn(() => destination.promise);
+        const getPageIndex = vi.fn(async () => 3);
+        const pdfDoc = createPdfDocumentStub({
+            getDestination,
+            getPageIndex,
+        });
+        const controller = new AbortController();
+
+        const resolution = resolveBookmarkDestinationTarget(pdfDoc, 'chapter-1', controller.signal);
+        expect(getDestination).toHaveBeenCalledOnce();
+
+        controller.abort();
+        destination.resolve([{
+            num: 4,
+            gen: 0,
+        }]);
+
+        await expect(resolution).rejects.toMatchObject({name: 'AbortError'});
+        expect(getPageIndex).not.toHaveBeenCalled();
+    });
+
     it('handles numeric destinations in both 0-based and 1-based forms', async () => {
         const pdfDoc = createPdfDocumentStub({ numPages: 5 });
         const destinationCache = new Map<string, unknown[] | null>();

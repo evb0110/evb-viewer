@@ -314,7 +314,9 @@ async function resolveDestinationPageYRatio(
     pdfDocument: IPdfDocument,
     page: number,
     destinationArray: unknown[],
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     const destinationKind = getDestinationKind(destinationArray);
     if (!shouldAlignDestinationToPageTop(destinationKind)) {
         return null;
@@ -327,6 +329,7 @@ async function resolveDestinationPageYRatio(
 
     try {
         const pdfPage = await pdfDocument.getPage(page);
+        throwIfAborted(signal);
         const bounds = getPageViewBounds(pdfPage);
         if (!bounds) {
             return null;
@@ -334,6 +337,9 @@ async function resolveDestinationPageYRatio(
 
         return clamp((bounds.top - destinationTop) / bounds.height, 0, 1);
     } catch (error) {
+        if (signal?.aborted) {
+            throwIfAborted(signal);
+        }
         BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve bookmark destination y for page ${page}`, error);
         return null;
     }
@@ -343,7 +349,9 @@ async function resolveDestinationArray(
     pdfDocument: IPdfDocument,
     dest: IOutlineItemRaw['dest'],
     destinationCache?: Map<string, unknown[] | null>,
+    signal?: AbortSignal,
 ): Promise<unknown[] | null> {
+    throwIfAborted(signal);
     if (!dest) {
         return null;
     }
@@ -360,9 +368,13 @@ async function resolveDestinationArray(
 
     try {
         const resolved = await pdfDocument.getDestination(dest);
+        throwIfAborted(signal);
         destinationCache?.set(dest, resolved);
         return resolved;
     } catch (error) {
+        if (signal?.aborted) {
+            throwIfAborted(signal);
+        }
         BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve named destination: ${dest}`, error);
         destinationCache?.set(dest, null);
         return null;
@@ -373,7 +385,9 @@ async function resolvePageIndexFromDestinationArray(
     pdfDocument: IPdfDocument,
     destinationArray: unknown[],
     refIndexCache?: Map<string, number | null>,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     if (destinationArray.length === 0) {
         return null;
     }
@@ -395,9 +409,13 @@ async function resolvePageIndexFromDestinationArray(
 
     try {
         const pageIndex = await pdfDocument.getPageIndex(pageRef);
+        throwIfAborted(signal);
         refIndexCache?.set(refKey, pageIndex);
         return pageIndex;
     } catch (error) {
+        if (signal?.aborted) {
+            throwIfAborted(signal);
+        }
         BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve page index by reference: ${refKey}`, error);
         refIndexCache?.set(refKey, null);
         return null;
@@ -448,6 +466,12 @@ async function resolveDestinationTarget(
         pageIndex,
         pageYRatio,
     };
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw new DOMException('PDF outline destination resolution was cancelled', 'AbortError');
+    }
 }
 
 export async function buildResolvedOutline(
@@ -638,24 +662,26 @@ export async function resolveBookmarkDestinationPage(
 export async function resolveBookmarkDestinationTarget(
     pdfDocument: IPdfDocument,
     dest: string | unknown[] | null,
+    signal?: AbortSignal,
 ): Promise<IBookmarkDestinationTarget | null> {
+    throwIfAborted(signal);
     if (!dest) {
         return null;
     }
 
-    const destinationArray = await resolveDestinationArray(pdfDocument, dest);
+    const destinationArray = await resolveDestinationArray(pdfDocument, dest, undefined, signal);
 
     if (!destinationArray || destinationArray.length === 0) {
         return null;
     }
 
-    const zeroBasedIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray);
+    const zeroBasedIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, undefined, signal);
     if (zeroBasedIndex === null) {
         return null;
     }
 
     const page = zeroBasedIndex + 1;
-    const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, page, destinationArray);
+    const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, page, destinationArray, signal);
     return {
         page,
         ...(pageYRatio === null ? {} : { pageYRatio }),
