@@ -1,7 +1,9 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import { getPageRectBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { toPdfPointFromMarkerPoint } from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfPointFromMarkerPoint';
+import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
+import { toPdfPointInPageBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfPointFromMarkerPoint';
 
 export function toPdfRectFromMarkerRect(
     markerRect: IAnnotationMarkerRect | null | undefined,
@@ -24,6 +26,12 @@ export function toPdfRectFromMarkerRect(
     if (!normalized) {
         return null;
     }
+
+    const bounds = getPageRectBounds(pageView);
+    if (!bounds) {
+        return null;
+    }
+    const normalizedRotation = normalizePageRotation(pageRotation);
 
     const markerRight = normalized.left + normalized.width;
     const markerBottom = normalized.top + normalized.height;
@@ -50,11 +58,7 @@ export function toPdfRectFromMarkerRect(
                 markerBottom,
             ],
         ] as const) {
-        const point = toPdfPointFromMarkerPoint(x, y, pageView, pageRotation);
-        if (!point) {
-            return null;
-        }
-        cornerPoints.push(point);
+        cornerPoints.push(toPdfPointInPageBounds(x, y, bounds, normalizedRotation));
     }
 
     const minX = Math.min(...cornerPoints.map(point => point.x));

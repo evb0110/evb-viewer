@@ -5,7 +5,7 @@ import {
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 
-function toPdfPointFromMarkerPointInternal(
+export function toPdfPointInPageBounds(
     markerX: number,
     markerY: number,
     bounds: IPageRectBounds,
@@ -48,5 +48,5 @@ export function toPdfPointFromMarkerPoint(
         return null;
     }
 
-    return toPdfPointFromMarkerPointInternal(markerX, markerY, bounds, normalizePageRotation(pageRotation));
+    return toPdfPointInPageBounds(markerX, markerY, bounds, normalizePageRotation(pageRotation));
 }
