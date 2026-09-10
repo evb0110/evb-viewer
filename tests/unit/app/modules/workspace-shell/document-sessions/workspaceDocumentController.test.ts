@@ -78,6 +78,51 @@ describe('WorkspaceDocumentController', () => {
         });
     });
 
+    it('keeps the pending source name while the managed PDF loads before its source path is committed', async () => {
+        const session = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const published: Array<ReturnType<typeof session.toWorkspaceRecord>> = [];
+        const pendingDocumentPath = ref<TDocumentRef | null | undefined>(requireDocumentRef('/docs/cold.pdf'));
+        const hasPdf = ref(false);
+        const fileName = ref<string | null>(null);
+        const originalPath = ref<TDocumentRef | null>(null);
+        const toolbarSnapshot = ref(createDefaultWorkspaceToolbarSnapshot());
+
+        session.bindWorkspaceProjection({
+            pendingDocumentPath,
+            openBatchProgress: ref(null),
+            hasPdf,
+            isDjvuMode: ref(false),
+            fileName,
+            originalPath,
+            documentIdentity: ref(null),
+            isDirty: ref(false),
+            djvuSourcePath: ref(null),
+            toolbarSnapshot,
+            formatPendingBatchLabel: values => `${values.processed}/${values.total}`,
+            publishRecord: record => published.push(record),
+        });
+
+        await nextTick();
+        expect(published.at(-1)?.tab.fileName).toBe('cold.pdf');
+
+        hasPdf.value = true;
+        fileName.value = 'document.pdf';
+        toolbarSnapshot.value = {
+            ...toolbarSnapshot.value,
+            hasPdf: true,
+        };
+        await nextTick();
+
+        expect(published.at(-1)?.tab.fileName).toBe('cold.pdf');
+
+        originalPath.value = requireDocumentRef('/docs/cold.pdf');
+        fileName.value = 'cold.pdf';
+        pendingDocumentPath.value = null;
+        await nextTick();
+
+        expect(published.at(-1)?.tab.fileName).toBe('cold.pdf');
+    });
+
     it('does not derive pending DjVu view state from fallback toolbar continuous-scroll defaults', async () => {
         const session = createWorkspaceDocumentController({tabId: 'tab-1'});
         const published: Array<ReturnType<typeof session.toWorkspaceRecord>> = [];

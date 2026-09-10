@@ -837,10 +837,16 @@ export function createWorkspaceDocumentController(
             const pendingHint = binding.pendingDocumentPath.value
                 ? buildPendingTabDocumentHint(binding.pendingDocumentPath.value)
                 : null;
+            // A PDF's managed working copy becomes available before the open
+            // flow commits its original path. Keep the source hint authoritative
+            // across that gap so `document.pdf` cannot leak into the shell.
             const pending = Boolean(
                 pendingHint
-                && !binding.hasPdf.value
-                && !binding.isDjvuMode.value,
+                && !binding.isDjvuMode.value
+                && (
+                    !binding.hasPdf.value
+                    || binding.originalPath.value === null
+                ),
             );
             const tab = pending && pendingHint
                 ? {
