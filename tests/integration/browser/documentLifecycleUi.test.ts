@@ -498,7 +498,11 @@ describe('browser document lifecycle UI', () => {
                 if (typeof release !== 'function') throw new Error('Target authority read barrier was not installed');
                 release();
             });
-            await transferPromise.catch(() => undefined);
+            const transferResult = await transferPromise;
+            expect(transferResult).toMatchObject({
+                success: true,
+                targetWindowId: 2,
+            });
 
             await expect.poll(() => target.locator(
                 '[data-tab-list] [role="tab"][aria-selected="true"]',
