@@ -1,0 +1,22 @@
+.github/workflows/publish-chain.yml
+  s_af31359577c1b8::t_bdfabafbdf571b 243-259,261-266
+  s_af31359577c1b8::t_08fed520603efb 260
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_af31359577c1b8::t_bdfabafbdf571b 417-431
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ea91cd36ac23644f8f415de7713e04b6cdf3f5e9",
+  "prompts": {},
+  "sessions": {
+    "s_af31359577c1b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08af8-91b8-72d1-959a-17eb7485a13f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
