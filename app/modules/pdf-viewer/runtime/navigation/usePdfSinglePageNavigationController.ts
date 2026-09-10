@@ -310,7 +310,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 currentPage: options.currentPage.value,
                 visibleRange: options.visibleRange.value,
             }));
-            const waitForTextLayer = readiness === 'text-layer' || readiness === 'search-visual'
+            const waitForTextLayer = readiness === 'text-layer'
                 ? options.waitForPageTextLayerReady
                 : undefined;
             const ensureTextLayerReady = async () => {
@@ -346,15 +346,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 preserveRenderedPages: true,
                 retainOnlyCurrentResidentRaster: true,
                 suppressResidentRasterDemand: false,
-                ...(waitForTextLayer ? {prioritizeTextLayer: true} : {}),
+                ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
             });
             await ensureTextLayerReady();
-            if (readiness === 'search-visual') {
-                // Give the browser one paint opportunity after both layers are
-                // ready, so a stale compositor frame cannot cross the scroll
-                // commit boundary.
-                await yieldToBrowser();
-            }
             if (container && !isPdfNavigationReady(
                 container,
                 page,
@@ -450,7 +444,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             // after text-layer readiness can expose a stale or blank canvas
             // frame while the authoritative target raster is still settling.
             // Wait for the fresh page canvas before moving the viewport.
-            request.readiness = 'search-visual';
+            request.readiness = 'page-canvas';
             request.postArrival = 'search-highlight';
         } else if (source === 'annotation') {
             request.readiness = 'annotation-editor';

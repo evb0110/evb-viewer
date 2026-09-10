@@ -195,7 +195,7 @@ export function isPdfNavigationReady(
         return true;
     }
     const pageElement = container.querySelector<HTMLElement>(`.page_container[data-page="${page}"]`);
-    if (readiness === 'text-layer' || readiness === 'search-visual') {
+    if (readiness === 'text-layer') {
         const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
         return textLayer?.dataset.pdfTextLayerReady === 'true';
     }

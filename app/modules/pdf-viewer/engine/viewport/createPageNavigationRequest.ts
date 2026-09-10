@@ -40,7 +40,7 @@ export interface IPdfNavigationRequest {
     searchNavigationId?: number | undefined;
     target: TPdfNavigationTarget;
     alignment: 'page-top' | 'rect-center' | 'keep-visible';
-    readiness: 'metrics' | 'page-canvas' | 'text-layer' | 'search-visual' | 'annotation-editor';
+    readiness: 'metrics' | 'page-canvas' | 'text-layer' | 'annotation-editor';
     postArrival?: 'search-highlight' | 'annotation-pulse' | 'flash';
     source: 'toolbar' | 'wheel' | 'search' | 'bookmark' | 'annotation' | 'thumbnail' | 'activation' | 'restore';
     supersession: 'latest-wins';
