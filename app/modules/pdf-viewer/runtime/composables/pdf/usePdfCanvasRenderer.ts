@@ -219,10 +219,16 @@ export const usePdfCanvasRenderer = (deps: {
             options?.contentIntent === 'canvas-only-buffer'
             || options?.contentIntent === 'canvas-only-refine'
         ) {
+            const hiddenAnnotationFilter = options.hiddenAnnotationIds && options.hiddenAnnotationIds.size > 0
+                ? createRenderTaskHiddenAnnotationOperationsFilter(options.hiddenAnnotationIds)
+                : null;
             return {
                 annotationCanvasMap: null,
-                annotationMode: AnnotationMode.DISABLE,
-                hiddenAnnotationFilter: null,
+                // Buffer and refinement canvases have no annotation layer to
+                // receive PDF.js appearance canvases. Keep annotations in the
+                // committed raster so foreign appearances remain visible.
+                annotationMode: AnnotationMode.ENABLE_FORMS,
+                hiddenAnnotationFilter,
             };
         }
         if (toValue(deps.annotationProjectionReady ?? true) === false) {
