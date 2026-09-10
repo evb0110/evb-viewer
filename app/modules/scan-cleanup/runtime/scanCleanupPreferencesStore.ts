@@ -596,6 +596,7 @@ export function loadScanCleanupDocumentSettings(
                     code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
                     context: {},
                 });
+                throw error;
             }
         }
         const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];
