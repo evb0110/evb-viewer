@@ -1,0 +1,19 @@
+app/utils/failureReporter.ts
+  s_e96e358c353875::t_47dc505ced7012 588-590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d64e195a52b07068d572025bfde7a52cd69eb927",
+  "prompts": {},
+  "sessions": {
+    "s_e96e358c353875": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ba3-69c8-7312-9237-682604be63d9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
