@@ -9,7 +9,7 @@
 - Tested source: `433379503df745c11c4be2301a9755333a24811e`; receipt commit `7632c4a4930a60696c5e01c1e6e7ef0888151c61` remains preserved above it.
 - Task-scoped test correction commit: `24cf22df92b7651c1a7eeb96457b328c2af8c738`.
 - Source fix commit: `175ad3a539c17f97d25af4aeeff5e087ee597b3b`.
-- Branch tip before this receipt refresh: `320cd8ae95d6c43808db5f795c03555de8257fb6`; receipt/report commits are not intended for main integration.
+- Source follow-up commits: `506d45706` preserves exact paths in revision sidecars; `a4e5a01b8` preserves exact native paths through open/save routing and working-copy creation. Receipt/report commits are not intended for main integration.
 
 ## Verification
 
@@ -33,6 +33,10 @@
 - Hidden macOS Electron production combine through `documentOpen.openDocumentDirectBatch` plus the existing automation file-grant hook: valid BMP, GIF, and WebP all accepted after the fallback, producing a qpdf-valid three-page working copy with rendered sizes 24x16, 32x20, and 40x24. Normalized scratch directories were absent after completion.
 - Hidden macOS Electron PNG control through the same production route: accepted a transparent 36x22 PNG, producing a qpdf-valid one-page working copy and a rendered 36x22 nonblank page.
 - POSIX #518 witness probe over exact 68,157,440-byte (65 MiB) and 537,919,488-byte (513 MiB) valid PDFs: three cycles per fixture. Unchanged witness assertions passed; every same-byte atomic replacement was rejected. Capture/assert/replacement checks were 0-2 ms because POSIX uses the existing bounded sample witness. This is decisive negative evidence for automatic full-content replacement approval; the guard remains intact.
+- Existing focused path checks after the exact-path source change: 4 files and 91 tests passed, covering path encoding, open-path grants, working-copy handling, and recent-file identity. Electron build passed.
+- Hidden macOS Electron #519 probe with `.devkit/analysis/p8-e17-20260911/report exact.pdf`: exact path opened, native page rotation returned `success:true`, Save returned `true`, reopen returned the same exact `originalPath`, and qpdf validation passed. A filename ending in a literal trailing space is rejected by the supported-extension gate before open, so that narrower case remains a path-policy gap.
+- Hidden macOS Electron native page-ops insertion through the real `pageOps.insertFile` IPC and automation file grant accepted the transparent PNG and produced a qpdf-valid two-page working copy. The renderer automation snapshot remained at one page after the direct native mutation, so renderer state synchronization is handed to owner `03fb9179`, not changed here.
+- Existing selected-format/rollback export coverage: 6 Electron unit files and 149 tests passed (`imageExportIpc`, image export, DjVu export paths/PDF export/compact export, and page-ops IPC handlers). Native dialog interception is not available in the hidden package, so no false claim is made for a native picker dialog journey.
 
 ## Issue dispositions
 
@@ -40,7 +44,7 @@
 - #355 NPDF-4: browser number-tree support is already landed in `0756ecb3c`; this lane did not duplicate the browser caller change.
 - #356 NPDF-5: browser label preservation is already landed in `945451192`; this lane did not duplicate the browser caller change.
 - #357 NPDF-7: native canonical qpdf-name handling is already landed in `7aa34b221`; large-file annotation acceptance remains with the annotation owner.
-- #358 IM-1: source fallback is fixed in `175ad3a53`. Production macOS combine accepted generated BMP, GIF, and WebP through the real file-grant/open batch route, preserving page order and dimensions. Desktop insert still needs the picker/drop injection path; packaged OS acceptance remains open.
+- #358 IM-1: source fallback is fixed in `175ad3a53`. Production macOS combine accepted generated BMP, GIF, and WebP through the real file-grant/open batch route, preserving page order and dimensions. Native page-ops image insertion also produced a valid two-page working copy; renderer post-mutation page-count refresh and picker/drop UI injection remain open.
 - #359 IM-2: already landed in `5e9cc6120`. Native PNG variant tests and fresh browser WASM/image metadata/export checks passed, plus the desktop PNG control. Packaged OS acceptance remains open.
 - #360 IM-3: already landed in `573e5062f`. Native tRNS tests and fresh browser/image export checks passed; the desktop transparent PNG control was qpdf-valid and rendered at the expected size. Exact cross-engine pixel-bucket parity remains open.
 - #363 IM-6: already landed in `db08f8f46`. Native catalog, focused Electron assembler, browser page-ops, and native save/continuation integration checks passed; multi-request production acceptance remains open.
@@ -55,7 +59,7 @@
 - #517 LEGACY-E12: already landed in `1fb345c9e`. Existing long multibyte filename coverage is present; the focused unit checks passed. Full native open/edit/save/reopen and packaged Windows acceptance remain open.
 - #558 LEGACY-E07-ACCEPTANCE: already qualified by `0250054e4`; source and test remain on current main. The configured Electron mixed-size runtime acceptance was not rerun.
 - #518 LEGACY-E16: negative POSIX decision recorded. Exact 65 MiB and 513 MiB valid fixtures completed three same-byte atomic-replacement cycles each; every replacement was rejected and unchanged witnesses passed within the 12,000 ms ceiling. POSIX uses sample-only capture, so automatic full-content approval is not safe. Windows cycles, cancellation gates, and full memory/read-volume instrumentation remain open.
-- #519 LEGACY-E17: current exact-first path implementation is present. Focused path encoding, exact trailing-whitespace path, recent-file identity, save-witness, and native save integration checks passed. The requested POSIX Electron open/reopen journey and full save/recovery collision matrix remain open.
+- #519 LEGACY-E17: exact ordinary POSIX path acceptance is qualified in hidden Electron. `report exact.pdf` opened, edited, saved, qpdf-validated, and reopened with the exact path retained. Literal trailing-space filenames remain rejected by the supported-extension policy, and the full save/recovery collision matrix remains open.
 
 - #361 IM-4: source-boundary reset is already landed in `01e2d0df6`; the native catalog code was not changed here.
 - #362 IM-5: unread-label preservation is already landed in `d57770025`; the compact-range reopen assertion still exposes a browser state representation gap, reported to the coordinator without independent browser edits.
@@ -64,4 +68,4 @@
 
 ## Gaps and processes
 
-The remaining gaps are browser caller/state handling for compact label representation, desktop image insertion picker/drop, exact browser/native pixel parity, packaged OS checks, #518 Windows/cancellation instrumentation, the POSIX #519 Electron open/reopen journey, selected-format/rollback Electron journeys, and the headless page-insert dialog path in the compact-label journey. No Electron, native full-build, or other long-lived process was left running by this lane. No hosted CI, release, issue closure, or Project status change was performed.
+The remaining gaps are browser caller/state handling for compact label representation, renderer refresh after direct image insertion, desktop image picker/drop UI injection, exact browser/native pixel parity, packaged OS checks, #518 Windows/cancellation instrumentation, literal trailing-space extension policy, the full #519 save/recovery collision matrix, selected-format/rollback native dialog journeys, and the headless page-insert dialog path in the compact-label journey. No Electron, native full-build, or other long-lived process was left running by this lane. No hosted CI, release, issue closure, or Project status change was performed.
