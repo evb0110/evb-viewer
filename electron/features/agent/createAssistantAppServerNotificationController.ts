@@ -611,14 +611,17 @@ export function createAssistantAppServerNotificationController(options: IAssista
             if (chatSession.provider !== 'codex') {
                 continue;
             }
-            options.supersedeSessionTurn(chatSession);
+            if (isAssistantTurnActive(chatSession.turnOwner)) {
+                const generation = chatSession.turnOwner.generation;
+                options.errorSessionTurn(chatSession, generation, message);
+                options.reconcileFailedTurnMessages(chatSession, message);
+                chatSession.lastError = message;
+                options.sessionStore.recordSessionSnapshot(chatSession);
+            } else {
+                options.supersedeSessionTurn(chatSession);
+            }
         }
         options.codexProviderRuntime.runtimeState = 'error';
-        if (session) {
-            options.errorSessionTurn(session, session.turnOwner.generation, message);
-            session.lastError = message;
-            options.sessionStore.recordSessionSnapshot(session);
-        }
         options.codexProviderRuntime.lastError = message;
         options.publishAssistantEvent({
             type: 'error',
