@@ -28,7 +28,11 @@ import type {
     IScanCleanupNormalizedRect,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/geometry';
-import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
+import {
+    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+    SCAN_CLEANUP_MARGIN_MAX_MM,
+} from '@contracts/scan-cleanup/geometry';
 import {
     consumeScanCleanupPages,
     consumeScanCleanupVertices,
@@ -475,7 +479,7 @@ function decodePageOverride(
     const manualSplit = value.manualSplit === null
         ? null
         : {
-            xNormalized: decodeNormalizedValue(value.manualSplit.xNormalized, 'manual split x'),
+            xNormalized: decodeManualSplitValue(value.manualSplit.xNormalized),
             rotationDegrees: decodeGeometryRotation(value.manualSplit.rotationDegrees, rotationDegrees, 'manual split'),
         };
     const manualContentBoxes = decodeOutputMap(
@@ -611,6 +615,14 @@ function decodeScanCleanupPageRotation(
 function decodeNormalizedValue(value: unknown, label: string) {
     const decoded = decodeFiniteNumber(value, label);
     if (decoded < 0 || decoded > 1) throw new Error(`invalid scan-cleanup ${label}`);
+    return decoded;
+}
+
+function decodeManualSplitValue(value: unknown) {
+    const decoded = decodeFiniteNumber(value, 'manual split x');
+    if (decoded < SCAN_CLEANUP_MANUAL_SPLIT_MIN || decoded > SCAN_CLEANUP_MANUAL_SPLIT_MAX) {
+        throw new Error('invalid scan-cleanup manual split x: outside the safe cutter interval');
+    }
     return decoded;
 }
 

@@ -6,6 +6,10 @@ import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
 } from '@contracts/electronApiScanCleanup';
+import {
+    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+} from '@contracts/scan-cleanup/geometry';
 
 export function scanCleanupAnalysisWidth(
     metadata: Pick<IScanCleanupPreviewPageMetadata, 'rotationDegrees'>,
@@ -16,11 +20,11 @@ export function scanCleanupAnalysisWidth(
 }
 
 export function scanCleanupCutterRatio(cutterXPx: number, analysisWidth: number) {
-    return Math.min(0.98, Math.max(0.02, cutterXPx / Math.max(1, analysisWidth)));
+    return Math.min(SCAN_CLEANUP_MANUAL_SPLIT_MAX, Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, cutterXPx / Math.max(1, analysisWidth)));
 }
 
 export function scanCleanupCutterXFromRatio(ratio: number, analysisWidth: number) {
-    return Math.min(0.98, Math.max(0.02, ratio)) * Math.max(1, analysisWidth);
+    return Math.min(SCAN_CLEANUP_MANUAL_SPLIT_MAX, Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, ratio)) * Math.max(1, analysisWidth);
 }
 
 export function resolveNormalizedManualSplitX(
@@ -36,7 +40,7 @@ export function normalizeManualSplitX(
     rotationDegrees: IScanCleanupPreviewPageMetadata['rotationDegrees'],
 ): IScanCleanupNormalizedSplit {
     return {
-        xNormalized: Math.min(1, Math.max(0, cutterXPx / Math.max(1, analysisWidth))),
+        xNormalized: scanCleanupCutterRatio(cutterXPx, analysisWidth),
         rotationDegrees,
     };
 }

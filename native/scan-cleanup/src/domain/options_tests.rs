@@ -1,7 +1,7 @@
 use super::{
     CleanupOptions, DespeckleLevel, ManualContentBoxes, ManualZones, MarginsMm, NormalizedRect,
-    NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode, PageAlignment,
-    PictureZoneLayer, PlacementAnchor, PlacementAnchors, PlacementOverrides,
+    NormalizedSplit, NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode,
+    PageAlignment, PictureZoneLayer, PlacementAnchor, PlacementAnchors, PlacementOverrides,
 };
 use crate::domain::geometry::PageHalf;
 use scan_primitives::Rect;
@@ -59,6 +59,33 @@ fn page_alignment_covers_all_nine_anchor_positions() {
     assert_eq!(PageAlignment::BottomLeft.offset(width, height), (0, 30));
     assert_eq!(PageAlignment::BottomCenter.offset(width, height), (10, 30));
     assert_eq!(PageAlignment::BottomRight.offset(width, height), (20, 30));
+}
+
+#[test]
+fn manual_split_validation_uses_the_safe_cutter_interval() {
+    for x in [0.0, 0.019, 0.981, 1.0] {
+        let options = CleanupOptions {
+            manual_split_x: Some(NormalizedSplit {
+                x,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..CleanupOptions::default()
+        };
+        assert!(
+            options.validate().is_err(),
+            "manual split x={x} was accepted"
+        );
+    }
+    for x in [0.02, 0.5, 0.98] {
+        let options = CleanupOptions {
+            manual_split_x: Some(NormalizedSplit {
+                x,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..CleanupOptions::default()
+        };
+        options.validate().unwrap();
+    }
 }
 
 #[test]

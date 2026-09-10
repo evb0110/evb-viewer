@@ -19,6 +19,10 @@ import {
     scanCleanupPreferenceRecord,
 } from '@contracts/scanCleanupSettings';
 import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {
+    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+} from '@contracts/scan-cleanup/geometry';
 
 // Version 1 is retained for documents saved before normalized geometry shipped.
 // Expiry 2027-07: remove after the first release whose minimum supported upgrade
@@ -141,6 +145,13 @@ function normalizedValue(value: unknown) {
         : null;
 }
 
+function migratedManualSplitValue(value: unknown) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    return Math.min(SCAN_CLEANUP_MANUAL_SPLIT_MAX, Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, value));
+}
+
 function migrateManualSplit(
     value: unknown,
     rotationDegrees: TScanCleanupPageRotation,
@@ -164,14 +175,34 @@ function migrateManualSplit(
         };
     }
     const stored = scanCleanupPreferenceRecord(value);
-    const xNormalized = normalizedValue(stored?.xNormalized ?? stored?.x);
+    const rawXNormalized = stored?.xNormalized ?? stored?.x;
+    const xNormalized = migratedManualSplitValue(rawXNormalized);
     return {
         value: xNormalized !== null
             && decodeRotation(stored?.rotationDegrees ?? stored?.rotation) === rotationDegrees ? {
                 xNormalized,
                 rotationDegrees,
             } : null,
-        legacy: false,
+        legacy: xNormalized !== null && xNormalized !== rawXNormalized,
+    };
+}
+
+export function migrateScanCleanupPageOverrideV1(value: unknown) {
+    const stored = scanCleanupPreferenceRecord(value);
+    const rotationDegrees = decodeRotation(stored?.rotationDegrees ?? stored?.rotation);
+    if (!stored || rotationDegrees === null) {
+        return {
+            value,
+            migratedLegacyGeometry: false,
+        };
+    }
+    const manualSplit = migrateManualSplit(stored.manualSplit ?? stored.manualSplitX, rotationDegrees, null);
+    return {
+        value: {
+            ...stored,
+            manualSplit: manualSplit.value,
+        },
+        migratedLegacyGeometry: manualSplit.legacy,
     };
 }
 

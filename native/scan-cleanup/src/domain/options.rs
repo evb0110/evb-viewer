@@ -227,6 +227,8 @@ const MANUAL_ZONE_MAX: usize = 256;
 const POLYGON_POINT_MAX: usize = 2_048;
 const MANUAL_ZONE_POINT_MAX: usize = 8_192;
 const POLYGON_EPSILON: f64 = 1e-9;
+pub const MANUAL_SPLIT_MIN: f64 = 0.02;
+pub const MANUAL_SPLIT_MAX: f64 = 0.98;
 /// Complements computed as `1 - x` in a different f64 rounding order can
 /// overshoot 1.0 by ~1e-16; a sub-nanometer tolerance rejects real geometry
 /// errors while accepting float noise.
@@ -624,11 +626,13 @@ impl CleanupOptions {
         }
         if let Some(split) = self.manual_split_x {
             if !split.x.is_finite()
-                || !(0.0..=1.0).contains(&split.x)
+                || !(MANUAL_SPLIT_MIN..=MANUAL_SPLIT_MAX).contains(&split.x)
                 || split.rotation != self.rotation
             {
                 return Err(
-                    "Manual split must be normalized and authored under the page rotation".into(),
+                    format!(
+                        "Manual split x must be between {MANUAL_SPLIT_MIN} and {MANUAL_SPLIT_MAX} and authored under the page rotation"
+                    ),
                 );
             }
         }

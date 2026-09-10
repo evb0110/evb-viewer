@@ -480,6 +480,10 @@ import {
     unrotatePreviewRect,
 } from '@app/modules/scan-cleanup/geometry/coordinates';
 import {
+    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+} from '@contracts/scan-cleanup/geometry';
+import {
     type IScanCleanupPreviewFitArea,
     type IScanCleanupPreviewFitPlacement,
     resolvePreviewFitPlacement,
@@ -1170,8 +1174,8 @@ function startCutterDrag(event: PointerEvent) {
 function nudgeCutter(direction: -1 | 1, coarse: boolean) {
     const step = analysisWidth.value * (coarse ? 0.05 : 0.01);
     emit('update:manualSplit', normalizeManualSplitX(Math.min(
-        analysisWidth.value * 0.98,
-        Math.max(analysisWidth.value * 0.02, cutterXPx.value + direction * step),
+        analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+        Math.max(analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MIN, cutterXPx.value + direction * step),
     ), analysisWidth.value, presentationResult.value?.pageMetadata.rotationDegrees ?? 0));
 }
 
