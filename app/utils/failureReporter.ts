@@ -585,6 +585,9 @@ export function createRendererFailureReporter(
 
         const transportLoad = hostedTransportLoad;
         void transportLoad.then((transport) => {
+            // Storage events can be delayed or missed. Re-read persisted consent
+            // at the last synchronous point before admitting the request.
+            syncHostedPreference();
             if (
                 generationAtAdmission !== generation
                 || preference !== 'granted'
