@@ -414,6 +414,10 @@ export class AnnotationStore {
         return this.#foreign.map(record => structuredClone(record));
     }
 
+    restoreForeignAnnotations(foreign: readonly IPdfForeignAnnotationRecord[]) {
+        this.#foreign = foreign.map(record => structuredClone(record));
+    }
+
     getForeignAnnotations() {
         return this.foreign;
     }

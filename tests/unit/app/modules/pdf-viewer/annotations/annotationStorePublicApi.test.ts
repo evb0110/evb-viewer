@@ -146,6 +146,16 @@ const creators: ReadonlyArray<[
 describe('AnnotationStore public API', () => {
     it('captures and restores a complete revision-fenced canonical recovery state', () => {
         const source = new AnnotationStore();
+        const foreign = {
+            kind: 'foreign' as const,
+            pageIndex: 1,
+            subtype: 'Widget',
+            name: 'foreign-widget',
+            objectNumber: 7,
+            generationNumber: 0,
+            reason: 'not app-owned',
+        };
+        source.restoreForeignAnnotations([foreign]);
         const original = source.createNote(note('recovery-note'));
         const deleted = source.createNote(note('deleted-note'));
         const save = source.beginSave();
@@ -172,7 +182,10 @@ describe('AnnotationStore public API', () => {
                 revision: 0,
                 persistedRevision: 0,
             },
-        ], []);
+        ], [{
+            ...foreign,
+            name: 'parsed-baseline-widget',
+        }]);
         const result = restoreCanonicalAnnotationRecovery(restored, recovery);
 
         expect(result.annotationMutationGeneration).toBe(recovery.annotationMutationGeneration);
@@ -190,6 +203,7 @@ describe('AnnotationStore public API', () => {
             text: 'typed but not committed',
             generation: 4,
         });
+        expect(restored.foreign).toEqual([foreign]);
     });
 
     it('rejects malformed and over-sized recovery drafts before admission', () => {
