@@ -382,6 +382,20 @@ export const usePdfTextLayerRenderer = (deps: {
         return getPdfjsTextContent(pdfPage);
     }
 
+    function exposeMarkedContentNames(structure: HTMLElement, textLayerDiv: HTMLElement) {
+        for (const element of structure.querySelectorAll<HTMLElement>('[aria-owns]')) {
+            const ownedIds = element.getAttribute('aria-owns')?.split(/\s+/u).filter(Boolean) ?? [];
+            const text = ownedIds
+                .map(id => textLayerDiv.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent ?? '')
+                .join(' ')
+                .replace(/\s+/gu, ' ')
+                .trim();
+            if (text && !element.hasAttribute('aria-label')) {
+                element.setAttribute('aria-label', text);
+            }
+        }
+    }
+
     function getCurrentTime() {
         return typeof performance !== 'undefined'
             ? performance.now()
@@ -930,6 +944,7 @@ export const usePdfTextLayerRenderer = (deps: {
                     && !signal?.aborted
                 ) {
                     structTreeLayer.updateTextLayer();
+                    exposeMarkedContentNames(structTreeDom, textLayerDiv);
                     const structureHost = textLayerDiv.closest<HTMLElement>('.page_container')
                         ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
                     structureHost?.append(structTreeDom);
