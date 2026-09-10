@@ -1,0 +1,21 @@
+electron/features/djvu/main/pdfExport.ts
+  s_928b0838758268::t_5b477840aae02b 124,697-700,1444,1456-1458,1460,1492
+tests/unit/electron/djvuPdfExport.test.ts
+  s_928b0838758268::t_5b477840aae02b 1132-1134,1140-1143,1147-1152,1180-1182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6d638ae53cb161fd651dd93d5f342a83827a0e69",
+  "prompts": {},
+  "sessions": {
+    "s_928b0838758268": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ae7-c2a1-7fa1-a124-aa620dd50751",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
