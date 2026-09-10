@@ -1,0 +1,21 @@
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom.ts
+  s_cb9bc3b5081da7::t_7e37142aeb92d2 37-42
+tests/unit/app/composables/pdfHorizontalScrollClamp.test.ts
+  s_cb9bc3b5081da7::t_7e37142aeb92d2 6,9-30,32-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2834e20c5b2f8b1a1d97c1d1c6fb4c8fa25684a4",
+  "prompts": {},
+  "sessions": {
+    "s_cb9bc3b5081da7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ad7-1eec-7c70-87e1-8a1e79e25b83",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
