@@ -103,6 +103,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('agent-assistant-service');
 const ASSISTANT_TURN_CANCELLED_ERROR = 'Assistant turn was canceled before provider setup completed.';
+const CLAUDE_CONTEXT_UNAVAILABLE_ERROR = 'Claude cannot continue this chat because its provider context is unavailable. Start a new chat to continue.';
 
 class AssistantTurnSupersededError extends Error {
     constructor() {
@@ -702,7 +703,10 @@ async function ensureClaudeAssistantSession(
             logger.warn(`Failed to close Claude assistant session for settings change: ${getErrorMessage(error)}`);
         });
         session.claudeSession = undefined;
-        session.providerThreadId = null;
+    } else if (session.messages.length > 0 && !session.providerThreadId) {
+        // Display history alone cannot recreate hidden preset instructions,
+        // assistant turns, tool history, or image content for Claude.
+        throw new Error(CLAUDE_CONTEXT_UNAVAILABLE_ERROR);
     }
     claudeProviderRuntime.runtimeState = 'starting';
     delete claudeProviderRuntime.lastError;
@@ -734,6 +738,7 @@ async function ensureClaudeAssistantSession(
         model: session.model,
         effort: session.effort,
         speedMode: session.speedMode,
+        resumeSessionId: session.providerThreadId,
         mcpServerName: ASSISTANT_MCP_SERVER_NAME,
         mcpServerUrl: descriptor.url,
         mcpToken,
@@ -889,7 +894,6 @@ export async function sendAgentAssistantMessage(
                         logger.warn(`Failed to close superseded Claude assistant session: ${getErrorMessage(closeError)}`);
                     });
                     session.claudeSession = undefined;
-                    session.providerThreadId = null;
                 }
                 if (error instanceof AssistantTurnSupersededError) {
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);

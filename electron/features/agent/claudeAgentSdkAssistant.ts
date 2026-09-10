@@ -81,6 +81,7 @@ export interface IClaudeAgentAssistantSessionOptions {
     model: string;
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
+    resumeSessionId?: string | null;
     mcpServerName: string;
     mcpServerUrl: string;
     mcpToken: string;
@@ -468,6 +469,7 @@ export class ClaudeAgentAssistantSession {
                 effort: this.currentEffort,
                 ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
                 ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
+                ...(this.options.resumeSessionId ? { resume: this.options.resumeSessionId } : {}),
                 env: {
                     ...process.env,
                     CLAUDE_AGENT_SDK_CLIENT_APP: `evb-viewer/${app.getVersion()}`,
@@ -490,7 +492,10 @@ export class ClaudeAgentAssistantSession {
                 },
                 settingSources: [],
                 includePartialMessages: true,
-                persistSession: false,
+                // The provider-owned transcript is the only lossless way to carry
+                // hidden preset instructions, assistant replies, tool history, and
+                // images into a replacement query or a process restart.
+                persistSession: true,
                 strictMcpConfig: true,
                 canUseTool,
                 stderr: message => logger.info(`[sdk] ${message.trim()}`),

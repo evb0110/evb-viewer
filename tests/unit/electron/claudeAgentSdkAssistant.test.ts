@@ -368,10 +368,45 @@ describe('claudeAgentSdkAssistant', () => {
         await session.sendMessage('Hello', [], 'opus');
         const queryOptions = sdkMocks.query.mock.calls[0]?.[0]?.options;
         expect(queryOptions?.mcpServers?.evb_viewer_embedded).toMatchObject({timeout: 300_000});
+        expect(queryOptions?.persistSession).toBe(true);
         const closePromise = session.close();
         expect(fakeQuery.close).toHaveBeenCalledTimes(1);
 
         await expect(closePromise).resolves.toBeUndefined();
+    });
+
+    it('resumes the provider-owned transcript when a replacement query is created', async () => {
+        const fakeQuery = new FakeClaudeQuery();
+        sdkMocks.query.mockReturnValue(fakeQuery);
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'medium',
+            speedMode: 'fast',
+            resumeSessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted: vi.fn(),
+                onError: vi.fn(),
+            },
+        });
+
+        await session.sendMessage('Continue', [], 'opus');
+
+        expect(sdkMocks.query).toHaveBeenCalledWith(expect.objectContaining({options: expect.objectContaining({
+            resume: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            persistSession: true,
+        })}));
     });
 
     it('retires a query when interruption fails before accepting another turn', async () => {
