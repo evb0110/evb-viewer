@@ -1045,7 +1045,8 @@ describe('documentRevisionStore', () => {
         expect(() => assertWorkingCopyMutationAllowed(workingPath))
             .toThrow('copy-back failed despite journal failure');
         expect(() => clearWorkingCopySyncRequired(workingPath)).not.toThrow();
-        expect(() => assertWorkingCopyMutationAllowed(workingPath)).not.toThrow();
+        expect(() => assertWorkingCopyMutationAllowed(workingPath))
+            .toThrow('copy-back failed despite journal failure');
 
         vi.doUnmock('@electron/file-access/documentRevisionSidecar');
     });

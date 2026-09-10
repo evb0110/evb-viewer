@@ -543,13 +543,14 @@ export function markWorkingCopySyncRequired(workingCopyPath: string, reason: str
 
 export function clearWorkingCopySyncRequired(workingCopyPath: string) {
     const queueKey = getRevisionQueueKey(workingCopyPath);
-    workingCopySyncRequired.delete(queueKey);
-    workingCopySyncRequiredJournalReadFailures.delete(queueKey);
     try {
         clearWorkingCopySyncRequiredJournalEntry(workingCopyPath);
     } catch (error) {
         log.debug(`Failed to clear working-copy sync-required journal entry: ${getErrorMessage(error)}`);
+        return;
     }
+    workingCopySyncRequired.delete(queueKey);
+    workingCopySyncRequiredJournalReadFailures.delete(queueKey);
 }
 
 export function onWorkingCopyRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {
