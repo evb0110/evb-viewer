@@ -610,8 +610,7 @@ export function createDocumentOpenFlow(
         try {
             const documentOpen = getDocumentOpenCapability();
             const normalizedPaths = paths
-                .map((path) => path.trim())
-                .filter((path) => path.length > 0)
+                .filter((path) => path.trim().length > 0)
                 .map(path => parseDocumentRef(path))
                 .filter((path): path is TDocumentRef => path !== null);
 
