@@ -171,6 +171,16 @@ describe('check-build-warnings', () => {
         });
     });
 
+    it.each([
+        '\u001B[31mWARN\u001B[39m unexpected colored WARN warning',
+        '\u001B[31m[warn]\u001B[39m unexpected colored consola warning',
+    ])('rejects colored unknown warning headers', async (header) => {
+        await expect(runWarningCheck(`${header}\n`)).rejects.toMatchObject({
+            code: 1,
+            stderr: expect.stringContaining('Unknown warnings found'),
+        });
+    });
+
     it('rejects unexpected continuation lines in otherwise allowlisted warning blocks', async () => {
         await expect(runWarningCheck([
             '[warn] Could not fetch from `https://api.fontshare.com/v2/fonts`. Will retry in `1000ms`. `3` retries left.',

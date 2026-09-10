@@ -156,6 +156,14 @@ describe('worktrees prune', () => {
             action: 'remove',
             reason: 'completed target merged into origin/main',
         });
+        expect(classifyWorktree({
+            ...base,
+            missing: true,
+            mergedInto: [],
+        })).toEqual({
+            action: 'remove',
+            reason: 'targeted stale registration with no live owner',
+        });
     });
 
     it('defaults to a dry run against origin/main and accumulates --into refs', () => {

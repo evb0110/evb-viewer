@@ -29,6 +29,9 @@ that works in this repository, including orchestrators that drive other agents.
   A live owner, or an owner probe that cannot inspect a process running as the
   current agent user, keeps the target. It never deletes branches,
   the primary checkout, dirty trees, or the tree containing the current directory.
+  A target whose directory is already missing follows a separate stale-registration
+  path and uses Git's forced registration removal only after the same receipt and
+  ownership checks pass. The branch ref remains intact.
 - Worktrees created outside the checkout, such as
   `/home/ubuntu/agent-worktrees/<key>`, follow the same lifecycle. The creator
   records the task owner and removes the worktree after completion with the

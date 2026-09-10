@@ -3,6 +3,7 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
+import {createServer} from 'node:http';
 import {
     afterEach,
     describe,
@@ -12,12 +13,14 @@ import {
 import {
     clearSessionStarting,
     getSessionStartingInfo,
+    isSessionRunning,
     markSessionStarting,
     recordSessionStartingAttempt,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     electronUserDataPath,
     sessionDir,
+    sessionFilePath,
     sessionStartingFilePath,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
@@ -84,5 +87,44 @@ describe('electron run session artifacts', () => {
         });
 
         clearSessionStarting();
+    });
+
+    it.each([
+        'headers',
+        'body',
+    ])('bounds readiness when the controller stalls during %s', async (stallStage) => {
+        resetTestSession();
+        const server = createServer((_request, response) => {
+            if (stallStage === 'body') {
+                response.writeHead(200, {'content-type': 'application/json'});
+                response.write('{"success":');
+                return;
+            }
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => resolve());
+        });
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+            server.close();
+            throw new Error('readiness fixture did not expose a TCP port');
+        }
+        mkdirSync(sessionDir(), {recursive: true});
+        writeFileSync(sessionFilePath(), JSON.stringify({
+            port: address.port,
+            pid: process.pid,
+            cdpPort: 39202,
+            electronPid: null,
+            nuxtPid: null,
+            nuxtPort: 3235,
+        }));
+        const startedAt = Date.now();
+        try {
+            await expect(isSessionRunning(testSessionName, AbortSignal.timeout(50))).resolves.toBe(false);
+            expect(Date.now() - startedAt).toBeLessThan(1000);
+        } finally {
+            await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+        }
     });
 });

@@ -498,8 +498,21 @@ export async function pruneWorktrees(options) {
             continue;
         }
         if (worktree.missing) {
-            removed.push(worktree.path);
-            console.log(`forgot ${worktree.path} (directory already gone)`);
+            try {
+                // A missing worktree cannot use the normal non-force path. Git's
+                // force flag only discards this stale registration here, and it
+                // does not delete the preserved branch ref.
+                git([
+                    'worktree',
+                    'remove',
+                    '--force',
+                    worktree.path,
+                ]);
+                removed.push(worktree.path);
+                console.log(`forgot ${worktree.path} (directory already gone)`);
+            } catch (error) {
+                console.error(`failed to forget ${worktree.path}: ${getCliErrorMessage(error)}`);
+            }
             continue;
         }
         const sizeKiB = directorySizeKiB(worktree.path);
