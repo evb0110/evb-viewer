@@ -1,0 +1,25 @@
+electron/features/djvu/main/djvuArtifactManifest.ts
+  s_c77dafbc922e67::t_6eb8bc690fe342 41-47,62,228,230-236,245-282,407-408,411-414,470,500
+  s_c77dafbc922e67::t_0246cecb8db2ba 241-244
+electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts
+  s_c77dafbc922e67::t_6eb8bc690fe342 54-57,242,263-264,266,347-350
+  s_c77dafbc922e67::t_020f02a31ea735 53
+electron/features/djvu/main/compactDjvuCheckpoint.ts
+  s_c77dafbc922e67::t_6eb8bc690fe342 16,43-49,57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8089d770260908a24643f586d9a31c670125d2d1",
+  "prompts": {},
+  "sessions": {
+    "s_c77dafbc922e67": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a089b4-e585-7062-b3fd-12c8dbec7b59",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
