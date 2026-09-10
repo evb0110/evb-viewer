@@ -867,7 +867,12 @@ function emitManualSkew(value: number | null | undefined) {
 }
 
 function emitAutoDewarpDepth(value: number | null | undefined) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (
+        typeof value === 'number'
+        && Number.isFinite(value)
+        && value >= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
+        && value <= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
+    ) {
         updateDocument('autoDewarpDepth', value);
     }
 }
