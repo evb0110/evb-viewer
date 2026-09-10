@@ -47,7 +47,7 @@ async function createRotatedSourcePdf(
     return sourcePdf.save();
 }
 
-async function createSourcePdfWithPrintableSquare() {
+async function createSourcePdfWithPrintableSquare(flags = 4) {
     const sourcePdf = await PDFDocument.create();
     const page = sourcePdf.addPage([
         100,
@@ -78,7 +78,7 @@ async function createSourcePdfWithPrintableSquare() {
             40,
             50,
         ],
-        F: 4,
+        F: flags,
         AP: {N: appearanceRef},
     }));
     page.node.addAnnot(annotationRef);
@@ -115,6 +115,22 @@ describe('pdf print layout', () => {
                 ][index]
             )) ?? false;
         })).toBe(true);
+    });
+
+    it('does not flatten NoView annotations into composed pages', async () => {
+        const sourcePdfData = await createSourcePdfWithPrintableSquare(4 | 32);
+
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [1],
+            viewMode: 'single',
+            orientation: 'landscape',
+        });
+
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.context.enumerateIndirectObjects().some(([
+            , object,
+        ]) => object instanceof PDFStream
+            && object.dict.lookupMaybe(PDFName.of('BBox'), PDFArray))).toBe(false);
     });
 
     it('uses the displayed dimensions of a rotated page for single-page printing', async () => {
