@@ -252,6 +252,7 @@ ensureAtLeastOneTab();
 const { t } = useTypedI18n();
 const {
     settings: appSettings,
+    save: saveAppSettings,
     updateSetting,
 } = useSettings();
 const {
@@ -375,6 +376,7 @@ const {
 });
 useNativeWindowCloseHandshake({
     documentSessionsByTabId,
+    flushSettings: saveAppSettings,
     requestDirtyCloseConfirmation: requestDirtyWindowCloseConfirmation,
     tabs,
 });

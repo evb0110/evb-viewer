@@ -69,6 +69,7 @@ function createSession(dirty: boolean, saveResult = true, initiallyUnmounted = f
 
 function createHarness(options: {
     decision?: TWindowCloseDecision;
+    flushSettings?: () => Promise<boolean>;
     sessions: Record<string, IWorkspaceDocumentController>;
     tabs: ITab[];
 }) {
@@ -89,6 +90,7 @@ function createHarness(options: {
     scopes.push(scope);
     scope.run(() => useNativeWindowCloseHandshake({
         documentSessionsByTabId,
+        ...(options.flushSettings ? {flushSettings: options.flushSettings} : {}),
         requestDirtyCloseConfirmation,
         systemCapability,
         tabs,
@@ -112,6 +114,40 @@ afterEach(() => {
 });
 
 describe('useNativeWindowCloseHandshake', () => {
+    it('flushes pending ordinary settings before approving a clean close', async () => {
+        const flushSettings = vi.fn(async () => true);
+        const tab = {
+            ...createTab('clean-settings'),
+            isDirty: false,
+        };
+        const {session} = createSession(false);
+        const harness = createHarness({
+            flushSettings,
+            sessions: {clean: session},
+            tabs: [tab],
+        });
+
+        await expect(harness.closeHandler({requestId: requireRequestId('close-settings')})).resolves.toBe('save');
+        expect(flushSettings).toHaveBeenCalledOnce();
+    });
+
+    it('withholds close when ordinary settings cannot flush', async () => {
+        const flushSettings = vi.fn(async () => false);
+        const tab = {
+            ...createTab('failed-settings'),
+            isDirty: false,
+        };
+        const {session} = createSession(false);
+        const harness = createHarness({
+            flushSettings,
+            sessions: {clean: session},
+            tabs: [tab],
+        });
+
+        await expect(harness.closeHandler({requestId: requireRequestId('close-settings-failed')})).resolves.toBe('cancel');
+        expect(flushSettings).toHaveBeenCalledOnce();
+    });
+
     it('allows a clean workspace to close without opening the dirty dialog', async () => {
         const tab = {
             ...createTab('clean'),

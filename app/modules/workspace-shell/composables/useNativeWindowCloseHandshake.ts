@@ -19,6 +19,7 @@ type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 interface IUseNativeWindowCloseHandshakeOptions {
     documentSessionsByTabId: TReadableRef<Record<string, IWorkspaceDocumentController>>;
     requestDirtyCloseConfirmation: () => Promise<TWindowCloseDecision>;
+    flushSettings?: () => Promise<boolean>;
     systemCapability?: Pick<ISystemCapability, 'onWindowCloseRequest'>;
     tabs: TReadableRef<ITab[]>;
     workspaceWaitTimeoutMs?: number;
@@ -69,6 +70,9 @@ export const useNativeWindowCloseHandshake = (
 
         closeRequestInFlight = true;
         try {
+            if (options.flushSettings && !await options.flushSettings()) {
+                return 'cancel';
+            }
             const dirtyTabs = getDirtyTabs();
             if (dirtyTabs.length === 0) {
                 await nextTick();
@@ -84,6 +88,10 @@ export const useNativeWindowCloseHandshake = (
                 if (!await saveTab(tab)) {
                     return 'cancel';
                 }
+            }
+
+            if (options.flushSettings && !await options.flushSettings()) {
+                return 'cancel';
             }
 
             return getDirtyTabs().length === 0 ? 'save' : 'cancel';
