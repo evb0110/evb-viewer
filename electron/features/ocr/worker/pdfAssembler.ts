@@ -50,6 +50,7 @@ const INVISIBLE_TEXT_RENDERING_RE = /(?:^|\s)3(?:\.0+)?\s+Tr\b/;
 const TEXT_RENDERING_MODE_RE = /(^|\s)[0-7](?:\.0+)?\s+Tr\b/gm;
 const TEXT_OBJECT_BEGIN_RE = /\bBT\b/g;
 const TESSERACT_HIDDEN_TEXT_OBJECT_RE = /BT[\s\S]*?(?:^|\s)3(?:\.0+)?\s+Tr\b[\s\S]*?ET\s*/gm;
+const TEXT_SHOW_OPERATOR_RE = /\b(?:Tj|TJ)\b|(?:^|\s)['"](?=\s|$)/m;
 const TESSERACT_EMPTY_TEXT_ONLY_PREAMBLE_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+Q\s*$/;
 const CONTENTS_NAME = PDFName.of('Contents');
 const RESOURCES_NAME = PDFName.of('Resources');
@@ -422,6 +423,23 @@ function isTextOnlyOcrStream(streamText: string, strippedText: string) {
     return strippedText.trim().replace(TESSERACT_EMPTY_TEXT_ONLY_PREAMBLE_RE, '').trim() === '';
 }
 
+function removeSupportedHiddenTextObjects(streamText: string) {
+    let removedText = '';
+    const sanitizedText = streamText.replace(TESSERACT_HIDDEN_TEXT_OBJECT_RE, (textObject) => {
+        const hiddenModeIndex = textObject.search(INVISIBLE_TEXT_RENDERING_RE);
+        const textShowIndex = textObject.search(TEXT_SHOW_OPERATOR_RE);
+        if (hiddenModeIndex < 0 || textShowIndex < hiddenModeIndex) {
+            return textObject;
+        }
+        removedText += textObject;
+        return '';
+    });
+    return {
+        removedText,
+        sanitizedText,
+    };
+}
+
 function removePreviousOcrLayer(page: PDFPage) {
     // Keep pdf-lib until native PDF assembly can merge OCR text Form XObjects
     // while preserving the existing sanitization behavior.
@@ -466,6 +484,30 @@ function removePreviousOcrLayer(page: PDFPage) {
 
         if (!INVISIBLE_TEXT_RENDERING_RE.test(streamText)) {
             keptContentText.push(streamText);
+            continue;
+        }
+
+        const {
+            removedText,
+            sanitizedText,
+        } = removeSupportedHiddenTextObjects(streamText);
+        if (removedText.length > 0) {
+            scanResourceReferences(removedText, 'Tf').names.forEach(name => removedFontNames.add(name));
+            scanResourceReferences(removedText, 'Do').names.forEach(name => removedXObjectNames.add(name));
+            scanResourceReferences(removedText, 'gs').names.forEach(name => removedExtGStateNames.add(name));
+            if (sanitizedText.trim().length === 0) {
+                contents.remove(index);
+                if (contentRef instanceof PDFRef) {
+                    context.delete(contentRef);
+                }
+            } else {
+                const sanitizedRef = context.register(context.flateStream(sanitizedText));
+                contents.set(index, sanitizedRef);
+                if (contentRef instanceof PDFRef) {
+                    context.delete(contentRef);
+                }
+                keptContentText.push(sanitizedText);
+            }
             continue;
         }
 

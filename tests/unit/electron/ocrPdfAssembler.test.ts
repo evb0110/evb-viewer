@@ -187,6 +187,39 @@ async function createPdfWithMixedHiddenTextPreamble(filePath: string) {
     await writeFile(filePath, await pdf.save());
 }
 
+async function createPdfWithImageAndHiddenText(filePath: string, hiddenText: string) {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([
+        220,
+        180,
+    ]);
+    page.drawRectangle({
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 30,
+        color: rgb(0.8, 0.8, 0.8),
+    });
+    const image = await pdf.embedPng(Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+    ));
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontName = page.node.newFontDictionary('MixedOcrFont', font.ref);
+    const imageName = page.node.newXObject('MixedOcrImage', image.ref);
+    const encodedText = font.encodeText(hiddenText).toString();
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream([
+        'q 120 0 0 90 80 45 cm',
+        `${imageName} Do`,
+        'Q',
+        'BT',
+        `3 Tr 1 0 0 1 20 120 Tm ${fontName} 12 Tf ${encodedText} Tj`,
+        'ET',
+        '',
+    ].join('\n'))));
+    await writeFile(filePath, await pdf.save());
+}
+
 async function createPdfWithEscapedImageResourceNames(filePath: string) {
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([
@@ -546,6 +579,36 @@ describe('assembleSearchablePdf', () => {
         expect(countTextOccurrences(extractedText, 'SECOND OCR')).toBe(1);
         expect(extractedText).not.toContain('FIRST OCR');
         expect(extractedText).not.toContain('ORIGINAL OCR');
+    });
+
+    it('removes foreign hidden text from an image-plus-text stream during replacement', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'original.pdf');
+        const ocrPath = join(tempDir, 'ocr.pdf');
+        await createPdfWithImageAndHiddenText(originalPath, 'OLD OCR');
+        await createPdfWithVisibleAndHiddenText(ocrPath, { hiddenText: 'NEW OCR' });
+
+        const outputPath = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                ocrPath,
+            ]]),
+            1,
+            tempDir,
+            'mixed-image-text-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const extractedText = await extractPdfText(outputPath);
+        expect(extractedText).toContain('NEW OCR');
+        expect(extractedText).not.toContain('OLD OCR');
+        const originalMetrics = await renderPdfCanvasFidelityMetrics(originalPath);
+        const outputMetrics = await renderPdfCanvasFidelityMetrics(outputPath);
+        expect(outputMetrics.inkPixelRatio).toBeCloseTo(originalMetrics.inkPixelRatio, 8);
+        expect(outputMetrics.darkPixelRatio).toBeCloseTo(originalMetrics.darkPixelRatio, 8);
     });
 
     it('keeps original page ranges and replaces selected page OCR text', async () => {
