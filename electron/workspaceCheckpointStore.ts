@@ -646,7 +646,7 @@ function buildSourceProvenance(
         if (sourceAuthorizationOwnerId !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint source has no sender-bound authorization');
         }
-        requireOpenPath(tab.sourceRef, sourceAuthorizationOwner!);
+        requireOpenPath(tab.sourceRef, sourceAuthorizationOwner);
         provenance.set(`${tab.workingCopyRef ?? ''}\u0000${tab.sourceRef}`, {
             kind: 'open-grant',
             ownerWebContentsId,
