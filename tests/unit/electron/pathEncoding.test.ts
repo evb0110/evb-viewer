@@ -14,6 +14,7 @@ import {
     it,
 } from 'vitest';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 
 let tempRoot = '';
 
@@ -52,5 +53,10 @@ describe('path encoding recovery', () => {
 
         expect(normalizePossiblyEncodedExistingPath(filePath)).toBe(realpathSync.native(filePath));
         expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+    });
+
+    it('classifies a supported file while preserving trailing filename whitespace', () => {
+        expect(isSupportedOpenPath('/tmp/report.pdf ')).toBe(true);
+        expect(isSupportedOpenPath('/tmp/report.pdf\t')).toBe(true);
     });
 });

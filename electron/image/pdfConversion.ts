@@ -253,7 +253,11 @@ export function isPdfOrImagePath(filePath: string) {
 }
 
 export function isSupportedOpenPath(filePath: string) {
-    return isPdfOrImagePath(filePath) || isDjvuPath(filePath);
+    // Trailing whitespace is a valid POSIX filename character. Keep the path
+    // untouched for filesystem access, but ignore it when classifying the
+    // format suffix.
+    const formatPath = filePath.trimEnd();
+    return isPdfOrImagePath(formatPath) || isDjvuPath(formatPath);
 }
 
 export function buildCombinedPdfOutputPath(inputPaths: string[]) {
