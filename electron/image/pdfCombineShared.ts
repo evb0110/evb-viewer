@@ -579,6 +579,14 @@ export async function createCombinedPdf(
             maxOutputBytes: limits.maxOutputBytes,
             ...(options.onProgress ? {onProgress: options.onProgress} : {}),
             ...(options.signal ? {signal: options.signal} : {}),
+            onTerminationProof: (proof: Promise<boolean>) => {
+                retainStagedInputs = true;
+                void proof.then(proven => {
+                    if (proven) {
+                        void staged.cleanup();
+                    }
+                });
+            },
         };
         const hasDocumentInput = normalizedPaths.some((sourcePath) => {
             const extension = extname(sourcePath).toLowerCase();

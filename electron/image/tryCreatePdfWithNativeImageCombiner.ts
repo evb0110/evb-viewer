@@ -59,6 +59,7 @@ interface INativePdfImageCombineOptions {
     onProgress?: (progress: INativePdfImageCombineProgress) => void;
     signal?: AbortSignal;
     rotationDegrees?: readonly number[];
+    onTerminationProof?: (proof: Promise<boolean>) => void;
 }
 
 type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress';};
@@ -849,6 +850,7 @@ async function runNativePdfImageCombine(
                 );
             const terminationProof = terminationOutcome.then(outcome => outcome.proven);
             retainCleanupUntilTerminationProof?.(terminationProof, childPid, outputPath);
+            options?.onTerminationProof?.(terminationProof);
             void terminationOutcome.then(outcome => settleAfterTermination(request, outcome));
             forceSettleHandle = setTimeout(() => {
                 if (pendingTermination !== request || settled) {
