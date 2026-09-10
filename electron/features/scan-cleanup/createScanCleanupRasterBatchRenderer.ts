@@ -3,6 +3,7 @@ import {
     join,
 } from 'node:path';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {getErrorMessage} from '@electron/utils/error';
 import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {TScanCleanupOpenFile} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
@@ -149,6 +150,11 @@ export function createScanCleanupRasterBatchRenderer(
             await fileSystem.rm(scratch, {
                 force: true,
                 recursive: true,
+            }).catch(error => {
+                input.log(
+                    'warn',
+                    `Scan cleanup could not remove raster batch scratch directory: ${getErrorMessage(error)}`,
+                );
             });
         }
     };
