@@ -1,0 +1,23 @@
+tests/unit/app/platform/browserWorkingCopyService.test.ts
+  s_8a8cc843180a76::t_2bef74c7f166f4 274,299
+  s_8a8cc843180a76::t_32acde27414964 280-284,305-309
+  s_8a8cc843180a76::t_bdafd7523d28cb 272-273,275-279,285-298,300-304,310-325
+app/platform/browser-api/browserWorkingCopyService.ts
+  s_8a8cc843180a76::t_bdafd7523d28cb 44-50,193,232
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4607b414196f6beb3eae42454513be55f3c7a898",
+  "prompts": {},
+  "sessions": {
+    "s_8a8cc843180a76": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088a7-a3b4-74d2-beae-7cc5e1cf9f34",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
