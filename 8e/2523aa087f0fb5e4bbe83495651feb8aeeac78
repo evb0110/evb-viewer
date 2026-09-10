@@ -1,0 +1,31 @@
+app/utils/pdfOutlineHelpers.ts
+  s_729f42abfea2fb::t_c2cada85d2c721 459,487-494
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineToolbarState.test.ts
+  s_729f42abfea2fb::t_dd7fb5986d4911 23,76,224
+  s_729f42abfea2fb::t_c7a44c131cfdde 44-46
+  s_729f42abfea2fb::t_609836ffc4d259 50
+  s_729f42abfea2fb::t_9977168db38457 72
+  s_729f42abfea2fb::t_c2cada85d2c721 42,47-49,51-52,209-213,215-221
+  s_729f42abfea2fb::t_fc881abd399bf2 70,81,214,223
+  s_729f42abfea2fb::t_c0e2da270d8493 43
+  s_729f42abfea2fb::t_b0972d0fbe4288 68-69,71,75,79-80,82,91,222
+  s_729f42abfea2fb::t_872366f8a0098d 225
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_729f42abfea2fb::t_c2cada85d2c721 740-741,743
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8e2523aa087f0fb5e4bbe83495651feb8aeeac78",
+  "prompts": {},
+  "sessions": {
+    "s_729f42abfea2fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088b2-36e2-7810-bbc3-2a02cbcb4b4b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
