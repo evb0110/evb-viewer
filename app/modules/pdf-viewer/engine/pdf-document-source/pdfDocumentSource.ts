@@ -493,6 +493,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     let rangeTransport: PDFDataRangeTransport | null = null;
     let loadingTaskLifecycleKey = '';
+    let cancelPendingOpen: (() => void) | null = null;
     const {
         createRangeReadFailureHandler,
         attachRangeRequestHandler,
@@ -559,6 +560,8 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     }
 
     function supersedeActiveOpen() {
+        cancelPendingOpen?.();
+        cancelPendingOpen = null;
         abortTransport('Failed to abort PDF range transport before opening a new document');
         destroyLoadingTask(
             'PDF loading task destroy rejected before opening a new document',
@@ -567,7 +570,17 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         revokeObjectUrl();
     }
 
-    async function openBlob(src: Blob, version: number) {
+    function createOpenCancellation() {
+        let resolve!: () => void;
+        const promise = new Promise<void>(resolvePromise => {
+            resolve = resolvePromise;
+        });
+        const cancellation = { promise, resolve };
+        cancelPendingOpen = cancellation.resolve;
+        return cancellation;
+    }
+
+    async function openBlob(src: Blob, version: number, cancelled: Promise<void>) {
         const blobSizeError = getBlobSizeError(src);
         if (blobSizeError) {
             throw blobSizeError;
@@ -581,7 +594,13 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             sourceKind: 'blob',
             declaredSize: src.size,
         });
-        const documentOptions = await getPdfjsDocumentOptions();
+        const documentOptions = await Promise.race([
+            getPdfjsDocumentOptions(),
+            cancelled.then(() => null),
+        ]);
+        if (!documentOptions) {
+            return null;
+        }
         logPdfRenderTrace('pdf-document-options-end', {
             version,
             sourceKind: 'blob',
@@ -616,7 +635,11 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         return adaptPdfjsDocument(document, () => task.destroy());
     }
 
-    async function openPath(src: Extract<TPdfSource, {kind: 'path'}>, version: number) {
+    async function openPath(
+        src: Extract<TPdfSource, {kind: 'path'}>,
+        version: number,
+        cancelled: Promise<void>,
+    ) {
         const length = src.size;
         const initialLength = Math.min(RANGE_CHUNK_BYTES, length);
         const tailStart = Math.max(initialLength, length - RANGE_CHUNK_BYTES);
@@ -631,12 +654,18 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         const [
             initialData,
             tailData,
-        ] = await Promise.all([
-            documentFiles.readFileRange(src.path, 0, initialLength),
-            tailStart > initialLength
-                ? documentFiles.readFileRange(src.path, tailStart, length - tailStart)
-                : Promise.resolve(null),
-        ]);
+        ] = await Promise.race([
+            Promise.all([
+                documentFiles.readFileRange(src.path, 0, initialLength),
+                tailStart > initialLength
+                    ? documentFiles.readFileRange(src.path, tailStart, length - tailStart)
+                    : Promise.resolve(null),
+            ]),
+            cancelled.then(() => null),
+        ]) ?? [null, null];
+        if (!initialData) {
+            return null;
+        }
         logPdfRenderTrace('pdf-document-range-preload-end', {
             version,
             sourceKind: 'path',
@@ -649,7 +678,13 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             return null;
         }
         const optionsStartedAt = performance.now();
-        const documentOptions = await getPdfjsDocumentOptions();
+        const documentOptions = await Promise.race([
+            getPdfjsDocumentOptions(),
+            cancelled.then(() => null),
+        ]);
+        if (!documentOptions) {
+            return null;
+        }
         logPdfRenderTrace('pdf-document-options-end', {
             version,
             sourceKind: 'path',
@@ -725,8 +760,20 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
                 return Promise.reject(blobSizeError);
             }
             supersedeActiveOpen();
-            return (src instanceof Blob ? openBlob(src, version) : openPath(src, version))
-                .then(document => document as IPdfDocument | null);
+            const cancellation = createOpenCancellation();
+            return (src instanceof Blob
+                ? openBlob(src, version, cancellation.promise)
+                : openPath(src, version, cancellation.promise))
+                .then(document => {
+                    if (cancelPendingOpen === cancellation.resolve) {
+                        cancelPendingOpen = null;
+                    }
+                    return document as IPdfDocument | null;
+                });
+        },
+        cancelPendingOpen() {
+            cancelPendingOpen?.();
+            cancelPendingOpen = null;
         },
         abortTransport,
         destroyLoadingTask,

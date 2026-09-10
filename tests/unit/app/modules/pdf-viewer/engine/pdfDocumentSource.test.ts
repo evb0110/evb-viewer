@@ -191,6 +191,28 @@ describe('createPdfjsDocumentSourceLoader', () => {
         ])).resolves.toHaveLength(3);
     });
 
+    it('cancels a pending range preload before the replacement is submitted', async () => {
+        const pendingReads = Promise.withResolvers<Uint8Array>();
+        mocks.documentFiles.readFileRange.mockReturnValue(pendingReads.promise);
+        mocks.getDocument.mockReturnValue({
+            destroy: vi.fn(async () => {}),
+            promise: Promise.resolve({numPages: 1}),
+        });
+
+        const loader = createPdfjsDocumentSourceLoader({
+            getRenderVersion: () => 1,
+            onRangeReadFailure: mocks.onRangeReadFailure,
+        });
+
+        const firstOpen = loader.open(createPathSource('/tmp/pending.pdf'), 1);
+        await vi.waitFor(() => expect(mocks.documentFiles.readFileRange).toHaveBeenCalledTimes(2));
+
+        loader.cancelPendingOpen();
+        await expect(loader.open(new Blob(['replacement']), 1)).resolves.toEqual({numPages: 1});
+        await expect(firstOpen).resolves.toBeNull();
+        expect(mocks.getDocument).toHaveBeenCalledOnce();
+    });
+
     it('preserves native tail range offsets above the signed 32-bit boundary', async () => {
         const size = 3_000_000_000;
         const path = '/tmp/large-document.pdf';

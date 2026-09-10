@@ -811,6 +811,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
         pageCache.cleanupAll();
         pageMetricLoads.clear();
+        sourceLoader.cancelPendingOpen();
         sourceLoader.abortTransport('Failed to abort PDF range transport');
 
         if (document) {
@@ -977,6 +978,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function scheduleLoad(isReload = false) {
+        // The lifecycle queue may still be waiting for an older load. Cancel
+        // its pre-submit work before the replacement joins that queue.
+        sourceLoader.cancelPendingOpen();
         const activeScheduledLoadToken = scheduledLoadToken;
         runGuardedTask(() => enqueueLifecycleOperation(async () => {
             if (activeScheduledLoadToken !== scheduledLoadToken) {
@@ -991,6 +995,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function invalidateAndCleanup(reason: string) {
+        sourceLoader.cancelPendingOpen();
         runGuardedTask(() => enqueueLifecycleOperation(async () => {
             await invalidate(reason);
             cleanup();
