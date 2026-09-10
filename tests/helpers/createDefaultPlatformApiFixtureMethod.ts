@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
+import { cast } from '@tests/helpers/cast';
 
 export interface IPlatformApiFixtureEventMethod {
     emit: (payload: unknown) => void;
@@ -88,7 +89,7 @@ export function createDefaultPlatformApiFixtureMethod(
 ) {
     if (descriptor.kind === 'event') {
         const subscribers = new Set<(payload: unknown) => void>();
-        const method = vi.fn((callback: (payload: unknown) => void) => {
+        const method = cast<TPlatformApiFixtureEventFunction & IPlatformApiFixtureEventMethod>(vi.fn((callback: (payload: unknown) => void) => {
             subscribers.add(callback);
             let subscribed = true;
             return () => {
@@ -98,7 +99,7 @@ export function createDefaultPlatformApiFixtureMethod(
                 subscribed = false;
                 subscribers.delete(callback);
             };
-        }) as TPlatformApiFixtureEventFunction & IPlatformApiFixtureEventMethod;
+        }));
         const controls: IPlatformApiFixtureEventMethod = {
             emit: payload => {
                 for (const subscriber of subscribers) {

@@ -1273,7 +1273,7 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.acceptedSource.value).toBeNull();
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.numPages.value).toBe(0);
-        expect(taskDestroy).not.toHaveBeenCalled();
+        expect(taskDestroy).toHaveBeenCalledOnce();
         expect(documentDestroy).toHaveBeenCalledTimes(1);
         expect(range?.abort).toHaveBeenCalledTimes(1);
     });
@@ -1310,7 +1310,7 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.pdfDocument.value).toBeNull();
         expect(documentState.numPages.value).toBe(0);
         expect(documentState.pageMetrics.value).toEqual([]);
-        expect(taskDestroy).not.toHaveBeenCalled();
+        expect(taskDestroy).toHaveBeenCalledOnce();
         await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
     });
 

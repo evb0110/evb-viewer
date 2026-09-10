@@ -95,7 +95,7 @@ describe('worktrees prune', () => {
         };
         expect(classifyWorktree(base)).toEqual({
             action: 'remove',
-            reason: 'merged into origin/main',
+            reason: 'completed target merged into origin/main',
         });
         expect(classifyWorktree({
             ...base,
@@ -119,10 +119,43 @@ describe('worktrees prune', () => {
             action: 'keep',
             reason: 'HEAD not merged into any base ref',
         });
-        expect(classifyWorktree({...base, selectedTarget: false, completedTask: true, ownerStatus: 'absent'})).toEqual({action: 'keep', reason: 'not the selected cleanup target'});
-        expect(classifyWorktree({...base, selectedTarget: true, completedTask: false, ownerStatus: 'absent'})).toEqual({action: 'keep', reason: 'completed-task evidence required'});
-        expect(classifyWorktree({...base, selectedTarget: true, completedTask: true, ownerStatus: 'active', ownerReason: 'live'})).toEqual({action: 'keep', reason: 'live'});
-        expect(classifyWorktree({...base, selectedTarget: true, completedTask: true, ownerStatus: 'absent'})).toEqual({action: 'remove', reason: 'completed target merged into origin/main'});
+        expect(classifyWorktree({
+            ...base,
+            selectedTarget: false,
+            completedTask: true,
+            ownerStatus: 'absent',
+        })).toEqual({
+            action: 'keep',
+            reason: 'not the selected cleanup target',
+        });
+        expect(classifyWorktree({
+            ...base,
+            selectedTarget: true,
+            completedTask: false,
+            ownerStatus: 'absent',
+        })).toEqual({
+            action: 'keep',
+            reason: 'completed-task evidence required',
+        });
+        expect(classifyWorktree({
+            ...base,
+            selectedTarget: true,
+            completedTask: true,
+            ownerStatus: 'active',
+            ownerReason: 'live',
+        })).toEqual({
+            action: 'keep',
+            reason: 'live',
+        });
+        expect(classifyWorktree({
+            ...base,
+            selectedTarget: true,
+            completedTask: true,
+            ownerStatus: 'absent',
+        })).toEqual({
+            action: 'remove',
+            reason: 'completed target merged into origin/main',
+        });
     });
 
     it('defaults to a dry run against origin/main and accumulates --into refs', () => {

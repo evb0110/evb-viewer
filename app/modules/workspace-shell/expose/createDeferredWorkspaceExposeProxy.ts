@@ -273,15 +273,22 @@ export function createDeferredWorkspaceExposeProxy(
             workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
             signal,
         )),
-        handleOpenFileWithResult: async (result: TOpenFileResult) => openQueued({
-            action: 'handleOpenFileWithResult',
-            preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
-            target: buildPendingTabDocumentHint(result),
-        }, async signal => deps.withWorkspace(
-            'handleOpenFileWithResult',
-            workspace => workspace.handleOpenFileWithResult(result),
-            signal,
-        )),
+        handleOpenFileWithResult: async (result: TOpenFileResult) => {
+            const isRecoveryOpen = result.kind === 'pdf' && result.recoveryDirtyBaseline === true;
+            const action = isRecoveryOpen
+                ? 'restoreCheckpointFileWithResult'
+                : 'handleOpenFileWithResult';
+            return openQueued({
+                action,
+                preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
+                ...(isRecoveryOpen ? {preserveDirtyOnFailure: true} : {}),
+                target: buildPendingTabDocumentHint(result),
+            }, async signal => deps.withWorkspace(
+                action,
+                workspace => workspace.handleOpenFileWithResult(result),
+                signal,
+            ));
+        },
         handleCloseFileFromUi: async (options) => {
             const target = createCommandTarget();
             return await withTargetedLoadedWorkspace(

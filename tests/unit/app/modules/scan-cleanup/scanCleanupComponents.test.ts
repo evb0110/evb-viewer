@@ -5796,15 +5796,18 @@ describe('Scan cleanup components', () => {
             '[aria-label="scanCleanup.advanced.autoDewarpDepth"]',
         );
         expect(depth).not.toBeNull();
-        for (const invalidValue of ['0.4', '4.1']) {
+        for (const invalidValue of [
+            '0.4',
+            '4.1',
+        ]) {
             depth!.value = invalidValue;
-            depth!.dispatchEvent(new Event('change', {bubbles: true}));
+            depth!.dispatchEvent(new Event('input', {bubbles: true}));
         }
         await nextTick();
         expect(updateSetting).not.toHaveBeenCalledWith('autoDewarpDepth', expect.anything());
 
         depth!.value = '1.8';
-        depth!.dispatchEvent(new Event('change', {bubbles: true}));
+        depth!.dispatchEvent(new Event('input', {bubbles: true}));
         await nextTick();
         expect(updateSetting).toHaveBeenCalledWith('autoDewarpDepth', 1.8);
     });

@@ -1040,7 +1040,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
         const decision = resolvePdfViewerResidencyDecision({
             isActive: false,
-            isAnySaving: options.isAnySaving?.value === true,
+            isAnySaving: false,
             hasReclaimableDocumentCaches: Boolean(document && typeof document.cleanup === 'function'),
             previousState: viewerResidencyState,
         });

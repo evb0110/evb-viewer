@@ -358,6 +358,11 @@ describe('createWorkspaceExpose', () => {
         expect(deps.zoom.value).toBeCloseTo(0.29, 6);
         expect(deps.effectiveZoom.value).toBeCloseTo(0.29, 6);
         expect(deps.zoomMode.value).toBe('custom');
+
+        // A late viewer layout measurement must not replace the user's custom
+        // display value in the toolbar snapshot.
+        deps.effectiveZoom.value = 2.61;
+        expect(exposed.getToolbarSnapshot().effectiveZoom).toBeCloseTo(0.29, 6);
     });
 
     it('does not jump upward when zooming out from fit below the manual minimum', () => {

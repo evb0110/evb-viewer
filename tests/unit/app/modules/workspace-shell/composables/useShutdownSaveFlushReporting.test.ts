@@ -56,7 +56,9 @@ function createHarness(options: {
             workingCopyPath,
             hasPendingUnsavedChanges,
             saveForExternalRead,
-            flushAdditionalState: options.flushAdditionalState,
+            ...(options.flushAdditionalState === undefined
+                ? {}
+                : {flushAdditionalState: options.flushAdditionalState}),
             systemCapability,
         });
     });

@@ -571,9 +571,8 @@ fn parse_text_box_entry(
             "Imported FreeText rotation is not supported by the canonical text editor".to_string(),
         );
     }
-    let rect =
-        crate::text_box_font::stored_source_rect(document, dict, rect, rotation, page_rotation)
-            .map_err(|error| error.to_string())?;
+    let rect = crate::text_box_font::stored_source_rect(document, dict, rect, rotation)
+        .map_err(|error| error.to_string())?;
     let rect = if dict.has(b"EVBTextGeometry") {
         pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)
     } else {

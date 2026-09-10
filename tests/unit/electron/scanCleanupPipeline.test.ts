@@ -91,6 +91,17 @@ const PPM = Buffer.concat([
     ]),
 ]);
 
+const mrcPageGeometry = {
+    mediaXPoints: 0,
+    mediaYPoints: 0,
+    mediaWidthPoints: 240,
+    mediaHeightPoints: 336,
+    cropXPoints: 0,
+    cropYPoints: 0,
+    cropWidthPoints: 240,
+    cropHeightPoints: 336,
+};
+
 function dpiDetails(
     documentDpi: number | null,
     pages: Array<[number, number, {
@@ -268,6 +279,13 @@ function pdfInfoGeometry(pageCount: number, widthPoints: number, heightPoints: n
 
 function dependencies(
     runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'],
+    pageSize: {
+        widthPoints: number;
+        heightPoints: number
+    } = {
+        widthPoints: 240,
+        heightPoints: 336,
+    },
 ): IRunScanCleanupPipelineDependencies {
     const pipelineDependencies: IRunScanCleanupPipelineDependencies = {
         getPageCount: vi.fn(async () => 2),
@@ -310,8 +328,8 @@ function dependencies(
                     pageNumber,
                     xPoints: 0,
                     yPoints: 0,
-                    widthPoints: 240,
-                    heightPoints: 336,
+                    widthPoints: pageSize.widthPoints,
+                    heightPoints: pageSize.heightPoints,
                     rotation: 0,
                 }))})
                 : '%PDF-1.7\n%%EOF\n');
@@ -1898,7 +1916,10 @@ describe('scan cleanup pipeline', () => {
                 );
             }
         });
-        const pipelineDependencies = dependencies(runSidecar);
+        const pipelineDependencies = dependencies(runSidecar, {
+            widthPoints: 4_800,
+            heightPoints: 4_800,
+        });
         pipelineDependencies.getAvailableScratchBytes = vi.fn(async () => availableScratchBytes);
         pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [
             [
@@ -3244,14 +3265,7 @@ describe('scan cleanup pipeline', () => {
                 widthPoints: 240,
                 heightPoints: 336,
                 rotation: 0,
-                mediaXPoints: 0,
-                mediaYPoints: 0,
-                mediaWidthPoints: 240,
-                mediaHeightPoints: 336,
-                cropXPoints: 0,
-                cropYPoints: 0,
-                cropWidthPoints: 240,
-                cropHeightPoints: 336,
+                ...mrcPageGeometry,
                 sourceDpi: 300,
                 dominantImageWidthPx: 1_000,
                 dominantImageHeightPx: 1_400,
@@ -3450,14 +3464,7 @@ describe('scan cleanup pipeline', () => {
                 widthPoints: 240,
                 heightPoints: 336,
                 rotation: 0,
-                mediaXPoints: 0,
-                mediaYPoints: 0,
-                mediaWidthPoints: 240,
-                mediaHeightPoints: 336,
-                cropXPoints: 0,
-                cropYPoints: 0,
-                cropWidthPoints: 240,
-                cropHeightPoints: 336,
+                ...mrcPageGeometry,
                 sourceDpi: 300,
                 dominantImageWidthPx: 1_000,
                 dominantImageHeightPx: 1_400,
@@ -3825,7 +3832,10 @@ describe('scan cleanup pipeline', () => {
                 finalDpi,
                 true,
             );
-        }));
+        }), {
+            widthPoints: 960,
+            heightPoints: 960,
+        });
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
         // The detected raster row supplies the guardrail dimensions, so no
         // probe render is needed to clamp a detected page.

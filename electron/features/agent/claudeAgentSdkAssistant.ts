@@ -56,9 +56,7 @@ const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
 } as const satisfies Record<TAgentAssistantKnownEffort, EffortLevel>;
 type TClaudeImageMimeType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
-export function shouldRefuseClaudeContextContinuation(messageCount: number, providerThreadId: string | null) {
-    return messageCount > 0 && !providerThreadId;
-}
+export {shouldRefuseClaudeContextContinuation} from '@electron/features/agent/claudeProviderMetadata';
 
 export interface IClaudeAgentAssistantInit {
     sessionId: string | null;

@@ -105,6 +105,72 @@ function pageGeometry(pageNumber: number): IPdfPageSize {
     };
 }
 
+function detectionResultForPage(pageNumber: number): IScanCleanupDetectionResult {
+    const brandedPageNumber = requirePageNumber(pageNumber);
+    return {
+        pageNumber: brandedPageNumber,
+        classification: 'single-uncut-page',
+        confidence: 1,
+        cutterXPx: null,
+        documentPrior: null,
+        tier1Verdict: 'single-uncut-page',
+        reconciled: false,
+        clusterAgreement: 1,
+        recommendedOutputMode: 'color',
+        pagePlanEvidence: {
+            pageNumber: brandedPageNumber,
+            rotationDegrees: 0,
+            layoutClassification: 'single-uncut-page',
+            outputs: {},
+        },
+        sourcePageMetadata: {
+            pageNumber: brandedPageNumber,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+            sourceDpi: 300,
+        },
+    };
+}
+
+function createBoundedDetectionResultStore(pageCount: number): IScanCleanupDetectionResultStore {
+    const records = (firstPageNumber: number, lastPageNumberExclusive: number) => Array.from(
+        {length: lastPageNumberExclusive - firstPageNumber},
+        (_, index) => detectionResultForPage(firstPageNumber + index),
+    );
+    return {
+        pageCount,
+        resultCount: pageCount,
+        append: async () => undefined,
+        replace: async () => undefined,
+        getPage: async pageNumber => pageNumber >= 1 && pageNumber <= pageCount
+            ? detectionResultForPage(pageNumber)
+            : undefined,
+        readRange: async (firstPageNumber, lastPageNumberExclusive) => (
+            records(firstPageNumber, lastPageNumberExclusive)
+        ),
+        forEachChunk: async onChunk => {
+            for (
+                let firstPageNumber = 1;
+                firstPageNumber <= pageCount;
+                firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES
+            ) {
+                const lastPageNumberExclusive = Math.min(
+                    pageCount + 1,
+                    firstPageNumber + SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+                );
+                await onChunk(
+                    records(firstPageNumber, lastPageNumberExclusive),
+                    firstPageNumber,
+                );
+            }
+        },
+        close: async () => undefined,
+    };
+}
+
 function paths(tempDir: string): IScanCleanupWorkerPaths {
     return {
         qpdfBinary: '/qpdf',
@@ -1009,40 +1075,11 @@ describe('scan-cleanup-core conversion coverage', () => {
             }),
             close: vi.fn(async () => undefined),
         };
-        const detectionResultStore = await createFileBackedScanCleanupResultStore({
-            pageCount: documentPageCount,
-            pageNumberOf: (record: IScanCleanupDetectionResult) => record.pageNumber,
-            rootDir: root,
-        });
-        for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
-            const brandedPageNumber = requirePageNumber(pageNumber);
-            await detectionResultStore.append({
-                pageNumber: brandedPageNumber,
-                classification: 'single-uncut-page',
-                confidence: 1,
-                cutterXPx: null,
-                documentPrior: null,
-                tier1Verdict: 'single-uncut-page',
-                reconciled: false,
-                clusterAgreement: 1,
-                recommendedOutputMode: 'color',
-                pagePlanEvidence: {
-                    pageNumber: brandedPageNumber,
-                    rotationDegrees: 0,
-                    layoutClassification: 'single-uncut-page',
-                    outputs: {},
-                },
-                sourcePageMetadata: {
-                    pageNumber: brandedPageNumber,
-                    xPoints: 0,
-                    yPoints: 0,
-                    widthPoints: 612,
-                    heightPoints: 792,
-                    rotation: 0,
-                    sourceDpi: 300,
-                },
-            });
-        }
+        // The file-backed store has dedicated coverage above. Keep this
+        // conversion proof focused on the bounded xlarge read windows so the
+        // full release pool does not spend its timeout budget on thousands of
+        // fixture file writes.
+        const detectionResultStore = createBoundedDetectionResultStore(documentPageCount);
         const sourceRasterCalls = vi.fn((pageNumber: number) => ({
             dpi: 300,
             width: 2_550,
@@ -1073,14 +1110,15 @@ describe('scan-cleanup-core conversion coverage', () => {
                     outputPath: string;
                 }>;
             }>};
-            for (const [
-                index,
-                page,
-            ] of manifest.pages.entries()) {
+            await Promise.all(manifest.pages.map(async page => {
                 const output = page.outputs[0]!;
-                await writeFile(output.outputPath, 'composite');
-                await writeFile(output.metadataPath, JSON.stringify(compactOutputMetadata()));
-                await writeFile(page.pageMetadataPath, JSON.stringify(pageMetadata()));
+                await Promise.all([
+                    writeFile(output.outputPath, 'composite'),
+                    writeFile(output.metadataPath, JSON.stringify(compactOutputMetadata())),
+                    writeFile(page.pageMetadataPath, JSON.stringify(pageMetadata())),
+                ]);
+            }));
+            for (const [index] of manifest.pages.entries()) {
                 onProgress({
                     stage: 'page-complete',
                     completedPages: index + 1,

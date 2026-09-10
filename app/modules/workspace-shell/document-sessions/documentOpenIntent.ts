@@ -8,5 +8,6 @@ export interface IDocumentOpenIntent {
     preparedOpeningGeometry?: IPdfOpeningGeometry | undefined;
     preparedSourceModifiedAt?: number | undefined;
     preparedSourceSize?: number | undefined;
+    preserveDirtyOnFailure?: boolean | undefined;
     target?: TTabUpdate | null;
 }

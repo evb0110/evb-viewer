@@ -267,6 +267,7 @@ export async function waitForWorkspaceToolbarIdle(
             )?.getToolbarSnapshot?.();
         return snapshot
             ? !snapshot.isAnySaving && !snapshot.isSaving && !snapshot.isSavingAs
+                && !snapshot.isPageOperationInProgress
             : false;
     }, { timeout: timeoutMs }, {
         ...searchOptions,

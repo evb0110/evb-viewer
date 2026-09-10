@@ -3,6 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
+import {cast} from '@tests/helpers/cast';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import { getCurrentSpreadRenderedBoundsFromDom } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
@@ -12,11 +14,9 @@ function createDomPage(options: {
     width: number;
     buffered?: boolean;
 }) {
-    return {
-        classList: {
-            contains: (className: string) => options.buffered === true
-                && className === 'page_container--buffered',
-        },
+    return cast<HTMLElement>({
+        classList: {contains: (className: string) => options.buffered === true
+                && className === 'page_container--buffered'},
         clientWidth: options.width,
         dataset: {page: String(options.page)},
         getBoundingClientRect: () => ({
@@ -25,7 +25,7 @@ function createDomPage(options: {
         }),
         offsetLeft: options.left,
         offsetWidth: options.width,
-    } as unknown as HTMLElement;
+    });
 }
 
 describe('resolvePageBoundedHorizontalScroll', () => {
@@ -36,17 +36,17 @@ describe('resolvePageBoundedHorizontalScroll', () => {
             width: 1_200,
             buffered: true,
         });
-        const container = {
+        const container = cast<HTMLElement>({
             getBoundingClientRect: () => ({left: 0}),
             querySelector: (selector: string) => selector === '.page_container[data-page="1"]'
                 ? bufferedPage
                 : null,
             scrollLeft: 0,
-        } as unknown as HTMLElement;
+        });
 
         expect(getCurrentSpreadRenderedBoundsFromDom({
             container,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             viewMode: 'single',
             totalPages: 1,
         })).toBeNull();

@@ -94,8 +94,10 @@ describe('workspace checkpoint latest-only writer', () => {
         vi.clearAllMocks();
         mocks.persisted = null;
         mocks.syncReadError = null;
-        mocks.remove.mockImplementation(async () => {
-            mocks.persisted = null;
+        mocks.remove.mockImplementation(async (path: string) => {
+            if (path === '/profile/workspace-checkpoint.json') {
+                mocks.persisted = null;
+            }
         });
         mocks.staged.clear();
         mocks.tempIndex = 0;
@@ -462,7 +464,6 @@ describe('workspace checkpoint latest-only writer', () => {
     });
 
     it('rolls back suppression when checkpoint deletion fails', async () => {
-        mocks.remove.mockRejectedValueOnce(new Error('checkpoint delete failed'));
         mocks.atomicReplace.mockImplementation(async (source: string) => {
             mocks.persisted = mocks.staged.get(source) ?? null;
         });
@@ -471,9 +472,23 @@ describe('workspace checkpoint latest-only writer', () => {
             saveWorkspaceCheckpoint,
         } = await import('@electron/workspaceCheckpointStore');
 
+        await saveWorkspaceCheckpoint(createCheckpoint(0), 10);
+        mocks.remove.mockImplementation(async (path: string) => {
+            if (path === '/profile/workspace-checkpoint.json') {
+                throw new Error('checkpoint delete failed');
+            }
+        });
         await expect(discardWorkspaceCheckpoint(10)).rejects.toThrow('checkpoint delete failed');
         await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
-        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(1);
+        const persisted = JSON.parse(mocks.persisted ?? '{}') as {records?: Array<{
+            ownerWebContentsId: number;
+            checkpoint: IWorkspaceCheckpoint;
+        }>;};
+        expect(persisted.records).toHaveLength(1);
+        expect(persisted.records?.[0]).toMatchObject({
+            ownerWebContentsId: 10,
+            checkpoint: {capturedAt: 1},
+        });
     });
 
     it('does not replace unread durable evidence with an empty autosave', async () => {

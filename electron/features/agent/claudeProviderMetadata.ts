@@ -498,3 +498,7 @@ export function shouldUseClaudeAssistantFastMode(
 ) {
     return speedMode === 'fast' && isClaudeAssistantFastModeModel(model);
 }
+
+export function shouldRefuseClaudeContextContinuation(messageCount: number, providerThreadId: string | null) {
+    return messageCount > 0 && !providerThreadId;
+}

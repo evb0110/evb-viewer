@@ -20,7 +20,10 @@ export function createWordBoxOverlays(
     }
 
     const boxes: HTMLElement[] = [];
-    const rawDims = viewport?.rawDims as {pageWidth?: unknown; pageHeight?: unknown} | undefined;
+    const rawDims = viewport?.rawDims as {
+        pageWidth?: unknown;
+        pageHeight?: unknown;
+    } | undefined;
     const viewportPageWidth = typeof rawDims?.pageWidth === 'number' && rawDims.pageWidth > 0
         ? rawDims.pageWidth
         : pdfPageWidth ?? 0;
@@ -32,7 +35,10 @@ export function createWordBoxOverlays(
         const box = viewport
             ? transformOcrWordToViewport(
                 word,
-                {render: {imagePx: {w: pdfPageWidth ?? 0, h: pdfPageHeight ?? 0}}},
+                {render: {imagePx: {
+                    w: pdfPageWidth ?? 0,
+                    h: pdfPageHeight ?? 0,
+                }}},
                 viewportPageWidth,
                 viewportPageHeight,
                 viewport,

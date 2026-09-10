@@ -260,7 +260,10 @@ describe('windows test host lock and lease', () => {
             lockDirectory: layout.lockFile,
             runId: RUN_ID,
             lock: lockDependencies(4_243, probe),
-            lockOptions: {attempts: 1, retryDelayMs: 0},
+            lockOptions: {
+                attempts: 1,
+                retryDelayMs: 0,
+            },
         };
 
         await expect(bindLeaseToVm(mutation, CLONE_VM_ID)).rejects.toBeInstanceOf(HostLockBusyError);

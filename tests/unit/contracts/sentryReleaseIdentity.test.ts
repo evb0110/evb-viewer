@@ -220,7 +220,7 @@ describe('Sentry release identity contract', () => {
             target: 'desktop',
             version: '1.2.3',
             environment: {
-                EVB_SENTRY_ENVIRONMENT: 'test',
+                ...DESKTOP_ENVIRONMENT,
                 EVB_SENTRY_RELEASE: 'evb-viewer-desktop@1.2.4',
             },
         })).toThrow(/conflicting.*release/iu);

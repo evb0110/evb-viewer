@@ -347,14 +347,15 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         });
         const baselineIds = collectTreeIds(treeStub.items);
 
-        // Exactly what persistence would have written for the outline above,
-        // where the untitled bookmark is saved under the untitled label, plus
-        // one unrelated root so the panel actually rebuilds.
+        // The panel publishes outline structure before destination resolution,
+        // so persistence keeps this destination without a resolved page index.
+        // The untitled bookmark is saved under the untitled label, plus one
+        // unrelated root so the panel actually rebuilds.
         await outline.applyExternalBookmarks([
             createEntry('Inserted', { pageIndex: requirePageIndex(0) }),
             {
                 title: 'bookmarks.untitled',
-                pageIndex: requirePageIndex(3),
+                pageIndex: null,
                 pageYRatio: null,
                 namedDest: 'sec-a',
                 bold: false,

@@ -85,10 +85,28 @@ export function classifyWorktree(worktree) {
         };
     }
     if (worktree.missing) {
-        if (!worktree.selectedTarget) return {action: 'keep', reason: 'stale registration requires an explicit target'};
-        if (!worktree.completedTask) return {action: 'keep', reason: 'completed-task evidence required'};
-        if (worktree.ownerStatus !== 'absent') return {action: 'keep', reason: worktree.ownerReason ?? 'live-owner probe did not prove absence'};
-        return {action: 'remove', reason: 'targeted stale registration with no live owner'};
+        if (!worktree.selectedTarget) {
+            return {
+                action: 'keep',
+                reason: 'stale registration requires an explicit target',
+            };
+        }
+        if (!worktree.completedTask) {
+            return {
+                action: 'keep',
+                reason: 'completed-task evidence required',
+            };
+        }
+        if (worktree.ownerStatus !== 'absent') {
+            return {
+                action: 'keep',
+                reason: worktree.ownerReason ?? 'live-owner probe did not prove absence',
+            };
+        }
+        return {
+            action: 'remove',
+            reason: 'targeted stale registration with no live owner',
+        };
     }
     if (worktree.dirtyEntries === null) {
         return {
@@ -108,9 +126,24 @@ export function classifyWorktree(worktree) {
             reason: 'HEAD not merged into any base ref',
         };
     }
-    if (!worktree.selectedTarget) return {action: 'keep', reason: 'not the selected cleanup target'};
-    if (!worktree.completedTask) return {action: 'keep', reason: 'completed-task evidence required'};
-    if (worktree.ownerStatus !== 'absent') return {action: 'keep', reason: worktree.ownerReason ?? 'live-owner probe did not prove absence'};
+    if (!worktree.selectedTarget) {
+        return {
+            action: 'keep',
+            reason: 'not the selected cleanup target',
+        };
+    }
+    if (!worktree.completedTask) {
+        return {
+            action: 'keep',
+            reason: 'completed-task evidence required',
+        };
+    }
+    if (worktree.ownerStatus !== 'absent') {
+        return {
+            action: 'keep',
+            reason: worktree.ownerReason ?? 'live-owner probe did not prove absence',
+        };
+    }
     return {
         action: 'remove',
         reason: `completed target merged into ${worktree.mergedInto.join(', ')}`,
@@ -118,14 +151,18 @@ export function classifyWorktree(worktree) {
 }
 
 function readCompletionEvidence(filePath) {
-    if (!filePath) return null;
+    if (!filePath) {
+        return null;
+    }
     try {
         const evidence = JSON.parse(readFileSync(filePath, 'utf8'));
         if (evidence?.status !== 'completed'
             || typeof evidence.taskKey !== 'string'
             || evidence.taskKey.length === 0
             || typeof evidence.worktreePath !== 'string'
-            || !/^[0-9a-f]{40}$/u.test(evidence.head)) return null;
+            || !/^[0-9a-f]{40}$/u.test(evidence.head)) {
+            return null;
+        }
         return evidence;
     } catch {
         return null;
@@ -138,59 +175,109 @@ function isPathInside(parentPath, childPath) {
 
 function probeSessionMetadataOwnership(worktreePath) {
     const sessionsPath = path.join(worktreePath, '.devkit', 'sessions');
-    if (!existsSync(sessionsPath)) return {status: 'absent', reason: null};
+    if (!existsSync(sessionsPath)) {
+        return {
+            status: 'absent',
+            reason: null,
+        };
+    }
     let sessionNames;
     try {
         sessionNames = readdirSync(sessionsPath);
     } catch {
-        return {status: 'ambiguous', reason: 'session ownership probe could not enumerate session roots'};
+        return {
+            status: 'ambiguous',
+            reason: 'session ownership probe could not enumerate session roots',
+        };
     }
     for (const sessionName of sessionNames) {
         const sessionPath = path.join(sessionsPath, sessionName);
-        for (const fileName of ['session.json', 'session-starting.json']) {
+        for (const fileName of [
+            'session.json',
+            'session-starting.json',
+        ]) {
             const metadataPath = path.join(sessionPath, fileName);
             if (!existsSync(metadataPath)) continue;
             let metadata;
             try {
                 metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
             } catch {
-                return {status: 'ambiguous', reason: `session ownership metadata is unreadable: ${metadataPath}`};
+                return {
+                    status: 'ambiguous',
+                    reason: `session ownership metadata is unreadable: ${metadataPath}`,
+                };
             }
-            const pids = [metadata?.pid, metadata?.electronPid, metadata?.nuxtPid]
+            const pids = [
+                metadata?.pid,
+                metadata?.electronPid,
+                metadata?.nuxtPid,
+            ]
                 .filter(pid => Number.isInteger(pid) && pid > 0);
-            if (pids.length === 0) return {status: 'ambiguous', reason: `session ownership metadata has no valid PID: ${metadataPath}`};
+            if (pids.length === 0) {
+                return {
+                    status: 'ambiguous',
+                    reason: `session ownership metadata has no valid PID: ${metadataPath}`,
+                };
+            }
             for (const pid of pids) {
                 try {
                     process.kill(pid, 0);
-                    return {status: 'active', reason: `session metadata ${metadataPath} names live process ${pid}`};
+                    return {
+                        status: 'active',
+                        reason: `session metadata ${metadataPath} names live process ${pid}`,
+                    };
                 } catch (error) {
-                    if (error?.code !== 'ESRCH') return {status: 'ambiguous', reason: `session ownership for process ${pid} could not be verified`};
+                    if (error?.code !== 'ESRCH') {
+                        return {
+                            status: 'ambiguous',
+                            reason: `session ownership for process ${pid} could not be verified`,
+                        };
+                    }
                 }
             }
         }
     }
-    return {status: 'absent', reason: null};
+    return {
+        status: 'absent',
+        reason: null,
+    };
 }
 
 function probeWorktreeOwnership(worktreePath) {
     if (process.platform === 'win32' || !existsSync('/proc')) {
-        return {status: 'ambiguous', reason: 'live-owner probe is unavailable on this host'};
+        return {
+            status: 'ambiguous',
+            reason: 'live-owner probe is unavailable on this host',
+        };
     }
     let pids;
     try {
         pids = readdirSync('/proc').filter(name => /^\d+$/u.test(name));
     } catch {
-        return {status: 'ambiguous', reason: 'live-owner probe could not enumerate processes'};
+        return {
+            status: 'ambiguous',
+            reason: 'live-owner probe could not enumerate processes',
+        };
     }
     for (const pid of pids) {
         let ownerCwd;
         try {
             ownerCwd = readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/u, '');
         } catch (error) {
-            if (error?.code !== 'ENOENT') return {status: 'ambiguous', reason: `live-owner probe could not inspect process ${pid}`};
+            if (error?.code !== 'ENOENT') {
+                return {
+                    status: 'ambiguous',
+                    reason: `live-owner probe could not inspect process ${pid}`,
+                };
+            }
             continue;
         }
-        if (isPathInside(worktreePath, path.resolve(ownerCwd))) return {status: 'active', reason: `process ${pid} has a cwd inside the worktree`};
+        if (isPathInside(worktreePath, path.resolve(ownerCwd))) {
+            return {
+                status: 'active',
+                reason: `process ${pid} has a cwd inside the worktree`,
+            };
+        }
     }
     return probeSessionMetadataOwnership(worktreePath);
 }
@@ -280,7 +367,9 @@ function formatReclaimed(reclaimedKiB) {
         : `reclaimed about ${Math.round(reclaimedKiB / 1024)} MiB`;
 }
 
-export async function collectWorktrees(baseRefs, {targetPath = null, completion = null, ownerProbe = probeWorktreeOwnership} = {}) {
+export async function collectWorktrees(baseRefs, {
+    targetPath = null, completion = null, ownerProbe = probeWorktreeOwnership,
+} = {}) {
     const cwd = await realpath(process.cwd()).catch(() => process.cwd());
     const missingRefs = baseRefs.filter(ref => !refExists(ref));
     if (missingRefs.length > 0) {
@@ -314,7 +403,10 @@ export async function collectWorktrees(baseRefs, {targetPath = null, completion 
             missing,
             dirtyEntries,
             mergedInto,
-            completedTask: completionMatchesWorktree(completion, {path: worktreePath, head: entry.head}),
+            completedTask: completionMatchesWorktree(completion, {
+                path: worktreePath,
+                head: entry.head,
+            }),
             selectedTarget: targetPath === worktreePath,
             ownerStatus: owner.status,
             ownerReason: owner.reason,
@@ -343,7 +435,10 @@ export async function pruneWorktrees(options) {
     if (options.apply && (!completion || completion.worktreePath !== targetPath)) {
         throw new Error('Completed-task evidence is missing, invalid, or does not name the target worktree.');
     }
-    const worktrees = await collectWorktrees(options.into, {targetPath, completion});
+    const worktrees = await collectWorktrees(options.into, {
+        targetPath,
+        completion,
+    });
     const removable = worktrees.filter(worktree => worktree.action === 'remove');
     for (const worktree of worktrees) {
         console.log(formatRow(worktree));
@@ -367,7 +462,10 @@ export async function pruneWorktrees(options) {
     let reclaimedKiB = 0;
     for (const worktree of removable) {
         const latestCompletion = readCompletionEvidence(options.completed);
-        const latest = (await collectWorktrees(options.into, {targetPath, completion: latestCompletion}))
+        const latest = (await collectWorktrees(options.into, {
+            targetPath,
+            completion: latestCompletion,
+        }))
             .find(entry => entry.path === worktree.path);
         if (!latest || latest.head !== worktree.head || latest.action !== 'remove') {
             console.error(`kept ${worktree.path}: target changed or safety checks no longer pass`);

@@ -10,6 +10,11 @@ import {
     type CanonicalAppFrame,
 } from '@contracts/diagnostics/canonicalAppFrames';
 
+const SHARED_DIAGNOSTIC_REPORTER_FRAME_SUFFIXES = [
+    'packages/contracts/diagnostics/buildDiagnosticRecord.ts',
+    'packages/contracts/diagnostics/diagnosticReporterFrames.ts',
+] as const;
+
 export function readDiagnosticStack(value: unknown): string | undefined {
     if (typeof value === 'string') {
         return value;
@@ -54,7 +59,10 @@ export function buildDiagnosticFrames(
     try {
         return removeDiagnosticReporterFrames(
             normalizeCanonicalApplicationFrames(stack).frames,
-            internalFrameSuffixes,
+            [
+                ...SHARED_DIAGNOSTIC_REPORTER_FRAME_SUFFIXES,
+                ...internalFrameSuffixes,
+            ],
         );
     } catch {
         return [];

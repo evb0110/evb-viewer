@@ -157,9 +157,7 @@ function decodeAnnotationParseWorkerResult(data: unknown) {
 }
 
 function decodePdfCombineCatalog(data: unknown): IBrowserPdfCombineCatalog | null {
-    return decodeBrowserPdfCatalog(data, {
-        maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
-    });
+    return decodeBrowserPdfCatalog(data, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS});
 }
 
 function decodePdfConformanceFacts(data: unknown): IBrowserPdfConformanceFacts | null {

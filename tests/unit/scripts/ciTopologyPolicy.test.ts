@@ -441,7 +441,7 @@ describe('CI topology policy', () => {
         const promotionStep = source.slice(promotionStart, promotionEnd);
         expect(promotionStep).toContain('gh release edit "$RELEASE_TAG" --draft=false');
         expect(promotionStep).toContain('gh release view "$RELEASE_TAG" --json isDraft,targetCommitish');
-        expect(promotionStep).toContain("[ \"$(jq -r '.isDraft' <<< \"$release_json\")\" = 'false' ]");
+        expect(promotionStep).toContain('[ "$(jq -r \'.isDraft\' <<< "$release_json")" = \'false\' ]');
         expect(promotionStep).toContain('outcome is unresolved');
         expect(promotionStep).toContain('remains a draft');
     });

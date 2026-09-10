@@ -439,11 +439,13 @@ describe('usePageOperations', () => {
         await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(true);
 
         expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
-        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledOnce();
+        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledTimes(2);
         expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 10, 90);
         expect(ensureHistoryBaselineForMutation.mock.invocationCallOrder[0]!)
             .toBeLessThan(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!);
         expect(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!)
+            .toBeLessThan(ensureHistoryBaselineForMutation.mock.invocationCallOrder[1]!);
+        expect(ensureHistoryBaselineForMutation.mock.invocationCallOrder[1]!)
             .toBeLessThan(pageOpsApi.rotate.mock.invocationCallOrder[0]!);
     });
 

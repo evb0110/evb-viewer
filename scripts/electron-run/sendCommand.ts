@@ -50,7 +50,10 @@ export async function sendCommandToSession(
 ) {
     const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
     const requestSignal = options.signal
-        ? AbortSignal.any([options.signal, timeoutSignal])
+        ? AbortSignal.any([
+            options.signal,
+            timeoutSignal,
+        ])
         : timeoutSignal;
     let responseBody: unknown;
     try {

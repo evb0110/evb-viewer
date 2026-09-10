@@ -2,7 +2,7 @@ import {
     createRequestId,
     type TJobId,
 } from '@contracts/shared';
-import { readOcrNativeChildProcessIdentity } from '@electron/features/ocr/main/ocrNativeChildProcessIdentity';
+import { readOcrNativeChildProcessIdentityAtSpawn } from '@electron/features/ocr/main/ocrNativeChildProcessIdentity';
 import type {
     TOcrWorkerOutboundMessage,
     TOcrWorkerInboundMessage,
@@ -24,7 +24,7 @@ interface IOcrNativeChildRegistrationState {
     commandLabel: string;
     status: 'intent' | 'registered' | 'unproven' | 'exited' | 'no-child';
     pid: number | null;
-    processIdentity: Awaited<ReturnType<typeof readOcrNativeChildProcessIdentity>>;
+    processIdentity: ReturnType<typeof readOcrNativeChildProcessIdentityAtSpawn>;
     pending: Map<TOcrNativeChildAckType, IOcrNativeChildPendingAck>;
 }
 
@@ -117,7 +117,7 @@ export function createOcrNativeChildRegistrationProvider(
                 if (state.status !== 'intent') {
                     throw new Error(`OCR native child ${state.childId} cannot register from ${state.status}`);
                 }
-                const processIdentity = await readOcrNativeChildProcessIdentity(pid);
+                const processIdentity = readOcrNativeChildProcessIdentityAtSpawn(pid);
                 if (processIdentity === null) {
                     state.status = 'unproven';
                     thisMarkUnproven(state, `could not read process identity for pid ${pid}`);

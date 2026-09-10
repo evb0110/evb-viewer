@@ -44,7 +44,7 @@ export function createWorkspaceViewerUpdateHandlers(options: IWorkspaceViewerUpd
 
     function handleCurrentPage(page: number) {
         const previousPage = options.currentPage.value;
-        const viewer = options.viewerRef.value?.getViewerContainer() ?? null;
+        const viewer = options.viewerRef.value?.getViewerContainer?.() ?? null;
         const shared = {
             previousPage,
             sidebarOpen: options.showSidebar.value,

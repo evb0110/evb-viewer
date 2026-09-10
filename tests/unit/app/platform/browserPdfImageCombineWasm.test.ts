@@ -377,7 +377,10 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
     });
 
-    it.each([90, 630] as const)('encodes catalog metadata and page transform %i as a version 5 WASM request', async (rotationDegrees) => {
+    it.each([
+        90,
+        630,
+    ] as const)('encodes catalog metadata and page transform %i as a version 5 WASM request', async (rotationDegrees) => {
         const wasmMock = createWasmExportsMock({output: new Uint8Array([
             4,
             5,

@@ -17,6 +17,7 @@ import { ZOOM } from '@app/constants/pdfLayout';
 import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/composables/useWorkspaceInteractionControls';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type {
     ISettingsData,
     TFitMode,
@@ -86,6 +87,10 @@ function createInteractionControls(overrides: {
         workingCopyPath: ref<TDocumentRef | null>(null),
         isDjvuMode: ref(false),
         djvuSourcePath: ref<TDocumentRef | null>(null),
+        viewerCapabilities: computed(() => ({
+            ...createDefaultWorkspaceViewerCapabilities(),
+            viewMode: true,
+        })),
         currentPage: ref(1),
         navigationPage: ref(overrides.navigationPage ?? 1),
         totalPages: ref(overrides.totalPages ?? 10),

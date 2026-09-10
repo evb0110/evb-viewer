@@ -508,11 +508,11 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
     },
     {
         name: 'handleRotateCw',
-        kind: 'sync',
+        kind: 'async',
         toolbar: {eventName: 'rotate-cw'},
         group: 'pageOps',
         real: 'custom',
-        deferred: 'mountWaitSyncVoid',
+        deferred: 'mountWaitBoolean',
         menu: {
             actionName: 'rotate-cw',
             register: 'onMenuRotateCw',
@@ -520,11 +520,11 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
     },
     {
         name: 'handleRotateCcw',
-        kind: 'sync',
+        kind: 'async',
         toolbar: {eventName: 'rotate-ccw'},
         group: 'pageOps',
         real: 'custom',
-        deferred: 'mountWaitSyncVoid',
+        deferred: 'mountWaitBoolean',
         menu: {
             actionName: 'rotate-ccw',
             register: 'onMenuRotateCcw',

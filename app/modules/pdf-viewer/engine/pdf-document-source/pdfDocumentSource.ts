@@ -575,7 +575,10 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         const promise = new Promise<void>(resolvePromise => {
             resolve = resolvePromise;
         });
-        const cancellation = { promise, resolve };
+        const cancellation = {
+            promise,
+            resolve,
+        };
         cancelPendingOpen = cancellation.resolve;
         return cancellation;
     }
@@ -662,7 +665,10 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
                     : Promise.resolve(null),
             ]),
             cancelled.then(() => null),
-        ]) ?? [null, null];
+        ]) ?? [
+            null,
+            null,
+        ];
         if (!initialData) {
             return null;
         }
@@ -768,7 +774,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
                     if (cancelPendingOpen === cancellation.resolve) {
                         cancelPendingOpen = null;
                     }
-                    return document as IPdfDocument | null;
+                    return document;
                 });
         },
         cancelPendingOpen() {

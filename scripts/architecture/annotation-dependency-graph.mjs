@@ -6,6 +6,16 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { buildDependencyGraph } from './dep-graph.mjs';
 
+/** @typedef {import('./dep-graph.mjs').IDependencyEdge} IDependencyEdge */
+/** @typedef {import('./dep-graph.mjs').IDependencyGraph} IDependencyGraph */
+/** @typedef {import('./dep-graph.mjs').IArchitectureViolation} IArchitectureViolation */
+/** @typedef {{source: string, target: string, label: string, kind: string, phase: string}} ILateBoundDependencyEdge */
+/** @typedef {{file: string}} IAnnotationDependencyNode */
+/** @typedef {{nodes: IAnnotationDependencyNode[], directEdges: IDependencyEdge[], lateBoundEdges: IDependencyEdge[]}} IAnnotationDependencyInventory */
+/** @typedef {{includeKnownLateBoundEdges?: boolean, includeDirectEdgeViolations?: boolean}} IAnnotationGraphOptions */
+/** @typedef {{inventory: IAnnotationDependencyInventory, cycles: string[][], violations: IArchitectureViolation[]}} IAnnotationDependencyCheckResult */
+
+/** @type {string[]} */
 export const ANNOTATION_GRAPH_SCAN_ROOTS = [
     'app/modules/pdf-viewer/runtime/annotations',
     'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts',
@@ -26,28 +36,35 @@ const RUNTIME_SAVE_ROOT = 'app/modules/pdf-viewer/runtime/save';
 const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
 const ANNOTATION_SESSION = 'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts';
 
+/** @type {Set<string>} */
 const RUNTIME_TOOLS_ALLOWED_EDGES = new Set();
 
 // The deleted PDF.js editor bridge no longer contributes late-bound edges.
+/** @type {ILateBoundDependencyEdge[]} */
 export const ANNOTATION_LATE_BOUND_EDGES = [];
 
+/** @param {string} filePath @param {string} root @returns {boolean} */
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
 
+/** @param {IDependencyEdge} edge @returns {string} */
 function annotationEdgeKey(edge) {
     return `${edge.source} -> ${edge.target}`;
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isAnnotationPolicyNode(filePath) {
     return filePath === ANNOTATION_SESSION
         || ANNOTATION_POLICY_ROOTS.some(root => matchesRoot(filePath, root));
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isPdfViewerInternalSource(filePath) {
     return matchesRoot(filePath, PDF_VIEWER_MODULE_ROOT);
 }
 
+/** @param {IArchitectureViolation} options @returns {IArchitectureViolation} */
 function createViolation({
     rule,
     source,
@@ -64,6 +81,7 @@ function createViolation({
     };
 }
 
+/** @param {ILateBoundDependencyEdge} edge @returns {IDependencyEdge} */
 function toLateBoundDependencyEdge(edge) {
     return {
         source: edge.source,
@@ -74,15 +92,17 @@ function toLateBoundDependencyEdge(edge) {
     };
 }
 
+/** @param {string[]} cyclePath @returns {string} */
 function normalizeCycleKey(cyclePath) {
     const cycle = cyclePath.slice(0, -1);
     const rotations = cycle.map((_, index) => [
         ...cycle.slice(index),
         ...cycle.slice(0, index),
     ].join(' -> '));
-    return rotations.sort()[0];
+    return /** @type {string} */ (rotations.sort()[0]);
 }
 
+/** @param {Map<string, string[]>} adjacency @param {string} start @param {string} target @returns {string[] | null} */
 function findPath(adjacency, start, target) {
     const stack = [{
         node: start,
@@ -117,6 +137,7 @@ function findPath(adjacency, start, target) {
     return null;
 }
 
+/** @param {IDependencyEdge[]} edges @returns {string[][]} */
 export function findAnnotationDependencyCyclePaths(edges) {
     const annotationEdges = edges
         .filter(edge => isAnnotationPolicyNode(edge.source) && isAnnotationPolicyNode(edge.target))
@@ -156,6 +177,7 @@ export function findAnnotationDependencyCyclePaths(edges) {
     return cycles.sort((left, right) => left.join('\n').localeCompare(right.join('\n')));
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation[]} */
 export function checkAnnotationDependencyEdge(edge) {
     if (matchesRoot(edge.source, ANNOTATION_TOOLS_ROOT) && matchesRoot(edge.target, RUNTIME_ANNOTATION_ROOT)) {
         return [createViolation({
@@ -213,6 +235,7 @@ export function checkAnnotationDependencyEdge(edge) {
     return [];
 }
 
+/** @param {IDependencyGraph} graph @returns {IAnnotationDependencyInventory} */
 export function buildAnnotationDependencyInventory(graph) {
     const directEdges = graph.edges
         .filter(edge => isAnnotationPolicyNode(edge.source) || isAnnotationPolicyNode(edge.target))
@@ -237,6 +260,7 @@ export function buildAnnotationDependencyInventory(graph) {
     };
 }
 
+/** @param {IDependencyGraph} graph @param {IAnnotationGraphOptions} [options] @returns {IAnnotationDependencyCheckResult} */
 export function checkAnnotationDependencyGraph(
     graph,
     {
@@ -254,8 +278,8 @@ export function checkAnnotationDependencyGraph(
     const cyclePaths = findAnnotationDependencyCyclePaths(checkedEdges);
     const cycleViolations = cyclePaths.map(cyclePath => createViolation({
         rule: 'annotation-dependency-cycle',
-        source: cyclePath[0],
-        target: cyclePath[1] ?? cyclePath[0],
+        source: /** @type {string} */ (cyclePath[0]),
+        target: /** @type {string} */ (cyclePath[1] ?? cyclePath[0]),
         specifier: 'direct import / late-bound annotation dependency graph',
         message: `Disallowed annotation dependency cycle: ${cyclePath.join(' -> ')}`,
     }));
@@ -273,6 +297,7 @@ export function checkAnnotationDependencyGraph(
     };
 }
 
+/** @param {string[]} argv @returns {string | null} */
 function parseOutputArg(argv) {
     const outputArg = argv.find(argument => argument.startsWith('--output='));
     return outputArg ? outputArg.slice('--output='.length) : null;

@@ -97,10 +97,8 @@ import {
     DJVU_PAGE_SIZE_ARRAY_MAX_PAGES,
     getDjvuPageSizesForViewing,
 } from '@electron/features/djvu/main/pagePreview';
-import {
-    normalizePrintPageNumbers,
-} from '@pdf-core';
-import { buildPrintablePdfPath } from '@electron/features/documents/main/buildPrintablePdfPath';
+import {normalizePrintPageNumbers} from '@pdf-core';
+import { buildPrintablePdfPath } from '@electron/features/documents/public/buildPrintablePdfPath';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     createMainJobRegistry,
@@ -950,9 +948,7 @@ async function runDjvuPrintPath(
                 {window: BrowserWindow.fromWebContents(context.sender)},
                 printablePdfPath,
                 resolveDjvuPrintDocumentTitle(djvuPath, options.fileName, selectedPages),
-                {
-                    signal: job.signal,
-                },
+                {signal: job.signal},
             );
             if (job.signal.aborted) {
                 return {

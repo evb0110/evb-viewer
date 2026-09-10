@@ -251,16 +251,31 @@ describe('scan-cleanup IPC request codecs', () => {
     });
 
     it('rejects manual split positions outside the safe cutter interval', () => {
-        for (const xNormalized of [0, 0.019, 0.981, 1]) {
+        for (const xNormalized of [
+            0,
+            0.019,
+            0.981,
+            1,
+        ]) {
             expect(() => decodeStartArgs([requestWithOverrides({'12': {
                 ...pageOverride(),
-                manualSplit: {xNormalized, rotationDegrees: 0},
+                manualSplit: {
+                    xNormalized,
+                    rotationDegrees: 0,
+                },
             }})])).toThrow('safe cutter interval');
         }
-        for (const xNormalized of [0.02, 0.5, 0.98]) {
+        for (const xNormalized of [
+            0.02,
+            0.5,
+            0.98,
+        ]) {
             expect(() => decodeStartArgs([requestWithOverrides({'12': {
                 ...pageOverride(),
-                manualSplit: {xNormalized, rotationDegrees: 0},
+                manualSplit: {
+                    xNormalized,
+                    rotationDegrees: 0,
+                },
             }})])).not.toThrow();
         }
     });

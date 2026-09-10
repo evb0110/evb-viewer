@@ -258,8 +258,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         canSave,
         isAnySaving,
         hasSaveFailure,
+        handleSaveWithinDocumentOperationLease,
     } = useWorkspaceSaveService(saveDependencies);
     const saveForExternalRead = handleSave;
+    const saveForExternalReadWithinDocumentOperationLease = handleSaveWithinDocumentOperationLease;
 
     function getNativeSaveTransactionOptions(): INativePdfSaveTransactionOptions {
         const documentFiles = getDocumentFilesCapability();
@@ -373,6 +375,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleOptimizePdfAsCopy,
         handleSaveAs,
         saveForExternalRead,
+        saveForExternalReadWithinDocumentOperationLease,
         getNativeSaveTransactionOptions,
         createRecoverySnapshotBytes,
         isAnySaving,

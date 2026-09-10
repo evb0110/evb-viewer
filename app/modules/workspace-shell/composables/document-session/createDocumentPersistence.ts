@@ -980,7 +980,10 @@ export function createDocumentPersistence(
                                         ? {identityBindings: appliedIdentityBindings}
                                         : {}),
                                 }
-                                : {applied: false, validation: null};
+                                : {
+                                    applied: false,
+                                    validation: null,
+                                };
                             return workingCopyResult;
                         }
                         let committed: IPdfNativeSaveResult;

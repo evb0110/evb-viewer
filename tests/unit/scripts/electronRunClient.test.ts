@@ -61,7 +61,7 @@ describe('electron run client', () => {
 
         await expect(sendCommand('run', ['mutate'], 10)).rejects.toMatchObject({
             name: 'ElectronRunCommandUncertainError',
-            message: expect.stringContaining("session 'test-session'"),
+            message: expect.stringContaining('session \'test-session\''),
         });
         expect(fetch).toHaveBeenCalledTimes(1);
         expect(delay).not.toHaveBeenCalled();
@@ -82,7 +82,10 @@ describe('electron run client', () => {
 
         const fetch = vi.fn()
             .mockRejectedValueOnce(new Error('connection reset'))
-            .mockResolvedValueOnce({json: async () => ({success: true, result: {ready: true}})});
+            .mockResolvedValueOnce({json: async () => ({
+                success: true,
+                result: {ready: true},
+            })});
         vi.stubGlobal('fetch', fetch);
 
         const {sendCommand} = await import('@scripts/electron-run/sendCommand');

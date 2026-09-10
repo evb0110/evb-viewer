@@ -109,7 +109,11 @@ function runClassifierForRange(root: string, base: string, head: string, include
 }
 
 function runPushDiffBase(root: string, before: string, head: string) {
-    const result = spawnSync('bash', [pushDiffBasePath, before, head], {
+    const result = spawnSync('bash', [
+        pushDiffBasePath,
+        before,
+        head,
+    ], {
         cwd: root,
         encoding: 'utf8',
     });

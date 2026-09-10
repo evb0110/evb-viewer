@@ -60,6 +60,7 @@ function findRestoredWorkspace(
     checkpointTab: IWorkspaceCheckpointTab,
     options: IRestoreWorkspaceCheckpointOptions,
 ) {
+    const requiresWorkingCopy = checkpointTab.isDirty && checkpointTab.workingCopyRef;
     for (const [
         tabId,
         workspace,
@@ -68,9 +69,10 @@ function findRestoredWorkspace(
         try {
             const state = workspace.getAutomationStateSnapshot();
             if (
-                (checkpointTab.workingCopyRef && state.workingCopyPath === checkpointTab.workingCopyRef)
-                || (checkpointTab.sourceRef && state.originalPath === checkpointTab.sourceRef)
-                || (checkpointTab.sourceRef && tab?.originalPath === checkpointTab.sourceRef)
+                requiresWorkingCopy
+                    ? state.workingCopyPath === checkpointTab.workingCopyRef
+                    : (checkpointTab.sourceRef && state.originalPath === checkpointTab.sourceRef)
+                        || (checkpointTab.sourceRef && tab?.originalPath === checkpointTab.sourceRef)
             ) {
                 return {
                     tabId,
@@ -136,6 +138,7 @@ export async function restoreWorkspaceCheckpoint(
     }
     await nextTick();
     const failedPaths: TDocumentRef[] = [];
+    const restoredTabIds = new Set<string>();
     let nextTabIndex = 0;
     const restoreWorkers = Array.from(
         {length: Math.min(WORKSPACE_RESTORE_CONCURRENCY, checkpoint.tabs.length)},
@@ -154,7 +157,10 @@ export async function restoreWorkspaceCheckpoint(
                     continue;
                 }
                 try {
-                    if (!await options.openPathInReservedTab(tab.tabId, restoreTarget)) {
+                    const opened = await options.openPathInReservedTab(tab.tabId, restoreTarget);
+                    if (opened) {
+                        restoredTabIds.add(tab.tabId);
+                    } else {
                         const failedPath = tab.sourceRef ?? tab.workingCopyRef;
                         if (failedPath) {
                             failedPaths.push(failedPath);
@@ -174,6 +180,10 @@ export async function restoreWorkspaceCheckpoint(
     const activeCheckpointTab = checkpoint.tabs.find(tab => tab.tabId === checkpoint.activeTabId) ?? null;
     let restoredActiveTabId: string | null = null;
     for (const checkpointTab of checkpoint.tabs) {
+        const restoreTarget = getRestoreTarget(checkpointTab);
+        if (restoreTarget && !restoredTabIds.has(checkpointTab.tabId)) {
+            continue;
+        }
         const workspace = options.workspaceRefs.value.get(checkpointTab.tabId) ?? null;
         const restored = workspace
             ? {
@@ -184,7 +194,7 @@ export async function restoreWorkspaceCheckpoint(
         if (!restored) {
             continue;
         }
-        if (getRestoreTarget(checkpointTab)) {
+        if (restoreTarget) {
             await applyViewState(checkpointTab, restored.workspace);
         }
         if (checkpointTab === activeCheckpointTab) {

@@ -8,6 +8,7 @@ import {
 import {ref} from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import {
     createDeps,
     createShapeAnnotation,
@@ -34,6 +35,35 @@ describe('net-zero annotation save', () => {
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.trySavePdfNativeMutations).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+    });
+
+    it('saves from an existing document operation lease without reacquiring it', async () => {
+        const leaseKinds: TDocumentOperationKind[] = [];
+        const runWithDocumentOperationLease = async <T>(
+            kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ) => {
+            leaseKinds.push(kind);
+            return operation();
+        };
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            annotationDirty: ref(true),
+            canonicalAnnotationComments: ref([]),
+            hasAnnotationChanges: vi.fn(() => true),
+            trySavePdfNativeMutations: vi.fn(),
+            runWithDocumentOperationLease,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(runWithDocumentOperationLease(
+            'page-operation',
+            () => service.handleSaveWithinDocumentOperationLease(),
+        )).resolves.toBe(true);
+
+        expect(leaseKinds).toEqual(['page-operation']);
+        expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
     });
 
     it('still publishes a Save As copy for a verified empty annotation frontier', async () => {
@@ -111,9 +141,9 @@ describe('net-zero annotation save', () => {
     });
 
     it('projects real mutations before publishing Save As instead of copying stale source bytes', async () => {
-        let deps: ReturnType<typeof createDeps>['deps'];
+        const documentRevisionToken = ref(requireDocumentRevisionToken('rev-1'));
         const trySavePdfNativeMutations = vi.fn(async () => {
-            deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-after-native-stage');
+            documentRevisionToken.value = requireDocumentRevisionToken('rev-after-native-stage');
             return {
                 success: true,
                 outPath: requireDocumentRef('/tmp/work.pdf'),
@@ -121,23 +151,22 @@ describe('net-zero annotation save', () => {
                 didSaveAs: false,
             };
         });
-        ({deps} = createDeps({
+        const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken,
             annotationDirty: ref(true),
             optimizePdfOnSaveAs: ref(true),
             canonicalAnnotationComments: ref([]),
             hasShapeChanges: vi.fn(() => true),
             getAllShapes: vi.fn(() => [createShapeAnnotation()]),
             trySavePdfNativeMutations,
-        }));
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
         await expect(service.handleSaveAs()).resolves.toBe(true);
         expect(trySavePdfNativeMutations).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.objectContaining({optimizeLossless: true}));
         expect(deps.saveWorkingCopyAs).toHaveBeenCalledOnce();
-        expect(deps.saveWorkingCopyAs).toHaveBeenCalledWith(undefined, expect.objectContaining({
-            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-native-stage'),
-        }));
+        expect(deps.saveWorkingCopyAs).toHaveBeenCalledWith(undefined, expect.objectContaining({expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-native-stage')}));
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
     });
 

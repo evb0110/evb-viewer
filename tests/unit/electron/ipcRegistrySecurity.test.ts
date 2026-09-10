@@ -269,13 +269,19 @@ describe('IPC registry sender trust', () => {
         mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => (
             mocks.registeredWindowsById.get(windowId) ?? null
         ));
-        mocks.updateSettings.mockImplementation(async (updater: (settings: Record<string, unknown>) => unknown) => (
-            updater({
+        mocks.updateSettings.mockImplementation(async (updater: (settings: Record<string, unknown>) => unknown) => {
+            const current = {
+                locale: 'en',
                 assistantPanelEnabled: true,
                 skippedUpdateVersion: 'keep-version',
                 agentMcpEnabled: true,
-            })
-        ));
+            };
+            const mutation = await updater(current);
+            return {
+                ...current,
+                ...(mutation && typeof mutation === 'object' ? mutation : {}),
+            };
+        });
     });
 
     it('does not load scan-cleanup bindings merely to dispose them', async () => {
@@ -559,6 +565,7 @@ describe('IPC registry sender trust', () => {
 
             expect(mocks.updateSettings).not.toHaveBeenCalled();
 
+            await vi.dynamicImportSettled();
             await vi.advanceTimersByTimeAsync(25);
             await expect(Promise.all([
                 firstSave,
@@ -572,12 +579,8 @@ describe('IPC registry sender trust', () => {
             expect(mocks.setElectronLocale).toHaveBeenCalledWith('en');
             expect(mocks.setElectronLocale.mock.invocationCallOrder[0]!)
                 .toBeLessThan(mocks.updateRecentFilesMenu.mock.invocationCallOrder[0]!);
-            const updater = mocks.updateSettings.mock.calls[0]?.[0] as (settings: Record<string, unknown>) => unknown;
-            expect(updater({
-                assistantPanelEnabled: true,
-                skippedUpdateVersion: 'keep-version',
-                agentMcpEnabled: true,
-            })).toEqual(expect.objectContaining({
+            const persistedSettings = await (mocks.updateSettings.mock.results[0]?.value as Promise<Record<string, unknown>>);
+            expect(persistedSettings).toEqual(expect.objectContaining({
                 theme: 'dark',
                 assistantPanelEnabled: true,
                 skippedUpdateVersion: 'keep-version',

@@ -299,6 +299,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             isDjvu: tab.isDjvu,
         };
         updateTab(tab.id, pending);
+        delete tab.recoveryWorkingCopyPath;
         return {
             pending,
             previous,
@@ -318,6 +319,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             isDjvu: tab.isDjvu,
         };
         updateTab(tab.id, pending);
+        // The checkpoint target only protects the restore transaction. Once a
+        // document hint has been accepted, a later close or open must not
+        // inherit that old recovery path.
+        delete tab.recoveryWorkingCopyPath;
         return {
             pending,
             previous,

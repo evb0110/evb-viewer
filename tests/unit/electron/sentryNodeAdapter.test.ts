@@ -122,7 +122,10 @@ describe('Sentry Node diagnostics adapter', () => {
         const requests: unknown[] = [];
         const responses: Array<(value: {
             statusCode: number;
-            headers: {'x-sentry-rate-limits': string | null; 'retry-after': string | null};
+            headers: {
+                'x-sentry-rate-limits': string | null;
+                'retry-after': string | null
+            };
         }) => void> = [];
         const adapter = createSentryNodeDiagnosticsTransport({
             dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
@@ -137,7 +140,10 @@ describe('Sentry Node diagnostics adapter', () => {
             architecture: 'arm64',
             audit,
             makeTransport: options => createTransport(
-                {...options, bufferSize: 16},
+                {
+                    ...options,
+                    bufferSize: 16,
+                },
                 request => {
                     requests.push(request);
                     return new Promise(resolve => responses.push(resolve));
@@ -149,7 +155,10 @@ describe('Sentry Node diagnostics adapter', () => {
         expect(requests).toHaveLength(1);
         responses.shift()?.({
             statusCode: 200,
-            headers: {'x-sentry-rate-limits': '60::error', 'retry-after': null},
+            headers: {
+                'x-sentry-rate-limits': '60::error',
+                'retry-after': null,
+            },
         });
         await expect(first).resolves.toBe(true);
 
@@ -177,7 +186,10 @@ describe('Sentry Node diagnostics adapter', () => {
             architecture: 'arm64',
             audit: overflowAudit,
             makeTransport: options => createTransport(
-                {...options, bufferSize: 16},
+                {
+                    ...options,
+                    bufferSize: 16,
+                },
                 () => new Promise(resolve => pendingResponses.push(resolve)),
             ),
         });

@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {IBrowserTransferAuthorityRecord} from '@app/platform/browser/browserDocumentIdb';
 
@@ -89,6 +90,15 @@ class MockBroadcastChannel {
 
 function createPageTransitionEvent(type: 'pagehide' | 'pageshow', persisted: boolean) {
     return Object.assign(new Event(type), {persisted});
+}
+
+function requireBrowserTransferAuthority(
+    value: IBrowserTransferAuthorityRecord | null,
+): IBrowserTransferAuthorityRecord {
+    if (value === null) {
+        throw new Error('Transfer authority was not created before the deadline boundary');
+    }
+    return value;
 }
 
 function stubBrowserGlobals(href = 'http://localhost:3235/') {
@@ -638,7 +648,7 @@ describe('browserWindowTabsCapability', () => {
             },
             tab: {
                 fileName: 'source.pdf',
-                originalPath: '/source.pdf',
+                originalPath: requireDocumentRef('/source.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -729,7 +739,8 @@ describe('browserWindowTabsCapability', () => {
         });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(authority?.state).toBe('pending');
+        const authorityAtBoundary = requireBrowserTransferAuthority(authority);
+        expect(authorityAtBoundary.state).toBe('pending');
         await vi.advanceTimersByTimeAsync(10);
         await expect(transfer).resolves.toMatchObject({success: false});
         expect(transferAuthorityMocks.abortBrowserTransferAuthority).toHaveBeenCalledWith(

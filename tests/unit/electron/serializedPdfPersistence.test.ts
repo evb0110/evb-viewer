@@ -503,7 +503,10 @@ describe('serializedPdfPersistence', () => {
         const targetPath = join(tempRoot, 'large-saved.pdf');
         const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
-        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+        const {
+            beginSerializedPdfSaveAs,
+            shutdownSerializedPdfPersistence,
+        } = await importSerializedPdfPersistence();
 
         const result = await beginSerializedPdfSaveAs(
             createInvokeEvent(sender),
@@ -521,16 +524,18 @@ describe('serializedPdfPersistence', () => {
         expect(existsSync(tempPath)).toBe(true);
 
         sender.emit('destroyed');
-        await waitForCondition(() => {
-            expect(existsSync(tempPath)).toBe(false);
-        });
+        await shutdownSerializedPdfPersistence();
+        expect(existsSync(tempPath)).toBe(false);
     });
 
     it('allows serialized PDF streams above the former 16 GiB product cap', async () => {
         const workingPath = join(tempRoot, 'xlarge-working.pdf');
         const targetPath = join(tempRoot, 'xlarge-saved.pdf');
         const sender = new FakeSender();
-        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+        const {
+            beginSerializedPdfSaveAs,
+            shutdownSerializedPdfPersistence,
+        } = await importSerializedPdfPersistence();
 
         const result = await beginSerializedPdfSaveAs(
             createInvokeEvent(sender),
@@ -547,16 +552,15 @@ describe('serializedPdfPersistence', () => {
             path: targetPath,
         });
         sender.emit('destroyed');
-        await waitForCondition(() => {
-            expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
-        });
+        await shutdownSerializedPdfPersistence();
+        expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
     });
 
     it('rejects byte counts outside the protocol safe-integer range', async () => {
         const workingPath = join(tempRoot, 'invalid-size-working.pdf');
         const targetPath = join(tempRoot, 'invalid-size-saved.pdf');
         const sender = new FakeSender();
-        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+        const {beginSerializedPdfSaveAs} = await importSerializedPdfPersistence();
 
         await expect(beginSerializedPdfSaveAs(
             createInvokeEvent(sender),
@@ -911,7 +915,7 @@ describe('serializedPdfPersistence', () => {
         mocks.ensureWorkingCopyMaterialized.mockRejectedValue(new Error('Working copy path is not managed'));
 
         const sender = new FakeSender();
-        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+        const {beginSerializedPdfSaveAs} = await importSerializedPdfPersistence();
 
         await expect(beginSerializedPdfSaveAs(
             createInvokeEvent(sender),
@@ -1021,7 +1025,7 @@ describe('serializedPdfPersistence', () => {
             resultTimeoutMs: expect.any(Number),
         });
 
-        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        const portClosed = attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
         port.emit('message', {data: {
             type: 'chunk',
@@ -1037,9 +1041,8 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(tempPath)).toBe('%PDF');
 
         port.close();
-        await waitForCondition(() => {
-            expect(existsSync(tempPath)).toBe(false);
-        });
+        await portClosed;
+        expect(existsSync(tempPath)).toBe(false);
     });
 
     it('keeps independent progress deadlines per serialized PDF session', async () => {
@@ -1083,10 +1086,10 @@ describe('serializedPdfPersistence', () => {
                     ),
                 ],
             );
-            attachSerializedPdfPersistencePort(createPortEvent(sender, port1), firstBeginResult.sessionId);
+            const firstPortClosed = attachSerializedPdfPersistencePort(createPortEvent(sender, port1), firstBeginResult.sessionId);
             attachSerializedPdfPersistencePort(createPortEvent(sender, port2), secondBeginResult.sessionId);
 
-            const progressTimeoutMs = firstBeginResult.progressTimeoutMs;
+            const progressTimeoutMs = firstBeginResult.progressTimeoutMs!;
             vi.advanceTimersByTime(progressTimeoutMs - 2_000);
             port1.emit('message', {data: {
                 type: 'chunk',
@@ -1105,9 +1108,8 @@ describe('serializedPdfPersistence', () => {
             expect(existsSync(firstTempPath)).toBe(true);
 
             port1.close();
-            await waitForCondition(() => {
-                expect(existsSync(firstTempPath)).toBe(false);
-            });
+            await firstPortClosed;
+            expect(existsSync(firstTempPath)).toBe(false);
         } finally {
             vi.useRealTimers();
         }
@@ -1286,7 +1288,10 @@ describe('serializedPdfPersistence', () => {
         const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(senderId);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
-        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+        const {
+            beginSerializedPdfSaveAs,
+            shutdownSerializedPdfPersistence,
+        } = await importSerializedPdfPersistence();
 
         await beginSerializedPdfSaveAs(
             createInvokeEvent(sender),
@@ -1300,10 +1305,8 @@ describe('serializedPdfPersistence', () => {
         expect(existsSync(tempPath)).toBe(true);
 
         sender.emit(event, ...args);
-
-        await waitForCondition(() => {
-            expect(existsSync(tempPath)).toBe(false);
-        });
+        await shutdownSerializedPdfPersistence();
+        expect(existsSync(tempPath)).toBe(false);
         expect(removeListenerSpy).toHaveBeenCalledWith('destroyed', expect.any(Function));
         expect(removeListenerSpy).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
         if (event === 'did-start-navigation') {
@@ -1313,7 +1316,10 @@ describe('serializedPdfPersistence', () => {
 
     it('rejects new streams above the per-sender active session limit', async () => {
         const sender = new FakeSender(80);
-        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+        const {
+            beginSerializedPdfSaveAs,
+            shutdownSerializedPdfPersistence,
+        } = await importSerializedPdfPersistence();
         const targetPaths = Array.from({length: 4}, (_, index) => join(tempRoot, `limited-${index}.pdf`));
 
         for (const targetPath of targetPaths) {
@@ -1336,12 +1342,14 @@ describe('serializedPdfPersistence', () => {
             SERIALIZED_TEST_REVISION_OPTIONS,
         )).rejects.toThrow('Too many active PDF persistence streams');
 
+        const tempPaths = mocks.makeSiblingTempPath.mock.results.flatMap(result =>
+            result.type === 'return' ? [`${result.value}.pdf`] : [],
+        );
         sender.emit('destroyed');
-        await waitForCondition(() => {
-            for (const targetPath of targetPaths) {
-                expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
-            }
-        });
+        await shutdownSerializedPdfPersistence();
+        for (const tempPath of tempPaths) {
+            expect(existsSync(tempPath)).toBe(false);
+        }
     });
 
     it('rejects duplicate MessagePort attachment for a serialized PDF session', async () => {
@@ -1603,21 +1611,6 @@ function wrapMessageEventPayload(payload: unknown, depth: number) {
 
 function readFileSyncUtf8(path: string) {
     return readFileSync(path, 'utf8');
-}
-
-async function waitForCondition(assertion: () => void) {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-        try {
-            assertion();
-            return;
-        } catch (error) {
-            lastError = error;
-            await delay(10);
-        }
-    }
-
-    throw lastError;
 }
 
 function deferred<T>() {

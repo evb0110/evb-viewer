@@ -586,18 +586,16 @@ impl<W: IoWrite> PdfWriter<W> {
                     image_name,
                 )
             }
+        } else if mirror_horizontal {
+            format!(
+                "q -{:.4} 0 0 {:.4} {:.4} 0 cm /{} Do Q\n",
+                page_width, page_height, page_width, image_name,
+            )
         } else {
-            if mirror_horizontal {
-                format!(
-                    "q -{:.4} 0 0 {:.4} {:.4} 0 cm /{} Do Q\n",
-                    page_width, page_height, page_width, image_name,
-                )
-            } else {
-                format!(
-                    "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
-                    page_width, page_height, image_name,
-                )
-            }
+            format!(
+                "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
+                page_width, page_height, image_name,
+            )
         };
         let content_dict = format!("<< /Length {} >>", content_stream.len());
         self.push_stream_object(

@@ -141,8 +141,10 @@ const {
     documentRecord = null,
     documentSession,
     isActive,
+    isDirty = false,
     isFullscreen,
     isRenderActive = isActive,
+    recoveryWorkingCopyPath = null,
     isTabTransitionBusy,
     isWorkspaceLayoutResizing = false,
     fullscreenSupported,
@@ -159,6 +161,8 @@ const {
     documentPath?: TDocumentRef | null | undefined;
     documentRecord?: IWorkspaceDocumentRecord | null | undefined;
     documentSession: IWorkspaceDocumentController;
+    isDirty?: boolean | undefined;
+    recoveryWorkingCopyPath?: TDocumentRef | null | undefined;
     initialViewState?: ITabViewSessionState | null | undefined;
     startSection?: TStartSection | undefined;
     isFullscreen: boolean;
@@ -398,6 +402,7 @@ const hasQueuedSplitRestore = computed(() => {
         : workspaceSplitCache.has(tabId);
 });
 const isDocumentOpenInFlight = computed(() => activeDocumentOpenTransaction.value !== null);
+const hasUnresolvedDirtyRecovery = computed(() => isDirty === true && Boolean(recoveryWorkingCopyPath));
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 // Startup open-claim is a background probe. Mark the open UI busy only once the
 // user or restore flow is actually opening a document.
@@ -519,18 +524,21 @@ watch(
         () => isRenderActive,
         () => documentPath,
         isDocumentOpenInFlight,
+        hasUnresolvedDirtyRecovery,
     ],
     ([
         active,
         renderActive,
         path,
         opening,
+        unresolvedDirtyRecovery,
     ]) => {
         const snapshot = activeDocumentSession.value.snapshot.value;
         if (
             !(active || renderActive)
             || !path
             || hasDocumentHint !== true
+            || unresolvedDirtyRecovery
             || workspaceHasOpenedDocument()
             || opening
             || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, snapshot, path)
@@ -557,9 +565,11 @@ watch(
 watch([
     hasMountedWorkspace,
     isDocumentOpenInFlight,
+    hasUnresolvedDirtyRecovery,
 ], ([
     mounted,
     opening,
+    unresolvedDirtyRecovery,
 ]) => {
     const snapshot = activeDocumentSession.value.snapshot.value;
     const restorePath = documentPath;
@@ -569,6 +579,7 @@ watch([
         || !(isActive || isRenderActive)
         || !initialViewState
         || !restorePath
+        || unresolvedDirtyRecovery
         || workspaceHasOpenedDocument()
         || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, snapshot, restorePath)
     ) {

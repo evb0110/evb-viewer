@@ -518,10 +518,10 @@ describe('fileOps path security', () => {
         expect(mocks.copyFile).toHaveBeenNthCalledWith(
             2,
             '/tmp/electron-test/ocr-1-merged.pdf',
-            expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
         );
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
             '/tmp/electron-test/work.pdf',
         );
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
@@ -753,8 +753,9 @@ describe('fileOps path security', () => {
                 writeContext,
                 '/tmp/electron-test/work.pdf',
                 '/tmp/electron-test/ocr-1-merged.pdf',
+                {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
             ),
-        ).rejects.toThrow('Invalid source path: OCR result is not owned by this renderer');
+        ).rejects.toThrow('Invalid source path: OCR result is not authorized for this document revision');
 
         expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
         expect(mocks.copyFile).not.toHaveBeenCalled();
@@ -1704,12 +1705,12 @@ describe('fileOps path security', () => {
 
         expect(mocks.consumeAllowedDocxWritePath).toHaveBeenCalledWith('/tmp/electron-test/export.docx', 42);
         expect(mocks.open).toHaveBeenCalledWith(
-            expect.stringMatching(/\/\.export\.docx\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
             'wx',
         );
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/\.export\.docx\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
             '/tmp/electron-test/export.docx',
         );
     });

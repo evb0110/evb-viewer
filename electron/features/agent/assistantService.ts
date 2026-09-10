@@ -25,14 +25,14 @@ import {
     isClaudeAuthErrorMessage,
     getClaudeAgentSdkInfo,
     detectClaudeAuthState,
+    shouldRefuseClaudeContextContinuation,
     shouldUseClaudeAssistantFastMode,
     normalizeClaudeAssistantModel,
 } from '@electron/features/agent/claudeProviderMetadata';
 import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
-import {
-    type IClaudeAgentAssistantInit,
-    type IClaudeAgentAssistantSessionOptions,
-    shouldRefuseClaudeContextContinuation,
+import type {
+    IClaudeAgentAssistantInit,
+    IClaudeAgentAssistantSessionOptions,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
 import {

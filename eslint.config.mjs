@@ -254,7 +254,15 @@ const projectConfig = withNuxt(
             'packages/scan-cleanup/adapters/**/*.ts',
             '**/*.d.ts',
         ],
-        languageOptions: {parserOptions: {projectService: true}},
+        languageOptions: {parserOptions: {
+            projectService: {
+                allowDefaultProject: [
+                    'packages/node-runtime/appTempNamespace.ts',
+                    'packages/node-runtime/searchIndexSidecar.ts',
+                ],
+                defaultProject: 'tsconfig.scripts.json',
+            },
+        }},
         rules: {
             ...strictTypeRules,
             ...arrayTypeRules,

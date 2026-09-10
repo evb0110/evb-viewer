@@ -963,6 +963,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     async function executeSave(
         request: TWorkspaceSaveRequest,
         queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'>,
+        options: {withinDocumentOperationLease?: boolean} = {},
     ) {
         const queuedTargetIsCurrent = () => (
             deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
@@ -1054,7 +1055,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             );
         }
 
-        return runWithDocumentOperationLease(resolveOperationKind(request), async () => {
+        const runSave = async () => {
             if (!queuedTargetIsCurrent()) {
                 BrowserLogger.debug(
                     'workspace',
@@ -1197,16 +1198,22 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 });
                 indicator.value = false;
             }
-        });
+        };
+        return options.withinDocumentOperationLease
+            ? runSave()
+            : runWithDocumentOperationLease(resolveOperationKind(request), runSave);
     }
 
-    function save(request: TWorkspaceSaveRequest) {
+    function save(
+        request: TWorkspaceSaveRequest,
+        options: {withinDocumentOperationLease?: boolean} = {},
+    ) {
         const queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'> = {
             expectedDocumentSessionKey: deps.document.sessionKey.value,
             expectedOriginalPath: deps.document.originalPath.value,
             expectedWorkingPath: deps.document.workingCopyPath.value,
         };
-        const execute = () => executeSave(request, queuedTarget);
+        const execute = () => executeSave(request, queuedTarget, options);
         const result = saveQueueTail.then(execute, execute);
         saveQueueTail = result.then(() => undefined, () => undefined);
         return result;
@@ -1222,10 +1229,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         )
     ));
     const isAnySaving = computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value);
-    const saveIfDirty = () => (
+    const saveIfDirty = (options: {withinDocumentOperationLease?: boolean} = {}) => (
         deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges
-            ? canSave.value ? save({kind: 'save'}) : Promise.resolve(true)
-            : save({kind: 'save'})
+            ? canSave.value ? save({kind: 'save'}, options) : Promise.resolve(true)
+            : save({kind: 'save'}, options)
     );
 
     return {
@@ -1234,6 +1241,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         canSave,
         isAnySaving,
         handleSave: saveIfDirty,
+        handleSaveWithinDocumentOperationLease: () => saveIfDirty({withinDocumentOperationLease: true}),
         handleSaveAs: (optimizeLossless = deps.optimizePdfOnSaveAs?.value === true) => save({
             kind: 'save-as',
             optimizeLossless,

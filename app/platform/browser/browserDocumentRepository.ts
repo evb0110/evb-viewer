@@ -66,7 +66,11 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
+import {
+    createBrowserFileBytesWitness,
+    createBrowserFileContentWitness,
+    createBrowserStoredBytesWitness,
+} from '@app/platform/browser/createBrowserFileContentWitness';
 import type {TDocumentRef} from '@contracts/documentRef';
 export interface IBrowserDocumentMutation {
     write(
@@ -112,6 +116,15 @@ function createBrowserFileDocumentEntry(
         chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
     };
 }
+
+function isBrowserFileContentWitness(value: string | undefined): value is string {
+    return value?.startsWith('file:') === true;
+}
+
+function isBrowserStoredBytesWitness(value: string | undefined): value is string {
+    return value?.startsWith('bytes:') === true;
+}
+
 interface IBrowserStagedCommitResult {
     targetEntry: IBrowserDocumentEntry;
     previousTargetRevisionToken: TDocumentRevisionToken;
@@ -212,6 +225,10 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const storageMode = resolveStoredDocumentStorageMode(sourceBytes.byteLength, options.storageMode);
         const bytes = storageMode === 'inline' ? cloneBytes(sourceBytes) : new Uint8Array();
         const kind = options.kind ?? 'source';
+        const sourceBaseWitness = options.sourceBaseWitness
+            ?? (kind === 'source' && options.saveHandle && (storageMode === 'inline' || storageMode === 'chunked')
+                ? createBrowserStoredBytesWitness(sourceBytes)
+                : undefined);
         const entry = createBrowserDocumentEntry({
             ref: createBrowserDocumentRef(fileName),
             fileName,
@@ -224,7 +241,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             contentToken: createBrowserDocumentContentToken(),
             saveKind: options.saveKind ?? 'generic',
             saveHandle: options.saveHandle ?? null,
-            ...(options.sourceBaseWitness ? {sourceBaseWitness: options.sourceBaseWitness} : {}),
+            ...(sourceBaseWitness ? {sourceBaseWitness} : {}),
             storageMode,
             chunkCount: options.chunkCount ?? 0,
             chunkSize: options.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -381,34 +398,85 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         return create();
     }
+
+    private async resolveSourceBaseWitness(
+        entry: IBrowserDocumentEntry,
+        options: {allowHandleRead: boolean},
+    ): Promise<string | undefined> {
+        if (entry.sourceBaseWitness) {
+            return entry.sourceBaseWitness;
+        }
+
+        if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
+            return this.resolveSourceBaseWitness(
+                await this.requireEntry(entry.sourceRef),
+                options,
+            );
+        }
+
+        if (entry.storageMode === 'inline' || entry.storageMode === 'chunked') {
+            if (isBrowserFileContentWitness(entry.contentToken) || isBrowserStoredBytesWitness(entry.contentToken)) {
+                return entry.contentToken;
+            }
+            if (entry.storageMode === 'inline' && entry.fileSize === entry.data.byteLength) {
+                return createBrowserStoredBytesWitness(entry.data);
+            }
+            return undefined;
+        }
+
+        if (!options.allowHandleRead || !entry.saveHandle) {
+            return undefined;
+        }
+
+        if (
+            entry.fileSnapshot
+            && entry.fileSnapshot.size === entry.fileSize
+            && entry.fileSnapshot.lastModified === entry.fileLastModified
+        ) {
+            return createBrowserFileContentWitness(entry.fileSnapshot);
+        }
+
+        const metadata = await readFileHandleMetadata(entry.saveHandle);
+        entry.fileSnapshot = metadata.file;
+        entry.fileSize = metadata.size;
+        entry.fileLastModified = metadata.lastModified;
+        return createBrowserFileContentWitness(metadata.file);
+    }
+
     public async cloneAsWorkingCopy(sourceRef: string, fileName?: string) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = fileName ?? sourceEntry.fileName;
         try {
-            return await this.createStoredDocument(nextName, new Uint8Array(), {
-                mimeType: sourceEntry.mimeType,
-                kind: 'working',
-                sourceRef,
-                saveKind: 'pdf',
-                storageMode: 'source-proxy',
-                ...(sourceEntry.contentToken ? {sourceBaseWitness: sourceEntry.contentToken} : {}),
+            return await this.runRefMutation(sourceRef, async () => {
+                const currentSourceEntry = await this.requireEntry(sourceRef);
+                const sourceBaseWitness = await this.resolveSourceBaseWitness(currentSourceEntry, {allowHandleRead: true});
+                return this.createStoredEntry(nextName, new Uint8Array(), {
+                    mimeType: currentSourceEntry.mimeType,
+                    kind: 'working',
+                    sourceRef,
+                    saveKind: 'pdf',
+                    storageMode: 'source-proxy',
+                    ...(sourceBaseWitness ? {sourceBaseWitness} : {}),
+                });
             });
         } catch (error) {
-            if (!sourceEntry.memoryOnly) {
+            const currentSourceEntry = await this.requireEntry(sourceRef);
+            if (!currentSourceEntry.memoryOnly) {
                 throw error;
             }
 
             const ref = createBrowserDocumentRef(nextName);
+            const sourceBaseWitness = await this.resolveSourceBaseWitness(currentSourceEntry, {allowHandleRead: false});
             this.attachEntry({
                 ref,
                 fileName: nextName,
-                mimeType: sourceEntry.mimeType,
+                mimeType: currentSourceEntry.mimeType,
                 kind: 'working',
                 retention: 'transient',
                 sourceRef,
                 data: new Uint8Array(),
-                fileSize: sourceEntry.fileSize,
-                ...(sourceEntry.fileLastModified === undefined ? {} : {fileLastModified: sourceEntry.fileLastModified}),
+                fileSize: currentSourceEntry.fileSize,
+                ...(currentSourceEntry.fileLastModified === undefined ? {} : {fileLastModified: currentSourceEntry.fileLastModified}),
                 updatedAt: Date.now(),
                 contentToken: createBrowserDocumentContentToken(),
                 memoryOnly: true,
@@ -417,9 +485,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 saveKind: 'pdf',
                 saveHandle: null,
                 storageMode: 'source-proxy',
-                ...((sourceEntry.sourceBaseWitness ?? sourceEntry.contentToken)
-                    ? {sourceBaseWitness: sourceEntry.sourceBaseWitness ?? sourceEntry.contentToken}
-                    : {}),
+                ...(sourceBaseWitness ? {sourceBaseWitness} : {}),
                 chunkCount: 0,
                 chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
             });
@@ -760,7 +826,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             return;
         }
         const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
-        const currentWitness = await createBrowserFileContentWitness(metadata.file);
+        const currentWitness = isBrowserStoredBytesWitness(workingEntry.sourceBaseWitness)
+            ? await createBrowserFileBytesWitness(metadata.file)
+            : await createBrowserFileContentWitness(metadata.file);
         if (currentWitness === workingEntry.sourceBaseWitness) {
             return;
         }

@@ -56,6 +56,11 @@ import {
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {
+    PDF_PAGE_LABEL_STYLE_VALUES,
+    type TPdfPageLabelStyle,
+} from '@contracts/pdfPageLabels';
+import {isOneOf} from '@contracts/runtimeGuards';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 
@@ -425,7 +430,7 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?:
                     totalPages: catalog.pageLabels.totalPages,
                     ranges: catalog.pageLabels.ranges.map(range => ({
                         startPage: range.startPage,
-                        style: range.style ?? null,
+                        style: range.style,
                         prefix: range.prefix,
                         startNumber: range.startNumber,
                     })),
@@ -496,7 +501,7 @@ interface IPdfCombineCatalogMutations {
         totalPages: number;
         ranges: Array<{
             startPage: number;
-            style?: string;
+            style: TPdfPageLabelStyle;
             prefix: string;
             startNumber: number
         }>
@@ -591,7 +596,7 @@ async function readAndOffsetPdfCatalogs(chunkPaths: string[], signal?: AbortSign
                 totalPages: pageOffset,
                 ranges: labels.map(label => ({
                     startPage: label.pageIndex + 1,
-                    ...(label.style === undefined ? {} : {style: label.style}),
+                    style: normalizeNativePageLabelStyle(label.style),
                     prefix: label.prefix ?? '',
                     startNumber: label.start ?? 1,
                 })),
@@ -609,6 +614,12 @@ async function readAndOffsetPdfCatalogs(chunkPaths: string[], signal?: AbortSign
             force: true,
         }).catch(() => undefined);
     }
+}
+
+function normalizeNativePageLabelStyle(style: string | undefined): TPdfPageLabelStyle {
+    return style === undefined || !isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, style)
+        ? null
+        : style;
 }
 
 async function writePdfFromInputPathsNativeWithTempDir(

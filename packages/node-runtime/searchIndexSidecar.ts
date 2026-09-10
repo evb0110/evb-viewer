@@ -1,16 +1,36 @@
-import {
-    COMPACT_SEARCH_INDEX_HEADER_SIZE,
-    COMPACT_SEARCH_INDEX_MAGIC,
-    COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE,
-    COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
-    type ICompactSearchIndexPage,
-    type ICompactSearchIndexPageRecord,
-    type ICompactSearchIndexPayload,
-    type ICompactSearchIndexTextSource,
-} from '@contracts/searchIndexSidecar';
-
+/* eslint-disable custom/file-naming -- Stable sidecar path is part of the native index wire contract. */
+// Keep this low-level encoder independent from the application's contracts
+// package. These values and shapes are the stable on-disk wire format.
+const COMPACT_SEARCH_INDEX_HEADER_SIZE = 64;
+const COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE = 24;
+const COMPACT_SEARCH_INDEX_MAGIC = 'EVBSIDX2';
+const COMPACT_SEARCH_INDEX_SCHEMA_VERSION = 2;
 const MAX_UINT32 = 0xFFFFFFFF;
 const MAX_UINT16 = 0xFFFF;
+
+interface ICompactSearchIndexTextSource {
+    kind: number;
+    version: number;
+}
+
+interface ICompactSearchIndexPage {
+    pageNumber: number;
+    text: string;
+}
+
+interface ICompactSearchIndexPayload {
+    documentRevision: string;
+    pageCount: number;
+    pages: readonly ICompactSearchIndexPage[];
+    textSource?: ICompactSearchIndexTextSource;
+}
+
+interface ICompactSearchIndexPageRecord {
+    pageNumber: number;
+    textUtf16Length: number;
+    byteOffset: bigint;
+    byteLength: bigint;
+}
 
 function assertUInt32(value: number, label: string) {
     if (!Number.isSafeInteger(value) || value < 0 || value > MAX_UINT32) {

@@ -194,8 +194,13 @@ export function matchesSessionProcessIdentity(
             || hasExactArgument(snapshot.command, projectRoot)
             || hasAbsoluteEphemeralControllerEntry
             || (snapshot.platform === 'win32' && (hasControllerEntry || hasEphemeralControllerEntry));
+        const hasExplicitSessionArgument = /(?:^|\s)(?:--session=(?:[^\s"']+|'[^']*'|"[^"]*")|["']--session=[^\s"']+["'])(?:\s|$)/u
+            .test(snapshot.command);
+        const hasExpectedSession = expectation.sessionName === 'default'
+            ? !hasExplicitSessionArgument || hasExactArgument(snapshot.command, '--session=default')
+            : hasExactArgument(snapshot.command, `--session=${expectation.sessionName}`);
         const isLegacyController = (snapshot.command.includes('electron:run') || hasControllerEntry)
-            && hasExactArgument(snapshot.command, `--session=${expectation.sessionName}`)
+            && hasExpectedSession
             && /(?:^|\s)start(?:\s|$)/.test(snapshot.command);
         const isEphemeralController = hasEphemeralControllerEntry
             && hasExactArgument(snapshot.command, expectation.sessionName);

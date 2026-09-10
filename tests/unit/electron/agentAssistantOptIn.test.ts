@@ -867,7 +867,9 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('does not turn an idle Claude stream exit into a duplicate failed chat turn', async () => {
-        const {getAgentAssistantState, sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {
+            getAgentAssistantState, sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
         const driver = await runDualProviderCompletionDriver({
             startCodex: () => enableAssistantRuntime(),
             installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
@@ -881,7 +883,10 @@ describe('agent assistant opt-in gating', () => {
         expect(session).toBeTruthy();
         session?.callbacks.onError(null, 'Claude assistant session ended.');
 
-        const state = await getAgentAssistantState({provider: 'claude', scope});
+        const state = await getAgentAssistantState({
+            provider: 'claude',
+            scope,
+        });
         expect(state.status.runtimeState).toBe('error');
         expect(state.messages.filter(message => message.error).map(message => message.text)).toEqual([]);
     });

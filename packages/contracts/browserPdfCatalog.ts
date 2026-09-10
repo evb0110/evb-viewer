@@ -107,5 +107,8 @@ export function decodeBrowserPdfCatalog(value: unknown, options: {maxPageLabels:
             ...(range.start === undefined ? {} : {start: range.start}),
         });
     }
-    return {bookmarks, pageLabels};
+    return {
+        bookmarks,
+        pageLabels,
+    };
 }

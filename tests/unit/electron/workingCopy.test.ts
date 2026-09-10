@@ -114,9 +114,7 @@ describe('workingCopy', () => {
     it('bounds internal names for near-limit multibyte source filenames', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
-        const {
-            createWorkingCopy,
-        } = await import('@electron/file-access/workingCopyCreation');
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {getWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
         const {getWorkingCopyRevisionSidecarPath} = await import('@electron/file-access/documentRevisionSidecar');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');

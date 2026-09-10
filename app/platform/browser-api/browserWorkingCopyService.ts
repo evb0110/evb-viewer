@@ -14,7 +14,10 @@ import {
     isDjvuFileName,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
-import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
+import {
+    buildBrowserByteLimitError,
+    toBrowserOwnedArrayBuffer,
+} from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     emitBatchOpenProgress,
     type IBrowserBatchOpenProgressOptions,
@@ -265,7 +268,7 @@ export async function openDocumentPaths(
             retention: 'durable',
         },
     ).catch(async () => browserDocumentStore.registerFile(
-        new File([combinedPdf], generatedName, {type: 'application/pdf'}),
+        new File([toBrowserOwnedArrayBuffer(combinedPdf)], generatedName, {type: 'application/pdf'}),
         {
             kind: 'source',
             retention: 'durable',

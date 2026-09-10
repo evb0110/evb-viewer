@@ -170,7 +170,10 @@ describe('browser staged artifact commit', () => {
 
         await expect(commitBrowserStoreStagedArtifact(
             store,
-            {...stagedArtifact, size: BROWSER_MAX_FULL_READ_BYTES + 1},
+            {
+                ...stagedArtifact,
+                size: BROWSER_MAX_FULL_READ_BYTES + 1,
+            },
             workingRef,
             workingRevision.token,
         )).rejects.toThrow('exceeds the browser full-read limit');

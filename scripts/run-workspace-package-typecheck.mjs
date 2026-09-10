@@ -8,7 +8,10 @@ import { getWorkspacePackageRoots } from './workspace-roots.mjs';
 import { withTypecheckNodeHeap } from './typecheckNodeEnv.mjs';
 
 /** @type {Record<string, string>} */
-export const TYPECHECK_EXEMPT_WORKSPACE_PACKAGES = {'packages/electron-worker-bundles': 'JavaScript-only worker bundle manifest package with checked-in type declarations.'};
+export const TYPECHECK_EXEMPT_WORKSPACE_PACKAGES = {
+    'packages/electron-worker-bundles': 'JavaScript-only worker bundle manifest package with checked-in type declarations.',
+    'packages/node-runtime': 'Node runtime helpers are typechecked through root TypeScript projects.',
+};
 
 /** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => void} TRunCommand */
 /** @typedef {{args: string[], command: string}} ITypecheckCommand */

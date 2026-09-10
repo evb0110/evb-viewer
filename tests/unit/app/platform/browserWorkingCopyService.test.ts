@@ -12,9 +12,21 @@ import {
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
+import type {IBrowserBatchOpenProgress} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 
 const wasmRun = vi.hoisted(() => vi.fn());
 const combinedPdfRun = vi.hoisted(() => vi.fn());
+const emitBatchOpenProgressMock = vi.hoisted(() => vi.fn((
+    options: {onProgress?: (progress: IBrowserBatchOpenProgress) => void} | undefined,
+) => {
+    options?.onProgress?.({
+        processed: 0,
+        total: 1,
+        percent: 0,
+        elapsedMs: 0,
+        estimatedRemainingMs: null,
+    });
+}));
 
 vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
     isBrowserPageOpsWasmFailure: (value: unknown) => (
@@ -28,6 +40,7 @@ vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
 }));
 vi.mock('@app/platform/browser-api/createCombinedPdfFromPaths', () => ({
     createCombinedPdfFromPaths: combinedPdfRun,
+    emitBatchOpenProgress: emitBatchOpenProgressMock,
 }));
 const PDF_SOURCE_OPTIONS = {
     mimeType: 'application/pdf',
@@ -66,6 +79,7 @@ describe('browser working-copy decryption', () => {
         vi.stubGlobal('document', {cookie: ''});
         wasmRun.mockReset();
         combinedPdfRun.mockReset();
+        emitBatchOpenProgressMock.mockClear();
     });
 
     afterEach(() => {
@@ -341,13 +355,19 @@ describe('browser working-copy decryption', () => {
             PDF_SOURCE_OPTIONS,
         );
 
-        const result = await openDocumentPaths([sourcePath, sourcePath]);
+        const result = await openDocumentPaths([
+            sourcePath,
+            sourcePath,
+        ]);
+        if (!result || result.kind !== 'pdf') {
+            throw new Error('Expected generated PDF result');
+        }
 
         expect(result).toEqual(expect.objectContaining({
             kind: 'pdf',
             isGenerated: true,
         }));
-        expect((await browserDocumentStore.requireEntry(result!.originalPath)).memoryOnly).toBe(true);
-        expect((await browserDocumentStore.requireEntry(result!.workingPath)).memoryOnly).toBe(true);
+        expect((await browserDocumentStore.requireEntry(result.originalPath)).memoryOnly).toBe(true);
+        expect((await browserDocumentStore.requireEntry(result.workingPath)).memoryOnly).toBe(true);
     });
 });

@@ -47,9 +47,7 @@ import type {
     IAssistantChatSession,
     TAssistantChatSessionStore,
 } from '@electron/features/agent/assistantChatSessionStore';
-import {
-    isAssistantTurnActive,
-} from '@electron/features/agent/assistantTurnLifecycle';
+import {isAssistantTurnActive} from '@electron/features/agent/assistantTurnLifecycle';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,

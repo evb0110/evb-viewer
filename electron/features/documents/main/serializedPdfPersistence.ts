@@ -155,6 +155,7 @@ interface ISerializedPdfPersistenceSession {
     unregisterSenderCleanup: () => void;
     releaseSenderReservation: () => void;
     lifecycleOperation: IRegisteredMainOperation;
+    cleanupPromise?: Promise<void>;
 }
 
 interface ISerializedPdfPersistenceCommitResult {
@@ -170,6 +171,7 @@ interface ISerializedPdfPersistenceStageResult {
 
 const sessions = new Map<TSessionId, ISerializedPdfPersistenceSession>();
 const senderReservations = new Map<number, number>();
+const pendingCleanupPromises = new Set<Promise<void>>();
 
 function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
     return {
@@ -307,22 +309,35 @@ function refreshSessionTimeout(
     session.timeout.unref();
 }
 
-async function cleanupSession(session: ISerializedPdfPersistenceSession) {
-    clearSessionTimeout(session);
-    session.unregisterSenderCleanup();
-    session.releaseSenderReservation();
-    sessions.delete(session.id);
-    if (session.stagedOutput !== null) {
-        releaseManagedTempFileHandle(
-            {senderId: session.senderId},
-            session.stagedOutput.leaseId,
-        );
-        session.stagedOutput = null;
+function cleanupSession(session: ISerializedPdfPersistenceSession) {
+    if (session.cleanupPromise) {
+        return session.cleanupPromise;
     }
-    removeAllowedOpenPath(session.tempPath);
-    await session.handle.close().catch(() => undefined);
-    await rm(session.tempPath, { force: true }).catch(() => undefined);
-    session.lifecycleOperation.complete();
+
+    const cleanupPromise = (async () => {
+        clearSessionTimeout(session);
+        session.unregisterSenderCleanup();
+        session.releaseSenderReservation();
+        sessions.delete(session.id);
+        if (session.stagedOutput !== null) {
+            releaseManagedTempFileHandle(
+                {senderId: session.senderId},
+                session.stagedOutput.leaseId,
+            );
+            session.stagedOutput = null;
+        }
+        removeAllowedOpenPath(session.tempPath);
+        await session.handle.close().catch(() => undefined);
+        await rm(session.tempPath, { force: true }).catch(() => undefined);
+        session.lifecycleOperation.complete();
+    })();
+    session.cleanupPromise = cleanupPromise;
+    pendingCleanupPromises.add(cleanupPromise);
+    void cleanupPromise.then(
+        () => pendingCleanupPromises.delete(cleanupPromise),
+        () => pendingCleanupPromises.delete(cleanupPromise),
+    );
+    return cleanupPromise;
 }
 
 function finishSessionLifecycle(session: ISerializedPdfPersistenceSession) {
@@ -879,6 +894,10 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
         throw new Error('PDF persistence MessagePort is missing');
     }
     session.portAttached = true;
+    let resolvePortClosed!: () => void;
+    const portClosed = new Promise<void>(resolve => {
+        resolvePortClosed = resolve;
+    });
 
     port.on('message', (messageEvent) => {
         const maxQueuedMessages = SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS + 2;
@@ -904,12 +923,15 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
     });
     port.once('close', () => {
         if (sessions.get(session.id) === session && !session.isCommitting && !session.isStaged) {
-            void cleanupSession(session);
+            void cleanupSession(session).then(resolvePortClosed, resolvePortClosed);
+            return;
         }
+        resolvePortClosed();
     });
     port.start();
     refreshSessionTimeout(session, 'progress');
     port.postMessage(createPdfPersistenceReadyFrame());
+    return portClosed;
 }
 
 async function handlePortMessage(
@@ -1011,11 +1033,17 @@ async function handlePortMessage(
 }
 
 export async function shutdownSerializedPdfPersistence() {
-    await Promise.all([...sessions.values()].map(async (session) => {
-        if (session.isCommitting) {
-            await session.queue.catch(() => undefined);
-            return;
-        }
-        await cleanupSession(session);
-    }));
+    while (sessions.size > 0 || pendingCleanupPromises.size > 0) {
+        const activeSessionPromises = [...sessions.values()].map(async session => {
+            if (session.isCommitting) {
+                await session.queue.catch(() => undefined);
+                return;
+            }
+            await cleanupSession(session);
+        });
+        await Promise.all([
+            ...activeSessionPromises,
+            ...pendingCleanupPromises,
+        ].map(promise => promise.catch(() => undefined)));
+    }
 }

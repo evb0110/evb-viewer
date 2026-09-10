@@ -40,6 +40,7 @@ export interface IWorkspaceDocumentOpenHost {
 interface IDocumentOpenTransactionRun {
     transactionId: string;
     action: string;
+    preserveDirtyOnFailure: boolean;
     target: TTabUpdate | null;
     seededTabHint: boolean;
 }
@@ -174,6 +175,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         const transaction: IDocumentOpenTransactionRun = {
             transactionId,
             action: intent.action,
+            preserveDirtyOnFailure: intent.preserveDirtyOnFailure === true,
             target,
             seededTabHint: shouldSeedPendingTabHint(
                 target,
@@ -349,6 +351,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         if (
             !opened
             && transaction.seededTabHint
+            && !transaction.preserveDirtyOnFailure
             && openHost.getActiveTransactionId() === transaction.transactionId
             && !openHost.hasDocumentOrOpenError()
         ) {

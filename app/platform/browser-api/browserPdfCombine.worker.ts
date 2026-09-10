@@ -145,6 +145,7 @@ function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 
         return 0;
     }
     switch (metadata.orientation) {
+        case 1: return 0;
         case 2: return 360;
         case 3: return 180;
         case 4: return 540;
@@ -152,7 +153,6 @@ function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 
         case 6: return 90;
         case 7: return 630;
         case 8: return 270;
-        default: return 0;
     }
 }
 

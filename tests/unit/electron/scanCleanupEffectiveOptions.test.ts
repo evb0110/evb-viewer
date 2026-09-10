@@ -95,7 +95,6 @@ describe('effective scan cleanup options', () => {
     it('budgets uniform renders from physical page geometry, including rotated anisotropic sources', () => {
         const guardrail = resolveScanCleanupDocumentGuardrail(
             {
-                dpi: 600,
                 width: 9_600,
                 height: 4_800,
             },

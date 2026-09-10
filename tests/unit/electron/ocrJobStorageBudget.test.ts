@@ -79,7 +79,7 @@ describe('OCR aggregate job storage budget', () => {
             expect(JSON.parse(await readFile(checkpointJsonPath, 'utf8'))).toMatchObject({
                 completedPages: 1,
                 pdfSha256: 'sha256',
-                version: 2,
+                version: 3,
             });
         } finally {
             await storageBudget.stop();

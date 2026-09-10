@@ -615,7 +615,6 @@ pub(crate) fn stored_source_rect(
     dictionary: &Dictionary,
     visible_rect: PdfRect,
     rotation: i64,
-    page_rotation: i64,
 ) -> Result<PdfRect> {
     let Ok(metadata) = dictionary.get(b"EVBTextGeometry") else {
         if rotation != 0 {
@@ -624,14 +623,19 @@ pub(crate) fn stored_source_rect(
         return Ok(visible_rect);
     };
     let metadata = document.resolved(metadata)?.as_dict()?;
-    if metadata.get(b"Version")?.as_i64()? != 1
-        || metadata.get(b"Rotation")?.as_i64()? != rotation
-        || metadata.get(b"PageRotation")?.as_i64()? != page_rotation
+    if metadata.get(b"Version")?.as_i64()? != 1 || metadata.get(b"Rotation")?.as_i64()? != rotation
     {
         return Err("Text box geometry metadata is stale".into());
     }
+    // A page operation changes /Rotate without rewriting the annotation's
+    // PDF-space /Rect. The private source rectangle was written in the page
+    // frame recorded here, so validate the visible rectangle against that
+    // frame. The caller then projects the source into the current page frame.
+    // If an external viewer moved the annotation, this comparison still
+    // fails closed instead of letting stale private metadata win.
+    let metadata_page_rotation = metadata.get(b"PageRotation")?.as_i64()?;
     let source = parse_rect(document.resolved(metadata.get(b"Rect")?)?)?;
-    let expected = geometry(source, rotation, page_rotation)?.bounds;
+    let expected = geometry(source, rotation, metadata_page_rotation)?.bounds;
     if [
         expected.x1 - visible_rect.x1,
         expected.y1 - visible_rect.y1,

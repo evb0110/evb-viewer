@@ -201,6 +201,61 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(openPathInReservedTab).toHaveBeenCalledWith('tab-1', '/documents/saved.pdf');
     });
 
+    it('does not apply a dirty checkpoint to a source-only workspace after recovery fails', async () => {
+        const waitForDocumentOpenSettled = vi.fn().mockResolvedValue(undefined);
+        const workspace = createWorkspaceExposeFixture({waitForDocumentOpenSettled});
+        const activateTab = vi.fn();
+        const sourcePath = requireDocumentRef('/documents/failed-draft.pdf');
+        const workingCopyPath = requireDocumentRef('/tmp/working/failed-draft.pdf');
+
+        const failedPaths = await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
+            layout: {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            },
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [{
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
+                fileName: 'failed-draft.pdf',
+                sourceRef: sourcePath,
+                workingCopyRef: workingCopyPath,
+                isDirty: true,
+                isDjvu: false,
+                currentPage: 4,
+                zoom: 1.2,
+                zoomMode: 'custom',
+            }],
+        }, {
+            tabs: ref([{
+                id: requireTabId('tab-1'),
+                fileName: 'failed-draft.pdf',
+                originalPath: sourcePath,
+                isDirty: true,
+                isDjvu: false,
+            }]),
+            workspaceRefs: ref(new Map([[
+                requireTabId('tab-1'),
+                workspace,
+            ]])),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab: vi.fn().mockResolvedValue(false),
+            activateTab,
+        });
+
+        expect(failedPaths).toEqual([sourcePath]);
+        expect(waitForDocumentOpenSettled).not.toHaveBeenCalled();
+        expect(activateTab).not.toHaveBeenCalled();
+    });
+
     it('restores an unsaved generated PDF from its working copy without losing Save As semantics', async () => {
         const workspace = createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),

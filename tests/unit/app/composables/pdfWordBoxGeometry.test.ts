@@ -88,24 +88,88 @@ describe('transformOcrWordToViewport', () => {
     });
 
     it.each([
-        [0, {x: 100, y: 50, width: 200, height: 30}],
-        [90, {x: 50, y: 700, width: 30, height: 200}],
-        [180, {x: 700, y: 920, width: 200, height: 30}],
-        [270, {x: 920, y: 700, width: 30, height: 200}],
+        [
+            0,
+            {
+                x: 100,
+                y: 50,
+                width: 200,
+                height: 30,
+            },
+        ],
+        [
+            90,
+            {
+                x: 920,
+                y: 100,
+                width: 30,
+                height: 200,
+            },
+        ],
+        [
+            180,
+            {
+                x: 700,
+                y: 920,
+                width: 200,
+                height: 30,
+            },
+        ],
+        [
+            270,
+            {
+                x: 50,
+                y: 700,
+                width: 30,
+                height: 200,
+            },
+        ],
     ] as const)('maps the OCR box through the current %d degree viewport', (rotation, expected) => {
-        const viewport = cast<IPdfViewport>({
-            convertToViewportRectangle: vi.fn((rect: readonly number[]) => {
-                const [x1, y1, x2, y2] = rect;
-                if (rotation === 0) return [x1, 1000 - y2, x2, 1000 - y1];
-                if (rotation === 90) return [1000 - y2, x1, 1000 - y1, x2];
-                if (rotation === 180) return [1000 - x1, y1, 1000 - x2, y2];
-                return [y1, 1000 - x2, y2, 1000 - x1];
-            }),
-        });
+        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn((rect: readonly number[]) => {
+            const [
+                x1,
+                y1,
+                x2,
+                y2,
+            ] = cast<readonly [number, number, number, number]>(rect);
+            if (rotation === 0) {
+                return [
+                    x1,
+                    1000 - y1,
+                    x2,
+                    1000 - y2,
+                ];
+            }
+            if (rotation === 90) {
+                return [
+                    y1,
+                    x1,
+                    y2,
+                    x2,
+                ];
+            }
+            if (rotation === 180) {
+                return [
+                    1000 - x1,
+                    y1,
+                    1000 - x2,
+                    y2,
+                ];
+            }
+            return [
+                1000 - y1,
+                1000 - x1,
+                1000 - y2,
+                1000 - x2,
+            ];
+        })});
 
         expect(transformOcrWordToViewport(
             baseWord,
-            {render: {imagePx: {w: 1000, h: 1000}}},
+            {render: {imagePx: {
+                w: 1000,
+                h: 1000,
+            }}},
             1000,
             1000,
             viewport,
@@ -114,7 +178,12 @@ describe('transformOcrWordToViewport', () => {
 
     it('maps the 100 by 200 audit case through a 180 degree viewport', () => {
         const viewport = cast<IPdfViewport>({
-            viewBox: [0, 0, 100, 200],
+            viewBox: [
+                0,
+                0,
+                100,
+                200,
+            ],
             convertToViewportRectangle: vi.fn((rect: readonly number[]) => [
                 100 - rect[0]!,
                 rect[1]!,
@@ -124,12 +193,26 @@ describe('transformOcrWordToViewport', () => {
         });
 
         expect(transformOcrWordToViewport(
-            {text: 'audit', x: 10, y: 20, width: 30, height: 10},
-            {render: {imagePx: {w: 100, h: 200}}},
+            {
+                text: 'audit',
+                x: 10,
+                y: 20,
+                width: 30,
+                height: 10,
+            },
+            {render: {imagePx: {
+                w: 100,
+                h: 200,
+            }}},
             100,
             200,
             viewport,
-        )).toEqual({x: 60, y: 170, width: 30, height: 10});
+        )).toEqual({
+            x: 60,
+            y: 170,
+            width: 30,
+            height: 10,
+        });
     });
 });
 

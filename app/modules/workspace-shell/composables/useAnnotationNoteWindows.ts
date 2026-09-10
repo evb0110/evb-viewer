@@ -9,14 +9,12 @@ import type {
 import {
     isNoteEligibleComment,
     annotationIdForSummary,
-} from '@app/modules/pdf-viewer/public';
-import {
     asAnnotationId,
+    type IAnnotationRecoveryDraft,
     type AnnotationId,
 } from '@app/modules/pdf-viewer/public';
 import {ANNOTATION_NOTE_SAVE_DEBOUNCE_MS} from '@app/constants/timeouts';
 import {runGuardedTask} from '@app/utils/asyncGuard';
-import type {IAnnotationRecoveryDraft} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 
 interface IAnnotationNoteWindowRuntime {
     requiresEmbeddedSave: boolean;

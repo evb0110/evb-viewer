@@ -53,6 +53,16 @@ describe('release shared helpers', () => {
                 'user.name',
                 'Release test',
             ]);
+            git([
+                'config',
+                'gc.auto',
+                '0',
+            ]);
+            git([
+                'config',
+                'maintenance.auto',
+                'false',
+            ]);
             writeVersion('0.1.452');
             git([
                 'add',

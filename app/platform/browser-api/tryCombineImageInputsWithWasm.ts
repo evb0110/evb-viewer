@@ -636,7 +636,16 @@ function buildV3WasmRequest(
         offset = writeU32(view, offset, boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
         if (version === REQUEST_VERSION_CATALOG) {
             const rotationDegrees = spec.rotationDegrees ?? 0;
-            if (![0, 90, 180, 270, 360, 450, 540, 630].includes(rotationDegrees)) {
+            if (![
+                0,
+                90,
+                180,
+                270,
+                360,
+                450,
+                540,
+                630,
+            ].includes(rotationDegrees)) {
                 throw new Error('Invalid WASM page spec rotation');
             }
             offset = writeU32(view, offset, rotationDegrees);

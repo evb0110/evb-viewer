@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import { Readable } from 'node:stream';
+import type * as NodeFs from 'fs';
 
 const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
 
@@ -46,7 +47,7 @@ vi.mock('electron', () => ({app: mocks.app}));
 vi.mock('os', () => ({homedir: () => '/tmp/home'}));
 vi.mock('url', () => ({fileURLToPath: () => mocks.fileUrl}));
 vi.mock('fs', async importOriginal => {
-    const actual = await importOriginal();
+    const actual = await importOriginal<typeof NodeFs>();
     return {
         ...actual,
         closeSync: (...args: unknown[]) => mocks.closeSync(...args),
@@ -351,7 +352,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
         expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('installed');
         modelBytes = Buffer.from(originalBytes);
-        modelBytes[modelBytes.length - 1] ^= 1;
+        modelBytes[modelBytes.length - 1]! ^= 1;
         mtimeMs = 2;
 
         expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('missing');

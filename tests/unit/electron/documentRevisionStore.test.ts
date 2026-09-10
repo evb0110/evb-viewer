@@ -454,9 +454,7 @@ describe('documentRevisionStore', () => {
         releaseFirst();
         await expect(first).resolves.toMatchObject({contentRevision: 2});
         await expect(second).resolves.toMatchObject({contentRevision: 3});
-        await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({
-            contentRevision: 3,
-        });
+        await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({contentRevision: 3});
         expect(initial.contentRevision).toBe(1);
     });
 

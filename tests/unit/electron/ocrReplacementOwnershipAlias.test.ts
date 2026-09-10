@@ -323,10 +323,10 @@ describe('OCR replacement ownership path aliases', () => {
         expect(mocks.copyFile).toHaveBeenNthCalledWith(
             2,
             canonicalOcrPath,
-            expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.[^/]+\.tmp$/u),
         );
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.[^/]+\.tmp$/u),
             resolvedWorkingCopyPath,
         );
 

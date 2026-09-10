@@ -37,6 +37,18 @@ const IGNORED_DIRECTORY_NAMES = new Set([
 ]);
 const IGNORED_FILE_NAMES = new Set(['auto-imports.d.ts']);
 
+/** @typedef {{path: string, relativePath: string}} IWasmFingerprintFile */
+/** @typedef {{offset: number, value: number}} IUnsignedLeb128 */
+/** @typedef {{projectRoot?: string | undefined, rustflags?: string | undefined}} IWasmFingerprintOptions */
+/** @typedef {{code?: string | undefined}} INodeError */
+/** @typedef {typeof import('./wasm-artifacts.mjs').WASM_ARTIFACTS[number]} IWasmArtifact */
+
+/** @param {unknown} value @returns {value is INodeError} */
+function isNodeError(value) {
+    return typeof value === 'object' && value !== null;
+}
+
+/** @param {number} value @returns {Buffer} */
 function encodeUnsignedLeb128(value) {
     const bytes = [];
     let remaining = value;
@@ -51,12 +63,16 @@ function encodeUnsignedLeb128(value) {
     return Buffer.from(bytes);
 }
 
+/** @param {Buffer} bytes @param {number} start @returns {IUnsignedLeb128 | null} */
 function readUnsignedLeb128(bytes, start) {
     let value = 0;
     let shift = 0;
     let offset = start;
     while (offset < bytes.length && shift <= 28) {
         const byte = bytes[offset++];
+        if (byte === undefined) {
+            return null;
+        }
         value += (byte & 0x7f) * 2 ** shift;
         if ((byte & 0x80) === 0) {
             return {
@@ -69,12 +85,13 @@ function readUnsignedLeb128(bytes, start) {
     return null;
 }
 
+/** @param {string} sourcePath @param {string} relativePath @param {IWasmFingerprintFile[]} files @returns {Promise<void>} */
 async function collectFiles(sourcePath, relativePath, files) {
     let metadata;
     try {
         metadata = await lstat(sourcePath);
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (isNodeError(error) && error.code === 'ENOENT') {
             return;
         }
         throw error;
@@ -109,7 +126,9 @@ async function collectFiles(sourcePath, relativePath, files) {
     }
 }
 
+/** @param {string} root @returns {Promise<IWasmFingerprintFile[]>} */
 async function getWasmFingerprintInputFiles(root) {
+    /** @type {IWasmFingerprintFile[]} */
     const files = [];
     for (const relativePath of WASM_FINGERPRINT_INPUTS) {
         await collectFiles(
@@ -122,6 +141,7 @@ async function getWasmFingerprintInputFiles(root) {
     return files;
 }
 
+/** @param {IWasmArtifact} artifact @param {IWasmFingerprintOptions} [options] @returns {Promise<string>} */
 export async function computeWasmSourceFingerprint(artifact, {
     projectRoot: root = projectRoot,
     rustflags = '',
@@ -158,6 +178,7 @@ export async function computeWasmSourceFingerprint(artifact, {
     return hash.digest('hex');
 }
 
+/** @param {Uint8Array} wasmBytes @param {string} fingerprint @returns {Buffer} */
 export function stampWasmArtifact(wasmBytes, fingerprint) {
     const bytes = Buffer.from(wasmBytes);
     if (!bytes.subarray(0, WASM_MAGIC.length).equals(WASM_MAGIC)) {
@@ -182,6 +203,7 @@ export function stampWasmArtifact(wasmBytes, fingerprint) {
     ]);
 }
 
+/** @param {Uint8Array} wasmBytes @returns {string | null} */
 export function getWasmArtifactFingerprint(wasmBytes) {
     const bytes = Buffer.from(wasmBytes);
     if (!bytes.subarray(0, WASM_MAGIC.length).equals(WASM_MAGIC)) {

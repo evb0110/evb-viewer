@@ -104,9 +104,7 @@ async function createRecoveredSession(label: string): Promise<IRecoveredSession>
         document.querySelectorAll<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         ),
-    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {
-        timeout: 60_000,
-    }, RECOVERED_ANNOTATION_TEXT);
+    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 60_000}, RECOVERED_ANNOTATION_TEXT);
     const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
     expect(state.dirtyState?.fileDirty).toBe(true);
     const recoveredWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);

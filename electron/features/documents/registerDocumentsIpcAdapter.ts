@@ -735,7 +735,7 @@ export function registerDocumentsIpcAdapter(
     });
     registerRawEvent(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event: IpcMainEvent, sessionId: unknown) => {
         try {
-            attachSerializedPdfPersistencePort(event, sessionId);
+            void attachSerializedPdfPersistencePort(event, sessionId);
         } catch (error) {
             logger.warn(`[ipc] rejected ${DOCUMENTS_CHANNELS.fileSavePdfDataPort}: ${getErrorMessage(error)}`);
         }

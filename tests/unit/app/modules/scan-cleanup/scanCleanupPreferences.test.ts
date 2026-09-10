@@ -422,14 +422,26 @@ describe('scan cleanup preferences', () => {
 
     it('migrates persisted manual split positions into the safe cutter interval', () => {
         const storage = memoryStorage();
-        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {
-            overrides: Object.fromEntries([0, 0.019, 0.02, 0.5, 0.98, 0.981, 1].map((xNormalized, index) => [String(index + 1), {
+        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {overrides: Object.fromEntries([
+            0,
+            0.019,
+            0.02,
+            0.5,
+            0.98,
+            0.981,
+            1,
+        ].map((xNormalized, index) => [
+            String(index + 1),
+            {
                 rotationDegrees: (index % 4) * 90,
                 layoutOverride: 'spread',
                 excluded: false,
-                manualSplit: {xNormalized, rotationDegrees: (index % 4) * 90},
-            }])),
-        }}));
+                manualSplit: {
+                    xNormalized,
+                    rotationDegrees: (index % 4) * 90,
+                },
+            },
+        ]))}}));
 
         const overrides = loadScanCleanupDocumentOverrides('document-a', storage);
         expect(Object.values(overrides).map(override => override.manualSplit?.xNormalized)).toEqual([
@@ -446,17 +458,21 @@ describe('scan cleanup preferences', () => {
 
     it('migrates a document-wide persisted manual split before decoding defaults', () => {
         const storage = memoryStorage();
-        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {
-            pageOverrideDefaults: {
+        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {pageOverrideDefaults: {
+            rotationDegrees: 270,
+            layoutOverride: 'spread',
+            excluded: false,
+            manualSplit: {
+                xNormalized: 1,
                 rotationDegrees: 270,
-                layoutOverride: 'spread',
-                excluded: false,
-                manualSplit: {xNormalized: 1, rotationDegrees: 270},
             },
-        }}));
+        }}}));
 
         expect(loadScanCleanupDocumentPageOverrideDefaults('document-a', storage)?.manualSplit)
-            .toEqual({xNormalized: 0.98, rotationDegrees: 270});
+            .toEqual({
+                xNormalized: 0.98,
+                rotationDegrees: 270,
+            });
     });
 
     it('falls back safely from malformed persisted values', () => {

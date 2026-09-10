@@ -1130,8 +1130,8 @@ describe('handleDjvuConvertToPdf', () => {
     it('stops between partial writes when export is canceled', async () => {
         let cancelPromise: Promise<unknown> | undefined;
         let cancelAcknowledged = false;
-        const cleanupStarted = createDeferred<void>();
-        const cleanupRelease = createDeferred<void>();
+        const cleanupStarted = createDeferred<undefined>();
+        const cleanupRelease = createDeferred<undefined>();
         const write = vi.fn()
             .mockImplementationOnce(async (_buffer: Buffer, _offset: number, _length: number) => {
                 cancelPromise = handleDjvuCancel(
@@ -1146,7 +1146,7 @@ describe('handleDjvuConvertToPdf', () => {
             .mockResolvedValue({bytesWritten: 1});
         mocks.rm.mockImplementation(async (path: string) => {
             if (path === '/tmp/.staged-output.tmp') {
-                cleanupStarted.resolve();
+                cleanupStarted.resolve(undefined);
                 await cleanupRelease.promise;
             }
         });
@@ -1179,7 +1179,7 @@ describe('handleDjvuConvertToPdf', () => {
         );
         await cleanupStarted.promise;
         expect(cancelAcknowledged).toBe(false);
-        cleanupRelease.resolve();
+        cleanupRelease.resolve(undefined);
         const result = await conversionPromise;
         await cancelPromise;
 
@@ -1240,9 +1240,7 @@ describe('handleDjvuConvertToPdf', () => {
             {window: null},
             expectedFinalPath,
             'book p1-2',
-            {
-                signal: expect.any(AbortSignal),
-            },
+            {signal: expect.any(AbortSignal)},
         );
         expect(mocks.printManagedTempPdfPath.mock.invocationCallOrder[0])
             .toBeLessThan(mocks.safeSendToWindow.mock.invocationCallOrder.at(-1)!);
@@ -1269,7 +1267,10 @@ describe('handleDjvuConvertToPdf', () => {
         const expectedJobId = asJobId('djvu-print-print-facing');
         const expectedConvertedPath = `/tmp/evb-viewer/print-djvu-${expectedJobId}.pdf`;
         const expectedComposedPath = `${expectedConvertedPath.slice(0, -4)}-layout.pdf`;
-        expect(result).toMatchObject({success: true, jobId: expectedJobId});
+        expect(result).toMatchObject({
+            success: true,
+            jobId: expectedJobId,
+        });
         expect(mocks.buildPrintablePdfPath).toHaveBeenCalledWith({
             inputPath: expectedConvertedPath,
             outputPath: expectedComposedPath,
@@ -1315,9 +1316,7 @@ describe('handleDjvuConvertToPdf', () => {
             {window: null},
             expectedFinalPath,
             'book p50',
-            {
-                signal: expect.any(AbortSignal),
-            },
+            {signal: expect.any(AbortSignal)},
         );
     });
 

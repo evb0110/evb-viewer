@@ -62,7 +62,7 @@ import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shel
 import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
-} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+} from '@app/modules/scan-cleanup/public/runtime';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
@@ -454,6 +454,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasSaveFailure,
         getSourcePdfData,
         saveForExternalRead,
+        saveForExternalReadWithinDocumentOperationLease,
         getNativeSaveTransactionOptions,
     } = pageSaveOrchestration;
     const documentDriver = useWorkspaceDocumentDriver({
@@ -513,6 +514,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return true;
         }
         return saveForExternalRead();
+    }
+    async function ensureWorkingCopyFreshForPageOperation() {
+        if (!hasPendingUnsavedChanges.value) {
+            return true;
+        }
+        // Page operations already hold the document-operation lease. The save
+        // must keep the save queue, but cannot try to acquire that lease again.
+        return saveForExternalReadWithinDocumentOperationLease();
     }
     const exportControls = useWorkspaceExport({
         workingCopyPath,
@@ -713,7 +722,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preparePdfReloadWaiter,
         clearOcrCache: (path) => clearOcrCache(path),
         resetSearchCache,
-        ensureWorkingCopyFreshForRead,
+        ensureWorkingCopyFreshForRead: ensureWorkingCopyFreshForPageOperation,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress: documentOperationLease.isBusy,

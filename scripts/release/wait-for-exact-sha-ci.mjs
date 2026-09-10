@@ -19,10 +19,10 @@ import {
     isVersionOnlyPackageCommit,
 } from './shared.mjs';
 
-/** @typedef {{id: number, html_url?: string, status?: string, conclusion?: string | null}} IWorkflowRun */
-/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+/** @typedef {{conclusion?: string | null, event?: string, head_branch?: string, head_sha?: string, html_url?: string, id: number, run_number?: number, status?: string}} IWorkflowRun */
+/** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => string} TCommandRunner */
 /** @typedef {{write: (chunk: string) => unknown}} IWritable */
-/** @typedef {{appearanceTimeoutMs?: number, completionTimeoutMs?: number, pollIntervalMs?: number, nowFn?: () => number, sleepFn?: (milliseconds: number) => Promise<unknown>, runCommand?: TCommandRunner, stderr?: IWritable}} IWaitOptions */
+/** @typedef {{appearanceTimeoutMs?: number | undefined, completionTimeoutMs?: number | undefined, pollIntervalMs?: number | undefined, nowFn?: (() => number) | undefined, sleepFn?: (milliseconds: number) => Promise<unknown>, runCommand?: TCommandRunner | undefined, stderr?: IWritable | undefined}} IWaitOptions */
 
 // Release commits use [skip ci], so the target may have no push run. The
 // short window leaves enough time for an ordinary run to appear before the
@@ -35,7 +35,7 @@ export const EXACT_SHA_CI_POLL_INTERVAL_MS = 30_000;
 
 // Exported for its own contract test: every caller in this module invokes
 // the runner as (command, args), so the default adapter must too.
-/** @param {string} command @param {string[]} args @param {object} [options] @returns {string} */
+/** @param {string} command @param {string[]} args @param {import('node:child_process').ExecFileSyncOptions} [options] @returns {string} */
 export function defaultCommandRunner(command, args, options = {}) {
     const output = execFileSync(command, args, {
         encoding: 'utf8',
@@ -57,8 +57,10 @@ export function defaultCommandRunner(command, args, options = {}) {
 // small unit-test fixtures.
 /** @param {IWorkflowRun | null | undefined} runInfo @returns {runInfo is IWorkflowRun} */
 function isMainPushRun(runInfo) {
-    return Boolean(runInfo)
-        && runInfo.head_branch === 'main'
+    if (!runInfo) {
+        return false;
+    }
+    return runInfo.head_branch === 'main'
         && (!runInfo.event || runInfo.event === 'push');
 }
 

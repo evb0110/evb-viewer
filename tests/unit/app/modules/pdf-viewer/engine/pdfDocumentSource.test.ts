@@ -204,7 +204,7 @@ describe('createPdfjsDocumentSourceLoader', () => {
             onRangeReadFailure: mocks.onRangeReadFailure,
         });
 
-        const firstOpen = loader.open(createPathSource('/tmp/pending.pdf'), 1);
+        const firstOpen = loader.open(createPathSource('/tmp/pending.pdf', CHUNK_BYTES * 3), 1);
         await vi.waitFor(() => expect(mocks.documentFiles.readFileRange).toHaveBeenCalledTimes(2));
 
         loader.cancelPendingOpen();
@@ -284,8 +284,7 @@ describe('createPdfjsDocumentSourceLoader', () => {
         ) => new Uint8Array(length));
         mocks.documentFiles.readFileRange.mockRejectedValueOnce(rangeError);
 
-        let loader!: ReturnType<typeof createPdfjsDocumentSourceLoader>;
-        loader = createPdfjsDocumentSourceLoader({
+        const loader = createPdfjsDocumentSourceLoader({
             getRenderVersion: () => 1,
             onRangeReadFailure: () => {
                 loader.destroyLoadingTask(

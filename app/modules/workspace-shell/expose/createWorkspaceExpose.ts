@@ -36,9 +36,10 @@ import type {
 } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import type {
+    IScrollToPageOptions, IAnnotationRecoveryDraft,
+} from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { IAnnotationRecoveryDraft } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 import {
     createWorkspaceExposeCommandHandlers,
     createWorkspaceExposeCommandRunner,
@@ -322,7 +323,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         // from the replaced document leaking into the new open. Once the
         // native source paints, its page and count become toolbar authority.
         const zoom = deps.zoom.value;
-        const effectiveZoom = deps.effectiveZoom.value;
+        // A custom zoom is the user's requested display value. The viewer can
+        // report a nearby effective scale while its late layout work settles,
+        // but that must not make the toolbar visibly jump to a different zoom.
+        const effectiveZoom = deps.zoomMode.value === 'custom'
+            ? zoom
+            : deps.effectiveZoom.value;
         return {
             hasPdf: deps.hasPdf.value,
             initialVisualReady: deps.initialVisualReady.value,
@@ -368,6 +374,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     function resolveDisplayZoom() {
+        if (deps.zoomMode.value === 'custom') {
+            return clampZoomLevel(deps.zoom.value);
+        }
         if (Number.isFinite(deps.effectiveZoom.value) && deps.effectiveZoom.value > 0) {
             return deps.effectiveZoom.value;
         }
@@ -580,15 +589,17 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         },
         handleRotateCw: (explicitPages?: number[]) => {
             const pages = explicitPages ?? getSelectedPagePayload(deps);
-            if (selectedPagePayloadCount(pages) > 0) {
-                void deps.handlePageRotate(pages, 90);
+            if (selectedPagePayloadCount(pages) === 0) {
+                return Promise.resolve(false);
             }
+            return runPageOperation(() => deps.handlePageRotate(pages, 90));
         },
         handleRotateCcw: (explicitPages?: number[]) => {
             const pages = explicitPages ?? getSelectedPagePayload(deps);
-            if (selectedPagePayloadCount(pages) > 0) {
-                void deps.handlePageRotate(pages, 270);
+            if (selectedPagePayloadCount(pages) === 0) {
+                return Promise.resolve(false);
             }
+            return runPageOperation(() => deps.handlePageRotate(pages, 270));
         },
         handleInsertPages: () => {
             void deps.pageOpsInsert(deps.totalPages.value, deps.totalPages.value);

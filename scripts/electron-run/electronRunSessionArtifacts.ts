@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import { safeJsonParse } from '@contracts/safeJsonParse';
+import { isTimeoutError } from '@contracts/isTimeoutError';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import { SESSION_WAIT_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
 import {
@@ -913,7 +914,7 @@ export async function isSessionRunning(
                 unlinkSync(sessionFilePath(name));
             } catch {}
         }
-        if (signal?.aborted && signal.reason?.name !== 'TimeoutError') {
+        if (signal?.aborted && !isTimeoutError(signal.reason)) {
             throw signal.reason ?? new DOMException('Session readiness probe canceled', 'AbortError');
         }
         return false;
@@ -926,7 +927,10 @@ export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS, s
         const remainingMs = deadline - Date.now();
         const timeoutSignal = AbortSignal.timeout(remainingMs);
         const probeSignal = signal
-            ? AbortSignal.any([signal, timeoutSignal])
+            ? AbortSignal.any([
+                signal,
+                timeoutSignal,
+            ])
             : timeoutSignal;
         try {
             if (await isSessionRunning(getCurrentSessionName(), probeSignal)) {

@@ -18,6 +18,7 @@ import {
 import type {
     IAgentAssistantChatScope,
     IAgentAssistantEvent,
+    IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
     IAgentAssistantState,
 } from '@contracts/agent';
@@ -29,6 +30,7 @@ import {requireTabId} from '@contracts/windowTabs';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     eventSubscriber: null as ((event: IAgentAssistantEvent) => void) | null,
@@ -479,10 +481,10 @@ describe('mounted assistant panel lifecycle', () => {
                 id: 'recorded-user',
                 role: 'user',
                 text: 'Continue',
-                attachments: [{
+                attachments: [cast<IAgentAssistantImageAttachment>({
                     ...steerImage,
                     previewDataUrl: undefined,
-                }],
+                })],
                 createdAt: requireIsoTimestamp(new Date(2).toISOString()),
             },
         ];

@@ -168,6 +168,9 @@ export const useEditorPanesManager = () => {
             originalPath: tab.sourceRef,
             isDirty: tab.isDirty,
             isDjvu: tab.isDjvu,
+            ...(tab.isDirty && tab.workingCopyRef
+                ? {recoveryWorkingCopyPath: tab.workingCopyRef}
+                : {}),
         }));
         panes.value = checkpoint.panes.map(pane => ({
             paneId: pane.paneId,

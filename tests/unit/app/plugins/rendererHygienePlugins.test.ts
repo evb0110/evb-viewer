@@ -162,7 +162,13 @@ describe('renderer hygiene plugins', () => {
         plugin(harness.nuxtApp);
         harness.nuxtApp.vueApp.unmount();
 
-        expect(addEventListenerSpy).toHaveBeenCalledTimes(2);
+        expect(addEventListenerSpy.mock.calls.map(([eventName]) => eventName)).toEqual([
+            'storage',
+            'focus',
+            'pageshow',
+            'error',
+            'unhandledrejection',
+        ]);
         expect(errorListener).toEqual(expect.any(Function));
         expect(rejectionListener).toEqual(expect.any(Function));
         expect(removeEventListenerSpy).toHaveBeenCalledWith('error', errorListener);

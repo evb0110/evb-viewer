@@ -594,7 +594,7 @@ describe('private Vercel deployment source', () => {
                     bundleCount: 1,
                     destinationFingerprint: 'a'.repeat(64),
                     manifestSha256: 'b'.repeat(64),
-                    identity: options.identity,
+                    identity: options!.identity,
                 }),
                 spawnSyncImpl: (command: string, args: string[]) => {
                     calls.push(args);

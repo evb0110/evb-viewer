@@ -23,16 +23,16 @@ export async function loadBrowserPdfjsDocument(
         reject?.(error);
         void destroyTask?.().catch(() => {});
     }}));
-    destroyTask = () => destroyPromise ??= loadingTask!.destroy();
+    destroyTask = () => destroyPromise ??= loadingTask.destroy();
     try {
         const loadedDocument = await Promise.race([
             task.promise,
             rangeReadFailure,
         ]);
-        return adaptPdfjsDocument(loadedDocument, () => destroyTask!());
+        return adaptPdfjsDocument(loadedDocument, () => destroyTask());
     } catch (error) {
         try {
-            await destroyTask!();
+            await destroyTask();
         } catch {
             // Preserve the original load or range-read failure.
         }

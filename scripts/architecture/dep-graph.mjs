@@ -13,6 +13,19 @@ import {
     parseArchitectureScopeArg,
 } from './architectureCliArgs.mjs';
 
+/** @typedef {{source: string, target: string, specifier: string, kind?: string, phase?: string}} IDependencyEdge */
+/** @typedef {{file: string, imports: IInternalImport[], sourceText?: string}} IDependencyNode */
+/** @typedef {{files: string[]}} IDependencyCycle */
+/** @typedef {{source: string, specifier: string}} IUnresolvedInternalImport */
+/** @typedef {{specifier: string, target: string | null}} IResolvedImport */
+/** @typedef {{specifier: string, target: string}} IInternalImport */
+/** @typedef {{nodes: IDependencyNode[], edges: IDependencyEdge[], cycles: IDependencyCycle[], unresolvedInternalImports: IUnresolvedInternalImport[]}} IDependencyGraph */
+/** @typedef {{rule: string, source: string, target: string, specifier: string, message: string}} IArchitectureViolation */
+/** @typedef {{exact?: string, prefix: string, exactTarget?: string, prefixTarget: string}} IPackageAliasRule */
+/** @typedef {{projectRoot?: string, roots?: string[]}} IDependencyGraphOptions */
+/** @typedef {{sourceFile: string, specifier: string, projectRoot: string, resolutionCache: Map<string, string | null>}} IResolveSpecifierOptions */
+/** @typedef {'json' | 'md'} TGraphFormat */
+
 const SOURCE_EXTENSIONS = [
     '.ts',
     '.tsx',
@@ -84,10 +97,12 @@ const INTERNAL_LIKE_PREFIXES = [
 
 const EXTERNAL_PACKAGE_SPECIFIERS = new Set(['@electron/asar']);
 
+/** @param {string} filePath @returns {string} */
 function toPosixPath(filePath) {
     return filePath.split(path.sep).join('/');
 }
 
+/** @param {string} filePath @returns {Promise<boolean>} */
 async function pathExists(filePath) {
     try {
         await fs.access(filePath);
@@ -97,6 +112,7 @@ async function pathExists(filePath) {
     }
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isSourceFile(filePath) {
     if (
         filePath.endsWith('.d.ts')
@@ -108,6 +124,7 @@ function isSourceFile(filePath) {
     return SOURCE_EXTENSIONS.includes(path.extname(filePath));
 }
 
+/** @param {string} relDir @returns {boolean} */
 function shouldSkipDirectory(relDir) {
     if (!relDir) {
         return false;
@@ -119,6 +136,7 @@ function shouldSkipDirectory(relDir) {
     ));
 }
 
+/** @param {string} rootDir @param {string} [relDir] @returns {Promise<string[]>} */
 async function collectFiles(rootDir, relDir = '') {
     const scanDir = path.join(rootDir, relDir);
     if (!(await pathExists(scanDir))) {
@@ -150,6 +168,7 @@ async function collectFiles(rootDir, relDir = '') {
     return files.flat();
 }
 
+/** @param {string} projectRoot @param {string[]} roots @returns {Promise<void>} */
 async function assertRootsExist(projectRoot, roots) {
     const missingRoots = [];
     for (const root of roots) {
@@ -164,6 +183,7 @@ async function assertRootsExist(projectRoot, roots) {
     }
 }
 
+/** @param {string} sourceText @returns {string[]} */
 function extractImportSpecifiers(sourceText) {
     const specifiers = [];
     // The dependency graph tracks runtime/module edges. Keep JSDoc type
@@ -175,12 +195,13 @@ function extractImportSpecifiers(sourceText) {
     );
     for (const pattern of IMPORT_PATTERNS) {
         for (const match of sourceWithoutBlockComments.matchAll(pattern)) {
-            specifiers.push(match[1]);
+            specifiers.push(/** @type {string} */ (match[1]));
         }
     }
     return specifiers;
 }
 
+/** @param {string} sourceText @returns {string[]} */
 function extractTypeOnlyImportSpecifiers(sourceText) {
     const specifiers = [];
     const sourceWithoutBlockComments = sourceText.replace(
@@ -193,12 +214,13 @@ function extractTypeOnlyImportSpecifiers(sourceText) {
     ];
     for (const pattern of patterns) {
         for (const match of sourceWithoutBlockComments.matchAll(pattern)) {
-            specifiers.push(match[1]);
+            specifiers.push(/** @type {string} */ (match[1]));
         }
     }
     return specifiers;
 }
 
+/** @param {string} sourceText @returns {string[]} */
 function extractRuntimeImportSpecifiers(sourceText) {
     const specifiers = [];
     const sourceWithoutBlockComments = sourceText.replace(
@@ -214,16 +236,17 @@ function extractRuntimeImportSpecifiers(sourceText) {
     ];
     for (const pattern of patterns) {
         for (const match of sourceWithoutBlockComments.matchAll(pattern)) {
-            specifiers.push(match[1]);
+            specifiers.push(/** @type {string} */ (match[1]));
         }
     }
     return specifiers;
 }
 
+/** @param {string} projectRoot @param {string} basePath @param {Map<string, string | null>} resolutionCache @returns {Promise<string | null>} */
 async function resolveWithExtensions(projectRoot, basePath, resolutionCache) {
     const cacheKey = `${projectRoot}\0${basePath}`;
     if (resolutionCache?.has(cacheKey)) {
-        return resolutionCache.get(cacheKey);
+        return /** @type {string | null} */ (resolutionCache.get(cacheKey));
     }
     const candidates = [
         basePath,
@@ -244,10 +267,12 @@ async function resolveWithExtensions(projectRoot, basePath, resolutionCache) {
     return null;
 }
 
+/** @param {string} filePath @param {string} root @returns {boolean} */
 function isWithinRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
 
+/** @param {string} sourceFile @returns {string | null} */
 function getNuxtSourceRootForFile(sourceFile) {
     if (isWithinRoot(sourceFile, 'landing')) {
         return 'landing';
@@ -258,6 +283,7 @@ function getNuxtSourceRootForFile(sourceFile) {
     return null;
 }
 
+/** @param {string} specifier @returns {boolean} */
 function isInternalLikeSpecifier(specifier) {
     if (EXTERNAL_PACKAGE_SPECIFIERS.has(specifier)) {
         return false;
@@ -265,6 +291,7 @@ function isInternalLikeSpecifier(specifier) {
     return INTERNAL_LIKE_PREFIXES.some(prefix => specifier.startsWith(prefix));
 }
 
+/** @type {IPackageAliasRule[]} */
 const PACKAGE_ALIAS_RULES = [
     {
         prefix: '@contracts/',
@@ -335,6 +362,7 @@ const ROOT_SPECIFIER_PREFIXES = [
     'packages/release-selection/',
 ];
 
+/** @param {string} projectRoot @param {string} specifier @param {Map<string, string | null>} resolutionCache @returns {Promise<string | null> | null} */
 function resolvePackageAliasSpecifier(projectRoot, specifier, resolutionCache) {
     const aliasRule = PACKAGE_ALIAS_RULES.find(rule => (
         specifier === rule.exact
@@ -347,9 +375,14 @@ function resolvePackageAliasSpecifier(projectRoot, specifier, resolutionCache) {
     const candidate = specifier === aliasRule.exact
         ? aliasRule.exactTarget
         : specifier.replace(aliasRule.prefix, aliasRule.prefixTarget);
-    return resolveWithExtensions(projectRoot, candidate, resolutionCache);
+    return resolveWithExtensions(
+        projectRoot,
+        /** @type {string} */ (candidate),
+        resolutionCache,
+    );
 }
 
+/** @param {string} projectRoot @param {string} sourceFile @param {string} specifier @param {Map<string, string | null>} resolutionCache @returns {Promise<string | null> | null} */
 function resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier, resolutionCache) {
     const sourceRoot = getNuxtSourceRootForFile(sourceFile);
     if (!sourceRoot) {
@@ -373,6 +406,7 @@ function resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier, resolutio
     return null;
 }
 
+/** @param {string} projectRoot @param {string} sourceFile @param {string} specifier @param {Map<string, string | null>} resolutionCache @returns {Promise<string | null> | null} */
 function resolveRelativeSpecifier(projectRoot, sourceFile, specifier, resolutionCache) {
     if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
         return null;
@@ -383,12 +417,14 @@ function resolveRelativeSpecifier(projectRoot, sourceFile, specifier, resolution
     return resolveWithExtensions(projectRoot, resolved, resolutionCache);
 }
 
+/** @param {string} projectRoot @param {string} specifier @param {Map<string, string | null>} resolutionCache @returns {Promise<string | null> | null} */
 function resolveRootSpecifier(projectRoot, specifier, resolutionCache) {
     return ROOT_SPECIFIER_PREFIXES.some(prefix => specifier.startsWith(prefix))
         ? resolveWithExtensions(projectRoot, specifier, resolutionCache)
         : null;
 }
 
+/** @param {IResolveSpecifierOptions} options @returns {Promise<string | null>} */
 async function resolveSpecifier({
     sourceFile,
     specifier,
@@ -423,6 +459,7 @@ async function resolveSpecifier({
     return resolveRootSpecifier(projectRoot, specifier, resolutionCache);
 }
 
+/** @param {string[]} argv @param {{projectRoot: string}} options @returns {string[]} */
 function collectRootsFromArgv(argv, {projectRoot}) {
     const roots = parseArchitectureRootsArg(argv);
     if (!roots) {
@@ -434,11 +471,13 @@ function collectRootsFromArgv(argv, {projectRoot}) {
     return roots;
 }
 
+/** @param {string[]} argv @returns {string | null} */
 function parseOutputArg(argv) {
     const outputArg = argv.find(argument => argument.startsWith('--output='));
     return outputArg ? outputArg.slice('--output='.length) : null;
 }
 
+/** @param {string[]} argv @returns {TGraphFormat} */
 function parseFormatArg(argv) {
     const formatArg = argv.find(argument => argument.startsWith('--format='));
     if (!formatArg) {
@@ -449,10 +488,18 @@ function parseFormatArg(argv) {
     return format === 'md' ? 'md' : 'json';
 }
 
+/** @param {string} filePath @param {string[]} internalRoots @returns {boolean} */
 function isInternalPath(filePath, internalRoots) {
     return internalRoots.some(root => filePath === root || filePath.startsWith(`${root}/`));
 }
 
+/** @param {IResolvedImport} entry @param {string[]} internalRoots @returns {entry is IInternalImport} */
+function isInternalImport(entry, internalRoots) {
+    const target = entry.target;
+    return Boolean(target) && isInternalPath(/** @type {string} */ (target), internalRoots);
+}
+
+/** @param {IDependencyGraph} graph @returns {string} */
 function toMarkdown(graph) {
     const lines = [
         '# Dependency Graph',
@@ -472,6 +519,7 @@ function toMarkdown(graph) {
     return `${lines.join('\n')}\n`;
 }
 
+/** @param {IDependencyNode[]} nodes @param {IDependencyEdge[]} edges @returns {string[][]} */
 export function findStronglyConnectedComponents(nodes, edges) {
     const nodeFiles = new Set(nodes.map(node => node.file));
     for (const edge of edges) {
@@ -479,6 +527,7 @@ export function findStronglyConnectedComponents(nodes, edges) {
         nodeFiles.add(edge.target);
     }
 
+    /** @type {Map<string, string[]>} */
     const adjacency = new Map(Array.from(nodeFiles, file => [
         file,
         [],
@@ -490,10 +539,13 @@ export function findStronglyConnectedComponents(nodes, edges) {
     let nextIndex = 0;
     const indexes = new Map();
     const lowlinks = new Map();
+    /** @type {string[]} */
     const stack = [];
     const onStack = new Set();
+    /** @type {string[][]} */
     const components = [];
 
+    /** @param {string} file @returns {void} */
     function visit(file) {
         indexes.set(file, nextIndex);
         lowlinks.set(file, nextIndex);
@@ -516,9 +568,10 @@ export function findStronglyConnectedComponents(nodes, edges) {
             return;
         }
 
+        /** @type {string[]} */
         const component = [];
         while (stack.length > 0) {
-            const member = stack.pop();
+            const member = /** @type {string} */ (stack.pop());
             onStack.delete(member);
             component.push(member);
             if (member === file) {
@@ -539,10 +592,13 @@ export function findStronglyConnectedComponents(nodes, edges) {
         .map(edge => edge.source));
 
     return components
-        .filter(component => component.length > 1 || selfLoopFiles.has(component[0]))
-        .sort((a, b) => a[0].localeCompare(b[0]));
+        .filter(component => component.length > 1 || selfLoopFiles.has(/** @type {string} */ (component[0])))
+        .sort((a, b) => (
+            /** @type {string} */ (a[0])
+        ).localeCompare(/** @type {string} */ (b[0])));
 }
 
+/** @param {IDependencyGraphOptions} [options] @returns {Promise<IDependencyGraph>} */
 export async function buildDependencyGraph({
     projectRoot = process.cwd(),
     roots = getAllArchitectureRoots({ projectRoot }),
@@ -556,10 +612,15 @@ export async function buildDependencyGraph({
         .flat()
         .sort();
 
+    /** @type {IDependencyNode[]} */
     const nodes = [];
+    /** @type {IDependencyEdge[]} */
     const edges = [];
+    /** @type {IDependencyEdge[]} */
     const runtimeEdges = [];
+    /** @type {IUnresolvedInternalImport[]} */
     const unresolvedInternalImports = [];
+    /** @type {Map<string, string | null>} */
     const resolutionCache = new Map();
 
     for (const file of files) {
@@ -568,6 +629,7 @@ export async function buildDependencyGraph({
         const imports = extractImportSpecifiers(sourceText);
         const typeOnlyImportSpecifiers = new Set(extractTypeOnlyImportSpecifiers(sourceText));
         const runtimeImportSpecifiers = new Set(extractRuntimeImportSpecifiers(sourceText));
+        /** @type {IResolvedImport[]} */
         const resolvedImports = await Promise.all(imports.map(async specifier => {
             const target = await resolveSpecifier({
                 sourceFile: file,
@@ -581,9 +643,8 @@ export async function buildDependencyGraph({
             };
         }));
 
-        const internalImports = resolvedImports.filter(
-            entry => entry.target && isInternalPath(entry.target, internalRoots),
-        );
+        /** @type {IInternalImport[]} */
+        const internalImports = resolvedImports.filter(entry => isInternalImport(entry, internalRoots));
         const node = {
             file,
             imports: internalImports,

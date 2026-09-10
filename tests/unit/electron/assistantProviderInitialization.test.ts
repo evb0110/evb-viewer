@@ -1,23 +1,42 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import {rm} from 'node:fs/promises';
 import {requireTabId} from '@contracts/windowTabs';
 
-const observations = vi.hoisted(() => ({sdkEvaluations: 0}));
+const observations = vi.hoisted(() => {
+    const streamClosed = Promise.withResolvers<undefined>();
+    return {
+        sdkEvaluations: 0,
+        userDataPath: `/tmp/evb-viewer-initialization-test-${process.pid}-${Date.now()}`,
+        streamClosed,
+    };
+});
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => {
     observations.sdkEvaluations += 1;
-    return {query: vi.fn()};
+    return {query: vi.fn(() => ({
+        interrupt: vi.fn(async () => undefined),
+        close: vi.fn(() => observations.streamClosed.resolve(undefined)),
+        setModel: vi.fn(async () => undefined),
+        accountInfo: vi.fn(async () => null),
+        supportedModels: vi.fn(async () => []),
+        [Symbol.asyncIterator]: async function* () {
+            await observations.streamClosed.promise;
+            yield* [];
+        },
+    }))};
 });
 
 vi.mock('electron', () => ({
     app: {
         getVersion: () => 'test',
         isPackaged: false,
-        getPath: () => '/tmp/evb-viewer-initialization-test',
+        getPath: () => observations.userDataPath,
     },
     BrowserWindow: {
         getAllWindows: () => [],
@@ -72,6 +91,13 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
 }));
 
 describe('assistant provider initialization boundaries', () => {
+    afterEach(async () => {
+        await rm(observations.userDataPath, {
+            recursive: true,
+            force: true,
+        });
+    });
+
     it('keeps SDK-free metadata and status imports separate from the Claude SDK', async () => {
         await import('@electron/features/agent/claudeProviderMetadata');
         await import('@electron/features/agent/assistantProviderStatus');
@@ -84,23 +110,27 @@ describe('assistant provider initialization boundaries', () => {
         observations.sdkEvaluations = 0;
 
         const lazyAssistant = await import('@electron/features/agent/lazyAgentAssistant');
-        await lazyAssistant.getAgentAssistantState({provider: 'codex'});
-        expect(observations.sdkEvaluations).toBe(0);
+        try {
+            await lazyAssistant.getAgentAssistantState({provider: 'codex'});
+            expect(observations.sdkEvaluations).toBe(0);
 
-        await lazyAssistant.getAgentAssistantState({provider: 'claude'});
-        expect(observations.sdkEvaluations).toBe(0);
+            await lazyAssistant.getAgentAssistantState({provider: 'claude'});
+            expect(observations.sdkEvaluations).toBe(0);
 
-        const claudeFirstUse = await lazyAssistant.sendAgentAssistantMessage({
-            provider: 'claude',
-            text: 'selected Claude first use',
-            scope: {
-                kind: 'document',
-                key: 'document:initialization-test',
-                title: 'Initialization test',
-                tabId: requireTabId('tab-initialization-test'),
-            },
-        });
-        expect(claudeFirstUse.ok).toBe(true);
-        expect(observations.sdkEvaluations).toBe(1);
+            const claudeFirstUse = await lazyAssistant.sendAgentAssistantMessage({
+                provider: 'claude',
+                text: 'selected Claude first use',
+                scope: {
+                    kind: 'document',
+                    key: 'document:initialization-test',
+                    title: 'Initialization test',
+                    tabId: requireTabId('tab-initialization-test'),
+                },
+            });
+            expect(claudeFirstUse.ok).toBe(true);
+            expect(observations.sdkEvaluations).toBe(1);
+        } finally {
+            await lazyAssistant.shutdownAgentAssistantIfLoaded();
+        }
     });
 });

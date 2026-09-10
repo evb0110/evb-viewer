@@ -19,9 +19,7 @@ import {
     findPdfSearchMatches,
     type ISearchMatchOptions,
 } from '@pdf-core/pdfSearchCore';
-import {
-    getCompactSearchIndexPath,
-} from '@contracts/searchIndexSidecar';
+import {getCompactSearchIndexPath} from '@contracts/searchIndexSidecar';
 import {createCompactSearchIndexEncoding} from '@node-runtime/searchIndexSidecar';
 
 interface ISearchCorpusCase {

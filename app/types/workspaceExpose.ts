@@ -208,8 +208,8 @@ export interface IWorkspaceViewPort {
 export interface IWorkspacePageOpsPort {
     handleDeletePages: () => void;
     handleExtractPages: () => void;
-    handleRotateCw: (pages?: number[]) => void;
-    handleRotateCcw: (pages?: number[]) => void;
+    handleRotateCw: (pages?: number[]) => Promise<boolean>;
+    handleRotateCcw: (pages?: number[]) => Promise<boolean>;
     handleInsertPages: () => void;
     handlePageDelete: (pages: number[]) => void;
     handlePageReorder: (order: number[]) => void;

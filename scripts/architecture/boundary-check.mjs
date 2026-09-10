@@ -20,6 +20,26 @@ import {
     SCRIPTS_TO_APP_ALLOWED_EDGES,
 } from './boundaryExceptionPolicy.mjs';
 
+/** @typedef {import('./dep-graph.mjs').IDependencyEdge} IDependencyEdge */
+/** @typedef {import('./dep-graph.mjs').IDependencyGraph} IDependencyGraph */
+/** @typedef {import('./dep-graph.mjs').IDependencyCycle} IDependencyCycle */
+/** @typedef {import('./dep-graph.mjs').IArchitectureViolation} IArchitectureViolation */
+/** @typedef {import('typescript').Node} TNode */
+/** @typedef {import('typescript').SourceFile} TSourceFile */
+/** @typedef {import('typescript').StringLiteral} TStringLiteralNode */
+/** @typedef {import('typescript').ScriptKind} TScriptKind */
+/** @typedef {{sourceRoot: string, targetRoot: string, rule: string, message: string}} IRootBoundaryRule */
+/** @typedef {{sourceRoot: string, allowedTargetRoots: string[], rule: string, message: string}} IPackageLayerRule */
+/** @typedef {{prefix: string, allowedEntrypoints: Set<string>, rule: string, message: string}} IFeatureBoundaryRule */
+/** @typedef {{ownerRoot: string, publicEntry: string, rule: string, message: string}} IPublicOnlyEntrypointRule */
+/** @typedef {IRootBoundaryRule | IPackageLayerRule | IFeatureBoundaryRule | IPublicOnlyEntrypointRule} TBoundaryRule */
+/** @typedef {{sourceText: string, scriptKind: TScriptKind}} IScriptBlock */
+/** @typedef {(node: TNode) => void} TNodeVisitor */
+/** @typedef {{directBindings: Set<string>, namespaceBindings: Set<string>}} IPlatformRuntimeGetterBindings */
+/** @typedef {{rule: string, target: string, specifier: string, message: string}} ISentryViolationOptions */
+/** @typedef {{rule: string, source: string, target: string, specifier: string, message: string}} IViolationOptions */
+
+/** @type {Set<string>} */
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'public',
     'index.ts',
@@ -47,6 +67,7 @@ const RETIRED_ELECTRON_FEATURE_SHIM_PATHS = new Set([
     'electron/search/protocol.ts',
 ]);
 
+/** @type {IRootBoundaryRule[]} */
 const ROOT_BOUNDARY_RULES = [
     {
         sourceRoot: 'electron',
@@ -117,6 +138,7 @@ const ROOT_BOUNDARY_RULES = [
     ...RUNTIME_TOOL_BOUNDARY_RULES,
 ];
 
+/** @type {IPackageLayerRule[]} */
 const PACKAGE_LAYER_RULES = [
     {
         sourceRoot: 'packages/contracts',
@@ -177,6 +199,7 @@ const PACKAGE_LAYER_RULES = [
     },
 ];
 
+/** @type {IPublicOnlyEntrypointRule[]} */
 const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
     ownerRoot: 'app/platform/browser-api',
     publicEntry: 'public.ts',
@@ -255,6 +278,7 @@ electron/ocr/resolveOcrResourcesBase.ts
 electron/ocr/worker/dpiDetection.ts
 `.trim().split('\n'));
 
+/** @type {IFeatureBoundaryRule[]} */
 const FEATURE_BOUNDARY_RULES = [
     {
         prefix: 'app/modules',
@@ -319,6 +343,7 @@ const SENTRY_EVENT_FACTORY_NAMES = new Set([
 ]);
 const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkElectronFeatureMainPrivacy(edge) {
     const targetOwner = getFeatureOwner(edge.target, 'electron/features');
     if (!targetOwner) {
@@ -344,10 +369,12 @@ function checkElectronFeatureMainPrivacy(edge) {
     });
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isInsideComponentDirectory(filePath) {
     return filePath.split('/').includes('components');
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation | null} */
 function checkComponentDirectoryFilePlacement(filePath) {
     if (!isInsideComponentDirectory(filePath) || filePath.endsWith('.vue')) {
         return null;
@@ -362,6 +389,7 @@ function checkComponentDirectoryFilePlacement(filePath) {
     });
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation | null} */
 function checkRetiredPdfComponentPath(filePath) {
     if (!matchesRoot(filePath, 'app/components/pdf')) {
         return null;
@@ -376,6 +404,7 @@ function checkRetiredPdfComponentPath(filePath) {
     });
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation | null} */
 function checkRetiredTopLevelUsePdfFilePath(filePath) {
     if (filePath !== 'app/composables/usePdfFile.ts') {
         return null;
@@ -390,6 +419,7 @@ function checkRetiredTopLevelUsePdfFilePath(filePath) {
     });
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation | null} */
 function checkRetiredElectronFeatureShimPath(filePath) {
     if (!RETIRED_ELECTRON_FEATURE_SHIM_PATHS.has(filePath)) {
         return null;
@@ -404,6 +434,7 @@ function checkRetiredElectronFeatureShimPath(filePath) {
     });
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation | null} */
 function checkTopLevelPdfComposable(filePath) {
     if (
         !filePath.startsWith('app/composables/usePdf')
@@ -422,6 +453,7 @@ function checkTopLevelPdfComposable(filePath) {
     });
 }
 
+/** @param {IDependencyEdge} edge @param {IPublicOnlyEntrypointRule} boundaryRule @returns {IArchitectureViolation | null} */
 function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
     if (!matchesRoot(edge.source, 'app') || !matchesRoot(edge.target, boundaryRule.ownerRoot)) {
         return null;
@@ -444,6 +476,7 @@ function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
     });
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkAppPagesModulePublicEntrypoint(edge) {
     if (!matchesRoot(edge.source, 'app/pages')) {
         return null;
@@ -468,6 +501,7 @@ function checkAppPagesModulePublicEntrypoint(edge) {
     });
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkPlatformApiAggregateImport(edge) {
     if (edge.target !== 'packages/contracts/platformApi.ts') {
         return null;
@@ -485,6 +519,7 @@ function checkPlatformApiAggregateImport(edge) {
     });
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkPdfViewerEngineLayer(edge) {
     if (!matchesRoot(edge.source, PDF_VIEWER_ENGINE_ROOT) || !matchesRoot(edge.target, PDF_VIEWER_MODULE_ROOT)) {
         return null;
@@ -510,15 +545,18 @@ function checkPdfViewerEngineLayer(edge) {
     });
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isTestSource(filePath) {
     return matchesRoot(filePath, 'tests');
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isOcrNativeToolBoundaryOwner(filePath) {
     return matchesRoot(filePath, 'electron/ocr')
         || matchesRoot(filePath, 'electron/features/ocr');
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkNativeToolsDomainImport(edge) {
     if (!matchesRoot(edge.source, 'electron/native-tools')) {
         return null;
@@ -536,6 +574,7 @@ function checkNativeToolsDomainImport(edge) {
     });
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkOcrNativeToolBoundaryImport(edge) {
     if (!OCR_NATIVE_TOOL_BOUNDARY_TARGETS.has(edge.target)) {
         return null;
@@ -557,10 +596,12 @@ function checkOcrNativeToolBoundaryImport(edge) {
     });
 }
 
+/** @param {string} value @returns {string} */
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
+/** @param {string} sourceText @param {string} baseName @returns {boolean} */
 function hasPrivateMemberAccess(sourceText, baseName) {
     const memberGroup = ANNOTATION_STORAGE_PRIVATE_MEMBERS.map(escapeRegExp).join('|');
     const base = escapeRegExp(baseName);
@@ -570,6 +611,7 @@ function hasPrivateMemberAccess(sourceText, baseName) {
     return dotAccess.test(sourceText) || optionalAccess.test(sourceText) || elementAccess.test(sourceText);
 }
 
+/** @param {string} sourceText @returns {Set<string>} */
 function collectAnnotationStorageAliases(sourceText) {
     const aliases = new Set(['annotationStorage']);
     const aliasPatterns = [
@@ -588,6 +630,7 @@ function collectAnnotationStorageAliases(sourceText) {
     return aliases;
 }
 
+/** @param {string} filePath @param {string} [sourceText] @returns {IArchitectureViolation[]} */
 function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
     if (
         !matchesRoot(filePath, 'app')
@@ -611,10 +654,12 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
     })];
 }
 
+/** @param {string} filePath @returns {boolean} */
 function hasAppProductionSourceExtension(filePath) {
     return APP_PRODUCTION_SOURCE_EXTENSIONS.some(extension => filePath.endsWith(extension));
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isAppProductionSource(filePath) {
     return matchesRoot(filePath, 'app')
         && hasAppProductionSourceExtension(filePath)
@@ -625,10 +670,12 @@ function isAppProductionSource(filePath) {
         && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
 }
 
+/** @param {string} filePath @returns {string} */
 function stripSourceExtension(filePath) {
     return filePath.replace(/\.[cm]?[jt]sx?$/u, '');
 }
 
+/** @param {string} sourceFile @param {string} specifier @returns {string | null} */
 function resolveSourceImportPath(sourceFile, specifier) {
     if (specifier.startsWith('@app/')) {
         return `app/${specifier.slice('@app/'.length)}`;
@@ -648,11 +695,13 @@ function resolveSourceImportPath(sourceFile, specifier) {
     return null;
 }
 
+/** @param {string} sourceFile @param {string} specifier @returns {boolean} */
 function resolvesToPlatformRuntimeHelper(sourceFile, specifier) {
     const resolvedPath = resolveSourceImportPath(sourceFile, specifier);
     return resolvedPath !== null && stripSourceExtension(resolvedPath) === PLATFORM_API_RUNTIME_HELPER_MODULE_PATH;
 }
 
+/** @param {string} filePath @param {string} [attributes] @returns {TScriptKind} */
 function getScriptKind(filePath, attributes = '') {
     if (attributes.includes('lang="jsx"') || attributes.includes('lang=\'jsx\'') || filePath.endsWith('.jsx')) {
         return ts.ScriptKind.JSX;
@@ -670,6 +719,7 @@ function getScriptKind(filePath, attributes = '') {
     return ts.ScriptKind.TS;
 }
 
+/** @param {string} filePath @param {string} sourceText @returns {IScriptBlock[]} */
 function collectParsableSourceTexts(filePath, sourceText) {
     if (!filePath.endsWith('.vue')) {
         return [{
@@ -689,6 +739,7 @@ function collectParsableSourceTexts(filePath, sourceText) {
     return scriptBlocks;
 }
 
+/** @param {string} filePath @param {TSourceFile} sourceFile @returns {IPlatformRuntimeGetterBindings} */
 function collectPlatformRuntimeGetterImports(filePath, sourceFile) {
     const directBindings = new Set();
     const namespaceBindings = new Set();
@@ -733,6 +784,7 @@ function collectPlatformRuntimeGetterImports(filePath, sourceFile) {
     };
 }
 
+/** @param {TNode} expression @param {Set<string>} directBindings @param {Set<string>} namespaceBindings @returns {boolean} */
 function isImportedPlatformRuntimeGetterCall(expression, directBindings, namespaceBindings) {
     if (ts.isIdentifier(expression)) {
         return directBindings.has(expression.text);
@@ -747,9 +799,11 @@ function isImportedPlatformRuntimeGetterCall(expression, directBindings, namespa
     return false;
 }
 
+/** @param {TSourceFile} sourceFile @param {Set<string>} directBindings @param {Set<string>} namespaceBindings @returns {boolean} */
 function hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindings) {
     let hasCall = false;
 
+    /** @param {TNode} node @returns {void} */
     function visit(node) {
         if (hasCall) {
             return;
@@ -768,6 +822,7 @@ function hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindi
     return hasCall;
 }
 
+/** @param {string} filePath @param {string} sourceText @returns {TSourceFile[]} */
 function parseSourceFiles(filePath, sourceText) {
     return collectParsableSourceTexts(filePath, sourceText).map((sourceBlock, index) => (
         ts.createSourceFile(
@@ -795,17 +850,21 @@ const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'tests/unit/app/modules/pdf-viewer/engine/createPdfRangeRequestBridge.test.ts',
 ];
 
+/** @param {TNode} node @returns {node is TStringLiteralNode} */
 function isPdfjsModuleSpecifier(node) {
     return ts.isStringLiteral(node)
         && (node.text === 'pdfjs-dist' || node.text.startsWith('pdfjs-dist/'));
 }
 
+/** @param {string} filePath @param {TSourceFile[]} sourceFiles @returns {IArchitectureViolation[]} */
 function checkPdfjsImportBoundary(filePath, sourceFiles) {
     if (PDFJS_IMPORT_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root))) {
         return [];
     }
+    /** @type {IArchitectureViolation[]} */
     const violations = [];
     for (const sourceFile of sourceFiles) {
+        /** @param {TStringLiteralNode} node @returns {void} */
         function recordViolation(node) {
             const specifier = node.text;
             violations.push(createViolation({
@@ -817,6 +876,7 @@ function checkPdfjsImportBoundary(filePath, sourceFiles) {
             }));
         }
 
+        /** @param {TNode} node @returns {void} */
         function visit(node) {
             if (ts.isImportDeclaration(node) && isPdfjsModuleSpecifier(node.moduleSpecifier)) {
                 recordViolation(node.moduleSpecifier);
@@ -828,16 +888,19 @@ function checkPdfjsImportBoundary(filePath, sourceFiles) {
                 && isPdfjsModuleSpecifier(node.moduleReference.expression)
             ) {
                 recordViolation(node.moduleReference.expression);
-            } else if (
-                ts.isCallExpression(node)
-                && node.arguments.length === 1
-                && isPdfjsModuleSpecifier(node.arguments[0])
-                && (
-                    node.expression.kind === ts.SyntaxKind.ImportKeyword
-                    || (ts.isIdentifier(node.expression) && node.expression.text === 'require')
-                )
-            ) {
-                recordViolation(node.arguments[0]);
+            } else if (ts.isCallExpression(node)) {
+                const firstArgument = node.arguments[0];
+                if (
+                    node.arguments.length === 1
+                    && firstArgument
+                    && isPdfjsModuleSpecifier(firstArgument)
+                    && (
+                        node.expression.kind === ts.SyntaxKind.ImportKeyword
+                        || (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+                    )
+                ) {
+                    recordViolation(firstArgument);
+                }
             }
             ts.forEachChild(node, visit);
         }
@@ -847,6 +910,7 @@ function checkPdfjsImportBoundary(filePath, sourceFiles) {
     return violations;
 }
 
+/** @param {string} filePath @param {TSourceFile[]} [sourceFiles] @returns {IArchitectureViolation[]} */
 function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     if (
         !isAppProductionSource(filePath)
@@ -880,11 +944,13 @@ function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     return [];
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isSentryBoundaryExemptSource(filePath) {
     return filePath === SENTRY_BOUNDARY_IMPLEMENTATION_FILE
         || matchesRoot(filePath, 'tests');
 }
 
+/** @param {TNode | undefined} node @returns {string | null} */
 function getStaticString(node) {
     if (!node) {
         return null;
@@ -895,6 +961,7 @@ function getStaticString(node) {
     return null;
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getImportTypeSpecifier(node) {
     if (!ts.isImportTypeNode(node) || !ts.isLiteralTypeNode(node.argument)) {
         return null;
@@ -902,6 +969,7 @@ function getImportTypeSpecifier(node) {
     return getStaticString(node.argument.literal);
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getImportLikeSpecifier(node) {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         return getStaticString(node.moduleSpecifier);
@@ -925,6 +993,7 @@ function getImportLikeSpecifier(node) {
     return null;
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getMemberName(node) {
     if (ts.isIdentifier(node)) {
         return node.text;
@@ -938,6 +1007,7 @@ function getMemberName(node) {
     return null;
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getQualifiedName(node) {
     if (ts.isIdentifier(node)) {
         return node.text;
@@ -954,6 +1024,7 @@ function getQualifiedName(node) {
     return null;
 }
 
+/** @param {string} specifier @returns {string} */
 function getSentryPackageName(specifier) {
     const [
         scope,
@@ -962,10 +1033,12 @@ function getSentryPackageName(specifier) {
     return scope && packageName ? `${scope}/${packageName}` : specifier;
 }
 
+/** @param {string} specifier @returns {boolean} */
 function isSentryPackageSpecifier(specifier) {
     return specifier === '@sentry' || specifier.startsWith('@sentry/');
 }
 
+/** @param {string} value @returns {boolean} */
 function isDsnName(value) {
     const normalized = value.replaceAll('-', '_').toLowerCase();
     return normalized === 'dsn'
@@ -973,10 +1046,12 @@ function isDsnName(value) {
         || normalized.endsWith('dsn');
 }
 
+/** @param {string} value @returns {boolean} */
 function isDsnLiteral(value) {
     return /^https?:\/\/[^/\s"'`]+@[^/\s"'`]+\/\d+(?:[/?#][^\s"'`]*)?$/u.test(value.trim());
 }
 
+/** @param {string} value @returns {boolean} */
 function isSentryUploadTokenName(value) {
     const normalized = value.replaceAll('-', '_').toLowerCase();
     return normalized === 'sentry_token'
@@ -988,15 +1063,19 @@ function isSentryUploadTokenName(value) {
             && normalized !== 'sentry_verification_token');
 }
 
+/** @param {string} value @returns {boolean} */
 function isSentryVerificationTokenName(value) {
     return value.replaceAll('-', '_').toLowerCase() === 'sentry_verification_token';
 }
 
+/** @param {string} value @returns {boolean} */
 function isSentryCliName(value) {
     return /^sentry[_-]?cli(?:[_-]|$)/iu.test(value);
 }
 
+/** @param {TNode} sourceFile @param {TNodeVisitor} visitor @returns {void} */
 function walkSourceFile(sourceFile, visitor) {
+    /** @param {TNode} node @returns {void} */
     function visit(node) {
         visitor(node);
         ts.forEachChild(node, visit);
@@ -1004,6 +1083,7 @@ function walkSourceFile(sourceFile, visitor) {
     visit(sourceFile);
 }
 
+/** @param {TNode} node @param {Set<string>} [knownBindings] @returns {boolean} */
 function containsSentryCliReference(node, knownBindings = new Set()) {
     let found = false;
     walkSourceFile(node, (child) => {
@@ -1022,6 +1102,7 @@ function containsSentryCliReference(node, knownBindings = new Set()) {
     return found;
 }
 
+/** @param {TSourceFile} sourceFile @returns {Set<string>} */
 function collectSentryCliBindings(sourceFile) {
     const bindings = new Set();
     walkSourceFile(sourceFile, (node) => {
@@ -1035,6 +1116,7 @@ function collectSentryCliBindings(sourceFile) {
     return bindings;
 }
 
+/** @param {string | null} name @returns {boolean} */
 function isSentryEventConstructor(name) {
     return name === 'Sentry.Event'
         || name === 'Sentry.EventEnvelope'
@@ -1042,12 +1124,14 @@ function isSentryEventConstructor(name) {
         || name === 'SentryEventEnvelope';
 }
 
+/** @param {TNode} node @returns {boolean} */
 function hasEventConstructionInitializer(node) {
     return ts.isObjectLiteralExpression(node)
         || ts.isNewExpression(node)
         || ts.isCallExpression(node);
 }
 
+/** @param {string} filePath @param {TSourceFile[]} sourceFiles @returns {IArchitectureViolation[]} */
 function checkSentryBoundarySource(filePath, sourceFiles) {
     if (isSentryBoundaryExemptSource(filePath)) {
         return [];
@@ -1058,9 +1142,11 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
     const isVerificationTool = SENTRY_VERIFICATION_TOOL_ROOTS.has(filePath);
     const isCanaryTool = SENTRY_CANARY_TOOL_ROOTS.has(filePath);
     const isBuildConfig = SENTRY_BUILD_CONFIG_ROOTS.has(filePath);
+    /** @type {IArchitectureViolation[]} */
     const violations = [];
     const seen = new Set();
 
+    /** @param {ISentryViolationOptions} options @returns {void} */
     function addViolation({
         rule,
         target,
@@ -1233,10 +1319,12 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
     return violations;
 }
 
+/** @param {string} filePath @param {string} root @returns {boolean} */
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
 
+/** @param {string} filePath @param {string} prefix @returns {string | null} */
 function getFeatureOwner(filePath, prefix) {
     if (!matchesRoot(filePath, prefix)) {
         return null;
@@ -1247,14 +1335,17 @@ function getFeatureOwner(filePath, prefix) {
     return featureName || null;
 }
 
+/** @param {string} filePath @param {string} prefix @param {string} owner @returns {string} */
 function relativeWithinOwner(filePath, prefix, owner) {
     return filePath.slice(`${prefix}/${owner}/`.length);
 }
 
+/** @param {string} relativePath @param {Set<string>} allowedSet @returns {boolean} */
 function isAllowedPublicEntrypoint(relativePath, allowedSet) {
     return allowedSet.has(relativePath) || relativePath.startsWith('public/');
 }
 
+/** @param {IViolationOptions} options @returns {IArchitectureViolation} */
 function createViolation({
     rule,
     source,
@@ -1271,6 +1362,12 @@ function createViolation({
     };
 }
 
+/** @param {IArchitectureViolation | null} violation @returns {violation is IArchitectureViolation} */
+function isViolation(violation) {
+    return Boolean(violation);
+}
+
+/** @param {IDependencyEdge} edge @param {IRootBoundaryRule} boundaryRule @returns {IArchitectureViolation | null} */
 function checkRootBoundaryRule(edge, boundaryRule) {
     const {
         source,
@@ -1297,6 +1394,7 @@ function checkRootBoundaryRule(edge, boundaryRule) {
     });
 }
 
+/** @param {IDependencyEdge} edge @param {IPackageLayerRule} layerRule @returns {IArchitectureViolation | null} */
 function checkPackageLayerRule(edge, layerRule) {
     if (!matchesRoot(edge.source, layerRule.sourceRoot) || !matchesRoot(edge.target, 'packages')) {
         return null;
@@ -1314,6 +1412,7 @@ function checkPackageLayerRule(edge, layerRule) {
     });
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkPackageReverseEdge(edge) {
     if (
         !matchesRoot(edge.source, 'packages')
@@ -1339,13 +1438,15 @@ function checkPackageReverseEdge(edge) {
     });
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation[]} */
 function checkPackageLayer(edge) {
     return [
         ...collectViolationsFromRules(edge, PACKAGE_LAYER_RULES, checkPackageLayerRule),
         checkPackageReverseEdge(edge),
-    ].filter(Boolean);
+    ].filter(isViolation);
 }
 
+/** @param {IDependencyEdge} edge @param {IFeatureBoundaryRule} featureRule @returns {IArchitectureViolation | null} */
 function checkFeatureBoundaryRule(edge, featureRule) {
     const sourceOwner = getFeatureOwner(edge.source, featureRule.prefix);
     const targetOwner = getFeatureOwner(edge.target, featureRule.prefix);
@@ -1376,12 +1477,20 @@ function checkFeatureBoundaryRule(edge, featureRule) {
     });
 }
 
+/**
+ * @template {TBoundaryRule} TRule
+ * @param {IDependencyEdge} edge
+ * @param {TRule[]} rules
+ * @param {(edge: IDependencyEdge, rule: TRule) => IArchitectureViolation | null} checkRule
+ * @returns {IArchitectureViolation[]}
+ */
 function collectViolationsFromRules(edge, rules, checkRule) {
     return rules
         .map(rule => checkRule(edge, rule))
-        .filter(Boolean);
+        .filter(isViolation);
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation[]} */
 function checkEdge(edge) {
     return [
         ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
@@ -1395,9 +1504,10 @@ function checkEdge(edge) {
         checkElectronFeatureMainPrivacy(edge),
         checkPdfViewerEngineLayer(edge),
         ...checkAnnotationDependencyEdge(edge),
-    ].filter(Boolean);
+    ].filter(isViolation);
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation[]} */
 function checkNode(filePath) {
     return [
         checkRetiredPdfComponentPath(filePath),
@@ -1405,9 +1515,10 @@ function checkNode(filePath) {
         checkRetiredElectronFeatureShimPath(filePath),
         checkTopLevelPdfComposable(filePath),
         checkComponentDirectoryFilePlacement(filePath),
-    ].filter(Boolean);
+    ].filter(isViolation);
 }
 
+/** @param {string} filePath @param {string} sourceText @returns {IArchitectureViolation[]} */
 function checkSource(filePath, sourceText) {
     const sourceFiles = parseSourceFiles(filePath, sourceText);
     return [
@@ -1418,18 +1529,22 @@ function checkSource(filePath, sourceText) {
     ];
 }
 
+/** @param {IDependencyEdge} edge @returns {IArchitectureViolation[]} */
 export function checkArchitectureBoundaryEdge(edge) {
     return checkEdge(edge);
 }
 
+/** @param {string} filePath @returns {IArchitectureViolation[]} */
 export function checkArchitectureBoundaryNode(filePath) {
     return checkNode(filePath);
 }
 
+/** @param {string} filePath @param {string} sourceText @returns {IArchitectureViolation[]} */
 export function checkArchitectureBoundarySource(filePath, sourceText) {
     return checkSource(filePath, sourceText);
 }
 
+/** @param {IArchitectureViolation[]} violations @returns {string} */
 function formatViolations(violations) {
     return violations.map((violation, index) => {
         const serial = index + 1;
@@ -1442,6 +1557,7 @@ function formatViolations(violations) {
     }).join('\n');
 }
 
+/** @param {IDependencyCycle[]} cycles @returns {string} */
 function formatCycles(cycles) {
     return cycles.map((cycle, index) => {
         const serial = index + 1;
@@ -1452,6 +1568,7 @@ function formatCycles(cycles) {
     }).join('\n');
 }
 
+/** @param {string[]} argv @param {{projectRoot: string}} options @returns {string[] | null} */
 function collectRootsFromArgv(argv, {projectRoot}) {
     const roots = parseArchitectureRootsArg(argv);
     if (roots) {
@@ -1462,6 +1579,7 @@ function collectRootsFromArgv(argv, {projectRoot}) {
         : null;
 }
 
+/** @returns {Promise<void>} */
 async function run() {
     const projectRoot = process.cwd();
     const roots = collectRootsFromArgv(process.argv.slice(2), { projectRoot });

@@ -28,7 +28,10 @@ vi.mock('child_process', () => ({
     execFile: vi.fn(),
     spawn: mocks.spawn,
 }));
-vi.mock('electron', () => ({app: {getVersion: () => '0.0.0-test'}}));
+vi.mock('electron', () => ({
+    BrowserWindow: {getAllWindows: vi.fn(() => [])},
+    app: {getVersion: () => '0.0.0-test'},
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: Record<string, unknown>) => options,

@@ -255,7 +255,11 @@ describe('windows test stop request', () => {
     it('retains a failed forced stop for an explicit retry', async () => {
         const harness = await createStopHarness({
             lease: lease(),
-            utmctl: createFakeUtmctl({statusSequence: ['started', 'started', 'stopped']}),
+            utmctl: createFakeUtmctl({statusSequence: [
+                'started',
+                'started',
+                'stopped',
+            ]}),
         });
 
         const firstResult = await harness.stop();

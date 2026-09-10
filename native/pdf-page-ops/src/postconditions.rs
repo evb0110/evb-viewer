@@ -488,13 +488,11 @@ pub(crate) fn validate_text_box_document_postconditions(
         }
         let actual_rect = parse_rect(dict.get(b"Rect")?)?;
         validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
-        let page_rotation = resolve_page_rotation(document, page_id)?;
         let source_rect = crate::text_box_font::stored_source_rect(
             document,
             dict,
             actual_rect,
             i64::from(editor.rotation),
-            page_rotation,
         )?;
         validate_rect_approximately(
             source_rect,

@@ -139,19 +139,37 @@ describe('browserPageOpsWorkerClient', () => {
             items: [],
         };
         expect(decodeBrowserPdfCatalog({
-            bookmarks: [{...baseBookmark, pageIndex: undefined}],
+            bookmarks: [{
+                ...baseBookmark,
+                pageIndex: undefined,
+            }],
             pageLabels: [],
         }, {maxPageLabels: 2_048})).toBeNull();
         expect(decodeBrowserPdfCatalog({
-            bookmarks: [{...baseBookmark, pageYRatio: 'bad'}],
+            bookmarks: [{
+                ...baseBookmark,
+                pageYRatio: 'bad',
+            }],
             pageLabels: [],
         }, {maxPageLabels: 2_048})).toBeNull();
         expect(decodeBrowserPdfCatalog({
-            bookmarks: [{...baseBookmark, pageYRatio: 0.25}],
-            pageLabels: [{pageIndex: 0, prefix: 'Page '}],
+            bookmarks: [{
+                ...baseBookmark,
+                pageYRatio: 0.25,
+            }],
+            pageLabels: [{
+                pageIndex: 0,
+                prefix: 'Page ',
+            }],
         }, {maxPageLabels: 2_048})).toEqual({
-            bookmarks: [{...baseBookmark, pageYRatio: 0.25}],
-            pageLabels: [{pageIndex: 0, prefix: 'Page '}],
+            bookmarks: [{
+                ...baseBookmark,
+                pageYRatio: 0.25,
+            }],
+            pageLabels: [{
+                pageIndex: 0,
+                prefix: 'Page ',
+            }],
         });
     });
 

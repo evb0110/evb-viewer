@@ -260,7 +260,7 @@ async function runBrowserMaterializedSaveConflictAcceptance() {
         createSyncAccessHandle: async () => {
             throw new Error('Synchronous access is not part of this browser fixture');
         },
-    } satisfies FileSystemFileHandle;
+    } satisfies FileSystemFileHandle & {queryPermission: () => Promise<'granted'>;};
     const sourceRef = await browserDocumentStore.registerFile(currentFile, {
         kind: 'source',
         saveKind: 'pdf',

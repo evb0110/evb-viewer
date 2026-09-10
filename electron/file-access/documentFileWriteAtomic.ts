@@ -7,9 +7,7 @@ import {
     rename,
     unlink,
 } from 'fs/promises';
-import {
-    dirname,
-} from 'path';
+import {dirname} from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
@@ -17,7 +15,9 @@ import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
-import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import {
+    atomicReplace, makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 const log = createLogger('documentFileWriteAtomic');
 

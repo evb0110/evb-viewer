@@ -33,6 +33,8 @@
                     :document-path="tab.originalPath"
                     :document-record="documentRecordsByTabId[tab.id] ?? null"
                     :has-document-hint="tabHasDocumentHint(tab)"
+                    :is-dirty="tab.isDirty"
+                    :recovery-working-copy-path="tab.recoveryWorkingCopyPath"
                     :initial-view-state="viewStateByTabId[tab.id] ?? null"
                     :document-session="documentSessionsByTabId[tab.id]!"
                     :is-startup-open-claim-pending="isStartupOpenClaimPending"

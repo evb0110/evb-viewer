@@ -282,6 +282,7 @@ describe('file-backed scan-cleanup settings store', () => {
         const store = createScanCleanupSettingsStore({
             filePath,
             logger,
+            now: () => 20,
         });
 
         const migrated = await store.get({legacyStorage: {
@@ -390,9 +391,7 @@ describe('file-backed scan-cleanup settings store', () => {
         const sourceSha256 = 'c'.repeat(64);
         const legacyDocumentKey = '/documents/legacy-scan.pdf';
         const initial = createDefaultScanCleanupSettingsFile();
-        initial.documentOverrides = {
-            [expiredHash]: {lastUsedAtMs: now - SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS - 1},
-        };
+        initial.documentOverrides = {[expiredHash]: {lastUsedAtMs: now - SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS - 1}};
         await writeFile(filePath, JSON.stringify(initial), 'utf8');
         const store = createScanCleanupSettingsStore({
             filePath,
@@ -412,11 +411,9 @@ describe('file-backed scan-cleanup settings store', () => {
             legacyDocumentKey,
         });
 
-        expect(loaded.documentOverrides).toEqual({
-            [sourceSha256]: {
-                outputMode: 'grayscale',
-                lastUsedAtMs: now,
-            },
-        });
+        expect(loaded.documentOverrides).toEqual({[sourceSha256]: {
+            outputMode: 'grayscale',
+            lastUsedAtMs: now,
+        }});
     });
 });

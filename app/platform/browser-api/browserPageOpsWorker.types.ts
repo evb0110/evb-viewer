@@ -78,7 +78,7 @@ interface IBrowserPageOpsWorkerResultMap {
     removeCrop: IPageMutationWorkerResult;
     getPageGeometry: IPageGeometry;
     parseAnnotations: {data: Uint8Array;};
-    readCatalog: IBrowserPdfCombineCatalog;
+    readCatalog: IBrowserPdfCatalog;
     conformance: IBrowserPdfConformanceFacts;
     mergePages: IPageMutationWorkerResult;
 }

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import type {Transport} from '@sentry/core/browser';
 import {makeFetchTransport} from '@sentry/browser';
+import {requireDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import {requireDiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
 import {createBrowserDiagnosticsTransport} from '@app/utils/browserDiagnosticsTransport';
 
@@ -104,11 +105,9 @@ describe('hosted browser diagnostics transport', () => {
                 fetchCalls += 1;
                 return {
                     status: 200,
-                    headers: {
-                        get: (name: string) => name.toLowerCase() === 'x-sentry-rate-limits'
-                            ? '60::error'
-                            : null,
-                    },
+                    headers: {get: (name: string) => name.toLowerCase() === 'x-sentry-rate-limits'
+                        ? '60::error'
+                        : null},
                 } as Response;
             }),
         });
@@ -116,7 +115,7 @@ describe('hosted browser diagnostics transport', () => {
         await expect(adapter.send(RECORD)).resolves.toBe(true);
         await expect(adapter.send({
             ...RECORD,
-            eventId: `${RECORD.eventId.slice(0, -2)}01`,
+            eventId: requireDiagnosticEventId(`${RECORD.eventId.slice(0, -2)}01`),
         })).resolves.toBe(false);
         expect(fetchCalls).toBe(1);
     });

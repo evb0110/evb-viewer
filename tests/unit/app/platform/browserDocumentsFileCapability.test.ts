@@ -72,10 +72,11 @@ function requireArrayBufferChunk(chunk: FileSystemWriteChunkType): ArrayBuffer {
 function createFileSystemFileHandle(
     options: IFileSystemFileHandleFixtureOptions,
 ): FileSystemFileHandle & IFileSystemFileHandlePermissionMethods {
+    const defaultFile = new File([], options.name);
     const handle = {
         kind: 'file',
         name: options.name,
-        getFile: options.getFile ?? (async () => new File([], options.name)),
+        getFile: options.getFile ?? (async () => defaultFile),
         isSameEntry: options.isSameEntry ?? (async (_other: FileSystemHandle) => false),
         createWritable: options.createWritable
             ?? (async () => createFileSystemWritableFileStream()),
@@ -835,9 +836,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const combinedDocument = await PDFDocument.create();
         combinedDocument.addPage();
         combinedDocument.addPage();
-        browserPdfCombineWorkerMock.run.mockResolvedValue({
-            data: new Uint8Array(await combinedDocument.save()),
-        });
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: new Uint8Array(await combinedDocument.save())});
 
         const result = await createCombinedPdfFromPaths([
             pdfRef,
@@ -1052,12 +1051,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             kind: 'pdf',
             isGenerated: true,
         }));
-        await expect(capability.recentFiles.get()).resolves.toEqual([
-            expect.objectContaining({
-                originalPath: result!.originalPath,
-                fileName: expect.stringMatching(/^combined-\d+\.pdf$/u),
-            }),
-        ]);
+        await expect(capability.recentFiles.get()).resolves.toEqual([expect.objectContaining({
+            originalPath: result!.originalPath,
+            fileName: expect.stringMatching(/^combined-\d+\.pdf$/u),
+        })]);
     });
 
     it('keeps recent entries when direct browser handle reopen is denied', async () => {
@@ -1131,7 +1128,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const requestPermission = vi.fn(async () => 'granted' as const);
         const handle = createFileSystemFileHandle({
             name: 'large-save.pdf',
-            getFile: vi.fn(async () => new File([savedBytes], 'large-save.pdf', { type: 'application/pdf' })),
+            getFile: vi.fn(async () => new File([savedBytes], 'large-save.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             queryPermission,
             requestPermission,
             createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
@@ -1185,7 +1185,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
         const handle = createFileSystemFileHandle({
             name: 'needs-permission.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'needs-permission.pdf', { type: 'application/pdf' })),
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'needs-permission.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             queryPermission,
             requestPermission,
             createWritable,
@@ -1315,10 +1318,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const showSaveFilePicker = vi.fn(async () => {
             throw new Error('Working-copy-only staging must not open a save picker');
         });
+        const sourceBytes = await createPdfBytes();
         const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
         const sourceHandle = createFileSystemFileHandle({
             name: 'working-copy-only.pdf',
-            getFile: vi.fn(async () => new File([], 'working-copy-only.pdf', {type: 'application/pdf'})),
+            getFile: vi.fn(async () => new File([sourceBytes], 'working-copy-only.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             createWritable,
         });
         const clearSearchCaches = vi.fn();
@@ -1329,7 +1336,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             clearSearchCaches,
             windowOverrides: {showSaveFilePicker},
         });
-        const sourceBytes = await createPdfBytes();
         const sourceRef = await browserDocumentStore.createStoredDocument(
             'working-copy-only.pdf',
             sourceBytes,
@@ -1368,10 +1374,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('streams browser PDF data chunks into staged document chunks before saving', async () => {
         const clearSearchCaches = vi.fn();
+        const sourceBytes = await createPdfBytes();
         const writes: Uint8Array[] = [];
         const handle = createFileSystemFileHandle({
             name: 'chunked-save.pdf',
-            getFile: vi.fn(async () => new File([new Uint8Array()], 'chunked-save.pdf', { type: 'application/pdf' })),
+            getFile: vi.fn(async () => new File([sourceBytes], 'chunked-save.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
                 writes.push(new Uint8Array(requireArrayBufferChunk(chunk)));
             })})),
@@ -1383,7 +1393,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability({ clearSearchCaches });
         const sourceRef = await browserDocumentStore.createStoredDocument(
             'chunked-save.pdf',
-            await createPdfBytes(),
+            sourceBytes,
             {
                 ...PDF_SOURCE_OPTIONS,
                 saveHandle: handle,
@@ -1464,9 +1474,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('saves oversized valid browser PDF data chunks after range-backed validation', async () => {
         const clearSearchCaches = vi.fn();
+        const sourceBytes = await createPdfBytes();
         let writtenBytes = 0;
         const handle = createFileSystemFileHandle({
             name: 'valid-oversized-chunked-save.pdf',
+            getFile: vi.fn(async () => new File([sourceBytes], 'valid-oversized-chunked-save.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
                 writtenBytes += requireArrayBufferChunk(chunk).byteLength;
             })})),
@@ -1479,7 +1494,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability({ clearSearchCaches });
         const sourceRef = await browserDocumentStore.createStoredDocument(
             'valid-oversized-chunked-save.pdf',
-            await createPdfBytes(),
+            sourceBytes,
             {
                 ...PDF_SOURCE_OPTIONS,
                 saveHandle: handle,
@@ -1527,7 +1542,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
         const handle = createFileSystemFileHandle({
             name: 'denied.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'denied.pdf', { type: 'application/pdf' })),
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'denied.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             queryPermission,
             requestPermission,
             createWritable,
@@ -1608,18 +1626,24 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const firstWriteStarted = Promise.withResolvers<undefined>();
         const releaseFirstWrite = Promise.withResolvers<undefined>();
         let writableIndex = 0;
+        let sharedBytes = Uint8Array.of(37, 80, 68, 70);
         const createWritable = vi.fn(async () => {
             const index = writableIndex++;
-            return createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {
+            return createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                const nextBytes = new Uint8Array(requireArrayBufferChunk(chunk));
                 if (index === 0) {
                     firstWriteStarted.resolve(undefined);
                     await releaseFirstWrite.promise;
                 }
+                sharedBytes = nextBytes;
             })});
         });
         const handle = createFileSystemFileHandle({
             name: 'shared.pdf',
-            getFile: vi.fn(async () => new File([], 'shared.pdf', {type: 'application/pdf'})),
+            getFile: vi.fn(async () => new File([sharedBytes], 'shared.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             createWritable,
         });
         const {
@@ -1665,9 +1689,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             secondSave,
         ])).resolves.toEqual([
             expect.objectContaining({ok: true}),
-            expect.objectContaining({ok: true}),
+            expect.objectContaining({
+                ok: false,
+                reason: 'write-failed',
+                message: expect.stringContaining('Browser physical source changed since this working copy opened'),
+            }),
         ]);
-        expect(createWritable).toHaveBeenCalledTimes(2);
+        expect(createWritable).toHaveBeenCalledOnce();
     });
 
     it('does not deadlock when a regular save queues behind Save As for the same source', async () => {
@@ -1682,9 +1710,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             })})),
         });
         const originalCreateWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        const originalBytes = Uint8Array.of(37, 80, 68, 70);
         const originalHandle = createFileSystemFileHandle({
             name: 'original.pdf',
-            getFile: vi.fn(async () => new File([], 'original.pdf', {type: 'application/pdf'})),
+            getFile: vi.fn(async () => new File([originalBytes], 'original.pdf', {
+                type: 'application/pdf',
+                lastModified: 1,
+            })),
             createWritable: originalCreateWritable,
         });
         const {
@@ -1693,7 +1725,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)}});
         const sourceRef = await browserDocumentStore.createStoredDocument(
             'original.pdf',
-            Uint8Array.of(37, 80, 68, 70),
+            originalBytes,
             {
                 ...PDF_SOURCE_OPTIONS,
                 saveHandle: originalHandle,

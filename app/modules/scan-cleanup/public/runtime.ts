@@ -7,3 +7,7 @@ export {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 export {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 export {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+export {
+    flushScanCleanupDocumentPreferencesStore,
+    flushScanCleanupPreferencesStore,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';

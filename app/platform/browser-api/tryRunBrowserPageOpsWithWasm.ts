@@ -1,6 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
 import type {
-    IBrowserPdfCombineCatalog,
     IBrowserPdfConformanceFacts,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,

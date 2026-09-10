@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {
     mkdtempSync,
+    realpathSync,
     rmSync,
     writeFileSync,
 } from 'fs';
@@ -111,9 +112,10 @@ describe('open path capabilities', () => {
             allowOpenPath,
             requireOpenPath,
         } = await import('@electron/file-access/openPathCapabilities');
+        const canonicalFilePath = realpathSync.native(filePath);
 
-        expect(allowOpenPath(filePath)).toBe(filePath);
-        expect(requireOpenPath(filePath)).toBe(filePath);
+        expect(allowOpenPath(filePath)).toBe(canonicalFilePath);
+        expect(requireOpenPath(filePath)).toBe(canonicalFilePath);
     });
 
     it('clears grants when the owning webContents is destroyed', async () => {

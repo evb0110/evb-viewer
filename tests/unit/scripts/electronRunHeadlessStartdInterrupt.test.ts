@@ -202,9 +202,7 @@ describe('electron-run-headless.sh startd interruption', () => {
         'refuses a mismatched persisted owner without signalling the live PID',
         async () => {
             const host = createFakeHeadlessHost();
-            const fixture = spawn('sleep', ['300'], {
-                stdio: 'ignore',
-            });
+            const fixture = spawn('sleep', ['300'], {stdio: 'ignore'});
             const fixturePid = fixture.pid;
             let runner: ReturnType<typeof spawn> | null = null;
 
@@ -215,13 +213,11 @@ describe('electron-run-headless.sh startd interruption', () => {
                 expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
                 const executable = readlinkSync(`/proc/${String(fixturePid)}/exe`);
                 const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
-                mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {
-                    recursive: true,
-                });
+                mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {recursive: true});
                 writeFileSync(host.xvfbOwnerPath, [
                     `pid=${String(fixturePid)}`,
                     `executable=${executable}`,
-                    `start_time=wrong-start-time`,
+                    'start_time=wrong-start-time',
                     `boot_id=${bootId}`,
                     'display=:99',
                     'screen_spec=1440x1000x24',
@@ -231,7 +227,13 @@ describe('electron-run-headless.sh startd interruption', () => {
                     '',
                 ].join('\n'));
 
-                for (const stopArgs of [['stop'], ['stop', '--all']]) {
+                for (const stopArgs of [
+                    ['stop'],
+                    [
+                        'stop',
+                        '--all',
+                    ],
+                ]) {
                     runner = spawn('bash', [
                         host.scriptPath,
                         '--session',
@@ -243,7 +245,11 @@ describe('electron-run-headless.sh startd interruption', () => {
                             ...process.env,
                             PATH: `${host.binDir}:${process.env.PATH ?? ''}`,
                         },
-                        stdio: ['ignore', 'pipe', 'pipe'],
+                        stdio: [
+                            'ignore',
+                            'pipe',
+                            'pipe',
+                        ],
                     });
                     let stderr = '';
                     runner.stderr!.on('data', (chunk: Buffer) => {
@@ -276,9 +282,7 @@ describe('electron-run-headless.sh startd interruption', () => {
         'leaves legacy PID-only evidence and its live process untouched',
         async () => {
             const host = createFakeHeadlessHost();
-            const fixture = spawn('sleep', ['300'], {
-                stdio: 'ignore',
-            });
+            const fixture = spawn('sleep', ['300'], {stdio: 'ignore'});
             const fixturePid = fixture.pid;
             let runner: ReturnType<typeof spawn> | null = null;
 
@@ -287,9 +291,7 @@ describe('electron-run-headless.sh startd interruption', () => {
                     throw new Error('Expected the fixture process to have a PID');
                 }
                 expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
-                mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {
-                    recursive: true,
-                });
+                mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {recursive: true});
                 writeFileSync(host.xvfbPidPath, `${String(fixturePid)}\n`);
                 writeFileSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME, 'xvfb-display'), ':99\n');
                 runner = spawn('bash', [
@@ -303,7 +305,11 @@ describe('electron-run-headless.sh startd interruption', () => {
                         ...process.env,
                         PATH: `${host.binDir}:${process.env.PATH ?? ''}`,
                     },
-                    stdio: ['ignore', 'pipe', 'pipe'],
+                    stdio: [
+                        'ignore',
+                        'pipe',
+                        'pipe',
+                    ],
                 });
                 let stderr = '';
                 runner.stderr!.on('data', (chunk: Buffer) => {

@@ -211,7 +211,7 @@ const lintableStylePattern = /\.(?:css|scss|vue)$/u;
 
 /** @param {IValidationClassification} classification @returns {boolean} */
 function isToolingOnlyClassification(classification) {
-    return classification.impacts.tooling && ![
+    return classification.impacts.tooling === true && ![
         'app',
         'build',
         'electron',
@@ -235,14 +235,25 @@ function isToolingOnlyClassification(classification) {
 /** @typedef {{cache: string, cacheHit: boolean, cacheReason: string, dependsOn: string[], endedAt: string, gateCapacity?: number, gateWaitMs?: number, id: string, inputFingerprint: string, loadAverage: number[], skipped: boolean, status: 'passed' | 'failed' | 'interrupted', wallMs: number, weight: number}} IValidationStageResult */
 /** @typedef {{error: unknown, id: string}} IValidationStageFailure */
 /** @typedef {{dependency: string, id: string}} IValidationStageSkip */
-/** @typedef {{capacity: number, coordinated: boolean, release: (options?: {ownedGroupIds?: number[], ownedPids?: number[], retain?: boolean}) => Promise<void>, waitedMs: number}} IHeavyGateHandle */
+/** @typedef {{capacity: number, coordinated: boolean, release: (options?: {ownedGroupIds?: number[] | undefined, ownedPids?: number[] | undefined, retain?: boolean | undefined}) => Promise<void>, waitedMs: number}} IHeavyGateHandle */
 /** @typedef {{acquired: boolean, capacity: number, holders: {id: string, ownedGroupIds?: number[], ownedPids?: number[], pid: number, projectRoot?: string, weight: number}[], usedWeight: number}} IHeavyGateAdmission */
-/** @typedef {{error: unknown, ok: boolean, stageDefinition: IValidationStage}} IValidationStageOutcome */
+/** @typedef {{error: null, ok: true, stageDefinition: IValidationStage} | {error: unknown, ok: false, stageDefinition: IValidationStage}} IValidationStageOutcome */
 /** @typedef {{failures: IValidationStageFailure[], skipped: IValidationStageSkip[]}} IValidationStagePoolResult */
 /** @typedef {{code?: string, message?: string}} INodeError */
+/** @typedef {{interrupted?: boolean | undefined, retainCapacity?: boolean | undefined, ownedGroupIds?: number[] | undefined, ownedPids?: number[] | undefined, failures?: IValidationStageFailure[] | undefined, skipped?: IValidationStageSkip[] | undefined}} IValidationErrorState */
+/** @typedef {{capacity?: number | undefined, signal?: AbortSignal | undefined}} IValidationStagePoolOptions */
+/** @typedef {{signal?: AbortSignal | undefined}} IValidationSignalOptions */
+/** @typedef {{changes?: IValidationChanges | undefined, noCache?: boolean | undefined, signal?: AbortSignal | undefined, tier?: TValidationTier | undefined}} IValidationStagesOptions */
+/** @typedef {{capacity?: number | undefined, env?: NodeJS.ProcessEnv | undefined, failOpenOnTimeout?: boolean | undefined, id?: string | undefined, root?: string | undefined, signal?: AbortSignal | undefined, waitMs?: number | undefined, weight?: number | undefined}} IHeavyGateOptions */
+/** @typedef {{owned: boolean, ownedGroupIds?: number[] | undefined, ownedPids?: number[] | undefined}} IProcessStopResult */
 
 /** @param {unknown} value @returns {value is INodeError} */
 function isNodeError(value) {
+    return typeof value === 'object' && value !== null;
+}
+
+/** @param {unknown} value @returns {value is IValidationErrorState} */
+function isValidationErrorState(value) {
     return typeof value === 'object' && value !== null;
 }
 
@@ -1440,7 +1451,7 @@ export async function pruneRetentionEntries({
     }
     return removed;
 }
-/** @param {string[]} argv */
+/** @param {string[]} argv @param {IValidationSignalOptions} [options] */
 async function runLint(argv, {signal} = {}) {
     const changed = argv.includes('--changed');
     const fix = argv.includes('--fix');
@@ -1789,7 +1800,7 @@ function heavyGateAdmissionState(admission) {
     ].join('|');
 }
 
-/** @param {{capacity?: number, env?: NodeJS.ProcessEnv, failOpenOnTimeout?: boolean, id?: string, root?: string, signal?: AbortSignal, waitMs?: number, weight?: number}} options @returns {Promise<IHeavyGateHandle>} */
+/** @param {IHeavyGateOptions} options @returns {Promise<IHeavyGateHandle>} */
 export async function acquireHeavyGate({
     env = process.env,
     capacity,
@@ -2030,6 +2041,7 @@ async function reportRepoSessions() {
     }
 }
 
+/** @param {number} pid @returns {number | null} */
 function getProcessGroupId(pid) {
     if (process.platform === 'win32') {
         return pid;
@@ -2055,6 +2067,7 @@ function getProcessGroupId(pid) {
     }
 }
 
+/** @param {number} pid @returns {boolean} */
 function isProcessGroupAlive(pid) {
     if (process.platform === 'win32') {
         return isPidAlive(pid);
@@ -2067,6 +2080,7 @@ function isProcessGroupAlive(pid) {
     }
 }
 
+/** @param {number} rootPid @returns {number[]} */
 function collectDescendantPidsUnix(rootPid) {
     if (process.platform === 'win32' || !Number.isInteger(rootPid) || rootPid < 1) {
         return [];
@@ -2083,9 +2097,13 @@ function collectDescendantPidsUnix(rootPid) {
                 'ignore',
             ],
         });
+        /** @type {Map<number, number[]>} */
         const childrenByParent = new Map();
         for (const line of output.split('\n')) {
-            const [pidText, ppidText] = line.trim().split(/\s+/u);
+            const [
+                pidText,
+                ppidText,
+            ] = line.trim().split(/\s+/u);
             const pid = Number(pidText);
             const ppid = Number(ppidText);
             if (!Number.isInteger(pid) || !Number.isInteger(ppid) || pid < 1 || ppid < 1) {
@@ -2095,10 +2113,15 @@ function collectDescendantPidsUnix(rootPid) {
             children.push(pid);
             childrenByParent.set(ppid, children);
         }
+        /** @type {number[]} */
         const descendants = [];
+        /** @type {number[]} */
         const pending = [rootPid];
         while (pending.length > 0) {
             const parentPid = pending.pop();
+            if (parentPid === undefined) {
+                break;
+            }
             for (const childPid of childrenByParent.get(parentPid) ?? []) {
                 descendants.push(childPid);
                 pending.push(childPid);
@@ -2110,6 +2133,7 @@ function collectDescendantPidsUnix(rootPid) {
     }
 }
 
+/** @param {number[]} pids @returns {Set<number>} */
 function getLiveProcessGroups(pids) {
     const groupIds = new Set();
     for (const pid of pids) {
@@ -2121,21 +2145,21 @@ function getLiveProcessGroups(pids) {
     return groupIds;
 }
 
+/** @param {Set<number>} groupIds @param {number[]} pids @param {number} timeoutMs @returns {Promise<boolean>} */
 async function waitForOwnedProcessesExit(groupIds, pids, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
-    const hasSurvivor = () => [
-        ...groupIds,
-    ].some(groupId => isProcessGroupAlive(groupId)) || pids.some(isPidAlive);
+    const hasSurvivor = () => [...groupIds].some(groupId => isProcessGroupAlive(groupId)) || pids.some(isPidAlive);
     while (hasSurvivor() && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 50));
     }
     return !hasSurvivor();
 }
 
+/** @param {import('node:child_process').ChildProcess} child @param {NodeJS.Signals} signal @returns {Promise<IProcessStopResult>} */
 async function stopSpawnedProcess(child, signal) {
     const pid = child.pid;
     if (!pid || !isPidAlive(pid)) {
-        if (isProcessGroupAlive(pid)) {
+        if (typeof pid === 'number' && isProcessGroupAlive(pid)) {
             return {
                 owned: false,
                 ownedGroupIds: [pid],
@@ -2229,7 +2253,7 @@ class ValidationInterruptedError extends Error {
     }
 }
 
-/** @param {string} command @param {string[]} args @param {NodeJS.ProcessEnv} env @param {{signal?: AbortSignal}} [options] @returns {Promise<void>} */
+/** @param {string} command @param {string[]} args @param {NodeJS.ProcessEnv} env @param {IValidationSignalOptions} [options] @returns {Promise<void>} */
 async function spawnInherited(command, args, env, {signal} = {}) {
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
@@ -2247,6 +2271,7 @@ async function spawnInherited(command, args, env, {signal} = {}) {
             stopping = true;
             void stopSpawnedProcess(child, 'SIGTERM').then(result => {
                 if (!result.owned) {
+                    /** @type {IValidationErrorState} */
                     const error = new ValidationInterruptedError(
                         'Validation interrupted; stage ownership could not be proven',
                     );
@@ -2420,7 +2445,7 @@ function stageResourceWeight(stageDefinition, capacity) {
     return Math.max(1, Math.min(Math.floor(requested), capacity));
 }
 
-/** @param {IValidationStage[]} stages @param {(stage: IValidationStage, context: {signal?: AbortSignal}) => Promise<void>} runStage @param {{capacity?: number, signal?: AbortSignal}} options @returns {Promise<IValidationStagePoolResult>} */
+/** @param {IValidationStage[]} stages @param {(stage: IValidationStage, context: IValidationSignalOptions) => Promise<void>} runStage @param {IValidationStagePoolOptions} options @returns {Promise<IValidationStagePoolResult>} */
 export async function runStagePool(stages, runStage, {
     capacity = getDefaultGateCapacity(),
     signal,
@@ -2551,6 +2576,7 @@ export async function runStagePool(stages, runStage, {
     }
 
     if (signal?.aborted) {
+        /** @type {IValidationErrorState} */
         const interrupted = new ValidationInterruptedError();
         interrupted.failures = failures;
         interrupted.skipped = skipped;
@@ -2608,7 +2634,7 @@ export function selectValidationStages(stages, requestedIds = []) {
     return stages.filter(stageDefinition => selectedIds.has(stageDefinition.id));
 }
 
-/** @param {IValidationStage[]} stages @param {{changes?: IValidationChanges, noCache?: boolean, signal?: AbortSignal, tier?: TValidationTier}} options @returns {Promise<void>} */
+/** @param {IValidationStage[]} stages @param {IValidationStagesOptions} options @returns {Promise<void>} */
 async function runStages(stages, {
     changes = {
         files: [],
@@ -2653,7 +2679,7 @@ async function runStages(stages, {
             dependsOn: [...(stageDefinition.dependsOn ?? [])],
             inputFingerprint: stageInputFingerprint(stageDefinition, changes),
         }));
-        /** @param {IValidationStage} stageDefinition */
+        /** @param {IValidationStage} stageDefinition @param {IValidationSignalOptions} [options] */
         const runStage = async (stageDefinition, {signal: stageSignal} = {}) => {
             if (stageSignal?.aborted) {
                 throw new ValidationInterruptedError();
@@ -2727,8 +2753,9 @@ async function runStages(stages, {
                     weight: stageDefinition.heavyWeight ?? 0,
                 });
             } catch (error) {
-                if (error?.interrupted) {
+                if (isValidationErrorState(error) && error.interrupted) {
                     const endedAt = new Date().toISOString();
+                    /** @type {IValidationStageResult} */
                     const result = {
                         cache: cacheState,
                         cacheHit: false,
@@ -2774,6 +2801,7 @@ async function runStages(stages, {
             })}\n`);
             /** @type {'passed' | 'failed' | 'interrupted'} */
             let status = 'passed';
+            /** @type {IValidationErrorState | undefined} */
             let stageError;
             try {
                 await spawnInherited(
@@ -2793,8 +2821,8 @@ async function runStages(stages, {
                     throw new ValidationInterruptedError();
                 }
             } catch (error) {
-                stageError = error;
-                status = error?.interrupted ? 'interrupted' : 'failed';
+                stageError = isValidationErrorState(error) ? error : undefined;
+                status = stageError?.interrupted ? 'interrupted' : 'failed';
                 throw error;
             } finally {
                 await gate.release({
@@ -2873,7 +2901,7 @@ async function runStages(stages, {
     }
 }
 
-/** @param {TValidationTier} tier @param {string[]} argv @param {{signal?: AbortSignal}} [options] @returns {Promise<void>} */
+/** @param {TValidationTier} tier @param {string[]} argv @param {IValidationSignalOptions} [options] @returns {Promise<void>} */
 async function runTier(tier, argv, {signal} = {}) {
     const changes = await collectValidationChanges({
         base: readArg(argv, 'base'),
@@ -2918,7 +2946,7 @@ async function runTier(tier, argv, {signal} = {}) {
     });
 }
 
-/** @param {string[]} argv @param {{signal?: AbortSignal}} [options] @returns {Promise<void>} */
+/** @param {string[]} argv @param {IValidationSignalOptions} [options] @returns {Promise<void>} */
 async function runHeavyCommand(argv, {signal} = {}) {
     const separatorIndex = argv.indexOf('--');
     const command = separatorIndex >= 0 ? argv[separatorIndex + 1] : undefined;

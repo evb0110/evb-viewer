@@ -1,4 +1,6 @@
-import type {IScanCleanupOptions, IScanCleanupPageOverride} from '@contracts/scan-cleanup/domain';
+import type {
+    IScanCleanupOptions, IScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/domain';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -12,7 +14,10 @@ function pageOverrideSignature(override: IScanCleanupPageOverride) {
         rotationDegrees: override.rotationDegrees,
         manualSplit: override.manualSplit,
         manualSkewDegrees: override.manualSkewDegrees,
-        manualZones: override.manualZones ?? {picture: [], fill: []},
+        manualZones: override.manualZones ?? {
+            picture: [],
+            fill: [],
+        },
     };
 }
 
@@ -30,7 +35,10 @@ export function createScanCleanupDetectionSignature(options: IScanCleanupOptions
             const signature = JSON.stringify(pageOverrideSignature(
                 getScanCleanupPageOverride(options.pageOverrides, requirePageNumber(Number(pageKey))),
             ));
-            return signature === defaultSignature ? null : [pageKey, signature];
+            return signature === defaultSignature ? null : [
+                pageKey,
+                signature,
+            ];
         })
         .filter((entry): entry is [string, string] => entry !== null)
         .sort(([left], [right]) => left.localeCompare(right));

@@ -209,6 +209,7 @@ function createNativeRotationFileContents(rotationDegrees: readonly number[]) {
 
 function exifOrientationToPdfTransform(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
     switch (orientation) {
+        case 1: return 0;
         case 2: return 360;
         case 3: return 180;
         case 4: return 540;
@@ -216,7 +217,6 @@ function exifOrientationToPdfTransform(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 
         case 6: return 90;
         case 7: return 630;
         case 8: return 270;
-        default: return 0;
     }
 }
 

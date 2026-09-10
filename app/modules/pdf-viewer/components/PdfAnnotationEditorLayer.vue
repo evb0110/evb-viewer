@@ -497,7 +497,12 @@ function visibleLayerRect(layer: HTMLElement) {
     };
 }
 
-function pointFromVisibleCenter(rect: {left: number; top: number; width: number; height: number}) {
+function pointFromVisibleCenter(rect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number
+}) {
     const layerRect = layerRef.value!.getBoundingClientRect();
     return rotateAnnotationPoint({
         x: (rect.left + rect.width / 2 - layerRect.left) / layerRect.width,

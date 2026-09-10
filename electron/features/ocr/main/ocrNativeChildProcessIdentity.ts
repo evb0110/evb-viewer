@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import {
+    execFile,
+    execFileSync,
+} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { terminateProcessTree } from '@electron/utils/processTree';
@@ -70,6 +74,83 @@ async function readPortableProcessIdentity(pid: number): Promise<IOcrNativeChild
         return null;
     }
     return null;
+}
+
+function readPortableProcessIdentityAtSpawn(pid: number): IOcrNativeChildProcessIdentity | null {
+    try {
+        if (process.platform === 'darwin') {
+            const stdout = execFileSync('/bin/ps', [
+                '-o',
+                'lstart=',
+                '-p',
+                String(pid),
+            ], {
+                timeout: 1_000,
+                maxBuffer: 16 * 1024,
+                encoding: 'utf8',
+            });
+            const value = normalizeProcessStartTime(stdout);
+            return value === null ? null : {
+                kind: 'posix-start-time',
+                value,
+            };
+        }
+        if (process.platform === 'win32') {
+            const stdout = execFileSync('pwsh.exe', [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+            ], {
+                timeout: 2_000,
+                windowsHide: true,
+                maxBuffer: 16 * 1024,
+                encoding: 'utf8',
+            });
+            const value = normalizeProcessStartTime(stdout);
+            return value === null ? null : {
+                kind: 'windows-creation-time',
+                value,
+            };
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+/**
+ * Capture the child identity before control returns to the event loop. Short
+ * native commands can exit before an asynchronous identity lookup gets to
+ * inspect them.
+ */
+export function readOcrNativeChildProcessIdentityAtSpawn(
+    pid: number,
+): IOcrNativeChildProcessIdentity | null {
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+        return null;
+    }
+    if (process.platform === 'linux') {
+        try {
+            const statText = readFileSync(`/proc/${pid}/stat`, 'utf8');
+            const startTime = parseLinuxProcStartTime(statText);
+            return startTime === null
+                ? null
+                : {
+                    kind: 'linux-proc-start-time',
+                    value: startTime,
+                };
+        } catch {
+            return null;
+        }
+    }
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+        return readPortableProcessIdentityAtSpawn(pid);
+    }
+    return {
+        kind: 'opaque',
+        value: `${process.platform}:${pid}:${randomUUID()}`,
+    };
 }
 
 /**

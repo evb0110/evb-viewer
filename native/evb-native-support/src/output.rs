@@ -232,19 +232,19 @@ impl AtomicOutput {
             return Ok(false);
         }
 
-        let mut metadata = fs::symlink_metadata(&self.temporary_path)?;
+        let metadata = fs::symlink_metadata(&self.temporary_path)?;
         if !metadata.file_type().is_file() || metadata.len() != source_length {
             fs::remove_file(&self.temporary_path)?;
             self.file = Some(create_exclusive_temporary_file(&self.temporary_path)?);
             return Ok(false);
         }
         #[cfg(unix)]
-        {
+        let metadata = {
             let mut permissions = metadata.permissions();
             permissions.set_mode(permissions.mode() | 0o600);
             fs::set_permissions(&self.temporary_path, permissions)?;
-            metadata = fs::symlink_metadata(&self.temporary_path)?;
-        }
+            fs::symlink_metadata(&self.temporary_path)?
+        };
         let mut file = open_existing_temporary_file(&self.temporary_path)?;
         let opened_metadata = file.metadata()?;
         if !opened_metadata.is_file()

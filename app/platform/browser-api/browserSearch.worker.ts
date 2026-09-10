@@ -49,17 +49,17 @@ async function loadBrowserSearchDocument(request: TBrowserSearchDocumentRequest)
         reject?.(error);
         void destroyTask?.().catch(() => {});
     }}));
-    destroyTask = () => destroyPromise ??= loadingTask!.destroy();
+    destroyTask = () => destroyPromise ??= loadingTask.destroy();
     try {
         const document = await Promise.race([
             task.promise,
             rangeReadFailure,
             loadCancellation,
         ]);
-        return adaptPdfjsDocument(document, () => destroyTask!());
+        return adaptPdfjsDocument(document, () => destroyTask());
     } catch (error) {
         try {
-            await destroyTask!();
+            await destroyTask();
         } catch {
             // Preserve the original load, range-read, or cancellation failure.
         }

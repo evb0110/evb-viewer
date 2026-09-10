@@ -263,7 +263,11 @@ describe('useOcr', () => {
 
             await expect(ocr.cancelOcr()).resolves.toEqual({canceled: true});
             const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
-            completeHandler?.({
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
                 requestId,
                 success: false,
                 errors: ['OCR canceled'],
@@ -914,7 +918,7 @@ describe('useOcr', () => {
             );
             expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(
                 expect.anything(),
-                false,
+                expect.any(Function),
                 expect.any(AbortSignal),
             );
             expect(extractPdfTextMock).not.toHaveBeenCalled();

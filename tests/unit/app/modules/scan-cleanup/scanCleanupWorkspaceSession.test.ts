@@ -605,7 +605,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection(state);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
-            request.pageNumber === 1
+            request !== undefined
+            && request.pageNumber === 1
             && request.placementAnchors?.full?.yNormalized === 0
         ))).toBe(true));
 

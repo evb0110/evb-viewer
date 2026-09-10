@@ -606,6 +606,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });
+    const windowWebContents = window.webContents;
 
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
     attachNativeWindowCloseHandshake(window, {
@@ -675,11 +676,14 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         }
         showLifecycle.handleMainFrameLoadFailure();
     };
-    window.webContents.on('did-start-navigation', handleTopLevelNavigationStart);
-    window.webContents.on('did-fail-load', handleMainFrameLoadFailure);
+    windowWebContents.on('did-start-navigation', handleTopLevelNavigationStart);
+    windowWebContents.on('did-fail-load', handleMainFrameLoadFailure);
     window.on('closed', () => {
-        window.webContents.removeListener('did-start-navigation', handleTopLevelNavigationStart);
-        window.webContents.removeListener('did-fail-load', handleMainFrameLoadFailure);
+        // BrowserWindow.webContents throws after the window's WebContents has
+        // been destroyed. Keep the captured EventEmitter for teardown so a
+        // close during renderer restart cannot crash the main process.
+        windowWebContents.removeListener('did-start-navigation', handleTopLevelNavigationStart);
+        windowWebContents.removeListener('did-fail-load', handleMainFrameLoadFailure);
     });
 
     const startupPlaceholderPromise = shouldShowStartupPlaceholder
@@ -717,7 +721,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             onRendererGone: markInitialRendererGone,
         })
         : null;
-    window.webContents.on('did-finish-load', () => {
+    windowWebContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
     });
     await startupPlaceholderPromise.catch(() => {});

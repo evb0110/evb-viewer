@@ -346,12 +346,19 @@ describe('BrowserDocumentStore', () => {
     it('does not unload a picked source when persistence falls back to memory', async () => {
         const bytes = Uint8Array.of(7, 4, 1);
         const store = new BrowserDocumentStore();
+        const handle = createFileSystemFileHandle({
+            name: 'volatile.pdf',
+            getFile: vi.fn(async () => {
+                throw new DOMException('Not allowed', 'NotAllowedError');
+            }),
+        });
         vi.stubGlobal('indexedDB', undefined);
         const sourceRef = await store.registerFile(
             new File([bytes], 'volatile.pdf', {type: 'application/pdf'}),
             {
                 kind: 'source',
                 saveKind: 'pdf',
+                saveHandle: handle,
             },
         );
 
@@ -362,6 +369,40 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.read(workingRef)).resolves.toEqual(bytes);
         await expect(store.read(sourceRef)).resolves.toEqual(bytes);
+        expect(handle.getFile).not.toHaveBeenCalled();
+        expect((await store.requireEntry(workingRef)).sourceBaseWitness)
+            .toBe((await store.requireEntry(sourceRef)).contentToken);
+    });
+
+    it.each([
+        'inline',
+        'chunked',
+    ] as const)('keeps stored $0 source bytes authoritative when cloning with a live handle', async storageMode => {
+        const storedBytes = Uint8Array.of(7, 4, 1);
+        const liveHandleBytes = Uint8Array.of(9, 8, 6);
+        const handle = createFileSystemFileHandle({
+            name: `${storageMode}.pdf`,
+            getFile: vi.fn(async () => new File([liveHandleBytes], `${storageMode}.pdf`, {
+                type: 'application/pdf',
+                lastModified: 2,
+            })),
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument(
+            `${storageMode}.pdf`,
+            storedBytes,
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'source',
+                saveHandle: handle,
+                storageMode,
+            },
+        );
+
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+
+        await expect(store.read(workingRef)).resolves.toEqual(storedBytes);
+        expect(handle.getFile).not.toHaveBeenCalled();
     });
 
     it('keeps a memory-only working copy usable when IndexedDB is unavailable', async () => {
@@ -930,7 +971,10 @@ describe('BrowserDocumentStore', () => {
             saveName: 'snapshot.pdf',
         });
 
-        await expect(store.readRange(ref, 0, 2)).resolves.toEqual(Uint8Array.of(1, 2));
+        const workingRef = await store.cloneAsWorkingCopy(ref);
+        getFile.mockResolvedValue(replacementFile);
+
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
         await expect(store.readRange(ref, 2, 2)).resolves.toEqual(Uint8Array.of(3, 4));
         expect(getFile).toHaveBeenCalledOnce();
     });
