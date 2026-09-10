@@ -1,0 +1,21 @@
+app/platform/browser/browserCapabilityTier.ts
+  s_f37744108e7759::t_ffa65a35b09d18 107-114
+tests/unit/app/platform/browser-api/browserCapabilityTier.test.ts
+  s_f37744108e7759::t_ffa65a35b09d18 153-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7fa775c75c529ff19978b84524644d346aee81a3",
+  "prompts": {},
+  "sessions": {
+    "s_f37744108e7759": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ec91-7dd0-aaa3-5f83e251c2c2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

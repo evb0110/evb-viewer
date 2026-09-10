@@ -1,0 +1,19 @@
+docs/agents/workspace-hygiene.md
+  s_51be161f3e5acb::t_5f8a8fb4999595 28-30,32-37,43-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dcdaa650a2933f11ed33c7fd0df147560716eeda",
+  "prompts": {},
+  "sessions": {
+    "s_51be161f3e5acb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3f-2ae2-7233-996e-a211db152dd7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

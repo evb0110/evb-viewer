@@ -1,0 +1,24 @@
+docs/agents/workspace-hygiene.md
+  s_51be161f3e5acb::t_e292cc36a775f8 28
+  s_51be161f3e5acb::t_5114fbc49ef2ba 29-30
+  s_51be161f3e5acb::t_0dba8e513cf80b 32-37
+  s_51be161f3e5acb::t_0f66f9e209b31d 43-46
+scripts/worktrees-prune.mjs
+  s_51be161f3e5acb::t_5114fbc49ef2ba 175-185,190-193,201-205,210-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f47524dadd6277ba30ba1af48d0de0f34f0b895a",
+  "prompts": {},
+  "sessions": {
+    "s_51be161f3e5acb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3f-2ae2-7233-996e-a211db152dd7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
