@@ -1,6 +1,15 @@
 import { vi } from 'vitest';
 import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
 
+export interface IPlatformApiFixtureEventMethod {
+    emit: (payload: unknown) => void;
+    dispose: () => void;
+}
+
+type TPlatformApiFixtureEventFunction = (
+    callback: (payload: unknown) => void,
+) => () => void;
+
 function createAsyncDefault(path: string) {
     if (path === 'updates.getState') {
         return vi.fn(async () => ({
@@ -77,15 +86,36 @@ function createAsyncDefault(path: string) {
 export function createDefaultPlatformApiFixtureMethod(
     descriptor: IPlatformMethodDescriptor, example?: () => unknown,
 ) {
+    if (descriptor.kind === 'event') {
+        const subscribers = new Set<(payload: unknown) => void>();
+        const method = vi.fn((callback: (payload: unknown) => void) => {
+            subscribers.add(callback);
+            let subscribed = true;
+            return () => {
+                if (!subscribed) {
+                    return;
+                }
+                subscribed = false;
+                subscribers.delete(callback);
+            };
+        }) as TPlatformApiFixtureEventFunction & IPlatformApiFixtureEventMethod;
+        const controls: IPlatformApiFixtureEventMethod = {
+            emit: payload => {
+                for (const subscriber of subscribers) {
+                    subscriber(payload);
+                }
+            },
+            dispose: () => subscribers.clear(),
+        };
+        Object.assign(method, controls);
+        return method;
+    }
     if (example !== undefined) {
         return descriptor.kind === 'async'
             ? vi.fn(async () => example())
             : vi.fn(() => example());
     }
     const path = descriptor.path.join('.');
-    if (descriptor.kind === 'event') {
-        return vi.fn(() => () => {});
-    }
     if (descriptor.kind === 'sync') {
         if (
             path.endsWith('.getMemoryInfo')
