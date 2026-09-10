@@ -49,7 +49,6 @@ import type {
 } from '@electron/features/agent/assistantChatSessionStore';
 import {
     isAssistantTurnActive,
-    supersedeAssistantTurn,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {
     getEmbeddedMcpServerDescriptor,
@@ -90,6 +89,7 @@ interface IAssistantRuntimeLifecycleOptions {
     isAssistantFeatureEnabled: () => Promise<boolean>;
     createAssistantDisabledError: () => string;
     shutdownAssistant: () => Promise<void>;
+    settleCodexTurn?: (session: IAssistantChatSession, reason: string) => void;
     publishCodexState: (scope?: IAgentAssistantChatScope | null, selection?: IAssistantSelection) => void;
     handleNotification: (notification: ICodexAppServerNotification) => void;
     handleExit: (message: string) => void;
@@ -245,6 +245,12 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         const shutdownGeneration = ++runtimeGeneration;
         runtimeStartPromise = null;
         const runtimeToShutdown = runtime;
+        for (const session of options.sessionStore.listSessions()) {
+            if (session.provider !== 'codex' || !isAssistantTurnActive(session.turnOwner)) {
+                continue;
+            }
+            options.settleCodexTurn?.(session, 'Assistant turn replaced while Codex was updated.');
+        }
         const nextShutdownPromise = (async () => {
             try {
                 await runtimeToShutdown?.client.shutdown();
@@ -264,14 +270,6 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             }
             options.providerRuntime.runtimeState = 'stopped';
             options.sessionStore.clearActiveSessionForProvider('codex');
-            for (const session of options.sessionStore.listSessions()) {
-                if (session.provider !== 'codex') {
-                    continue;
-                }
-                session.turnOwner = supersedeAssistantTurn(session.turnOwner);
-                session.scopeBinding = null;
-                options.sessionStore.recordTurnBoundary(session);
-            }
             mcpToolCount = 0;
             if (shutdownOptions.shutdownMcp === true) {
                 await shutdownEmbeddedMcpServer();
