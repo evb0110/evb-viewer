@@ -10,6 +10,7 @@ import {abortErrorFromSignal} from '@electron/utils/abort';
 import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery';
 import {terminateProcessTree} from '@electron/utils/processTree';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import type {IJobBrokerLease} from '@electron/resources/jobBroker';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
@@ -22,24 +23,54 @@ export async function runDocumentSaveUtilityProcess(options: {
     timeoutMs: number;
     request: unknown;
     signal?: AbortSignal;
+    resourceLease?: IJobBrokerLease;
 }) {
+    let resourceLeaseReleased = false;
+    const releaseResourceLease = () => {
+        if (resourceLeaseReleased) {
+            return;
+        }
+        resourceLeaseReleased = true;
+        options.resourceLease?.release();
+    };
     if (options.signal?.aborted) {
+        releaseResourceLease();
         throw abortErrorFromSignal(options.signal);
     }
-    const workerPath = resolveUnpackedWorkerPath(
-        __dirname,
-        WORKER_BUNDLES_BY_ID['document-save-utility'].fileName,
-    );
+    let workerPath: string;
+    try {
+        workerPath = resolveUnpackedWorkerPath(
+            __dirname,
+            WORKER_BUNDLES_BY_ID['document-save-utility'].fileName,
+        );
+    } catch (error) {
+        releaseResourceLease();
+        throw error;
+    }
     return new Promise<{
         bytes: number;
         sha256: string;
     }>((resolve, reject) => {
-        const child = utilityProcess.fork(workerPath, [], {
-            cwd: options.cwd,
-            serviceName: options.serviceName,
-            stdio: 'ignore',
-        });
+        let child: ReturnType<typeof utilityProcess.fork>;
+        try {
+            child = utilityProcess.fork(workerPath, [], {
+                cwd: options.cwd,
+                serviceName: options.serviceName,
+                stdio: 'ignore',
+            });
+        } catch (error) {
+            releaseResourceLease();
+            throw error;
+        }
         let settled = false;
+        let childExited = false;
+        const retainResourceLeaseUntilExit = () => {
+            if (childExited) {
+                releaseResourceLease();
+                return;
+            }
+            child.once('exit', releaseResourceLease);
+        };
         const stopChild = async () => {
             const pid = child.pid;
             if (pid === undefined) {
@@ -65,6 +96,7 @@ export async function runDocumentSaveUtilityProcess(options: {
             options.signal?.removeEventListener('abort', abort);
             const terminated = await stopChild();
             if (!terminated) {
+                retainResourceLeaseUntilExit();
                 if (!error && result) {
                     resolve(result);
                     return;
@@ -75,6 +107,7 @@ export async function runDocumentSaveUtilityProcess(options: {
                 ));
                 return;
             }
+            releaseResourceLease();
             if (error) reject(error); else resolve(result!);
         };
         const abort = () => {
@@ -108,6 +141,8 @@ export async function runDocumentSaveUtilityProcess(options: {
             void finish(new Error(`${options.utilityName} failed at ${location}`));
         });
         child.once('exit', code => {
+            childExited = true;
+            releaseResourceLease();
             if (!settled) {
                 void finish(new Error(`${options.utilityName} exited before completion (${code})`));
             }
@@ -130,7 +165,9 @@ export async function fingerprintFileWithUtilityProcess(path: string) {
         },
         signal: AbortSignal.timeout(ADMISSION_TIMEOUT_MS),
     });
+    let utilityOwnsLease = false;
     try {
+        utilityOwnsLease = true;
         return await runDocumentSaveUtilityProcess({
             cwd: dirname(path),
             serviceName: DOCUMENT_FINGERPRINT_SERVICE_NAME,
@@ -141,8 +178,11 @@ export async function fingerprintFileWithUtilityProcess(path: string) {
                 sourcePath: path,
                 expectedBytes: size,
             },
+            resourceLease: lease,
         });
     } finally {
-        lease.release();
+        if (!utilityOwnsLease) {
+            lease.release();
+        }
     }
 }

@@ -33,6 +33,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
 } = {}) {
     const signal = options.signal;
     let lease: IJobBrokerLease | undefined;
+    let utilityOwnsLease = false;
     try {
         const stagedArtifact = options.receipt === undefined
             ? undefined
@@ -77,6 +78,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
         if (options.assertDestinationCurrent === undefined) {
             markActiveWorkingCopyMutationCommitStarted();
         }
+        utilityOwnsLease = true;
         const result = await runDocumentSaveUtilityProcess({
             cwd: dirname(sourcePath),
             serviceName: DOCUMENT_SAVE_SERVICE_NAME,
@@ -93,6 +95,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
                 ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
                 ...(options.assertDestinationCurrent === undefined ? {} : {validateOnly: true}),
             },
+            resourceLease: lease,
         });
         if (options.assertDestinationCurrent !== undefined) {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
@@ -100,6 +103,8 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
         }
         return result;
     } finally {
-        lease?.release();
+        if (!utilityOwnsLease) {
+            lease?.release();
+        }
     }
 }
