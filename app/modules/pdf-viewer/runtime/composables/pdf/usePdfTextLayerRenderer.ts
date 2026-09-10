@@ -365,13 +365,6 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     async function getPdfjsTextContentSource(pdfPage: IPdfPage): Promise<TTextLayerTextContentSource> {
-        // StructTreeLayerBuilder joins authored structure to marked-content IDs
-        // emitted by getTextContent. Keep the stream fast path for ordinary
-        // pages, but use the complete object when structure semantics exist.
-        if (typeof pdfPage.getStructTree === 'function') {
-            return getPdfjsTextContent(pdfPage);
-        }
-
         if (typeof pdfPage.streamTextContent === 'function') {
             return pdfPage.streamTextContent({
                 includeMarkedContent: true,
