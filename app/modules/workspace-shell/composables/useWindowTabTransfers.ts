@@ -334,7 +334,16 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         target: IIncomingTransferTarget,
         payload: TSplitPayload,
         shouldCleanupPayload = true,
+        closeRestoredWorkspace = false,
     ) {
+        if (closeRestoredWorkspace) {
+            const workspace = options.workspaceRefs.value.get(target.tab.tabId)
+                ?? await options.waitForWorkspace(target.tab.tabId);
+            if (workspace && workspaceHasPdf(workspace)) {
+                await workspace.handleCloseFileFromUi({persist: false});
+            }
+        }
+
         if (target.tab.created) {
             removeCreatedTransferTab(target.tab);
             restoreTransferFocus(target);
@@ -761,7 +770,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 }
                 const committed = await ackIncomingTransferSuccess(transfer.transferId);
                 if (committed === null || !committed) {
-                    await rollbackIncomingTransferTarget(target, transfer.payload, false);
+                    await rollbackIncomingTransferTarget(target, transfer.payload, false, true);
                     return;
                 }
                 transferCommitted = true;
