@@ -30,6 +30,11 @@ export function *iterateScanCleanupPageBatches(
     if (!Number.isSafeInteger(batchSize) || batchSize < 1) {
         throw new Error('Scan cleanup batch size must be a positive safe integer');
     }
+    if (batchSize > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
+        throw new Error(
+            `Scan cleanup batch size must not exceed ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} pages`,
+        );
+    }
     let batchIndex = 0;
     for (let startOffset = 0; startOffset < totalItems; startOffset += batchSize) {
         yield {
