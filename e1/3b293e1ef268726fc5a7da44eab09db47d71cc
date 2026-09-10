@@ -1,0 +1,19 @@
+scripts/validation-gates.mjs
+  s_c050cf5496ce8a::t_b9e1efdbe39376 1929-1930,1940-1945
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e13b293e1ef268726fc5a7da44eab09db47d71cc",
+  "prompts": {},
+  "sessions": {
+    "s_c050cf5496ce8a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ba5-05fd-7d13-aa69-c22e047d36b4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
