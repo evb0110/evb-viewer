@@ -581,6 +581,32 @@ function toAdmissionSnapshot(admissionSnapshot: {
     };
 }
 
+function matchesStoredWorkingCopy(
+    entry: NonNullable<ReturnType<typeof getWorkingCopyBackingEntry>>,
+    stored: IStoredWorkingCopy,
+) {
+    return entry.originalPath === stored.originalPath
+        && entry.registrationId === stored.registrationId
+        && entry.backingState === stored.backingState
+        && entry.role === stored.role
+        && (
+            stored.admissionSnapshot === undefined
+            || (
+                entry.admissionSnapshot !== undefined
+                && entry.admissionSnapshot.mtimeNs === BigInt(stored.admissionSnapshot.mtimeNs)
+                && entry.admissionSnapshot.size === BigInt(stored.admissionSnapshot.size)
+            )
+        )
+        && (
+            stored.originalFileExpectation === undefined
+            || JSON.stringify(entry.originalFileExpectation) === JSON.stringify(stored.originalFileExpectation)
+        )
+        && (
+            stored.sourceBackingErrorCode === undefined
+            || entry.sourceBackingErrorCode === stored.sourceBackingErrorCode
+        );
+}
+
 function canonicalizeCheckpointSources(
     checkpoint: IWorkspaceCheckpoint,
     ownerWebContentsId: number,
@@ -1258,13 +1284,19 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
         );
         for (const tab of checkpointWithAnnotationRecovery.tabs) {
             if (tab.workingCopyRef) {
-                const transferred = claimWorkingCopyOwnership(
+                const lazyWorkingCopy = lazyWorkingCopies.get(tab.workingCopyRef);
+                const storedWorkingCopy = workingCopies.get(tab.workingCopyRef);
+                const liveWorkingCopy = storedWorkingCopy
+                    ? getWorkingCopyBackingEntry(tab.workingCopyRef, stored.ownerWebContentsId)
+                    : null;
+                const transferred = (!storedWorkingCopy || (
+                    liveWorkingCopy !== null
+                    && matchesStoredWorkingCopy(liveWorkingCopy, storedWorkingCopy)
+                )) && claimWorkingCopyOwnership(
                     tab.workingCopyRef,
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                const lazyWorkingCopy = lazyWorkingCopies.get(tab.workingCopyRef);
-                const storedWorkingCopy = workingCopies.get(tab.workingCopyRef);
                 if (!transferred && lazyWorkingCopy) {
                     await setWorkingCopyOriginalPath(
                         tab.workingCopyRef,

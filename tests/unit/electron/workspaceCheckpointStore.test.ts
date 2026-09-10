@@ -332,6 +332,42 @@ describe('workspace checkpoint store', () => {
         });
     });
 
+    it('restores the durable materialized witness when a live registration drifted', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.backingEntries.set(workingCopyRef, {
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+            originalPath: '/documents/draft.pdf',
+            ownerWebContentsId: 11,
+            registrationId: 41,
+            role: 'current',
+        });
+
+        await saveWorkspaceCheckpoint(checkpoint, 11);
+        const liveEntry = state.backingEntries.get(workingCopyRef)!;
+        liveEntry.originalFileExpectation = {
+            contentFingerprint: 'sha256-full-v1:drifted',
+            mtimeMs: 999.5,
+            size: 12,
+        };
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toEqual(checkpoint);
+        expect(state.restoredOptions.get(workingCopyRef)).toMatchObject({
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+        });
+    });
+
     it('persists the working-copy mapping as canonical source instead of a renderer temp-path hint', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/canonical-draft.pdf');
