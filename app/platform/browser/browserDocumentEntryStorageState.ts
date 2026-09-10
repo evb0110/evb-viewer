@@ -14,6 +14,7 @@ export function captureBrowserDocumentEntryStorageState(entry: IBrowserDocumentE
         data: entry.data,
         fileSnapshot: entry.fileSnapshot,
         sourceWitness: entry.sourceWitness,
+        sourceBaseWitness: entry.sourceBaseWitness,
         pendingChunkGeneration: entry.pendingChunkGeneration,
         pendingChunkCount: entry.pendingChunkCount,
         pendingChunkSize: entry.pendingChunkSize,
@@ -63,6 +64,11 @@ export function restoreBrowserDocumentEntryStorageState(
         entry.sourceWitness = true;
     } else {
         delete entry.sourceWitness;
+    }
+    if (state.sourceBaseWitness) {
+        entry.sourceBaseWitness = state.sourceBaseWitness;
+    } else {
+        delete entry.sourceBaseWitness;
     }
     if (state.pendingChunkGeneration) {
         entry.pendingChunkGeneration = state.pendingChunkGeneration;
