@@ -1,0 +1,23 @@
+electron/image/tryCreatePdfWithNativeImageCombiner.ts
+  s_0ad70dbfcc7edb::t_e5cf3ed1ba6404 62,853
+electron/image/pdfCombineShared.ts
+  s_0ad70dbfcc7edb::t_e5cf3ed1ba6404 582-589
+tests/unit/electron/pdfCombineSharedNative.test.ts
+  s_0ad70dbfcc7edb::t_e5cf3ed1ba6404 285-308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3b66f9314c08c5438f37ed7435954c08a2cef143",
+  "prompts": {},
+  "sessions": {
+    "s_0ad70dbfcc7edb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a91-8759-70e2-93c0-9222652e44b4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
