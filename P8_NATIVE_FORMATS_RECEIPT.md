@@ -10,6 +10,7 @@
 - Task-scoped test correction commit: `24cf22df92b7651c1a7eeb96457b328c2af8c738`.
 - Source fix commit: `175ad3a539c17f97d25af4aeeff5e087ee597b3b`.
 - Source follow-up commits: `506d45706` preserves exact paths in revision sidecars; `a4e5a01b8` preserves exact native paths through open/save routing and working-copy creation. Receipt/report commits are not intended for main integration.
+- Source follow-up commit: `a7bf93db5` preserves trailing whitespace in native format classification and renderer file-open grants. Focused tests pass, but the fresh hidden runtime still rejects the literal trailing-space PDF before completion, so the deeper path normalization boundary remains open.
 
 ## Verification
 
@@ -37,6 +38,7 @@
 - Hidden macOS Electron #519 probe with `.devkit/analysis/p8-e17-20260911/report exact.pdf`: exact path opened, native page rotation returned `success:true`, Save returned `true`, reopen returned the same exact `originalPath`, and qpdf validation passed. A filename ending in a literal trailing space is rejected by the supported-extension gate before open, so that narrower case remains a path-policy gap.
 - Hidden macOS Electron native page-ops insertion through the real `pageOps.insertFile` IPC and automation file grant accepted the transparent PNG and produced a qpdf-valid two-page working copy. The renderer automation snapshot remained at one page after the direct native mutation, so renderer state synchronization is handed to owner `03fb9179`, not changed here.
 - Existing selected-format/rollback export coverage: 6 Electron unit files and 149 tests passed (`imageExportIpc`, image export, DjVu export paths/PDF export/compact export, and page-ops IPC handlers). Native dialog interception is not available in the hidden package, so no false claim is made for a native picker dialog journey.
+- Fresh hidden Electron retry after `a7bf93db5`: the automation grant succeeds, but direct open of `report.pdf ` still returns `Invalid or non-existent file`; the exact ordinary `report exact.pdf` flow remains the qualified #519 result. This points to a further native path normalization or source-selection boundary, not the suffix classifier alone.
 
 ## Issue dispositions
 
@@ -59,7 +61,7 @@
 - #517 LEGACY-E12: already landed in `1fb345c9e`. Existing long multibyte filename coverage is present; the focused unit checks passed. Full native open/edit/save/reopen and packaged Windows acceptance remain open.
 - #558 LEGACY-E07-ACCEPTANCE: already qualified by `0250054e4`; source and test remain on current main. The configured Electron mixed-size runtime acceptance was not rerun.
 - #518 LEGACY-E16: negative POSIX decision recorded. Exact 65 MiB and 513 MiB valid fixtures completed three same-byte atomic-replacement cycles each; every replacement was rejected and unchanged witnesses passed within the 12,000 ms ceiling. POSIX uses sample-only capture, so automatic full-content approval is not safe. Windows cycles, cancellation gates, and full memory/read-volume instrumentation remain open.
-- #519 LEGACY-E17: exact ordinary POSIX path acceptance is qualified in hidden Electron. `report exact.pdf` opened, edited, saved, qpdf-validated, and reopened with the exact path retained. Literal trailing-space filenames remain rejected by the supported-extension policy, and the full save/recovery collision matrix remains open.
+- #519 LEGACY-E17: exact ordinary POSIX path acceptance is qualified in hidden Electron. `report exact.pdf` opened, edited, saved, qpdf-validated, and reopened with the exact path retained. The supported suffix and renderer grant now preserve trailing whitespace in source, but fresh runtime open of `report.pdf ` still fails with `Invalid or non-existent file`; the deeper normalization boundary and full save/recovery collision matrix remain open.
 
 - #361 IM-4: source-boundary reset is already landed in `01e2d0df6`; the native catalog code was not changed here.
 - #362 IM-5: unread-label preservation is already landed in `d57770025`; the compact-range reopen assertion still exposes a browser state representation gap, reported to the coordinator without independent browser edits.
