@@ -1,0 +1,19 @@
+.github/workflows/process-safety-platform.yml
+  s_d2a4074785c6ce::t_0d475a0c01d2bd 128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1d861676f37419e62cb0fb2cbb982b6d6bf797ca",
+  "prompts": {},
+  "sessions": {
+    "s_d2a4074785c6ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bbc-4ffc-7931-8686-e52b6bb79877",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
