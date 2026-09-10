@@ -223,4 +223,47 @@ describe('browser source version acceptance in Chromium', () => {
             await browser.close();
         }
     }, 120_000);
+
+    it('rejects a materialized Save after an equal-size, equal-mtime source replacement', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({path: bundlePath});
+            const result = await page.evaluate(async () => {
+                const run = Reflect.get(globalThis, '__evbRunBrowserMaterializedSaveConflictAcceptance');
+                if (typeof run !== 'function') {
+                    throw new Error('Materialized Save conflict acceptance entry point was not installed');
+                }
+                return run();
+            });
+            expect(result).toEqual({
+                result: expect.objectContaining({
+                    externalWriteCommitted: false,
+                    ok: false,
+                    reason: 'write-failed',
+                }),
+                sourceBytes: [
+                    37,
+                    80,
+                    68,
+                    70,
+                    1,
+                    2,
+                ],
+                sourceStorageMode: 'inline',
+                workingBytes: [
+                    37,
+                    80,
+                    68,
+                    70,
+                    9,
+                    8,
+                ],
+                writableCreated: false,
+            });
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
 });

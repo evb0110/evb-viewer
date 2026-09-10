@@ -2,6 +2,7 @@
 
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {pickFiles} from '@app/platform/browser-api/browserFilePickerAdapter';
+import {saveWorkingBytesToSourceStructured} from '@app/platform/browser-api/browserSaveTargets';
 import {PDFDocument} from 'pdf-lib';
 
 async function createPdfBytes(title: string, addSecondPage = false) {
@@ -239,6 +240,55 @@ async function runBrowserRealInputPickerRecentAcceptance() {
     };
 }
 
+async function runBrowserMaterializedSaveConflictAcceptance() {
+    const openingBytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
+    let currentFile = new File([openingBytes], 'materialized-save-conflict.pdf', {
+        lastModified: 900,
+        type: 'application/pdf',
+    });
+    let writableCreated = false;
+    const handle = {
+        kind: 'file' as const,
+        name: currentFile.name,
+        getFile: async () => currentFile,
+        isSameEntry: async () => true,
+        queryPermission: async () => 'granted' as const,
+        createWritable: async () => {
+            writableCreated = true;
+            return createEmptyFileSystemWritableFileStream();
+        },
+        createSyncAccessHandle: async () => {
+            throw new Error('Synchronous access is not part of this browser fixture');
+        },
+    } satisfies FileSystemFileHandle;
+    const sourceRef = await browserDocumentStore.registerFile(currentFile, {
+        kind: 'source',
+        saveKind: 'pdf',
+        saveHandle: handle,
+    });
+    const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+    const editedBytes = Uint8Array.of(37, 80, 68, 70, 9, 8);
+    await browserDocumentStore.writeForBootstrap(workingRef, editedBytes, 'browser-materialized-save-conflict-acceptance');
+    currentFile = new File([Uint8Array.of(37, 80, 68, 71, 1, 2)], currentFile.name, {
+        lastModified: 900,
+        type: 'application/pdf',
+    });
+
+    try {
+        const result = await saveWorkingBytesToSourceStructured(workingRef, () => 'handle required');
+        return {
+            result,
+            sourceBytes: Array.from(await browserDocumentStore.read(sourceRef)),
+            workingBytes: Array.from(await browserDocumentStore.read(workingRef)),
+            sourceStorageMode: (await browserDocumentStore.requireEntry(sourceRef)).storageMode,
+            writableCreated,
+        };
+    } finally {
+        await browserDocumentStore.remove(workingRef).catch(() => undefined);
+        await browserDocumentStore.remove(sourceRef).catch(() => undefined);
+    }
+}
+
 type TFileSystemAccessAcceptanceStage = 'first' | 'equal-size-replacement' | 'changed-size-replacement';
 
 let fileSystemAccessFirstRef: string | null = null;
@@ -326,5 +376,6 @@ async function readBrowserRealFileSystemAccessRecentAfterReload() {
 Reflect.set(globalThis, '__evbRunBrowserDocumentSourceVersionAcceptance', runBrowserDocumentSourceVersionAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserPickerAndRecentAcceptance', runBrowserPickerAndRecentAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserRealInputPickerRecentAcceptance', runBrowserRealInputPickerRecentAcceptance);
+Reflect.set(globalThis, '__evbRunBrowserMaterializedSaveConflictAcceptance', runBrowserMaterializedSaveConflictAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserRealFileSystemAccessAcceptance', runBrowserRealFileSystemAccessAcceptance);
 Reflect.set(globalThis, '__evbReadBrowserRealFileSystemAccessRecentAfterReload', readBrowserRealFileSystemAccessRecentAfterReload);
