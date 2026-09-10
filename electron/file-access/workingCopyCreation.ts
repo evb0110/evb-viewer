@@ -36,6 +36,7 @@ import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath,
     getWorkingCopyRole,
+    hasWorkingCopyRecoveryClaim,
     isKnownWorkingCopyOriginalPath,
     normalizePathForLookup,
     setWorkingCopyOriginalPath,
@@ -416,6 +417,12 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         }
     }
     if (!mapping) {
+        return false;
+    }
+    // A retired mapping is a closed document tombstone. Only the checkpoint
+    // admission path may turn it back into a live working copy. Ordinary
+    // readers must not resurrect bytes after an explicit document close.
+    if (mapping.retired && !hasWorkingCopyRecoveryClaim(normalizedWorkingPath)) {
         return false;
     }
     const { originalPath } = mapping;
