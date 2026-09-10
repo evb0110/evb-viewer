@@ -1,0 +1,21 @@
+electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer.ts
+  s_e915699e2a7c69::t_ed7659bbd910e2 6,153-157
+tests/unit/electron/scanCleanupRasterBatch.test.ts
+  s_e915699e2a7c69::t_26e46c03e61827 127-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "df489d24e8cf273dc41d2ebb1de42eb6fe3272e1",
+  "prompts": {},
+  "sessions": {
+    "s_e915699e2a7c69": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a59-efab-7ae2-9455-11e1d2f1386f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
