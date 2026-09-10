@@ -1,0 +1,23 @@
+electron/file-access/isAllowedOriginalSavePath.ts
+  s_1b452cdf36f007::t_dd327ac26cf3d9 16
+tests/unit/electron/pathEncoding.test.ts
+  s_1b452cdf36f007::t_dd327ac26cf3d9 18,62
+packages/contracts/ipcAssertions.ts
+  s_1b452cdf36f007::t_0f02d14ff54d39 39-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b25c5db2f53938fcc1dba8a659482caf145ecccc",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
