@@ -36,9 +36,11 @@ const CLONE_NAME = `evb-win-test-${RUN_ID}`;
 
 function createFakeUtmctl(options: {
     statusAfterStop?: string;
+    statusSequence?: string[];
     registered?: IUtmVmListEntry[];
 } = {}) {
     const calls: string[] = [];
+    const statusSequence = [...(options.statusSequence ?? [])];
     const client: IUtmctlClient & {calls: string[]} = {
         calls,
         version: () => Promise.resolve('utmctl version 4.7.5 (118)'),
@@ -49,7 +51,7 @@ function createFakeUtmctl(options: {
         }]),
         status: (vmId) => {
             calls.push(`status ${vmId}`);
-            return Promise.resolve(options.statusAfterStop ?? 'stopped');
+            return Promise.resolve(statusSequence.shift() ?? options.statusAfterStop ?? 'stopped');
         },
         start: (vmId) => {
             calls.push(`start ${vmId}`);
@@ -250,16 +252,41 @@ describe('windows test stop request', () => {
         expect(await exists(harness.runLayout.transitionsFile)).toBe(true);
     });
 
-    it('escalates to a forced stop when the clone is still running', async () => {
+    it('retains a failed forced stop for an explicit retry', async () => {
         const harness = await createStopHarness({
             lease: lease(),
-            utmctl: createFakeUtmctl({statusAfterStop: 'started'}),
+            utmctl: createFakeUtmctl({statusSequence: ['started', 'started', 'stopped']}),
         });
+
+        const firstResult = await harness.stop();
+
+        expect(firstResult.exitCode).toBe(3);
+        expect(firstResult.recovered).toBe(false);
+        expect(harness.utmctl.calls).toEqual([
+            `stop request ${CLONE_VM_ID}`,
+            `status ${CLONE_VM_ID}`,
+            `stop force ${CLONE_VM_ID}`,
+            `status ${CLONE_VM_ID}`,
+        ]);
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+
+        const retryResult = await harness.stop();
+
+        expect(retryResult.exitCode).toBe(0);
+        expect(retryResult.recovered).toBe(true);
+        expect(await exists(harness.layout.leaseFile)).toBe(false);
+    });
+
+    it('retains an unbound stale lease instead of releasing the host exclusion', async () => {
+        const harness = await createStopHarness({lease: lease({vmId: null})});
 
         const result = await harness.stop();
 
-        expect(result.exitCode).toBe(0);
-        expect(harness.utmctl.calls).toContain(`stop force ${CLONE_VM_ID}`);
+        expect(result.exitCode).toBe(3);
+        expect(result.recovered).toBe(false);
+        expect(result.messages.join(' ')).toContain('has no bound clone identity');
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+        expect(harness.utmctl.calls).toEqual([]);
     });
 
     it('refuses stale recovery when the registered UUID has another name', async () => {
