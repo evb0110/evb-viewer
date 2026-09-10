@@ -173,8 +173,8 @@ export function createDocumentSessionState(
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     const fileName = computed(
-        () => getDocumentRefBaseName(workingCopyPath.value)
-            ?? getDocumentRefBaseName(originalPath.value),
+        () => getDocumentRefBaseName(originalPath.value)
+            ?? getDocumentRefBaseName(workingCopyPath.value),
     );
 
     function resetForClose() {

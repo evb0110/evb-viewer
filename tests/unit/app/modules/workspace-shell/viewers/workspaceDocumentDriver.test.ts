@@ -21,6 +21,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
+    createDocumentSessionState,
     createWorkspaceDocumentDriverForAdapter,
     useWorkspaceDocumentDriver,
     useWorkspaceDocumentDriverBinding,
@@ -159,6 +160,16 @@ function createBindingHarness() {
 describe('WorkspaceDocumentDriver', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    it('uses the source filename when a PDF has a generic managed working copy', () => {
+        const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
+        state.workingCopyPath.value = requireDocumentRef('/tmp/pdf-work-123/document.pdf');
+        state.originalPath.value = requireDocumentRef(
+            '/Users/evb/Desktop/pdf/Haspelmath_Sims (2010) - Understanding Morphology.pdf',
+        );
+
+        expect(state.fileName.value).toBe('Haspelmath_Sims (2010) - Understanding Morphology.pdf');
     });
 
     it('keeps oversized pending PDFs on the PDF.js driver', () => {
