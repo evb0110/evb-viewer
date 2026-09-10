@@ -1,0 +1,11 @@
+native/evb-raster-io/src/lib.rs
+  ai_agent 47,61-67,128,142,155,160-166,175,177-179,191,195,208,234,260,266-270,273-283,296-301,312-317,321-325,334-346,824,837,882-902,959,973,978-998
+native/pdf-image-combine/src/image.rs
+  ai_agent 328-330,491,502,513-516,1142,1144,1246-1296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "573e5062fef0db51fbe6ce896f2cadfa2ba381ae",
+  "prompts": {}
+}
