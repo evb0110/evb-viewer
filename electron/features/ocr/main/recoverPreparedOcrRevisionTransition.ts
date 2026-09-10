@@ -5,7 +5,6 @@ import {
     rename,
     rm,
     unlink,
-    writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {copyFileAtomic} from '@electron/features/documents/public/index';
@@ -23,6 +22,7 @@ import {
     invalidDocumentRecoveryJournal,
     readDocumentRecoveryJournal,
 } from '@electron/file-access/documentRecoveryJournal';
+import {writeFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 
 const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
 
@@ -98,6 +98,18 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
     if (journal === undefined) {
         return false;
     }
+    if (
+        isRecord(journal)
+        && journal.version === 1
+        && journal.state === 'committed'
+        && journal.workingCopyPath === workingCopyPath
+        && typeof journal.transitionId === 'string'
+        && typeof journal.targetDocumentRevisionToken === 'string'
+        && typeof journal.undoPdfPath === 'string'
+        && typeof journal.undoCatalogExisted === 'boolean'
+    ) {
+        return false;
+    }
     if (!isRecord(journal) || journal.version !== 1 || journal.state !== 'prepared') {
         throw invalidDocumentRecoveryJournal(
             journalPath,
@@ -165,7 +177,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
         typeof journal.targetDocumentRevisionToken === 'string'
         && currentRevision?.token === journal.targetDocumentRevisionToken
     ) {
-        await writeFile(journalPath, JSON.stringify({
+        await writeFileAtomic(journalPath, Buffer.from(JSON.stringify({
             version: 1,
             transitionId: journal.transitionId,
             state: 'committed',
@@ -184,7 +196,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
                 : {}),
             ...(isV4Prepared ? {catalogKind: 'v4-root'} : {}),
             committedAt: Date.now(),
-        }), 'utf8');
+        }), 'utf8'));
         return true;
     }
 
