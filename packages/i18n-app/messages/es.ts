@@ -1631,6 +1631,7 @@ export default {
             'electronPlatformContract': 'El puente de escritorio está obsoleto o no es compatible. Reinicia la aplicación para cargar el contrato de preload actual.',
             'reload': 'Recargar aplicación',
             'copy': 'Copiar detalles',
+            'errorId': 'ID de error',
             'dismiss': 'Descartar',
             'source': 'Origen',
             'count': 'Recuento',

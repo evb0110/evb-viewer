@@ -1642,6 +1642,7 @@ export default {
             'electronPlatformContract': 'A ponte da aplicação de ambiente de trabalho está desatualizada ou é incompatível. Reinicie a aplicação para carregar o contrato preload atual.',
             'reload': 'Recarregar aplicação',
             'copy': 'Copiar detalhes',
+            'errorId': 'ID do erro',
             'dismiss': 'Ignorar',
             'source': 'Origem',
             'count': 'Contagem',

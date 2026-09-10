@@ -1631,6 +1631,7 @@ export default {
             'electronPlatformContract': 'Die Desktop-Bridge ist veraltet oder inkompatibel. Starten Sie die App neu, um den aktuellen Preload-Vertrag zu laden.',
             'reload': 'App neu laden',
             'copy': 'Details kopieren',
+            'errorId': 'Fehler-ID',
             'dismiss': 'Verwerfen',
             'source': 'Quelle',
             'count': 'Anzahl',

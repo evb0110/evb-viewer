@@ -1631,6 +1631,7 @@ export default {
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Reload App',
             'copy': 'Copy details',
+            'errorId': 'Error ID',
             'dismiss': 'Dismiss',
             'source': 'Source',
             'count': 'Count',

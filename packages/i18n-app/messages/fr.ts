@@ -1642,6 +1642,7 @@ export default {
             'electronPlatformContract': 'Le pont de bureau est obsolète ou incompatible. Redémarrez l’application pour charger le contrat preload actuel.',
             'reload': 'Recharger l’application',
             'copy': 'Copier les détails',
+            'errorId': 'ID d’erreur',
             'dismiss': 'Ignorer',
             'source': 'Source',
             'count': 'Nombre',
