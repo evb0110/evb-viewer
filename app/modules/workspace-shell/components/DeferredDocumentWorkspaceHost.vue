@@ -134,6 +134,7 @@ import {
 import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
 import { isRecentOpenCommandEligible } from '@app/modules/workspace-shell/host/isRecentOpenCommandEligible';
+import { getErrorMessage } from '@app/utils/error';
 
 const {
     hasDocumentHint = false,
@@ -634,7 +635,6 @@ const detachOpenTransactionHost = activeDocumentSession.value.attachOpenTransact
     documentOpenSurface,
     openingPageFrameAuthority,
     ensureWorkspaceLoaded,
-    finishOpenTransaction: (id, result) => activeDocumentSession.value.finishTransaction(id, result),
     getActiveTransactionId: () => activeDocumentSession.value.snapshot.value.activeTransaction?.id ?? null,
     getInitialViewState: () => initialViewState,
     getSeedToolbarSnapshot: () => currentToolbarSnapshot.value,
@@ -673,6 +673,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     try {
         await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
     } catch (error) {
+        recentFilesError.value = getErrorMessage(error);
         BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item is unavailable before opening', {
             tabId: tabId,
             path: file.originalPath,
@@ -706,10 +707,6 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
             signal,
         );
     });
-    const transaction = activeDocumentSession.value.snapshot.value.activeTransaction;
-    if (result === false && transaction?.kind === 'open' && transaction.documentRef === file.originalPath) {
-        activeDocumentSession.value.finishTransaction(transaction.id, 'failed');
-    }
     return result;
 }
 

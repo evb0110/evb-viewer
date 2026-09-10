@@ -25,7 +25,6 @@ export interface IWorkspaceDocumentOpenHost {
     documentOpenSurface: IDocumentOpenSurfaceSession;
     openingPageFrameAuthority: ShallowRef<IDocumentOpeningPageFrameAuthority | null>;
     ensureWorkspaceLoaded: (reason: string, signal: AbortSignal) => Promise<IWorkspaceExpose | null>;
-    finishOpenTransaction?: (id: string, result: 'failed') => void;
     getActiveTransactionId: () => string | null;
     getInitialViewState: () => {currentPage?: number | undefined} | null | undefined;
     getSeedToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
@@ -349,9 +348,6 @@ export function createWorkspaceDocumentOpenTransactions(options: {
     function finishDocumentOpenPresentation(openHost: IWorkspaceDocumentOpenHost,
         transaction: IDocumentOpenTransactionRun, opened: boolean) {
         pendingPreOwnerGoToPage = null;
-        if (!opened && openHost.getActiveTransactionId() === transaction.transactionId) {
-            openHost.finishOpenTransaction?.(transaction.transactionId, 'failed');
-        }
         if (
             !opened
             && transaction.seededTabHint
