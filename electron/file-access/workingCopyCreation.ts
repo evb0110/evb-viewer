@@ -309,7 +309,7 @@ export async function createWorkingCopyFromPath(
     } = {},
 ) {
     const explicitOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
+        ? originalPath
         : undefined;
     const mappedOriginalPath = explicitOriginalPath
         ?? (options.mapToSourceWhenOriginalMissing === false ? undefined : sourcePath);
@@ -372,7 +372,7 @@ export async function createWorkingCopyFromData(
     password?: string,
 ) {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
+        ? originalPath
         : null;
     if (normalizedOriginalPath && !isAllowedOriginalSavePath(normalizedOriginalPath)) {
         throw new Error('Invalid original path mapping');
