@@ -507,4 +507,50 @@ describe('claudeAgentSdkAssistant', () => {
         expect(sdkMocks.query).toHaveBeenCalledTimes(2);
         expect(firstQuery.close).toHaveBeenCalledTimes(1);
     });
+
+    it('keeps an unresolved interruption marked as retiring until the query closes', async () => {
+        const query = new FakeClaudeQuery();
+        let resolveInterrupt: (() => void) | undefined;
+        query.interrupt.mockImplementationOnce(() => new Promise<undefined>(resolve => {
+            resolveInterrupt = () => resolve(undefined);
+        }));
+        sdkMocks.query.mockReturnValue(query);
+        const callbacks = {
+            onInitialized: vi.fn(),
+            onTurnStarted: vi.fn(),
+            onAssistantDelta: vi.fn(),
+            onReasoningDelta: vi.fn(),
+            onToolActivity: vi.fn(),
+            onUsage: vi.fn(),
+            onAssistantMessage: vi.fn(),
+            onTurnCompleted: vi.fn(),
+            onError: vi.fn(),
+        };
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks,
+        });
+
+        await session.sendMessage('A', [], 'opus');
+        const interruptPromise = session.interrupt();
+        await settleAsyncTicks();
+
+        expect(session.isUsable).toBe(false);
+        expect(session.isRetiring).toBe(true);
+        expect(query.close).not.toHaveBeenCalled();
+
+        resolveInterrupt?.();
+        await interruptPromise;
+
+        expect(session.isRetiring).toBe(false);
+        expect(query.close).toHaveBeenCalledTimes(1);
+        expect(callbacks.onTurnCompleted).toHaveBeenCalledTimes(1);
+    });
 });

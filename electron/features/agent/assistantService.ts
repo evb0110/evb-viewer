@@ -454,9 +454,12 @@ async function interruptStaleSessionTurn(
         if (!session.claudeSession || !isAssistantTurnActive(session.turnOwner)) {
             return;
         }
-        await session.claudeSession.interrupt().catch((error: unknown) => {
+        await waitForBoundedAssistantInterrupt(session.claudeSession.interrupt()).catch((error: unknown) => {
             logger.warn(`Failed to interrupt ${reason} Claude assistant turn: ${getErrorMessage(error)}`);
         });
+        if (isAssistantTurnActive(session.turnOwner)) {
+            supersedeSessionTurn(session);
+        }
         return;
     }
 
@@ -697,6 +700,9 @@ async function ensureClaudeAssistantSession(
     const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode);
     const desiredFastMode = shouldUseClaudeAssistantFastMode(normalizedModel, normalizedSpeedMode);
     if (session.claudeSession) {
+        if (session.claudeSession.isRetiring) {
+            throw new Error('Claude is still retiring the previous turn. Try sending again after cancellation finishes.');
+        }
         // The model can change in-session (setModel), but effort and flag settings
         // are fixed at query() start. Keep local message history and rebuild only
         // when the SDK session configuration would differ.
@@ -714,9 +720,13 @@ async function ensureClaudeAssistantSession(
                 created: false,
             };
         }
-        await session.claudeSession.close().catch((error: unknown) => {
+        const closingClaudeSession = session.claudeSession;
+        await waitForBoundedAssistantInterrupt(closingClaudeSession.close()).catch((error: unknown) => {
             logger.warn(`Failed to close Claude assistant session for settings change: ${getErrorMessage(error)}`);
         });
+        if (closingClaudeSession.isRetiring) {
+            throw new Error('Claude is still retiring the previous session. Try again after cleanup finishes.');
+        }
         session.claudeSession = undefined;
     } else if (session.messages.length > 0 && !session.providerThreadId) {
         // Display history alone cannot recreate hidden preset instructions,
@@ -905,7 +915,7 @@ export async function sendAgentAssistantMessage(
                 return createAssistantSuccessResult(session);
             } catch (error) {
                 if (createdClaudeSession && claudeSession && session.claudeSession === claudeSession) {
-                    await claudeSession.close().catch((closeError: unknown) => {
+                    await waitForBoundedAssistantInterrupt(claudeSession.close()).catch((closeError: unknown) => {
                         logger.warn(`Failed to close superseded Claude assistant session: ${getErrorMessage(closeError)}`);
                     });
                     session.claudeSession = undefined;
