@@ -58,7 +58,11 @@ async function loadBrowserSearchDocument(request: TBrowserSearchDocumentRequest)
         ]);
         return adaptPdfjsDocument(document, () => destroyTask!());
     } catch (error) {
-        await destroyTask!();
+        try {
+            await destroyTask!();
+        } catch {
+            // Preserve the original load, range-read, or cancellation failure.
+        }
         canceledRequestIds.delete(request.id);
         throw error;
     } finally {

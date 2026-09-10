@@ -31,7 +31,11 @@ export async function loadBrowserPdfjsDocument(
         ]);
         return adaptPdfjsDocument(loadedDocument, () => destroyTask!());
     } catch (error) {
-        await destroyTask!();
+        try {
+            await destroyTask!();
+        } catch {
+            // Preserve the original load or range-read failure.
+        }
         throw error;
     }
 }

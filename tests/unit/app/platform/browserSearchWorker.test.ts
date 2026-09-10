@@ -105,6 +105,55 @@ describe('browserSearch worker extraction', () => {
         arrayFrom.mockRestore();
     });
 
+    it('preserves a range-read failure when task destruction rejects', async () => {
+        const messageHandlers: Array<(event: MessageEvent<unknown>) => Promise<void>> = [];
+        const postMessage = vi.fn();
+        const rangeFailure = new Error('Browser PDF range read failed');
+        const destroyFailure = new Error('PDF.js task destroy failed');
+        let failRangeRead: ((error: Error) => void) | undefined;
+        mocks.createPdfjsDocumentInitFromBrowserDocument.mockImplementation(async (_pdfjsLib, _path, options) => {
+            failRangeRead = options?.onRangeReadFailure;
+            return {url: '/tmp/search.pdf'};
+        });
+        const destroy = vi.fn(async () => {
+            throw destroyFailure;
+        });
+        mocks.getDocument.mockReturnValue({
+            promise: new Promise(() => {}),
+            destroy,
+        });
+        vi.stubGlobal('self', {
+            addEventListener: vi.fn((type: string, handler: (event: MessageEvent<unknown>) => Promise<void>) => {
+                if (type === 'message') {
+                    messageHandlers.push(handler);
+                }
+            }),
+            postMessage,
+        });
+
+        await import('@app/platform/browser-api/browserSearch.worker');
+        const handler = messageHandlers[0];
+        if (!handler) {
+            throw new Error('Expected a browser search worker message handler');
+        }
+
+        const extraction = handler({data: {
+            id: 10,
+            type: 'extractDocumentText',
+            payload: {pdfPath: '/tmp/search.pdf'},
+        }} as MessageEvent<unknown>);
+        await vi.waitFor(() => expect(failRangeRead).toBeTypeOf('function'));
+        failRangeRead?.(rangeFailure);
+        await extraction;
+
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(postMessage).toHaveBeenLastCalledWith({
+            id: 10,
+            ok: false,
+            error: rangeFailure.message,
+        });
+    });
+
     it('keeps the legacy worker array API at 1,024 pages', async () => {
         const messageHandlers: Array<(event: MessageEvent<unknown>) => Promise<void>> = [];
         const postMessage = vi.fn();
