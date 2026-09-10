@@ -31,6 +31,7 @@ function createHarness(options: {
     dirty?: boolean;
     workingCopyPath?: string | null;
     saveForExternalRead?: () => Promise<boolean> | boolean;
+    flushAdditionalState?: () => Promise<void> | void;
 } = {}) {
     let callback: TShutdownSaveFlushCallback | null = null;
     const unsubscribe = vi.fn();
@@ -55,6 +56,7 @@ function createHarness(options: {
             workingCopyPath,
             hasPendingUnsavedChanges,
             saveForExternalRead,
+            flushAdditionalState: options.flushAdditionalState,
             systemCapability,
         });
     });
@@ -181,6 +183,28 @@ describe('useShutdownSaveFlushReporting', () => {
 
         await expect(unopenedHarness.invoke()).resolves.toEqual({});
         expect(unopenedHarness.saveForExternalRead).not.toHaveBeenCalled();
+        unopenedHarness.scope.stop();
+    });
+
+    it('flushes additional persistence even when the document is clean or unopened', async () => {
+        const flushCleanState = vi.fn(async () => {});
+        const cleanHarness = createHarness({
+            dirty: false,
+            flushAdditionalState: flushCleanState,
+        });
+
+        await expect(cleanHarness.invoke()).resolves.toEqual({});
+        expect(flushCleanState).toHaveBeenCalledOnce();
+        cleanHarness.scope.stop();
+
+        const flushUnopenedState = vi.fn(async () => {});
+        const unopenedHarness = createHarness({
+            workingCopyPath: null,
+            flushAdditionalState: flushUnopenedState,
+        });
+
+        await expect(unopenedHarness.invoke()).resolves.toEqual({});
+        expect(flushUnopenedState).toHaveBeenCalledOnce();
         unopenedHarness.scope.stop();
     });
 });

@@ -59,6 +59,10 @@ import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMisma
 import { copyTextToClipboard } from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
+import {
+    flushScanCleanupDocumentPreferencesStore,
+    flushScanCleanupPreferencesStore,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
@@ -498,6 +502,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         hasPendingUnsavedChanges,
         saveForExternalRead,
+        flushAdditionalState: async () => {
+            await saveSettings();
+            await flushScanCleanupDocumentPreferencesStore();
+            await flushScanCleanupPreferencesStore();
+        },
     });
     async function ensureWorkingCopyFreshForRead() {
         if (!hasPendingUnsavedChanges.value) {
