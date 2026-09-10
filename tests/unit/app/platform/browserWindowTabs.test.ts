@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
+import type {IBrowserTransferAuthorityRecord} from '@app/platform/browser/browserDocumentIdb';
 
 const recoveryMocks = vi.hoisted(() => ({
     claimBrowserWorkspaceRecoveryOwner: vi.fn(),
@@ -22,7 +23,7 @@ const transferAuthorityMocks = vi.hoisted(() => ({
 }));
 
 type TAuthorityMutation = (
-    current: null,
+    current: IBrowserTransferAuthorityRecord | null,
     store: {put: (value: unknown) => void},
 ) => unknown;
 
@@ -654,5 +655,86 @@ describe('browserWindowTabsCapability', () => {
         await expect(transfer).resolves.toMatchObject({success: false});
         expect(createdAuthority).toMatchObject({state: 'aborted'});
         expect(messages).not.toContainEqual(expect.objectContaining({type: 'transfer'}));
+    });
+
+    it('does not commit a transfer at the source deadline boundary', async () => {
+        vi.setSystemTime(100_000);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        externalWindow.postMessage({
+            type: 'announce',
+            windowId: 200,
+            instanceNonce: 'target-instance',
+            label: 'Target',
+            ready: true,
+        });
+
+        let authority: IBrowserTransferAuthorityRecord | null = null;
+        transferAuthorityMocks.mutateBrowserTransferAuthority.mockImplementation(
+            async (_transferId: string, mutate: TAuthorityMutation) => {
+                const next = mutate(
+                    authority,
+                    {put: value => { authority = value as IBrowserTransferAuthorityRecord; }},
+                ) as IBrowserTransferAuthorityRecord | null;
+                authority = next;
+                return next;
+            },
+        );
+
+        const transfer = browserWindowTabsCapability.transfer({
+            target: {
+                kind: 'window',
+                windowId: 200,
+            },
+            tab: {
+                fileName: null,
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            },
+            payload: {kind: 'empty'},
+            timeoutMs: 10,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        const transferMessage = messages.find((message): message is {
+            type: 'transfer';
+            transfer: {
+                nonce: string;
+                transferId: string;
+            };
+        } => (
+            typeof message === 'object'
+            && message !== null
+            && 'type' in message
+            && message.type === 'transfer'
+        ));
+        if (!transferMessage) {
+            throw new Error('Transfer message was not dispatched before the deadline');
+        }
+
+        vi.setSystemTime(100_010);
+        externalWindow.postMessage({
+            type: 'ack',
+            windowId: 200,
+            ack: {
+                schemaVersion: 1,
+                nonce: transferMessage.transfer.nonce,
+                transferId: transferMessage.transfer.transferId,
+                success: true,
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(authority?.state).toBe('pending');
+        await vi.advanceTimersByTimeAsync(10);
+        await expect(transfer).resolves.toMatchObject({success: false});
+        expect(transferAuthorityMocks.abortBrowserTransferAuthority).toHaveBeenCalledWith(
+            transferMessage.transfer.transferId,
+            transferMessage.transfer.nonce,
+        );
     });
 });

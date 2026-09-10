@@ -104,7 +104,7 @@ async function commitTransferAuthority(
             || current.targetWindowId !== targetWindowId || current.state !== 'pending') {
             return current;
         }
-        if (Date.now() > current.deadlineAt) {
+        if (Date.now() >= current.deadlineAt) {
             return current;
         }
         return {
