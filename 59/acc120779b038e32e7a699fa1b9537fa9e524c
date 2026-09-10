@@ -1,0 +1,23 @@
+app/modules/workspace-shell/composables/useShutdownSaveFlushReporting.ts
+  s_7e80aa74381a10::t_d3dfd5d7f3a146 20,82
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_7e80aa74381a10::t_d3dfd5d7f3a146 62-65,505-509
+tests/unit/app/modules/workspace-shell/composables/useShutdownSaveFlushReporting.test.ts
+  s_7e80aa74381a10::t_d3dfd5d7f3a146 34,59,188-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "59acc120779b038e32e7a699fa1b9537fa9e524c",
+  "prompts": {},
+  "sessions": {
+    "s_7e80aa74381a10": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a7a-f7ea-7a73-ada8-baaf13b83c35",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
