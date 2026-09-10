@@ -8,6 +8,7 @@ import {
 import {
     ClaudeAgentAssistantSession,
     normalizeClaudeSdkModelList,
+    shouldRefuseClaudeContextContinuation,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     getClaudeAgentSdkInfo,
@@ -157,6 +158,13 @@ describe('claudeAgentSdkAssistant', () => {
             },
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);
+    });
+
+    it('refuses continuation when display history has no provider-owned context', () => {
+        expect(shouldRefuseClaudeContextContinuation(1, null)).toBe(true);
+        expect(shouldRefuseClaudeContextContinuation(1, '')).toBe(true);
+        expect(shouldRefuseClaudeContextContinuation(1, 'provider-session')).toBe(false);
+        expect(shouldRefuseClaudeContextContinuation(0, null)).toBe(false);
     });
 
     it('does not fail setup when SDK package metadata is missing but env CLI exists', async () => {

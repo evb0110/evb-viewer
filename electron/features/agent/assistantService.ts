@@ -29,9 +29,10 @@ import {
     normalizeClaudeAssistantModel,
 } from '@electron/features/agent/claudeProviderMetadata';
 import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
-import type {
-    IClaudeAgentAssistantInit,
-    IClaudeAgentAssistantSessionOptions,
+import {
+    type IClaudeAgentAssistantInit,
+    type IClaudeAgentAssistantSessionOptions,
+    shouldRefuseClaudeContextContinuation,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
 import {
@@ -741,7 +742,8 @@ async function ensureClaudeAssistantSession(
             throw new Error('Claude is still retiring the previous session. Try again after cleanup finishes.');
         }
         session.claudeSession = undefined;
-    } else if (session.messages.length > 0 && !session.providerThreadId) {
+    }
+    if (shouldRefuseClaudeContextContinuation(session.messages.length, session.providerThreadId)) {
         // Display history alone cannot recreate hidden preset instructions,
         // assistant turns, tool history, or image content for Claude.
         throw new Error(CLAUDE_CONTEXT_UNAVAILABLE_ERROR);
