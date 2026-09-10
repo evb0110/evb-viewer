@@ -110,7 +110,7 @@ jobs:
 
       - name: Run focused Windows host protocol acceptance
         run: >-
-          pnpm exec vitest run --project unit-scripts
+          pnpm exec vitest run --project unit-tooling
           tests/unit/scripts/windows-test/hostLock.test.ts
           tests/unit/scripts/windows-test/hostLease.test.ts
           tests/unit/scripts/windows-test/hostCoordinator.test.ts
