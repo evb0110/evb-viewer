@@ -762,11 +762,17 @@ async function executeNativeRepairSave(
     const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
     const nativeMutations = placedImageGeometryUpdates.length > 0
         && projection.mutations.placedImageGeometryUpdates === undefined
-        ? {...projection.mutations, placedImageGeometryUpdates}
+        ? {
+            ...projection.mutations,
+            placedImageGeometryUpdates,
+        }
         : projection.mutations;
     const effectiveProjection = nativeMutations === projection.mutations
         ? projection
-        : {...projection, mutations: nativeMutations};
+        : {
+            ...projection,
+            mutations: nativeMutations,
+        };
     if (Object.keys(nativeMutations).length === 0) {
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
@@ -809,16 +815,9 @@ async function executeNativeRepairSave(
         serializedChanges: true,
         reloadWaiter: null,
         completion: {
-            allowAnnotationSaveStateRefresh: projection.noteTextUpdates.length > 0
-                || (projection.noteGeometryUpdates?.length ?? 0) > 0
-                || projection.freeTextNotes.length > 0
-                || projection.freeTextEditors.length > 0
-                || (projection.textBoxes?.length ?? 0) > 0
-                || projection.annotationDeletes.length > 0
-                || projection.hasMarkupMutations
-                || projection.hasShapeMutations,
-            allowBookmarksSaveStateRefresh: projection.mutations.bookmarks !== undefined,
-            allowPageLabelsSaveStateRefresh: projection.mutations.pageLabels !== undefined,
+            allowAnnotationSaveStateRefresh: false,
+            allowBookmarksSaveStateRefresh: false,
+            allowPageLabelsSaveStateRefresh: false,
             markShapeStateSaved: false,
             preserveLivePdfjsSession: false,
             resetAnnotationStorage: true,
