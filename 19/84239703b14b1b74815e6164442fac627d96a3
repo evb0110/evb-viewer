@@ -1,0 +1,36 @@
+electron/features/documents/main/workingCopySave.ts
+  s_bfcd3c2ec84d8f::t_efe8fcf1ad2b72 65,228-233
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_7deca2de2dfdd6 14
+  s_bfcd3c2ec84d8f::t_d555b7f4817aa4 1301-1302,1306-1309,1320,1350
+  s_bfcd3c2ec84d8f::t_e0d714f04acfaf 1303
+  s_bfcd3c2ec84d8f::t_e52b34ec0d072e 1321-1324
+  s_bfcd3c2ec84d8f::t_ce73a2299050e7 13
+  s_bfcd3c2ec84d8f::t_0e73c46b0a3532 1299-1300,1304-1305,1310-1319,1325-1349,1351-1352
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_bfcd3c2ec84d8f::t_25f7ba19fe98ed 891-893
+  s_bfcd3c2ec84d8f::t_253e223df6739c 890
+tests/e2e/electron/drawShapeLifecycle.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_46a9aedb1b59c8 433-435,439-446,449
+  s_bfcd3c2ec84d8f::t_3b1d668f898e9b 918,922-928
+  s_bfcd3c2ec84d8f::t_473d9c45752f0b 961
+  s_bfcd3c2ec84d8f::t_53b5efeaaa1f45 526-529,880-882,886-890,893-898
+  s_bfcd3c2ec84d8f::t_e52b34ec0d072e 436-438,519-525,530-544,549-551,559-564,883-885
+  s_bfcd3c2ec84d8f::t_4e2a85bde3ae5b 517-518,545-548,552-558,565-575
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1984239703b14b1b74815e6164442fac627d96a3",
+  "prompts": {},
+  "sessions": {
+    "s_bfcd3c2ec84d8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-2e36-7c60-81dd-110c27330f8b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
