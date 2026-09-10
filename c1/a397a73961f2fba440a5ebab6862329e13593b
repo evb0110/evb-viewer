@@ -1,0 +1,9 @@
+native/pdf-image-combine/src/image.rs
+  s_eb7ba9db0ef355::t_38680f9a60b0e5 546-553
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c1a397a73961f2fba440a5ebab6862329e13593b",
+  "prompts": {}
+}
