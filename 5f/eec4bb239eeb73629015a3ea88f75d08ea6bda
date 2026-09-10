@@ -1,0 +1,31 @@
+scripts/worktrees-prune.mjs
+  s_456e84a0f861a6::t_b631f2cd444bd6 501-515
+tests/unit/scripts/worktreesPrune.test.ts
+  s_456e84a0f861a6::t_b631f2cd444bd6 159-166
+tests/unit/scripts/electronRunSessionArtifacts.test.ts
+  s_456e84a0f861a6::t_35e74408dd64ec 6
+  s_456e84a0f861a6::t_15bbaaba4436db 113
+  s_456e84a0f861a6::t_cd64f8a04104f0 97
+  s_456e84a0f861a6::t_51bde0799788f6 23
+  s_456e84a0f861a6::t_b631f2cd444bd6 16,91-96,98-112,114-128
+tests/unit/scripts/checkBuildWarnings.test.ts
+  s_456e84a0f861a6::t_b631f2cd444bd6 174-183
+docs/agents/workspace-hygiene.md
+  s_456e84a0f861a6::t_572567405b48b6 32-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5feec4bb239eeb73629015a3ea88f75d08ea6bda",
+  "prompts": {},
+  "sessions": {
+    "s_456e84a0f861a6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d84-6683-71d1-8a23-195d39eacbaa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
