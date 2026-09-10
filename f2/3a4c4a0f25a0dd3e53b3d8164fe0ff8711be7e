@@ -1,0 +1,19 @@
+tests/unit/landing/analytics.test.ts
+  s_8436b01ff36111::t_3d0ffb24ff1faa 103-105,107-110,112-113,131-134,138-141,144-305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f23a4c4a0f25a0dd3e53b3d8164fe0ff8711be7e",
+  "prompts": {},
+  "sessions": {
+    "s_8436b01ff36111": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08cf9-7751-7e50-86fd-774ad242e98d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
