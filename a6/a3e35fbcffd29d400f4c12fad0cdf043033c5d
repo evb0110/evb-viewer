@@ -1,0 +1,19 @@
+vitest.shared.config.ts
+  s_d66b7177334364::t_2cc92cae269f21 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a6a3e35fbcffd29d400f4c12fad0cdf043033c5d",
+  "prompts": {},
+  "sessions": {
+    "s_d66b7177334364": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bad-3d8b-71c3-b34d-17e5e81044f8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
