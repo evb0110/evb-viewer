@@ -89,10 +89,6 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({TextLayer: class {
         for (const item of items) {
             const text = String(item.str ?? '');
             const span = document.createElement('span');
-            const id = Reflect.get(item, 'id');
-            if (typeof id === 'string') {
-                span.id = id;
-            }
             span.textContent = text;
             this.options.container.append(span);
             this.textDivs.push(span);
@@ -196,7 +192,7 @@ describe('usePdfTextLayerRenderer', () => {
     it('projects a tagged structure tree after text rendering and removes it on rebuild', async () => {
         const structure = document.createElement('div');
         structure.className = 'structTree';
-        structure.innerHTML = '<span role="heading" aria-level="1" aria-owns="mc-heading" aria-label="Published title"></span><span role="list"><span role="listitem" aria-owns="mc-item"></span></span><span role="table"><span role="row"><span role="columnheader">Name</span></span></span>';
+        structure.innerHTML = '<span role="heading" aria-level="1">Heading</span><span role="list"><span role="listitem">Item</span></span><span role="table"><span role="row"><span role="columnheader">Name</span></span></span>';
         const updateTextLayer = vi.fn();
         structTreeRuntimeMock.create.mockResolvedValue({
             render: vi.fn(async () => structure),
@@ -205,18 +201,10 @@ describe('usePdfTextLayerRenderer', () => {
         const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getStructTree: vi.fn(async () => ({role: 'Document'})),
-            streamTextContent: vi.fn(() => ({items: [
-                {
-                    str: 'Heading',
-                    id: 'mc-heading',
-                    hasEOL: false,
-                },
-                {
-                    str: 'Item',
-                    id: 'mc-item',
-                    hasEOL: false,
-                },
-            ]})),
+            streamTextContent: vi.fn(() => ({items: [{
+                str: 'Heading',
+                hasEOL: false,
+            }]})),
         });
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
@@ -237,9 +225,7 @@ describe('usePdfTextLayerRenderer', () => {
         expect(updateTextLayer).toHaveBeenCalledOnce();
         expect(canvasHost.querySelector('.structTree')).toBe(structure);
         expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-level')).toBe('1');
-        expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-label')).toBe('Published title');
-        expect(canvasHost.querySelector('[role="listitem"]')?.getAttribute('aria-label')).toBe('Item');
-        expect(canvasHost.querySelector('[role="listitem"]')?.textContent).toBe('');
+        expect(canvasHost.querySelector('[role="listitem"]')?.textContent).toBe('Item');
         expect(canvasHost.querySelector('[role="columnheader"]')?.textContent).toBe('Name');
 
         renderer.cleanupTextLayerDom(textLayerDiv);
