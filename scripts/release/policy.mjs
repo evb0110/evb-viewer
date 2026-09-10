@@ -111,6 +111,7 @@ export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     'scripts/ci/runElectronQuarantine.ts',
     'scripts/ci/stageExactPdfFixture.ts',
     'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
+    'tests/e2e/electron/annotationLifecycle.e2e.test.ts',
     'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
     'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
     'tests/e2e/electron/savePipeline.e2e.test.ts',
