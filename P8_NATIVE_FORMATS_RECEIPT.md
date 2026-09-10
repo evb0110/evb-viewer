@@ -1,5 +1,6 @@
 # Project 8 native formats receipt
 
+- Caller thread ID: `d5f2bcaf-f741-4cd6-86de-d794c02eacbd`
 - Host: macOS
 - Worker thread: `d5f2bcaf-f741-4cd6-86de-d794c02eacbd`
 - Caller/coordinator: `c5633c7a-e267-4631-9782-3f553fd68908`
