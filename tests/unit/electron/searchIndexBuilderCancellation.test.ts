@@ -221,6 +221,7 @@ describe('buildSearchIndex cancellation', () => {
     it('keeps extractor failures retryable instead of padding and persisting an empty index', async () => {
         const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const extractorError = new Error('page 2 extractor failed');
+        const onPageIndexed = vi.fn();
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
                 pageNumber: 1,
@@ -233,10 +234,12 @@ describe('buildSearchIndex cancellation', () => {
         await expect(buildSearchIndex('/tmp/file.pdf', [], {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 2,
+            onPageIndexed,
         })).rejects.toBe(extractorError);
 
         expect(mocks.writeFile).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(onPageIndexed).not.toHaveBeenCalled();
 
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
@@ -252,6 +255,7 @@ describe('buildSearchIndex cancellation', () => {
         const retry = await buildSearchIndex('/tmp/file.pdf', [], {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 2,
+            onPageIndexed,
         });
 
         expect(retry.pages).toEqual([
@@ -275,6 +279,14 @@ describe('buildSearchIndex cancellation', () => {
                 text: 'page two retry token',
             }),
         ]);
+        expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
+            pageNumber: 1,
+            text: 'page one',
+        }));
+        expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
+            pageNumber: 2,
+            text: 'page two retry token',
+        }));
     });
 
     it('short-circuits missing coverage before scanning a huge page count', async () => {
