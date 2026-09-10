@@ -604,7 +604,6 @@ export function createAssistantAppServerNotificationController(options: IAssista
             if (chatSession.provider !== 'codex') {
                 continue;
             }
-            chatSession.providerThreadId = null;
             options.supersedeSessionTurn(chatSession);
         }
         options.codexProviderRuntime.runtimeState = 'error';

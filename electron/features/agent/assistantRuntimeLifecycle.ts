@@ -268,7 +268,6 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
                 if (session.provider !== 'codex') {
                     continue;
                 }
-                session.providerThreadId = null;
                 session.turnOwner = supersedeAssistantTurn(session.turnOwner);
                 session.scopeBinding = null;
                 options.sessionStore.recordTurnBoundary(session);
@@ -553,6 +552,15 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             throw new Error('Sign in with ChatGPT before using EVB Assistant.');
         }
         if (session.providerThreadId) {
+            await currentRuntime.client.requestDecoded('thread/resume', {
+                threadId: session.providerThreadId,
+                cwd: currentRuntime.cwd,
+                approvalPolicy: 'never',
+                sandbox: 'read-only',
+                developerInstructions: ASSISTANT_ROLE_PROMPT,
+                personality: 'friendly',
+            }, decodeRecordResponse);
+            await assertRuntimeEnabled(currentRuntime, currentRuntime.generation);
             return {
                 threadId: session.providerThreadId,
                 created: false,
@@ -568,7 +576,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             serviceName: 'EVB Assistant',
             developerInstructions: ASSISTANT_ROLE_PROMPT,
             personality: 'friendly',
-            ephemeral: true,
+            ephemeral: false,
             threadSource: 'user',
         }, decodeRecordResponse);
         await assertRuntimeEnabled(currentRuntime, currentRuntime.generation);

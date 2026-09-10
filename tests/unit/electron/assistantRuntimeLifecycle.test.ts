@@ -24,6 +24,7 @@ const runtimeMocks = vi.hoisted(() => ({
         isVersionSupported: true,
     })),
     shutdown: vi.fn(),
+    requests: [] as Array<{method: string; params: unknown}>,
     spawnCount: 0,
 }));
 
@@ -64,8 +65,15 @@ vi.mock('@electron/features/agent/codexAppServerClient', () => ({CodexAppServerC
         return runtimeMocks.shutdown();
     }
 
-    async requestDecoded<T>(method: string): Promise<T> {
-        return (method === 'model/list' ? [] : {data: []}) as T;
+    async requestDecoded<T>(method: string, params: unknown): Promise<T> {
+        runtimeMocks.requests.push({method, params});
+        if (method === 'model/list') {
+            return [] as T;
+        }
+        if (method === 'thread/resume') {
+            return {thread: {id: (params as {threadId: string}).threadId}} as T;
+        }
+        return {data: []} as T;
     }
 }}));
 
@@ -88,6 +96,7 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
 describe('assistant runtime lifecycle', () => {
     beforeEach(() => {
         runtimeMocks.shutdown.mockReset();
+        runtimeMocks.requests = [];
         runtimeMocks.spawnCount = 0;
     });
 
@@ -153,6 +162,18 @@ describe('assistant runtime lifecycle', () => {
 
     it('retains a failed runtime owner and blocks replacement until a retry proves termination', async () => {
         const sessionStore = createAssistantChatSessionStore({persistence: false});
+        const session = sessionStore.getSession({
+            kind: 'document',
+            key: 'document-a',
+            title: 'Document A',
+            tabId: requireTabId('tab-a'),
+        }, {
+            provider: 'codex',
+            model: 'gpt-5.4',
+            effort: 'medium',
+            speedMode: 'standard',
+        }, {create: true});
+        session.providerThreadId = 'thread-preserved';
         const providerRuntime = createAssistantProviderRuntimeStates({codex: {
             authState: 'signed-in',
             runtimeState: 'stopped',
@@ -188,5 +209,15 @@ describe('assistant runtime lifecycle', () => {
         expect(replacement).not.toBe(firstRuntime);
         expect(runtimeMocks.spawnCount).toBe(2);
         expect(providerRuntime.runtimeState).not.toBe('stopped');
+
+        await expect(lifecycle.ensureThread(session)).resolves.toEqual({
+            threadId: 'thread-preserved',
+            created: false,
+        });
+        expect(session.providerThreadId).toBe('thread-preserved');
+        expect(runtimeMocks.requests).toContainEqual({
+            method: 'thread/resume',
+            params: expect.objectContaining({threadId: 'thread-preserved'}),
+        });
     });
 });
