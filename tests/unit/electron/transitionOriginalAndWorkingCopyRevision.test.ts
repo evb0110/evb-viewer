@@ -1,5 +1,6 @@
 import {
     appendFile,
+    link,
     mkdtemp,
     readFile,
     rename,
@@ -161,6 +162,55 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
         await appendFile(originalPath, '-external-change');
         await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(false);
+    });
+
+    it('refreshes the original witness after a managed replacement detaches a linked working copy', async () => {
+        const {
+            originalPath,
+            workingCopyPath,
+        } = await prepare('original-before-transition', 'working-before-transition');
+        const {
+            getWorkingCopyOriginalFileExpectation,
+            refreshWorkingCopyOriginalFileExpectation,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {transitionWorkingCopyContentRevision} = await import('@electron/file-access/documentRevisionStore');
+
+        await rm(workingCopyPath);
+        await link(originalPath, workingCopyPath);
+        expect((await stat(originalPath, {bigint: true})).nlink).toBe(2n);
+        expect(getWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).not.toBeNull();
+        expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+
+        const replacementPath = `${workingCopyPath}.replacement`;
+        await expect(transitionWorkingCopyContentRevision(
+            workingCopyPath,
+            'page-ops',
+            async () => {
+                await writeFile(replacementPath, 'working-after-transition');
+                await rename(replacementPath, workingCopyPath);
+            },
+            7,
+        )).resolves.toMatchObject({contentRevision: 2});
+
+        const [
+            originalStat,
+            workingCopyStat,
+        ] = await Promise.all([
+            stat(originalPath, {bigint: true}),
+            stat(workingCopyPath, {bigint: true}),
+        ]);
+        expect(originalStat.ino).not.toBe(workingCopyStat.ino);
+        expect(originalStat.nlink).toBe(1n);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('original-before-transition');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('working-after-transition');
+
+        const witness = await captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7);
+        expect(witness).not.toBeNull();
+        await witness?.close();
+
+        await appendFile(originalPath, '-external-change');
+        await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
     });
 
     it('restores distinct original and working-copy inodes when post-sync work fails', async () => {
