@@ -663,10 +663,7 @@ function assertDurableSourceProvenance(
         const entry = provenance.find(candidate => (
             candidate.sourceRef === tab.sourceRef
             && candidate.ownerWebContentsId === stored.ownerWebContentsId
-            && (
-                candidate.kind === 'open-grant'
-                || candidate.workingCopyRef === tab.workingCopyRef
-            )
+            && candidate.workingCopyRef === tab.workingCopyRef
         ));
         if (entry) {
             continue;
