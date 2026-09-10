@@ -150,4 +150,19 @@ describe('browser capability tier', () => {
             indexedDbFactory: null,
         });
     });
+
+    it('degrades to volatile storage when IndexedDB access itself is denied', () => {
+        vi.stubGlobal('window', {});
+        Object.defineProperty(globalThis, 'indexedDB', {
+            configurable: true,
+            get() {
+                throw new Error('IndexedDB access denied');
+            },
+        });
+
+        expect(resolveBrowserCapabilityTier()).toMatchObject({
+            tier: 'download-only-volatile',
+            indexedDbFactory: null,
+        });
+    });
 });
