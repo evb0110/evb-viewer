@@ -354,6 +354,7 @@ const appServerNotifications = createAssistantAppServerNotificationController({
     codexProviderRuntime,
     completeSessionTurn,
     currentCodexSelection,
+    getPendingLoginId: () => pendingLoginId,
     errorSessionTurn,
     getActiveChatSession: () => sessionStore.getActiveSession('codex'),
     getAuthReturnWindow: () => authReturnWindow,

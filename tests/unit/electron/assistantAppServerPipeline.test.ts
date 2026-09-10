@@ -84,14 +84,16 @@ describe('assistant app-server pipeline', () => {
             authState: 'signed-in',
             runtimeState: 'busy',
         }});
+        const clearLoginState = vi.fn();
         const controller = createAssistantAppServerNotificationController({
             addMessage: store.addMessage,
             appendAssistantDelta: store.appendAssistantDelta,
-            clearLoginState: vi.fn(),
+            clearLoginState,
             clearRuntimeForExit: vi.fn(),
             codexProviderRuntime: runtimes.codex,
             completeSessionTurn: coordinator.completeSessionTurn,
             currentCodexSelection: () => selection,
+            getPendingLoginId: () => 'login-2',
             errorSessionTurn: coordinator.errorSessionTurn,
             getActiveChatSession: () => store.getActiveSession('codex'),
             getAuthReturnWindow: () => null,
@@ -116,6 +118,27 @@ describe('assistant app-server pipeline', () => {
             controller.handleNotification,
             controller.handleExit,
         );
+
+        process.emitJson({
+            jsonrpc: '2.0',
+            method: 'account/login/completed',
+            params: {
+                loginId: 'login-1',
+                success: true,
+            },
+        });
+        expect(clearLoginState).not.toHaveBeenCalled();
+        expect(runtimes.codex.authState).toBe('signed-in');
+
+        process.emitJson({
+            jsonrpc: '2.0',
+            method: 'account/login/completed',
+            params: {
+                loginId: 'login-2',
+                success: true,
+            },
+        });
+        expect(clearLoginState).toHaveBeenCalledOnce();
 
         process.stdout.write('{malformed frame}\n');
         process.emitJson({
