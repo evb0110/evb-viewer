@@ -246,6 +246,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     renderScaleX: scaleX,
                     renderScaleY: scaleY,
                 },
+                viewport,
             );
         } catch (searchHighlightError) {
             logNonCriticalStageError(
