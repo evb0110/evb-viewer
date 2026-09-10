@@ -29,7 +29,7 @@ import {
     getAppTempNamespacePath,
     getAppTempNamespacePathForNamespace,
     getAppTempUserId,
-} from '@contracts/appTempNamespace';
+} from '@node-runtime/appTempNamespace';
 import {
     isErrnoException,
     isRecord,

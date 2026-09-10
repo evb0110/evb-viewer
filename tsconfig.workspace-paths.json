@@ -5,6 +5,7 @@
             "#build/*": ["./.nuxt/*"],
             "@app/*": ["./app/*"],
             "@contracts/*": ["./packages/contracts/*"],
+            "@node-runtime/*": ["./packages/node-runtime/*"],
             "@pdf-core": ["./packages/pdf-core/index.ts"],
             "@pdf-core/*": ["./packages/pdf-core/*"],
             "@electron-worker-bundles/*": ["./packages/electron-worker-bundles/*"],
