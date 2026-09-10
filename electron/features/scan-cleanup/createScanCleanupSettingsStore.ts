@@ -431,8 +431,8 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         const loaded = await readFileState();
         const state = loaded.state;
         const timestamp = now();
-        let changed = pruneDocumentOverrides(state, timestamp);
-        changed ||= mergeLegacyStorage(state, request, !loaded.exists, timestamp);
+        const mergedLegacyStorage = mergeLegacyStorage(state, request, !loaded.exists, timestamp);
+        const changed = pruneDocumentOverrides(state, timestamp) || mergedLegacyStorage;
         if (!loaded.exists || loaded.schemaUpgraded || changed) {
             await writeState(state);
         }
