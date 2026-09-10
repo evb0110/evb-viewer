@@ -556,6 +556,84 @@ describe('private Vercel deployment source', () => {
         }
     });
 
+    it('rolls back a production deploy when its served bundle differs from the manifest', async () => {
+        const projectRoot = createProjectFixture();
+        const outputRoot = path.join(projectRoot, '.vercel', 'output');
+        const bundlePath = path.join(outputRoot, 'static', '_nuxt', 'app.js');
+        const sourcePath = path.join(projectRoot, 'app', 'index.ts');
+        const calls: string[][] = [];
+
+        try {
+            mkdirSync(path.dirname(bundlePath), {recursive: true});
+            writeFileSync(path.join(outputRoot, 'config.json'), '{"version":3}\n');
+            writeFileSync(bundlePath, 'export const viewer=true;\n//# sourceMappingURL=app.js.map\n');
+            writeFileSync(`${bundlePath}.map`, JSON.stringify({
+                version: 3,
+                file: 'app.js',
+                sources: [path.relative(path.dirname(bundlePath), sourcePath)],
+                names: [],
+                mappings: '',
+            }));
+
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {
+                    CI: 'true',
+                    EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
+                },
+                fetchImpl: async () => ({
+                    arrayBuffer: async () => Buffer.from('served bundle from another deployment'),
+                    ok: true,
+                    status: 200,
+                }),
+                projectRoot,
+                rawArgs: ['--prod'],
+                stageSourcemaps: stagePrivateSourcemaps,
+                uploadSourcemaps: async (options: Parameters<typeof stagePrivateSourcemaps>[0]) => ({
+                    schemaVersion: 3,
+                    bundleCount: 1,
+                    destinationFingerprint: 'a'.repeat(64),
+                    manifestSha256: 'b'.repeat(64),
+                    identity: options.identity,
+                }),
+                spawnSyncImpl: (command: string, args: string[]) => {
+                    calls.push(args);
+                    if (command === 'pnpm' || command === process.execPath) {
+                        return {status: 0};
+                    }
+                    return calls.length === 5
+                        ? {
+                            stderr: '',
+                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
+                            status: 0,
+                        }
+                        : calls.length === 6
+                            ? {
+                                stderr: '',
+                                stdout: 'Production: https://evb-viewer-test.vercel.app\n',
+                                status: 0,
+                            }
+                            : {status: 0};
+                },
+            })).rejects.toThrow(
+                'Served bundle does not match private manifest: /_nuxt/app.js. The failed deployment was rolled back.',
+            );
+
+            expect(calls.at(-1)).toEqual([
+                'rollback',
+                'dpl_previous',
+                '--yes',
+            ]);
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
     it('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
         const projectRoot = createProjectFixture();
         const calls: Array<{
@@ -615,6 +693,59 @@ describe('private Vercel deployment source', () => {
                 ],
             ]);
             expect(fetchedUrls).toEqual(['https://health.example/status']);
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('rolls back when a production deploy omits its deployment URL', async () => {
+        const projectRoot = createProjectFixture();
+        const calls: string[][] = [];
+
+        try {
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    calls.push(args);
+                    return calls.length === 1
+                        ? {
+                            stderr: '',
+                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
+                            status: 0,
+                        }
+                        : calls.length === 2
+                            ? {
+                                stderr: '',
+                                stdout: 'Production deploy completed\n',
+                                status: 0,
+                            }
+                            : {status: 0};
+                },
+            })).rejects.toThrow(
+                'Production Vercel deploy did not report a deployment URL; refusing an unverified alias.',
+            );
+
+            expect(calls).toEqual([
+                [
+                    'inspect',
+                    'https://web.evb-viewer.com/',
+                    '--json',
+                ],
+                expect.arrayContaining(['deploy']),
+                [
+                    'rollback',
+                    'dpl_previous',
+                    '--yes',
+                ],
+            ]);
         } finally {
             rmSync(projectRoot, {
                 force: true,

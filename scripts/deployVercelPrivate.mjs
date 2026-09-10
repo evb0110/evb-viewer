@@ -887,26 +887,26 @@ export async function runPrivateVercelDeploy({
             return result.status ?? 1;
         }
         const deploymentUrl = extractVercelDeploymentUrl(output);
-        if (identity) {
-            if (!deploymentUrl) {
-                throw new Error('Diagnostics-enabled Vercel deploy did not report a deployment URL.');
-            }
-            await assertServedSentryBundleParity({
-                deploymentUrl,
-                fetchImpl,
-                identity,
-                projectRoot,
-            });
-        }
-        if (!isProduction) {
-            return 0;
-        }
-
-        if (!deploymentUrl) {
-            throw new Error('Production Vercel deploy did not report a deployment URL; refusing an unverified alias.');
-        }
-
         try {
+            if (identity) {
+                if (!deploymentUrl) {
+                    throw new Error('Diagnostics-enabled Vercel deploy did not report a deployment URL.');
+                }
+                await assertServedSentryBundleParity({
+                    deploymentUrl,
+                    fetchImpl,
+                    identity,
+                    projectRoot,
+                });
+            }
+            if (!isProduction) {
+                return 0;
+            }
+
+            if (!deploymentUrl) {
+                throw new Error('Production Vercel deploy did not report a deployment URL; refusing an unverified alias.');
+            }
+
             await runDeployAcceptanceChecks({
                 acceptanceUrls,
                 deploymentUrl,
@@ -917,6 +917,9 @@ export async function runPrivateVercelDeploy({
                 spawnSyncImpl,
             });
         } catch (error) {
+            if (!isProduction) {
+                throw error;
+            }
             let rollbackError;
             try {
                 const rollbackArgs = buildVercelRollbackArgs(previousProductionDeployment);
