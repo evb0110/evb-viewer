@@ -78,7 +78,9 @@ const WORKING_COPY_PRESERVED_EXTENSIONS = [
 ] as const;
 
 function getWorkingCopyFileName(fileName: string, ensurePdfExtension = false) {
-    const lowerName = fileName.toLowerCase();
+    // A trailing POSIX whitespace character belongs to the filename, not the
+    // format suffix. Preserve the source path while classifying its copy.
+    const lowerName = fileName.trimEnd().toLowerCase();
     const extension = WORKING_COPY_PRESERVED_EXTENSIONS.find(candidate => lowerName.endsWith(candidate))
         ?? (ensurePdfExtension ? '.pdf' : '');
     return `${WORKING_COPY_FILE_PREFIX}${extension}`;
