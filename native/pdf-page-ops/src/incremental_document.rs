@@ -574,7 +574,8 @@ where
                     )));
                 }
                 let object = if let Some(value) = envelope.get("value") {
-                    qpdf_object(value).map_err(de::Error::custom)?
+                    qpdf_object_with_mode(value, self.allow_legacy_encoding)
+                        .map_err(de::Error::custom)?
                 } else if let Some(stream) = envelope.get("stream") {
                     let dict = stream.get("dict").ok_or_else(|| {
                         de::Error::custom(format!(
@@ -827,10 +828,6 @@ fn qpdf_dictionary_with_mode(value: &Value, allow_legacy_encoding: bool) -> Resu
         );
     }
     Ok(dictionary)
-}
-
-fn qpdf_object(value: &Value) -> Result<Object> {
-    qpdf_object_with_mode(value, false)
 }
 
 fn qpdf_object_with_mode(value: &Value, allow_legacy_encoding: bool) -> Result<Object> {
@@ -1308,7 +1305,7 @@ mod tests {
     fn qpdf_legacy_json_loads_plain_strings_and_marks_streams_unavailable() {
         let mut result = load_with_fake_qpdf(
             0,
-            r#"{"version":1,"objects":{"trailer":{"/Size":3,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog","/Title":"Legacy title"},"2 0 R":{"/Length":4,"/Filter":"/FlateDecode"}}}"#,
+            r#"{"version":1,"objects":{"trailer":{"/Size":3,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog","/Title":"Legacy title","/X#23":"/X#23","/Resources":{"/XObject":{"/Im#23":"/Im#23"}}},"2 0 R":{"/Length":4,"/Filter":"/FlateDecode"}}}"#,
         )
         .expect("qpdf legacy JSON should load");
 
@@ -1327,6 +1324,29 @@ mod tests {
                 .as_str()
                 .unwrap(),
             b"Legacy title"
+        );
+        let catalog = result
+            .previous_document
+            .get_object((1, 0))
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert_eq!(catalog.get(b"X#").unwrap().as_name().unwrap(), b"X#");
+        assert_eq!(
+            catalog
+                .get(b"Resources")
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"XObject")
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"Im#")
+                .unwrap()
+                .as_name()
+                .unwrap(),
+            b"Im#"
         );
         assert!(matches!(
             result.previous_document.get_object((2, 0)).unwrap(),
