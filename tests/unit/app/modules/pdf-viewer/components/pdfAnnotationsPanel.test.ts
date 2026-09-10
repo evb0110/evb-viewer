@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {
     afterEach,
     describe,
@@ -30,7 +32,10 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 
 vi.mock('@app/composables/useSettings', () => ({useSettings: () => ({settings: {authorName: null}})}));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string) => key}),
+}));
 vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue', () => ({default: {render: () => null}}));
 
 const TooltipStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});

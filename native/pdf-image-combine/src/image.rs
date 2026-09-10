@@ -325,7 +325,9 @@ fn read_png_page_from_reader<R: std::io::Read>(
     )?;
     let color_type = metadata.color_type;
 
-    if matches!(color_type, PngColorType::GrayAlpha8 | PngColorType::Rgba8) {
+    if metadata.transparency.is_some()
+        || matches!(color_type, PngColorType::GrayAlpha8 | PngColorType::Rgba8)
+    {
         return png_composited_flate_page(&bytes, metadata, max_pixels, default_dpi);
     }
 
@@ -486,7 +488,7 @@ fn read_png_jpeg_page(
         },
     )?;
     let (channels, pixels) = match png.color_type {
-        PngColorType::Gray8 => {
+        PngColorType::Gray8 if png.transparency.is_none() => {
             let decoded = decode_png(
                 bytes,
                 DecodeLimits {
@@ -497,7 +499,7 @@ fn read_png_jpeg_page(
             )?;
             (1, Cow::Owned(decoded.gray.into_data()))
         }
-        PngColorType::Rgb8 => {
+        PngColorType::Rgb8 if png.transparency.is_none() => {
             let decoded = decode_png(
                 bytes,
                 DecodeLimits {
@@ -508,7 +510,10 @@ fn read_png_jpeg_page(
             )?;
             (3, Cow::Owned(decoded.rgb.into_data()))
         }
-        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => {
+        PngColorType::Gray8
+        | PngColorType::Rgb8
+        | PngColorType::GrayAlpha8
+        | PngColorType::Rgba8 => {
             let decoded = decode_png_composited_rgb(
                 bytes,
                 DecodeLimits {
@@ -1134,7 +1139,9 @@ mod tests {
     use super::*;
     use crc32fast::Hasher;
     use evb_raster_io::{encode_png, PixelBuffer};
+    use flate2::read::ZlibDecoder;
     use std::{
+        io::Read,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, Barrier,
@@ -1234,6 +1241,59 @@ mod tests {
         )
         .unwrap();
         assert_eq!((page.dpi_x, page.dpi_y), (300, 600));
+    }
+
+    #[test]
+    fn png_color_key_pixels_composite_to_white_for_gray_and_rgb_inputs() {
+        let cases = [
+            (
+                PixelBuffer::Gray {
+                    width: 2,
+                    height: 1,
+                    stride: 2,
+                    data: &[0, 42],
+                },
+                b"\x00\x00".as_slice(),
+                vec![255, 255, 255, 42, 42, 42],
+            ),
+            (
+                PixelBuffer::Rgb {
+                    width: 2,
+                    height: 1,
+                    stride: 6,
+                    data: &[0, 0, 0, 7, 8, 9],
+                },
+                b"\x00\x00\x00\x00\x00\x00".as_slice(),
+                vec![255, 255, 255, 7, 8, 9],
+            ),
+        ];
+
+        for (pixels, key, expected) in cases {
+            let encoded = encode_png(pixels).unwrap();
+            let mut png = encoded[..33].to_vec();
+            append_test_chunk(&mut png, b"tRNS", key);
+            png.extend_from_slice(&encoded[33..]);
+
+            let page = read_image_page_from_bytes(
+                "keyed.png",
+                &png,
+                &PdfBuildOptions::default(),
+                PdfImageCompression::Auto,
+                ImageProcessing::None,
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(page.color_space, "DeviceRGB");
+            let ImagePayload::RawFlate { data, .. } = page.payload else {
+                panic!("expected composited flate payload")
+            };
+            let mut decoded = Vec::new();
+            ZlibDecoder::new(data.as_slice())
+                .read_to_end(&mut decoded)
+                .unwrap();
+            assert_eq!(decoded, [2].into_iter().chain(expected).collect::<Vec<_>>());
+        }
     }
 
     fn append_test_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {

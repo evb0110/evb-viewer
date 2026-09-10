@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/native-tools/resolveNativeToolsBase';
+import type * as TViMockOriginalModule2 from '@electron/utils/platformArch';
+
 import {
     beforeEach,
     describe,
@@ -15,8 +18,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('node:fs', () => ({existsSync: mocks.existsSync}));
-vi.mock('@electron/native-tools/resolveNativeToolsBase', () => ({resolveNativeToolsBase: mocks.resolveNativeToolsBase}));
-vi.mock('@electron/utils/platformArch', () => ({resolvePlatformArchTag: mocks.resolvePlatformArchTag}));
+vi.mock('@electron/native-tools/resolveNativeToolsBase', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    resolveNativeToolsBase: mocks.resolveNativeToolsBase,
+}));
+vi.mock('@electron/utils/platformArch', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    resolvePlatformArchTag: mocks.resolvePlatformArchTag,
+}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 
 async function loadModule() {

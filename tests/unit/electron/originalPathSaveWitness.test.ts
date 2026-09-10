@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     mkdtemp,
     rm,
@@ -52,7 +54,10 @@ vi.mock('node:fs/promises', async importOriginal => {
     };
 });
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalFileExpectation: mocks.getWorkingCopyOriginalFileExpectation}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    getWorkingCopyOriginalFileExpectation: mocks.getWorkingCopyOriginalFileExpectation,
+}));
 
 const {
     captureOriginalPathSaveWitness,

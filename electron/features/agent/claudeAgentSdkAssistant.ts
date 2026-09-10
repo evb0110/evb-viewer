@@ -81,6 +81,7 @@ export interface IClaudeAgentAssistantSessionOptions {
     model: string;
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
+    resumeSessionId?: string | null;
     mcpServerName: string;
     mcpServerUrl: string;
     mcpToken: string;
@@ -342,7 +343,7 @@ function toClaudeEffortLevel(effort: TAgentAssistantEffort): EffortLevel {
 }
 
 export class ClaudeAgentAssistantSession {
-    private readonly promptQueue = new ClaudePromptQueue();
+    private promptQueue: ClaudePromptQueue | null = null;
     private query: Query | null = null;
     private consumeStreamPromise: Promise<void> | null = null;
     private closing = false;
@@ -382,6 +383,14 @@ export class ClaudeAgentAssistantSession {
         return this.queryFastMode;
     }
 
+    get isUsable() {
+        return this.query !== null
+            && this.promptQueue !== null
+            && this.consumeStreamPromise !== null
+            && !this.closing
+            && !this.interrupting;
+    }
+
     async sendMessage(
         text: string,
         attachments: IAgentAssistantImageAttachment[],
@@ -389,11 +398,15 @@ export class ClaudeAgentAssistantSession {
     ) {
         this.ensureStarted();
         await this.setModel(model);
+        const promptQueue = this.promptQueue;
+        if (!promptQueue) {
+            throw new Error('Claude assistant query is unavailable.');
+        }
         const turnId = randomUUID();
         this.currentTurnId = turnId;
         this.currentAssistantMessageId = randomUUID();
         this.options.callbacks.onTurnStarted(turnId);
-        this.promptQueue.push(buildClaudeUserMessage(text, attachments));
+        promptQueue.push(buildClaudeUserMessage(text, attachments));
         return turnId;
     }
 
@@ -402,20 +415,35 @@ export class ClaudeAgentAssistantSession {
             return;
         }
 
+        const queryToRetire = this.query;
+        const streamToRetire = this.consumeStreamPromise;
         this.interrupting = true;
+        this.query = null;
+        this.promptQueue?.close();
+        this.promptQueue = null;
+        const turnId = this.currentTurnId;
+        this.currentTurnId = null;
+        this.currentAssistantMessageId = null;
         try {
-            await this.query.interrupt();
+            await queryToRetire.interrupt();
         } catch (error) {
             logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
         } finally {
-            this.completeTurn();
+            try {
+                queryToRetire.close();
+            } catch (error) {
+                logger.warn(`Failed to close retired Claude assistant query: ${getErrorMessage(error)}`);
+            }
+            await streamToRetire;
+            this.options.callbacks.onTurnCompleted(turnId);
             this.interrupting = false;
         }
     }
 
     close(): Promise<void> {
         this.closing = true;
-        this.promptQueue.close();
+        this.promptQueue?.close();
+        this.promptQueue = null;
         try {
             this.query?.close();
         } catch (error) {
@@ -440,14 +468,16 @@ export class ClaudeAgentAssistantSession {
             });
         }) satisfies CanUseTool;
         const sdkModel = getClaudeSdkModel(this.currentModel);
-        this.query = query({
-            prompt: this.promptQueue,
+        const promptQueue = new ClaudePromptQueue();
+        const claudeQuery = query({
+            prompt: promptQueue,
             options: {
                 cwd: this.options.cwd,
                 ...(sdkModel ? { model: sdkModel } : {}),
                 effort: this.currentEffort,
                 ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
                 ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
+                ...(this.options.resumeSessionId ? { resume: this.options.resumeSessionId } : {}),
                 env: {
                     ...process.env,
                     CLAUDE_AGENT_SDK_CLIENT_APP: `evb-viewer/${app.getVersion()}`,
@@ -470,15 +500,31 @@ export class ClaudeAgentAssistantSession {
                 },
                 settingSources: [],
                 includePartialMessages: true,
-                persistSession: false,
+                // The provider-owned transcript is the only lossless way to carry
+                // hidden preset instructions, assistant replies, tool history, and
+                // images into a replacement query or a process restart.
+                persistSession: true,
                 strictMcpConfig: true,
                 canUseTool,
                 stderr: message => logger.info(`[sdk] ${message.trim()}`),
             },
         });
-        this.consumeStreamPromise = this.consumeStream().finally(() => {
-            this.consumeStreamPromise = null;
-        });
+        this.promptQueue = promptQueue;
+        this.query = claudeQuery;
+        const consumeStreamPromise = this.consumeStream(claudeQuery);
+        this.consumeStreamPromise = consumeStreamPromise;
+        void consumeStreamPromise.then(
+            () => {
+                if (this.consumeStreamPromise === consumeStreamPromise) {
+                    this.consumeStreamPromise = null;
+                }
+            },
+            () => {
+                if (this.consumeStreamPromise === consumeStreamPromise) {
+                    this.consumeStreamPromise = null;
+                }
+            },
+        );
         void this.refreshAccountInfo();
         void this.refreshModelInfo();
     }
@@ -524,29 +570,29 @@ export class ClaudeAgentAssistantSession {
         }
     }
 
-    private async consumeStream() {
+    private async consumeStream(queryToConsume: Query) {
         try {
-            if (!this.query) {
-                return;
-            }
-
-            for await (const message of this.query) {
-                this.handleMessage(message);
+            for await (const message of queryToConsume) {
+                this.handleMessage(message, queryToConsume);
             }
 
             if (!this.closing && !this.interrupting) {
-                this.options.callbacks.onError(this.currentTurnId, 'Claude assistant session ended.');
+                this.retireUnexpectedQuery(queryToConsume, 'Claude assistant session ended.');
             }
         } catch (error) {
             if (this.closing || this.interrupting || isInterruptedErrorMessage(getErrorMessage(error))) {
                 this.completeTurn();
                 return;
             }
-            this.options.callbacks.onError(this.currentTurnId, getErrorMessage(error));
+            this.retireUnexpectedQuery(queryToConsume, getErrorMessage(error));
         }
     }
 
-    private handleMessage(message: SDKMessage) {
+    private handleMessage(message: SDKMessage, queryToConsume: Query) {
+        if (this.query !== queryToConsume) {
+            return;
+        }
+
         if (message.type === 'system' && message.subtype === 'init') {
             this.handleInitMessage(message);
             return;
@@ -614,11 +660,31 @@ export class ClaudeAgentAssistantSession {
             this.options.callbacks.onUsage(this.currentTurnId, extractClaudeTokenUsage(message));
             const error = getResultErrorMessage(message);
             if (error) {
-                this.options.callbacks.onError(this.currentTurnId, error);
+                this.retireUnexpectedQuery(queryToConsume, error);
                 return;
             }
             this.completeTurn();
         }
+    }
+
+    private retireUnexpectedQuery(queryToRetire: Query, error: string) {
+        if (this.query !== queryToRetire) {
+            return;
+        }
+
+        const failedTurnId = this.currentTurnId;
+        this.query = null;
+        this.promptQueue?.close();
+        this.promptQueue = null;
+        this.currentTurnId = null;
+        this.currentAssistantMessageId = null;
+        this.activeToolNames.clear();
+        try {
+            queryToRetire.close();
+        } catch (closeError) {
+            logger.warn(`Failed to close unusable Claude assistant query: ${getErrorMessage(closeError)}`);
+        }
+        this.options.callbacks.onError(failedTurnId, error);
     }
 
     private handleInitMessage(message: SDKSystemMessage) {

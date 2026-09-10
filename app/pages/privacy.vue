@@ -47,13 +47,7 @@
 
             <section>
                 <h2>{{ privacyCopy.contact.heading }}</h2>
-                <p>
-                    {{ privacyCopy.contact.intro }}
-                    <a
-                        href="https://github.com/evb0110/evb-viewer/issues"
-                        rel="noreferrer"
-                    >{{ privacyCopy.contact.linkLabel }}</a>.
-                </p>
+                <p>{{ privacyCopy.contact.body }}</p>
             </section>
         </article>
     </main>

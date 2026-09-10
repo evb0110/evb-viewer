@@ -24,9 +24,21 @@ export function modelForSelection(
         ?? null;
 }
 
-export function speedModesForProviderStatus(providerStatus: IAgentAssistantProviderStatus) {
-    return providerStatus.id === 'codex'
-        ? [...ASSISTANT_SPEED_MODES]
+export function speedModesForProviderStatus(
+    providerStatus: IAgentAssistantProviderStatus,
+    model = providerStatus.activeModel,
+) {
+    if (providerStatus.id === 'codex') {
+        return [...ASSISTANT_SPEED_MODES];
+    }
+
+    const modelSpeedModes = providerStatus.models
+        .find(candidate => candidate.id === model)
+        ?.serviceTiers
+        ?.map(tier => tier.id)
+        .filter((id): id is TAgentAssistantSpeedMode => id === 'fast' || id === 'standard');
+    return modelSpeedModes && modelSpeedModes.length > 0
+        ? modelSpeedModes
         : providerStatus.availableSpeedModes;
 }
 
@@ -69,13 +81,16 @@ export function createSelectedAssistantStatus(
     const selectedModel = selectedModelOption?.id ?? model;
     const selectedModelLabel = selectedModelOption?.label ?? selectedModel;
     const providerEfforts = effortsForProviderModel(providerStatus, selectedModelOption);
-    const providerSpeedModes = speedModesForProviderStatus(providerStatus);
+    const providerSpeedModes = speedModesForProviderStatus(providerStatus, selectedModel);
+    const defaultSpeedMode = providerSpeedModes.includes(providerStatus.defaultSpeedMode)
+        ? providerStatus.defaultSpeedMode
+        : providerSpeedModes[0] ?? 'standard';
     const selectedEffortValue = providerEfforts.includes(effort)
         ? effort
         : defaultEffortForProviderModel(providerStatus, providerEfforts, selectedModelOption);
     const selectedSpeedModeValue = providerSpeedModes.includes(speedMode)
         ? speedMode
-        : providerStatus.defaultSpeedMode;
+        : defaultSpeedMode;
     const providers = baseStatus.providers.map(candidate => (candidate.id === providerStatus.id
         ? {
             ...candidate,

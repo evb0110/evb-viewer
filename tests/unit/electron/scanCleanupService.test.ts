@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     access,
     mkdtemp,
@@ -36,6 +38,7 @@ import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@elec
 import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {registerScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     beginMainOperationShutdown,
     resetMainOperationLifecycleForTests,
@@ -133,7 +136,8 @@ vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
         pruneScanCleanupGeneratedOutputs: mocks.pruneOutputs,
     };
 });
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule>()),
     getWorkingCopyBackingEntry: () => ({backing: 'materialized'}),
     isWorkingCopyOriginalPathRegistered: mocks.isWorkingCopyOriginalPathRegistered,
 }));
@@ -294,6 +298,10 @@ describe('scan cleanup service', () => {
             close,
         };
         const detectionResultStoreId = registerScanCleanupDetectionResultStore({
+            detectionSignature: createScanCleanupDetectionSignature({
+                ...startRequest.options,
+                pageAlignment: 'ink',
+            }),
             documentRevision: owner.documentRevision,
             ownerId: owner.ownerId,
             resultStore,

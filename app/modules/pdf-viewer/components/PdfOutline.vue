@@ -732,16 +732,15 @@ function isStaleOutlineRun(runId: number, pdfDocument: IPdfDocument) {
 async function resolveBookmarksFromPdf(pdfDocument: IPdfDocument) {
     const result = await pdfDocument.getOutline();
     const rawOutline = parseOutlineItems(result);
-    const destinationCache = new Map<string, unknown[] | null>();
-    const refIndexCache = new Map<string, number | null>();
 
     resetBookmarkIdentity();
     return buildResolvedOutline(
         rawOutline,
         pdfDocument,
-        destinationCache,
-        refIndexCache,
+        new Map(),
+        new Map(),
         createBookmarkId,
+        {resolveDestinations: false},
     );
 }
 

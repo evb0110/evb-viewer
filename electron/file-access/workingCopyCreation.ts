@@ -36,6 +36,7 @@ import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath,
     getWorkingCopyRole,
+    hasWorkingCopyRecoveryClaim,
     isKnownWorkingCopyOriginalPath,
     normalizePathForLookup,
     setWorkingCopyOriginalPath,
@@ -60,6 +61,28 @@ import {
 } from '@electron/file-access/workingCopyMaterialization';
 
 const logger = createLogger('working-copy');
+
+const WORKING_COPY_FILE_PREFIX = 'document';
+const WORKING_COPY_PRESERVED_EXTENSIONS = [
+    '.pdf',
+    '.djvu',
+    '.djv',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.tif',
+    '.tiff',
+    '.bmp',
+    '.webp',
+    '.gif',
+] as const;
+
+function getWorkingCopyFileName(fileName: string, ensurePdfExtension = false) {
+    const lowerName = fileName.toLowerCase();
+    const extension = WORKING_COPY_PRESERVED_EXTENSIONS.find(candidate => lowerName.endsWith(candidate))
+        ?? (ensurePdfExtension ? '.pdf' : '');
+    return `${WORKING_COPY_FILE_PREFIX}${extension}`;
+}
 
 interface IWorkingCopyPhaseTiming {
     durationMs: number;
@@ -147,8 +170,7 @@ async function createWorkingCopyWithOutcomeInternal(
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
     try {
-        const fileName = basename(originalPath);
-        const workingPath = join(workDir, fileName);
+        const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
         const materializationMode = getWorkingCopyMaterializationMode();
         let admissionSnapshot: Awaited<ReturnType<typeof captureWorkingCopyAdmissionSnapshot>> | undefined;
@@ -297,11 +319,7 @@ export async function createWorkingCopyFromPath(
 
     const workDir = createWorkingDirectory();
     try {
-        const fileName = basename(sourcePath);
-        const normalizedName = fileName.toLowerCase().endsWith('.pdf')
-            ? fileName
-            : `${fileName}.pdf`;
-        const workingPath = join(workDir, normalizedName);
+        const workingPath = join(workDir, getWorkingCopyFileName(basename(sourcePath), true));
 
         await copyFileCopyOnWrite(sourcePath, workingPath);
         if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
@@ -362,11 +380,7 @@ export async function createWorkingCopyFromData(
 
     const workDir = createWorkingDirectory();
     try {
-        const baseName = basename(fileName);
-        const normalizedName = baseName.toLowerCase().endsWith('.pdf')
-            ? baseName
-            : `${baseName}.pdf`;
-        const workingPath = join(workDir, normalizedName);
+        const workingPath = join(workDir, getWorkingCopyFileName(basename(fileName), true));
 
         await writeFile(workingPath, data);
         if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
@@ -416,6 +430,12 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         }
     }
     if (!mapping) {
+        return false;
+    }
+    // A retired mapping is a closed document tombstone. Only the checkpoint
+    // admission path may turn it back into a live working copy. Ordinary
+    // readers must not resurrect bytes after an explicit document close.
+    if (mapping.retired && !hasWorkingCopyRecoveryClaim(normalizedWorkingPath)) {
         return false;
     }
     const { originalPath } = mapping;

@@ -24,8 +24,7 @@ export interface IPrivacyMessages {
     retention: IPrivacySectionMessages;
     contact: {
         heading: string;
-        intro: string;
-        linkLabel: string;
+        body: string;
     };
 }
 
@@ -50,7 +49,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Optional Sentry error reports',
-            body: 'EVB Viewer is the controller and uses Functional Software, Inc. d/b/a Sentry as its processor for optional client error reports. Desktop and browser reports are sent only with your consent. A report may contain a random Error ID, time, severity, closed diagnostic code, runtime and operation, app release and distribution, platform and runtime major versions, canonical application file, function, line and column, bounded non-content context, and a suppressed-error count. It never contains document contents or text, raw error messages or stacks, local paths or logs, URLs or request data, console arguments, attachments, account data, IP address, or identity. Reports are used only to diagnose crashes and product errors, never for analytics, advertising, profiling, AI, or training. Sentry stores events in the EU region for up to 90 days and may use its published subprocessors and the DPA and Standard Contractual Clauses for limited onward transfers. You can withdraw consent at any time to stop future reports. Use the issue tracker below and an Error ID, if available, to request access or deletion; you may also complain to your data-protection authority. Server-side Nitro reporting is disabled pending separate legal approval. Its objection control does not authorize processing while it is disabled.',
+            body: 'EVB Viewer is the controller and uses Functional Software, Inc. d/b/a Sentry as its processor for optional client error reports. Desktop and browser reports are sent only with your consent. A report may contain a random Error ID, time, severity, closed diagnostic code, runtime and operation, app release and distribution, platform and runtime major versions, canonical application file, function, line and column, bounded non-content context, and a suppressed-error count. It never contains document contents or text, raw error messages or stacks, local paths or logs, URLs or request data, console arguments, attachments, account data, IP address, or identity. Reports are used only to diagnose crashes and product errors, never for analytics, advertising, profiling, AI, or training. Sentry stores events in the EU region for up to 90 days and may use its published subprocessors and the DPA and Standard Contractual Clauses for limited onward transfers. You can withdraw consent at any time to stop future reports. Server-side Nitro reporting is disabled pending separate legal approval. Its objection control does not authorize processing while it is disabled.',
         },
         analytics: {
             heading: 'Analytics and technical information',
@@ -70,8 +69,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contact',
-            intro: 'Questions or privacy requests can be submitted through the',
-            linkLabel: 'EVB Viewer issue tracker',
+            body: 'Private contact for privacy requests is currently unavailable. Do not publish personal details or Error IDs in public channels.',
         },
     },
     'de': {
@@ -94,7 +92,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Optionale Sentry-Fehlerberichte',
-            body: 'EVB Viewer ist der Verantwortliche und nutzt Functional Software, Inc. d/b/a Sentry als Auftragsverarbeiter für optionale Fehlerberichte des Clients. Desktop- und Browserberichte werden nur mit deiner Einwilligung gesendet. Ein Bericht kann eine zufällige Fehler-ID, Zeitpunkt, Schweregrad, geschlossenen Diagnosecode, Laufzeit und Vorgang, App-Version und Distribution, Plattform- und Laufzeit-Hauptversionen, kanonische App-Datei, Funktion, Zeile und Spalte, begrenzten inhaltsfreien Kontext und die Zahl unterdrückter Fehler enthalten. Er enthält niemals Dokumentinhalte oder Text, rohe Fehlermeldungen oder Stacks, lokale Pfade oder Protokolle, URLs oder Anfragedaten, Konsolenargumente, Anhänge, Kontodaten, IP-Adresse oder Identität. Die Berichte dienen nur der Diagnose von Abstürzen und Produktfehlern, nie Analyse, Werbung, Profiling, KI oder Training. Sentry speichert Ereignisse bis zu 90 Tage in der EU-Region und kann veröffentlichte Unterauftragsverarbeiter sowie den DPA und Standardvertragsklauseln für begrenzte Weiterübermittlungen nutzen. Du kannst die Einwilligung jederzeit widerrufen und damit künftige Berichte stoppen. Über den Issue-Tracker unten und, falls vorhanden, die Fehler-ID kannst du Auskunft oder Löschung verlangen; außerdem kannst du dich bei deiner Datenschutzaufsicht beschweren. Serverseitige Nitro-Berichte bleiben bis zu einer gesonderten rechtlichen Freigabe deaktiviert. Die Widerspruchseinstellung erlaubt keine Verarbeitung, solange diese Berichte deaktiviert sind.',
+            body: 'EVB Viewer ist der Verantwortliche und nutzt Functional Software, Inc. d/b/a Sentry als Auftragsverarbeiter für optionale Fehlerberichte des Clients. Desktop- und Browserberichte werden nur mit deiner Einwilligung gesendet. Ein Bericht kann eine zufällige Fehler-ID, Zeitpunkt, Schweregrad, geschlossenen Diagnosecode, Laufzeit und Vorgang, App-Version und Distribution, Plattform- und Laufzeit-Hauptversionen, kanonische App-Datei, Funktion, Zeile und Spalte, begrenzten inhaltsfreien Kontext und die Zahl unterdrückter Fehler enthalten. Er enthält niemals Dokumentinhalte oder Text, rohe Fehlermeldungen oder Stacks, lokale Pfade oder Protokolle, URLs oder Anfragedaten, Konsolenargumente, Anhänge, Kontodaten, IP-Adresse oder Identität. Die Berichte dienen nur der Diagnose von Abstürzen und Produktfehlern, nie Analyse, Werbung, Profiling, KI oder Training. Sentry speichert Ereignisse bis zu 90 Tage in der EU-Region und kann veröffentlichte Unterauftragsverarbeiter sowie den DPA und Standardvertragsklauseln für begrenzte Weiterübermittlungen nutzen. Du kannst die Einwilligung jederzeit widerrufen und damit künftige Berichte stoppen. Serverseitige Nitro-Berichte bleiben bis zu einer gesonderten rechtlichen Freigabe deaktiviert. Die Widerspruchseinstellung erlaubt keine Verarbeitung, solange diese Berichte deaktiviert sind.',
         },
         analytics: {
             heading: 'Analyse- und technische Informationen',
@@ -114,8 +112,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Kontakt',
-            intro: 'Fragen oder Datenschutzanfragen kannst du über den',
-            linkLabel: 'Issue-Tracker von EVB Viewer',
+            body: 'Ein privater Kontakt für Datenschutzanfragen ist derzeit nicht verfügbar. Veröffentliche keine persönlichen Daten oder Fehler-IDs in öffentlichen Kanälen.',
         },
     },
     'es': {
@@ -138,7 +135,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Informes de errores opcionales de Sentry',
-            body: 'EVB Viewer es el responsable del tratamiento y utiliza Functional Software, Inc. d/b/a Sentry como encargado para los informes opcionales de errores del cliente. Los informes del escritorio y del navegador se envían solo con tu consentimiento. Un informe puede incluir un Error ID aleatorio, fecha y hora, gravedad, código de diagnóstico cerrado, entorno y operación, versión y distribución de la aplicación, versiones principales de la plataforma y del entorno, archivo, función, línea y columna canónicos de la aplicación, contexto limitado sin contenido y número de errores suprimidos. Nunca incluye documentos o texto, mensajes o pilas sin filtrar, rutas o registros locales, URL o datos de solicitudes, argumentos de consola, adjuntos, datos de cuenta, dirección IP ni identidad. Se usa solo para diagnosticar fallos y errores del producto, nunca para análisis, publicidad, perfiles, IA o entrenamiento. Sentry conserva los eventos hasta 90 días en la región de la UE y puede usar sus subencargados publicados y el DPA y las Cláusulas Contractuales Tipo para transferencias ulteriores limitadas. Puedes retirar el consentimiento en cualquier momento para detener futuros informes. Usa el seguimiento de incidencias de abajo y, si lo tienes, el Error ID para solicitar acceso o eliminación; también puedes reclamar ante tu autoridad de protección de datos. Los informes Nitro del servidor están desactivados hasta una aprobación jurídica independiente. El control de oposición no autoriza el tratamiento mientras estén desactivados.',
+            body: 'EVB Viewer es el responsable del tratamiento y utiliza Functional Software, Inc. d/b/a Sentry como encargado para los informes opcionales de errores del cliente. Los informes del escritorio y del navegador se envían solo con tu consentimiento. Un informe puede incluir un Error ID aleatorio, fecha y hora, gravedad, código de diagnóstico cerrado, entorno y operación, versión y distribución de la aplicación, versiones principales de la plataforma y del entorno, archivo, función, línea y columna canónicos de la aplicación, contexto limitado sin contenido y número de errores suprimidos. Nunca incluye documentos o texto, mensajes o pilas sin filtrar, rutas o registros locales, URL o datos de solicitudes, argumentos de consola, adjuntos, datos de cuenta, dirección IP ni identidad. Se usa solo para diagnosticar fallos y errores del producto, nunca para análisis, publicidad, perfiles, IA o entrenamiento. Sentry conserva los eventos hasta 90 días en la región de la UE y puede usar sus subencargados publicados y el DPA y las Cláusulas Contractuales Tipo para transferencias ulteriores limitadas. Puedes retirar el consentimiento en cualquier momento para detener futuros informes. Los informes Nitro del servidor están desactivados hasta una aprobación jurídica independiente. El control de oposición no autoriza el tratamiento mientras estén desactivados.',
         },
         analytics: {
             heading: 'Datos analíticos e información técnica',
@@ -158,8 +155,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contacto',
-            intro: 'Puedes enviar preguntas o solicitudes de privacidad mediante el',
-            linkLabel: 'seguimiento de incidencias de EVB Viewer',
+            body: 'Actualmente no hay disponible un canal privado para las solicitudes de privacidad. No publiques datos personales ni Error ID en canales públicos.',
         },
     },
     'fr': {
@@ -182,7 +178,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Rapports d’erreur Sentry facultatifs',
-            body: 'EVB Viewer est le responsable du traitement et utilise Functional Software, Inc. d/b/a Sentry comme sous-traitant pour les rapports d’erreur facultatifs du client. Les rapports de l’application de bureau et du navigateur ne sont envoyés qu’avec votre consentement. Un rapport peut contenir un Error ID aléatoire, la date, la gravité, un code de diagnostic fermé, l’environnement et l’opération, la version et la distribution de l’application, les versions majeures de la plateforme et des moteurs, le fichier, la fonction, la ligne et la colonne canoniques de l’application, un contexte limité sans contenu et le nombre d’erreurs supprimées. Il ne contient jamais de document ou de texte, de message ou pile brute, de chemin ou journal local, d’URL ou donnée de requête, d’argument de console, de pièce jointe, de donnée de compte, d’adresse IP ou d’identité. Il sert uniquement à diagnostiquer les plantages et erreurs du produit, jamais à l’analyse, la publicité, au profilage, à l’IA ou à l’entraînement. Sentry conserve les événements jusqu’à 90 jours dans la région UE et peut recourir à ses sous-traitants publiés ainsi qu’au DPA et aux clauses contractuelles types pour des transferts ultérieurs limités. Vous pouvez retirer votre consentement à tout moment. Utilisez le suivi ci-dessous et, si disponible, l’Error ID pour demander accès ou suppression; vous pouvez aussi saisir votre autorité de protection des données. Les rapports Nitro côté serveur restent désactivés dans l’attente d’une approbation juridique distincte. Le contrôle d’opposition n’autorise aucun traitement tant qu’ils restent désactivés.',
+            body: 'EVB Viewer est le responsable du traitement et utilise Functional Software, Inc. d/b/a Sentry comme sous-traitant pour les rapports d’erreur facultatifs du client. Les rapports de l’application de bureau et du navigateur ne sont envoyés qu’avec votre consentement. Un rapport peut contenir un Error ID aléatoire, la date, la gravité, un code de diagnostic fermé, l’environnement et l’opération, la version et la distribution de l’application, les versions majeures de la plateforme et des moteurs, le fichier, la fonction, la ligne et la colonne canoniques de l’application, un contexte limité sans contenu et le nombre d’erreurs supprimées. Il ne contient jamais de document ou de texte, de message ou pile brute, de chemin ou journal local, d’URL ou donnée de requête, d’argument de console, de pièce jointe, de donnée de compte, d’adresse IP ou d’identité. Il sert uniquement à diagnostiquer les plantages et erreurs du produit, jamais à l’analyse, la publicité, au profilage, à l’IA ou à l’entraînement. Sentry conserve les événements jusqu’à 90 jours dans la région UE et peut recourir à ses sous-traitants publiés ainsi qu’au DPA et aux clauses contractuelles types pour des transferts ultérieurs limités. Vous pouvez retirer votre consentement à tout moment. Les rapports Nitro côté serveur restent désactivés dans l’attente d’une approbation juridique distincte. Le contrôle d’opposition n’autorise aucun traitement tant qu’ils restent désactivés.',
         },
         analytics: {
             heading: 'Données analytiques et techniques',
@@ -202,8 +198,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contact',
-            intro: 'Les questions ou demandes relatives à la confidentialité peuvent être envoyées via le',
-            linkLabel: 'système de suivi d’EVB Viewer',
+            body: 'Aucun contact privé pour les demandes relatives à la confidentialité n’est actuellement disponible. Ne publiez pas de données personnelles ni d’Error ID sur des canaux publics.',
         },
     },
     'it': {
@@ -226,7 +221,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Report di errore Sentry opzionali',
-            body: 'EVB Viewer è il titolare del trattamento e usa Functional Software, Inc. d/b/a Sentry come responsabile per i report di errore opzionali del client. I report desktop e browser vengono inviati solo con il tuo consenso. Un report può contenere un Error ID casuale, data e ora, gravità, codice diagnostico chiuso, runtime e operazione, versione e distribuzione dell’app, versioni principali della piattaforma e dei runtime, file, funzione, riga e colonna canonici dell’applicazione, contesto limitato privo di contenuti e numero di errori soppressi. Non contiene mai documenti o testo, messaggi o stack grezzi, percorsi o registri locali, URL o dati della richiesta, argomenti della console, allegati, dati dell’account, indirizzo IP o identità. Serve solo a diagnosticare arresti anomali ed errori del prodotto, mai per analisi, pubblicità, profilazione, IA o addestramento. Sentry conserva gli eventi per un massimo di 90 giorni nella regione UE e può usare i sub-responsabili pubblicati e il DPA e le Clausole Contrattuali Standard per trasferimenti successivi limitati. Puoi revocare il consenso in qualsiasi momento. Usa il tracker qui sotto e, se disponibile, l’Error ID per chiedere accesso o eliminazione; puoi anche presentare reclamo all’autorità di protezione dei dati. I report Nitro lato server restano disattivati in attesa di un’approvazione legale separata. Il controllo di opposizione non autorizza il trattamento mentre sono disattivati.',
+            body: 'EVB Viewer è il titolare del trattamento e usa Functional Software, Inc. d/b/a Sentry come responsabile per i report di errore opzionali del client. I report desktop e browser vengono inviati solo con il tuo consenso. Un report può contenere un Error ID casuale, data e ora, gravità, codice diagnostico chiuso, runtime e operazione, versione e distribuzione dell’app, versioni principali della piattaforma e dei runtime, file, funzione, riga e colonna canonici dell’applicazione, contesto limitato privo di contenuti e numero di errori soppressi. Non contiene mai documenti o testo, messaggi o stack grezzi, percorsi o registri locali, URL o dati della richiesta, argomenti della console, allegati, dati dell’account, indirizzo IP o identità. Serve solo a diagnosticare arresti anomali ed errori del prodotto, mai per analisi, pubblicità, profilazione, IA o addestramento. Sentry conserva gli eventi per un massimo di 90 giorni nella regione UE e può usare i sub-responsabili pubblicati e il DPA e le Clausole Contrattuali Standard per trasferimenti successivi limitati. Puoi revocare il consenso in qualsiasi momento. I report Nitro lato server restano disattivati in attesa di un’approvazione legale separata. Il controllo di opposizione non autorizza il trattamento mentre sono disattivati.',
         },
         analytics: {
             heading: 'Dati analitici e informazioni tecniche',
@@ -246,8 +241,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contatti',
-            intro: 'Puoi inviare domande o richieste relative alla privacy tramite il',
-            linkLabel: 'tracker delle segnalazioni di EVB Viewer',
+            body: 'Al momento non è disponibile un contatto privato per le richieste relative alla privacy. Non pubblicare dati personali o Error ID nei canali pubblici.',
         },
     },
     'nl': {
@@ -270,7 +264,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Optionele Sentry-foutrapporten',
-            body: 'EVB Viewer is de verwerkingsverantwoordelijke en gebruikt Functional Software, Inc. d/b/a Sentry als verwerker voor optionele foutrapporten van de client. Desktop- en browserrapporten worden alleen met je toestemming verzonden. Een rapport kan een willekeurige Error ID, tijd, ernst, gesloten diagnostische code, runtime en bewerking, appversie en distributie, hoofdversies van platform en runtimes, canoniek appbestand, functie, regel en kolom, beperkte inhoudsvrije context en het aantal onderdrukte fouten bevatten. Het bevat nooit documenten of tekst, ruwe foutmeldingen of stacks, lokale paden of logboeken, URL’s of aanvraaggegevens, consoleargumenten, bijlagen, accountgegevens, IP-adres of identiteit. Rapporten worden alleen gebruikt om crashes en productfouten op te lossen, nooit voor analyse, advertenties, profilering, AI of training. Sentry bewaart gebeurtenissen maximaal 90 dagen in de EU-regio en kan zijn gepubliceerde subverwerkers en de DPA en standaardcontractbepalingen gebruiken voor beperkte doorgiften. Je kunt je toestemming altijd intrekken. Gebruik de issue-tracker hieronder en, indien beschikbaar, de Error ID om inzage of verwijdering te vragen; je kunt ook een klacht indienen bij je privacytoezichthouder. Server-side Nitro-rapportage blijft uitgeschakeld tot afzonderlijke juridische goedkeuring. De bezwaarinstelling geeft geen toestemming voor verwerking zolang deze rapportage is uitgeschakeld.',
+            body: 'EVB Viewer is de verwerkingsverantwoordelijke en gebruikt Functional Software, Inc. d/b/a Sentry als verwerker voor optionele foutrapporten van de client. Desktop- en browserrapporten worden alleen met je toestemming verzonden. Een rapport kan een willekeurige Error ID, tijd, ernst, gesloten diagnostische code, runtime en bewerking, appversie en distributie, hoofdversies van platform en runtimes, canoniek appbestand, functie, regel en kolom, beperkte inhoudsvrije context en het aantal onderdrukte fouten bevatten. Het bevat nooit documenten of tekst, ruwe foutmeldingen of stacks, lokale paden of logboeken, URL’s of aanvraaggegevens, consoleargumenten, bijlagen, accountgegevens, IP-adres of identiteit. Rapporten worden alleen gebruikt om crashes en productfouten op te lossen, nooit voor analyse, advertenties, profilering, AI of training. Sentry bewaart gebeurtenissen maximaal 90 dagen in de EU-regio en kan zijn gepubliceerde subverwerkers en de DPA en standaardcontractbepalingen gebruiken voor beperkte doorgiften. Je kunt je toestemming altijd intrekken. Server-side Nitro-rapportage blijft uitgeschakeld tot afzonderlijke juridische goedkeuring. De bezwaarinstelling geeft geen toestemming voor verwerking zolang deze rapportage is uitgeschakeld.',
         },
         analytics: {
             heading: 'Analyse- en technische gegevens',
@@ -290,8 +284,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contact',
-            intro: 'Vragen of privacyverzoeken kun je indienen via de',
-            linkLabel: 'issue-tracker van EVB Viewer',
+            body: 'Een privékanaal voor privacyverzoeken is momenteel niet beschikbaar. Plaats geen persoonsgegevens of Error ID’s in openbare kanalen.',
         },
     },
     'pt': {
@@ -314,7 +307,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Relatórios de erros opcionais do Sentry',
-            body: 'O EVB Viewer é o responsável pelo tratamento e utiliza a Functional Software, Inc. d/b/a Sentry como subcontratante para relatórios opcionais de erros do cliente. Os relatórios da aplicação desktop e do navegador só são enviados com o seu consentimento. Um relatório pode conter um Error ID aleatório, data e hora, gravidade, código de diagnóstico fechado, ambiente e operação, versão e distribuição da aplicação, versões principais da plataforma e dos ambientes, ficheiro, função, linha e coluna canónicos da aplicação, contexto limitado sem conteúdo e número de erros suprimidos. Nunca contém documentos ou texto, mensagens ou pilhas brutas, caminhos ou registos locais, URLs ou dados do pedido, argumentos da consola, anexos, dados da conta, endereço IP ou identidade. Serve apenas para diagnosticar falhas e erros do produto, nunca para análise, publicidade, definição de perfis, IA ou treino. O Sentry conserva eventos por até 90 dias na região da UE e pode utilizar os subcontratantes publicados e o DPA e as Cláusulas Contratuais-Tipo para transferências ulteriores limitadas. Pode retirar o consentimento a qualquer momento. Utilize o sistema abaixo e, se disponível, o Error ID para pedir acesso ou eliminação; também pode reclamar junto da autoridade de proteção de dados. Os relatórios Nitro do servidor permanecem desativados até aprovação jurídica separada. O controlo de oposição não autoriza o tratamento enquanto estiverem desativados.',
+            body: 'O EVB Viewer é o responsável pelo tratamento e utiliza a Functional Software, Inc. d/b/a Sentry como subcontratante para relatórios opcionais de erros do cliente. Os relatórios da aplicação desktop e do navegador só são enviados com o seu consentimento. Um relatório pode conter um Error ID aleatório, data e hora, gravidade, código de diagnóstico fechado, ambiente e operação, versão e distribuição da aplicação, versões principais da plataforma e dos ambientes, ficheiro, função, linha e coluna canónicos da aplicação, contexto limitado sem conteúdo e número de erros suprimidos. Nunca contém documentos ou texto, mensagens ou pilhas brutas, caminhos ou registos locais, URLs ou dados do pedido, argumentos da consola, anexos, dados da conta, endereço IP ou identidade. Serve apenas para diagnosticar falhas e erros do produto, nunca para análise, publicidade, definição de perfis, IA ou treino. O Sentry conserva eventos por até 90 dias na região da UE e pode utilizar os subcontratantes publicados e o DPA e as Cláusulas Contratuais-Tipo para transferências ulteriores limitadas. Pode retirar o consentimento a qualquer momento. Os relatórios Nitro do servidor permanecem desativados até aprovação jurídica separada. O controlo de oposição não autoriza o tratamento enquanto estiverem desativados.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -334,8 +327,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contacto',
-            intro: 'Pode enviar perguntas ou pedidos sobre privacidade através do',
-            linkLabel: 'sistema de acompanhamento de problemas do EVB Viewer',
+            body: 'Neste momento, não está disponível um contacto privado para pedidos de privacidade. Não publique dados pessoais nem Error IDs em canais públicos.',
         },
     },
     'pt-BR': {
@@ -358,7 +350,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Relatórios de erros opcionais do Sentry',
-            body: 'O EVB Viewer é o controlador e usa a Functional Software, Inc. d/b/a Sentry como operadora para relatórios opcionais de erros do cliente. Os relatórios do aplicativo desktop e do navegador só são enviados com o seu consentimento. Um relatório pode conter um Error ID aleatório, data e hora, gravidade, código de diagnóstico fechado, ambiente e operação, versão e distribuição do aplicativo, versões principais da plataforma e dos ambientes, arquivo, função, linha e coluna canônicos do aplicativo, contexto limitado sem conteúdo e número de erros suprimidos. Nunca contém documentos ou texto, mensagens ou pilhas brutas, caminhos ou registros locais, URLs ou dados da solicitação, argumentos do console, anexos, dados da conta, endereço IP nem identidade. É usado somente para diagnosticar falhas e erros do produto, nunca para análise, publicidade, criação de perfil, IA ou treinamento. O Sentry mantém os eventos por até 90 dias na região da UE e pode usar seus suboperadores publicados e o DPA e as Cláusulas Contratuais Padrão para transferências posteriores limitadas. Você pode retirar o consentimento a qualquer momento. Use o rastreador abaixo e, se disponível, o Error ID para pedir acesso ou exclusão; você também pode reclamar à autoridade de proteção de dados. Os relatórios Nitro do servidor permanecem desativados até uma aprovação jurídica separada. O controle de oposição não autoriza o tratamento enquanto estiverem desativados.',
+            body: 'O EVB Viewer é o controlador e usa a Functional Software, Inc. d/b/a Sentry como operadora para relatórios opcionais de erros do cliente. Os relatórios do aplicativo desktop e do navegador só são enviados com o seu consentimento. Um relatório pode conter um Error ID aleatório, data e hora, gravidade, código de diagnóstico fechado, ambiente e operação, versão e distribuição do aplicativo, versões principais da plataforma e dos ambientes, arquivo, função, linha e coluna canônicos do aplicativo, contexto limitado sem conteúdo e número de erros suprimidos. Nunca contém documentos ou texto, mensagens ou pilhas brutas, caminhos ou registros locais, URLs ou dados da solicitação, argumentos do console, anexos, dados da conta, endereço IP nem identidade. É usado somente para diagnosticar falhas e erros do produto, nunca para análise, publicidade, criação de perfil, IA ou treinamento. O Sentry mantém os eventos por até 90 dias na região da UE e pode usar seus suboperadores publicados e o DPA e as Cláusulas Contratuais Padrão para transferências posteriores limitadas. Você pode retirar o consentimento a qualquer momento. Os relatórios Nitro do servidor permanecem desativados até uma aprovação jurídica separada. O controle de oposição não autoriza o tratamento enquanto estiverem desativados.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -378,8 +370,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Contato',
-            intro: 'Dúvidas ou solicitações de privacidade podem ser enviadas pelo',
-            linkLabel: 'rastreador de problemas do EVB Viewer',
+            body: 'No momento, não há um contato privado disponível para solicitações de privacidade. Não publique dados pessoais nem Error IDs em canais públicos.',
         },
     },
     'ru': {
@@ -402,7 +393,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Необязательные отчёты об ошибках через Sentry',
-            body: 'EVB Viewer является контролёром и использует Functional Software, Inc. d/b/a Sentry как обработчика необязательных клиентских отчётов об ошибках. Десктопное приложение и браузер отправляют отчёты только с вашего согласия. Отчёт может содержать случайный Error ID, время, уровень серьёзности, закрытый код диагностики, среду и операцию, версию и дистрибутив приложения, основные версии платформы и сред выполнения, канонические имя файла приложения, функцию, строку и столбец, ограниченный контекст без пользовательского содержимого и число подавленных ошибок. В нём никогда нет документов или текста, исходных сообщений или стеков, локальных путей или журналов, URL или данных запроса, аргументов консоли, вложений, данных учётной записи, IP-адреса или личности. Отчёты используются только для диагностики сбоев и ошибок продукта, а не для аналитики, рекламы, профилирования, ИИ или обучения. Sentry хранит события до 90 дней в регионе ЕС и может использовать опубликованных субобработчиков, DPA и Стандартные договорные положения для ограниченной дальнейшей передачи. Вы можете в любой момент отозвать согласие и остановить будущие отчёты. Через трекер ниже и Error ID, если он есть, можно запросить доступ или удаление; также можно пожаловаться в орган по защите данных. Серверные отчёты Nitro отключены до отдельного юридического одобрения. Настройка возражения не разрешает обработку, пока эти отчёты отключены.',
+            body: 'EVB Viewer является контролёром и использует Functional Software, Inc. d/b/a Sentry как обработчика необязательных клиентских отчётов об ошибках. Десктопное приложение и браузер отправляют отчёты только с вашего согласия. Отчёт может содержать случайный Error ID, время, уровень серьёзности, закрытый код диагностики, среду и операцию, версию и дистрибутив приложения, основные версии платформы и сред выполнения, канонические имя файла приложения, функцию, строку и столбец, ограниченный контекст без пользовательского содержимого и число подавленных ошибок. В нём никогда нет документов или текста, исходных сообщений или стеков, локальных путей или журналов, URL или данных запроса, аргументов консоли, вложений, данных учётной записи, IP-адреса или личности. Отчёты используются только для диагностики сбоев и ошибок продукта, а не для аналитики, рекламы, профилирования, ИИ или обучения. Sentry хранит события до 90 дней в регионе ЕС и может использовать опубликованных субобработчиков, DPA и Стандартные договорные положения для ограниченной дальнейшей передачи. Вы можете в любой момент отозвать согласие и остановить будущие отчёты. Серверные отчёты Nitro отключены до отдельного юридического одобрения. Настройка возражения не разрешает обработку, пока эти отчёты отключены.',
         },
         analytics: {
             heading: 'Аналитика и техническая информация',
@@ -422,8 +413,7 @@ export const PRIVACY_MESSAGES = {
         },
         contact: {
             heading: 'Связаться с нами',
-            intro: 'Вопросы и запросы о конфиденциальности можно отправить через',
-            linkLabel: 'трекер задач EVB Viewer',
+            body: 'В настоящее время закрытый канал для запросов о конфиденциальности недоступен. Не публикуйте персональные данные или Error ID в открытых каналах.',
         },
     },
 } satisfies Record<TLocale, IPrivacyMessages>;

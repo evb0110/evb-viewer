@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -10,10 +12,13 @@ import {
 import { ref } from 'vue';
 import { useWebSeo } from '@app/composables/useWebSeo';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
-    locale: ref('en'),
-    t: (key: string) => key,
-})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({
+        locale: ref('en'),
+        t: (key: string) => key,
+    }),
+}));
 
 const seoMetaInputs: Array<Record<string, unknown>> = [];
 const headInputs: unknown[] = [];

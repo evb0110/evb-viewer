@@ -18,22 +18,68 @@ class ElectronRunCommandError extends Error {
     }
 }
 
+export class ElectronRunCommandUncertainError extends Error {
+    readonly sessionName: string;
+    readonly command: TElectronRunCommand;
+    readonly requestTimeoutMs: number;
+
+    constructor(sessionName: string, command: TElectronRunCommand, requestTimeoutMs: number, cause: unknown) {
+        super(
+            `Command "${command}" for session '${sessionName}' timed out or was interrupted after `
+            + `${Math.round(requestTimeoutMs / 1000)}s; execution may have occurred, so the request was not replayed`,
+            {cause},
+        );
+        this.name = 'ElectronRunCommandUncertainError';
+        this.sessionName = sessionName;
+        this.command = command;
+        this.requestTimeoutMs = requestTimeoutMs;
+    }
+}
+
+interface ISendCommandOptions {
+    signal?: AbortSignal;
+    retryOnTransportFailure?: boolean;
+}
+
 export async function sendCommandToSession(
     info: ISessionInfo,
     command: TElectronRunCommand,
     args: unknown[],
     requestTimeoutMs: number,
+    options: ISendCommandOptions = {},
 ) {
-    const res = await fetch(`http://localhost:${info.port}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            command,
-            args,
-        }),
-        signal: AbortSignal.timeout(requestTimeoutMs),
-    });
-    const data = parseElectronRunCommandResponse(await res.json());
+    const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
+    const requestSignal = options.signal
+        ? AbortSignal.any([options.signal, timeoutSignal])
+        : timeoutSignal;
+    let responseBody: unknown;
+    try {
+        const res = await fetch(`http://localhost:${info.port}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                command,
+                args,
+            }),
+            signal: requestSignal,
+        });
+        responseBody = await res.json();
+    } catch (error) {
+        if (options.signal?.aborted) {
+            throw options.signal.reason ?? error;
+        }
+        if (timeoutSignal.aborted || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'))) {
+            if (options.retryOnTransportFailure) {
+                throw error;
+            }
+            throw new ElectronRunCommandUncertainError(getCurrentSessionName(), command, requestTimeoutMs, error);
+        }
+        if (options.retryOnTransportFailure) {
+            throw error;
+        }
+        throw new ElectronRunCommandUncertainError(getCurrentSessionName(), command, requestTimeoutMs, error);
+    }
+    const data = parseElectronRunCommandResponse(responseBody);
     if (!data) {
         throw new ElectronRunCommandError('Session returned malformed response payload');
     }
@@ -41,10 +87,6 @@ export async function sendCommandToSession(
         throw new ElectronRunCommandError(data.error ?? 'Unknown error');
     }
     return data.result;
-}
-
-function isRequestTimeout(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
 }
 
 function createWaitLogger() {
@@ -69,11 +111,15 @@ export async function sendCommand(
     command: TElectronRunCommand,
     args: unknown[] = [],
     requestTimeoutMs = COMMAND_REQUEST_TIMEOUT_MS,
+    options: ISendCommandOptions = {},
 ) {
     const start = Date.now();
     const waitLogger = createWaitLogger();
 
     while (Date.now() - start < SESSION_WAIT_TIMEOUT_MS) {
+        if (options.signal?.aborted) {
+            throw options.signal.reason ?? new DOMException('Command request canceled', 'AbortError');
+        }
         const info = getSessionInfo();
 
         if (!info) {
@@ -83,16 +129,22 @@ export async function sendCommand(
         }
 
         try {
-            return await sendCommandToSession(info, command, args, requestTimeoutMs);
+            return await sendCommandToSession(info, command, args, requestTimeoutMs, options);
         } catch (error) {
-            if (isRequestTimeout(error)) {
-                throw new Error(`Command "${command}" timed out after ${Math.round(requestTimeoutMs / 1000)}s`);
-            }
-            if (error instanceof ElectronRunCommandError) {
+            if (error instanceof ElectronRunCommandError || error instanceof ElectronRunCommandUncertainError) {
                 throw error;
             }
+            if (options.signal?.aborted) {
+                throw options.signal.reason ?? error;
+            }
+            if (!options.retryOnTransportFailure) {
+                throw new ElectronRunCommandUncertainError(getCurrentSessionName(), command, requestTimeoutMs, error);
+            }
             waitLogger.sessionReady();
-            await delay(250);
+            const remainingMs = SESSION_WAIT_TIMEOUT_MS - (Date.now() - start);
+            if (remainingMs > 0) {
+                await delay(Math.min(250, remainingMs));
+            }
             continue;
         }
     }

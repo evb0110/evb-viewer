@@ -41,6 +41,13 @@ function buildBrowserLargeJobError(label: string, maxBytes: number, hint?: strin
     );
 }
 
+async function touchRecentFileForOpen(ref: TDocumentRef) {
+    if ((await browserDocumentStore.requireEntry(ref)).memoryOnly) {
+        return;
+    }
+    await browserDocumentStore.touchRecentFile(ref);
+}
+
 export async function decryptBrowserWorkingCopy(workingPath: string, password?: string) {
     if (password !== undefined && !isPdfDecryptPassword(password)) {
         throw new Error(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
@@ -183,7 +190,7 @@ export async function openDocumentPaths(
 
     if (djvuPaths.length > 0) {
         if (normalizedPaths.length === 1 && djvuPaths.length === 1) {
-            await browserDocumentStore.touchRecentFile(firstPath);
+            await touchRecentFileForOpen(firstPath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
             return {
                 kind: 'djvu',
@@ -222,7 +229,7 @@ export async function openDocumentPaths(
                     originalPath: sourcePath,
                 } satisfies TOpenFileResult;
             }
-            await browserDocumentStore.touchRecentFile(sourcePath);
+            await touchRecentFileForOpen(sourcePath);
             browserDocumentStore.unload(sourcePath);
             emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
             published = true;

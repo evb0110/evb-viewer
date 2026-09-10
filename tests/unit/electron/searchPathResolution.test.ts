@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     beforeEach,
     describe,
@@ -25,7 +27,8 @@ vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
 }));

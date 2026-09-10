@@ -85,7 +85,7 @@ describe('usePageLabelState', () => {
         expect(state.pageLabelsDirty.value).toBe(false);
     });
 
-    it('falls back to default labels when document labels throw', async () => {
+    it('keeps labels unresolved when document labels throw', async () => {
         const markDirty = vi.fn();
         const pdfDocument = createPdfDocumentRef(2, async () => {
             throw new Error('bad labels');
@@ -99,13 +99,9 @@ describe('usePageLabelState', () => {
         await state.syncPageLabelsFromDocument(pdfDocument.value);
 
         expect(state.pageLabels.value).toBeNull();
-        expect(state.pageLabelRanges.value).toEqual([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        expect(state.pageLabelRanges.value).toEqual([]);
         expect(state.pageLabelsDirty.value).toBe(false);
+        expect(state.pageLabelsResolved.value).toBe(false);
     });
 
     it('collapses implicit default labels to null when the document exposes numeric labels', async () => {
@@ -330,7 +326,7 @@ describe('usePageLabelState', () => {
         expect(onPageLabelsSaved).toHaveBeenCalledOnce();
     });
 
-    it('does not request a dense PDF.js label array for xlarge documents', async () => {
+    it('keeps dense PDF.js label reads unresolved without allocating a label array', async () => {
         const totalPages = PAGE_LABEL_DENSE_READ_MAX_PAGES + 1;
         const getPageLabels = vi.fn(async () => {
             throw new Error('xlarge PDF.js label reads must stay bounded');
@@ -346,18 +342,57 @@ describe('usePageLabelState', () => {
 
         expect(getPageLabels).not.toHaveBeenCalled();
         expect(state.pageLabels.value).toBeNull();
-        expect(state.pageLabelRanges.value).toEqual([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        expect(state.pageLabelRanges.value).toEqual([]);
+        expect(state.pageLabelsResolved.value).toBe(false);
         expect(state.labelAt(1)).toBe('1');
         expect(state.labelAt(totalPages)).toBe(String(totalPages));
         expect(state.readPageLabelWindow(totalPages - 1)).toEqual([
             String(totalPages - 1),
             String(totalPages),
         ]);
+    });
+
+    it('keeps the last successful labels unresolved after a transient read failure', async () => {
+        let shouldFail = false;
+        const pdfDocument = createPdfDocumentRef(2, async () => {
+            if (shouldFail) {
+                throw new Error('temporary label read failure');
+            }
+            return [
+                'Cover',
+                'Body',
+            ];
+        });
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(2),
+            markDirty: vi.fn(),
+        });
+
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+        shouldFail = true;
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(state.pageLabels.value).toEqual([
+            'Cover',
+            'Body',
+        ]);
+        expect(state.pageLabelsResolved.value).toBe(false);
+    });
+
+    it('keeps invalid label results unresolved', async () => {
+        const pdfDocument = createPdfDocumentRef(2, async () => ['only one label']);
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(2),
+            markDirty: vi.fn(),
+        });
+
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(state.pageLabels.value).toBeNull();
+        expect(state.pageLabelRanges.value).toEqual([]);
+        expect(state.pageLabelsResolved.value).toBe(false);
     });
 
     it('updates an xlarge model by ranges without creating a labels array', () => {

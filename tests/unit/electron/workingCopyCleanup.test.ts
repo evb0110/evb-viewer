@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import {
     existsSync,
     mkdirSync,
@@ -110,7 +112,8 @@ const state = vi.hoisted(() => ({
     }>(),
 }));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     clearRetiredWorkingCopyOriginals: vi.fn(),
     forgetRetiredWorkingCopyOriginal: vi.fn(),
     forgetWorkingCopyOriginalPath: (path: string) => state.workingCopyMap.delete(path),

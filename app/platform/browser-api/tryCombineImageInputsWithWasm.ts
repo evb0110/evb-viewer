@@ -706,6 +706,19 @@ function readWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExport
 // ceiling prevents an oversized pre-build allocation.
 const PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
 
+function throwIfAborted(signal: AbortSignal | undefined) {
+    if (!signal?.aborted) {
+        return;
+    }
+    const error = new Error(
+        signal.reason instanceof Error
+            ? signal.reason.message
+            : 'Browser PDF combine was canceled',
+    );
+    error.name = 'AbortError';
+    throw error;
+}
+
 function createWasmRequestTooLargeOutcome(): Extract<TBrowserPdfCombineWasmOutcome, {status: 'fatal'}> {
     return {
         status: 'fatal',
@@ -719,7 +732,9 @@ function createWasmRequestTooLargeOutcome(): Extract<TBrowserPdfCombineWasmOutco
 export async function tryCombineImageInputsWithWasm(
     inputs: IBrowserPdfCombineInput[],
     options?: IBrowserPdfCombineWasmImagePreprocessing,
+    signal?: AbortSignal,
 ): Promise<TBrowserPdfCombineWasmOutcome> {
+    throwIfAborted(signal);
     if (!canUsePdfImageCombineWasm(inputs, options)) {
         return {status: 'unsupported'};
     }
@@ -745,6 +760,7 @@ export async function tryCombineImageInputsWithWasm(
     }
 
     const exports = await loadPdfImageCombineWasm();
+    throwIfAborted(signal);
     if (!exports) {
         return {status: 'unavailable'};
     }
@@ -752,6 +768,7 @@ export async function tryCombineImageInputsWithWasm(
     let pointer: number | null = null;
     let requestLength = 0;
     try {
+        throwIfAborted(signal);
         const request = buildWasmRequest(inputs, options);
         requestLength = request.byteLength;
         if (requestLength === 0 || requestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES) {

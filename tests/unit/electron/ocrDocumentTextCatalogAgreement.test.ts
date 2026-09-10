@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -204,7 +206,10 @@ vi.mock('@electron/file-access/documentRevisionSidecar', () => ({
     assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionSidecarCurrent,
     reconcileWorkingCopyRevisionSidecarJournal: vi.fn(async () => null),
 }));
-vi.mock('@electron/file-access/workingCopyStore', () => ({normalizePathForLookup: (path: string) => path}));
+vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    normalizePathForLookup: (path: string) => path,
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),

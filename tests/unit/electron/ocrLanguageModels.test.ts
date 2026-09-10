@@ -7,8 +7,11 @@ import {
     vi,
 } from 'vitest';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import { Readable } from 'node:stream';
+
+const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
 
 const mocks = vi.hoisted(() => ({
     closeSync: vi.fn(),
@@ -25,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     statSync: vi.fn(),
     writeFile: vi.fn(),
     copyFile: vi.fn(),
+    installedPaths: new Set<string>(),
     fileUrl: '/tmp/app.asar/dist/electron/features/ocr/languageModels.js',
     app: {
         isPackaged: true,
@@ -41,15 +45,19 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({app: mocks.app}));
 vi.mock('os', () => ({homedir: () => '/tmp/home'}));
 vi.mock('url', () => ({fileURLToPath: () => mocks.fileUrl}));
-vi.mock('fs', () => ({
-    closeSync: (...args: unknown[]) => mocks.closeSync(...args),
-    createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
-    createWriteStream: vi.fn(),
-    existsSync: (path: string) => mocks.existsSync(path),
-    openSync: (...args: unknown[]) => mocks.openSync(...args),
-    readSync: (...args: unknown[]) => mocks.readSync(...args),
-    statSync: (...args: unknown[]) => mocks.statSync(...args),
-}));
+vi.mock('fs', async importOriginal => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        closeSync: (...args: unknown[]) => mocks.closeSync(...args),
+        createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
+        createWriteStream: vi.fn(),
+        existsSync: (path: string) => mocks.existsSync(path),
+        openSync: (...args: unknown[]) => mocks.openSync(...args),
+        readSync: (...args: unknown[]) => mocks.readSync(...args),
+        statSync: (...args: unknown[]) => mocks.statSync(...args),
+    };
+});
 vi.mock('fs/promises', () => ({
     copyFile: (...args: unknown[]) => mocks.copyFile(...args),
     mkdir: (...args: unknown[]) => mocks.mkdir(...args),
@@ -66,6 +74,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.installedPaths.clear();
         mocks.fileUrl = '/tmp/app.asar/dist/electron/features/ocr/languageModels.js';
         mocks.app.isPackaged = true;
         mocks.app.getPath.mockReturnValue('/tmp/electron-user-data');
@@ -81,7 +90,11 @@ describe('ensureRuntimeTessdataSeeded', () => {
         vi.stubGlobal('fetch', mocks.fetch);
         mocks.existsSync.mockImplementation((path: string) =>
             path === '/tmp/resources/tesseract/tessdata'
-            || (path.startsWith('/tmp/resources/tesseract/tessdata/') && path.endsWith('.traineddata')),
+            || path.startsWith('/tmp/resources/tesseract/tessdata/')
+            || path.includes('.traineddata.seed-')
+            || path.includes('.traineddata.restore-')
+            || path.includes('.traineddata.download-')
+            || mocks.installedPaths.has(path),
         );
         mocks.openSync.mockReturnValue(10);
         mocks.closeSync.mockReturnValue(undefined);
@@ -98,11 +111,20 @@ describe('ensureRuntimeTessdataSeeded', () => {
         mocks.rm.mockResolvedValue(undefined);
         mocks.readdir.mockResolvedValue([
             'eng.traineddata',
-            'osd.traineddata',
+            'rus.traineddata',
             'notes.txt',
         ]);
+        mocks.createReadStream.mockImplementation((path: string) => (
+            path.includes('eng.traineddata')
+                ? Readable.from([readFileSync(join(tessdataFixtureRoot, 'eng.traineddata'))])
+                : path.includes('rus.traineddata')
+                    ? Readable.from([readFileSync(join(tessdataFixtureRoot, 'rus.traineddata'))])
+                    : undefined
+        ));
         mocks.copyFile.mockResolvedValue(undefined);
-        mocks.rename.mockResolvedValue(undefined);
+        mocks.rename.mockImplementation(async (_source: string, destination: string) => {
+            mocks.installedPaths.add(destination);
+        });
         mocks.writeFile.mockResolvedValue(undefined);
     });
 
@@ -127,19 +149,18 @@ describe('ensureRuntimeTessdataSeeded', () => {
         expect(mocks.readdir).toHaveBeenCalledTimes(1);
         expect(mocks.mkdir).toHaveBeenCalledTimes(1);
         expect(mocks.copyFile).toHaveBeenCalledTimes(2);
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(
-            1,
+        expect(mocks.copyFile.mock.calls.map(call => call[0])).toEqual([
             '/tmp/resources/tesseract/tessdata/eng.traineddata',
-            join(runtimeDir, 'eng.traineddata'),
-        );
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(
-            2,
-            '/tmp/resources/tesseract/tessdata/osd.traineddata',
-            join(runtimeDir, 'osd.traineddata'),
-        );
+            '/tmp/resources/tesseract/tessdata/rus.traineddata',
+        ]);
+        expect(mocks.copyFile.mock.calls.every(call => (
+            typeof call[1] === 'string'
+            && call[1].startsWith(join(runtimeDir, ''))
+            && call[1].includes('.seed-')
+        ))).toBe(true);
         expect(mocks.writeFile).toHaveBeenCalledWith(
             expect.stringMatching(/\.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec-[a-f0-9]+\..+[.]tmp$/u),
-            expect.stringContaining('"bundledFiles":["eng.traineddata","osd.traineddata"]'),
+            expect.stringContaining('"bundledFiles":["eng.traineddata","rus.traineddata"]'),
             {
                 encoding: 'utf8',
                 mode: 0o600,
@@ -166,7 +187,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
     it('restores a missing packaged model after a current seed marker without downloading', async () => {
         const runtimeModelPath = '/tmp/electron-user-data/tessdata/eng.traineddata';
-        const stagingModelPath = /\/tmp\/electron-user-data\/tessdata\/eng\.traineddata\.restore-/u;
+        const stagingModelPath = /\/tmp\/electron-user-data\/tessdata\/eng\.traineddata\.(?:seed|restore)-/u;
         let installed = false;
         mocks.existsSync.mockImplementation((path: string) => (
             path === '/tmp/resources/tesseract/tessdata'
@@ -214,9 +235,9 @@ describe('ensureRuntimeTessdataSeeded', () => {
         );
     });
 
-    it('reclaims a failed restore staging file and retries the packaged copy', async () => {
+    it('reclaims a failed seed staging file and retries the packaged copy', async () => {
         const runtimeModelPath = '/tmp/electron-user-data/tessdata/eng.traineddata';
-        const stagingModelPath = /\/tmp\/electron-user-data\/tessdata\/eng\.traineddata\.restore-/u;
+        const stagingModelPath = /\/tmp\/electron-user-data\/tessdata\/eng\.traineddata\.(?:seed|restore)-/u;
         let installed = false;
         mocks.existsSync.mockImplementation((path: string) => (
             path === '/tmp/resources/tesseract/tessdata'
@@ -232,7 +253,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
         });
 
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
-        await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'HTTP_404'});
+        await expect(ensureTessdataLanguages(['eng'])).rejects.toThrow('copy failed');
         expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(stagingModelPath), {force: true});
 
         mocks.fetch.mockReset();
@@ -303,6 +324,38 @@ describe('ensureRuntimeTessdataSeeded', () => {
             createHash('sha256').update(Buffer.concat(chunks)).digest('hex'),
         );
         expect(mocks.createReadStream).toHaveBeenCalledWith('/tmp/eng.traineddata');
+    });
+
+    it('invalidates a cached verification after a same-size in-place mutation', async () => {
+        mocks.fileUrl = '/repo/electron/features/ocr/languageModels.ts';
+        mocks.app.isPackaged = false;
+        vi.spyOn(process, 'cwd').mockReturnValue('/repo');
+        const modelPath = '/repo/resources/tesseract/tessdata/eng.traineddata';
+        const originalBytes = readFileSync(join(tessdataFixtureRoot, 'eng.traineddata'));
+        let modelBytes = Buffer.from(originalBytes);
+        let mtimeMs = 1;
+        mocks.existsSync.mockImplementation((path: string) => (
+            path === '/repo/resources/tesseract'
+            || path === modelPath
+        ));
+        mocks.statSync.mockImplementation(() => ({
+            isFile: () => true,
+            size: modelBytes.length,
+            mtimeMs,
+            ctimeMs: mtimeMs,
+            dev: 1,
+            ino: 1,
+        }));
+        mocks.createReadStream.mockImplementation(() => Readable.from([modelBytes]));
+        const {getOcrLanguageModelStates} = await import('@electron/features/ocr/languageModels');
+
+        expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('installed');
+        modelBytes = Buffer.from(originalBytes);
+        modelBytes[modelBytes.length - 1] ^= 1;
+        mtimeMs = 2;
+
+        expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('missing');
+        expect(mocks.createReadStream).toHaveBeenCalledTimes(2);
     });
 
     it('rejects a downloaded model whose streamed checksum does not match', async () => {

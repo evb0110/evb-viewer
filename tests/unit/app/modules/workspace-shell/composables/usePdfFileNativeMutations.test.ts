@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -94,7 +96,8 @@ const documentsMock = vi.hoisted(() => ({
 
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => analyticsMock}));
 vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDocumentFilesCapability: () => documentsMock,
     getDocumentWorkingCopyCapability: () => documentsMock,
     shouldRefreshWorkingCopyAfterSaveAs: () => false,

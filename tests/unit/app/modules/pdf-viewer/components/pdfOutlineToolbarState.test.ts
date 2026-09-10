@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import { requirePageIndex } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
@@ -18,8 +20,12 @@ import {
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import { cast } from '@tests/helpers/cast';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, parameters?: Record<string, string | number>) => parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (key: string, parameters?: Record<string, string | number>) => parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key}),
+}));
 
 function stub(marker: string) {
     return {default: defineComponent({
@@ -33,7 +39,17 @@ function stub(marker: string) {
 
 vi.mock('@app/components/AppSpinner.vue', () => stub('data-spinner-stub'));
 vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stub('data-bookmark-toolbar-stub'));
-vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => stub('data-bookmark-tree-stub'));
+vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => ({default: defineComponent({
+    props: {items: {
+        type: Array,
+        required: true,
+    }},
+    setup: props => () => h('div', {
+        'data-bookmark-tree-stub': '',
+        'data-item-count': String(props.items.length),
+        'data-first-title': (props.items[0] as {title?: string} | undefined)?.title,
+    }),
+})}));
 vi.mock('@app/components/document-viewer/DocumentPanelEmptyState.vue', () => stub('data-empty-state-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue', () => stub('data-context-menu-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfOutlineItem.vue', () => ({default: defineComponent({
@@ -49,14 +65,21 @@ afterEach(() => {
     }
 });
 
-function createPdfDocument(getOutline: () => Promise<unknown[] | null>) {
-    return {
+function createPdfDocument(
+    getOutline: () => Promise<unknown[] | null>,
+    getDestination: () => Promise<unknown[] | null> = async () => null,
+) {
+    return cast<PDFDocumentProxy>({
         _transport: {},
         getOutline,
-    } as PDFDocumentProxy;
+        getDestination,
+    });
 }
 
-async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
+async function mountOutline(
+    getOutline: () => Promise<unknown[] | null>,
+    getDestination?: () => Promise<unknown[] | null>,
+) {
     const host = document.createElement('div');
     document.body.append(host);
     const editModeUpdates: boolean[] = [];
@@ -65,7 +88,7 @@ async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
         bookmarksDirty: false,
         currentPage: 1,
         isEditMode: false,
-        pdfDocument: createPdfDocument(getOutline),
+        pdfDocument: createPdfDocument(getOutline, getDestination),
     });
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         ...viewProps,
@@ -181,6 +204,23 @@ describe('PdfOutline bookmark toolbar state', () => {
         expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
         expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title'))
             .toBe('bookmarks.noBookmarks');
+    });
+
+    it('publishes the raw outline before destination resolution', async () => {
+        const getDestination = vi.fn(() => new Promise<unknown[]>(() => undefined));
+        const outline = await mountOutline(() => Promise.resolve([{
+            title: 'Chapter 1',
+            dest: 'chapter-1',
+        }]), getDestination);
+
+        await outline.settle();
+
+        expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-item-count'))
+            .toBe('1');
+        expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-first-title'))
+            .toBe('Chapter 1');
+        expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
+        expect(getDestination).not.toHaveBeenCalled();
     });
 
     it('keeps more than 10000 outline entries editable for native continuation', async () => {

@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
+
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
@@ -11,6 +14,7 @@ import { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/p
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import {
     createPageMoveRange,
     createPageMoveRanges,
@@ -53,7 +57,8 @@ const pageOperationFailure = {
     severity: 'error',
 };
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPageOpsCapability: () => pageOpsApi,
     getDocumentOpenCapability: () => {
         const onOpenDocumentDirectBatchProgress = (callback: TBatchProgressListener) => {
@@ -75,11 +80,14 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 }}));
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({ reportRuntimeError })}));
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
-    t: (key: string) => `msg:${key}`,
-    setLocale: vi.fn(async () => {}),
-    loadLocaleMessages: vi.fn(async () => {}),
-})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    useTypedI18n: () => ({
+        t: (key: string) => `msg:${key}`,
+        setLocale: vi.fn(async () => {}),
+        loadLocaleMessages: vi.fn(async () => {}),
+    }),
+}));
 
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
@@ -98,6 +106,9 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
     ensureHistoryBaselineForMutation?: () => Promise<boolean>;
     saveAnnotationsForPageMutation?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    pageLabels?: string[] | null;
+    pageLabelRanges?: IPdfPageLabelRange[];
+    pageLabelsResolved?: boolean;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
     const workingCopyPath = ref(path === null ? null : requireDocumentRef(path));
@@ -122,6 +133,9 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
         onExtractedDocument,
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
         ...(options.runWithDocumentOperationLease ? { runWithDocumentOperationLease: options.runWithDocumentOperationLease } : {}),
+        ...(options.pageLabels !== undefined ? {pageLabels: ref(options.pageLabels)} : {}),
+        ...(options.pageLabelRanges !== undefined ? {pageLabelRanges: ref(options.pageLabelRanges)} : {}),
+        ...(options.pageLabelsResolved !== undefined ? {pageLabelsResolved: ref(options.pageLabelsResolved)} : {}),
     });
 
     return {
@@ -155,6 +169,30 @@ beforeEach(() => {
 });
 
 describe('usePageOperations', () => {
+    it('omits unresolved page labels from mutation metadata', async () => {
+        pageOpsApi.rotate.mockResolvedValueOnce({success: true});
+        const {pageOps} = createHarness('/tmp/work.pdf', {
+            pageLabels: null,
+            pageLabelRanges: [{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }],
+            pageLabelsResolved: false,
+        });
+
+        await expect(pageOps.rotatePages([1], 2, 90)).resolves.toBe(true);
+
+        const options = pageOpsApi.rotate.mock.calls[0]?.[4] as {metadataSnapshot?: {
+            pageLabels?: unknown;
+            pageLabelRanges?: unknown;
+        }};
+        expect(options.metadataSnapshot).toBeDefined();
+        expect(options.metadataSnapshot).not.toHaveProperty('pageLabels');
+        expect(options.metadataSnapshot).not.toHaveProperty('pageLabelRanges');
+    });
+
     it.each([
         [
             'rotate',

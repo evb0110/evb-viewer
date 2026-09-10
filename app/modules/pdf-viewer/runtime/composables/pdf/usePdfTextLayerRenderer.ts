@@ -48,7 +48,9 @@ import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { guardAsync } from '@app/utils/asyncGuard';
 import {
+    createPdfjsStructTreeLayer,
     createPdfjsTextLayer,
+    type IPdfStructTreeLayer,
     type IPdfTextLayer,
 } from '@app/services/pdfjs/pdfViewerFacade';
 import {
@@ -60,12 +62,15 @@ const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 interface IRenderedTextLayer {
     textLayer: IPdfTextLayer;
+    structTreeLayer?: IPdfStructTreeLayer;
+    structTreeDom?: HTMLElement | null;
     pdfPage: IPdfPage;
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
 }
 
 const renderedTextLayers = new WeakMap<HTMLElement, IRenderedTextLayer>();
+const textLayerRenderGenerations = new WeakMap<HTMLElement, number>();
 
 const createAbortError = () => new DOMException('Text layer rendering was cancelled', 'AbortError');
 
@@ -816,6 +821,11 @@ export const usePdfTextLayerRenderer = (deps: {
 
         onBeforeRebuild?.();
         renderedTextLayers.delete(textLayerDiv);
+        const renderGeneration = (textLayerRenderGenerations.get(textLayerDiv) ?? 0) + 1;
+        textLayerRenderGenerations.set(textLayerDiv, renderGeneration);
+        textLayerDiv.closest<HTMLElement>('.page_container')
+            ?.querySelector<HTMLElement>('.structTree')
+            ?.remove();
         textLayerDiv.dataset.pdfTextLayerRendering = 'true';
         textLayerDiv.dataset.pdfTextLayerReady = 'false';
         clearHighlights(textLayerDiv);
@@ -891,12 +901,49 @@ export const usePdfTextLayerRenderer = (deps: {
             signal?.removeEventListener('abort', abortTextLayer);
         }
         throwIfAborted(signal);
+
+        let structTreeLayer: IPdfStructTreeLayer | undefined;
+        let structTreeDom: HTMLElement | null = null;
+        if (typeof pdfPage.getStructTree === 'function') {
+            try {
+                structTreeLayer = await createPdfjsStructTreeLayer({
+                    page: pdfPage,
+                    rawDims: viewport.rawDims,
+                });
+                const renderedStructure = await structTreeLayer.render();
+                structTreeDom = typeof HTMLElement !== 'undefined' && renderedStructure instanceof HTMLElement
+                    ? renderedStructure
+                    : null;
+                if (
+                    structTreeDom
+                    && textLayerRenderGenerations.get(textLayerDiv) === renderGeneration
+                    && !signal?.aborted
+                ) {
+                    structTreeLayer.updateTextLayer();
+                    const structureHost = textLayerDiv.closest<HTMLElement>('.page_container')
+                        ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
+                    structureHost?.append(structTreeDom);
+                } else {
+                    structTreeDom?.remove();
+                    structTreeDom = null;
+                }
+            } catch (structureError) {
+                if (!signal?.aborted) {
+                    BrowserLogger.warn('pdf-text-layer', 'PDF structure tree unavailable', structureError);
+                }
+                structTreeLayer = undefined;
+                structTreeDom = null;
+            }
+        }
+
         registerTextLayerTextMapping(textLayerDiv, {
             textDivs: textLayer.textDivs,
             textContentItemsStr: textLayer.textContentItemsStr,
         });
         renderedTextLayers.set(textLayerDiv, {
             textLayer,
+            ...(structTreeLayer ? {structTreeLayer} : {}),
+            structTreeDom,
             pdfPage,
             workingCopyPath: currentWorkingCopyPath,
             documentRevisionToken: currentDocumentRevisionToken,
@@ -1208,7 +1255,10 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
+        const rendered = renderedTextLayers.get(textLayerDiv);
+        rendered?.structTreeDom?.remove();
         renderedTextLayers.delete(textLayerDiv);
+        textLayerRenderGenerations.set(textLayerDiv, (textLayerRenderGenerations.get(textLayerDiv) ?? 0) + 1);
         clearHighlights(textLayerDiv);
         textLayerDiv.innerHTML = '';
         clearTextLayerTextMapping(textLayerDiv);

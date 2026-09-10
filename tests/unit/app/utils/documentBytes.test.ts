@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -18,7 +20,10 @@ const mockDocuments = {
     readFileRange: vi.fn(),
 };
 
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentFilesCapability: () => mockDocuments }));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => mockDocuments,
+}));
 
 describe('documentBytes', () => {
     beforeEach(() => {

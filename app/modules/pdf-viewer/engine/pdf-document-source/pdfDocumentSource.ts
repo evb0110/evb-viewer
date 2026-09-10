@@ -57,6 +57,7 @@ export interface IPdfPage {
         includeMarkedContent?: boolean;
         disableNormalization?: boolean
     }): ReadableStream<IPdfTextContentChunk>;
+    getStructTree?(): Promise<unknown | null>;
     getAnnotations(options?: {intent?: string}): Promise<readonly IPdfAnnotation[]>;
     getOperatorList(options?: {annotationMode?: number}): Promise<IPdfOperatorList>;
     render(options: object): IPdfRenderTask;
@@ -699,9 +700,6 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             task.promise,
             rangeFailure.rangeReadFailure,
         ]);
-        if (loadingTask === task) {
-            loadingTask = null;
-        }
         rangeFailure.complete();
         logPdfRenderTrace('pdf-document-get-document-resolve', {
             version,

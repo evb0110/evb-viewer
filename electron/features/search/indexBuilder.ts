@@ -85,6 +85,7 @@ interface ISearchGeometryBudget {remainingWords: number;}
 interface ISeededPageText {
     pagesByNumber: Map<number, IPageIndex>;
     hasText: boolean;
+    completed: boolean;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -441,9 +442,10 @@ async function seedFromPdfjs(
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Promise<ISeededPageText> {
     let hasText = false;
+    let nextPagesByNumber = new Map(pagesByNumber);
+    const pendingPages: IPageIndex[] = [];
     try {
         log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
-        let nextPagesByNumber = pagesByNumber;
         const extractOptions: IExtractPdfjsTextOptions = {
             collectPages: false,
             onPageText: (pageText) => {
@@ -451,7 +453,7 @@ async function seedFromPdfjs(
                 nextPagesByNumber = applyExtractedTexts(nextPagesByNumber, [pageText], signal, preservePageNumbers);
                 const page = nextPagesByNumber.get(pageText.pageNumber);
                 if (page && !preservePageNumbers.has(pageText.pageNumber)) {
-                    onPageIndexed?.(page);
+                    pendingPages.push(page);
                 }
             },
         };
@@ -463,9 +465,11 @@ async function seedFromPdfjs(
         }
         const {extractTextWithPdfjs} = await loadPdfjsTextExtractor();
         await extractTextWithPdfjs(pdfPath, extractOptions);
+        pendingPages.forEach((page) => onPageIndexed?.(page));
         return {
             pagesByNumber: nextPagesByNumber,
             hasText,
+            completed: true,
         };
     } catch (pdfjsErr) {
         if (isAbortError(pdfjsErr)) {
@@ -474,8 +478,9 @@ async function seedFromPdfjs(
         const errMsg = getErrorMessage(pdfjsErr);
         log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
         return {
-            pagesByNumber,
+            pagesByNumber: nextPagesByNumber,
             hasText,
+            completed: false,
         };
     }
 }
@@ -489,9 +494,10 @@ async function seedFromPdftotext(
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Promise<ISeededPageText> {
     let hasText = false;
+    let nextPagesByNumber = new Map(pagesByNumber);
+    const pendingPages: IPageIndex[] = [];
     try {
         log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
-        let nextPagesByNumber = pagesByNumber;
         const runWindow = async (pages?: number[]) => {
             const extractOptions: Parameters<typeof extractTextFromPdf>[1] = {};
             if (expectedCount !== undefined) {
@@ -514,7 +520,7 @@ async function seedFromPdftotext(
             pageTexts.forEach((pageText) => {
                 const page = nextPagesByNumber.get(pageText.pageNumber);
                 if (page && !preservePageNumbers.has(pageText.pageNumber)) {
-                    onPageIndexed?.(page);
+                    pendingPages.push(page);
                 }
             });
         };
@@ -536,9 +542,11 @@ async function seedFromPdftotext(
         } else {
             await runWindow();
         }
+        pendingPages.forEach((page) => onPageIndexed?.(page));
         return {
             pagesByNumber: nextPagesByNumber,
             hasText,
+            completed: true,
         };
     } catch (pdfTextErr) {
         if (isAbortError(pdfTextErr)) {
@@ -559,7 +567,7 @@ async function seedPagesFromPdfText(
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Promise<Map<number, IPageIndex>> {
     const seeded = await seedFromPdfjs(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed, preservePageNumbers);
-    if (seeded.hasText) {
+    if (seeded.completed && seeded.hasText) {
         return seeded.pagesByNumber;
     }
 

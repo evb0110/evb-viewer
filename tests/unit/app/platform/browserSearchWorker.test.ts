@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
+
 import {
     beforeEach,
     describe,
@@ -16,7 +18,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('pdfjs-dist', () => ({getDocument: mocks.getDocument}));
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({createPdfjsDocumentInitFromBrowserDocument: mocks.createPdfjsDocumentInitFromBrowserDocument}));
 vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', () => ({extractBrowserSearchPageText: mocks.extractBrowserSearchPageText}));
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: mocks.yieldToBrowser}));
+vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    yieldToBrowser: mocks.yieldToBrowser,
+}));
 
 describe('browserSearch worker extraction', () => {
     beforeEach(() => {

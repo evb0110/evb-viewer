@@ -112,13 +112,18 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
     }
 
     let (mut source, pages_id, source_pages) = document_with_pages(&[200, 300, 400]);
-    let page_labels = source.add_object(dictionary! {
-        "Nums" => vec![
+    let page_label_nums = source.add_object(vec![
             Object::Integer(0),
             Object::Dictionary(dictionary! {"S" => "D", "St" => 1}),
             Object::Integer(1),
             Object::Dictionary(dictionary! {"S" => "R", "St" => 1}),
-        ],
+        ]);
+    let page_label_leaf = source.add_object(dictionary! {
+        "Limits" => vec![Object::Integer(0), Object::Integer(1)],
+        "Nums" => page_label_nums,
+    });
+    let page_labels = source.add_object(dictionary! {
+        "Kids" => vec![Object::Reference(page_label_leaf)],
     });
     let outline_item = source.add_object(dictionary! {
         "Title" => Object::string_literal("Page three"),
@@ -227,6 +232,167 @@ fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
             expected_width,
         );
         assert_eq!(output.get_pages().get(&expected_page_number), Some(&destination));
+    }
+}
+
+#[test]
+fn browser_page_label_rewrites_preserve_text_encoding_and_pdf_alphabetic_sequence() {
+    let mut source = Document::with_version("1.4");
+    let pages_id = source.new_object_id();
+    let page_ids = (0..109)
+        .map(|_| {
+            source.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    source.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let page_labels = source.add_object(dictionary! {
+        "Nums" => vec![
+            Object::Integer(0),
+            dictionary! {
+                "S" => "a",
+                "P" => Object::String(vec![0x8b], StringFormat::Literal),
+            }
+            .into(),
+            Object::Integer(54),
+            dictionary! {
+                "S" => "A",
+                "P" => lopdf::text_string("№"),
+            }
+            .into(),
+            Object::Integer(107),
+            dictionary! {"P" => lopdf::text_string("front-")}.into(),
+        ],
+    });
+    let catalog = source.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "PageLabels" => page_labels,
+    });
+    source.trailer.set("Root", catalog);
+
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+    let selected_pages = [1, 26, 27, 28, 52, 53, 55, 80, 81, 82, 106, 107, 108];
+    let result = extract_browser_pdf_pages(&source_bytes, &selected_pages).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+    let page_labels = resolve_dictionary_object(
+        &output,
+        output.catalog().unwrap().get(b"PageLabels").unwrap(),
+        "PageLabels",
+    )
+    .unwrap();
+    let labels = page_labels
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .chunks_exact(2)
+        .map(|pair| {
+            let label = resolve_dictionary_object(&output, &pair[1], "PageLabel").unwrap();
+            lopdf::decode_text_string(label.get(b"P").unwrap()).unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        labels,
+        [
+            "‰a", "‰z", "‰aa", "‰bb", "‰zz", "‰aaa", "№A", "№Z", "№AA", "№BB", "№ZZ",
+            "№AAA", "front-",
+        ]
+    );
+}
+
+#[test]
+fn page_subset_operations_preserve_forward_page_owned_destinations() {
+    fn destination(page_id: ObjectId) -> Object {
+        vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())].into()
+    }
+
+    let mut source = Document::with_version("1.4");
+    let pages_id = source.new_object_id();
+    let page_ids = [200i64, 300, 400]
+        .iter()
+        .map(|width| {
+            source.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), (*width).into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    source.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let link = source.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Link",
+        "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        "Dest" => destination(page_ids[1]),
+        "A" => dictionary! {"S" => "GoTo", "D" => destination(page_ids[1])},
+    });
+    source
+        .get_dictionary_mut(page_ids[0])
+        .unwrap()
+        .set("Annots", vec![Object::Reference(link)]);
+    let catalog = source.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    source.trailer.set("Root", catalog);
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+
+    for result in [
+        extract_browser_pdf_pages(&source_bytes, &[1, 2]).unwrap(),
+        delete_browser_pdf_pages(&source_bytes, &[3]).unwrap(),
+    ] {
+        let output = Document::load_mem(&result.data).unwrap();
+        assert_eq!(output.get_pages().len(), 2);
+        let first_page = *output.get_pages().get(&1).unwrap();
+        let second_page = *output.get_pages().get(&2).unwrap();
+        let annots = output
+            .get_dictionary(first_page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let annotation = output
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            annotation
+                .get(b"Dest")
+                .unwrap()
+                .as_array()
+                .unwrap()[0],
+            Object::Reference(second_page)
+        );
+        assert_eq!(
+            annotation
+                .get(b"A")
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"D")
+                .unwrap()
+                .as_array()
+                .unwrap()[0],
+            Object::Reference(second_page)
+        );
     }
 }
 

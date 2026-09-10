@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/diagnostics/public';
+
 import {
     afterEach,
     beforeEach,
@@ -14,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => []}}));
 vi.mock('worker_threads', () => ({isMainThread: false}));
-vi.mock('@electron/features/diagnostics/public', () => ({getMainFailureReporter: () => mocks.reporter}));
+vi.mock('@electron/features/diagnostics/public', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getMainFailureReporter: () => mocks.reporter,
+}));
 vi.mock('fs', () => ({
     mkdirSync: vi.fn(),
     statSync: vi.fn(() => ({size: 0})),

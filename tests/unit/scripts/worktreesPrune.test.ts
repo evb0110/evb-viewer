@@ -60,7 +60,7 @@ describe('worktrees prune', () => {
         ]);
     });
 
-    it('forgets registrations whose directory is gone and keeps trees whose status is unreadable', () => {
+    it('keeps stale registrations without explicit completion evidence and unreadable trees', () => {
         expect(classifyWorktree({
             isPrimary: false,
             containsCwd: false,
@@ -68,8 +68,8 @@ describe('worktrees prune', () => {
             dirtyEntries: 0,
             mergedInto: [],
         })).toEqual({
-            action: 'remove',
-            reason: 'directory missing; registration is stale',
+            action: 'keep',
+            reason: 'stale registration requires an explicit target',
         });
         expect(classifyWorktree({
             isPrimary: false,
@@ -89,6 +89,9 @@ describe('worktrees prune', () => {
             containsCwd: false,
             dirtyEntries: 0,
             mergedInto: ['origin/main'],
+            selectedTarget: true,
+            completedTask: true,
+            ownerStatus: 'absent',
         };
         expect(classifyWorktree(base)).toEqual({
             action: 'remove',
@@ -116,24 +119,32 @@ describe('worktrees prune', () => {
             action: 'keep',
             reason: 'HEAD not merged into any base ref',
         });
+        expect(classifyWorktree({...base, selectedTarget: false, completedTask: true, ownerStatus: 'absent'})).toEqual({action: 'keep', reason: 'not the selected cleanup target'});
+        expect(classifyWorktree({...base, selectedTarget: true, completedTask: false, ownerStatus: 'absent'})).toEqual({action: 'keep', reason: 'completed-task evidence required'});
+        expect(classifyWorktree({...base, selectedTarget: true, completedTask: true, ownerStatus: 'active', ownerReason: 'live'})).toEqual({action: 'keep', reason: 'live'});
+        expect(classifyWorktree({...base, selectedTarget: true, completedTask: true, ownerStatus: 'absent'})).toEqual({action: 'remove', reason: 'completed target merged into origin/main'});
     });
 
     it('defaults to a dry run against origin/main and accumulates --into refs', () => {
         expect(parseArgs([])).toEqual({
             apply: false,
+            completed: null,
             help: false,
             into: ['origin/main'],
+            target: null,
         });
         expect(parseArgs([
             '--into=origin/own-annotations,origin/main',
             '--apply',
         ])).toEqual({
             apply: true,
+            completed: null,
             help: false,
             into: [
                 'origin/main',
                 'origin/own-annotations',
             ],
+            target: null,
         });
         expect(() => parseArgs(['--force'])).toThrow('Unknown argument: --force');
     });

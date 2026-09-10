@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -102,14 +104,17 @@ vi.mock('fs/promises', async () => {
     };
 });
 
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
-    pdftoppm: '/mock/pdftoppm',
-    pdfinfo: '/mock/pdfinfo',
-    qpdf: '/mock/qpdf',
-    pdfimages: mocks.pdfimagesPath,
-    popplerDataDir: mocks.popplerDataDir,
-    popplerFontConfigDir: mocks.popplerFontConfigDir,
-})}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getPdfNativeToolPaths: () => ({
+        pdftoppm: '/mock/pdftoppm',
+        pdfinfo: '/mock/pdfinfo',
+        qpdf: '/mock/qpdf',
+        pdfimages: mocks.pdfimagesPath,
+        popplerDataDir: mocks.popplerDataDir,
+        popplerFontConfigDir: mocks.popplerFontConfigDir,
+    }),
+}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
@@ -226,6 +231,8 @@ const {
     exportPdfPagesAsImages,
     normalizeImageExportPath,
     promoteStagedFiles,
+    createStagedFilePublicationLedger,
+    rollbackStagedFilePublications,
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const {
@@ -285,7 +292,8 @@ describe('image export', () => {
         mocks.stat.mockReset();
         mocks.rename.mockReset();
         mocks.atomicReplace.mockReset();
-        mocks.makeSiblingTempPath.mockClear();
+        mocks.makeSiblingTempPath.mockReset();
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         mocks.managedScratchDirs.length = 0;
         mocks.createManagedScratchTempDir.mockImplementation(async (prefix: string) => {
             const path = await mkdtemp(join(tempDir, prefix));
@@ -1079,6 +1087,23 @@ describe('image export', () => {
         expect(await readFile(secondOutputPath, 'utf8')).toBe('page-2-jpg');
     });
 
+    it('keeps long multi-page image export names distinct within the filesystem limit', async () => {
+        const outputPath = join(tempDir, `${'long-export-name-'.repeat(20)}.png`);
+        const firstOutputPath = join(tempDir, `${'long-export-name-'.repeat(20).slice(0, 247)}-001.png`);
+        const secondOutputPath = join(tempDir, `${'long-export-name-'.repeat(20).slice(0, 247)}-002.png`);
+        let stagedPathIndex = 0;
+        mocks.makeSiblingTempPath.mockImplementation(() => join(tempDir, `.staged-image-${stagedPathIndex += 1}.tmp`));
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([
+            firstOutputPath,
+            secondOutputPath,
+        ]);
+
+        expect(Buffer.byteLength(firstOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
+        expect(Buffer.byteLength(secondOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
+        expect(firstOutputPath).not.toBe(secondOutputPath);
+    });
+
     it('chooses non-conflicting derived image paths before rendering multi-file exports', async () => {
         const outputPath = join(tempDir, 'exported.png');
         const firstExistingPath = join(tempDir, 'exported-001.png');
@@ -1254,6 +1279,37 @@ describe('image export', () => {
         ])).rejects.toThrow('Recovery backup(s) retained');
 
         expect(await readFile(`${firstTargetPath}.tmp`, 'utf8')).toBe('old-first');
+    });
+
+    it('rolls back publications from multiple batches and restores displaced output', async () => {
+        const firstTargetPath = join(tempDir, 'transaction-first.png');
+        const secondTargetPath = join(tempDir, 'transaction-second.png');
+        const firstStagedPath = join(tempDir, 'transaction-first.staged');
+        const secondStagedPath = join(tempDir, 'transaction-second.staged');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(firstStagedPath, 'new-first'),
+            writeFile(secondStagedPath, 'new-second'),
+        ]);
+        const ledger = createStagedFilePublicationLedger();
+
+        await promoteStagedFiles([{
+            stagedPath: firstStagedPath,
+            targetPath: firstTargetPath,
+            targetExisted: true,
+        }], undefined, ledger);
+        await promoteStagedFiles([{
+            stagedPath: secondStagedPath,
+            targetPath: secondTargetPath,
+            targetExisted: false,
+        }], undefined, ledger);
+
+        await rollbackStagedFilePublications(ledger);
+
+        expect(await readFile(firstTargetPath, 'utf8')).toBe('old-first');
+        expect(existsSync(secondTargetPath)).toBe(false);
+        expect(ledger.promotedFiles).toHaveLength(0);
+        expect(ledger.backupPaths).toHaveLength(0);
     });
 
     it('backs up a destination that appears after export staging', async () => {

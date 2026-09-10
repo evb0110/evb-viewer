@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@electron/native-tools/buildPopplerEnv';
+import type * as TViMockOriginalModule2 from '@electron/pdf/nativeToolPaths';
+
 import { EventEmitter } from 'node:events';
 import {
     afterEach,
@@ -32,8 +35,14 @@ vi.mock('fs/promises', () => ({
     stat: (...args: unknown[]) => mocks.stat(...args),
 }));
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: (...args: unknown[]) => mocks.resolveExistingReadablePdfPath(...args)}));
-vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: (...args: unknown[]) => mocks.buildPopplerEnv(...args)}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
+vi.mock('@electron/native-tools/buildPopplerEnv', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    buildPopplerEnv: (...args: unknown[]) => mocks.buildPopplerEnv(...args),
+}));
+vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
+    getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
+}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
 vi.mock('@electron/recentFiles', () => ({getRecentFiles: (...args: unknown[]) => mocks.getRecentFiles(...args)}));

@@ -10,6 +10,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     renameSync,
     readFileSync,
     realpathSync,
@@ -108,6 +109,34 @@ describe('workingCopy', () => {
             vi.doUnmock('@electron/file-access/workingCopyDecryption');
             vi.resetModules();
         }
+    });
+
+    it('bounds internal names for near-limit multibyte source filenames', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
+        const {
+            createWorkingCopy,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {getWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {getWorkingCopyRevisionSidecarPath} = await import('@electron/file-access/documentRevisionSidecar');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const sourceName = `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`;
+        const originalPath = join(tempRoot, sourceName);
+        const originalBytes = Buffer.from('%PDF-1.7\nlong source fixture\n');
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 17);
+        const workingDirectoryEntries = readdirSync(dirname(workingPath));
+
+        expect(readFileSync(workingPath)).toEqual(originalBytes);
+        expect(getWorkingCopyOriginalPath(workingPath, 17)?.originalPath).toBe(realpathSync.native(originalPath));
+        expect(basename(workingPath)).toBe('document.pdf');
+        expect(Buffer.byteLength(basename(workingPath), 'utf8')).toBeLessThan(100);
+        expect(existsSync(getWorkingCopyRevisionSidecarPath(workingPath))).toBe(true);
+        expect(workingDirectoryEntries.every(entry => Buffer.byteLength(entry, 'utf8') <= 255)).toBe(true);
+        expect(existsSync(originalPath)).toBe(true);
     });
 
     it('rejects invalid passwords at the main-process working-copy boundary', async () => {
@@ -796,7 +825,10 @@ describe('workingCopy', () => {
             createWorkingCopyFromPath,
             ensureWorkingCopyDirectory,
         } = await import('@electron/file-access/workingCopyCreation');
-        const { getWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
+        const {
+            claimWorkingCopyRecovery,
+            getWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
         const {
             cleanupWorkingCopy,
             clearAllWorkingCopies,
@@ -820,6 +852,7 @@ describe('workingCopy', () => {
             originalPath: canonicalOriginalPath,
             retired: true,
         });
+        claimWorkingCopyRecovery(workingPath);
         await expect(ensureWorkingCopyDirectory(workingPath)).resolves.toBe(true);
 
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
@@ -831,6 +864,46 @@ describe('workingCopy', () => {
             5,
             6,
         ]));
+
+        await clearAllWorkingCopies();
+    });
+
+    it('does not resurrect a closed working copy for a late reader', async () => {
+        const {
+            createWorkingCopyFromPath,
+            ensureWorkingCopyDirectory,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {
+            cleanupWorkingCopy,
+            clearAllWorkingCopies,
+        } = await import('@electron/file-access/workingCopyCleanup');
+        const {
+            getWorkingCopyOriginalPath,
+            getWorkingCopyRegistrationId,
+        } = await import('@electron/file-access/workingCopyStore');
+        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+        const {resolveExistingReadablePdfPath} = await import('@electron/features/documents/main/documentFilePathResolution');
+        const originalPath = join(tempRoot, 'closed-late-reader-original.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            7,
+            8,
+            9,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        const registrationId = getWorkingCopyRegistrationId(workingPath, 7);
+        await cleanupWorkingCopy(workingPath, 7);
+
+        await expect(resolveExistingReadablePdfPath(workingPath, 7))
+            .rejects
+            .toThrow();
+        await expect(ensureWorkingCopyDirectory(workingPath, 7)).resolves.toBe(false);
+        expect(getWorkingCopyRegistrationId(workingPath, 7)).toBeNull();
+        expect(getWorkingCopyOriginalPath(workingPath, 7)).toMatchObject({retired: true});
+        expect(existsSync(dirname(workingPath))).toBe(false);
+        expect(registrationId).not.toBeNull();
 
         await clearAllWorkingCopies();
     });

@@ -86,6 +86,11 @@ interface ISharedDownloadTask {
     waiterIds: Set<symbol>;
 }
 
+interface IVerifiedModel {
+    identity: string;
+    sha256: string;
+}
+
 const inFlightDownloads = new Map<string, ISharedDownloadTask>();
 const globalDownloadWaiters: Array<{
     resolve: (release: () => void) => void;
@@ -103,6 +108,7 @@ const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
 
 let runtimeTessdataSeedPromise: Promise<void> | null = null;
 let activeModelDownloads = 0;
+const verifiedModels = new Map<string, IVerifiedModel>();
 
 function getElectronApp(): Pick<App, 'isPackaged' | 'getPath'> | undefined {
     return (electron as {app?: Pick<App, 'isPackaged' | 'getPath'>}).app;
@@ -396,6 +402,24 @@ function getModelPath(baseDir: string, languageCode: string) {
     return join(baseDir, `${languageCode}.traineddata`);
 }
 
+function getFileIdentity(path: string) {
+    try {
+        const stats = statSync(path);
+        if (!stats.isFile()) {
+            return null;
+        }
+        return [
+            stats.dev,
+            stats.ino,
+            stats.size,
+            stats.mtimeMs,
+            stats.ctimeMs,
+        ].join(':');
+    } catch {
+        return null;
+    }
+}
+
 export function validateTraineddataFile(path: string): {
     valid: boolean;
     error?: string;
@@ -485,18 +509,62 @@ export function validateTraineddataFile(path: string): {
 }
 
 async function removeInvalidModelIfPresent(languageCode: string, modelPath: string) {
-    if (!existsSync(modelPath)) {
+    return verifyInstalledLanguageModel(languageCode, modelPath);
+}
+
+async function verifyInstalledLanguageModel(
+    languageCode: string,
+    modelPath: string,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    const validation = validateTraineddataFile(modelPath);
+    if (!validation.valid || !isOcrLanguageModelCode(languageCode)) {
+        verifiedModels.delete(modelPath);
         return false;
     }
 
-    const validation = validateTraineddataFile(modelPath);
-    if (validation.valid) {
+    const identityBeforeHash = getFileIdentity(modelPath);
+    const cached = identityBeforeHash ? verifiedModels.get(modelPath) : undefined;
+    if (cached?.identity === identityBeforeHash && cached.sha256 === OCR_LANGUAGE_MODEL_SHA256[languageCode]) {
         return true;
     }
 
-    log.warn(`Invalid OCR language model ${languageCode} will be replaced: ${validation.error ?? 'unknown validation error'}`);
-    await rm(modelPath, { force: true });
-    return false;
+    const actualSha256 = await hashFileSha256(modelPath, signal);
+    const identityAfterHash = getFileIdentity(modelPath);
+    if (
+        actualSha256 !== OCR_LANGUAGE_MODEL_SHA256[languageCode]
+        || identityBeforeHash === null
+        || identityBeforeHash !== identityAfterHash
+    ) {
+        verifiedModels.delete(modelPath);
+        return false;
+    }
+
+    verifiedModels.set(modelPath, {
+        identity: identityAfterHash,
+        sha256: actualSha256,
+    });
+    return true;
+}
+
+async function publishVerifiedModel(
+    languageCode: string,
+    sourcePath: string,
+    destinationPath: string,
+    temporaryPath: string,
+    signal?: AbortSignal,
+) {
+    await copyFile(sourcePath, temporaryPath);
+    throwIfAborted(signal);
+    if (!await verifyInstalledLanguageModel(languageCode, temporaryPath, signal)) {
+        throw new Error(`OCR language model "${languageCode}" failed SHA-256 verification before publication`);
+    }
+    await rename(temporaryPath, destinationPath);
+    verifiedModels.delete(destinationPath);
+    if (!await verifyInstalledLanguageModel(languageCode, destinationPath, signal)) {
+        throw new Error(`OCR language model "${languageCode}" failed SHA-256 verification after publication`);
+    }
 }
 
 async function seedBundledModels(
@@ -526,19 +594,30 @@ async function seedBundledModels(
         runtimeDir,
         `${TESSDATA_SEED_MARKER_PREFIX}${TESSDATA_BEST_REF}-${bundledRegistryFingerprint}`,
     );
-    if (existsSync(seedMarkerPath)) {
-        return;
-    }
-
     for (const fileName of bundledFiles) {
-        const sourcePath = join(bundledDir, fileName);
-        const destinationPath = join(runtimeDir, fileName);
-        const sourceValidation = validateTraineddataFile(sourcePath);
-        if (!sourceValidation.valid) {
-            log.warn(`Skipping invalid bundled OCR language model ${fileName}: ${sourceValidation.error ?? 'unknown validation error'}`);
+        const languageCode = fileName.slice(0, -'.traineddata'.length);
+        if (!isOcrLanguageModelCode(languageCode)) {
+            log.warn(`Skipping unsupported bundled OCR language model ${fileName}`);
             continue;
         }
-        await copyFile(sourcePath, destinationPath);
+        const sourcePath = join(bundledDir, fileName);
+        const destinationPath = join(runtimeDir, fileName);
+        if (!await verifyInstalledLanguageModel(languageCode, sourcePath)) {
+            log.warn(`Skipping invalid bundled OCR language model ${fileName}`);
+            continue;
+        }
+        if (await verifyInstalledLanguageModel(languageCode, destinationPath)) {
+            continue;
+        }
+        const stagingPath = `${destinationPath}.seed-${randomUUID()}`;
+        try {
+            await publishVerifiedModel(languageCode, sourcePath, destinationPath, stagingPath);
+        } finally {
+            await rm(stagingPath, { force: true }).catch(() => {});
+        }
+    }
+    if (existsSync(seedMarkerPath)) {
+        return;
     }
     const pendingSeedMarkerPath = `${seedMarkerPath}.${randomUUID()}.tmp`;
     await writeFile(pendingSeedMarkerPath, JSON.stringify({
@@ -729,6 +808,16 @@ async function downloadLanguageModelAttempt(
         }
         const downloadedSize = statSync(tempPath).size;
         await rename(tempPath, modelPath);
+        verifiedModels.delete(modelPath);
+        if (!await verifyInstalledLanguageModel(languageCode, modelPath, signal)) {
+            throw new LanguageModelDownloadError(
+                `OCR language model "${languageCode}" failed SHA-256 verification after publication.`,
+                {
+                    retryable: false,
+                    code: 'CHECKSUM_MISMATCH',
+                },
+            );
+        }
         return downloadedSize;
     } catch (err) {
         if (signal?.aborted) {
@@ -819,9 +908,8 @@ async function restoreBundledLanguageModel(
     }
 
     const bundledPath = getModelPath(getBundledTessdataDir(), languageCode);
-    const sourceValidation = validateTraineddataFile(bundledPath);
-    if (!sourceValidation.valid) {
-        log.warn(`Bundled OCR language model ${languageCode} is unavailable for offline restore: ${sourceValidation.error ?? 'unknown validation error'}`);
+    if (!await verifyInstalledLanguageModel(languageCode, bundledPath, options.signal)) {
+        log.warn(`Bundled OCR language model ${languageCode} is unavailable for offline restore`);
         return false;
     }
 
@@ -830,22 +918,7 @@ async function restoreBundledLanguageModel(
     try {
         throwIfAborted(options.signal);
         await mkdir(runtimeDir, {recursive: true});
-        await copyFile(bundledPath, stagingPath);
-        throwIfAborted(options.signal);
-
-        const stagedValidation = validateTraineddataFile(stagingPath);
-        if (!stagedValidation.valid) {
-            log.warn(`Bundled OCR language model ${languageCode} failed staged restore validation: ${stagedValidation.error ?? 'unknown validation error'}`);
-            return false;
-        }
-
-        await rename(stagingPath, modelPath);
-        const installedValidation = validateTraineddataFile(modelPath);
-        if (!installedValidation.valid) {
-            log.warn(`Bundled OCR language model ${languageCode} failed final restore validation: ${installedValidation.error ?? 'unknown validation error'}`);
-            await rm(modelPath, {force: true});
-            return false;
-        }
+        await publishVerifiedModel(languageCode, bundledPath, modelPath, stagingPath, options.signal);
         log.info(`Restored OCR language model ${languageCode} from the packaged bundle`);
         return true;
     } catch (error) {
@@ -879,10 +952,6 @@ async function ensureLanguageModel(
     runtimeDir: string,
     options: IEnsureTessdataLanguagesOptions = {},
 ) {
-    if (await removeInvalidModelIfPresent(languageCode, getModelPath(runtimeDir, languageCode))) {
-        return;
-    }
-
     throwIfAborted(options.signal);
     const waiterId = Symbol(languageCode);
     const pending = inFlightDownloads.get(languageCode);
@@ -904,8 +973,12 @@ async function ensureLanguageModel(
     task.promise = (async () => {
         let releaseSlot: (() => void) | null = null;
         try {
+            const modelPath = getModelPath(runtimeDir, languageCode);
+            if (await verifyInstalledLanguageModel(languageCode, modelPath, task.controller.signal)) {
+                return;
+            }
             const restored = await restoreBundledLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
-            if (!restored) {
+            if (!restored && !await verifyInstalledLanguageModel(languageCode, modelPath, task.controller.signal)) {
                 releaseSlot = await acquireGlobalModelDownloadSlot(task.controller.signal);
                 await downloadLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
             }
@@ -1019,12 +1092,12 @@ export async function ensureTessdataLanguages(
 export async function getOcrLanguageModelStates() {
     await ensureRuntimeTessdataSeeded();
     const runtimeDir = getRuntimeTessdataDir();
-    return Array.from(AVAILABLE_OCR_LANGUAGE_CODES, languageCode => ({
+    return Promise.all(Array.from(AVAILABLE_OCR_LANGUAGE_CODES, async languageCode => ({
         code: languageCode,
         state: inFlightDownloads.has(languageCode)
             ? 'downloading' as const
-            : validateTraineddataFile(getModelPath(runtimeDir, languageCode)).valid
+            : await verifyInstalledLanguageModel(languageCode, getModelPath(runtimeDir, languageCode))
                 ? 'installed' as const
                 : 'missing' as const,
-    }));
+    })));
 }

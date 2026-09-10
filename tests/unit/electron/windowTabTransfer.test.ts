@@ -128,6 +128,80 @@ describe('WindowTabTransferBroker', () => {
         } satisfies Partial<IWindowTabTransferResult>);
     });
 
+    it('keeps a PDF snapshot transfer provisional until the target ACK commits it', async () => {
+        const targetWindow = createWindow(22);
+        windowsById.set(targetWindow.id, targetWindow);
+        const prepare = vi.fn(() => true);
+        const commit = vi.fn(() => true);
+        const revoke = vi.fn();
+        broker = new WindowTabTransferBroker({
+            createTargetWindow,
+            getWindowById,
+            setTimer: (callback, ms) => setTimeout(callback, ms),
+            clearTimer: handle => clearTimeout(handle),
+            preparePdfSnapshotTransfer: prepare,
+            commitPdfSnapshotTransfer: commit,
+            revokePdfSnapshotTransfer: revoke,
+        });
+        broker.markWindowReady(targetWindow.id);
+
+        const transferPromise = broker.requestTransfer(11, {
+            ...createTransferRequest(targetWindow.id),
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'demo.pdf',
+                originalPath: requireDocumentRef('/tmp/demo.pdf'),
+                snapshotPath: requireDocumentRef('/tmp/demo-snapshot.pdf'),
+                isDirty: true,
+            },
+        });
+        await flushTransferTasks();
+        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+
+        expect(prepare).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id);
+        broker.acknowledgeTransfer(targetWindow.id, {
+            transferId: sentPayload.transferId,
+            success: true,
+        });
+        await expect(transferPromise).resolves.toMatchObject({success: true});
+        expect(commit).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id);
+        expect(revoke).not.toHaveBeenCalled();
+    });
+
+    it('revokes provisional PDF snapshot access when the target rejects the transfer', async () => {
+        const targetWindow = createWindow(23);
+        windowsById.set(targetWindow.id, targetWindow);
+        const prepare = vi.fn(() => true);
+        const revoke = vi.fn();
+        broker = new WindowTabTransferBroker({
+            createTargetWindow,
+            getWindowById,
+            setTimer: (callback, ms) => setTimeout(callback, ms),
+            clearTimer: handle => clearTimeout(handle),
+            preparePdfSnapshotTransfer: prepare,
+            revokePdfSnapshotTransfer: revoke,
+        });
+        broker.markWindowReady(targetWindow.id);
+        const transferPromise = broker.requestTransfer(12, {
+            ...createTransferRequest(targetWindow.id),
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'demo.pdf',
+                originalPath: requireDocumentRef('/tmp/demo.pdf'),
+                snapshotPath: requireDocumentRef('/tmp/demo-snapshot.pdf'),
+                isDirty: true,
+            },
+        });
+        await flushTransferTasks();
+        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        broker.acknowledgeTransfer(targetWindow.id, {
+            transferId: sentPayload.transferId,
+            success: false,
+        });
+        await expect(transferPromise).resolves.toMatchObject({success: false});
+        expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 12, targetWindow.id);
+    });
+
     it('queues delivery until target window is marked ready', async () => {
         const targetWindow = createWindow(3);
         windowsById.set(targetWindow.id, targetWindow);

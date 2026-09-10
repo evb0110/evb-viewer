@@ -221,16 +221,72 @@ describe('buildSearchIndex cancellation', () => {
     it('keeps extractor failures retryable instead of padding and persisting an empty index', async () => {
         const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
         const extractorError = new Error('page 2 extractor failed');
-        mocks.extractTextWithPdfjs.mockRejectedValue(new Error('pdfjs unavailable'));
+        const onPageIndexed = vi.fn();
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'page one',
+            });
+            throw new Error('page 2 pdfjs extraction failed');
+        });
         mocks.extractTextFromPdf.mockRejectedValue(extractorError);
 
         await expect(buildSearchIndex('/tmp/file.pdf', [], {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 2,
+            onPageIndexed,
         })).rejects.toBe(extractorError);
 
         expect(mocks.writeFile).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(onPageIndexed).not.toHaveBeenCalled();
+
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'page one',
+            });
+            options.onPageText?.({
+                pageNumber: 2,
+                text: 'page two retry token',
+            });
+        });
+
+        const retry = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+            onPageIndexed,
+        });
+
+        expect(retry.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'page one',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'page two retry token',
+            }),
+        ]);
+        const persistedPayload = mocks.writeFile.mock.calls.at(-1)?.[1];
+        expect(JSON.parse(String(persistedPayload)).pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'page one',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'page two retry token',
+            }),
+        ]);
+        expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
+            pageNumber: 1,
+            text: 'page one',
+        }));
+        expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
+            pageNumber: 2,
+            text: 'page two retry token',
+        }));
     });
 
     it('short-circuits missing coverage before scanning a huge page count', async () => {

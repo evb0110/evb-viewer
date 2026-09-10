@@ -31,6 +31,7 @@ import {
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import {createWheelFlipGate} from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
+import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
     canScrollWithinPageBounds,
     resolveWheelDirection,
@@ -112,6 +113,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     const metricHydrator = createLatestWinsPdfMetricHydrator(async page => (
         await options.ensurePageMetricsInRange?.(page, page) ?? false
     ));
+    let getGeometryAnchorPage = () => options.currentPage.value;
 
     function refreshGeometry() {
         const container = options.viewerContainer.value;
@@ -124,7 +126,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         geometry = createPdfViewportGeometryFromLayout(metrics, {
             width: container.clientWidth,
             height: container.clientHeight,
-        }, geometryRevision);
+        }, geometryRevision, options.getPhysicalScrollOrigin?.()
+            ?? getLayoutPhysicalScrollOrigin(metrics, getGeometryAnchorPage()));
         return geometry;
     }
 
@@ -394,6 +397,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
         clearDemand: intentId => resolvedTargets.delete(intentId),
     });
+    getGeometryAnchorPage = () => (
+        viewportAuthority.pendingTargetPage.value
+        ?? retainedNavigationAnchorPage.value
+        ?? options.currentPage.value
+    );
     options.bindCurrentPageProjection?.(viewportAuthority.currentPage);
 
     function requestFor(page: number, scrollOptions?: IScrollToPageOptions) {
@@ -852,7 +860,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ? createPdfViewportGeometryFromLayout(layout, {
                 width: container.clientWidth,
                 height: container.clientHeight,
-            }, options.getGeometryRevision())
+            }, options.getGeometryRevision(), getLayoutPhysicalScrollOrigin(
+                layout,
+                options.currentPage.value,
+            ))
             : null;
         const page = toPageNumber(clamp(Math.trunc(pageNumber), 1, pageCount()));
         const expected = snapshot

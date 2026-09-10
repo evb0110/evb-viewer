@@ -80,7 +80,7 @@ describe('privacy localization', () => {
 
             expect(messages.hero.title, locale).not.toBe(PRIVACY_MESSAGES.en.hero.title);
             expect(messages.documents.body, locale).not.toBe(PRIVACY_MESSAGES.en.documents.body);
-            expect(messages.contact.linkLabel, locale).not.toBe(PRIVACY_MESSAGES.en.contact.linkLabel);
+            expect(messages.contact.body, locale).not.toBe(PRIVACY_MESSAGES.en.contact.body);
         }
     });
 
@@ -99,7 +99,18 @@ describe('privacy localization', () => {
             expect(diagnostics.body, locale).toMatch(/Sentry/iu);
             expect(diagnostics.body, locale).toMatch(/90/iu);
             expect(diagnostics.body, locale).toMatch(/Nitro/iu);
+
+            expect(PRIVACY_MESSAGES[locale].contact.body, locale).toMatch(/Error ID|Fehler-ID/iu);
+            expect(PRIVACY_MESSAGES[locale].contact.body, locale).not.toMatch(
+                /github|issue|tracker|seguimiento|suivi|tracciamento|rastreador|трекер/iu,
+            );
+            expect(diagnostics.body, locale).not.toMatch(
+                /issue|tracker|seguimiento|suivi|tracciamento|rastreador|трекер/iu,
+            );
         }
+
+        expect(rootPrivacyPageSource).not.toContain('github.com/evb0110/evb-viewer/issues');
+        expect(landingPrivacyPageSource).not.toContain('github.com/evb0110/evb-viewer/issues');
     });
 
     it('keeps the privacy tree out of Nuxt locale compilation', () => {

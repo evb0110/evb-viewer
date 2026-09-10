@@ -224,7 +224,7 @@ export function registerCoreIpcHandlers(
                     error: 'Source window is not available.',
                 };
             }
-            return requestWindowTabTransfer(sourceWindow.id, request);
+            return requestWindowTabTransfer(sourceWindow.id, request, sender.id);
         },
         acknowledgeWindowTabTransfer: ({sender}, ack) => {
             const window = BrowserWindow.fromWebContents(sender);

@@ -159,7 +159,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             provider: IAgentAssistantState['status']['providers'][number],
         ) => provider.id === selectedProvider.value);
         if (providerStatus) {
-            return speedModesForProviderStatus(providerStatus);
+            return speedModesForProviderStatus(providerStatus, selectedModel.value);
         }
         const speedModes = status.value.availableSpeedModes;
         return speedModes.length > 0 ? [...speedModes] : [...ASSISTANT_SPEED_MODES];
@@ -718,6 +718,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         );
         selectedProvider.value = nextProvider;
         selectedModel.value = nextModel;
+        const providerStatus = status.value.providers.find(provider => provider.id === selectedProvider.value);
+        const speedModes = providerStatus
+            ? speedModesForProviderStatus(providerStatus, nextModel)
+            : ASSISTANT_SPEED_MODES;
+        if (!speedModes.includes(selectedSpeedMode.value)) {
+            selectedSpeedMode.value = speedModes[0] ?? 'standard';
+        }
         hasLocalModelSelection.value = true;
         selectedEffort.value = providerDefaultEffort(status.value.providers, nextProvider);
         hasLocalEffortSelection.value = false;
@@ -748,6 +755,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
         selectedModel.value = nextModel;
+        const providerStatus = status.value.providers.find(provider => provider.id === selectedProvider.value);
+        const speedModes = providerStatus
+            ? speedModesForProviderStatus(providerStatus, nextModel)
+            : ASSISTANT_SPEED_MODES;
+        if (!speedModes.includes(selectedSpeedMode.value)) {
+            selectedSpeedMode.value = speedModes[0] ?? 'standard';
+        }
         hasLocalModelSelection.value = true;
         persistAssistantSelection(assistantSelectionStorage, selectedProvider.value, nextModel);
         applyOptimisticSelection(selectedProvider.value, nextModel, selectedEffort.value, selectedSpeedMode.value, true);

@@ -40,6 +40,9 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
         assertTagAbsentFn: async (tag: string) => {
             events.push(`tag:${tag}`);
         },
+        assertVersionNotBehindAncestorFn: () => {
+            events.push('ancestor-version');
+        },
         events,
         findCiRunFn: () => ({
             conclusion: 'success',
@@ -91,6 +94,7 @@ describe('cut-release', () => {
             'github',
             'clean',
             'tip',
+            'ancestor-version',
             `wait:${HEAD_SHA}`,
             'draft:v0.1.445',
             'tag:v0.1.446',

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+
 import {readFileSync} from 'node:fs';
 import { resolve } from 'node:path';
 import {
@@ -37,19 +39,22 @@ const mocks = vi.hoisted(() => ({
     } as Record<string, string>,
 }));
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
-    key: string,
-    params?: Record<string, string>,
-) => {
-    const message = mocks.translations[key] ?? key;
-    return Object.entries(params ?? {}).reduce(
-        (translated, [
-            name,
-            value,
-        ]) => translated.replace(`{${name}}`, value),
-        message,
-    );
-}})}));
+vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    useTypedI18n: () => ({t: (
+        key: string,
+        params?: Record<string, string>,
+    ) => {
+        const message = mocks.translations[key] ?? key;
+        return Object.entries(params ?? {}).reduce(
+            (translated, [
+                name,
+                value,
+            ]) => translated.replace(`{${name}}`, value),
+            message,
+        );
+    }}),
+}));
 vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isDesktopRuntime: {get value() { return mocks.desktopRuntime; }}})}));
 vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => ({openExternal: mocks.openExternal})}));
 

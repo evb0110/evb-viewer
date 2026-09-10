@@ -1,3 +1,6 @@
+import type * as TViMockOriginalModule from '@app/utils/pdfPrintShared';
+import type * as TViMockOriginalModule2 from '@app/utils/platformDocuments';
+
 import {
     afterEach,
     beforeEach,
@@ -89,7 +92,8 @@ vi.mock('@app/utils/pdfPrint', () => ({
     waitForPrintPaint: waitForPrintPaintMock,
 }));
 
-vi.mock('@app/utils/pdfPrintShared', () => ({
+vi.mock('@app/utils/pdfPrintShared', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
     buildBrowserPrintFrameMarkup: buildBrowserPrintFrameMarkupMock,
     normalizePrintPageNumbers: (pageNumbers: number[] | undefined, totalPages: number) => {
         if (!pageNumbers?.length) {
@@ -102,7 +106,8 @@ vi.mock('@app/utils/pdfPrintShared', () => ({
     },
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
+vi.mock('@app/utils/platformDocuments', async (importOriginal_1) => ({
+    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     getDocumentPdfCapability: () => documentsCapabilityMock,
     isNativePrintCapabilityUnavailable: (result: {
         success: boolean;

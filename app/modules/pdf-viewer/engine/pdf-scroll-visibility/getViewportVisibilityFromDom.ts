@@ -126,11 +126,15 @@ export function getViewportVisibilityFromLayout(
     container: HTMLElement,
     totalPages: number,
     metrics: IPdfPageLayoutMetrics | null,
+    physicalScrollOrigin = 0,
 ): IViewportVisibilityResult | null {
     if (!metrics || metrics.base.totalPages !== totalPages) {
         return null;
     }
-    const viewportTop = Math.max(0, container.scrollTop - metrics.paddingTop);
+    const viewportTop = Math.max(
+        0,
+        container.scrollTop + Math.max(0, physicalScrollOrigin) - metrics.paddingTop,
+    );
     const viewportBottom = viewportTop + container.clientHeight;
     const layoutPageCount = Math.min(
         totalPages,

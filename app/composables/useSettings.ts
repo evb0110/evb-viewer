@@ -38,6 +38,7 @@ let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;
 let settingsSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let flushDebouncedSettingsSave: (() => void) | null = null;
 let settingsSaveFlushListener: (() => void) | null = null;
+const pendingSettingsIntent = new Map<keyof ISettingsData, unknown>();
 
 type TSettingsPersistenceFailureCode = 'SETTINGS_LOAD_FAILED' | 'SETTINGS_SAVE_FAILED';
 
@@ -127,6 +128,21 @@ export const useSettings = () => {
         onLoaded(nextSettings) {
             refreshSettingsBootstrapCookieSnapshot();
             rememberSavedSettings(nextSettings);
+            const pendingEntries = [...pendingSettingsIntent.entries()];
+            if (pendingEntries.length > 0) {
+                const mergedSettings = sanitizeSettings({
+                    ...nextSettings,
+                    ...Object.fromEntries(
+                        pendingEntries,
+                    ),
+                });
+                settings.value = mergedSettings;
+                setRendererDiagnosticsPreference(mergedSettings.clientDiagnosticsPreference);
+                settingsLoadFailure.value = null;
+                cancelDebouncedSettingsSave();
+                void getSettingsPersistenceQueue().save();
+                return;
+            }
             setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
             settingsLoadFailure.value = null;
         },
@@ -164,6 +180,11 @@ export const useSettings = () => {
                 rememberSavedSettings(nextSettings);
                 refreshSettingsBootstrapCookieSnapshot();
                 setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
+                for (const key of pendingSettingsIntent.keys()) {
+                    if (settings.value[key] === nextSettings[key]) {
+                        pendingSettingsIntent.delete(key);
+                    }
+                }
                 settingsSaveFailure.value = null;
             },
             onSaveError(error) {
@@ -183,6 +204,9 @@ export const useSettings = () => {
 
     async function save() {
         cancelDebouncedSettingsSave();
+        if (!isLoaded.value) {
+            return true;
+        }
         return getSettingsPersistenceQueue().save();
     }
 
@@ -210,10 +234,10 @@ export const useSettings = () => {
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
-        settings.value = {
-            ...settings.value,
-            [key]: value,
-        };
+        if (!isLoaded.value) {
+            pendingSettingsIntent.set(key, value);
+        }
+        Object.assign(settings.value, {[key]: value});
         if (key === 'clientDiagnosticsPreference') {
             setRendererDiagnosticsPreference(value);
         }

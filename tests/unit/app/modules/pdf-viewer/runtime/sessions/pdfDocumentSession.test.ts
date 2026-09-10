@@ -1381,6 +1381,100 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.pdfDocument.value).toBeNull();
     });
 
+    it('reclaims inactive document caches only after deferred render cancellation settles', async () => {
+        const cancellation = Promise.withResolvers<undefined>();
+        const documentCleanup = vi.fn();
+        const document = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            cleanup: documentCleanup,
+            destroy: vi.fn(),
+        };
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(document),
+            destroy: vi.fn(),
+        });
+        const active = ref(true);
+        const documentState = createPdfDocumentSession({isActive: computed(() => active.value)});
+        const invalidation = vi.fn(() => cancellation.promise);
+        documentState.subscribe(transition => transition.phase === 'invalidated'
+            ? invalidation()
+            : undefined);
+
+        await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
+        active.value = false;
+        await nextTick();
+        await vi.waitFor(() => expect(invalidation).toHaveBeenCalledOnce());
+
+        expect(documentCleanup).not.toHaveBeenCalled();
+        cancellation.resolve(undefined);
+        await vi.waitFor(() => expect(documentCleanup).toHaveBeenCalledOnce());
+    });
+
+    it('does not let deferred inactive cleanup reclaim a reactivated or replaced document', async () => {
+        const cancellation = Promise.withResolvers<undefined>();
+        const firstCleanup = vi.fn();
+        const secondCleanup = vi.fn();
+        const firstDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            cleanup: firstCleanup,
+            destroy: vi.fn(),
+        };
+        const secondDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            cleanup: secondCleanup,
+            destroy: vi.fn(),
+        };
+        pdfjsState.getDocument
+            .mockReturnValueOnce({
+                promise: Promise.resolve(firstDocument),
+                destroy: vi.fn(),
+            })
+            .mockReturnValueOnce({
+                promise: Promise.resolve(secondDocument),
+                destroy: vi.fn(),
+            });
+        const active = ref(true);
+        const documentState = createPdfDocumentSession({isActive: computed(() => active.value)});
+        const invalidation = vi.fn(() => cancellation.promise);
+        documentState.subscribe(transition => transition.phase === 'invalidated'
+            ? invalidation()
+            : undefined);
+
+        await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
+        active.value = false;
+        await nextTick();
+        await vi.waitFor(() => expect(invalidation).toHaveBeenCalledOnce());
+        active.value = true;
+        await nextTick();
+        await documentState.loadPdf(new Blob([Uint8Array.of(2)]));
+        cancellation.resolve(undefined);
+        await Promise.resolve();
+
+        expect(firstCleanup).not.toHaveBeenCalled();
+        expect(secondCleanup).not.toHaveBeenCalled();
+    });
+
     it('destroys the PDF.js loading task and aborts range transport when document parsing fails', async () => {
         const destroy = vi.fn(() => Promise.resolve());
         pdfjsState.getDocument.mockReturnValue({

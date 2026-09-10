@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     beforeEach,
     describe,
@@ -23,7 +25,10 @@ const files = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => files}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => files,
+}));
 
 describe('scan cleanup source SHA-256 bridge', () => {
     beforeEach(() => {

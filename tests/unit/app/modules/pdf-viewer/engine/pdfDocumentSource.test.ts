@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+
 import {
     afterEach,
     beforeEach,
@@ -50,7 +52,10 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
 }));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: mocks.browserLogger}));
 vi.mock('@app/utils/pdfRenderTrace', () => ({logPdfRenderTrace: mocks.logPdfRenderTrace}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => mocks.documentFiles}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    getDocumentFilesCapability: () => mocks.documentFiles,
+}));
 
 interface IMockTask {
     destroy: ReturnType<typeof vi.fn>;
@@ -241,5 +246,40 @@ describe('createPdfjsDocumentSourceLoader', () => {
             requestedStart,
             requestedEnd - requestedStart,
         );
+    });
+
+    it('keeps the loading task available for a range failure after initial loading', async () => {
+        const rangeError = new Error('range read failed after initial loading');
+        const task = {
+            destroy: vi.fn(async () => {}),
+            promise: Promise.resolve({numPages: 2}),
+        };
+        mocks.getDocument.mockReturnValue(task);
+        mocks.documentFiles.readFileRange.mockImplementationOnce(async (
+            _path: string,
+            _offset: number,
+            length: number,
+        ) => new Uint8Array(length));
+        mocks.documentFiles.readFileRange.mockRejectedValueOnce(rangeError);
+
+        let loader!: ReturnType<typeof createPdfjsDocumentSourceLoader>;
+        loader = createPdfjsDocumentSourceLoader({
+            getRenderVersion: () => 1,
+            onRangeReadFailure: () => {
+                loader.destroyLoadingTask(
+                    'test range failure cleanup rejected',
+                    'test range failure cleanup failed',
+                );
+            },
+        });
+
+        await expect(loader.open(createPathSource('/tmp/range-failure.pdf'), 1)).resolves.toEqual({numPages: 2});
+
+        const options = mocks.getDocument.mock.calls[0]?.[0] as IPdfjsDocumentOptions;
+        options.range?.requestDataRange?.(CHUNK_BYTES, CHUNK_BYTES * 2);
+        await vi.waitFor(() => expect(task.destroy).toHaveBeenCalledOnce());
+        await pdfjsDocumentTeardownCoordinator.waitForIdle('');
+
+        expect(task.destroy).toHaveBeenCalledOnce();
     });
 });

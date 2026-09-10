@@ -216,7 +216,7 @@ describe('CodexAppServerClient stdin handling', () => {
         expect(snapshotMainOperations()).toEqual([]);
     });
 
-    it('releases lifecycle accounting when process-tree termination is unconfirmed', async () => {
+    it('retains lifecycle accounting until a later shutdown proves tree termination', async () => {
         const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
@@ -230,6 +230,11 @@ describe('CodexAppServerClient stdin handling', () => {
 
         await expect(client.shutdown()).rejects.toThrow('process tree did not terminate cleanly');
 
+        expect(snapshotMainOperations()).toEqual([expect.objectContaining({kind: 'resource-cleanup'})]);
+
+        await client.shutdown();
+
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(2);
         expect(snapshotMainOperations()).toEqual([]);
     });
 });

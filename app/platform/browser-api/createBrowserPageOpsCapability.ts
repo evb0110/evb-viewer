@@ -1,5 +1,7 @@
 import type {
+    IPageIdentityDelta,
     IPageOpsMutationOptions,
+    TPageIdentityDeltaPage,
     TPageOpsPageSelection,
 } from '@contracts/electronApiPageOps';
 import type {
@@ -57,6 +59,7 @@ interface ISaveBytesResult {
 interface IStoredPageMutationResult {
     success: true;
     pageCount: number;
+    pageIdentityDelta?: IPageIdentityDelta;
 }
 
 interface ICreateBrowserPageOpsOptions {
@@ -184,6 +187,54 @@ function materializePageSelection(
         return selection;
     }
     return materializePageRanges(selection.ranges, totalPages, operation);
+}
+
+function createDeletePageIdentityDelta(
+    previousPageCount: number,
+    deletedPages: readonly number[],
+): IPageIdentityDelta {
+    const deleted = new Set(deletedPages);
+    const pages: TPageIdentityDeltaPage[] = [];
+    for (let pageNumber = 1; pageNumber <= previousPageCount; pageNumber += 1) {
+        if (!deleted.has(pageNumber)) {
+            pages.push({fromPageNumber: pageNumber});
+        }
+    }
+    return {
+        previousPageCount,
+        pages,
+    };
+}
+
+function createReorderPageIdentityDelta(
+    previousPageCount: number,
+    newOrder: readonly number[],
+): IPageIdentityDelta {
+    return {
+        previousPageCount,
+        pages: newOrder.map(fromPageNumber => ({fromPageNumber})),
+    };
+}
+
+function createInsertPageIdentityDelta(
+    previousPageCount: number,
+    afterPage: number,
+    insertedPageCount: number,
+): IPageIdentityDelta {
+    const pages: TPageIdentityDeltaPage[] = [];
+    for (let pageNumber = 1; pageNumber <= afterPage; pageNumber += 1) {
+        pages.push({fromPageNumber: pageNumber});
+    }
+    for (let index = 0; index < insertedPageCount; index += 1) {
+        pages.push({insertedId: globalThis.crypto.randomUUID()});
+    }
+    for (let pageNumber = afterPage + 1; pageNumber <= previousPageCount; pageNumber += 1) {
+        pages.push({fromPageNumber: pageNumber});
+    }
+    return {
+        previousPageCount,
+        pages,
+    };
 }
 
 export function createBrowserPageOpsCapability(
@@ -360,7 +411,12 @@ export function createBrowserPageOpsCapability(
         data: Uint8Array,
         pageCount: number,
         mutationOptions: IPageOpsMutationOptions | undefined,
+        label: string,
+        pageIdentityDelta?: IPageIdentityDelta,
     ): Promise<IStoredPageMutationResult> {
+        if (data.byteLength > BROWSER_PAGE_OP_PDF_MAX_BYTES) {
+            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_PDF_MAX_BYTES);
+        }
         if (mutationOptions === undefined) {
             await browserDocumentStore.write(workingCopyPath, data);
         } else {
@@ -370,6 +426,7 @@ export function createBrowserPageOpsCapability(
         return {
             success: true,
             pageCount,
+            ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
         };
     }
 
@@ -396,6 +453,8 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Deleting pages',
+                    createDeletePageIdentityDelta(_totalPages, selectedPages),
                 );
             });
         },
@@ -502,6 +561,8 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Reordering pages',
+                    createReorderPageIdentityDelta(newOrder.length, newOrder),
                 );
             });
         },
@@ -545,7 +606,7 @@ export function createBrowserPageOpsCapability(
                 mutationOptions,
             );
         },
-        async insert(workingCopyPath, _totalPages, afterPage, mutationOptions) {
+        async insert(workingCopyPath, totalPages, afterPage, mutationOptions) {
             const pickedFiles = await options.pickFiles({
                 accept: options.openInputAccept,
                 multiple: true,
@@ -572,7 +633,7 @@ export function createBrowserPageOpsCapability(
             try {
                 return await pageOps.insertFile(
                     workingCopyPath,
-                    0,
+                    totalPages,
                     afterPage,
                     sourcePaths,
                     undefined,
@@ -664,6 +725,12 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Inserting pages',
+                    createInsertPageIdentityDelta(
+                        _totalPages,
+                        afterPage,
+                        result.pageCount - _totalPages,
+                    ),
                 );
             });
         },
@@ -690,6 +757,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Rotating pages',
                 );
             });
         },
@@ -717,6 +785,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Cropping pages',
                 );
             });
         },
@@ -742,6 +811,7 @@ export function createBrowserPageOpsCapability(
                     result.data,
                     result.pageCount,
                     mutationOptions,
+                    'Removing page crops',
                 );
             });
         },

@@ -1,3 +1,5 @@
+import type * as TViMockOriginalModule from '@electron/features/diagnostics/public';
+
 import {
     afterEach,
     beforeEach,
@@ -26,7 +28,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/menu', () => ({updateRecentFilesMenu: mocks.updateRecentFilesMenu}));
-vi.mock('@electron/features/diagnostics/public', () => ({setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference}));
+vi.mock('@electron/features/diagnostics/public', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule>()),
+    setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference,
+}));
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
     recordMainDiagnosticsConsentIntent: mocks.recordMainDiagnosticsConsentIntent,

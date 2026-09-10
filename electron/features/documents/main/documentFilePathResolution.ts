@@ -19,6 +19,7 @@ import {
     findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
+    hasWorkingCopyTransferAccess,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedDjvuViewingPath } from '@electron/features/djvu/public';
 import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
@@ -116,7 +117,8 @@ function isReadablePathAllowedForSender(path: string, senderId?: number) {
         return false;
     }
     const owner = getWorkingCopyOwnerWebContentsId(path);
-    return owner === undefined || owner === senderId;
+    return owner === undefined || owner === senderId
+        || (typeof senderId === 'number' && hasWorkingCopyTransferAccess(path, senderId));
 }
 
 export async function resolveReadablePath(

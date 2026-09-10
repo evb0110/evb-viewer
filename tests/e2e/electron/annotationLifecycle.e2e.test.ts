@@ -2578,7 +2578,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(savedNotes.filter(note => note.replyTo !== null)).toHaveLength(0);
     }, 90_000);
 
-    it('saves a persisted note edit twice without creating a hidden text box', async () => {
+    it('persists a restored note after undo before saving a second note', async () => {
         const session = sessionFixture.getSession();
         if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
@@ -2591,16 +2591,33 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             x: 0.72,
             y: 0.24,
         });
+        await waitForActiveTabDirtyState(page, true);
         await saveViaVisibleToolbar(page, 30_000);
         await waitForActiveTabDirtyState(page, false);
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
         await editCanonicalNoteText(page, 'First note draft', 'Second note draft');
+        await waitForActiveTabDirtyState(page, true);
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForActiveTabDirtyState(page, false);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await clickEnabledToolbarAction(page, 'Undo');
+        await waitForSidebarAnnotationText(page, 'First note draft');
+        await waitForActiveTabDirtyState(page, true);
+        await createStickyNoteWithPointer(page, 'Second note after undo', {
+            x: 0.38,
+            y: 0.46,
+        });
+        await waitForActiveTabDirtyState(page, true);
         await saveViaVisibleToolbar(page, 30_000);
         await waitForActiveTabDirtyState(page, false);
         expect(await getFreeTextEditorCount(page)).toBe(0);
         const records = await readPdfTextAnnotationRecords(fixturePath);
-        expect(records.filter(record => record.subtype === '/Text')).toEqual([expect.objectContaining({contents: 'Second note draft'})]);
+        expect(records.filter(record => record.subtype === '/Text').map(record => record.contents).sort()).toEqual([
+            'First note draft',
+            'Second note after undo',
+        ]);
         expect(records.filter(record => record.subtype === '/FreeText')).toHaveLength(0);
         const reopenPath = preserveFixtureAcrossRestart(fixturePath);
         const restarted = await sessionFixture.restart({hard: true});
@@ -2608,8 +2625,21 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openPdfInApp(restarted.page, reopenPath);
         await waitForPdfLoaded(restarted.page);
         await openAnnotationsTab(restarted.page);
-        await waitForSidebarAnnotationText(restarted.page, 'Second note draft');
-        expect(await readCanonicalNoteSnapshots(restarted.page)).toHaveLength(1);
+        await waitForSidebarAnnotationText(restarted.page, 'First note draft');
+        await waitForSidebarAnnotationText(restarted.page, 'Second note after undo');
+        const reopenedNotes = await readCanonicalNoteSnapshots(restarted.page);
+        expect(reopenedNotes.map(note => note.text).sort()).toEqual([
+            'First note draft',
+            'Second note after undo',
+        ]);
+        expect(new Set(reopenedNotes.map(note => note.stableKey)).size).toBe(2);
+        expect((await readPdfTextAnnotationRecords(reopenPath))
+            .filter(record => record.subtype === '/Text')
+            .map(record => record.contents)
+            .sort()).toEqual([
+            'First note draft',
+            'Second note after undo',
+        ]);
     }, 120_000);
 
     it('undoes a note created after a pointer highlight without removing that highlight', async () => {

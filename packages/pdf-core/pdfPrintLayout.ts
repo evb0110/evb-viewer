@@ -1,7 +1,17 @@
 import {
     degrees,
+    PDFArray,
     PDFDocument,
+    PDFDict,
     PDFName,
+    PDFNumber,
+    PDFStream,
+    concatTransformationMatrix,
+    drawObject,
+    popGraphicsState,
+    pushGraphicsState,
+    rectangle,
+    clip,
 } from 'pdf-lib';
 import type {
     PDFEmbeddedPage,
@@ -110,6 +120,184 @@ export function normalizePrintPageNumbers(
 function resolvePdfLibPageViewBox(page: PDFPage): IPdfPageBox {
     const mediaBox = resolvePdfLibMediaBox(page);
     return resolvePdfLibCropBox(page, mediaBox) ?? mediaBox;
+}
+
+function resolvePdfNumber(value: PDFNumber | undefined, fallback: number) {
+    return value?.asNumber() ?? fallback;
+}
+
+function resolveAppearanceStream(
+    annotation: PDFDict,
+    context: PDFDocument['context'],
+) {
+    const appearance = annotation.lookupMaybe(PDFName.of('AP'), PDFDict);
+    const normalAppearance = appearance?.lookup(PDFName.of('N'));
+
+    if (normalAppearance instanceof PDFStream) {
+        return normalAppearance;
+    }
+
+    if (!(normalAppearance instanceof PDFDict)) {
+        return undefined;
+    }
+
+    const state = annotation.lookupMaybe(PDFName.of('AS'), PDFName);
+    if (state) {
+        const stateAppearance = normalAppearance.lookup(state);
+        if (stateAppearance instanceof PDFStream) {
+            return stateAppearance;
+        }
+
+        return undefined;
+    }
+
+    return normalAppearance.values()
+        .map(value => context.lookupMaybe(value, PDFStream))
+        .find((value): value is PDFStream => value !== undefined);
+}
+
+function flattenPrintableAnnotationAppearances(
+    sourcePdf: PDFDocument,
+    pageNumbers: number[],
+) {
+    const flagsName = PDFName.of('F');
+    const annotsName = PDFName.of('Annots');
+    const bboxName = PDFName.of('BBox');
+    const matrixName = PDFName.of('Matrix');
+
+    for (const pageNumber of pageNumbers) {
+        const page = sourcePdf.getPage(pageNumber - 1);
+        const visibleBox = resolvePdfLibPageViewBox(page);
+        const annotations = page.node.Annots();
+        if (!annotations) {
+            continue;
+        }
+
+        for (let index = 0; index < annotations.size(); index += 1) {
+            const annotation = annotations.lookup(index, PDFDict);
+            const flags = annotation.lookupMaybe(flagsName, PDFNumber)?.asNumber() ?? 0;
+            const isPrintable = (flags & 4) !== 0 && (flags & (1 | 2)) === 0;
+            if (!isPrintable) {
+                continue;
+            }
+
+            const appearance = resolveAppearanceStream(annotation, sourcePdf.context);
+            if (!appearance) {
+                throw new Error(`Printable annotation on page ${pageNumber} has no normal appearance`);
+            }
+
+            const bboxArray = appearance.dict.lookupMaybe(bboxName, PDFArray);
+            const bboxValues = bboxArray
+                ? [
+                    0,
+                    1,
+                    2,
+                    3,
+                ].map(index => bboxArray.lookupMaybe(index, PDFNumber))
+                : [];
+            if (bboxValues.length !== 4 || bboxValues.some(value => !value)) {
+                throw new Error(`Printable annotation on page ${pageNumber} has an invalid appearance BBox`);
+            }
+
+            const rect = annotation.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asRectangle();
+            if (!rect) {
+                throw new Error(`Printable annotation on page ${pageNumber} has an invalid Rect`);
+            }
+            const bboxLeft = bboxValues[0]!.asNumber();
+            const bboxBottom = bboxValues[1]!.asNumber();
+            const bboxRight = bboxValues[2]!.asNumber();
+            const bboxTop = bboxValues[3]!.asNumber();
+            const matrixArray = appearance.dict.lookupMaybe(matrixName, PDFArray);
+            const matrixValues = matrixArray
+                ? [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                ].map(index => matrixArray.lookupMaybe(index, PDFNumber))
+                : [];
+            const matrix = [
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ].map((fallback, matrixIndex) => resolvePdfNumber(matrixValues[matrixIndex], fallback));
+            const a = matrix[0]!;
+            const b = matrix[1]!;
+            const c = matrix[2]!;
+            const d = matrix[3]!;
+            const e = matrix[4]!;
+            const f = matrix[5]!;
+            const appearanceCorners: Array<[number, number]> = [
+                [
+                    bboxLeft,
+                    bboxBottom,
+                ],
+                [
+                    bboxLeft,
+                    bboxTop,
+                ],
+                [
+                    bboxRight,
+                    bboxBottom,
+                ],
+                [
+                    bboxRight,
+                    bboxTop,
+                ],
+            ];
+            const transformedCorners = appearanceCorners.map(([
+                x,
+                y,
+            ]): [number, number] => [
+                a * x + c * y + e,
+                b * x + d * y + f,
+            ]);
+            const transformedLeft = Math.min(...transformedCorners.map(([x]) => x));
+            const transformedBottom = Math.min(...transformedCorners.map(([
+                , y,
+            ]) => y));
+            const transformedRight = Math.max(...transformedCorners.map(([x]) => x));
+            const transformedTop = Math.max(...transformedCorners.map(([
+                , y,
+            ]) => y));
+            const transformedWidth = transformedRight - transformedLeft;
+            const transformedHeight = transformedTop - transformedBottom;
+            if (!(transformedWidth > 0) || !(transformedHeight > 0)) {
+                throw new Error(`Printable annotation on page ${pageNumber} has a degenerate appearance BBox`);
+            }
+
+            const appearanceKey = page.node.newXObjectKey('PrintAnnot');
+            const appearanceRef = sourcePdf.context.getObjectRef(appearance) ?? sourcePdf.context.register(appearance);
+            page.node.setXObject(appearanceKey, appearanceRef);
+            page.pushOperators(
+                pushGraphicsState(),
+                rectangle(
+                    rect.x - visibleBox.x,
+                    rect.y - visibleBox.y,
+                    rect.width,
+                    rect.height,
+                ),
+                clip(),
+                concatTransformationMatrix(
+                    rect.width / transformedWidth * a,
+                    rect.width / transformedWidth * b,
+                    rect.height / transformedHeight * c,
+                    rect.height / transformedHeight * d,
+                    rect.x - visibleBox.x + rect.width / transformedWidth * (e - transformedLeft),
+                    rect.y - visibleBox.y + rect.height / transformedHeight * (f - transformedBottom),
+                ),
+                drawObject(appearanceKey),
+                popGraphicsState(),
+            );
+        }
+
+        page.node.delete(annotsName);
+    }
 }
 
 function toPageBoundingBox(box: IPdfPageBox): PageBoundingBox {
@@ -524,6 +712,8 @@ export async function buildPrintablePdfData(
     if (normalizedPageNumbers.length === 0) {
         return null;
     }
+
+    flattenPrintableAnnotationAppearances(sourcePdf, normalizedPageNumbers);
 
     if (options.viewMode === 'single') {
         const targetPdf = await PDFDocument.create();
