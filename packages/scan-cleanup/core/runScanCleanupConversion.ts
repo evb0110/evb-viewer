@@ -741,6 +741,90 @@ function validatePdfImagePlacement(
     return values;
 }
 
+const SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS = 0.001;
+
+function resolveSourceMrcReuseRejection(
+    page: IPdfPageSize,
+    detectedRaster: IDetectedPageRaster | undefined,
+): string | undefined {
+    const samePoints = (left: number | undefined, right: number | undefined) =>
+        left !== undefined
+        && right !== undefined
+        && Number.isFinite(left)
+        && Number.isFinite(right)
+        && Math.abs(left - right) <= SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS;
+    const hasMediaGeometry = page.mediaXPoints !== undefined
+        && page.mediaYPoints !== undefined
+        && page.mediaWidthPoints !== undefined
+        && page.mediaHeightPoints !== undefined;
+    const hasCropGeometry = page.cropXPoints !== undefined
+        && page.cropYPoints !== undefined
+        && page.cropWidthPoints !== undefined
+        && page.cropHeightPoints !== undefined;
+    if (page.rotation % 360 !== 0) {
+        return 'source page rotation is not zero';
+    }
+    if (page.xPoints !== 0 || page.yPoints !== 0) {
+        return 'source page origin is not zero';
+    }
+    if (!hasMediaGeometry || !samePoints(page.mediaXPoints, 0) || !samePoints(page.mediaYPoints, 0)) {
+        return 'source MediaBox geometry is unavailable or offset';
+    }
+    if (
+        !samePoints(page.mediaWidthPoints, page.widthPoints)
+        || !samePoints(page.mediaHeightPoints, page.heightPoints)
+    ) {
+        return 'source MediaBox does not match the displayed page';
+    }
+    if (hasCropGeometry && (
+        !samePoints(page.cropXPoints, page.xPoints)
+        || !samePoints(page.cropYPoints, page.yPoints)
+        || !samePoints(page.cropWidthPoints, page.widthPoints)
+        || !samePoints(page.cropHeightPoints, page.heightPoints)
+    )) {
+        return 'source CropBox does not match the displayed page';
+    }
+    if (
+        detectedRaster?.width === undefined
+        || detectedRaster.height === undefined
+        || detectedRaster.width <= 0
+        || detectedRaster.height <= 0
+        || detectedRaster.dpi <= 0
+        || !samePoints(detectedRaster.width / detectedRaster.dpi * 72, page.widthPoints)
+        || !samePoints(detectedRaster.height / detectedRaster.dpi * 72, page.heightPoints)
+    ) {
+        return 'dominant source image placement is not proven';
+    }
+    if (
+        !samePoints(page.dominantImageWidthPoints, page.widthPoints)
+        || !samePoints(page.dominantImageHeightPoints, page.heightPoints)
+        || page.dominantImageWidthPx === undefined
+        || page.dominantImageHeightPx === undefined
+        || page.dominantImageWidthPx <= 0
+        || page.dominantImageHeightPx <= 0
+    ) {
+        return 'dominant source image placement is not proven';
+    }
+    return undefined;
+}
+
+function resolveSourceMrcLayerRejection(
+    page: IPdfPageSize,
+    layers: IPdfMrcLayers,
+): string | undefined {
+    const widthPoints = layers.foregroundWidth / layers.foregroundDpi * 72;
+    const heightPoints = layers.foregroundHeight / layers.foregroundDpi * 72;
+    if (
+        !Number.isFinite(widthPoints)
+        || !Number.isFinite(heightPoints)
+        || Math.abs(widthPoints - page.widthPoints) > SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS
+        || Math.abs(heightPoints - page.heightPoints) > SOURCE_MRC_GEOMETRY_TOLERANCE_POINTS
+    ) {
+        return 'extracted foreground dimensions do not match the displayed page';
+    }
+    return undefined;
+}
+
 type TResolvedPagePlan = ReturnType<ReturnType<typeof createPagePlanResolver>['resolve']>;
 
 function buildConversionPageMetadata({
@@ -2065,6 +2149,7 @@ export async function runScanCleanupConversion(
             height: number
         }
         const guardrailByPage = new Map<number, IScanCleanupGuardrail>();
+        const pageGeometryByNumber = new Map<number, IPdfPageSize>();
         const readPageGeometry = async (pageNumber: number) => {
             if (pageSizes !== null) {
                 const page = pageSizes[pageNumber - 1];
@@ -2086,6 +2171,7 @@ export async function runScanCleanupConversion(
             const detected = detectedRasterByPage.get(pageNumber);
             const sourceDpi = resolvePageSourceDpi(pageNumber);
             const page = await readPageGeometry(pageNumber);
+            pageGeometryByNumber.set(pageNumber, page);
             let guardrail = resolveScanCleanupDocumentGuardrail(detected, sourceDpi, page);
             if (guardrail === undefined && requiresBilevelQuality(pageNumber)) {
                 signal.throwIfAborted();
@@ -2321,6 +2407,18 @@ export async function runScanCleanupConversion(
                 request.options.pageOverrides,
                 requirePageNumber(plan.pageNumber),
             );
+            const geometryRejection = resolveSourceMrcReuseRejection(
+                pageGeometryByNumber.get(plan.pageNumber)!,
+                detectedRasterByPage.get(plan.pageNumber),
+            );
+            if (geometryRejection !== undefined) {
+                log(
+                    'debug',
+                    `Page ${String(plan.pageNumber)} will use raster reconstruction; `
+                    + `source MRC reuse is not proven (${geometryRejection})`,
+                );
+                return false;
+            }
             return shouldExtractTrustedMrcForeground(
                 request.options.outputMode,
                 pageOverride.outputModeOverride,
@@ -2367,7 +2465,19 @@ export async function runScanCleanupConversion(
                         pageNumber,
                         layer,
                     ] of layers) {
-                        trustedMrcLayersByPage.set(pageNumber, layer);
+                        const geometryRejection = resolveSourceMrcLayerRejection(
+                            pageGeometryByNumber.get(pageNumber)!,
+                            layer,
+                        );
+                        if (geometryRejection === undefined) {
+                            trustedMrcLayersByPage.set(pageNumber, layer);
+                        } else {
+                            log(
+                                'debug',
+                                `Page ${String(pageNumber)} will use raster reconstruction; `
+                                + `source MRC reuse is not proven (${geometryRejection})`,
+                            );
+                        }
                     }
                 } catch (error) {
                     signal.throwIfAborted();
@@ -2408,7 +2518,19 @@ export async function runScanCleanupConversion(
                                 signal,
                             });
                             if (layers !== null) {
-                                trustedMrcLayersByPage.set(plan.pageNumber, layers);
+                                const geometryRejection = resolveSourceMrcLayerRejection(
+                                    pageGeometryByNumber.get(plan.pageNumber)!,
+                                    layers,
+                                );
+                                if (geometryRejection === undefined) {
+                                    trustedMrcLayersByPage.set(plan.pageNumber, layers);
+                                } else {
+                                    log(
+                                        'debug',
+                                        `Page ${String(plan.pageNumber)} will use raster reconstruction; `
+                                        + `source MRC reuse is not proven (${geometryRejection})`,
+                                    );
+                                }
                             }
                         } catch (error) {
                             warn(

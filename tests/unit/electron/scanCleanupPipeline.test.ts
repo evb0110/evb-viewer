@@ -3244,7 +3244,19 @@ describe('scan cleanup pipeline', () => {
                 widthPoints: 240,
                 heightPoints: 336,
                 rotation: 0,
+                mediaXPoints: 0,
+                mediaYPoints: 0,
+                mediaWidthPoints: 240,
+                mediaHeightPoints: 336,
+                cropXPoints: 0,
+                cropYPoints: 0,
+                cropWidthPoints: 240,
+                cropHeightPoints: 336,
                 sourceDpi: 300,
+                dominantImageWidthPx: 1_000,
+                dominantImageHeightPx: 1_400,
+                dominantImageWidthPoints: 240,
+                dominantImageHeightPoints: 336,
             }},
         }, {
             ...pipelinePaths(fixture.dir),
@@ -3271,6 +3283,196 @@ describe('scan cleanup pipeline', () => {
             0,
         ]);
         expect(record[13]).toBe('default');
+    });
+
+    it.each([
+        [
+            'rotated source page',
+            {rotation: 90},
+            {},
+            {},
+            0,
+        ],
+        [
+            'shifted dominant image placement',
+            {dominantImageWidthPoints: 200},
+            {},
+            {},
+            0,
+        ],
+        [
+            'nonzero source page origin',
+            {xPoints: 12},
+            {},
+            {},
+            0,
+        ],
+        [
+            'mismatched MediaBox',
+            {mediaWidthPoints: 250},
+            {},
+            {},
+            0,
+        ],
+        [
+            'mismatched CropBox',
+            {cropWidthPoints: 200},
+            {},
+            {},
+            0,
+        ],
+        [
+            'mismatched detected raster dimensions',
+            {},
+            {},
+            {width: 900},
+            0,
+        ],
+        [
+            'mismatched extracted foreground dimensions',
+            {},
+            {foregroundWidth: 1_900},
+            {},
+            1,
+        ],
+    ] as const)('falls back to raster reconstruction when MRC geometry is not proven for %s', async (
+        _label,
+        pageChanges,
+        layerChanges,
+        detectedChanges,
+        expectedExtractionCalls,
+    ) => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
+            async (_binary, manifestPath) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                    pageMetadataPath: string;
+                    outputs: ICleanupOutput[];
+                }>;};
+                const page = manifest.pages[0]!;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    false,
+                    false,
+                    300,
+                    false,
+                    true,
+                    true,
+                    'mixed',
+                );
+            },
+        );
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 300,
+            pageDpiByNumber: new Map([[
+                1,
+                300,
+            ]]),
+            pageRasterByNumber: new Map([[
+                1,
+                {
+                    dpi: 300,
+                    width: 1_000,
+                    height: 1_400,
+                    hasBilevelLayer: true,
+                    backgroundDpi: 100,
+                    ...detectedChanges,
+                },
+            ]]),
+        }));
+        pipelineDependencies.extractMrcLayersBatch = vi.fn(async input => {
+            const layers = new Map();
+            for (const target of input.targets) {
+                await Promise.all([
+                    writeFile(target.backgroundOutputPath, PNG),
+                    writeFile(target.foregroundOutputPath, 'JP2-SOURCE'),
+                    writeFile(target.selectionMaskOutputPath, PNG),
+                ]);
+                layers.set(target.pageNumber, {
+                    backgroundDpi: 100,
+                    backgroundPath: target.backgroundOutputPath,
+                    foregroundDpi: 600,
+                    foregroundHeight: 2_800,
+                    foregroundPath: target.foregroundOutputPath,
+                    foregroundWidth: 2_000,
+                    selectionMaskDecode: 'default',
+                    selectionMaskPath: target.selectionMaskOutputPath,
+                    ...layerChanges,
+                });
+            }
+            return layers;
+        });
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            const manifestIndex = args.indexOf('--compact-manifest');
+            if (manifestIndex !== -1) {
+                combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
+            }
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                outputMode: 'auto',
+                matchPageSize: false,
+            },
+            outputModeRecommendations: {'1': 'mixed'},
+            sourcePageMetadataByPage: {'1': {
+                pageNumber: requirePageNumber(1),
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 240,
+                heightPoints: 336,
+                rotation: 0,
+                mediaXPoints: 0,
+                mediaYPoints: 0,
+                mediaWidthPoints: 240,
+                mediaHeightPoints: 336,
+                cropXPoints: 0,
+                cropYPoints: 0,
+                cropWidthPoints: 240,
+                cropHeightPoints: 336,
+                sourceDpi: 300,
+                dominantImageWidthPx: 1_000,
+                dominantImageHeightPx: 1_400,
+                dominantImageWidthPoints: 240,
+                dominantImageHeightPoints: 336,
+                ...pageChanges,
+            }},
+        }, {
+            ...pipelinePaths(fixture.dir),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        expect(pipelineDependencies.extractMrcLayersBatch).toHaveBeenCalledTimes(expectedExtractionCalls);
+        expect(combineManifest).toContain('layered-jpeg\t240.000000\t336.000000');
+        expect(combineManifest).not.toContain('affine-masked-layered-jpeg');
     });
 
     // The geometry preflight builds a manifest of placeholder paths. It must
