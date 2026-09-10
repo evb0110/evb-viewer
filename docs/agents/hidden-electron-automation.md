@@ -12,6 +12,17 @@ enough because packaged and stale automation apps can use the same identity.
 development target. Use it only when the task explicitly covers packaged or
 release behavior. Keep that scope separate from source and dev-app acceptance.
 
+The display name `Electron`, bundle ID `com.github.Electron`, and foreground
+window are not target identifiers. Never pass them to Computer Use. Pass only
+the full app path reported for the resolved session. Use that app binding for
+visual state and accessibility checks, then use the session CDP endpoint for
+clicks, typing, key presses, menu traversal, and loops. If the resolver is not
+ready, or the accessibility result shows more than the target window, stop and
+report the ambiguous session instead of choosing a visible Electron window.
+If the resolver reports only the shared `node_modules` Electron runtime path,
+Computer Use has no safe target; use the session CDP endpoint without opening an
+app by name.
+
 On the user's Mac, all agent-owned Electron runs must start without a window,
 focus change, or Dock icon. This includes packaged smoke tests and ad hoc CDP
 probes. `app.dock.hide()` and `app.setActivationPolicy('accessory')` run after
