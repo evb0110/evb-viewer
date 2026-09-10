@@ -30,8 +30,8 @@ that works in this repository, including orchestrators that drive other agents.
   current agent user, keeps the target. It never deletes branches,
   the primary checkout, dirty trees, or the tree containing the current directory.
   A target whose directory is already missing follows a separate stale-registration
-  path. It remains registered when Git cannot provide a narrowly scoped,
-  metadata-only removal, rather than risking deletion of a reappeared directory.
+  path. Git's non-force `worktree remove <path>` removes only that proven-stale
+  registration. If the target reappears during revalidation, the script retains it.
 - Worktrees created outside the checkout, such as
   `/home/ubuntu/agent-worktrees/<key>`, follow the same lifecycle. The creator
   records the task owner and removes the worktree after completion with the
