@@ -454,6 +454,18 @@ interface IBrowserDjvuRenderTask {
 
 const progressListeners = new Set<(progress: IDjvuProgress) => void>();
 const activeJobs = new Map<string, IDjvuJobRecord>();
+const reservedJobs = new Set<string>();
+const preCanceledJobs = new Set<string>();
+
+export function reserveBrowserDjvuConversion(jobId: string) {
+    if (!activeJobs.has(jobId)) {
+        activeJobs.set(jobId, {
+            workers: new Set(),
+            abortController: new AbortController(),
+        });
+        reservedJobs.add(jobId);
+    }
+}
 
 function emitProgress(progress: IDjvuProgress) {
     progressListeners.forEach((listener) => {
@@ -462,7 +474,16 @@ function emitProgress(progress: IDjvuProgress) {
 }
 
 function createDjvuJob(jobId: string, worker: IDjvuWorker | null = null) {
+    const existing = activeJobs.get(jobId);
+    if (existing) {
+        reservedJobs.delete(jobId);
+        if (worker) existing.workers.add(worker);
+        return existing.abortController;
+    }
     const abortController = new AbortController();
+    if (preCanceledJobs.delete(jobId)) {
+        abortController.abort();
+    }
     activeJobs.set(jobId, {
         workers: worker ? new Set([worker]) : new Set(),
         abortController,
@@ -484,6 +505,7 @@ function attachDjvuJobWorker(jobId: string, worker: IDjvuWorker) {
 }
 
 function cleanupDjvuJob(jobId: string) {
+    reservedJobs.delete(jobId);
     const job = activeJobs.get(jobId);
     if (!job) {
         return;
@@ -1102,6 +1124,9 @@ export function cancelBrowserDjvuConversion(jobId: string) {
         return { canceled: false };
     }
 
+    if (reservedJobs.has(jobId)) {
+        preCanceledJobs.add(jobId);
+    }
     job.abortController.abort();
     cleanupDjvuJob(jobId);
     return { canceled: true };
