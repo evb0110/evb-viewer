@@ -1,0 +1,21 @@
+tests/unit/electron/documentRevisionStore.test.ts
+  s_ac4df4f6cc1294::t_84f78e9dde657d 1048-1049
+electron/file-access/documentRevisionStore.ts
+  s_ac4df4f6cc1294::t_84f78e9dde657d 550,552-553
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fcfb4be1810a942d652cf661011f2c028651f44e",
+  "prompts": {},
+  "sessions": {
+    "s_ac4df4f6cc1294": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ba3-be5b-7073-aed6-94fb28e548c5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
