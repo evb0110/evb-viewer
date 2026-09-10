@@ -109,13 +109,19 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
 
         let (width, height) = decoder.dimensions()?;
         assert_pixel_limit(width, height, max_pixels)?;
+        let orientation = read_tiff_orientation(&mut decoder);
         let dpi = read_tiff_dpi(&mut decoder)
             .or(default_dpi)
             .unwrap_or(DEFAULT_DPI);
         let color_type = decoder.colortype()?;
         let decoded = decoder.read_image()?;
         on_page(build_tiff_pdf_page(
-            width, height, dpi, color_type, decoded,
+            width,
+            height,
+            dpi,
+            color_type,
+            orientation,
+            decoded,
         )?)?;
         page_count += 1;
 
@@ -137,6 +143,7 @@ fn build_tiff_pdf_page(
     height: u32,
     dpi: u32,
     color_type: TiffColorType,
+    orientation: u16,
     decoded: DecodingResult,
 ) -> Result<ImagePage> {
     let pixels = match decoded {
@@ -161,14 +168,17 @@ fn build_tiff_pdf_page(
         return Err("Decoded TIFF payload length does not match image dimensions".into());
     }
 
-    let bytes_per_row = width as usize * colors as usize;
-    let compressed = deflate_up_filtered_slices(&pixels, bytes_per_row, height as usize)?;
-    let decode_params =
-        format!("<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {width} >>");
+    let (oriented_width, oriented_height, pixels) =
+        orient_tiff_pixels(pixels, width, height, colors as usize, orientation)?;
+    let bytes_per_row = oriented_width as usize * colors as usize;
+    let compressed = deflate_up_filtered_slices(&pixels, bytes_per_row, oriented_height as usize)?;
+    let decode_params = format!(
+        "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {oriented_width} >>"
+    );
 
     Ok(ImagePage {
-        width,
-        height,
+        width: oriented_width,
+        height: oriented_height,
         dpi_x: dpi,
         dpi_y: dpi,
         color_space,
@@ -178,6 +188,54 @@ fn build_tiff_pdf_page(
             decode_params,
         },
     })
+}
+
+fn read_tiff_orientation<R: Read + Seek>(decoder: &mut Decoder<R>) -> u16 {
+    decoder
+        .find_tag_unsigned::<u16>(Tag::Orientation)
+        .ok()
+        .flatten()
+        .filter(|orientation| (1..=8).contains(orientation))
+        .unwrap_or(1)
+}
+
+fn orient_tiff_pixels(
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+    channels: usize,
+    orientation: u16,
+) -> Result<(u32, u32, Vec<u8>)> {
+    if orientation == 1 {
+        return Ok((width, height, pixels));
+    }
+    let swaps_axes = matches!(orientation, 5..=8);
+    let oriented_width = if swaps_axes { height } else { width };
+    let oriented_height = if swaps_axes { width } else { height };
+    let output_len = (oriented_width as usize)
+        .checked_mul(oriented_height as usize)
+        .and_then(|value| value.checked_mul(channels))
+        .ok_or("TIFF orientation output is too large")?;
+    let mut oriented = vec![0; output_len];
+    for y in 0..oriented_height as usize {
+        for x in 0..oriented_width as usize {
+            let (source_x, source_y) = match orientation {
+                2 => (width as usize - 1 - x, y),
+                3 => (width as usize - 1 - x, height as usize - 1 - y),
+                4 => (x, height as usize - 1 - y),
+                5 => (y, x),
+                6 => (y, height as usize - 1 - x),
+                7 => (width as usize - 1 - y, height as usize - 1 - x),
+                8 => (width as usize - 1 - y, x),
+                _ => (x, y),
+            };
+            let source_offset = (source_y * width as usize + source_x) * channels;
+            let target_offset = (y * oriented_width as usize + x) * channels;
+            oriented[target_offset..target_offset + channels]
+                .copy_from_slice(&pixels[source_offset..source_offset + channels]);
+        }
+    }
+    Ok((oriented_width, oriented_height, oriented))
 }
 
 fn read_tiff_dpi<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<u32> {
@@ -407,6 +465,30 @@ mod tests {
     };
 
     #[test]
+    fn applies_all_tiff_orientation_transforms() {
+        let expected = [
+            (1, 3, 2, vec![1, 2, 3, 4, 5, 6]),
+            (2, 3, 2, vec![3, 2, 1, 6, 5, 4]),
+            (3, 3, 2, vec![6, 5, 4, 3, 2, 1]),
+            (4, 3, 2, vec![4, 5, 6, 1, 2, 3]),
+            (5, 2, 3, vec![1, 4, 2, 5, 3, 6]),
+            (6, 2, 3, vec![4, 1, 5, 2, 6, 3]),
+            (7, 2, 3, vec![6, 3, 5, 2, 4, 1]),
+            (8, 2, 3, vec![3, 6, 2, 5, 1, 4]),
+        ];
+
+        for (orientation, expected_width, expected_height, expected_pixels) in expected {
+            let (oriented_width, oriented_height, pixels) =
+                orient_tiff_pixels((1..=6).collect(), 3, 2, 1, orientation).unwrap();
+            assert_eq!(
+                (oriented_width, oriented_height),
+                (expected_width, expected_height)
+            );
+            assert_eq!(pixels, expected_pixels, "orientation {orientation}");
+        }
+    }
+
+    #[test]
     fn reads_tiff_pages_for_pdf_with_resolution() {
         let input_path = temp_tiff_path("pdf-input");
         write_rgb_tiff(&input_path, 2, 1, &[255, 0, 0, 0, 255, 0], 300);
@@ -439,6 +521,22 @@ mod tests {
         }
 
         let _ = fs::remove_file(input_path);
+    }
+
+    #[test]
+    fn applies_tiff_orientation_before_building_pdf_page() {
+        let page = build_tiff_pdf_page(
+            2,
+            1,
+            300,
+            TiffColorType::RGB(8),
+            6,
+            DecodingResult::U8(vec![255, 0, 0, 0, 255, 0]),
+        )
+        .unwrap();
+
+        assert_eq!((page.width, page.height), (1, 2));
+        assert_eq!((page.dpi_x, page.dpi_y), (300, 300));
     }
 
     #[test]
