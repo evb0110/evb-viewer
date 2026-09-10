@@ -38,6 +38,13 @@ export interface IDjvuArtifactRange {
     error?: string | undefined;
 }
 
+export interface IDjvuSourceIdentity {
+    sourceSha256: string;
+    size: number;
+    mtimeMs: number;
+    ctimeMs: number;
+}
+
 interface IDjvuArtifactManifest {
     version: 2;
     fingerprint: string;
@@ -52,6 +59,7 @@ export interface IDjvuArtifactJob {
     directory: string;
     manifestPath: string;
     manifest: IDjvuArtifactManifest;
+    sourceIdentity: IDjvuSourceIdentity;
     maxTotalBytes: number;
     close(): Promise<void>;
     cleanup?(): Promise<void>;
@@ -217,12 +225,59 @@ export async function createDjvuDiskQuotaMonitor(options: {
     };
 }
 
-async function sha256File(path: string) {
+async function sha256File(path: string, signal?: AbortSignal) {
     const hash = createHash('sha256');
-    for await (const chunk of createReadStream(path)) {
-        hash.update(chunk as Buffer);
+    const stream = createReadStream(path, signal ? {signal} : undefined);
+    try {
+        for await (const chunk of stream) {
+            hash.update(chunk as Buffer);
+        }
+    } finally {
+        stream.destroy();
     }
     return hash.digest('hex');
+}
+
+function sourceStatsMatch(
+    left: Pick<IDjvuSourceIdentity, 'size' | 'mtimeMs' | 'ctimeMs'>,
+    right: Pick<IDjvuSourceIdentity, 'size' | 'mtimeMs' | 'ctimeMs'>,
+) {
+    return left.size === right.size
+        && left.mtimeMs === right.mtimeMs
+        && left.ctimeMs === right.ctimeMs;
+}
+
+export async function assertDjvuSourceIdentity(
+    sourcePath: string,
+    identity: IDjvuSourceIdentity,
+    signal?: AbortSignal,
+) {
+    signal?.throwIfAborted();
+    const source = await stat(sourcePath);
+    if (!sourceStatsMatch(identity, source)) {
+        throw new Error('DjVu source changed while a checkpoint export was in progress');
+    }
+}
+
+export async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const sourceBeforeHash = await stat(sourcePath);
+    const sourceSha256 = await sha256File(sourcePath, signal);
+    const source = await stat(sourcePath);
+    const identity = {
+        sourceSha256,
+        size: source.size,
+        mtimeMs: source.mtimeMs,
+        ctimeMs: source.ctimeMs,
+    } satisfies IDjvuSourceIdentity;
+    if (!sourceStatsMatch({
+        size: sourceBeforeHash.size,
+        mtimeMs: sourceBeforeHash.mtimeMs,
+        ctimeMs: sourceBeforeHash.ctimeMs,
+    }, identity)) {
+        throw new Error('DjVu source changed while its resume fingerprint was being computed');
+    }
+    return identity;
 }
 
 async function acquireFingerprintLock(fingerprint: string) {
@@ -349,18 +404,14 @@ export async function openDjvuArtifactJob(
         qualityPreset?: string;
         outputExtension?: '.pdf' | '.json';
         maxTotalBytesForTests?: number;
+        signal?: AbortSignal;
+        sourceIdentity?: IDjvuSourceIdentity;
     },
 ): Promise<IDjvuArtifactJob> {
-    const sourceBeforeHash = await stat(sourcePath);
-    const sourceSha256 = await sha256File(sourcePath);
-    const source = await stat(sourcePath);
-    if (
-        source.size !== sourceBeforeHash.size
-        || source.mtimeMs !== sourceBeforeHash.mtimeMs
-        || source.ctimeMs !== sourceBeforeHash.ctimeMs
-    ) {
-        throw new Error('DjVu source changed while its resume fingerprint was being computed');
-    }
+    const sourceIdentity = options.sourceIdentity
+        ?? await captureDjvuSourceIdentity(sourcePath, options.signal);
+    await assertDjvuSourceIdentity(sourcePath, sourceIdentity, options.signal);
+    const sourceSha256 = sourceIdentity.sourceSha256;
     const fingerprint = createHash('sha256')
         .update(`${sourcePath}\0${sourceSha256}\0${options.subsample ?? 1}\0${options.artifactKind ?? 'pdf-range'}\0${options.qualityPreset ?? ''}\0`)
         .update(JSON.stringify(pageRanges))
@@ -416,7 +467,7 @@ export async function openDjvuArtifactJob(
                 if (range.status === 'verified') {
                     const artifact = await stat(range.outputPath).catch(() => null);
                     const digest = artifact && artifact.size > 0 && artifact.size === range.size && range.sha256
-                        ? await sha256File(range.outputPath).catch(() => null)
+                        ? await sha256File(range.outputPath, options.signal).catch(() => null)
                         : null;
                     if (!artifact || artifact.size !== range.size || artifact.size <= 0 || digest !== range.sha256) {
                         range.status = 'pending';
@@ -446,6 +497,7 @@ export async function openDjvuArtifactJob(
             directory,
             manifestPath,
             manifest,
+            sourceIdentity,
             maxTotalBytes,
             close,
             async cleanup() {

@@ -50,7 +50,11 @@ import {
     openCompactDjvuCheckpointJob,
     type ICheckpointedCompactPageSpec as ICompactPageSpec,
 } from '@electron/features/djvu/main/compactDjvuCheckpoint';
-import { createDjvuDiskQuotaMonitor } from '@electron/features/djvu/main/djvuArtifactManifest';
+import {
+    assertDjvuSourceIdentity,
+    createDjvuDiskQuotaMonitor,
+    type IDjvuSourceIdentity,
+} from '@electron/features/djvu/main/djvuArtifactManifest';
 import {
     createPdfCombineOutputTooLargeError,
     isPdfCombineOutputTooLargeError,
@@ -235,6 +239,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         let layeredColorCount = 0;
         let bitonalCount = 0;
         let photoCount = 0;
+        let sourceIdentity: IDjvuSourceIdentity | undefined;
         let lastProgress = 0;
         const emitProgress = (percent: number) => {
             const nextProgress = Math.max(lastProgress, Math.min(PROGRESS_COMBINE_CAP, percent));
@@ -255,7 +260,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 options.djvuPath,
                 [...pages],
                 options.qualityPreset,
+                options.signal,
+                sourceIdentity,
             );
+            sourceIdentity ??= checkpointJob.sourceIdentity;
             try {
                 await appendFile(batchDirectoriesPath, `${checkpointJob.directory}\n`, 'utf8');
             } catch (error) {
@@ -336,6 +344,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         fidelityWriter = null;
         emitProgress(PROGRESS_COMBINE_START);
         throwIfAborted(options.signal);
+        if (!sourceIdentity) {
+            throw new Error('Compact DjVu export did not establish source identity');
+        }
+        await assertDjvuSourceIdentity(options.djvuPath, sourceIdentity, options.signal);
         logger.info(
             `[${options.jobId}] Compact DjVu PDF manifest ready: ${bitonalCount} bitonal, ${layeredCount} layered, ${layeredColorCount} layered-color, ${photoCount} photo page(s)`,
         );

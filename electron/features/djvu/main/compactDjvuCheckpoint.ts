@@ -13,6 +13,7 @@ import {
     resolve,
 } from 'node:path';
 import {
+    type IDjvuSourceIdentity,
     openDjvuArtifactJob,
     type IDjvuArtifactJob,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
@@ -39,7 +40,13 @@ interface ICheckpointedCompactPageEnvelope {
     artifacts: ICheckpointedCompactArtifact[];
 }
 
-export function openCompactDjvuCheckpointJob(sourcePath: string, pages: number[], preset?: TDjvuCompactFidelityPreset) {
+export function openCompactDjvuCheckpointJob(
+    sourcePath: string,
+    pages: number[],
+    preset?: TDjvuCompactFidelityPreset,
+    signal?: AbortSignal,
+    sourceIdentity?: IDjvuSourceIdentity,
+) {
     return openDjvuArtifactJob(sourcePath, pages.map(page => ({
         startPage: page,
         endPage: page,
@@ -47,6 +54,8 @@ export function openCompactDjvuCheckpointJob(sourcePath: string, pages: number[]
         artifactKind: 'compact-page',
         qualityPreset: preset ?? 'balanced',
         outputExtension: '.json',
+        ...(signal ? {signal} : {}),
+        ...(sourceIdentity ? {sourceIdentity} : {}),
     });
 }
 
