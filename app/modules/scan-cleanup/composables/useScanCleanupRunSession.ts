@@ -600,10 +600,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             const pagePlanEvidenceMissing = hasAuthoritativeDetectionStore
                 ? false
                 : requestedPageNumbers === null
-                ? detectionEvidenceComplete === undefined
-                    ? pagePlanEvidence.size < runPageCount.value
-                    : !detectionEvidenceComplete
-                : requestedPageNumbers.some(pageNumber => !pagePlanEvidence.has(pageNumber));
+                    ? detectionEvidenceComplete === undefined
+                        ? pagePlanEvidence.size < runPageCount.value
+                        : !detectionEvidenceComplete
+                    : requestedPageNumbers.some(pageNumber => !pagePlanEvidence.has(pageNumber));
             if (pagePlanEvidenceMissing) {
                 reportScanCleanupRunError(
                     options.ownerId,

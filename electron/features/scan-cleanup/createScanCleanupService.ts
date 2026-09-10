@@ -75,6 +75,7 @@ import {
 } from '@contracts/shared';
 import {
     attachScanCleanupPageOverrideDefaults,
+    getScanCleanupPageOverride,
     usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
 import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
@@ -83,12 +84,11 @@ import {
     removeScanCleanupDetectionResultStoreDescriptor,
     type IScanCleanupDetectionResultStoreDescriptor,
 } from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
-import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/detectionSignature';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
 } from '@contracts/scan-cleanup/outputModeGuards';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 interface IScanCleanupJobResult {
@@ -358,7 +358,7 @@ async function admitScanCleanupDetectionStore(
         return;
     }
     let expectedPageNumber = 1;
-    await store.forEachChunk(async results => {
+    await store.forEachChunk(results => {
         for (const result of results) {
             validateScanCleanupDetectionRecord(result, expectedPageNumber);
             const override = pageOverride(expectedPageNumber);

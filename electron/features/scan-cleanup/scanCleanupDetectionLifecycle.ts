@@ -42,7 +42,7 @@ import type {
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createLogger} from '@electron/utils/createLogger';
-import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/detectionSignature';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 
 const logger = createLogger('scan-cleanup-detection');
 function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {

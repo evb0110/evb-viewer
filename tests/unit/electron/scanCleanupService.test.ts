@@ -38,7 +38,7 @@ import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@elec
 import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {registerScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
-import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/detectionSignature';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     beginMainOperationShutdown,
     resetMainOperationLifecycleForTests,
