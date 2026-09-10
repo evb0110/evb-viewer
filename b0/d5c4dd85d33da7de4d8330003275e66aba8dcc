@@ -1,0 +1,21 @@
+app/platform/browser/browserWorkspaceRecoveryStore.ts
+  s_22fda97843b3ad::t_de48546e96a327 294
+tests/unit/app/platform/browserWorkspaceRecoveryStore.test.ts
+  s_22fda97843b3ad::t_1ed51fd9210b7e 235-262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0d5c4dd85d33da7de4d8330003275e66aba8dcc",
+  "prompts": {},
+  "sessions": {
+    "s_22fda97843b3ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08aa7-3206-75d0-95be-5bfe11a92979",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
