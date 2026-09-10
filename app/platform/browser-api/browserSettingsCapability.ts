@@ -313,9 +313,9 @@ export const browserSettingsCapability: ISettingsCapability = {
             }
             if (
                 diagnosticsSaveRevision === diagnosticsPreferenceRevision
-                && nextSettings.clientDiagnosticsPreference === 'granted'
+                && nextDiagnosticsPreference === 'granted'
             ) {
-                setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
+                setRendererDiagnosticsPreference(nextDiagnosticsPreference);
             }
         }).catch((error: unknown) => {
             if (
