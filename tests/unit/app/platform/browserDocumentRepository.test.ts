@@ -171,6 +171,32 @@ describe('BrowserDocumentStore source registration', () => {
         expect((await store.requireEntry(workingRef)).sourceBaseWitness).toBe(openingWitness);
     });
 
+    it('refreshes a handle-backed source without inventing a new source version after save', async () => {
+        const bytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
+        const file = new File([bytes], 'saved-source.pdf', {
+            type: 'application/pdf',
+            lastModified: 777,
+        });
+        const handle = createFileSystemFileHandle({
+            name: file.name,
+            getFile: vi.fn(async () => file),
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(file, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+
+        await store.replaceWithHandleBackedDocument(sourceRef, {
+            fileSize: bytes.byteLength,
+            saveHandle: handle,
+            saveName: file.name,
+        });
+
+        await expect(store.refreshSourceVersionIfChanged(sourceRef)).resolves.toBe(sourceRef);
+    });
+
     it('rolls back interrupted chunk ingestion before a complete retry', async () => {
         const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         bytes.fill(0x5a);
