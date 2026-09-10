@@ -121,6 +121,7 @@ const logger = createLogger('djvu-pdfExport');
 interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
 const activePdfWorkerByJobId = new Map<TJobId, Worker>();
 const activeNativeJobCancels = new Map<TJobId, (reason: string) => boolean>();
+const activeDjvuJobSettled = new Map<TJobId, Promise<void>>();
 const DJVU_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
 const DJVU_MAX_TERMINAL_RECORDS = 64;
 const djvuProgressReplay = DJVU_PLATFORM_FEATURE.events.onProgress.subscription.replay;
@@ -693,6 +694,10 @@ function startDjvuJob(
             activeNativeJobCancels.delete(options.jobId);
         });
     }
+    activeDjvuJobSettled.set(options.jobId, handle.settled);
+    void handle.settled.finally(() => {
+        activeDjvuJobSettled.delete(options.jobId);
+    });
     return handle;
 }
 
@@ -1436,7 +1441,7 @@ export async function awaitDurableDjvuOpenJob(context: IDjvuOperationContext, jo
     return value;
 }
 
-export function handleDjvuCancel(
+export async function handleDjvuCancel(
     context: IDjvuOperationContext,
     jobId: TJobId,
 ): Promise<{ canceled: boolean }> {
@@ -1448,8 +1453,11 @@ export function handleDjvuCancel(
             ? 'DjVu operation canceled'
             : 'DjVu conversion canceled',
     );
+    if (canceled) {
+        await activeDjvuJobSettled.get(jobId);
+    }
     logger.info(`[${jobId}] Cancel result: ${canceled}`);
-    return Promise.resolve({canceled});
+    return {canceled};
 }
 
 export async function shutdownDjvuConversions() {
@@ -1481,4 +1489,5 @@ export async function shutdownDjvuConversions() {
 export async function clearDjvuJobsForTests() {
     await djvuJobs.clearForTests();
     activeNativeJobCancels.clear();
+    activeDjvuJobSettled.clear();
 }
