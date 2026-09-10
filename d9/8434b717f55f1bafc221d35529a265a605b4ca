@@ -1,0 +1,24 @@
+electron/features/agent/assistantService.ts
+  s_a56de151e4d3b0::t_fd36103e04cbd0 106,706-709,741
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_a56de151e4d3b0::t_5a496c500e61f0 84,472,495-498
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_a56de151e4d3b0::t_ee161d5858ffa1 371,378-405
+  s_a56de151e4d3b0::t_d99de0791bfe19 406-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d98434b717f55f1bafc221d35529a265a605b4ca",
+  "prompts": {},
+  "sessions": {
+    "s_a56de151e4d3b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a088dc-3605-7b91-abf3-d677da0e353b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
