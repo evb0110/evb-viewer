@@ -8,6 +8,7 @@
 - Branch: `t3code/native-pdf-page-image-print`
 - Tested source: `433379503df745c11c4be2301a9755333a24811e`; receipt commit `7632c4a4930a60696c5e01c1e6e7ef0888151c61` remains preserved above it.
 - Task-scoped test correction commit: `24cf22df92b7651c1a7eeb96457b328c2af8c738`.
+- Branch tip: `f4810edde6409dec0d9d238af29487ffc5ba2751`; documentation-only receipt/report commits are not intended for main integration.
 
 ## Verification
 
