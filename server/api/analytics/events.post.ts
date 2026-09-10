@@ -24,8 +24,9 @@ import { readBoundedAnalyticsJsonBody } from '@server/utils/analyticsRequestBody
 import { decodeViewerAnalyticsEventsBody } from '@server/utils/decodeViewerAnalyticsEventsBody';
 import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
 import {captureServerFailure} from '@server/utils/serverFailureReporter';
+import type { TViewerAnalyticsResponse } from '@contracts/analytics';
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<TViewerAnalyticsResponse> => {
     setHeader(event, 'cache-control', 'no-store');
 
     if (!isAnalyticsWriteAllowed(event)) {

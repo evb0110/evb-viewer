@@ -10,6 +10,7 @@ import type {
 } from 'type-fest';
 import {
     ANALYTICS_GEO_LIMITS,
+    isViewerAnalyticsResponse,
     normalizeAnalyticsGeo,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
@@ -22,6 +23,58 @@ describe('analytics payload contract types', () => {
     it('models payload roots and nested values as Type-Fest JSON types', () => {
         expectTypeOf<IAnalyticsEventEnvelope['payload']>().toEqualTypeOf<JsonObject>();
         expectTypeOf<TAnalyticsPayloadValue>().toEqualTypeOf<JsonValue>();
+    });
+});
+
+describe('viewer analytics acknowledgement contract', () => {
+    it.each([
+        [{
+            ok: true,
+            persisted: true,
+            retryable: false,
+            count: 1,
+        }],
+        [{
+            ok: false,
+            persisted: false,
+            retryable: true,
+        }],
+        [{
+            ok: true,
+            persisted: false,
+            retryable: false,
+        }],
+    ])('accepts the complete %s outcome', outcome => {
+        expect(isViewerAnalyticsResponse(outcome)).toBe(true);
+    });
+
+    it.each([
+        [{
+            ok: true,
+            persisted: true,
+            retryable: true,
+            count: 1,
+        }],
+        [{
+            ok: true,
+            persisted: true,
+            retryable: false,
+            count: 0,
+        }],
+        [{
+            ok: true,
+            persisted: true,
+            retryable: false,
+        }],
+        [{
+            ok: true,
+            persisted: false,
+            retryable: true,
+        }],
+        [{persisted: true}],
+        [null],
+    ])('rejects the incomplete or contradictory %s outcome', outcome => {
+        expect(isViewerAnalyticsResponse(outcome)).toBe(false);
     });
 });
 

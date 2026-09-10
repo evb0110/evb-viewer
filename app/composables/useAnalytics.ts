@@ -13,7 +13,10 @@ import {
     safeGetSessionStorageItem,
     safeSetSessionStorageItem,
 } from '@app/utils/browserSafe';
-import { normalizeAnalyticsScalar } from '@contracts/analytics';
+import {
+    isViewerAnalyticsResponse,
+    normalizeAnalyticsScalar,
+} from '@contracts/analytics';
 import { createIsoTimestamp } from '@contracts/timestamps';
 import {
     createSessionId,
@@ -245,22 +248,11 @@ async function postAnalyticsBatch(
         return 'retryable' as const;
     }
 
-    if (
-        response.ok
-        && typeof responseBody === 'object'
-        && responseBody !== null
-        && 'persisted' in responseBody
-        && responseBody.persisted === true
-    ) {
+    if (response.ok && isViewerAnalyticsResponse(responseBody) && responseBody.persisted) {
         return 'persisted' as const;
     }
 
-    if (
-        typeof responseBody === 'object'
-        && responseBody !== null
-        && 'retryable' in responseBody
-        && responseBody.retryable === false
-    ) {
+    if (isViewerAnalyticsResponse(responseBody) && !responseBody.retryable) {
         return 'permanent' as const;
     }
 

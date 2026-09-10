@@ -50,6 +50,48 @@ export interface IAnalyticsEventEnvelope {
     payload: JsonObject;
 }
 
+export type TViewerAnalyticsResponse =
+    | {
+        ok: true;
+        persisted: true;
+        retryable: false;
+        count: number;
+    }
+    | {
+        ok: false;
+        persisted: false;
+        retryable: true;
+    }
+    | {
+        ok: true;
+        persisted: false;
+        retryable: false;
+    };
+
+export function isViewerAnalyticsResponse(value: unknown): value is TViewerAnalyticsResponse {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    if (typeof candidate.ok !== 'boolean'
+        || typeof candidate.persisted !== 'boolean'
+        || typeof candidate.retryable !== 'boolean') {
+        return false;
+    }
+
+    if (candidate.persisted === true) {
+        return candidate.ok === true
+            && candidate.retryable === false
+            && typeof candidate.count === 'number'
+            && Number.isInteger(candidate.count)
+            && candidate.count > 0;
+    }
+
+    return candidate.ok === true && candidate.retryable === false
+        || candidate.ok === false && candidate.retryable === true;
+}
+
 export interface IAnalyticsGeoData {
     country: string | null;
     city: string | null;
