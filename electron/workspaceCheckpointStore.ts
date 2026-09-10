@@ -1476,7 +1476,6 @@ export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
             const journal = await readStoredWorkspaceJournal();
             const stored = journal.records.find(record => record.ownerWebContentsId === ownerWebContentsId);
             if (!stored) {
-                await rm(getStoragePath(), {force: true});
                 return;
             }
             await writeStoredWorkspaceJournal(journal.records.filter(record => (
