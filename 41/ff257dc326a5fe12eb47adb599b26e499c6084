@@ -1,0 +1,51 @@
+packages/scan-cleanup/core/pageBatches.ts
+  s_9c5fb3611b0e08::t_2efabc0d923cc1 33-37
+  s_c63d7a8363f7e9::t_0133f5b06156f3 5
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom.ts
+  s_f6c8b7c82b15a2::t_1c6fba6ca6e690 13-15
+  s_f6c8b7c82b15a2::t_44e58851c272d9 9
+  s_f6c8b7c82b15a2::t_0b50708c4a05fe 2-3
+  s_f6c8b7c82b15a2::t_2dfa1bdb7b9c44 1,25-30,32
+tests/unit/app/composables/pdfSearchMatchScroller.test.ts
+  s_91eeab35c4598e::t_c7f013711d7b5c 110-116,118,160-164,166
+  s_0c808a1c79a8cb::t_b440510f719005 44-73,146-150,165,169-173,175-203
+  s_91eeab35c4598e::t_e9542b1e9df3da 159
+  s_62217727458a41::t_d456a9ae390c3c 8,18,78,92,126,174,210
+  s_b412fd4cd3f576::t_95d9f3e4ee8764 204-205
+  s_91eeab35c4598e::t_f7281f8d16d5fe 87-91,93-109,117,119-120
+  s_91eeab35c4598e::t_3908f124563107 121-125,127-145,151-158,167-168
+app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller.ts
+  s_91eeab35c4598e::t_31aae38d272060 6-7,9
+  s_91eeab35c4598e::t_3a44c2cd1a4975 8,26-27,186-189
+  s_91eeab35c4598e::t_60e306dd58da6e 197
+  s_91eeab35c4598e::t_2ed76ba16f14af 28-30,50,129-153,156-157,160-161,164-167,174-177,182-185,191,194,224-225,227-231,236,241
+  s_9c097b131a7249::t_23fa0d288145ae 34
+  s_91eeab35c4598e::t_62194250fd7ea3 168-169
+  s_91eeab35c4598e::t_12e980362978e2 218,221
+  s_0c808a1c79a8cb::t_4587402c02b0f4 40
+  s_f6c8b7c82b15a2::t_fae1fa19059c55 95,158,178-180,216-217,219,222,226
+  s_91eeab35c4598e::t_99f2e3cd6da0c5 195
+  s_0c808a1c79a8cb::t_9d81520d7d5e06 91-92,181,190
+  s_b412fd4cd3f576::t_d1e6d6625d401d 1
+  s_91eeab35c4598e::t_b8a1a1f1c445ae 37-39,41-42
+  s_91eeab35c4598e::t_9242a7ea561809 15-16
+  s_f6c8b7c82b15a2::t_9fa0303bff293c 25,55,57,59,66,68,73,79
+  s_f6c8b7c82b15a2::t_7791bad206c781 2-5
+  s_9c097b131a7249::t_65f14033a14a0e 11-14
+  s_3e4a192066773e::t_707061ab27a7ce 86-90
+  s_91eeab35c4598e::t_1b9edc37caa7fd 159,162-163,170-173,192-193,196
+tests/unit/electron/scanCleanupPageBatches.test.ts
+  s_5ac4a3281ca4f3::t_39c4d35caf9421 7,12-15
+  s_5ac4a3281ca4f3::t_0fddeee6c64307 1-4,16-17,38-42,46-62,64-86,96-108,160-161
+  s_c63d7a8363f7e9::t_a5b4492bb6243f 6,10
+  s_5ac4a3281ca4f3::t_6d4de11cdb6f53 8-9,11,43-45
+  s_5ac4a3281ca4f3::t_98efec9418333c 63,109-113,118-154,159
+  s_5ac4a3281ca4f3::t_9d2a11639f644a 5,18-37,114-117,155-158
+  s_9c5fb3611b0e08::t_2efabc0d923cc1 87-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "41ff257dc326a5fe12eb47adb599b26e499c6084",
+  "prompts": {}
+}
