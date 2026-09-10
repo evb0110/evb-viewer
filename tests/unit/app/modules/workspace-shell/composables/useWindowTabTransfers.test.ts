@@ -27,15 +27,19 @@ const mocks = vi.hoisted(() => ({
     transfer: vi.fn(),
     transferAck: vi.fn(async () => true),
     closeCurrentWindow: vi.fn(async () => false),
+    canUseNativeWindowTabTransfers: vi.fn(() => false),
 }));
 
 vi.mock('@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot', () => ({ cleanupSplitPayloadSnapshot: mocks.cleanupSplitPayloadSnapshot }));
 
-vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
-    transfer: mocks.transfer,
-    transferAck: mocks.transferAck,
-    closeCurrentWindow: mocks.closeCurrentWindow,
-})}));
+vi.mock('@app/utils/platformWindowTabs', () => ({
+    canUseNativeWindowTabTransfers: mocks.canUseNativeWindowTabTransfers,
+    getWindowTabsCapability: () => ({
+        transfer: mocks.transfer,
+        transferAck: mocks.transferAck,
+        closeCurrentWindow: mocks.closeCurrentWindow,
+    }),
+}));
 
 function createPayload(): Extract<TSplitPayload, {kind: 'pdfSnapshot'}> {
     return {
@@ -668,6 +672,7 @@ describe('useWindowTabTransfers', () => {
         const updateTab = vi.fn();
         const activatePane = vi.fn();
         const activateTab = vi.fn();
+        mocks.canUseNativeWindowTabTransfers.mockReturnValueOnce(true);
         mocks.transferAck.mockResolvedValueOnce(false);
 
         const transfers = useWindowTabTransfers({
@@ -720,20 +725,21 @@ describe('useWindowTabTransfers', () => {
             payload,
         });
 
-        expect(restoredWorkspace.restoreSplitPayload).not.toHaveBeenCalled();
-        expect(updateTab).not.toHaveBeenCalled();
+        expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(updateTab).toHaveBeenCalledWith('tab-placeholder', expect.objectContaining({
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        }));
         expect(activateTab).toHaveBeenCalledWith('pane-1', 'tab-placeholder');
-        expect(mocks.cleanupSplitPayloadSnapshot).toHaveBeenCalledWith(payload, {
-            logSection: 'tabs',
-            context: 'incoming-transfer-aborted-before-restore',
-            metadata: { tabId: 'tab-placeholder' },
-        });
+        expect(mocks.cleanupSplitPayloadSnapshot).not.toHaveBeenCalled();
     });
 
     it.each([
         false,
         true,
-    ])('retains a committed transfer snapshot after restore failure, tracker throws: %s', async (trackerThrows) => {
+    ])('rejects a transfer after restore failure, tracker throws: %s', async (trackerThrows) => {
         const payload = createPayload();
         const placeholderTab: ITab = {
             id: 'tab-placeholder',

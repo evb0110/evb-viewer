@@ -12,6 +12,11 @@ import { createAppWindow } from '@electron/window';
 import { getWindowByIdFromRegistry } from '@electron/window/registry';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    commitWorkingCopyTransferAccess,
+    grantWorkingCopyTransferAccess,
+    revokeWorkingCopyTransferAccess,
+} from '@electron/file-access/workingCopyStore';
 
 const logger = createLogger('windowTabTransfer');
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
@@ -22,7 +27,10 @@ const MAX_PENDING_TRANSFERS_PER_SOURCE_WINDOW = 64;
 interface ITransferTargetWindow {
     id: number;
     isDestroyed: () => boolean;
-    webContents: {send: (channel: string, ...args: unknown[]) => void;};
+    webContents: {
+        id?: number;
+        send: (channel: string, ...args: unknown[]) => void;
+    };
 }
 
 interface IWindowTabTransferBrokerDeps {
@@ -30,15 +38,21 @@ interface IWindowTabTransferBrokerDeps {
     getWindowById: (windowId: number) => ITransferTargetWindow | null;
     setTimer: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
     clearTimer: (handle: ReturnType<typeof setTimeout>) => void;
+    preparePdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => boolean;
+    commitPdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => boolean;
+    revokePdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => void;
 }
 
 interface IPendingTransfer {
     transferId: string;
     sourceWindowId: number;
+    sourceOwnerId: number;
     targetWindowId: number;
+    targetOwnerId: number;
     resolve: (result: IWindowTabTransferResult) => void;
     timeoutHandle: ReturnType<typeof setTimeout>;
     payload: IWindowTabIncomingTransfer;
+    pdfSnapshotPath?: string;
 }
 
 function normalizeTimeout(timeoutMs: number | undefined) {
@@ -57,7 +71,7 @@ export class WindowTabTransferBroker {
 
     constructor(private readonly deps: IWindowTabTransferBrokerDeps) {}
 
-    async requestTransfer(sourceWindowId: number, request: IWindowTabTransferRequest): Promise<IWindowTabTransferResult> {
+    async requestTransfer(sourceWindowId: number, request: IWindowTabTransferRequest, sourceOwnerId = sourceWindowId): Promise<IWindowTabTransferResult> {
         const targetWindow = await this.resolveTargetWindow(request);
         const targetWindowId = targetWindow?.id ?? (request.target.kind === 'window' ? request.target.windowId : -1);
 
@@ -76,6 +90,21 @@ export class WindowTabTransferBroker {
                 success: false,
                 targetWindowId,
                 error: 'Too many pending tab transfers.',
+            };
+        }
+
+        const pdfSnapshotPath = request.payload.kind === 'pdfSnapshot' ? request.payload.snapshotPath : undefined;
+        const targetOwnerId = targetWindow.webContents.id ?? targetWindow.id;
+        if (
+            pdfSnapshotPath
+            && this.deps.preparePdfSnapshotTransfer
+            && !this.deps.preparePdfSnapshotTransfer(pdfSnapshotPath, sourceOwnerId, targetOwnerId)
+        ) {
+            return {
+                transferId: '',
+                success: false,
+                targetWindowId: targetWindow.id,
+                error: 'PDF snapshot is not available to the source window.',
             };
         }
 
@@ -100,10 +129,13 @@ export class WindowTabTransferBroker {
             this.pendingTransfers.set(transferId, {
                 transferId,
                 sourceWindowId,
+                sourceOwnerId,
                 targetWindowId: targetWindow.id,
+                targetOwnerId,
                 resolve,
                 timeoutHandle,
                 payload,
+                ...(pdfSnapshotPath ? {pdfSnapshotPath} : {}),
             });
 
             if (this.readyWindowIds.has(targetWindow.id)) {
@@ -128,11 +160,23 @@ export class WindowTabTransferBroker {
             return false;
         }
 
+        let success = ack.success;
+        let error = ack.error;
+        if (success && pending.pdfSnapshotPath && this.deps.commitPdfSnapshotTransfer) {
+            success = this.deps.commitPdfSnapshotTransfer(
+                pending.pdfSnapshotPath,
+                pending.sourceOwnerId,
+                pending.targetOwnerId,
+            );
+            if (!success) {
+                error = 'PDF snapshot ownership commit was rejected.';
+            }
+        }
         this.finishTransfer(ack.transferId, {
-            success: ack.success,
-            ...(ack.success ? {} : {error: ack.error ?? 'Target renderer failed to restore transferred tab.'}),
+            success,
+            ...(success ? {} : {error: error ?? 'Target renderer failed to restore transferred tab.'}),
         });
-        return true;
+        return !ack.success || success;
     }
 
     markWindowReady(windowId: number) {
@@ -275,6 +319,13 @@ export class WindowTabTransferBroker {
         this.pendingTransfers.delete(transferId);
         this.removeQueuedTransferReference(pending.targetWindowId, transferId);
         this.deps.clearTimer(pending.timeoutHandle);
+        if (!result.success && pending.pdfSnapshotPath) {
+            this.deps.revokePdfSnapshotTransfer?.(
+                pending.pdfSnapshotPath,
+                pending.sourceOwnerId,
+                pending.targetOwnerId,
+            );
+        }
 
         pending.resolve({
             transferId,
@@ -303,10 +354,13 @@ const browserWindowTransferBroker = new WindowTabTransferBroker({
     getWindowById: getWindowByIdFromRegistry,
     setTimer: (callback, ms) => setTimeout(callback, ms),
     clearTimer: handle => clearTimeout(handle),
+    preparePdfSnapshotTransfer: grantWorkingCopyTransferAccess,
+    commitPdfSnapshotTransfer: commitWorkingCopyTransferAccess,
+    revokePdfSnapshotTransfer: revokeWorkingCopyTransferAccess,
 });
 
-export function requestWindowTabTransfer(sourceWindowId: number, request: IWindowTabTransferRequest) {
-    return browserWindowTransferBroker.requestTransfer(sourceWindowId, request);
+export function requestWindowTabTransfer(sourceWindowId: number, request: IWindowTabTransferRequest, sourceOwnerId?: number) {
+    return browserWindowTransferBroker.requestTransfer(sourceWindowId, request, sourceOwnerId);
 }
 
 export function acknowledgeWindowTabTransfer(windowId: number, ack: IWindowTabTransferAck) {

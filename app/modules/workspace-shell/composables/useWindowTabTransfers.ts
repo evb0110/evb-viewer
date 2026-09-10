@@ -14,7 +14,10 @@ import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/c
 import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
-import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
+import {
+    canUseNativeWindowTabTransfers,
+    getWindowTabsCapability,
+} from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 import { parseSessionId } from '@contracts/shared';
 import { withTimeout } from 'es-toolkit/promise';
@@ -327,15 +330,21 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function rollbackIncomingTransferTarget(target: IIncomingTransferTarget, payload: TSplitPayload) {
+    async function rollbackIncomingTransferTarget(
+        target: IIncomingTransferTarget,
+        payload: TSplitPayload,
+        shouldCleanupPayload = true,
+    ) {
         if (target.tab.created) {
             removeCreatedTransferTab(target.tab);
             restoreTransferFocus(target);
-            await cleanupSplitPayloadSnapshot(payload, {
-                logSection: 'tabs',
-                context: 'rollback-created-incoming-transfer-tab',
-                metadata: { tabId: target.tab.tabId },
-            });
+            if (shouldCleanupPayload) {
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'tabs',
+                    context: 'rollback-created-incoming-transfer-tab',
+                    metadata: { tabId: target.tab.tabId },
+                });
+            }
             return;
         }
 
@@ -346,11 +355,13 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             options.activateTab(target.pane.paneId, target.tab.previousActiveTabId);
         }
         restoreTransferFocus(target);
-        await cleanupSplitPayloadSnapshot(payload, {
-            logSection: 'tabs',
-            context: 'rollback-incoming-transfer-tab',
-            metadata: { tabId: target.tab.tabId },
-        });
+        if (shouldCleanupPayload) {
+            await cleanupSplitPayloadSnapshot(payload, {
+                logSection: 'tabs',
+                context: 'rollback-incoming-transfer-tab',
+                metadata: { tabId: target.tab.tabId },
+            });
+        }
     }
 
     async function captureWorkspaceTransferItem(
@@ -741,36 +752,39 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
-            const committed = await ackIncomingTransferSuccess(transfer.transferId);
-            if (committed === null) {
-                // A missing durable decision is not proof of rejection. Keep
-                // the persisted bytes provisional for reconciliation. The
-                // target stays an uneditable empty tab until authority is
-                // available again.
-                return;
+            if (canUseNativeWindowTabTransfers()) {
+                const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {retainPayloadOnFailure: true});
+                if (!restored) {
+                    await rollbackIncomingTransferTarget(target, transfer.payload, false);
+                    await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
+                    return;
+                }
+                const committed = await ackIncomingTransferSuccess(transfer.transferId);
+                if (committed === null || !committed) {
+                    await rollbackIncomingTransferTarget(target, transfer.payload, false);
+                    return;
+                }
+                transferCommitted = true;
+            } else {
+                const committed = await ackIncomingTransferSuccess(transfer.transferId);
+                if (committed === null) {
+                    return;
+                }
+                if (!committed) {
+                    await cleanupSplitPayloadSnapshot(transfer.payload, {
+                        logSection: 'tabs',
+                        context: 'incoming-transfer-aborted-before-restore',
+                        metadata: {tabId: target.tab.tabId},
+                    });
+                    if (target.tab.created) removeCreatedTransferTab(target.tab);
+                    return;
+                }
+                transferCommitted = true;
+                const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {retainPayloadOnFailure: true});
+                if (!restored) {
+                    return;
+                }
             }
-            if (!committed) {
-                await cleanupSplitPayloadSnapshot(transfer.payload, {
-                    logSection: 'tabs',
-                    context: 'incoming-transfer-aborted-before-restore',
-                    metadata: {tabId: target.tab.tabId},
-                });
-                if (target.tab.created) removeCreatedTransferTab(target.tab);
-                return;
-            }
-
-            transferCommitted = true;
-            // The source closes after this ACK. Retain its snapshot for recovery
-            // if the target cannot open it.
-            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {retainPayloadOnFailure: true});
-            if (!restored) {
-                BrowserLogger.error('tabs', 'Committed incoming transfer could not restore its payload', {transferId: transfer.transferId}, {
-                    code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
-                    context: {},
-                });
-                return;
-            }
-
             // The browser capability ACK is source-authorized only after its
             // shared transfer decision commits. Apply the tab state only
             // after the committed payload becomes the editable workspace.
