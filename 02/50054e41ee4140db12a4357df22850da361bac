@@ -1,0 +1,19 @@
+tests/e2e/electron/djvuPrintHandoff.e2e.test.ts
+  s_109807650ee0d2::t_c9726840cbb19a 43-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0250054e41ee4140db12a4357df22850da361bac",
+  "prompts": {},
+  "sessions": {
+    "s_109807650ee0d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b2e-21b4-72e0-a149-dd498153ee79",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

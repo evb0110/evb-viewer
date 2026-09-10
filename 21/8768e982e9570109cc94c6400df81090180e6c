@@ -1,0 +1,22 @@
+landing/app/utils/analytics.ts
+  s_522e513fc9106a::t_3006305cf0b7b6 146-148
+  s_522e513fc9106a::t_479876237c112a 21-22,116-119,124,141-145,149-151,153,158,173
+tests/unit/landing/analytics.test.ts
+  s_522e513fc9106a::t_479876237c112a 101-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "218768e982e9570109cc94c6400df81090180e6c",
+  "prompts": {},
+  "sessions": {
+    "s_522e513fc9106a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b3e-3fb3-7771-901d-c68568580ddf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

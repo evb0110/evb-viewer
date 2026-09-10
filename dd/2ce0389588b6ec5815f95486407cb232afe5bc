@@ -1,0 +1,21 @@
+electron/features/search/main/searchWorkerService.ts
+  s_6ee042f2906306::t_84c7e823fb388c 1116
+tests/unit/electron/searchWorkerService.test.ts
+  s_6ee042f2906306::t_84c7e823fb388c 522-543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dd2ce0389588b6ec5815f95486407cb232afe5bc",
+  "prompts": {},
+  "sessions": {
+    "s_6ee042f2906306": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ae9-197b-7990-82f9-f0efcd408cd4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

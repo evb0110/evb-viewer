@@ -1,0 +1,25 @@
+electron/features/documents/main/commitPdfTempFile.ts
+  s_369c51ef9820e5::t_bb1f1356aa9ad1 36,81,106-108
+  s_369c51ef9820e5::t_9dda55db98858d 98
+electron/features/documents/main/fingerprintFileWithUtilityProcess.ts
+  s_369c51ef9820e5::t_304065dba903dc 28-35,37,40-49
+  s_369c51ef9820e5::t_9dda55db98858d 13,26,67-73,99,110,144-145
+  s_369c51ef9820e5::t_e4465dff4e0412 54-64,66
+  s_369c51ef9820e5::t_bb1f1356aa9ad1 168,170,181,184-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "068519d2f4369162ee5d1b4eef13716b1a43375b",
+  "prompts": {},
+  "sessions": {
+    "s_369c51ef9820e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b28-4f38-79f1-9896-56844541bfcf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

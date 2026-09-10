@@ -1,0 +1,21 @@
+tests/unit/helpers/createElectronPlatformApiFixture.test.ts
+  s_97075e4422bd34::t_04f11642ff567f 80-108
+tests/helpers/createDefaultPlatformApiFixtureMethod.ts
+  s_97075e4422bd34::t_04f11642ff567f 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e26936910bf65b8418fe7803eb22f7dbe2604bb7",
+  "prompts": {},
+  "sessions": {
+    "s_97075e4422bd34": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b3b-3d50-78d2-8063-054fd45c767c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

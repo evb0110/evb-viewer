@@ -1,0 +1,21 @@
+packages/i18n-app/messages/ru.ts
+  s_6b06e5a1e811b7::t_bd9fe305d4d5f4 1540-1541
+packages/i18n-app/messages/en.ts
+  s_6b06e5a1e811b7::t_bd9fe305d4d5f4 1500-1501
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9684df8b7f25b42d8da20d73a3b06e399398d000",
+  "prompts": {},
+  "sessions": {
+    "s_6b06e5a1e811b7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b3b-181f-7492-8cfc-1c65ef65159d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

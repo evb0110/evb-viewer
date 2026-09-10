@@ -1,0 +1,21 @@
+app/modules/pdf-viewer/engine/annotation-geometry/toPdfPointFromMarkerPoint.ts
+  s_b47a91839134e2::t_bac2df9457c70d 8,51
+app/modules/pdf-viewer/engine/annotation-geometry/toPdfRectFromMarkerRect.ts
+  s_b47a91839134e2::t_bac2df9457c70d 3,5-6,30-35,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "906ec183149101f9be996f4e18dadeced227f6d8",
+  "prompts": {},
+  "sessions": {
+    "s_b47a91839134e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08adf-80b9-7191-b9cb-2c7c017ea8da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
