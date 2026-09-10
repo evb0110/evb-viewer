@@ -18,10 +18,15 @@ function getLocalStorageSafe(): IStorageLike | null {
     if (typeof window === 'undefined') {
         return null;
     }
-    const storage: unknown = Reflect.get(window, 'localStorage');
-    return typeof storage === 'object' && storage !== null
-        ? storage
-        : null;
+
+    try {
+        const storage: unknown = Reflect.get(window, 'localStorage');
+        return typeof storage === 'object' && storage !== null
+            ? storage
+            : null;
+    } catch {
+        return null;
+    }
 }
 
 export function readLocalStorageItem(key: string): TLocalStorageReadResult {

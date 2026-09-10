@@ -35,6 +35,12 @@ describe('safeGetLocalStorageItem', () => {
         expect(safeGetLocalStorageItem('key')).toBeNull();
     });
 
+    it('returns null when the localStorage property getter throws', () => {
+        testGlobal.window = Object.defineProperty({}, 'localStorage', {get: () => { throw new Error('blocked'); }});
+
+        expect(safeGetLocalStorageItem('key')).toBeNull();
+    });
+
     it('returns stored value when available', () => {
         testGlobal.window = {localStorage: {getItem: (key: string) => (key === 'key' ? 'value' : null)}};
 
@@ -60,11 +66,23 @@ describe('readLocalStorageItem', () => {
             value: '  value  ',
         });
     });
+
+    it('reports unavailable storage when the localStorage property getter throws', () => {
+        testGlobal.window = Object.defineProperty({}, 'localStorage', {get: () => { throw new Error('blocked'); }});
+
+        expect(readLocalStorageItem('key')).toMatchObject({status: 'unavailable'});
+    });
 });
 
 describe('safeSetLocalStorageItem', () => {
     it('does not throw when localStorage is unavailable', () => {
         testGlobal.window = {};
+        expect(safeSetLocalStorageItem('k', 'v')).toBe(false);
+    });
+
+    it('returns false when the localStorage property getter throws', () => {
+        testGlobal.window = Object.defineProperty({}, 'localStorage', {get: () => { throw new Error('blocked'); }});
+
         expect(safeSetLocalStorageItem('k', 'v')).toBe(false);
     });
 
