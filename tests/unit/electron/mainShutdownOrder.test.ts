@@ -61,6 +61,18 @@ describe('main shutdown ordering', () => {
         expect(logFlushIndex).toBeGreaterThan(agentIndex);
     });
 
+    it('retries retained document utility cleanup from the production shutdown steps', () => {
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
+        const utilityStepIndex = source.indexOf('label: \'document-save-utilities\'');
+        const utilityCallIndex = source.indexOf(
+            'shutdownRetainedDocumentSaveUtilityProcesses()',
+            utilityStepIndex,
+        );
+
+        expect(utilityStepIndex).toBeGreaterThan(-1);
+        expect(utilityCallIndex).toBeGreaterThan(utilityStepIndex);
+    });
+
     it('installs fatal process handlers only after shutdown coordination is ready', () => {
         const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const coordinatorIndex = source.indexOf('shutdownCoordinator = createShutdownCoordinator({');
