@@ -107,6 +107,18 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
         && typeof journal.targetDocumentRevisionToken === 'string'
         && typeof journal.undoPdfPath === 'string'
         && typeof journal.undoCatalogExisted === 'boolean'
+        && (journal.undoCatalogPath === undefined || typeof journal.undoCatalogPath === 'string')
+        && (!journal.undoCatalogExisted || typeof journal.undoCatalogPath === 'string')
+        && (journal.catalogBackupMode === undefined
+            || journal.catalogBackupMode === 'copy'
+            || journal.catalogBackupMode === 'rename')
+        && (journal.catalogApplyMode === undefined
+            || journal.catalogApplyMode === 'copy'
+            || journal.catalogApplyMode === 'rename')
+        && (journal.catalogKind === undefined || journal.catalogKind === 'v4-root')
+        && ((journal.catalogKind === 'v4-root') === (typeof journal.descriptorPath === 'string'))
+        && typeof journal.committedAt === 'number'
+        && Number.isFinite(journal.committedAt)
     ) {
         return false;
     }
