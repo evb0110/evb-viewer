@@ -240,11 +240,11 @@ function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | nu
 }
 
 export function isPdfPath(filePath: string) {
-    return extname(filePath).toLowerCase() === '.pdf';
+    return extname(filePath.trimEnd()).toLowerCase() === '.pdf';
 }
 
 export function isDjvuPath(filePath: string) {
-    const extension = extname(filePath).toLowerCase();
+    const extension = extname(filePath.trimEnd()).toLowerCase();
     return extension === '.djvu' || extension === '.djv';
 }
 
@@ -253,11 +253,7 @@ export function isPdfOrImagePath(filePath: string) {
 }
 
 export function isSupportedOpenPath(filePath: string) {
-    // Trailing whitespace is a valid POSIX filename character. Keep the path
-    // untouched for filesystem access, but ignore it when classifying the
-    // format suffix.
-    const formatPath = filePath.trimEnd();
-    return isPdfOrImagePath(formatPath) || isDjvuPath(formatPath);
+    return isPdfOrImagePath(filePath) || isDjvuPath(filePath);
 }
 
 export function buildCombinedPdfOutputPath(inputPaths: string[]) {
