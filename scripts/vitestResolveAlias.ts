@@ -10,6 +10,7 @@ export const vitestResolveAlias = {
     '@electron': resolve(projectRoot, 'electron'),
     '@electron-worker-bundles': resolve(projectRoot, 'packages/electron-worker-bundles'),
     '@contracts': resolve(projectRoot, 'packages/contracts'),
+    '@node-runtime': resolve(projectRoot, 'packages/node-runtime'),
     '@pdf-core': resolve(projectRoot, 'packages/pdf-core'),
     '@evb/scan-cleanup': resolve(projectRoot, 'packages/scan-cleanup'),
     '@evb/scan-cleanup/core': resolve(projectRoot, 'packages/scan-cleanup/core'),
