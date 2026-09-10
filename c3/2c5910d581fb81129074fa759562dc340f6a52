@@ -1,0 +1,41 @@
+packages/i18n-app/messages/nl.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1634
+packages/i18n-app/messages/de.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1634
+packages/i18n-app/messages/es.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1634
+packages/i18n-app/messages/en.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1634
+packages/i18n-app/messages/ru.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1674
+packages/i18n-app/messages/fr.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1645
+packages/i18n-app/messages/pt.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1645
+app/app.vue
+  s_7b715e29bcbbeb::t_b87151cc981874 10
+tests/unit/app/components/appFatalRuntimeDialog.test.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 43,57,192,199,203-204
+packages/i18n-app/messages/ptBr.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1645
+app/components/AppFatalRuntimeDialog.vue
+  s_7b715e29bcbbeb::t_b87151cc981874 46,97
+packages/i18n-app/messages/it.ts
+  s_7b715e29bcbbeb::t_b87151cc981874 1634
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c32c5910d581fb81129074fa759562dc340f6a52",
+  "prompts": {},
+  "sessions": {
+    "s_7b715e29bcbbeb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a6e-db45-77f3-9d94-6dbcf00df1da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
