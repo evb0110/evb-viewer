@@ -1,0 +1,20 @@
+tests/unit/electron/shutdownCoordinator.test.ts
+  s_3add9038cbe8e2::t_cd08fa08133039 266-269,274-275,282
+  s_3add9038cbe8e2::t_c064eac8454d49 270-273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9d42b17c2377e6354d43019284b79d8ea270d2c3",
+  "prompts": {},
+  "sessions": {
+    "s_3add9038cbe8e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a33-a291-7241-9b64-3431421cb8a4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

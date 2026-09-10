@@ -1,0 +1,24 @@
+tests/unit/packages/pdf-core/pdfPrintLayout.test.ts
+  s_5210e56504802e::t_3b271d7716dcb8 50,81,120-131
+  s_5210e56504802e::t_7e45d6cc7c7884 132-133
+  s_5210e56504802e::t_58f60199f236ac 134-135
+packages/pdf-core/pdfPrintLayout.ts
+  s_5210e56504802e::t_85e0fdf304d108 153,176
+  s_5210e56504802e::t_3b271d7716dcb8 181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4af67932229886f66f7b88ce8c5bd8cd860c5a53",
+  "prompts": {},
+  "sessions": {
+    "s_5210e56504802e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a3b-dc73-7490-93e8-6d3e26fd29c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
