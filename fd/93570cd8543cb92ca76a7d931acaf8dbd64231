@@ -1,0 +1,33 @@
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_0d4e7ee137fb99 21,1246-1264,1266-1283,1285-1294
+  s_bfcd3c2ec84d8f::t_7d7752e7a2fed9 1265,1284
+  s_bfcd3c2ec84d8f::t_5372c6cea363d9 1295-1296
+tests/e2e/electron/savePipeline.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_7d7752e7a2fed9 559,600,613-616
+  s_bfcd3c2ec84d8f::t_f9e170eff729ae 515,517,535-538
+  s_bfcd3c2ec84d8f::t_cb95c31aa1517f 590-591
+  s_bfcd3c2ec84d8f::t_b4c6696c6f28a7 551-558,560-589,592-599,601-612
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_353dd24d5f6417 3657,3659-3663
+  s_bfcd3c2ec84d8f::t_9a1db23ffbf601 3658
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_9b689f38bbe723 2245
+tests/integration/browser/browserAnnotationSaveAcceptanceEntry.ts
+  s_bfcd3c2ec84d8f::t_f4da2b8705649f 5,38,91,125,127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fd93570cd8543cb92ca76a7d931acaf8dbd64231",
+  "prompts": {},
+  "sessions": {
+    "s_bfcd3c2ec84d8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-2e36-7c60-81dd-110c27330f8b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
