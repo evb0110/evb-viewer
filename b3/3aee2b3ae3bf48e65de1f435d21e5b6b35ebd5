@@ -1,0 +1,23 @@
+tests/unit/electron/assistantAppServerPipeline.test.ts
+  s_f61ddc42ad6ac4::t_cec8767f5847f3 87,91,96,122-141
+electron/features/agent/createAssistantAppServerNotificationController.ts
+  s_f61ddc42ad6ac4::t_cec8767f5847f3 47,303-308
+electron/features/agent/assistantService.ts
+  s_f61ddc42ad6ac4::t_cec8767f5847f3 357
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b33aee2b3ae3bf48e65de1f435d21e5b6b35ebd5",
+  "prompts": {},
+  "sessions": {
+    "s_f61ddc42ad6ac4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a63-a465-7901-a524-b3ee46dcf691",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
