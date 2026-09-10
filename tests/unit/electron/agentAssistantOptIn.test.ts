@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    turnStartResponseHook: null as null | (() => void),
     threadStartGate: null as null | {
         promise: Promise<void>;
         resolve: () => void;
@@ -253,6 +254,7 @@ class FakeCodexAppServerProcess extends EventEmitter {
                         });
                     }
                     this.respond(request.id!, { turn: { id: turnId } });
+                    mocks.turnStartResponseHook?.();
                     this.notify('turn/started', {
                         threadId: request.params?.threadId,
                         turn: { id: turnId },
@@ -455,6 +457,7 @@ describe('agent assistant opt-in gating', () => {
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
         mocks.initializeGate = null;
         mocks.turnStartGate = null;
+        mocks.turnStartResponseHook = null;
         mocks.threadStartGate = null;
         mocks.loginStartGate = null;
         mocks.processKillGate = null;
@@ -766,6 +769,26 @@ describe('agent assistant opt-in gating', () => {
         const state = await getAgentAssistantState({scope: documentScope});
         expect(state.messages).toEqual([]);
         expect(process.requestMethods).not.toContain('turn/start');
+        expect(process.requestMethods).toContain('thread/archive');
+    });
+
+    it('interrupts a provider turn submitted before reset wins its response fence', async () => {
+        const documentScope = createDocumentScope('reset-after-turn-submit.pdf');
+        const process = enableAssistantRuntime();
+        const {
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        mocks.turnStartResponseHook = () => {
+            void resetAgentAssistantChat({scope: documentScope});
+        };
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Reset after provider submission',
+            scope: documentScope,
+        })).resolves.toMatchObject({ok: false});
+        expect(process.requestMethods).toContain('turn/interrupt');
         expect(process.requestMethods).toContain('thread/archive');
     });
 

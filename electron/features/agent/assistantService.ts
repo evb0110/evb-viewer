@@ -981,11 +981,11 @@ export async function sendAgentAssistantMessage(
                 },
                 personality: 'friendly',
             }, value => isRecord(value) ? value : null);
-            await assertClaimCurrent();
-            await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
             providerTurnId = isRecord(response.turn) && typeof response.turn.id === 'string'
                 ? response.turn.id
                 : null;
+            await assertClaimCurrent();
+            await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
             if (!providerTurnId || providerTurnId.trim() === '') {
                 throw new Error('Codex returned an invalid turn/start response.');
             }
