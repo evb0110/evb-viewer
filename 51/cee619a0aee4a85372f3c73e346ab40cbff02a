@@ -1,0 +1,19 @@
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_3d279d029e00e2::t_2f02dc58add0f9 854
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51cee619a0aee4a85372f3c73e346ab40cbff02a",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
