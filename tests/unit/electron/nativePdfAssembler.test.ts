@@ -20,6 +20,7 @@ interface IMockNativeWriteProgress {
 
 interface IMockNativeWriteOptions {
     maxPages?: number;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     onProgress?: (progress: IMockNativeWriteProgress) => void;
     signal?: AbortSignal;
 }
@@ -579,6 +580,34 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         ], expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u), expect.any(Object));
         expect(mocks.getPdfPageCount).toHaveBeenCalled();
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+    });
+
+    it('forwards image-chunk termination proof to the assembler owner', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        const proof = Promise.resolve(false);
+        const terminationError = markUnprovenNativeTermination(
+            new Error('native image tree is still running'),
+            'native image combine process tree was not proven dead',
+        );
+        const onTerminationProof = vi.fn();
+        mocks.nativeWrite.mockImplementationOnce(async (
+            _inputPaths: string[],
+            _outputPath: string,
+            options?: IMockNativeWriteOptions,
+        ) => {
+            options?.onTerminationProof?.(proof);
+            throw terminationError;
+        });
+
+        await expect(tryCreatePdfFromInputPathsNative([
+            '/tmp/input.pdf',
+            '/tmp/one.png',
+        ], {
+            failureMode: 'capability-error',
+            onTerminationProof,
+        })).rejects.toBe(terminationError);
+
+        expect(onTerminationProof).toHaveBeenCalledWith(proof);
     });
 
     it('falls back before creating temp files for image formats outside the native assembler boundary', async () => {

@@ -71,6 +71,7 @@ interface INativePdfAssemblerOptions {
     /** Keep the native attempt strict instead of allowing the JS fallback. */
     failureMode?: 'fallback' | 'capability-error';
     onProgress?: (progress: INativePdfAssemblerProgress) => void;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     signal?: AbortSignal;
 }
 
@@ -314,6 +315,7 @@ async function flushImageChunk(
             ? {maxInputBytes: NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES}
             : {}),
         onProgress,
+        ...(options?.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         ...(options?.signal ? { signal: options.signal } : {}),
     });
     throwIfAborted(options?.signal);
