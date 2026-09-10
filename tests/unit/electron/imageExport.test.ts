@@ -231,6 +231,8 @@ const {
     exportPdfPagesAsImages,
     normalizeImageExportPath,
     promoteStagedFiles,
+    createStagedFilePublicationLedger,
+    rollbackStagedFilePublications,
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const {
@@ -1277,6 +1279,37 @@ describe('image export', () => {
         ])).rejects.toThrow('Recovery backup(s) retained');
 
         expect(await readFile(`${firstTargetPath}.tmp`, 'utf8')).toBe('old-first');
+    });
+
+    it('rolls back publications from multiple batches and restores displaced output', async () => {
+        const firstTargetPath = join(tempDir, 'transaction-first.png');
+        const secondTargetPath = join(tempDir, 'transaction-second.png');
+        const firstStagedPath = join(tempDir, 'transaction-first.staged');
+        const secondStagedPath = join(tempDir, 'transaction-second.staged');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(firstStagedPath, 'new-first'),
+            writeFile(secondStagedPath, 'new-second'),
+        ]);
+        const ledger = createStagedFilePublicationLedger();
+
+        await promoteStagedFiles([{
+            stagedPath: firstStagedPath,
+            targetPath: firstTargetPath,
+            targetExisted: true,
+        }], undefined, ledger);
+        await promoteStagedFiles([{
+            stagedPath: secondStagedPath,
+            targetPath: secondTargetPath,
+            targetExisted: false,
+        }], undefined, ledger);
+
+        await rollbackStagedFilePublications(ledger);
+
+        expect(await readFile(firstTargetPath, 'utf8')).toBe('old-first');
+        expect(existsSync(secondTargetPath)).toBe(false);
+        expect(ledger.promotedFiles).toHaveLength(0);
+        expect(ledger.backupPaths).toHaveLength(0);
     });
 
     it('backs up a destination that appears after export staging', async () => {

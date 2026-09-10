@@ -18,9 +18,12 @@ import {
     getDjvuPageSizeWindowsForViewing,
 } from '@electron/features/djvu/public';
 import {
+    commitStagedFilePublications,
     convertRenderedPpmToImage,
+    createStagedFilePublicationLedger,
     type TImageExportFormat,
     promoteStagedFiles,
+    rollbackStagedFilePublications,
 } from '@electron/features/image-export/main/export';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
 import {
@@ -169,13 +172,14 @@ async function renderDjvuImagePages(
             targetPath: string;
             targetExisted: boolean;
         }> = [];
+        const publicationLedger = createStagedFilePublicationLedger();
         const outputPaths: string[] = [];
         const totalPages = getExportPageCount(pageCount, pages);
         const promoteBatch = async () => {
             if (stagedFiles.length === 0) {
                 return;
             }
-            await promoteStagedFiles(stagedFiles, options.signal);
+            await promoteStagedFiles(stagedFiles, options.signal, publicationLedger);
             stagedFiles.length = 0;
             stagedBytes = 0;
         };
@@ -270,7 +274,18 @@ async function renderDjvuImagePages(
             }
             throwIfAborted(options.signal);
             await promoteBatch();
+            await commitStagedFilePublications(publicationLedger);
             return outputPaths;
+        } catch (error) {
+            try {
+                await rollbackStagedFilePublications(publicationLedger);
+            } catch (rollbackError) {
+                throw new AggregateError([
+                    error,
+                    rollbackError,
+                ], 'DjVu PNG export failed and rollback was incomplete');
+            }
+            throw error;
         } finally {
             await Promise.all(stagedFiles.map(({stagedPath}) => rm(stagedPath, {force: true}).catch(() => undefined)));
         }

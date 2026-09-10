@@ -24,6 +24,12 @@ const mocks = vi.hoisted(() => ({
     combineTiff: vi.fn(),
     acquire: vi.fn(),
     promoteStagedFiles: vi.fn(),
+    createStagedFilePublicationLedger: vi.fn(() => ({
+        promotedFiles: [],
+        backupPaths: [],
+    })),
+    commitStagedFilePublications: vi.fn(),
+    rollbackStagedFilePublications: vi.fn(),
 }));
 
 vi.mock('@electron/features/djvu/main/metadata', () => ({getDjvuPageCount: mocks.getPageCount}));
@@ -35,6 +41,9 @@ vi.mock('@electron/features/djvu/public', () => ({
 vi.mock('@electron/features/image-export/main/export', () => ({
     convertRenderedPpmToImage: mocks.convertPpmToImage,
     promoteStagedFiles: mocks.promoteStagedFiles,
+    createStagedFilePublicationLedger: mocks.createStagedFilePublicationLedger,
+    commitStagedFilePublications: mocks.commitStagedFilePublications,
+    rollbackStagedFilePublications: mocks.rollbackStagedFilePublications,
 }));
 vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner', () => ({tryCombinePagesWithNativeTiffCombiner: mocks.combineTiff}));
 vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
@@ -205,6 +214,49 @@ describe('DjVu image export limits', () => {
         )).rejects.toThrow('second page failed');
 
         expect(mocks.promoteStagedFiles).not.toHaveBeenCalled();
+    });
+
+    it('rolls back an earlier PNG batch when a later render fails', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-rollback-test-'));
+        mocks.getPageCount.mockResolvedValue(2);
+        mocks.getPageSizeWindows.mockImplementation(async function* () {
+            yield {
+                firstPage: 1,
+                sizes: Array.from({length: 2}, () => ({
+                    width: 1_000,
+                    height: 1_000,
+                    dpi: 300,
+                })),
+            };
+        });
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 1.5 * 1024 * 1024 * 1024,
+            };
+        });
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
+            if (ppmPath.includes('page-2.ppm')) throw new Error('second page failed');
+            const pngPath = `${ppmPath}.png`;
+            await writeFile(pngPath, 'png');
+            return pngPath;
+        });
+        const {exportDjvuPagesAsPng} = await import(
+            '@electron/features/image-export/main/djvuImageExport'
+        );
+
+        await expect(exportDjvuPagesAsPng(
+            '/books/failure.djvu',
+            join(tempDir, 'page.png'),
+            {scratch: {using: async (_prefix, run) => run(tempDir)}},
+        )).rejects.toThrow('second page failed');
+
+        expect(mocks.promoteStagedFiles).toHaveBeenCalledOnce();
+        expect(mocks.rollbackStagedFilePublications).toHaveBeenCalledOnce();
+        expect(mocks.commitStagedFilePublications).not.toHaveBeenCalled();
     });
 
     it('resets PNG staged-byte accounting after each promoted batch', async () => {

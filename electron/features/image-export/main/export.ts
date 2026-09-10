@@ -456,6 +456,90 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
+export interface IStagedFilePublication {
+    targetPath: string;
+    backupPath: string | null;
+    targetIdentity: {
+        dev: number;
+        ino: number;
+        size: number;
+        mtimeMs: number;
+    } | null;
+}
+
+export interface IStagedFilePublicationLedger {
+    promotedFiles: IStagedFilePublication[];
+    backupPaths: string[];
+}
+
+export function createStagedFilePublicationLedger(): IStagedFilePublicationLedger {
+    return {
+        promotedFiles: [],
+        backupPaths: [],
+    };
+}
+
+export async function rollbackStagedFilePublications(ledger: IStagedFilePublicationLedger) {
+    const rollbackFailures: Error[] = [];
+    const restoredBackups = new Set<string>();
+    for (const promotedFile of [...ledger.promotedFiles].reverse()) {
+        const currentTargetIdentity = await stat(promotedFile.targetPath).then(target => ({
+            dev: target.dev,
+            ino: target.ino,
+            size: target.size,
+            mtimeMs: target.mtimeMs,
+        })).catch(() => null);
+        const targetStillOwned = promotedFile.targetIdentity !== null
+            && currentTargetIdentity !== null
+            && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
+            && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
+            && promotedFile.targetIdentity.size === currentTargetIdentity.size
+            && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
+        if (promotedFile.backupPath) {
+            if (!targetStillOwned) {
+                rollbackFailures.push(new Error(`Refusing to restore ${promotedFile.targetPath} after external modification`));
+                continue;
+            }
+            try {
+                await atomicReplace(promotedFile.backupPath, promotedFile.targetPath);
+                restoredBackups.add(promotedFile.backupPath);
+            } catch (restoreError) {
+                rollbackFailures.push(new Error(
+                    `Failed to restore ${promotedFile.targetPath} from ${promotedFile.backupPath}`,
+                    {cause: restoreError},
+                ));
+            }
+            continue;
+        }
+
+        if (promotedFile.targetIdentity !== null && currentTargetIdentity === null) {
+            continue;
+        }
+        if (!targetStillOwned) {
+            rollbackFailures.push(new Error(`Refusing to remove ${promotedFile.targetPath} after external modification`));
+            continue;
+        }
+        await rm(promotedFile.targetPath, {force: true}).catch((removeError: unknown) => {
+            rollbackFailures.push(new Error(`Failed to remove partially promoted ${promotedFile.targetPath}`, {cause: removeError}));
+        });
+    }
+    const retainedBackups = ledger.backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
+    if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
+        const backupMessage = retainedBackups.length > 0
+            ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
+            : '';
+        throw new AggregateError(rollbackFailures, `Image export rollback failed.${backupMessage}`);
+    }
+    ledger.promotedFiles.length = 0;
+    ledger.backupPaths.length = 0;
+}
+
+export async function commitStagedFilePublications(ledger: IStagedFilePublicationLedger) {
+    await Promise.all(ledger.backupPaths.map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
+    ledger.promotedFiles.length = 0;
+    ledger.backupPaths.length = 0;
+}
+
 export async function promoteStagedFiles(
     stagedFiles: Array<{
         stagedPath: string;
@@ -463,11 +547,9 @@ export async function promoteStagedFiles(
         targetExisted: boolean;
     }>,
     signal?: AbortSignal,
+    ledger?: IStagedFilePublicationLedger,
 ) {
-    const promotedFiles: Array<{
-        targetPath: string;
-        backupPath: string | null;
-    }> = [];
+    const promotedFiles: IStagedFilePublication[] = [];
     const backupPaths: string[] = [];
     let pendingBackupPath: string | null = null;
     let pendingReplacementAttempted = false;
@@ -490,7 +572,17 @@ export async function promoteStagedFiles(
             promotedFiles.push({
                 targetPath: stagedFile.targetPath,
                 backupPath,
+                targetIdentity: null,
             });
+            const promotedFile = promotedFiles.at(-1);
+            if (!promotedFile) throw new Error('Image export publication record is missing');
+            const targetIdentity = await stat(stagedFile.targetPath);
+            promotedFile.targetIdentity = {
+                dev: targetIdentity.dev,
+                ino: targetIdentity.ino,
+                size: targetIdentity.size,
+                mtimeMs: targetIdentity.mtimeMs,
+            };
             pendingBackupPath = null;
             pendingReplacementAttempted = false;
         }
@@ -501,27 +593,21 @@ export async function promoteStagedFiles(
             const pendingBackupIndex = backupPaths.indexOf(pendingBackupPath);
             if (pendingBackupIndex >= 0) backupPaths.splice(pendingBackupIndex, 1);
         }
+        const batchLedger = {
+            promotedFiles,
+            backupPaths,
+        };
         const rollbackFailures: Error[] = [];
-        const restoredBackups = new Set<string>();
-        for (const promotedFile of [...promotedFiles].reverse()) {
-            if (promotedFile.backupPath) {
-                try {
-                    await atomicReplace(promotedFile.backupPath, promotedFile.targetPath);
-                    restoredBackups.add(promotedFile.backupPath);
-                } catch (restoreError) {
-                    rollbackFailures.push(new Error(
-                        `Failed to restore ${promotedFile.targetPath} from ${promotedFile.backupPath}`,
-                        {cause: restoreError},
-                    ));
-                }
-                continue;
+        try {
+            await rollbackStagedFilePublications(batchLedger);
+        } catch (rollbackError) {
+            if (rollbackError instanceof AggregateError) {
+                rollbackFailures.push(...rollbackError.errors.filter((entry): entry is Error => entry instanceof Error));
+            } else {
+                rollbackFailures.push(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
             }
-
-            await rm(promotedFile.targetPath, { force: true }).catch((removeError: unknown) => {
-                rollbackFailures.push(new Error(`Failed to remove partially promoted ${promotedFile.targetPath}`, {cause: removeError}));
-            });
         }
-        const retainedBackups = backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
+        const retainedBackups = backupPaths;
         if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
             const primaryMessage = getErrorMessage(error);
             const backupMessage = retainedBackups.length > 0
@@ -535,7 +621,15 @@ export async function promoteStagedFiles(
         throw error;
     }
 
-    await Promise.all(backupPaths.map(backupPath => rm(backupPath, { force: true }).catch(() => undefined)));
+    if (ledger) {
+        ledger.promotedFiles.push(...promotedFiles);
+        ledger.backupPaths.push(...backupPaths);
+        return;
+    }
+    await commitStagedFilePublications({
+        promotedFiles,
+        backupPaths,
+    });
 }
 
 function throwIfAborted(signal?: AbortSignal) {
