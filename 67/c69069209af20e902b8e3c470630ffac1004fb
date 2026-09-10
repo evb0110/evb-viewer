@@ -1,0 +1,37 @@
+app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue
+  s_5a387e58132e39::t_6f178b55fa0fce 524-525,531
+packages/i18n-app/messages/de.ts
+  s_5a387e58132e39::t_e741d62aa36f23 678
+packages/i18n-app/messages/en.ts
+  s_5a387e58132e39::t_b7a208be85747a 213
+packages/i18n-app/messages/es.ts
+  s_5a387e58132e39::t_f96b676fad7553 678
+packages/i18n-app/messages/fr.ts
+  s_5a387e58132e39::t_8e79f2c9979ade 678
+packages/i18n-app/messages/it.ts
+  s_5a387e58132e39::t_d4478968c47c25 678
+packages/i18n-app/messages/nl.ts
+  s_5a387e58132e39::t_78f135a92c857a 678
+packages/i18n-app/messages/pt.ts
+  s_5a387e58132e39::t_29ee4a7ec1bb05 678
+packages/i18n-app/messages/ptBr.ts
+  s_5a387e58132e39::t_6d9bdfb0a85274 678
+packages/i18n-app/messages/ru.ts
+  s_5a387e58132e39::t_c8f69e18c045d4 213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "67c69069209af20e902b8e3c470630ffac1004fb",
+  "prompts": {},
+  "sessions": {
+    "s_5a387e58132e39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44e16024-84ca-411a-82f1-7c620426507f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
