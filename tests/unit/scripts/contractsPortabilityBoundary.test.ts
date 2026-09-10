@@ -39,10 +39,10 @@ describe('contracts portability boundary', () => {
 
     it('rejects Node runtime imports, dynamic loads and globals while allowing portable code', () => {
         const rejectedSources = [
-            "import {createHash} from 'node:crypto';",
-            "export {readFile} from 'fs';",
-            "const crypto = await import('crypto');",
-            "const fs = require('node:fs');",
+            'import {createHash} from \'node:crypto\';',
+            'export {readFile} from \'fs\';',
+            'const crypto = await import(\'crypto\');',
+            'const fs = require(\'node:fs\');',
             'export function readProcess() { return process.env.NODE_ENV; }',
             'export const bytes = Buffer.from(\'value\');',
         ];
@@ -54,8 +54,8 @@ describe('contracts portability boundary', () => {
 
         expect(checkArchitectureBoundarySource(
             'packages/contracts/example.ts',
-            "import type {Hash} from 'node:crypto';\n"
-                + "export function readValue(value: unknown) {\n"
+            'import type {Hash} from \'node:crypto\';\n'
+                + 'export function readValue(value: unknown) {\n'
                 + '    return globalThis.crypto.subtle && typeof value === \'string\';\n'
                 + '}\n',
         )).toEqual([]);
