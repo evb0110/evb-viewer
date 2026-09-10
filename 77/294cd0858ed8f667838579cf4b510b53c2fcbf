@@ -1,0 +1,21 @@
+tests/unit/app/platform/browserDocumentRepository.test.ts
+  s_03033f6eae48e6::t_b2482bcb451aa3 174-199
+app/platform/browser/browserDocumentRepository.ts
+  s_03033f6eae48e6::t_b2482bcb451aa3 984-987
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "77294cd0858ed8f667838579cf4b510b53c2fcbf",
+  "prompts": {},
+  "sessions": {
+    "s_03033f6eae48e6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a99-817b-7e00-b727-3e04e3631f8b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
