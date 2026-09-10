@@ -233,6 +233,27 @@ describe('workspace checkpoint latest-only writer', () => {
         expect(journal.checkpoint?.capturedAt).toBe(2);
     });
 
+    it('discards a checkpoint through its adopted renderer owner', async () => {
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const {
+            discardWorkspaceCheckpoint,
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await flushPendingWorkspaceCheckpointSave();
+        const stored = JSON.parse(mocks.persisted ?? '{}') as {claimedByWebContentsId?: number;};
+        stored.claimedByWebContentsId = 20;
+        mocks.persisted = JSON.stringify(stored);
+
+        await discardWorkspaceCheckpoint(20);
+
+        expect(mocks.persisted).toBeNull();
+    });
+
     it('continues with the latest pending checkpoint after an active save fails', async () => {
         const firstGate = deferred();
         mocks.atomicReplace

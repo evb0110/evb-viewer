@@ -1502,12 +1502,16 @@ export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
     try {
         await enqueueWorkspaceCheckpointBarrier(async () => {
             const journal = await readStoredWorkspaceJournal();
-            const stored = journal.records.find(record => record.ownerWebContentsId === ownerWebContentsId);
+            const stored = journal.records.find(record => (
+                record.ownerWebContentsId === ownerWebContentsId
+                || record.claimedByWebContentsId === ownerWebContentsId
+                || claimedWorkspaceCheckpointOwnerWebContentsIds.get(record.ownerWebContentsId) === ownerWebContentsId
+            ));
             if (!stored) {
                 return;
             }
             await writeStoredWorkspaceJournal(journal.records.filter(record => (
-                record.ownerWebContentsId !== ownerWebContentsId
+                record.ownerWebContentsId !== stored.ownerWebContentsId
             )));
             await removeAnnotationRecoveryArtifacts(stored.checkpoint);
             releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
