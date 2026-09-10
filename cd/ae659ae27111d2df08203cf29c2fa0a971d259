@@ -1,0 +1,27 @@
+electron/features/agent/assistantService.ts
+  s_dc9dfef6fa9ba4::t_0df555c53af44e 723-724,727-729
+  s_dc9dfef6fa9ba4::t_68869417ce51af 457,460-462,703-705,918
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_dc9dfef6fa9ba4::t_727d2cf1f6d388 514-515
+  s_dc9dfef6fa9ba4::t_68869417ce51af 510-513,516-555
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_dc9dfef6fa9ba4::t_0df555c53af44e 463-466,475-482
+  s_dc9dfef6fa9ba4::t_68869417ce51af 349,395-398,419-423,437,439,441-450,452,455-457
+  s_dc9dfef6fa9ba4::t_7ec052e5dcdbfc 453-454,458-459
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cdae659ae27111d2df08203cf29c2fa0a971d259",
+  "prompts": {},
+  "sessions": {
+    "s_dc9dfef6fa9ba4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a1a-280c-78a2-9681-91b51694eb66",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
