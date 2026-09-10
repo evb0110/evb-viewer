@@ -1,0 +1,40 @@
+electron/file-access/documentRevisionStore.ts
+  s_99215893d645f6::t_6d22ecf135b9d9 559-563
+  s_99215893d645f6::t_2205d10feb4936 6,44,46,49,128-153,158-199,204-215,217-232,564
+  s_99215893d645f6::t_d6e57a7d5e39b2 154-157,200-203
+  s_99215893d645f6::t_424669c9e8d54d 519-522
+  s_99215893d645f6::t_50f8983aa42260 216
+  s_ee46735e87d8ec::t_71a200f4404ab6 233
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_99215893d645f6::t_e87698d5a65b43 3,167-195,200-213
+  s_99215893d645f6::t_d6e57a7d5e39b2 196-199
+  s_ee46735e87d8ec::t_aaafb21d630f05 214-215
+eslint.config.mjs
+  s_99215893d645f6::t_e198847778f2f8 257
+packages/node-runtime/tsconfig.json
+  s_99215893d645f6::t_c9a2aa148fc148 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a96e4480973f603ba15bf23daea74ed37aefb47b",
+  "prompts": {},
+  "sessions": {
+    "s_99215893d645f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b90-b25c-76e3-8943-d00dc2c6ba9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ee46735e87d8ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d74-8061-7522-8389-f177f5631442",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
