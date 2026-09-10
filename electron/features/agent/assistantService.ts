@@ -536,13 +536,18 @@ function clearPendingAssistantMessages(session: IAssistantChatSession) {
     session.messages.filter(message => message.role === 'assistant' && message.pending).forEach(message => { message.pending = false; });
 }
 
-function markClaudeTurnError(session: IAssistantChatSession, turnId: string | null, message: string) {
+function markClaudeTurnError(
+    session: IAssistantChatSession,
+    turnId: string | null,
+    message: string,
+    options: {idleProviderFailure?: boolean} = {},
+) {
     claudeProviderRuntime.lastError = message;
     claudeProviderRuntime.runtimeState = 'error';
     if (isClaudeAuthErrorMessage(message)) {
         claudeProviderRuntime.authState = 'signed-out';
     }
-    if (turnId === null) {
+    if (turnId === null && options.idleProviderFailure === true) {
         publishState(session.scope, session);
         return;
     }
@@ -681,7 +686,7 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             if (turnId !== null && shouldDropClaudeCallback(session, turnId)) {
                 return;
             }
-            markClaudeTurnError(session, turnId, message);
+            markClaudeTurnError(session, turnId, message, {idleProviderFailure: true});
         },
     };
 }
@@ -937,7 +942,7 @@ export async function sendAgentAssistantMessage(
                     return createAssistantDisabledResult(currentState(session.scope, session));
                 }
                 const message = getErrorMessage(error);
-                markClaudeTurnError(session, message);
+                markClaudeTurnError(session, null, message);
                 return createAssistantErrorResult(message, session.scope, session);
             }
         }
