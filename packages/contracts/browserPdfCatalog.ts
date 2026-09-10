@@ -23,6 +23,12 @@ export interface IBrowserPdfCatalog {
     pageLabels: IBrowserPdfCatalogPageLabelRange[];
 }
 
+export interface IBrowserPdfCatalogDecodeOptions {
+    maxPageLabels: number;
+    maxBookmarkItems?: number;
+    maxBookmarkDepth?: number;
+}
+
 export const BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS = 100_000;
 export const BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH = 256;
 export const BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS = 2_048;
@@ -32,11 +38,16 @@ function isNonNegativeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function decodeBookmark(value: unknown, depth: number, state: {count: number}): IBrowserPdfCatalogBookmark | null {
+function decodeBookmark(
+    value: unknown,
+    depth: number,
+    state: {count: number},
+    options: Required<IBrowserPdfCatalogDecodeOptions>,
+): IBrowserPdfCatalogBookmark | null {
     if (
         !isRecord(value)
-        || depth >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH
-        || state.count >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS
+        || depth >= options.maxBookmarkDepth
+        || state.count >= options.maxBookmarkItems
         || typeof value.title !== 'string'
         || (value.pageIndex !== null && !isNonNegativeInteger(value.pageIndex))
         || (value.namedDest !== null && typeof value.namedDest !== 'string')
@@ -52,7 +63,7 @@ function decodeBookmark(value: unknown, depth: number, state: {count: number}): 
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
     for (const item of value.items) {
-        const decoded = decodeBookmark(item, depth + 1, state);
+        const decoded = decodeBookmark(item, depth + 1, state, options);
         if (decoded === null) {
             return null;
         }
@@ -70,20 +81,28 @@ function decodeBookmark(value: unknown, depth: number, state: {count: number}): 
     };
 }
 
-export function decodeBrowserPdfCatalog(value: unknown, options: {maxPageLabels: number}): IBrowserPdfCatalog | null {
+export function decodeBrowserPdfCatalog(
+    value: unknown,
+    options: IBrowserPdfCatalogDecodeOptions,
+): IBrowserPdfCatalog | null {
+    const limits: Required<IBrowserPdfCatalogDecodeOptions> = {
+        maxBookmarkDepth: options.maxBookmarkDepth ?? BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
+        maxBookmarkItems: options.maxBookmarkItems ?? BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS,
+        maxPageLabels: options.maxPageLabels,
+    };
     if (
         !isRecord(value)
         || !Array.isArray(value.bookmarks)
         || !Array.isArray(value.pageLabels)
-        || value.bookmarks.length > BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS
-        || value.pageLabels.length > options.maxPageLabels
+        || value.bookmarks.length > limits.maxBookmarkItems
+        || value.pageLabels.length > limits.maxPageLabels
     ) {
         return null;
     }
     const state = {count: 0};
     const bookmarks: IBrowserPdfCatalogBookmark[] = [];
     for (const bookmark of value.bookmarks) {
-        const decoded = decodeBookmark(bookmark, 0, state);
+        const decoded = decodeBookmark(bookmark, 0, state, limits);
         if (decoded === null) {
             return null;
         }
