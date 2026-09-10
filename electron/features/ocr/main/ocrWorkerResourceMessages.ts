@@ -72,6 +72,17 @@ function isCurrentActiveResourceWorker(
     );
 }
 
+function isOwnedResourceWorker(
+    activeJob: IOcrActiveJob | undefined,
+    worker: Worker,
+) {
+    return Boolean(
+        activeJob
+        && activeJob.worker === worker
+        && !activeJob.physicalFinalized,
+    );
+}
+
 function createOcrResourceRequest(
     scopedJobId: string,
     message: Extract<TOcrWorkerResourceMessage, { type: 'resource-acquire' }>,
@@ -101,7 +112,7 @@ export function handleWorkerResourceMessage(
         const releaseDisposition = getOcrWorkerMessageDisposition({
             incomingJobId: message.jobId,
             expectedRequestId: activeJob?.requestId ?? scopedJobId,
-            isCurrentWorker: isCurrentActiveResourceWorker(activeJob, worker),
+            isCurrentWorker: isOwnedResourceWorker(activeJob, worker),
         });
         if (!releaseDisposition.accepted) {
             log.debug(`[${scopedJobId}] Ignoring OCR resource release: ${releaseDisposition.reason ?? '<unknown>'}`);
