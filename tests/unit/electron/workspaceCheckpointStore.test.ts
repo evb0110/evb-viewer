@@ -447,6 +447,27 @@ describe('workspace checkpoint store', () => {
             .toEqual(grantedCheckpoint);
     });
 
+    it('rejects an unproven source-only save without replacing the last valid record', async () => {
+        const grantedPdfPath = join(state.userDataPath, 'granted.pdf');
+        await writeFile(grantedPdfPath, '%PDF-1.7 synthetic checkpoint fixture');
+        const grantedCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(grantedPdfPath),
+                workingCopyRef: null,
+                isDirty: false,
+            }],
+        };
+        allowOpenPath(grantedPdfPath, 11);
+
+        await saveWorkspaceCheckpoint(grantedCheckpoint, 11, 11);
+        await expect(saveWorkspaceCheckpoint(grantedCheckpoint, 11))
+            .rejects.toThrow('no sender-bound authorization');
+        expect(JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')).checkpoint)
+            .toEqual(grantedCheckpoint);
+    });
+
     it('keeps legacy source-only evidence but refuses to authorize it on claim', async () => {
         const legacyPath = join(state.userDataPath, 'legacy.txt');
         await writeFile(legacyPath, 'legacy checkpoint fixture');
