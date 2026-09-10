@@ -269,4 +269,58 @@ describe('browser working-copy decryption', () => {
         expect(failedWorkingPath).not.toBe(sourcePath);
         await expect(browserDocumentStore.requireEntry(failedWorkingPath)).rejects.toThrow();
     });
+
+    it('opens a memory-only PDF when exposed IndexedDB refuses access without touching Recent Files', async () => {
+        vi.stubGlobal('indexedDB', {open: () => { throw new Error('IndexedDB access denied'); }});
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        const sourcePath = await browserDocumentStore.registerFile(
+            new File(
+                [DECRYPTED_PDF],
+                'volatile.pdf',
+                {type: 'application/pdf'},
+            ),
+            PDF_SOURCE_OPTIONS,
+        );
+
+        const result = await openDocumentPaths([sourcePath]);
+
+        expect(result).toEqual(expect.objectContaining({
+            kind: 'pdf',
+            originalPath: sourcePath,
+        }));
+        expect((await browserDocumentStore.requireEntry(sourcePath)).memoryOnly).toBe(true);
+        expect(browserDocumentStore.getRecentFiles()).toEqual([]);
+    });
+
+    it('opens a memory-only DjVu when exposed IndexedDB refuses access without touching Recent Files', async () => {
+        vi.stubGlobal('indexedDB', {open: () => { throw new Error('IndexedDB access denied'); }});
+        const {
+            browserDocumentStore,
+            openDocumentPaths,
+        } = await loadService();
+        const sourcePath = await browserDocumentStore.registerFile(
+            new File(
+                [Uint8Array.of(1, 2, 3)],
+                'volatile.djvu',
+                {type: 'image/vnd.djvu'},
+            ),
+            {
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+
+        const result = await openDocumentPaths([sourcePath]);
+
+        expect(result).toEqual({
+            kind: 'djvu',
+            workingPath: '',
+            originalPath: sourcePath,
+        });
+        expect((await browserDocumentStore.requireEntry(sourcePath)).memoryOnly).toBe(true);
+        expect(browserDocumentStore.getRecentFiles()).toEqual([]);
+    });
 });
