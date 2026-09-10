@@ -1,0 +1,19 @@
+P8_NATIVE_FORMATS_RECEIPT.md
+  s_1b452cdf36f007::t_29249b306249ae 14,43-44,67,76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c11a0e824cb9b3bd3cb29306901c8085bb8f2f25",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
