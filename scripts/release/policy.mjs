@@ -252,6 +252,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 '.github/workflows/build-target.yml',
                 '.github/workflows/ci.yml',
                 'electron-builder.yml',
+                'electron/features/ocr/**',
                 'native/pdf-page-ops/**',
                 'package.json',
                 'pnpm-lock.yaml',
