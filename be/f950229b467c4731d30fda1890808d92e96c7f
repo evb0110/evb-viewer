@@ -1,0 +1,22 @@
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_fa76b4162bbdf1::t_2d442993c2fed2 337,339,342-346,773
+  s_fa76b4162bbdf1::t_ce1401ea32ea53 340-341
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_fa76b4162bbdf1::t_2d442993c2fed2 729
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bef950229b467c4731d30fda1890808d92e96c7f",
+  "prompts": {},
+  "sessions": {
+    "s_fa76b4162bbdf1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08bae-c8c6-7b00-8f88-cf2472d9d213",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
