@@ -96,14 +96,15 @@ export async function runDocumentSaveUtilityProcess(options: {
         let settled = false;
         let childExited = false;
         let spawned = false;
-        let pid = child.pid;
+        let pid: number | undefined;
+        let retained: IRetainedDocumentSaveUtility | undefined;
         let resolveSpawnState!: () => void;
         const spawnState = new Promise<void>(resolve => {
             resolveSpawnState = resolve;
         });
         const waitForSpawnState = async () => {
             if (spawned || childExited) {
-                return;
+                return spawned;
             }
             await Promise.race([
                 spawnState,
@@ -112,6 +113,7 @@ export async function runDocumentSaveUtilityProcess(options: {
                     timer.unref();
                 }),
             ]);
+            return spawned;
         };
         let terminationInFlight: Promise<boolean> | null = null;
         const stopChild = async () => {
@@ -119,9 +121,14 @@ export async function runDocumentSaveUtilityProcess(options: {
                 return terminationInFlight;
             }
             const attempt = (async () => {
-                await waitForSpawnState();
-                if (pid === undefined) {
+                const hasSpawned = await waitForSpawnState();
+                if (!hasSpawned) {
+                    // A PID exposed by utilityProcess.fork before the spawn event
+                    // is not an identity we are allowed to terminate.
                     return childExited;
+                }
+                if (pid === undefined) {
+                    return false;
                 }
                 try {
                     return await terminateProcessTree(pid, {
@@ -144,10 +151,7 @@ export async function runDocumentSaveUtilityProcess(options: {
             return attempt;
         };
         const retainUntilTerminationProof = () => {
-            if (pid === undefined) {
-                return;
-            }
-            const retained = {
+            retained = {
                 child,
                 pid,
                 releaseResourceLease,
@@ -169,9 +173,7 @@ export async function runDocumentSaveUtilityProcess(options: {
                 const terminated = await termination;
                 if (terminated) {
                     releaseResourceLease();
-                    if (pid !== undefined) {
-                        retainedDocumentSaveUtilities.delete(child);
-                    }
+                    retainedDocumentSaveUtilities.delete(child);
                 }
                 return;
             }
@@ -201,8 +203,13 @@ export async function runDocumentSaveUtilityProcess(options: {
         child.once('spawn', () => {
             spawned = true;
             pid = child.pid;
+            if (retained) {
+                retained.pid = pid;
+            }
             resolveSpawnState();
-            child.postMessage(options.request);
+            if (!settled && !childExited && !options.signal?.aborted) {
+                child.postMessage(options.request);
+            }
         });
         child.once('message', (value) => {
             const result = decodeDocumentSaveUtilityResult(value);

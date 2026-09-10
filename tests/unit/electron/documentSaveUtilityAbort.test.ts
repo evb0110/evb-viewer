@@ -46,6 +46,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
 
     afterEach(async () => {
         await retryRetainedDocumentSaveUtilityProcesses();
+        vi.useRealTimers();
     });
 
     it('does not fork after cancellation has already been requested', async () => {
@@ -252,6 +253,117 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
             sha256: 'a'.repeat(64),
         });
         expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8127, expect.any(Object));
+    });
+
+    it('does not terminate an exposed pre-spawn PID when the spawn event never arrives', async () => {
+        vi.useFakeTimers();
+        const release = vi.fn();
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            pid: 8128,
+            postMessage: vi.fn(),
+        });
+        mocks.fork.mockReturnValueOnce(child);
+        const controller = new AbortController();
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+            signal: controller.signal,
+            resourceLease: {
+                token: 'utility-lease',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                release,
+            },
+        });
+        const rejection = result.catch(value => value);
+
+        controller.abort(new Error('cancel before utility spawn'));
+        await vi.advanceTimersByTimeAsync(2_500);
+        const error = await rejection;
+
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8128');
+        expect(mocks.terminateProcessTree).not.toHaveBeenCalled();
+        expect(release).not.toHaveBeenCalled();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
+
+        child.emit('exit', 0);
+        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
+        expect(release).toHaveBeenCalledOnce();
+    });
+
+    it('does not publish a request when cancellation wins before a delayed spawn', async () => {
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            pid: 8129,
+            postMessage: vi.fn(),
+        });
+        mocks.fork.mockReturnValueOnce(child);
+        const controller = new AbortController();
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+            signal: controller.signal,
+        });
+
+        controller.abort(new Error('cancel before request publication'));
+        child.emit('spawn');
+
+        await expect(result).rejects.toThrow('cancel before request publication');
+        expect(child.postMessage).not.toHaveBeenCalled();
+        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8129, expect.any(Object));
+    });
+
+    it('retains an unproven lease when timeout settles before a late spawn', async () => {
+        vi.useFakeTimers();
+        const release = vi.fn();
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            pid: 8130,
+            postMessage: vi.fn(),
+        });
+        mocks.fork.mockReturnValueOnce(child);
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1,
+            request: {type: 'inspect'},
+            resourceLease: {
+                token: 'utility-lease',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                release,
+            },
+        });
+        const rejection = result.catch(value => value);
+
+        await vi.advanceTimersByTimeAsync(2_500 + 1);
+        await vi.advanceTimersByTimeAsync(0);
+        const error = await rejection;
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8130');
+        expect(release).not.toHaveBeenCalled();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
+
+        child.emit('spawn');
+        expect(child.postMessage).not.toHaveBeenCalled();
+        mocks.terminateProcessTree.mockResolvedValueOnce(true);
+        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
+        expect(release).toHaveBeenCalledOnce();
     });
 
     it('prices fingerprint admission as one bounded interactive utility slot', async () => {
