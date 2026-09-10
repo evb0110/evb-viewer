@@ -24,6 +24,7 @@ import {
 } from 'yaml-eslint-parser';
 
 interface IWorkflowStep {
+    'continue-on-error'?: boolean | string;
     env?: Record<string, unknown>;
     if?: string;
     run?: string;
@@ -362,6 +363,21 @@ describe('CI topology policy', () => {
                 expect(revision, `${relativePath}: ${action}`).toMatch(/^[0-9a-f]{40}$/u);
             }
         }
+    });
+
+    it('requires the installed Windows journey for every release architecture', async () => {
+        const jobs = parseWorkflowJobs(await readProjectFile('.github/workflows/build-target.yml'));
+        const buildJob = jobs.build;
+        if (buildJob === undefined) {
+            throw new Error('build-target workflow must define its build job.');
+        }
+
+        const installedJourney = buildJob.steps?.find(step => step.run?.includes('NSIS installer was not produced.'));
+        if (installedJourney === undefined) {
+            throw new Error('Windows release builds must define the installed NSIS journey.');
+        }
+
+        expect(installedJourney['continue-on-error']).toBeUndefined();
     });
 
     it('runs changed lint only for a valid base and falls back to full lint otherwise', async () => {
