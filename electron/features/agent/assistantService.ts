@@ -536,11 +536,15 @@ function clearPendingAssistantMessages(session: IAssistantChatSession) {
     session.messages.filter(message => message.role === 'assistant' && message.pending).forEach(message => { message.pending = false; });
 }
 
-function markClaudeTurnError(session: IAssistantChatSession, message: string) {
+function markClaudeTurnError(session: IAssistantChatSession, turnId: string | null, message: string) {
     claudeProviderRuntime.lastError = message;
     claudeProviderRuntime.runtimeState = 'error';
     if (isClaudeAuthErrorMessage(message)) {
         claudeProviderRuntime.authState = 'signed-out';
+    }
+    if (turnId === null) {
+        publishState(session.scope, session);
+        return;
     }
     errorSessionTurn(session, session.turnOwner.generation, message);
     session.lastError = message;
@@ -671,10 +675,13 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             markClaudeTurnCompleted(session, turnId);
         },
         onError: (turnId: string | null, message: string) => {
-            if (shouldDropClaudeCallback(session, turnId)) {
+            // A null turn ID is meaningful here. It reports an idle provider
+            // stream failure, which must invalidate the provider without
+            // inventing a failed chat turn.
+            if (turnId !== null && shouldDropClaudeCallback(session, turnId)) {
                 return;
             }
-            markClaudeTurnError(session, message);
+            markClaudeTurnError(session, turnId, message);
         },
     };
 }
