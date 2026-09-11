@@ -139,3 +139,24 @@ The same primary journey was retried after the branch advanced to integration
 before search began. The second session log is retained at
 `.devkit/sessions/e2e-run-mtx9bkgu-f734da-djvu-viewer-smoke-1789149354849/session.log`.
 The six-file fallback was rerun on that tip and passed 96/96 tests again.
+
+## V5b draw-shapes acceptance
+
+The next reserved #459 gate ran from integration context `e6a7c692d`:
+
+```text
+pnpm run test:e2e:electron:draw-shapes
+```
+
+The native page-ops build passed. The real Electron draw lifecycle selection
+passed 16 tests covering repeated draw/save/delete/redraw, undo/redo, popup
+deletion, and saved-stroke survivor handling. The cross-runtime Ink parity
+case reached both Electron and Playwright and reported matching managed-shape
+and stroke metrics, but its independent pixel assertion failed with 46 blue
+pixel differences against an allowed maximum of 28. Gate evidence is retained
+at `.devkit/analysis/gates/2026-09-11T17-58-32-973Z-50005-5dc6b5e6.ndjson`.
+
+The disjoint six-file renderer/OCR fallback passed 96/96 tests again. No
+threshold or source change was made to hide the parity mismatch. The saved
+parity artifacts and session logs remain owned by this run for coordinator
+review.
