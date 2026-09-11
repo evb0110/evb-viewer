@@ -1,0 +1,20 @@
+docs/project8-electron-bundle-integrity-acceptance-2026-09-11.md
+  s_58625a6da22803::t_00953dad3c1f7d 1-34
+  s_58625a6da22803::t_ecf897f5d4fb2b 35-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a9f7c5e44dfb3bd84959f61f1e97102464c0ba88",
+  "prompts": {},
+  "sessions": {
+    "s_58625a6da22803": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09187-bc17-7421-addc-7dea74f8b464",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
