@@ -96,7 +96,13 @@ export class BrowserDurableDjvuJobs {
     ) {
         if (!this.#convertJobs.has(jobId)) {
             this.#states.set(jobId, this.#createState(jobId, 'djvu-convert', 'converting'));
-            const job = Promise.resolve().then(run).catch((error: unknown): IDjvuConvertResult => {
+            let runPromise: Promise<IDjvuConvertResult>;
+            try {
+                runPromise = run();
+            } catch (error) {
+                runPromise = Promise.reject(error);
+            }
+            const job = runPromise.catch((error: unknown): IDjvuConvertResult => {
                 const expected = getExpectedOutcome(error);
                 const failure = expected === undefined ? getFailureReceipt(error) : undefined;
                 return {
