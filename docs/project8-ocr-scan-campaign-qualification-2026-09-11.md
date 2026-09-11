@@ -213,6 +213,29 @@ gap for coordinator follow-up. No new fixture, source document, screenshot, or
 telemetry artifact was generated. Test-owned temporary files were cleaned by
 the suite, and the worktree is clean.
 
+## Follow-up slot: legacy scan-settings migration and pruning
+
+This slot started from `1878052f0`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #443
+through the dedicated scan-preferences persistence suite:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/modules/scan-cleanup/scanCleanupPreferences.test.ts \
+  --reporter=dot
+
+1 file passed, 22 tests passed
+```
+
+The run covered legacy scalar and pixel-geometry migration, per-document
+override isolation, pruning of automatic page overrides, manual split
+migration, numeric validation, and safe handling of malformed persisted
+values. The migration warning for unavailable legacy raster dimensions was
+expected and the test passed. A packaged upgrade with real user preference
+files remains coordinator-owned evidence. No new preference file, fixture,
+screenshot, or telemetry artifact was generated. Test-owned storage was
+cleaned by the suite, and the worktree is clean.
+
 ## Follow-up slot: DOCX text direction and commit
 
 This slot started from `fc251b855`, the current
