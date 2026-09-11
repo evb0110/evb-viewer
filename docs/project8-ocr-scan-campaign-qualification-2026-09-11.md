@@ -239,6 +239,26 @@ coordinator-owned evidence. No new fixture, PDF, screenshot, or telemetry
 artifact was generated. Temporary test paths were cleaned up by the existing
 suites.
 
+## Follow-up slot: PNG validation and density
+
+This slot started from `920001a91`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #432
+and #433 in the native raster reader:
+
+```text
+cargo test --manifest-path native/Cargo.toml -p evb-raster-io --test png --locked
+
+test result: ok. 13 passed; 0 failed; 0 ignored
+```
+
+The run covered invalid scanline filters across stream boundaries, trusted
+chunk CRC failures, truncation and inflated-payload bounds, standard PNG
+variants, alpha compositing, and independent horizontal and vertical pHYs
+density preservation. A packaged image-combine run and cross-platform PNG
+readback remain coordinator-owned evidence. Cargo's ignored target cache was
+updated; no source fixture or generated artifact was added, and the worktree
+remains clean.
+
 ## Follow-up slot: OCR rendered-page geometry
 
 This slot started from `2457060e5`, the current
