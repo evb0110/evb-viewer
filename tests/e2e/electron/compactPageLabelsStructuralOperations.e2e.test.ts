@@ -5,6 +5,7 @@ import {
     it,
 } from 'vitest';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import type {TLegacyDocumentRef} from '@contracts/documentRef';
 import type {TRequestId} from '@contracts/shared';
 import type {IEvbTestApi} from '@app/types/evbTestApi';
 import {
@@ -157,7 +158,7 @@ function labelsFromRanges(totalPages: number, ranges: readonly IPdfPageLabelRang
 async function waitForLabels(session: IElectronE2ESession, expected: readonly string[]) {
     await expect.poll(async () => {
         let state: {
-            pageLabels?: string[] | null;
+            pageLabels?: string[] | Record<string, string> | null;
             pageLabelRanges?: IPdfPageLabelRange[];
             pageLabelsResolved?: boolean;
         };
@@ -204,7 +205,7 @@ async function waitForSemanticLabels(session: IElectronE2ESession, expected: rea
             }
             const labels = Array.isArray(state.pageLabels)
                 ? state.pageLabels
-                : Object.values(state.pageLabels);
+                : Object.values(state.pageLabels as Record<string, string>);
             return labels.length === expected.length
                 && state.totalPages === expected.length
                 ? labels
@@ -288,8 +289,8 @@ async function insertOnePageThroughGrantedNative(
     sourcePath: string,
 ) {
     const granted = await session.page.evaluate(async path => {
-        const grant = (window as Window & {__allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;}).__allowRendererFileOpenForAutomation;
-        return typeof grant === 'function' && await grant(path);
+        const grant = (window as IE2EWindow & {__allowRendererFileOpenForAutomation?: (value: TLegacyDocumentRef) => Promise<boolean>;}).__allowRendererFileOpenForAutomation;
+        return typeof grant === 'function' && await grant(path as TLegacyDocumentRef);
     }, sourcePath);
     expect(granted, 'insert source path automation grant').toBe(true);
 
@@ -306,7 +307,7 @@ async function insertOnePageThroughGrantedNative(
         if (!path) {
             throw new Error('active working copy path is unavailable');
         }
-        const revision = await api.documentFiles.getDocumentRevision(path);
+        const revision = await api.documentFiles.getDocumentRevision(path as TLegacyDocumentRef);
         return api.pageOps.insertFile(path, 200, after, [source], 'compact-label-positive-insert' as TRequestId, {expectedDocumentRevisionToken: revision?.token});
     }, {
         source: sourcePath,
