@@ -112,7 +112,7 @@ function loadImageDecoderModule() {
     try {
         return requireImageDecoder('@napi-rs/canvas') as IImageDecoderModule;
     } catch {
-        return requirePackagedImageDecoder('@napi-rs/canvas') as IImageDecoderModule;
+        return requirePackagedImageDecoder('./index.js') as IImageDecoderModule;
     }
 }
 
