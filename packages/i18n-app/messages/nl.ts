@@ -1059,7 +1059,7 @@ export default {
     'optimizePdf': {
         'title': 'PDF optimaliseren',
         'dialogDescription': 'Maak een geoptimaliseerde kopie met een native bestandspipeline voor grote gescande documenten.',
-        'presetLabel': 'Preset',
+        'presetLabel': 'Voorinstelling',
         'flattenWarning': 'Rasterpresets bouwen pagina’s opnieuw op als afbeeldingen. Tekst, links, formulieren, lagen en bewerkbare annotaties kunnen in de geoptimaliseerde kopie worden afgevlakt.',
         'saveCopyAction': 'Geoptimaliseerde kopie opslaan',
         'successTitle': 'Geoptimaliseerde PDF opgeslagen',
