@@ -1,0 +1,35 @@
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_3d279d029e00e2::t_2d3f7d09a83b0e 161
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_3d279d029e00e2::t_9a37b668cb9465 97
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_3d279d029e00e2::t_d68898fc2f5228 206-215,543,636-640,679
+tests/unit/app/platform/platformApiContractParity.test.ts
+  s_3d279d029e00e2::t_52a9ff12cbb41f 107-110,114-117
+app/utils/exportTextAsDocx.ts
+  s_3d279d029e00e2::t_60511bbe403eb0 5-9,66-74,81,83,167-168,170,199,231
+tests/unit/app/composables/useDocxExport.test.ts
+  s_3d279d029e00e2::t_1d93a34e95fbb5 16,49
+tests/unit/app/composables/useOcr.test.ts
+  s_3d279d029e00e2::t_27fb55ee5717a4 955
+tests/unit/app/modules/workspace-shell/composables/useBrowserInstallHint.test.ts
+  s_3d279d029e00e2::t_6748b003a6caa6 19,28,40,110-113
+tests/unit/electron/updates.test.ts
+  s_3d279d029e00e2::t_afb273640052d5 795
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "543aa31fa93314a5532b5670ca87bebf07ab1286",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
