@@ -1,0 +1,29 @@
+app/utils/localStorage.ts
+  s_f37744108e7759::t_814452c1c577e7 1-2,98
+  s_f37744108e7759::t_27a09586ffb2eb 6,79-97,99-106
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_f37744108e7759::t_27a09586ffb2eb 8,104
+  s_f37744108e7759::t_814452c1c577e7 105-108
+app/modules/workspace-shell/composables/useBrowserInstallHint.ts
+  s_f37744108e7759::t_27a09586ffb2eb 2,10,28,31-32
+app/modules/workspace-shell/composables/useAssistantPanelResize.ts
+  s_f37744108e7759::t_27a09586ffb2eb 3,7,25-30
+nuxt.config.ts
+  s_f37744108e7759::t_c8ff8c349fa3ab 293-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "49ba7276d0a33b3e6f574add698253ad9097e433",
+  "prompts": {},
+  "sessions": {
+    "s_f37744108e7759": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ec91-7dd0-aaa3-5f83e251c2c2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
