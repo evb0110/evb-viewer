@@ -21,7 +21,7 @@ was available here, not that the project is green.
 | `unit-policy` | `pnpm run test:unit`; policy changes select all unit projects | Push/PR quality | 54 policy-selection tests passed across the selected policy suites |
 | `unit-static-architecture` | `pnpm run test:unit`; app, native/build, architecture, and selected test paths select it | Push/PR quality | Unknown for the full project |
 | `unit-landing` | `pnpm run test:unit`; landing changes select it | Push/PR quality | Unknown for the full project |
-| `browser-integration` | `pnpm run test:integration:browser` | Changed-area browser job on push/PR | Unknown |
+| `browser-integration` | `pnpm run test:integration:browser` | Changed-area browser job on push/PR | 12 files passed, 25 tests passed, 1 skipped |
 | `native-integration` | `vitest run --project native-integration` | Changed-area native/build job on push/PR | Unknown |
 | `electron-bundle-static-integrity` | `pnpm run test:electron-bundle-static-integrity:no-build`, after the build job | Native/build safety and release checks | Unknown |
 | `e2e-regression` | `pnpm run test:e2e:electron:regression` | Changed app/Electron integration; manual dispatch | Unknown |
@@ -52,3 +52,24 @@ The map establishes configured selection and invocation paths. It does not turn
 manual or platform-specific projects into green results. Hosted exact-SHA run
 inspection for excluded projects remains coordinator/CI evidence. No browser,
 OCR, assistant, or native source was edited.
+
+## Browser acceptance run
+
+The next browser acceptance slot ran:
+
+```text
+pnpm run test:integration:browser -- --reporter verbose
+12 test files passed, 25 tests passed, 1 skipped
+Duration: 96.89s
+```
+
+The run covered Chromium document lifecycle UI, source-version and Recent Files
+replacement, live-lease and transfer ownership, maintenance sweeps, annotation
+saves, page operations, DjVu finalization, IndexedDB migration, text selection,
+stroke scaling, comment-row geometry, and print-dialog layout. The skipped test
+was intentional and did not fail the project.
+
+This is local Chromium evidence for the configured browser project. Hosted
+exact-SHA CI remains the source for publication status, and native-dialog,
+installed-app, Windows, macOS, and production-deployment acceptance remain
+outside this VPS run.
