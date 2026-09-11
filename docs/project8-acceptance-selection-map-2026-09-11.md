@@ -33,7 +33,7 @@ was available here, not that the project is green.
 | `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Runner exited 1; per-test report unavailable after temp cleanup |
 | `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | 2 files passed, 11 tests passed, 4 skipped |
 | `e2e-native-save-reopen` | Invoked by the save-pipeline script after `e2e-save-pipeline` | Save-pipeline command, not a separate workflow job | 2 files passed, 8 tests passed |
-| `e2e-xlarge-pdf` | `pnpm run test:e2e:electron:xlarge` | Manual dispatch and performance workflow | Unknown |
+| `e2e-xlarge-pdf` | `pnpm run test:e2e:electron:xlarge` | Manual dispatch and performance workflow | 1 file passed, 1 test passed, 2 skipped; required fixtures absent |
 | `e2e-search-match-scroll` | `pnpm run test:e2e:electron:search-match-scroll` | Package script only; no current CI workflow invocation found | 1 file passed, 2 tests passed |
 
 ## Policy checks
@@ -238,3 +238,25 @@ cleanup diagnostic rather than an acceptance failure.
 This is local exact-run evidence only. It does not cover hosted CI, native
 dialog behavior on macOS or Windows, production replay, or the skipped
 issue-124 and benchmark projects.
+
+## Xlarge PDF acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:xlarge
+1 file passed, 1 test passed, 2 skipped
+Duration: 26.19s
+```
+
+The PDF page-operations artifact was reused and the Electron renderer started.
+The source-contract test passed. The 2,646-page annotation save/reopen case
+was skipped because `EVB_E2E_XLARGE_PDF_FIXTURE` was not configured. The
+138,000-page scan-cleanup case was skipped because
+`EVB_E2E_SCAN_CLEANUP_XLARGE_FIXTURE` was not configured.
+
+Disjoint fallback TODO: stage the coordinator-approved xlarge fixture and the
+coordinator-approved scan-cleanup fixture on this VPS, verify their path and
+manifest metadata, then rerun `test:e2e:electron:xlarge`. Do not generate a
+replacement fixture, remove the opt-in guards, or count the source-contract
+test as the PDF acceptance.
