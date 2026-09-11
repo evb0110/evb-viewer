@@ -272,10 +272,14 @@ describe('release mirror publisher', () => {
     });
 
     function createMultipartFixture({
+        failCompletion = () => undefined,
         failPart = () => undefined,
+        failRead = () => undefined,
         partDelayMs = 0,
     }: {
+        failCompletion?: (uploadId: string, attempt: number) => Error | undefined;
         failPart?: (partNumber: number, uploadId: string) => Error | undefined;
+        failRead?: (key: string, attempt: number) => Error | undefined;
         partDelayMs?: number;
     } = {}) {
         const stored = new Map<string, Buffer>();
@@ -285,6 +289,8 @@ describe('release mirror publisher', () => {
         }>();
         const commands: unknown[] = [];
         let createdUploads = 0;
+        let completions = 0;
+        let reads = 0;
         let inFlight = 0;
         let maxInFlight = 0;
         const client = {send: vi.fn(async (command: unknown) => {
@@ -299,6 +305,11 @@ describe('release mirror publisher', () => {
                 const bytes = stored.get(command.input.Key!);
                 if (!bytes) {
                     throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+                }
+                reads += 1;
+                const error = failRead(command.input.Key!, reads);
+                if (error) {
+                    throw error;
                 }
                 return {Body: objectBody(bytes)};
             }
@@ -342,6 +353,11 @@ describe('release mirror publisher', () => {
                 const upload = openUploads.get(command.input.UploadId!);
                 if (!upload) {
                     throw new Error(`Completion for unknown upload ${command.input.UploadId}`);
+                }
+                completions += 1;
+                const error = failCompletion(command.input.UploadId!, completions);
+                if (error) {
+                    throw error;
                 }
                 const listed = command.input.MultipartUpload?.Parts ?? [];
                 if (listed.length !== upload.parts.size) {
@@ -495,6 +511,46 @@ describe('release mirror publisher', () => {
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(fixture.openUploads.size).toBe(0);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('retrying (2/3)'));
+        warn.mockRestore();
+    });
+
+    it('repeats a stalled completion on the same multipart upload', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const artifact = Buffer.from('multipart drill payload');
+        const fixture = createMultipartFixture({failCompletion: (uploadId, attempt) => (uploadId === 'upload-1' && attempt === 1
+            ? Object.assign(new Error('@smithy/node-http-handler - the request socket timed out after 60000 ms of inactivity'), {name: 'TimeoutError'})
+            : undefined)});
+
+        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        expect(fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand)).toHaveLength(0);
+        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter(command => command instanceof UploadPartCommand)).toHaveLength(3);
+        expect(fixture.commands.filter(command => command instanceof CompleteMultipartUploadCommand)).toHaveLength(2);
+        expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
+        expect(fixture.openUploads.size).toBe(0);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Completion of asset.zip'));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('repeating it (2/3)'));
+        warn.mockRestore();
+    });
+
+    it('re-reads a stalled verification instead of uploading the artifact again', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const artifact = Buffer.from('multipart drill payload');
+        const fixture = createMultipartFixture({failRead: (key, attempt) => (key === multipartAssetKey && attempt === 1
+            ? Object.assign(new Error('read ECONNRESET'), {code: 'ECONNRESET'})
+            : undefined)});
+
+        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter(command => command instanceof UploadPartCommand)).toHaveLength(3);
+        expect(fixture.commands.filter(command => command instanceof CompleteMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter(command => command instanceof GetObjectCommand
+            && command.input.Key === multipartAssetKey)).toHaveLength(2);
+        expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(`Verification read of ${multipartAssetKey}`));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('re-reading it (2/3)'));
         warn.mockRestore();
     });
 
