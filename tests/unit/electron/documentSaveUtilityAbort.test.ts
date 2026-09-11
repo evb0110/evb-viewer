@@ -38,6 +38,23 @@ vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
 }));
 vi.mock('@electron/utils/processTree', () => ({terminateProcessTree: mocks.terminateProcessTree}));
 
+function createChild(pid: number | undefined, shutdownTerminated = true) {
+    const child = Object.assign(new EventEmitter(), {
+        kill: vi.fn(() => true),
+        pid,
+        postMessage: vi.fn(),
+    });
+    child.postMessage.mockImplementation((value: unknown) => {
+        if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'shutdown') {
+            queueMicrotask(() => child.emit('message', {
+                type: 'shutdown-complete',
+                terminated: shutdownTerminated,
+            }));
+        }
+    });
+    return child;
+}
+
 describe('runDocumentSaveUtilityProcess cancellation', () => {
     beforeEach(() => {
         mocks.fork.mockReset();
@@ -71,11 +88,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
     });
 
     it('terminates the utility process by direct PID before reporting cancellation', async () => {
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8123,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8123);
         mocks.fork.mockReturnValueOnce(child);
         const controller = new AbortController();
         const result = runDocumentSaveUtilityProcess({
@@ -102,11 +115,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
     });
 
     it('keeps a false termination result on the cancellation failure', async () => {
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8124,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8124);
         mocks.fork.mockReturnValueOnce(child);
         mocks.terminateProcessTree.mockResolvedValueOnce(false);
         const controller = new AbortController();
@@ -129,11 +138,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
 
     it('retains the lease after a false proof until an owned retry proves termination', async () => {
         const release = vi.fn();
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8125,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8125);
         mocks.fork.mockReturnValueOnce(child);
         mocks.terminateProcessTree.mockResolvedValueOnce(false);
         const controller = new AbortController();
@@ -174,11 +179,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
     it('returns a valid result before pending termination settles and retains its lease on false proof', async () => {
         const release = vi.fn();
         const termination = Promise.withResolvers<boolean>();
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8126,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8126);
         mocks.fork.mockReturnValueOnce(child);
         mocks.terminateProcessTree.mockReturnValueOnce(termination.promise);
         const result = runDocumentSaveUtilityProcess({
@@ -224,11 +225,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
 
     it('does not treat a late direct-child exit as descendant termination proof', async () => {
         const release = vi.fn();
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8126,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8126);
         mocks.fork.mockReturnValueOnce(child);
         mocks.terminateProcessTree.mockResolvedValueOnce(false);
         const controller = new AbortController();
@@ -267,11 +264,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
 
     it('reports unproven retained cleanup during shutdown without releasing its lease', async () => {
         const release = vi.fn();
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8127,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8127);
         mocks.fork.mockReturnValueOnce(child);
         mocks.terminateProcessTree.mockResolvedValueOnce(false);
         mocks.terminateProcessTree.mockResolvedValueOnce(false);
@@ -310,12 +303,50 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
         expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
     });
 
+    it('retains ownership when the worker cannot prove native descendants are gone', async () => {
+        const release = vi.fn();
+        const child = createChild(8131, false);
+        mocks.fork.mockReturnValueOnce(child);
+        const controller = new AbortController();
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+            signal: controller.signal,
+            resourceLease: {
+                token: 'utility-lease',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                release,
+            },
+        });
+
+        child.emit('spawn');
+        controller.abort(new Error('native descendant cancellation'));
+
+        const error = await result.catch(value => value);
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8131');
+        expect(release).not.toHaveBeenCalled();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
+        expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8131, expect.any(Object));
+
+        child.emit('message', {
+            type: 'shutdown-complete',
+            terminated: true,
+        });
+        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
+        expect(release).toHaveBeenCalledOnce();
+    });
+
     it('waits for the spawned utility PID before attempting termination', async () => {
         const assignedPid = {value: undefined as number | undefined};
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            postMessage: vi.fn(),
-        });
+        const child = createChild(undefined);
         Object.defineProperty(child, 'pid', {get: () => assignedPid.value});
         mocks.fork.mockReturnValueOnce(child);
         const result = runDocumentSaveUtilityProcess({
@@ -347,11 +378,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
     it('does not terminate an exposed pre-spawn PID when the spawn event never arrives', async () => {
         vi.useFakeTimers();
         const release = vi.fn();
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8128,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8128);
         mocks.fork.mockReturnValueOnce(child);
         const controller = new AbortController();
         const result = runDocumentSaveUtilityProcess({
@@ -389,11 +416,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
     });
 
     it('does not publish a request when cancellation wins before a delayed spawn', async () => {
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8129,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8129);
         mocks.fork.mockReturnValueOnce(child);
         const controller = new AbortController();
         const result = runDocumentSaveUtilityProcess({
@@ -409,18 +432,15 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
         child.emit('spawn');
 
         await expect(result).rejects.toThrow('cancel before request publication');
-        expect(child.postMessage).not.toHaveBeenCalled();
+        expect(child.postMessage).not.toHaveBeenCalledWith({type: 'inspect'});
+        expect(child.postMessage).toHaveBeenCalledWith({type: 'shutdown'});
         expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8129, expect.any(Object));
     });
 
     it('retains an unproven lease when timeout settles before a late spawn', async () => {
         vi.useFakeTimers();
         const release = vi.fn();
-        const child = Object.assign(new EventEmitter(), {
-            kill: vi.fn(() => true),
-            pid: 8130,
-            postMessage: vi.fn(),
-        });
+        const child = createChild(8130);
         mocks.fork.mockReturnValueOnce(child);
         const result = runDocumentSaveUtilityProcess({
             cwd: '/tmp',

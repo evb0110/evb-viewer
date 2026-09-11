@@ -5,7 +5,10 @@ import {utilityProcess} from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 import {mainJobBroker} from '@electron/resources/jobBroker';
-import {decodeDocumentSaveUtilityResult} from '@electron/features/documents/main/documentSaveUtilityProtocol';
+import {
+    decodeDocumentSaveUtilityResult,
+    decodeDocumentSaveUtilityShutdownResult,
+} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery';
 import {terminateProcessTree} from '@electron/utils/processTree';
@@ -103,6 +106,9 @@ export async function runDocumentSaveUtilityProcess(options: {
         let spawned = false;
         let pid: number | undefined;
         let retained: IRetainedDocumentSaveUtility | undefined;
+        let shutdownProof: boolean | undefined;
+        let shutdownProofPromise: Promise<boolean> | null = null;
+        let resolveShutdownProof: ((proven: boolean) => void) | null = null;
         let resolveSpawnState!: () => void;
         const spawnState = new Promise<void>(resolve => {
             resolveSpawnState = resolve;
@@ -135,17 +141,48 @@ export async function runDocumentSaveUtilityProcess(options: {
                 if (pid === undefined) {
                     return false;
                 }
-                try {
-                    return await terminateProcessTree(pid, {
-                        graceMs: 2_500,
-                        isTargetAlive: () => child.pid === pid && !childExited,
-                        // utilityProcess.fork does not create a detached POSIX process
-                        // group. A group probe can therefore miss this live child.
-                        preferProcessGroup: false,
-                    });
-                } catch {
-                    return false;
+                if (childExited) {
+                    return shutdownProof === true;
                 }
+                if (shutdownProof !== true && shutdownProofPromise === null) {
+                    shutdownProofPromise = new Promise(resolve => {
+                        resolveShutdownProof = resolve;
+                        const timer = setTimeout(() => {
+                            if (shutdownProof === undefined) {
+                                shutdownProof = false;
+                                resolve(false);
+                            }
+                        }, 2_500);
+                        timer.unref();
+                    });
+                    try {
+                        child.postMessage({type: 'shutdown'});
+                    } catch {
+                        shutdownProof = false;
+                        resolveShutdownProof?.(false);
+                    }
+                }
+                const nativeDescendantsTerminated = shutdownProof === true
+                    || await shutdownProofPromise!;
+                if (!nativeDescendantsTerminated) {
+                    shutdownProofPromise = null;
+                    resolveShutdownProof = null;
+                }
+                let directProcessTerminated = childExited;
+                try {
+                    if (!childExited) {
+                        directProcessTerminated = await terminateProcessTree(pid, {
+                            graceMs: 2_500,
+                            isTargetAlive: () => child.pid === pid && !childExited,
+                            // utilityProcess.fork does not create a detached POSIX process
+                            // group. A group probe can therefore miss this live child.
+                            preferProcessGroup: false,
+                        });
+                    }
+                } catch {
+                    directProcessTerminated = false;
+                }
+                return directProcessTerminated && nativeDescendantsTerminated && shutdownProof === true;
             })();
             terminationInFlight = attempt;
             void attempt.finally(() => {
@@ -216,7 +253,13 @@ export async function runDocumentSaveUtilityProcess(options: {
                 child.postMessage(options.request);
             }
         });
-        child.once('message', (value) => {
+        child.on('message', (value) => {
+            const shutdownResult = decodeDocumentSaveUtilityShutdownResult(value);
+            if (shutdownResult) {
+                shutdownProof = shutdownResult.terminated;
+                resolveShutdownProof?.(shutdownResult.terminated);
+                return;
+            }
             const result = decodeDocumentSaveUtilityResult(value);
             if (!result) {
                 void finish(new Error(`${options.utilityName} returned an invalid result`));
@@ -237,6 +280,10 @@ export async function runDocumentSaveUtilityProcess(options: {
         child.once('exit', code => {
             childExited = true;
             resolveSpawnState();
+            if (shutdownProof === undefined) {
+                shutdownProof = false;
+                resolveShutdownProof?.(false);
+            }
             if (!settled) {
                 void finish(new Error(`${options.utilityName} exited before completion (${code})`));
             }
