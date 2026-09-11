@@ -191,7 +191,6 @@ import {
 } from '@app/utils/platform';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import { getSystemCapability } from '@app/utils/getSystemCapability';
 import {runPostReadyRecentGeometryPrewarm} from '@app/modules/workspace-shell/host/runPostReadyRecentGeometryPrewarm';
 import {
     resolveStartupWorkProfile,
@@ -229,15 +228,6 @@ const {
     save: saveSettings,
     updateSetting,
 } = useSettings();
-if (isElectronUserAgent()) {
-    getSystemCapability().onShutdownSaveFlushRequest(async () => {
-        const saved = await saveSettings();
-        if (!saved) {
-            throw new Error('Ordinary settings did not finish saving during shutdown.');
-        }
-        return {};
-    });
-}
 const {
     effectiveScale: uiEffectiveScale,
     hostSnapshot: uiHostSnapshot,
