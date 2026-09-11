@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: OCR generation and checkpoint budgets
+
+This slot started from `7a65c02d1`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #434
+and #435 through the v4 index-writer and OCR storage-budget owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrIndexWriterV4.test.ts \
+  tests/unit/electron/ocrJobStorageBudget.test.ts --reporter=dot
+
+2 files passed, 26 tests passed
+```
+
+The run covered bounded generation publication, durability-failure recovery,
+staged-generation cleanup, sparse million-page indexes, shard remapping,
+reader-lease orphan retention, checkpoint reservations, concurrent-copy
+accounting, free-space reserves, ENOSPC aborts, and committed-byte transfer.
+A packaged multi-process OCR run with real disk pressure remains
+coordinator-owned evidence. No new OCR index, checkpoint, PDF, fixture,
+screenshot, or telemetry artifact was generated. Test-owned directories and
+temporary state were cleaned by the suites, and the worktree is clean.
+
 ## Follow-up slot: DjVu source identity and artifact reuse
 
 This slot started from `4859287cf`, the current
