@@ -250,6 +250,23 @@ describe('processDeathRecovery', () => {
         );
     });
 
+    it('recognises POSIX SIGTERM teardown reported as an abnormal exit', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'abnormal-exit',
+            exitCode: 143 * 256,
+            name: DOCUMENT_FINGERPRINT_SERVICE_NAME,
+            serviceName: 'node.mojom.NodeService',
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB document fingerprint, reason=abnormal-exit, exitCode=36608)',
+        );
+    });
+
     it('keeps normal PDF print layout utility teardown out of the error channel', () => {
         const fixture = createFixture();
 
