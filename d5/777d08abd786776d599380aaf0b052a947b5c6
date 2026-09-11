@@ -1,0 +1,19 @@
+docs/project8-rotated-search-acceptance-2026-09-11.md
+  s_e95abd168e6adf::t_442e805e1df7ed 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d5777d08abd786776d599380aaf0b052a947b5c6",
+  "prompts": {},
+  "sessions": {
+    "s_e95abd168e6adf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-fee0-7150-a974-1706aae47b66",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
