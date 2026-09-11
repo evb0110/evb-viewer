@@ -189,6 +189,28 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: OCR source-resource preservation
+
+This slot started from `a73dd77de`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #425
+through the OCR PDF assembler's source-resource replacement path:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrPdfAssembler.test.ts \
+  -t "assembles OCR output when original page resources are malformed|preserves source image resources whose PDF names contain escapes|preserves mixed-stream invisible text preambles in original page content" \
+  --reporter=dot
+
+1 file passed, 3 tests passed, 18 tests skipped by name filter
+```
+
+The passing cases covered malformed original resource dictionaries, escaped
+PDF resource names, and preservation of invisible-text preambles while OCR
+content is replaced. Full packaged PDF resource replacement with independent
+renderer readback remains coordinator-owned evidence. No new PDF, fixture,
+screenshot, or telemetry artifact was generated. Test-owned PDF state was
+cleaned by the suite, and the worktree is clean.
+
 ## Follow-up slot: foreign hidden OCR replacement
 
 This slot started from `873c1621d`, the current
