@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `19830bd36` (`origin/project8/integration`)
+Source under review: `876be7914` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -58,7 +58,7 @@ reviewed source:
 
 | Historical owner | Current state |
 | --- | --- |
-| PDF text-layer renderer | The historical `usePdfTextLayerRenderer.ts` path is absent after the renderer cleanup. |
+| PDF text-layer renderer | The renderer path remains in use, and it has no `max-lines` suppression. |
 | `scripts/architecture/boundary-check.mjs` | File remains, but has no `max-lines` suppression. |
 | `scripts/diagnostics/scan-cleanup-representative-audit.mjs` | File remains, but has no `max-lines` suppression. |
 
@@ -68,12 +68,16 @@ move, or new suppression.
 
 ## Checks
 
-These existing checks passed:
+These existing checks passed on `876be7914`:
 
 ```text
 pnpm exec vitest run tests/unit/scripts/publishReleaseMirror.test.ts tests/unit/scripts/releasePolicy.test.ts tests/unit/scripts/releaseStatus.test.ts tests/unit/scripts/ciTopologyPolicy.test.ts --reporter=dot
 4 test files passed, 97 tests passed
 ```
+
+The direct source audit also passed. `node --check` accepted both executable
+audit scripts, and the repository contains no `max-lines` suppression
+directive.
 
 The locale and suppression evidence is recorded in
 `docs/project8-locale-equality-review-2026-09-11.md` and this file. Live
