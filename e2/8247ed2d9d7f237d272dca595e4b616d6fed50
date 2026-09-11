@@ -1,0 +1,25 @@
+scripts/ci/apt-install.sh
+  s_3d279d029e00e2::t_256dcb99d4db48 3-8,23,26
+scripts/bundle-tools-linux.sh
+  s_3d279d029e00e2::t_256dcb99d4db48 61
+  s_3d279d029e00e2::t_0c836d68b192a6 25
+scripts/ci/select-apt-mirrors.sh
+  s_3d279d029e00e2::t_256dcb99d4db48 4-66
+  s_3d279d029e00e2::t_786348fc14adf7 1-3,67-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e28247ed2d9d7f237d272dca595e4b616d6fed50",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
