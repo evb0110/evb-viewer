@@ -38,6 +38,7 @@ function mountHost() {
             host.remove();
         },
         content: () => host.querySelector<HTMLElement>('.sidebar-wrapper__content'),
+        sash: () => host.querySelector<HTMLElement>('.sidebar-resizer'),
         showSidebar,
         slideEvents,
         wrapper: () => host.querySelector<HTMLElement>('.sidebar-wrapper'),
@@ -122,6 +123,27 @@ describe('sidebar open layout stability', () => {
             'start',
             'end',
         ]);
+    });
+
+    it('keeps the sash shown until the closing slide has covered the panel', async () => {
+        const view = mountHost();
+        onTestFinished(view.dispose);
+        await nextTick();
+        onTestFinished(stubWrapperWidthSlide(view.wrapper(), 200));
+        view.showSidebar.value = true;
+        await nextTick();
+        dispatchTransitionEnd(view.wrapper() as HTMLElement, 'width');
+        expect(view.sash()?.style.display).not.toBe('none');
+
+        // The sash is the curtain's visible edge. Hiding it with the open state
+        // would show the panel cut off raw for the whole closing slide.
+        view.showSidebar.value = false;
+        await nextTick();
+        expect(view.sash()?.style.display).not.toBe('none');
+
+        dispatchTransitionEnd(view.wrapper() as HTMLElement, 'width');
+        await nextTick();
+        expect(view.sash()?.style.display).toBe('none');
     });
 
     it('ends the slide on a timer when the transition never reports its end', async () => {

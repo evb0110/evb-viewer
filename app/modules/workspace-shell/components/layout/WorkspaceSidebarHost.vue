@@ -16,7 +16,7 @@
                 <slot name="sidebar" />
             </div>
             <div
-                v-show="showSidebar"
+                v-show="showSidebar || isSliding"
                 class="sidebar-resizer"
                 :class="{ 'is-active': isResizingSidebar }"
                 role="separator"
@@ -81,6 +81,9 @@ const sidebarContentStyle = computed<CSSProperties>(() => (
  */
 const SLIDE_END_FALLBACK_MARGIN_MS = 150;
 let slideEndFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+// The sash is the visible edge of the curtain. It stays through the closing
+// slide so the panel is covered behind a border rather than cut off raw.
+const isSliding = ref(false);
 
 function parseCssTimeMs(value: string) {
     const trimmed = value.trim();
@@ -114,6 +117,7 @@ function finishSlide() {
     }
     clearTimeout(slideEndFallbackTimer);
     slideEndFallbackTimer = null;
+    isSliding.value = false;
     emit('slide-end');
 }
 
@@ -135,6 +139,7 @@ watch(() => showSidebar, () => {
         return;
     }
     if (slideEndFallbackTimer === null) {
+        isSliding.value = true;
         emit('slide-start');
     } else {
         clearTimeout(slideEndFallbackTimer);
@@ -219,6 +224,7 @@ watch(
 }
 
 .sidebar-wrapper {
+    position: relative;
     display: flex;
     height: 100%;
     min-width: 0;
@@ -251,11 +257,13 @@ watch(
 }
 
 .sidebar-resizer {
+    /* Pinned to the wrapper's clip edge so it travels with the curtain instead
+       of being clipped away with the panel while the wrapper is narrower. */
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
     width: var(--app-editor-sash-width);
-    margin-inline-start: auto;
     cursor: col-resize;
-    position: relative;
-    flex-shrink: 0;
     user-select: none;
     touch-action: none;
     background: var(--app-editor-sash-bg);
