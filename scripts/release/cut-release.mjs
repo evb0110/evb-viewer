@@ -7,6 +7,7 @@ import {
     readGatesOkConclusion,
 } from './wait-for-exact-sha-ci.mjs';
 import {
+    findWorkflowRun,
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
     listWorkflowRuns,
@@ -78,6 +79,7 @@ const PUSH_RACE_ERROR_PATTERN = /non-fast-forward|fetch first|\[rejected\]|stale
  *   fastForwardLocalMainFn?: (upstream: IUpstream) => void,
  *   fetchReleaseMainFn?: (upstream: IUpstream) => void,
  *   fetchReleaseTagsFn?: (upstream: IUpstream) => void,
+ *   findActiveReleaseRunFn?: (tag: string) => import('./github-workflow-run.mjs').IWorkflowRun | null,
  *   getUpstreamFn?: (context: string) => IUpstream,
  *   isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean,
  *   level?: TReleaseLevel,
@@ -671,6 +673,22 @@ export async function printReleaseWorkflowHandoff({
     stdout.write(`Check status: pnpm run release:status ${tag}\n`);
 }
 
+/**
+ * A queued or running release for the tag. Dispatching a second run while
+ * one is still going would publish the same tag twice, serialized by the
+ * workflow's concurrency group rather than rejected.
+ * @param {string} tag @param {{runCommand: TCommandRunner}} options
+ */
+function findActiveReleaseRun(tag, {runCommand}) {
+    const runInfo = findWorkflowRun({
+        displayTitles: getReleaseWorkflowDisplayTitles(tag),
+        runCommand,
+        workflow: 'Release',
+    });
+
+    return runInfo && runInfo.status !== 'completed' ? runInfo : null;
+}
+
 /** @param {number} milliseconds */
 function runSleep(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -708,6 +726,9 @@ export async function resumeRelease(options = {}) {
     );
     const readReleaseFn = options.readReleaseFn ?? (
         tag => readGitHubRelease(tag, {runCommand})
+    );
+    const findActiveReleaseRunFn = options.findActiveReleaseRunFn ?? (
+        tag => findActiveReleaseRun(tag, {runCommand})
     );
     const publishReleaseCommitFn = options.publishReleaseCommitFn ?? publishReleaseCommit;
     const carryVersionToMainFn = options.carryVersionToMainFn ?? carryVersionToMain;
@@ -747,8 +768,13 @@ export async function resumeRelease(options = {}) {
 
     const release = readReleaseFn(tag);
     const isPublic = release !== null && !release.isDraft;
+    const activeRun = isPublic ? null : findActiveReleaseRunFn(tag);
     if (isPublic) {
         stderr.write(`Release ${tag} is already public; checking that ${upstream.ref} carries ${version}.\n`);
+    } else if (activeRun) {
+        stderr.write(
+            `Release ${tag} already has a ${activeRun.status} workflow run; not dispatching another: ${activeRun.url}\n`,
+        );
     } else {
         await publishReleaseCommitFn({
             parentSha,

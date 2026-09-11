@@ -309,6 +309,7 @@ describe('resumeRelease', () => {
             fastForwardLocalMainFn: () => events.push('fast-forward'),
             fetchReleaseMainFn: () => events.push('fetch-main'),
             fetchReleaseTagsFn: () => events.push('fetch-tags'),
+            findActiveReleaseRunFn: () => null,
             getUpstreamFn: () => UPSTREAM,
             isAncestorFn: () => true,
             publishReleaseCommitFn: async (request: unknown) => {
@@ -377,6 +378,23 @@ describe('resumeRelease', () => {
             upstream: UPSTREAM,
             version: '0.1.446',
         })}`);
+    });
+
+    it('hands off to a release run that is still going instead of dispatching again', async () => {
+        const options = createResumeOptions({findActiveReleaseRunFn: () => ({
+            conclusion: null,
+            status: 'in_progress',
+            url: 'https://github.com/evb0110/evb-viewer/actions/runs/123',
+        })});
+
+        await resumeRelease(options);
+
+        expect(options.events).toEqual([
+            'fetch-main',
+            'fetch-tags',
+            'carry',
+            'fast-forward',
+        ]);
     });
 
     it('only carries the version for a public release whose main is behind', async () => {

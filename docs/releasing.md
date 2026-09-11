@@ -62,7 +62,7 @@ Resume repairs the newest release tag from any clean `main` checkout:
 pnpm run release:resume
 ```
 
-It fetches tags, takes the newest `vX.Y.Z`, and checks that the tagged commit is a version-only commit whose parent is on `origin/main`. While the release is missing or still a draft, the same tag and SHA are dispatched again and any accepted assets remain in place. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. Then the version is carried to `main` if main is still behind it. A release that is already public and already carried is not touched; check it with `release:status` and repair only the missing supplemental work.
+It fetches tags, takes the newest `vX.Y.Z`, and checks that the tagged commit is a version-only commit whose parent is on `origin/main`. While the release is missing or still a draft, the same tag and SHA are dispatched again and any accepted assets remain in place; if a run for that tag is still queued or in progress, the resume waits on it instead of dispatching a second one. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. Then the version is carried to `main` if main is still behind it. A release that is already public and already carried is not touched; check it with `release:status` and repair only the missing supplemental work.
 
 ## When a release run is red
 
