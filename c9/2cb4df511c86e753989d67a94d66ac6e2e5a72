@@ -1,0 +1,32 @@
+scripts/release/assert-packaged-app-contents.mjs
+  s_3d279d029e00e2::t_0be4f4d40e8605 108-110
+docs/agents/hidden-electron-automation.md
+  s_3d279d029e00e2::t_755f9e482d5c02 65-67
+tests/unit/scripts/cutRelease.test.ts
+  s_3d279d029e00e2::t_755f9e482d5c02 27,83,100,106-125
+  s_3d279d029e00e2::t_150520f4e0af5c 126-127
+scripts/release/cut-release.mjs
+  s_3d279d029e00e2::t_755f9e482d5c02 12,42,60,224-252,322-324,348
+scripts/electron-run/electronRunLaunchConfig.ts
+  s_3d279d029e00e2::t_0be4f4d40e8605 485-502,600
+scripts/release/github-workflow-run.mjs
+  s_3d279d029e00e2::t_2d94f948c47c71 21
+docs/releasing.md
+  s_3d279d029e00e2::t_755f9e482d5c02 17,42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c92cb4df511c86e753989d67a94d66ac6e2e5a72",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
