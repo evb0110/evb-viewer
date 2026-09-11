@@ -189,6 +189,28 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: DOCX mixed-direction export
+
+This slot started from `511268b52`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #438
+through the DOCX streaming builder and export composable:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/composables/useDocxExport.test.ts \
+  tests/unit/app/utils/docxStreaming.test.ts --reporter=dot
+
+2 files passed, 17 tests passed
+```
+
+The run covered mixed paragraph direction, local RTL paragraph properties,
+neutral numeric paragraphs, language-hint fallback, and propagation of the
+direction resolver through the export composable. A packaged DOCX opened by
+an independent Word-compatible reader remains coordinator-owned evidence. No
+new DOCX, fixture, screenshot, or telemetry artifact was generated. Test-owned
+buffers and temporary state were cleaned by the suites, and the worktree is
+clean.
+
 ## Follow-up slot: PNG payload validation and native raster manifest
 
 This slot started from `f0e656660`, the current
