@@ -270,7 +270,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
 
     function normalizeOpenPaths(paths: TDocumentRef[]) {
         return uniq(paths.flatMap((path) => {
-            const parsed = parseDocumentRef(path.trim());
+            const parsed = path.trim().length > 0 ? parseDocumentRef(path) : null;
             return parsed === null ? [] : [parsed];
         }));
     }

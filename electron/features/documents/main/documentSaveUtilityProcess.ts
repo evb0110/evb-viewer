@@ -12,20 +12,20 @@ import {fingerprintFileBounded} from '@electron/features/documents/main/fingerpr
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {
-    cancelNativeCommandGroup,
+    cancelNativeCommandGroupAndWait,
     runNativeCommand,
 } from '@electron/native-tools/runNativeCommand';
 
 interface IUtilityParentPort {
-    once(eventName: string, listener: (event: {data: unknown}) => void): unknown;
+    on(eventName: string, listener: (event: {data: unknown}) => void): unknown;
     postMessage(value: unknown): void;
 }
 
 function isUtilityParentPort(value: unknown): value is IUtilityParentPort {
     return typeof value === 'object'
         && value !== null
-        && 'once' in value
-        && typeof value.once === 'function'
+        && 'on' in value
+        && typeof value.on === 'function'
         && 'postMessage' in value
         && typeof value.postMessage === 'function';
 }
@@ -72,16 +72,32 @@ async function inspectPdf(
 let validationSequence = 0;
 const activeValidationGroups = new Set<string>();
 
-function cancelActiveValidationGroups() {
-    for (const cancelGroup of activeValidationGroups) {
-        cancelNativeCommandGroup(cancelGroup);
+let shutdownInFlight: Promise<boolean> | null = null;
+let shutdownRequested = false;
+
+function cancelActiveValidationGroupsAndWait() {
+    if (shutdownInFlight) {
+        return shutdownInFlight;
     }
+    const attempt = Promise.all(
+        [...activeValidationGroups].map(cancelGroup => cancelNativeCommandGroupAndWait(cancelGroup)),
+    ).then(results => results.every(Boolean));
+    shutdownInFlight = attempt;
+    void attempt.then(terminated => {
+        if (!terminated && shutdownInFlight === attempt) {
+            shutdownInFlight = null;
+        }
+    });
+    return attempt;
 }
 
 process.once('SIGTERM', () => {
-    cancelActiveValidationGroups();
-    const exitTimer = setTimeout(() => process.exit(143), 2_500);
+    const exitTimer = setTimeout(() => process.exit(143), 5_000);
     exitTimer.unref();
+    void cancelActiveValidationGroupsAndWait().finally(() => {
+        clearTimeout(exitTimer);
+        process.exit(143);
+    });
 });
 
 async function runValidationCommand(
@@ -128,10 +144,31 @@ async function validatePdf(path: string, validationBinary?: string) {
     }
 }
 
-utilityParentPort.once('message', (event) => {
+utilityParentPort.on('message', (event) => {
+    if (
+        typeof event.data === 'object'
+        && event.data !== null
+        && 'type' in event.data
+        && event.data.type === 'shutdown'
+        && 'requestId' in event.data
+        && typeof event.data.requestId === 'string'
+        && event.data.requestId.length > 0
+    ) {
+        shutdownRequested = true;
+        const requestId = event.data.requestId;
+        void cancelActiveValidationGroupsAndWait().then(terminated => {
+            utilityParentPort.postMessage({
+                type: 'shutdown-complete',
+                requestId,
+                terminated,
+            });
+        });
+        return;
+    }
     void (async () => {
         const request = decodeDocumentSaveUtilityRequest(event.data);
         if (!request) throw new Error('Invalid document save utility request');
+        if (shutdownRequested) throw new Error('Document save utility is shutting down');
         if (request.type === 'inspect') {
             const inspection = await fingerprintFileBounded(request.sourcePath, request.expectedBytes);
             const result: TDocumentSaveUtilityResult = {

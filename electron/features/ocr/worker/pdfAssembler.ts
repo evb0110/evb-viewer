@@ -341,26 +341,33 @@ function deleteProvenUnusedEntries(
         return;
     }
     for (const key of dict.keys()) {
-        const name = key.asString();
+        const name = key.asString().replace(/^\//u, '');
         if (candidates.has(name) && !referencedNames.names.has(name)) {
             dict.delete(key);
         }
     }
 }
 
-function hasFormXObject(resources: PDFDict) {
+function filterOwnedOcrResourceNames(names: Set<string>) {
+    return new Set([...names].filter(name => name.replace(/^\//u, '').startsWith('EvbOcr')));
+}
+
+function hasKeptFormXObject(resources: PDFDict, removedXObjectNames: Set<string>) {
     const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME);
     if (!xObject) {
         return false;
     }
     for (const key of xObject.keys()) {
+        const name = key.asString().replace(/^\//u, '');
+        if (removedXObjectNames.has(name)) {
+            continue;
+        }
         try {
             const value = xObject.lookup(key);
             if (value instanceof PDFStream && value.dict.get(PDFName.of('Subtype'))?.toString() === '/Form') {
                 return true;
             }
         } catch {
-            // An unreadable resource is an ambiguity. Preserve candidates.
             return true;
         }
     }
@@ -530,10 +537,16 @@ function removePreviousOcrLayer(page: PDFPage) {
     }
 
     const keptText = keptContentText.join('\n');
-    if (canProveKeptContent && !hasFormXObject(resources)) {
-        deleteProvenUnusedEntries(extGState, removedExtGStateNames, scanResourceReferences(keptText, 'gs'));
-        deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
-        deleteProvenUnusedEntries(xObject, removedXObjectNames, scanResourceReferences(keptText, 'Do'));
+    if (canProveKeptContent) {
+        // A kept source Form makes nested reachability ambiguous for every
+        // resource category. Preserve all candidates in that case. The
+        // direct-page path may prune only names proven unused by the kept
+        // streams, and only after restricting candidates to EVB-owned names.
+        if (!hasKeptFormXObject(resources, removedXObjectNames)) {
+            deleteProvenUnusedEntries(extGState, filterOwnedOcrResourceNames(removedExtGStateNames), scanResourceReferences(keptText, 'gs'));
+            deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
+            deleteProvenUnusedEntries(xObject, filterOwnedOcrResourceNames(removedXObjectNames), scanResourceReferences(keptText, 'Do'));
+        }
     }
 }
 

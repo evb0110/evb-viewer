@@ -344,6 +344,20 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
         handleAnnotationToolChange('select');
         pdfViewerRef.value?.selectAnnotationById?.(payload.shapeId);
+        const comment = getAnnotationCommentsSnapshot()?.find(candidate => candidate.appAnnotationId === payload.shapeId) ?? null;
+        if (comment) {
+            showAnnotationContextMenu({
+                comment,
+                clientX: payload.clientX,
+                clientY: payload.clientY,
+                hasSelection: false,
+                selectionText: '',
+                pageNumber: comment.pageNumber,
+                pageX: comment.markerRect?.left ?? null,
+                pageY: comment.markerRect?.top ?? null,
+            });
+            return;
+        }
         showSidebar.value = true;
         sidebarTab.value = 'annotations';
     }

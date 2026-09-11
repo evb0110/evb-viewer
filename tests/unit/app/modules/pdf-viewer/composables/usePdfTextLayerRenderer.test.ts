@@ -2,6 +2,7 @@ import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/runtime/com
 import type * as TViMockOriginalModule2 from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type * as TPdfViewerFacade from '@app/services/pdfjs/pdfViewerFacade';
 // @vitest-environment happy-dom
 
 import {
@@ -45,6 +46,7 @@ const textLayerRuntimeMock = vi.hoisted(() => ({
     sources: [] as unknown[],
     updates: [] as unknown[],
 }));
+const structTreeRuntimeMock = vi.hoisted(() => ({create: vi.fn()}));
 
 vi.stubGlobal('DOMMatrix', class {
     a = 1;
@@ -87,6 +89,10 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({TextLayer: class {
         for (const item of items) {
             const text = String(item.str ?? '');
             const span = document.createElement('span');
+            const id = Reflect.get(item, 'id');
+            if (typeof id === 'string') {
+                span.id = id;
+            }
             span.textContent = text;
             this.options.container.append(span);
             this.textDivs.push(span);
@@ -100,6 +106,14 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({TextLayer: class {
 
     cancel() {}
 }}));
+
+vi.mock('@app/services/pdfjs/pdfViewerFacade', async (importOriginal) => {
+    const original = await importOriginal<typeof TPdfViewerFacade>();
+    return {
+        ...original,
+        createPdfjsStructTreeLayer: structTreeRuntimeMock.create,
+    };
+});
 
 vi.mock('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
@@ -171,11 +185,98 @@ describe('usePdfTextLayerRenderer', () => {
         vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
         textLayerRuntimeMock.sources.length = 0;
         textLayerRuntimeMock.updates.length = 0;
+        structTreeRuntimeMock.create.mockReset();
         highlightPageMock.mockReturnValue({
             elements: [],
             currentMatchRanges: [],
         });
         clearHighlightsMock.mockClear();
+    });
+
+    it('projects a tagged structure tree after text rendering and removes it on rebuild', async () => {
+        const structure = document.createElement('div');
+        structure.className = 'structTree';
+        structure.innerHTML = '<span role="heading" aria-level="1" aria-owns="mc-heading" aria-label="Published title"></span><span role="list"><span role="listitem" aria-owns="mc-item"></span></span><span role="table"><span role="row"><span role="columnheader">Name</span></span></span>';
+        const updateTextLayer = vi.fn();
+        structTreeRuntimeMock.create.mockResolvedValue({
+            render: vi.fn(async () => structure),
+            updateTextLayer,
+        });
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
+            getStructTree: vi.fn(async () => ({role: 'Document'})),
+            streamTextContent: vi.fn(() => ({items: [
+                {
+                    str: 'Heading',
+                    id: 'mc-heading',
+                    hasEOL: false,
+                },
+                {
+                    str: 'Item',
+                    id: 'mc-item',
+                    hasEOL: false,
+                },
+            ]})),
+        });
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
+            effectiveScale: ref(1),
+        });
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container';
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'page_canvas__render-layer canvasWrapper';
+        const textLayerDiv = document.createElement('div');
+        pageContainer.append(canvasHost, textLayerDiv);
+
+        await renderer.renderTextLayer(pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1);
+
+        expect(updateTextLayer).toHaveBeenCalledOnce();
+        expect(canvasHost.querySelector('.structTree')).toBe(structure);
+        expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-level')).toBe('1');
+        expect(canvasHost.querySelector('[role="heading"]')?.getAttribute('aria-label')).toBe('Published title');
+        expect(canvasHost.querySelector('[role="listitem"]')?.getAttribute('aria-label')).toBe('Item');
+        expect(canvasHost.querySelector('[role="listitem"]')?.textContent).toBe('');
+        expect(canvasHost.querySelector('[role="columnheader"]')?.textContent).toBe('Name');
+
+        renderer.cleanupTextLayerDom(textLayerDiv);
+        expect(canvasHost.querySelector('.structTree')).toBeNull();
+        await renderer.renderTextLayer(pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1, undefined, vi.fn());
+        expect(canvasHost.querySelector('.structTree')).toBe(structure);
+    });
+
+    it('keeps text usable when structure rendering rejects', async () => {
+        structTreeRuntimeMock.create.mockResolvedValue({
+            render: vi.fn(async () => {
+                throw new Error('malformed structure');
+            }),
+            updateTextLayer: vi.fn(),
+        });
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
+            getStructTree: vi.fn(async () => null),
+            streamTextContent: vi.fn(() => ({items: [{
+                str: 'Readable text',
+                hasEOL: false,
+            }]})),
+        });
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+
+        await renderer.renderTextLayer(pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1);
+
+        expect(textLayerDiv.textContent).toBe('Readable text');
+        expect(textLayerDiv.querySelector('.structTree')).toBeNull();
+        expect(textLayerDiv.dataset.pdfTextLayerReady).toBe('true');
     });
 
     it('prefers embedded pdf.js text content over OCR sidecar text when a page already has text', async () => {

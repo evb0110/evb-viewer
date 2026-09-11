@@ -36,7 +36,19 @@ export function isLikelyAbsolutePath(path: string) {
 }
 
 export function assertAbsolutePath(value: unknown, fieldName: string): TDocumentRef {
-    const normalized = assertNonEmptyString(value, fieldName);
+    if (!isString(value)) {
+        throw new Error(`${fieldName} must be a string`);
+    }
+    if (!value.trim()) {
+        throw new Error(`${fieldName} must not be empty`);
+    }
+    if (value.length > MAX_IPC_PATH_LENGTH) {
+        throw new Error(`${fieldName} exceeds maximum length (${MAX_IPC_PATH_LENGTH})`);
+    }
+    if (value.includes('\0')) {
+        throw new Error(`${fieldName} must not contain NUL bytes`);
+    }
+    const normalized = value;
     if (!isLikelyAbsolutePath(normalized)) {
         throw new Error(`${fieldName} must be an absolute path`);
     }

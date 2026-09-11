@@ -3654,6 +3654,13 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await openPdfInApp(session.page, pdfPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         const pdf = await captureDocumentThumbnailParitySnapshot(session, 18);
+        await session.page.focus(
+            '.editor-pane.is-active .pdf-thumbnail[data-page="12"]',
+        );
+        await session.page.keyboard.press('Enter');
+        await waitForToolbarCurrentPage(session.page, 12);
+        await goToPageViaToolbar(session.page, 18);
+        await waitForToolbarCurrentPage(session.page, 18);
 
         session = await sessionFixture.restart({
             clean: true,

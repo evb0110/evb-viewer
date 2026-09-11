@@ -78,11 +78,14 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
+// project8RecoveryCloseAcceptance is deliberately absent. It belongs to the
+// save pipeline, which the electronE2ESavePipeline project already runs as a
+// blocking push job, so listing it here made one save regression redden two
+// blocking lanes and read as two independent failures.
 const electronE2EBlockingSmokeTestFiles = [
     'tests/e2e/electron/annotationTextInteraction.e2e.test.ts',
     'tests/e2e/electron/annotationControls.e2e.test.ts',
     'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
-    'tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts',
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
     'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
 ];

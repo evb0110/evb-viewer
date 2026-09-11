@@ -270,7 +270,7 @@ function parseRendererFileOpenBatchRequests(requestsPayload: unknown) {
         const filePath = isRecord(request) ? request.filePath : '';
         const token = isRecord(request) ? request.token : '';
         return {
-            filePath: typeof filePath === 'string' ? filePath.trim() : '',
+            filePath: typeof filePath === 'string' ? filePath : '',
             token: typeof token === 'string' ? token.trim() : '',
         };
     });
@@ -710,8 +710,8 @@ export function registerDocumentsIpcAdapter(
             return false;
         }
 
-        const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
-        if (!normalizedPath || !isAbsolute(normalizedPath) || !isValidRendererFileOpenPath(normalizedPath)) {
+        const normalizedPath = typeof filePath === 'string' ? filePath : '';
+        if (!normalizedPath || !normalizedPath.trim() || !isAbsolute(normalizedPath) || !isValidRendererFileOpenPath(normalizedPath)) {
             return false;
         }
 

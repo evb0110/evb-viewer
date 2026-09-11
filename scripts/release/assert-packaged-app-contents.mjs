@@ -63,6 +63,7 @@ export const EXPECTED_UNPACKED_DIST_ELECTRON = [
     ...WORKER_BUNDLES.map(bundle => bundle.fileName),
     'package.json',
     'pdf.worker.mjs',
+    'runtime',
 ].sort();
 
 /** @param {string} rootDir */

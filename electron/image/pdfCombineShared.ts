@@ -12,6 +12,7 @@ import {
 } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { createRequire } from 'node:module';
 import { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
@@ -45,6 +46,19 @@ interface IPdfCombineResourceLimits {
     maxTiffFrames: number;
     maxImagePixels: number;
     maxOutputBytes: number;
+}
+
+interface IImageDecoderModule {
+    createCanvas: (width: number, height: number) => {
+        getContext: (context: '2d') => {drawImage: (image: IImageDecoderBitmap, x: number, y: number) => void};
+        toBuffer: (format: 'image/png') => Uint8Array;
+    };
+    loadImage: (sourcePath: string) => Promise<IImageDecoderBitmap>;
+}
+
+interface IImageDecoderBitmap {
+    height: number;
+    width: number;
 }
 
 export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
@@ -88,6 +102,19 @@ const PNG_SIGNATURE = [
 const JPEG_START_OF_IMAGE = 0xd8;
 const JPEG_START_OF_SCAN = 0xda;
 const BITMAP_HEADER_PREFIX_BYTES = 64 * 1024;
+const requireImageDecoder = createRequire(import.meta.url);
+const requirePackagedImageDecoder = createRequire(new URL(
+    './runtime/@napi-rs/canvas/index.js',
+    import.meta.url,
+));
+
+function loadImageDecoderModule() {
+    try {
+        return requireImageDecoder('@napi-rs/canvas') as IImageDecoderModule;
+    } catch {
+        return requirePackagedImageDecoder('./index.js') as IImageDecoderModule;
+    }
+}
 
 function getDefaultResourceLimits(): IPdfCombineResourceLimits {
     return { ...DEFAULT_RESOURCE_LIMITS };
@@ -395,10 +422,23 @@ async function readBitmapHeaderPrefix(sourcePath: string) {
 async function normalizeImageWithElectron(sourcePath: string) {
     const { nativeImage } = await import('electron');
     const image = nativeImage.createFromPath(sourcePath);
-    if (image.isEmpty()) {
-        throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
+    if (!image.isEmpty()) {
+        return image.toPNG();
     }
-    return image.toPNG();
+
+    try {
+        const {
+            createCanvas,
+            loadImage,
+        } = loadImageDecoderModule();
+        const decoded = await loadImage(sourcePath);
+        const canvas = createCanvas(decoded.width, decoded.height);
+        const context = canvas.getContext('2d');
+        context.drawImage(decoded, 0, 0);
+        return canvas.toBuffer('image/png');
+    } catch (error) {
+        throw new Error(`Unsupported or unreadable image: ${sourcePath}`, {cause: error});
+    }
 }
 
 function normalizeCombineInputPaths(inputPaths: string[]): string[] {
@@ -499,7 +539,17 @@ function needsElectronImageNormalization(sourcePath: string) {
 export async function stageNativeCombineInputs(
     inputPaths: string[],
     signal?: AbortSignal,
+    unsupportedFileError?: (sourcePath: string) => string,
 ) {
+    const limits = getDefaultResourceLimits();
+    assertPageLimit(inputPaths.length, limits);
+    await preflightCombineInputs(
+        inputPaths,
+        limits,
+        signal,
+        unsupportedFileError,
+    );
+
     if (!inputPaths.some(needsElectronImageNormalization)) {
         return {
             inputPaths,
@@ -564,13 +614,11 @@ export async function createCombinedPdf(
     assertPageLimit(normalizedPaths.length, limits);
 
     throwIfAborted(options.signal);
-    await preflightCombineInputs(
+    const staged = await stageNativeCombineInputs(
         normalizedPaths,
-        limits,
         options.signal,
         options.unsupportedFileError,
     );
-    const staged = await stageNativeCombineInputs(normalizedPaths, options.signal);
     let retainStagedInputs = false;
     try {
         const nativeOptions = {

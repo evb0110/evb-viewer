@@ -170,6 +170,110 @@ describe('browser worker request parsers', () => {
         })).toBeNull();
     });
 
+    it('uses the writer catalog policy for structural validation at every bound', () => {
+        const data = new Uint8Array([1]);
+        interface IBookmarkFixture {
+            title: string;
+            pageIndex: unknown;
+            namedDest: unknown;
+            bold: boolean;
+            italic: boolean;
+            color: unknown;
+            items: IBookmarkFixture[];
+        }
+        const bookmark = (title: string): IBookmarkFixture => ({
+            title,
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        });
+        const requestForCatalog = (catalog: unknown) => ({
+            id: 20,
+            type: 'combinePdfs' as const,
+            payload: {
+                inputs: [{
+                    fileName: 'page.png',
+                    data,
+                }],
+                wasmImagePreprocessing: {catalog},
+            },
+        });
+
+        const atLimit = {
+            bookmarks: Array.from({length: 5_000}, (_, index) => bookmark(String(index))),
+            pageLabels: Array.from({length: 2_048}, (_, index) => ({pageIndex: index})),
+        };
+        expect(parseBrowserPdfCombineWorkerRequest(requestForCatalog(atLimit))).not.toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(requestForCatalog({
+            ...atLimit,
+            bookmarks: [
+                ...atLimit.bookmarks,
+                bookmark('over'),
+            ],
+        }))).toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(requestForCatalog({
+            ...atLimit,
+            pageLabels: [
+                ...atLimit.pageLabels,
+                {pageIndex: 2_048},
+            ],
+        }))).toBeNull();
+
+        const createNestedBookmark = (depth: number) => {
+            let nested = bookmark(`depth-${depth}`);
+            for (let index = 1; index < depth; index += 1) {
+                nested = {
+                    ...bookmark(`depth-${index}`),
+                    items: [nested],
+                };
+            }
+            return nested;
+        };
+        expect(parseBrowserPdfCombineWorkerRequest(requestForCatalog({
+            bookmarks: [createNestedBookmark(64)],
+            pageLabels: [],
+        }))).not.toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(requestForCatalog({
+            bookmarks: [createNestedBookmark(65)],
+            pageLabels: [],
+        }))).toBeNull();
+
+        const malformedBookmarks = [
+            {
+                ...bookmark('missing-page-index'),
+                pageIndex: undefined,
+            },
+            {
+                ...bookmark('string-page-index'),
+                pageIndex: '0',
+            },
+            {
+                ...bookmark('nan-y-ratio'),
+                pageYRatio: Number.NaN,
+            },
+            {
+                ...bookmark('infinite-y-ratio'),
+                pageYRatio: Number.POSITIVE_INFINITY,
+            },
+            {
+                ...bookmark('bad-child'),
+                items: [{
+                    ...bookmark('child'),
+                    pageIndex: -1,
+                }],
+            },
+        ];
+        for (const malformed of malformedBookmarks) {
+            expect(parseBrowserPdfCombineWorkerRequest(requestForCatalog({
+                bookmarks: [malformed],
+                pageLabels: [],
+            }))).toBeNull();
+        }
+    });
+
     it('parses and rejects browser page operation worker requests', () => {
         const data = new Uint8Array([
             1,

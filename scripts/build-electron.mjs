@@ -1,11 +1,20 @@
 import {
     mkdir,
     copyFile,
+    cp,
     rm,
     writeFile,
 } from 'node:fs/promises';
-import {readFileSync} from 'node:fs';
+import {
+    readFileSync,
+    realpathSync,
+} from 'node:fs';
 import {execFileSync} from 'node:child_process';
+import {createRequire} from 'node:module';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import esbuild from 'esbuild';
 import {
     isSentryDiagnosticsBuild,
@@ -161,6 +170,45 @@ await Promise.all(builds.map(async ({
 }));
 
 await copyFile('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', 'dist-electron/pdf.worker.mjs');
+
+const require = createRequire(import.meta.url);
+const canvasPackageRoot = realpathSync(dirname(require.resolve('@napi-rs/canvas/package.json')));
+const canvasTargetPackage = resolveCanvasTargetPackage();
+const canvasTargetPackageJson = join(dirname(canvasPackageRoot), canvasTargetPackage, 'package.json');
+const stagedCanvasRoot = 'dist-electron/runtime/@napi-rs/canvas';
+await cp(canvasPackageRoot, stagedCanvasRoot, {recursive: true});
+await rm(join(stagedCanvasRoot, 'README.md'), {force: true});
+await rm(join(stagedCanvasRoot, 'index.d.ts'), {force: true});
+await rm(join(stagedCanvasRoot, 'node-canvas.d.ts'), {force: true});
+await cp(
+    join(realpathSync(dirname(canvasTargetPackageJson)), `skia.${canvasTargetPackage.replace('canvas-', '')}.node`),
+    join(stagedCanvasRoot, `skia.${canvasTargetPackage.replace('canvas-', '')}.node`),
+);
+
+function resolveCanvasTargetPackage() {
+    const platform = process.platform;
+    const architecture = process.env.EVB_RELEASE_TARGET_ARCH?.trim() || process.arch;
+    if (platform === 'darwin' && architecture === 'arm64') {
+        return 'canvas-darwin-arm64';
+    }
+    if (platform === 'darwin' && architecture === 'x64') {
+        return 'canvas-darwin-x64';
+    }
+    if (platform === 'win32' && architecture === 'arm64') {
+        return 'canvas-win32-arm64-msvc';
+    }
+    if (platform === 'win32' && architecture === 'x64') {
+        return 'canvas-win32-x64-msvc';
+    }
+    if (platform === 'linux' && architecture === 'x64') {
+        return 'canvas-linux-x64-gnu';
+    }
+    if (platform === 'linux' && architecture === 'arm64') {
+        return 'canvas-linux-arm64-gnu';
+    }
+    throw new Error(`@napi-rs/canvas has no configured target for ${platform}-${architecture}`);
+}
+
 // Pin dist-electron/*.js to ESM semantics regardless of loader heuristics.
 // worker_threads resolves module type from the nearest package.json; the
 // asar-unpacked copy of this directory has no other package.json above it.

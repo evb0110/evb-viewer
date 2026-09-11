@@ -365,6 +365,18 @@ async function getFirstPageExtGStateAlphaEntries(filePath: string) {
     });
 }
 
+async function getFirstPageResourceNames(filePath: string, category: string) {
+    const pdf = await PDFDocument.load(await readFile(filePath));
+    const resources = pdf.getPage(0).node.lookup(PDFName.of('Resources'));
+    if (!(resources instanceof PDFDict)) {
+        return [];
+    }
+    const dictionary = resources.lookup(PDFName.of(category));
+    return dictionary instanceof PDFDict
+        ? dictionary.keys().map(key => key.asString().replace(/^\//u, ''))
+        : [];
+}
+
 describe('assembleSearchablePdf', () => {
     let tempDir: string | null = null;
 
@@ -561,6 +573,45 @@ describe('assembleSearchablePdf', () => {
             vi.fn(),
             path => path,
         );
+
+        // Keep a source Form that reaches the first OCR layer's invisible
+        // state through nested resources. Top-level scanning cannot prove
+        // that this shared name is obsolete.
+        const firstPdf = await PDFDocument.load(await readFile(firstOutputPath));
+        const firstPage = firstPdf.getPage(0);
+        const firstResources = firstPage.node.lookup(PDFName.of('Resources'));
+        expect(firstResources).toBeInstanceOf(PDFDict);
+        const firstContent = await getFirstPageContentText(firstOutputPath);
+        const firstLayerName = firstContent.match(/\/(EvbOcrLayer-[^\s]+)\s+Do/u)?.[1];
+        const firstInvisibleName = firstContent.match(/\/(EvbOcrInvisible-[^\s]+)\s+gs/u)?.[1];
+        expect(firstLayerName).toBeTruthy();
+        expect(firstInvisibleName).toBeTruthy();
+        const firstResourceDict = firstResources as PDFDict;
+        const firstExtGState = firstResourceDict.lookup(PDFName.of('ExtGState'));
+        expect(firstExtGState).toBeInstanceOf(PDFDict);
+        const invisibleRef = (firstExtGState as PDFDict).get(PDFName.of(firstInvisibleName!));
+        expect(invisibleRef).toBeTruthy();
+        const nestedExtGState = firstPdf.context.obj({});
+        nestedExtGState.set(PDFName.of(firstInvisibleName!), invisibleRef!);
+        const nestedResources = firstPdf.context.obj({});
+        nestedResources.set(PDFName.of('ExtGState'), nestedExtGState);
+        const nestedForm = firstPdf.context.flateStream(`q\n/${firstInvisibleName} gs\nQ\n`);
+        nestedForm.dict.set(PDFName.of('Type'), PDFName.of('XObject'));
+        nestedForm.dict.set(PDFName.of('Subtype'), PDFName.of('Form'));
+        nestedForm.dict.set(PDFName.of('BBox'), firstPdf.context.obj([
+            0,
+            0,
+            200,
+            200,
+        ]));
+        nestedForm.dict.set(PDFName.of('Resources'), nestedResources);
+        const nestedFormRef = firstPdf.context.register(nestedForm);
+        const firstXObject = firstResourceDict.lookup(PDFName.of('XObject'));
+        expect(firstXObject).toBeInstanceOf(PDFDict);
+        (firstXObject as PDFDict).set(PDFName.of('KeptSharedForm'), nestedFormRef);
+        firstPage.node.addContentStream(firstPdf.context.register(firstPdf.context.flateStream('/KeptSharedForm Do\n')));
+        await writeFile(firstOutputPath, await firstPdf.save());
+
         const secondOutputPath = await assembleSearchablePdf(
             QPDF_TEST_BINARY,
             firstOutputPath,
@@ -579,6 +630,19 @@ describe('assembleSearchablePdf', () => {
         expect(countTextOccurrences(extractedText, 'SECOND OCR')).toBe(1);
         expect(extractedText).not.toContain('FIRST OCR');
         expect(extractedText).not.toContain('ORIGINAL OCR');
+        const secondContent = await getFirstPageContentText(secondOutputPath);
+        const secondLayerName = secondContent.match(/\/(EvbOcrLayer-[^\s]+)\s+Do/u)?.[1];
+        expect(secondLayerName).toBeTruthy();
+        expect(secondContent).toContain(`/${secondLayerName} Do`);
+        const secondLayerResources = (await getFirstPageResourceNames(secondOutputPath, 'XObject'))
+            .filter(name => name.startsWith('EvbOcrLayer-'));
+        expect(secondLayerResources).toEqual(expect.arrayContaining([
+            firstLayerName,
+            secondLayerName,
+        ]));
+        expect((await getFirstPageResourceNames(secondOutputPath, 'ExtGState'))
+            .filter(name => name.startsWith('EvbOcrInvisible-')))
+            .toContain(firstInvisibleName);
     });
 
     it('removes foreign hidden text from an image-plus-text stream during replacement', async () => {

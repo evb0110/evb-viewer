@@ -57,6 +57,58 @@ const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'public/index.mjs',
 ]);
 
+const NODE_RUNTIME_MODULE_SPECIFIERS = new Set([
+    'assert',
+    'buffer',
+    'child_process',
+    'cluster',
+    'console',
+    'constants',
+    'crypto',
+    'dgram',
+    'diagnostics_channel',
+    'dns',
+    'domain',
+    'events',
+    'fs',
+    'http',
+    'http2',
+    'https',
+    'module',
+    'net',
+    'os',
+    'path',
+    'perf_hooks',
+    'process',
+    'punycode',
+    'querystring',
+    'readline',
+    'repl',
+    'stream',
+    'string_decoder',
+    'sys',
+    'timers',
+    'tls',
+    'trace_events',
+    'tty',
+    'url',
+    'util',
+    'v8',
+    'vm',
+    'wasi',
+    'worker_threads',
+    'zlib',
+]);
+
+/** @param {string} specifier @returns {boolean} */
+function isNodeRuntimeModuleSpecifier(specifier) {
+    if (specifier.startsWith('node:')) {
+        return true;
+    }
+    const moduleName = specifier.split('/')[0] ?? '';
+    return NODE_RUNTIME_MODULE_SPECIFIERS.has(moduleName) || moduleName === 'electron';
+}
+
 const ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS = new Set(APP_MODULE_PUBLIC_ENTRYPOINTS);
 ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS.add('contract.ts');
 
@@ -944,6 +996,91 @@ function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     return [];
 }
 
+/** @param {string} filePath @param {TSourceFile[]} sourceFiles @returns {IArchitectureViolation[]} */
+function checkContractsRuntimeBoundary(filePath, sourceFiles) {
+    if (!matchesRoot(filePath, 'packages/contracts')) {
+        return [];
+    }
+
+    /** @type {IArchitectureViolation[]} */
+    const violations = [];
+    const seen = new Set();
+    /** @param {string} target @param {string} message */
+    const record = (target, message) => {
+        const key = `${target}\0${message}`;
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        violations.push(createViolation({
+            rule: 'packages-contracts-runtime',
+            source: filePath,
+            target,
+            specifier: target,
+            message,
+        }));
+    };
+
+    for (const sourceFile of sourceFiles) {
+        /** @param {TNode} node @returns {void} */
+        function visit(node) {
+            if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+                const specifier = node.moduleSpecifier.text;
+                const importClause = node.importClause;
+                const hasRuntimeBinding = importClause === undefined
+                    || (!importClause.isTypeOnly
+                        && (importClause.name !== undefined
+                            || !importClause.namedBindings
+                            || ts.isNamespaceImport(importClause.namedBindings)
+                            || importClause.namedBindings.elements.some(element => !element.isTypeOnly)));
+                if (hasRuntimeBinding && isNodeRuntimeModuleSpecifier(specifier)) {
+                    record(specifier, 'Portable contracts must not import Node runtime modules.');
+                }
+            } else if (
+                ts.isImportEqualsDeclaration(node)
+                && ts.isExternalModuleReference(node.moduleReference)
+            ) {
+                const specifier = getStaticString(node.moduleReference.expression);
+                if (!node.isTypeOnly && specifier && isNodeRuntimeModuleSpecifier(specifier)) {
+                    record(specifier, 'Portable contracts must not import Node runtime modules.');
+                }
+            } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+                const specifier = node.moduleSpecifier.text;
+                const hasRuntimeBinding = !node.isTypeOnly
+                    && (!node.exportClause
+                        || !ts.isNamedExports(node.exportClause)
+                        || node.exportClause.elements.some(element => !element.isTypeOnly));
+                if (hasRuntimeBinding && isNodeRuntimeModuleSpecifier(specifier)) {
+                    record(specifier, 'Portable contracts must not re-export Node runtime modules.');
+                }
+            } else if (ts.isCallExpression(node)) {
+                const specifier = getStaticString(node.arguments[0]);
+                if (
+                    specifier
+                    && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+                        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+                    && isNodeRuntimeModuleSpecifier(specifier)
+                ) {
+                    record(specifier, 'Portable contracts must not load Node runtime modules dynamically.');
+                }
+            }
+
+            if (
+                ts.isIdentifier(node)
+                && (node.text === 'process' || node.text === 'Buffer')
+                && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+                && !(ts.isQualifiedName(node.parent) && node.parent.right === node)
+            ) {
+                record(node.text, `Portable contracts must not access the Node global ${node.text}.`);
+            }
+            ts.forEachChild(node, visit);
+        }
+        visit(sourceFile);
+    }
+
+    return violations;
+}
+
 /** @param {string} filePath @returns {boolean} */
 function isSentryBoundaryExemptSource(filePath) {
     return filePath === SENTRY_BOUNDARY_IMPLEMENTATION_FILE
@@ -1526,6 +1663,7 @@ function checkSource(filePath, sourceText) {
         ...checkSentryBoundarySource(filePath, sourceFiles),
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
+        ...checkContractsRuntimeBoundary(filePath, sourceFiles),
     ];
 }
 

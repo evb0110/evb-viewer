@@ -85,27 +85,9 @@ export function classifyWorktree(worktree) {
         };
     }
     if (worktree.missing) {
-        if (!worktree.selectedTarget) {
-            return {
-                action: 'keep',
-                reason: 'stale registration requires an explicit target',
-            };
-        }
-        if (!worktree.completedTask) {
-            return {
-                action: 'keep',
-                reason: 'completed-task evidence required',
-            };
-        }
-        if (worktree.ownerStatus !== 'absent') {
-            return {
-                action: 'keep',
-                reason: worktree.ownerReason ?? 'live-owner probe did not prove absence',
-            };
-        }
         return {
-            action: 'remove',
-            reason: 'targeted stale registration with no live owner',
+            action: 'keep',
+            reason: 'stale registration cleanup requires a safe metadata-only operation',
         };
     }
     if (worktree.dirtyEntries === null) {
@@ -243,11 +225,31 @@ function probeSessionMetadataOwnership(worktreePath) {
     };
 }
 
+function processBelongsToCurrentUser(pid, currentUid) {
+    try {
+        const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+        const match = status.match(/^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/mu);
+        if (!match) {
+            return null;
+        }
+        return match.slice(1).map(Number).includes(currentUid);
+    } catch (error) {
+        return error?.code === 'ENOENT' ? false : null;
+    }
+}
+
 function probeWorktreeOwnership(worktreePath) {
     if (process.platform === 'win32' || !existsSync('/proc')) {
         return {
             status: 'ambiguous',
             reason: 'live-owner probe is unavailable on this host',
+        };
+    }
+    const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if (currentUid === null) {
+        return {
+            status: 'ambiguous',
+            reason: 'live-owner probe cannot identify the current user',
         };
     }
     let pids;
@@ -260,17 +262,23 @@ function probeWorktreeOwnership(worktreePath) {
         };
     }
     for (const pid of pids) {
+        const sameUser = processBelongsToCurrentUser(pid, currentUid);
+        if (sameUser === false) continue;
+        if (sameUser === null) {
+            return {
+                status: 'ambiguous',
+                reason: `live-owner probe could not identify process ${pid}`,
+            };
+        }
         let ownerCwd;
         try {
             ownerCwd = readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/u, '');
         } catch (error) {
-            if (error?.code !== 'ENOENT') {
-                return {
-                    status: 'ambiguous',
-                    reason: `live-owner probe could not inspect process ${pid}`,
-                };
-            }
-            continue;
+            if (error?.code === 'ENOENT') continue;
+            return {
+                status: 'ambiguous',
+                reason: `live-owner probe could not inspect process ${pid}`,
+            };
         }
         if (isPathInside(worktreePath, path.resolve(ownerCwd))) {
             return {
@@ -472,8 +480,7 @@ export async function pruneWorktrees(options) {
             continue;
         }
         if (worktree.missing) {
-            removed.push(worktree.path);
-            console.log(`forgot ${worktree.path} (directory already gone)`);
+            console.error(`kept ${worktree.path}: stale registration cleanup requires a safe metadata-only operation`);
             continue;
         }
         const sizeKiB = directorySizeKiB(worktree.path);

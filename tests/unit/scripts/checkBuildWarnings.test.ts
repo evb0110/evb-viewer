@@ -116,6 +116,16 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('keeps known multiline warnings visible across CRLF and NUL controls', async () => {
+        const result = await runWarningCheck([
+            '\u0000WARN node_modules/.pnpm/@vueuse+core@14.3.0_vue@3.5.33_typescript@5.9.3_/node_modules/@vueuse/core/dist/index.js (3362:0): A comment',
+            '"/* #__PURE__ */"',
+            '',
+        ].join('\r\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('allows bounded Rolldown plugin timing diagnostics', async () => {
         const result = await runWarningCheck([
             '[warn] \u001B[33m\u001B[33m[PLUGIN_TIMINGS] \u001B[0mYour build spent 96% of 13.2s inside plugin hooks (12.6s).',
@@ -166,6 +176,16 @@ describe('check-build-warnings', () => {
             '[warn] unexpected production build warning',
             '',
         ].join('\n'))).rejects.toMatchObject({
+            code: 1,
+            stderr: expect.stringContaining('Unknown warnings found'),
+        });
+    });
+
+    it.each([
+        '\u001B[31mWARN\u001B[39m unexpected colored WARN warning',
+        '\u001B[31m[warn]\u001B[39m unexpected colored consola warning',
+    ])('rejects colored unknown warning headers', async (header) => {
+        await expect(runWarningCheck(`${header}\n`)).rejects.toMatchObject({
             code: 1,
             stderr: expect.stringContaining('Unknown warnings found'),
         });

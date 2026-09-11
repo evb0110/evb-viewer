@@ -3,6 +3,7 @@ import {
     mkdir,
     readFile,
     rm,
+    symlink,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -96,6 +97,7 @@ describe('OCR revision transition crash recovery', () => {
             .resolves.toBe('partially-applied-catalog');
         await expect(readFile(`${workingCopyPath}.ocr-transition.json`, 'utf8'))
             .resolves.toContain('"state":"committed"');
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(false);
         await expect(readFile(pdfBackupPath, 'utf8')).resolves.toBe('exact-before-pdf');
         await expect(readFile(join(catalogBackupPath, 'manifest.json'), 'utf8'))
             .resolves.toBe('exact-before-catalog');
@@ -137,6 +139,32 @@ describe('OCR revision transition crash recovery', () => {
             .rejects.toThrow('Invalid OCR revision transition recovery journal');
     });
 
+    it('accepts a committed journal through an alias of the same working copy', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-ocr-transition-alias-'));
+        const canonicalRoot = join(root, 'canonical');
+        const aliasRoot = join(root, 'alias');
+        const canonicalWorkingCopyPath = join(canonicalRoot, 'working.pdf');
+        const aliasedWorkingCopyPath = join(aliasRoot, 'working.pdf');
+        await mkdir(canonicalRoot);
+        await symlink(canonicalRoot, aliasRoot, 'dir');
+        await writeFile(canonicalWorkingCopyPath, 'committed-pdf');
+        await writeFile(`${canonicalWorkingCopyPath}.ocr-transition.json`, JSON.stringify({
+            version: 1,
+            transitionId: 'transition-alias',
+            state: 'committed',
+            workingCopyPath: canonicalWorkingCopyPath,
+            targetDocumentRevisionToken: 'revision-1',
+            undoPdfPath: join(canonicalRoot, 'before.pdf'),
+            undoCatalogPath: join(canonicalRoot, 'before-catalog'),
+            undoCatalogExisted: false,
+            catalogKind: 'v4-root',
+            descriptorPath: join(canonicalRoot, 'descriptor.json'),
+            committedAt: 1,
+        }));
+
+        await expect(recoverPreparedOcrRevisionTransition(aliasedWorkingCopyPath)).resolves.toBe(false);
+    });
+
     it('fails closed when the OCR transition journal cannot be read', async () => {
         root = await mkdtemp(join(tmpdir(), 'evb-ocr-transition-unreadable-'));
         const workingCopyPath = join(root, 'working.pdf');
@@ -162,5 +190,39 @@ describe('OCR revision transition crash recovery', () => {
             journalPath,
         });
         await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
+    });
+
+    it.each([
+        {catalogBackupMode: 'missing'},
+        {
+            catalogApplyMode: 'rename',
+            descriptorPath: '/tmp/unpaired-descriptor',
+        },
+        {catalogKind: 'v4-root'},
+        {descriptorPath: 7},
+        {descriptorPath: null},
+        {
+            undoCatalogExisted: true,
+            undoCatalogPath: undefined,
+        },
+        {committedAt: 'not-a-timestamp'},
+    ])('fails closed for malformed committed journal fields %#', async (overrides) => {
+        root = await mkdtemp(join(tmpdir(), 'evb-ocr-committed-invalid-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        await writeFile(`${workingCopyPath}.ocr-transition.json`, JSON.stringify({
+            version: 1,
+            transitionId: 'transition-1',
+            state: 'committed',
+            workingCopyPath,
+            targetDocumentRevisionToken: 'revision-1',
+            undoPdfPath: join(root, 'before.pdf'),
+            undoCatalogPath: join(root, 'before-catalog'),
+            undoCatalogExisted: false,
+            committedAt: 1,
+            ...overrides,
+        }));
+
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath))
+            .rejects.toThrow('Invalid OCR revision transition recovery journal');
     });
 });

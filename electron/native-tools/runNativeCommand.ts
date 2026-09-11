@@ -156,8 +156,10 @@ export function acquireNativeCommandAdmission(signal?: AbortSignal) {
 
 type TNativeProcess = ChildProcessByStdio<null, Readable, Readable>;
 type TCancelGroupHandler = () => void;
+type TCancelGroupCompletion = () => Promise<boolean>;
 
 const activeCancelGroups = new Map<string, Set<TCancelGroupHandler>>();
+const activeCancelGroupCompletions = new Map<string, Set<TCancelGroupCompletion>>();
 
 interface ICommandRunContext {
     effectiveCwd: string | undefined;
@@ -322,6 +324,7 @@ export async function runNativeCommand(
         let proc: TNativeProcess | null = null;
         let abortHandler: (() => void) | null = null;
         let cancelGroupHandler: TCancelGroupHandler | null = null;
+        let cancelGroupCompletion: TCancelGroupCompletion | null = null;
 
         const contextOptions: IRunCommandOptions = {
             defaultCwdToCommandDir,
@@ -464,6 +467,9 @@ export async function runNativeCommand(
             if (cancelGroup && cancelGroupHandler) {
                 unregisterCancelGroupHandler(cancelGroup, cancelGroupHandler);
             }
+            if (cancelGroup && cancelGroupCompletion) {
+                unregisterCancelGroupCompletion(cancelGroup, cancelGroupCompletion);
+            }
             cleanupProcessHandlers();
             complete();
         };
@@ -490,7 +496,9 @@ export async function runNativeCommand(
             cancelGroupHandler = () => {
                 requestTermination(createAbortError());
             };
+            cancelGroupCompletion = () => terminationPromise ?? Promise.resolve(false);
             registerCancelGroupHandler(cancelGroup, cancelGroupHandler);
+            registerCancelGroupCompletion(cancelGroup, cancelGroupCompletion);
         }
         if (settled) {
             return;
@@ -659,6 +667,23 @@ function unregisterCancelGroupHandler(cancelGroup: string, handler: TCancelGroup
     }
 }
 
+function registerCancelGroupCompletion(cancelGroup: string, completion: TCancelGroupCompletion) {
+    const completions = activeCancelGroupCompletions.get(cancelGroup) ?? new Set<TCancelGroupCompletion>();
+    completions.add(completion);
+    activeCancelGroupCompletions.set(cancelGroup, completions);
+}
+
+function unregisterCancelGroupCompletion(cancelGroup: string, completion: TCancelGroupCompletion) {
+    const completions = activeCancelGroupCompletions.get(cancelGroup);
+    if (!completions) {
+        return;
+    }
+    completions.delete(completion);
+    if (completions.size === 0) {
+        activeCancelGroupCompletions.delete(cancelGroup);
+    }
+}
+
 export function cancelNativeCommandGroup(cancelGroup: string) {
     const handlers = activeCancelGroups.get(cancelGroup);
     if (!handlers || handlers.size === 0) {
@@ -668,4 +693,17 @@ export function cancelNativeCommandGroup(cancelGroup: string) {
         handler();
     }
     return true;
+}
+
+export async function cancelNativeCommandGroupAndWait(cancelGroup: string) {
+    const handlers = activeCancelGroups.get(cancelGroup);
+    const completions = activeCancelGroupCompletions.get(cancelGroup);
+    if (!handlers || !completions || handlers.size === 0 || completions.size === 0) {
+        return false;
+    }
+    for (const handler of Array.from(handlers)) {
+        handler();
+    }
+    const results = await Promise.all(Array.from(completions, completion => completion()));
+    return results.every(Boolean);
 }

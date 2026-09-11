@@ -10,20 +10,35 @@ import {WORKER_BUNDLES} from '@electron-worker-bundles/electronWorkerBundles.js'
 
 const mocks = vi.hoisted(() => ({
     build: vi.fn(),
+    cp: vi.fn(),
     copyFile: vi.fn(),
     execFileSync: vi.fn(),
     mkdir: vi.fn(),
     rm: vi.fn(),
     stagePrivateSourcemaps: vi.fn(),
     writeFile: vi.fn(),
+    realpathSync: vi.fn((path: string) => path),
 }));
 
 vi.mock('node:fs/promises', () => ({
+    cp: mocks.cp,
     copyFile: mocks.copyFile,
     mkdir: mocks.mkdir,
     rm: mocks.rm,
     writeFile: mocks.writeFile,
 }));
+
+vi.mock('node:fs', async importOriginal => ({
+    ...await importOriginal(),
+    realpathSync: mocks.realpathSync,
+}));
+
+vi.mock('node:module', () => ({createRequire: () => ({resolve: (specifier: string) => {
+    if (specifier === '@napi-rs/canvas/package.json') {
+        return '/fixture/node_modules/@napi-rs/canvas/package.json';
+    }
+    throw new Error(`unexpected fixture resolution: ${specifier}`);
+}})}));
 
 vi.mock('node:child_process', () => ({execFileSync: mocks.execFileSync}));
 
@@ -43,6 +58,7 @@ describe('Electron build script', () => {
         vi.stubEnv('EVB_SENTRY_ENVIRONMENT', 'test');
         vi.stubEnv('SENTRY_DESKTOP_DSN', 'https://public@example.invalid/1');
         mocks.build.mockResolvedValue({metafile: {outputs: {}}});
+        mocks.cp.mockResolvedValue(undefined);
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.mkdir.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
@@ -97,6 +113,21 @@ describe('Electron build script', () => {
         expect(mocks.copyFile).toHaveBeenCalledWith(
             'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
             'dist-electron/pdf.worker.mjs',
+        );
+        expect(mocks.cp).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas',
+            'dist-electron/runtime/@napi-rs/canvas',
+            {recursive: true},
+        );
+        expect(mocks.cp).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas-linux-arm64-gnu/skia.linux-arm64-gnu.node',
+            'dist-electron/runtime/@napi-rs/canvas/skia.linux-arm64-gnu.node',
+        );
+        expect(mocks.realpathSync).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas',
+        );
+        expect(mocks.realpathSync).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas-linux-arm64-gnu',
         );
         expect(mocks.writeFile).toHaveBeenCalledWith(
             'dist-electron/package.json',

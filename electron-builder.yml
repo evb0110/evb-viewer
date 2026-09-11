@@ -6,7 +6,8 @@ extends: ./.tmp/generated-electron-builder-resources.yml
 # Keep the built Nuxt renderer as static assets. Electron backend behavior lives
 # in main/preload plus typed IPC; packaged apps do not ship or spawn Nitro.
 # Main, preload, and all workers are fully esbuild-bundled
-# (scripts/build-electron.mjs), so the package ships no node_modules at all.
+# (scripts/build-electron.mjs). The image fallback has one staged N-API package
+# and its target binding under dist-electron/runtime.
 # Worker entry files that require direct filesystem paths are unpacked, together
 # with the pdfjs fallback worker they dynamically import and the package.json
 # that pins dist-electron/*.js to ESM semantics.
@@ -19,6 +20,7 @@ asarUnpack:
   - dist-electron/ocr-worker.js
   - dist-electron/page-ops-cropWorker.js
   - dist-electron/pdf.worker.mjs
+  - dist-electron/runtime/@napi-rs/canvas/*.node
   - dist-electron/pdfCombineWorker.js
   - dist-electron/pdfConformanceWorker.js
   - dist-electron/pdf-print-layout-utility.js
@@ -38,9 +40,10 @@ files:
   - nuxt-output/public/
   - package.json
   - scripts/evb-mcp-proxy.mjs
-  # Runtime needs nothing from node_modules (electron-updater is bundled into
-  # main.js); production dependencies exist for the web/Nitro target only.
-  - "!**/node_modules/**"
+  # Runtime dependencies are otherwise bundled or web-only. The canvas fallback
+  # is staged below dist-electron by scripts/build-electron.mjs.
+  - "!node_modules/**"
+  - dist-electron/runtime/@napi-rs/**
   - "!nuxt-output/**/*.map"
   - "!dist-electron/**/*.map"
   - "!dist-electron/**/*.meta.json"

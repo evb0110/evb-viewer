@@ -39,7 +39,7 @@ function resolveTrustedOriginalPath(
     senderWebContentsId?: number,
 ) {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
+        ? originalPath
         : undefined;
     if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
         throw new Error('Invalid original path');

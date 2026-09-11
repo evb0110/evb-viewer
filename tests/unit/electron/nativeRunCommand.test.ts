@@ -460,4 +460,21 @@ describe('runNativeCommand', () => {
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
         expect(cancelNativeCommandGroup('job-1')).toBe(false);
     });
+
+    it('waits for detached native termination before acknowledging cancellation', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
+        const {
+            cancelNativeCommandGroupAndWait,
+            runNativeCommand,
+        } = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', ['--watch'], {cancelGroup: 'job-ack'});
+        const rejection = resultPromise.catch((error: unknown) => error as Error);
+
+        await expect(cancelNativeCommandGroupAndWait('job-ack')).resolves.toBe(true);
+        await expect(rejection).resolves.toMatchObject({message: 'The operation was aborted'});
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+    });
 });

@@ -2,12 +2,9 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
-import type {
-    IBrowserPdfCombineBookmarkEntry,
-    IBrowserPdfCombineCatalog,
-    IBrowserPdfCombinePageLabelRange,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+import type {IBrowserPdfCombineCatalog} from '@app/platform/browser-api/browserPageOpsWorker.types';
 
 interface IBrowserPdfCombineInput {
     fileName: string;
@@ -21,6 +18,12 @@ interface IBrowserPdfCombinePageSize {
 
 type TBrowserPdfCombineWasmPageKind = 'image' | 'mask' | 'layered' | 'layered-color';
 type TBrowserPdfCombineRgb = [number, number, number];
+
+const BROWSER_PDF_COMBINE_CATALOG_POLICY = {
+    maxBookmarkDepth: 64,
+    maxBookmarkItems: 5_000,
+    maxPageLabels: 2_048,
+} as const;
 
 interface IBrowserPdfCombineWasmPageSpec {
     kind: TBrowserPdfCombineWasmPageKind;
@@ -250,90 +253,8 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
     return parsed;
 }
 
-function parseCatalogBookmark(
-    value: unknown,
-    depth: number,
-    state: {count: number},
-): IBrowserPdfCombineBookmarkEntry | null {
-    if (!isRecord(value) || depth >= 64 || state.count >= 5_000 || !Array.isArray(value.items)) {
-        return null;
-    }
-    if (
-        typeof value.title !== 'string'
-        || (value.pageIndex !== null && (typeof value.pageIndex !== 'number' || !Number.isSafeInteger(value.pageIndex) || value.pageIndex < 0))
-        || (value.pageYRatio !== undefined
-            && value.pageYRatio !== null
-            && (typeof value.pageYRatio !== 'number' || !Number.isFinite(value.pageYRatio)))
-        || (value.namedDest !== null && typeof value.namedDest !== 'string')
-        || typeof value.bold !== 'boolean'
-        || typeof value.italic !== 'boolean'
-        || (value.color !== null && typeof value.color !== 'string')
-        || value.items.length > 5_000
-    ) {
-        return null;
-    }
-    state.count += 1;
-    const items: IBrowserPdfCombineBookmarkEntry[] = [];
-    for (const item of value.items) {
-        const parsed = parseCatalogBookmark(item, depth + 1, state);
-        if (parsed === null) {
-            return null;
-        }
-        items.push(parsed);
-    }
-    return {
-        title: value.title,
-        pageIndex: value.pageIndex,
-        ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio}),
-        namedDest: value.namedDest,
-        bold: value.bold,
-        italic: value.italic,
-        color: value.color,
-        items,
-    };
-}
-
 function parseBrowserPdfCombineCatalog(value: unknown): IBrowserPdfCombineCatalog | null {
-    if (!isRecord(value) || !Array.isArray(value.bookmarks) || !Array.isArray(value.pageLabels)) {
-        return null;
-    }
-    if (value.bookmarks.length > 5_000 || value.pageLabels.length > 2_048) {
-        return null;
-    }
-    const state = {count: 0};
-    const bookmarks: IBrowserPdfCombineBookmarkEntry[] = [];
-    for (const bookmark of value.bookmarks) {
-        const parsed = parseCatalogBookmark(bookmark, 0, state);
-        if (parsed === null) {
-            return null;
-        }
-        bookmarks.push(parsed);
-    }
-    const pageLabels: IBrowserPdfCombinePageLabelRange[] = [];
-    for (const range of value.pageLabels) {
-        if (
-            !isRecord(range)
-            || typeof range.pageIndex !== 'number'
-            || !Number.isSafeInteger(range.pageIndex)
-            || range.pageIndex < 0
-            || (range.style !== undefined && typeof range.style !== 'string')
-            || (range.prefix !== undefined && typeof range.prefix !== 'string')
-            || (range.start !== undefined
-                && (typeof range.start !== 'number' || !Number.isSafeInteger(range.start) || range.start < 0))
-        ) {
-            return null;
-        }
-        pageLabels.push({
-            pageIndex: range.pageIndex,
-            ...(range.style === undefined ? {} : {style: range.style}),
-            ...(range.prefix === undefined ? {} : {prefix: range.prefix}),
-            ...(range.start === undefined ? {} : {start: range.start}),
-        });
-    }
-    return {
-        bookmarks,
-        pageLabels,
-    };
+    return decodeBrowserPdfCatalog(value, BROWSER_PDF_COMBINE_CATALOG_POLICY);
 }
 
 function parseBrowserPdfCombineWasmImagePreprocessing(

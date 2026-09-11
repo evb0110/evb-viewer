@@ -114,7 +114,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
     });
 
-    it('renders canvas-only buffers without annotation preparation', async () => {
+    it('renders canvas-only buffers with filtered foreign annotation appearances', async () => {
         const { canvas } = installCanvasDocument();
         const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
@@ -125,7 +125,8 @@ describe('usePdfCanvasRenderer', () => {
 
         expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.DISABLE,
+            annotationMode: AnnotationMode.ENABLE_FORMS,
+            operationsFilter: expect.any(Function),
             canvas,
         }));
         // Vitest records PDF.js render options as an untyped mock argument.

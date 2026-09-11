@@ -209,7 +209,10 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         }
 
         if (!isTextLayerRendered) {
-            return true;
+            // The page canvas is already committed, so optional text failure
+            // must leave the page usable without claiming text readiness. The
+            // caller uses false to keep promotion and an explicit retry alive.
+            return false;
         }
 
         if (didRebuildTextLayer) {
@@ -225,6 +228,8 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     'text layer interaction',
                     textLayerInteractionError,
                 );
+                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+                return false;
             }
         }
 

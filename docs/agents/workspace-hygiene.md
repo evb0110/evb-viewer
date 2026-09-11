@@ -25,14 +25,28 @@ that works in this repository, including orchestrators that drive other agents.
   verdict. Apply names one completed worktree and a JSON receipt with
   `status: "completed"`, `taskKey`, `worktreePath`, and its exact 40-character
   `head`. The script rechecks the receipt, clean state, registration identity,
-  and live process/session ownership immediately before non-force removal. A
-  live or unavailable owner probe keeps the target. It never deletes branches,
+  and live process/session ownership immediately before non-force removal.
+  A live owner, or an owner probe that cannot inspect a process running as the
+  current agent user, keeps the target. It never deletes branches,
   the primary checkout, dirty trees, or the tree containing the current directory.
+  A target whose directory is already missing follows a separate stale-registration
+  path. It remains registered when Git cannot provide a narrowly scoped,
+  metadata-only removal, rather than risking deletion of a reappeared directory.
+- Worktrees created outside the checkout, such as
+  `/home/ubuntu/agent-worktrees/<key>`, follow the same lifecycle. The creator
+  records the task owner and removes the worktree after completion with the
+  helper that created it. T3 thread deletion or settlement does not remove a
+  linked Git worktree, so the owning agent or orchestrator must perform that
+  cleanup explicitly while the completion evidence is still available.
 - Do not create a worktree for review, diagnosis, or a read-only look at a
   branch. `git show`, `git diff`, and `gh pr diff` answer those without a
   checkout.
 - Do not run `cargo build` or `cargo test` in a worktree unless the ticket
   touches `native/`. A debug build of the workspace costs several GiB per tree.
+- Never copy `node_modules` between worktrees. Run pnpm from the checkout that
+  will use the dependencies, and verify its package links resolve under that
+  checkout's own `node_modules/.pnpm`. A worktree removal must not be able to
+  break dependency resolution in the primary checkout.
 
 ## Electron automation
 

@@ -836,11 +836,9 @@ describe('validation gate policy', () => {
             'static.web-deploy-source',
             'native.lint',
             'native.test',
-            'native.resource-matrix',
-            'build.strict',
-            'electron.bundle-integrity',
-            'electron.blocking-smoke',
         ]);
+        expect(stageIds).not.toContain('build.strict');
+        expect(stageIds).not.toContain('electron.blocking-smoke');
         expect(scripts).toContain('lint');
         expect(scripts).toContain('typecheck');
         expect(scripts).toContain('test:unit');
@@ -851,23 +849,9 @@ describe('validation gate policy', () => {
         expect(scripts).not.toContain('lint:clean');
         expect(scripts).not.toContain('typecheck:clean');
         expect(scripts).not.toContain('fallow:all');
-        expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.args)
-            .toContain('--no-build');
-        expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.env)
-            .toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(plan.find(stage => stage.id === 'native.test')?.dependsOn)
             .toEqual(['build.prepare']);
-        expect(plan.find(stage => stage.id === 'native.resource-matrix')?.dependsOn)
-            .toEqual(['build.strict']);
-        expect(plan.find(stage => stage.id === 'build.strict')?.dependsOn)
-            .toEqual(['build.prepare']);
-        expect(plan.find(stage => stage.id === 'electron.bundle-integrity')?.dependsOn)
-            .toEqual(['build.strict']);
-        expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.dependsOn)
-            .toEqual([
-                'build.strict',
-                'electron.bundle-integrity',
-            ]);
+        expect(plan.every(stage => (stage.dependsOn ?? []).every(id => stageIds.includes(id)))).toBe(true);
         expect(plan.filter(stage => stage.cacheable).map(stage => stage.id)).toEqual(expect.arrayContaining([
             'lint.full',
             'typecheck.full',

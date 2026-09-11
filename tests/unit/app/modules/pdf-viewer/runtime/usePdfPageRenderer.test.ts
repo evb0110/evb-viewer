@@ -291,6 +291,45 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         }
     });
 
+    it('keeps a committed canvas canvas-only when text hydration rejects, then retries', async () => {
+        rendererFixture.renderTextLayer
+            .mockRejectedValueOnce(new Error('text extraction failed'))
+            .mockResolvedValue(undefined);
+        const harness = createHarness();
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+
+            await harness.renderer.renderCommittedPageLayers({
+                pageNumber: requirePageNumber(1),
+                version: 1,
+                requestId: 11,
+                scale: 1,
+                container: harness.pageContainer,
+                renderResult: harness.renderResult,
+                renderOptions: {prioritizeTextLayer: true},
+            });
+
+            expect(harness.canvas.isConnected).toBe(true);
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('none');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('canvas-only');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
+
+            await harness.renderer.renderLayerPromotions({
+                start: 1,
+                end: 1,
+            }, {
+                contentIntent: 'layers-only-promotion',
+                rasterDemandPages: [1],
+                prioritizeTextLayer: true,
+            });
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
+        } finally {
+            harness.root.remove();
+        }
+    });
+
     it('runs a queued text-first promotion after an active owner settles canvas-only', async () => {
         const annotation = createDeferred();
         annotationControllerFixture.render

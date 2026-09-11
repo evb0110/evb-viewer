@@ -35,7 +35,6 @@ import {
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
     type IDocxExportFileCapability,
     type IDocxExportStreamBeginResult,
-    type TDocxExportChunkSource,
 } from '@contracts/docxExport';
 import {
     decodeWorkingCopyBackingStatus,
@@ -312,74 +311,29 @@ function assertPersistenceData(value: unknown, fieldName: string) {
     }
     return value;
 }
-function assertDocxExportChunk(value: unknown) {
-    if (!(value instanceof Uint8Array) || value.byteLength === 0) {
-        throw new Error('writeDocxFileChunks chunks must yield non-empty Uint8Array values');
-    }
-    if (value.byteLength > DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES) {
-        throw new Error(
-            `writeDocxFileChunks chunk exceeds maximum size (${DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} bytes)`,
-        );
-    }
-    return value;
-}
 function createDocxExportFileCapability(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
 ): IDocxExportFileCapability {
     const invoke = async <TResult>(channel: string, ...args: unknown[]) => await ipcRenderer.invoke(channel, ...args) as TResult;
-    const writeDocxFileChunks = async (path: Parameters<IDocxExportFileCapability['writeDocxFileChunks']>[0], chunks: TDocxExportChunkSource, signal?: AbortSignal) => {
-        const checkedPath = assertAbsolutePath(path, 'writeDocxFileChunks.path'); throwIfAborted(signal);
-        const beginResult = await invoke<IDocxExportStreamBeginResult>(
-            DOCX_EXPORT_STREAM_CHANNELS.begin,
-            checkedPath,
-        );
-        if (
-            !beginResult
-                || typeof beginResult.sessionId !== 'string'
-                || beginResult.sessionId.trim().length === 0
-        ) {
-            throw new Error('Invalid DOCX stream begin response');
+    const beginDocxFileStream = (path: Parameters<IDocxExportFileCapability['beginDocxFileStream']>[0]) => invoke<IDocxExportStreamBeginResult>(DOCX_EXPORT_STREAM_CHANNELS.begin, assertAbsolutePath(path, 'beginDocxFileStream.path'));
+    const writeDocxFileStreamChunk = (sessionId: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[0], chunk: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[1]) => {
+        const checkedSessionId = requireSessionId(sessionId);
+        if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
+            throw new Error('writeDocxFileStreamChunk.chunk must be a non-empty Uint8Array');
         }
-        const sessionId = beginResult.sessionId;
-        let wroteChunk = false;
-        let cancelPromise: Promise<boolean> | null = null;
-        const cancelSession = () => cancelPromise ??= invoke<boolean>(
-            DOCX_EXPORT_STREAM_CHANNELS.cancel,
-            sessionId,
-        ).catch(() => false);
-        const handleAbort = () => { void cancelSession(); };
-        signal?.addEventListener('abort', handleAbort, {once: true});
-        try {
-            throwIfAborted(signal);
-            for await (const chunk of chunks) {
-                throwIfAborted(signal);
-                const checkedChunk = assertDocxExportChunk(chunk);
-                await invoke(
-                    DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
-                    sessionId,
-                    checkedChunk,
-                );
-                throwIfAborted(signal);
-                wroteChunk = true;
-            }
-            throwIfAborted(signal);
-            if (!wroteChunk) {
-                throw new Error('writeDocxFileChunks requires at least one chunk');
-            }
-            const committed = await invoke<boolean>(
-                DOCX_EXPORT_STREAM_CHANNELS.commit,
-                sessionId,
-            );
-            if (committed !== true) {
-                throw new Error('DOCX stream commit was not accepted');
-            }
-            return true;
-        } catch (error) {
-            await cancelSession();
-            throw error;
-        } finally { signal?.removeEventListener('abort', handleAbort); }
+        if (chunk.byteLength > DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES) {
+            throw new Error(`writeDocxFileStreamChunk chunk exceeds maximum size (${DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} bytes)`);
+        }
+        return invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.writeChunk, checkedSessionId, Uint8Array.from(chunk));
     };
-    return {writeDocxFileChunks};
+    const commitDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['commitDocxFileStream']>[0]) => invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.commit, requireSessionId(sessionId));
+    const cancelDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['cancelDocxFileStream']>[0]) => invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.cancel, requireSessionId(sessionId));
+    return {
+        beginDocxFileStream,
+        writeDocxFileStreamChunk,
+        commitDocxFileStream,
+        cancelDocxFileStream,
+    };
 }
 
 function assertPositiveSafeInteger(value: unknown, fieldName: string) {

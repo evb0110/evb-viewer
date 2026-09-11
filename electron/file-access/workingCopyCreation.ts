@@ -78,7 +78,9 @@ const WORKING_COPY_PRESERVED_EXTENSIONS = [
 ] as const;
 
 function getWorkingCopyFileName(fileName: string, ensurePdfExtension = false) {
-    const lowerName = fileName.toLowerCase();
+    // A trailing POSIX whitespace character belongs to the filename, not the
+    // format suffix. Preserve the source path while classifying its copy.
+    const lowerName = fileName.trimEnd().toLowerCase();
     const extension = WORKING_COPY_PRESERVED_EXTENSIONS.find(candidate => lowerName.endsWith(candidate))
         ?? (ensurePdfExtension ? '.pdf' : '');
     return `${WORKING_COPY_FILE_PREFIX}${extension}`;
@@ -309,7 +311,7 @@ export async function createWorkingCopyFromPath(
     } = {},
 ) {
     const explicitOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
+        ? originalPath
         : undefined;
     const mappedOriginalPath = explicitOriginalPath
         ?? (options.mapToSourceWhenOriginalMissing === false ? undefined : sourcePath);
@@ -372,7 +374,7 @@ export async function createWorkingCopyFromData(
     password?: string,
 ) {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
+        ? originalPath
         : null;
     if (normalizedOriginalPath && !isAllowedOriginalSavePath(normalizedOriginalPath)) {
         throw new Error('Invalid original path mapping');

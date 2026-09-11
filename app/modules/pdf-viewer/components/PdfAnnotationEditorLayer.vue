@@ -887,8 +887,10 @@ function handlePointerUp(event: PointerEvent) {
                 : draft;
             const created = completedDraft ? creationTools.finishShape(completedDraft) : null;
             if (created) {
-                const entity = surface.createShape(created);
-                surface.select([entity.identity.id]);
+                surface.createShape(created);
+                // A completed shape remains unselected. Selecting it here makes
+                // the pointer-up click reopen selection handles over the new
+                // stroke, which breaks draw-tool repeat/delete flows.
                 surface.completeCreation(tool);
             }
             return;

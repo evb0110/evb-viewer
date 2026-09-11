@@ -949,6 +949,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 limits.expectedWidthPx * limits.expectedHeightPx,
             );
         }
+        const boundedWindowPages = Math.max(
+            1,
+            Math.min(SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW, admission.windowPages),
+        );
         log(
             'debug',
             'Scan cleanup detection staged raster admission '
@@ -959,11 +963,11 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 freeScratchBytes: admission.availableBytes,
                 budgetBytes: admission.budgetBytes,
                 wholeDocumentBytes: admission.wholeDocumentBytes,
-                windowPages: admission.windowPages,
+                windowPages: boundedWindowPages,
                 windowBytes: admission.windowBytes,
                 renderConcurrency: Math.max(
                     1,
-                    Math.min(policy.rasterConcurrency, Math.max(1, admission.windowPages)),
+                    Math.min(policy.rasterConcurrency, boundedWindowPages),
                 ),
                 admitted: admission.admitted,
             }),
@@ -994,7 +998,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
         const waitingRenders: Array<() => void> = [];
         const renderConcurrency = Math.max(
             1,
-            Math.min(policy.rasterConcurrency, Math.max(1, admission.windowPages)),
+            Math.min(policy.rasterConcurrency, boundedWindowPages),
         );
         const renderSlot = async <T>(render: () => Promise<T>) => {
             if (activeRenders >= renderConcurrency) {
@@ -1022,15 +1026,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
             }
         };
         const batchRenderer = dependencies.renderPageBatch;
-        // The detector's resident window is still bounded by admission.windowPages.
-        // When the whole 1,024-page manifest fits the existing scratch budget,
-        // render that manifest batch to files before native starts reading it.
-        // The files are retained as paths only, so this removes repeated
-        // Poppler process and page-tree work without increasing decoded-raster
-        // or native input limits.
+        // The detector's resident window is bounded by admission.windowPages.
+        // Batch pre-staging is safe only when the entire requested set fits
+        // inside that window. A large manifest may fit the scratch estimate
+        // while still being too large for one Poppler process and one burst of
+        // retained rasters, so long documents must use the staged windows.
         const canPrestageBatch = batchRenderer !== undefined
             && compatibilityResults === null
-            && rasterScope.length > Math.max(1, admission.windowPages)
+            && rasterScope.length > 0
+            && rasterScope.length <= boundedWindowPages
             && admission.wholeDocumentBytes !== null
             && admission.wholeDocumentBytes <= admission.budgetBytes;
         const preStagePageNumbers = canPrestageBatch ? rasterScope : [];
@@ -1117,7 +1121,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 ...retained.keys(),
                 ...preStagePageNumbers,
             ],
-            window: Math.max(1, admission.windowPages),
+            window: boundedWindowPages,
             log,
             stage: pageNumber => renderSlot(async () => {
                 operationSignal.throwIfAborted();
@@ -1226,7 +1230,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             ...(rasterScope.length === 0
                 ? {}
                 : {
-                    stagedInputWindow: admission.windowPages,
+                    stagedInputWindow: boundedWindowPages,
                     stagedInputPeakPixels,
                 }),
             allowedPathRoot: dependencies.getTempDir(),

@@ -375,6 +375,20 @@ export const usePdfTextLayerRenderer = (deps: {
         return getPdfjsTextContent(pdfPage);
     }
 
+    function exposeMarkedContentNames(structure: HTMLElement, textLayerDiv: HTMLElement) {
+        for (const element of structure.querySelectorAll<HTMLElement>('[aria-owns]')) {
+            const ownedIds = element.getAttribute('aria-owns')?.split(/\s+/u).filter(Boolean) ?? [];
+            const text = ownedIds
+                .map(id => textLayerDiv.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent ?? '')
+                .join(' ')
+                .replace(/\s+/gu, ' ')
+                .trim();
+            if (text && !element.hasAttribute('aria-label')) {
+                element.setAttribute('aria-label', text);
+            }
+        }
+    }
+
     function getCurrentTime() {
         return typeof performance !== 'undefined'
             ? performance.now()
@@ -452,11 +466,28 @@ export const usePdfTextLayerRenderer = (deps: {
         mountedPageNumber: number,
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
+        currentMatchPresentationReady: boolean,
     ) {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
         const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
         if (!textLayerDiv) {
             pageHighlightState.signatureByPage.delete(mountedPageNumber);
+            return;
+        }
+
+        // A search navigation changes the current mark before the target page's
+        // text layer has committed. Keep the outgoing current mark until the
+        // target can paint its replacement. Clearing it here exposes a stale
+        // page with no visible match during the real compositor handoff.
+        const targetPageNumber = currentMatchValue
+            ? currentMatchValue.pageIndex + 1
+            : null;
+        if (
+            !currentMatchPresentationReady
+            && targetPageNumber !== null
+            && mountedPageNumber !== targetPageNumber
+            && container.querySelector('.pdf-search-highlight--current')
+        ) {
             return;
         }
 
@@ -536,6 +567,13 @@ export const usePdfTextLayerRenderer = (deps: {
             const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
             const searchMatchesValue = toValue(deps.searchPageMatches);
             const currentMatchValue = toValue(deps.currentSearchMatch);
+            const currentMatchPresentationReady = currentMatchValue === null
+                || Array.from(root.querySelectorAll<HTMLElement>('.page_container')).some(pageContainer => {
+                    if (pageContainer.dataset.page !== String(currentMatchValue.pageIndex + 1)) {
+                        return false;
+                    }
+                    return pageContainer.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true';
+                });
             let nextIndex = 0;
 
             const processSlice = () => {
@@ -566,6 +604,7 @@ export const usePdfTextLayerRenderer = (deps: {
                             mountedPageNumber,
                             pageMatchData,
                             currentMatchValue,
+                            currentMatchPresentationReady,
                         );
 
                         if (shouldPauseHighlightRefreshSlice(processedPages, sliceStartedAt)) {
@@ -923,6 +962,7 @@ export const usePdfTextLayerRenderer = (deps: {
                     && !signal?.aborted
                 ) {
                     structTreeLayer.updateTextLayer();
+                    exposeMarkedContentNames(structTreeDom, textLayerDiv);
                     const structureHost = textLayerDiv.closest<HTMLElement>('.page_container')
                         ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
                     structureHost?.append(structTreeDom);
@@ -1196,11 +1236,13 @@ export const usePdfTextLayerRenderer = (deps: {
             return false;
         }
         const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
+        const currentMatchPresentationReady = textLayerDiv.dataset.pdfTextLayerReady === 'true';
         refreshSearchHighlightsForPage(
             targetContainer,
             pageIndex + 1,
             pageMatchData,
             currentMatchValue,
+            currentMatchPresentationReady,
         );
 
         const currentWordBox = targetContainer.querySelector<HTMLElement>('.pdf-word-box--current');

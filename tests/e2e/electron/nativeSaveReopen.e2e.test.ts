@@ -17,8 +17,8 @@ import {
     createOutlinePageLabelFixturePdf,
     readFreeTextObjectByName,
     readPdfMetadataWithQpdf,
-    readPdfAnnotationSummary,
     readPdfTextAnnotationRecords,
+    readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     openAnnotationsTab,
@@ -1241,6 +1241,57 @@ describe('Electron E2E - native save and reopen', () => {
             'text',
         ), {timeout: 20_000}).toBe(editedText);
         expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
+    it('repairs a metadata-rich PDF with a dirty annotation and reopens the repaired result', async () => {
+        const pdfPath = await createOutlinePageLabelFixturePdf(`native-repair-annotation-${Date.now()}.pdf`);
+        session = await startElectronE2ESession(`e2e-native-repair-annotation-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await createCanonicalTextBoxWithPointer(session.page, 'Repair annotation survives', {
+            x: 0.3,
+            y: 0.35,
+        });
+        expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(true);
+
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleRepairSave')).resolves.toEqual({
+            called: true,
+            value: true,
+        });
+        expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(false);
+        expect(await readPdfTextAnnotationRecords(pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair annotation survives'})]));
+        const repairedMetadata = await readPdfMetadataWithQpdf(pdfPath);
+        expect(flattenQpdfOutlines(repairedMetadata.outlines).map(outline => outline.title)).toEqual([
+            'Parent',
+            'Child',
+            'Appendix',
+        ]);
+        expect(repairedMetadata.pagelabels.map(label => label.label?.['/P'])).toEqual(expect.arrayContaining([
+            'u:front-',
+            'u:chapter-',
+        ]));
+
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-native-repair-annotation-fresh-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        expect(await readPdfTextAnnotationRecords(pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair annotation survives'})]));
+        const reopenedMetadata = await readPdfMetadataWithQpdf(pdfPath);
+        expect(flattenQpdfOutlines(reopenedMetadata.outlines).map(outline => outline.title)).toEqual([
+            'Parent',
+            'Child',
+            'Appendix',
+        ]);
+        expect(reopenedMetadata.pagelabels.map(label => label.label?.['/P'])).toEqual(expect.arrayContaining([
+            'u:front-',
+            'u:chapter-',
+        ]));
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('preserves outlines and page labels through the six-operation fresh-process matrix', async () => {

@@ -59,6 +59,60 @@ function hasNonEmptyPage(catalogPages: ReadonlyArray<{text: string}> | null) {
     return (catalogPages ?? []).some(page => page.text.trim().length > 0);
 }
 
+async function writeDocxChunksThroughSerialTransport(
+    stream: Pick<IDocxExportFileCapability, 'beginDocxFileStream' | 'writeDocxFileStreamChunk' | 'commitDocxFileStream' | 'cancelDocxFileStream'>,
+    outPath: TDocumentRef,
+    chunks: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+) {
+    let sessionId: string | undefined;
+    let cancelPromise: Promise<boolean> | undefined;
+    let beginPromise: Promise<{sessionId: string}> | undefined;
+    let committed = false;
+    const cancelSession = () => {
+        if (!sessionId) {
+            return Promise.resolve(false);
+        }
+        return cancelPromise ??= stream.cancelDocxFileStream(sessionId).catch(() => false);
+    };
+    const handleAbort = () => {
+        if (beginPromise) void beginPromise.then(() => cancelSession(), () => undefined);
+        else void cancelSession();
+    };
+    throwIfAborted(signal);
+    signal?.addEventListener('abort', handleAbort, {once: true});
+    try {
+        beginPromise = stream.beginDocxFileStream(outPath);
+        const beginResult = await beginPromise;
+        if (!beginResult || typeof beginResult.sessionId !== 'string' || beginResult.sessionId.trim().length === 0) {
+            throw new Error('Invalid DOCX stream begin response');
+        }
+        sessionId = beginResult.sessionId;
+        throwIfAborted(signal);
+        let wroteChunk = false;
+        for await (const chunk of chunks) {
+            throwIfAborted(signal);
+            if (await stream.writeDocxFileStreamChunk(sessionId, chunk) !== true) {
+                throw new Error('DOCX stream chunk was not accepted');
+            }
+            wroteChunk = true;
+            throwIfAborted(signal);
+        }
+        throwIfAborted(signal);
+        if (!wroteChunk) throw new Error('DOCX stream requires at least one chunk');
+        if (await stream.commitDocxFileStream(sessionId) !== true) {
+            throw new Error('DOCX stream commit was not accepted');
+        }
+        committed = true;
+        return true;
+    } catch (error) {
+        if (!committed) await cancelSession();
+        throw error;
+    } finally {
+        signal?.removeEventListener('abort', handleAbort);
+    }
+}
+
 export async function exportTextAsDocx(params: {
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
@@ -97,17 +151,22 @@ export async function exportTextAsDocx(params: {
                 && pageCount > 0
                 ? pageCount
                 : undefined;
-            const writeDocxFileChunks = !isBrowserOutput
+            const docxStream = !isBrowserOutput
                 ? (documentFiles as typeof documentFiles & Partial<IDocxExportFileCapability>)
-                    .writeDocxFileChunks
                 : undefined;
+            const canUseSerialDocxStream = Boolean(
+                docxStream?.beginDocxFileStream
+                && docxStream.writeDocxFileStreamChunk
+                && docxStream.commitDocxFileStream
+                && docxStream.cancelDocxFileStream,
+            );
             if (
                 !isBrowserOutput
                 && params.workingCopyPath
                 && params.documentRevisionToken
                 && knownPageCount !== undefined
                 && params.buildDocxChunks
-                && writeDocxFileChunks
+                && canUseSerialDocxStream
             ) {
                 const textPages = params.signal === undefined
                     ? await prepareDocumentTextCatalogTextPages(
@@ -129,12 +188,7 @@ export async function exportTextAsDocx(params: {
                 const docxChunks = params.signal === undefined
                     ? await params.buildDocxChunks(textPages, direction)
                     : await params.buildDocxChunks(textPages, direction, params.signal);
-                if (params.signal === undefined) {
-                    await writeDocxFileChunks(outPath, docxChunks);
-                } else {
-                    await writeDocxFileChunks(outPath, docxChunks, params.signal);
-                }
-                throwIfAborted(params.signal);
+                await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
             } else {
                 const catalogPages = params.workingCopyPath && params.documentRevisionToken
                     ? params.signal === undefined
@@ -160,18 +214,13 @@ export async function exportTextAsDocx(params: {
                 );
 
                 if (!isBrowserOutput) {
-                    if (!params.buildDocxChunks || !writeDocxFileChunks) {
+                    if (!params.buildDocxChunks || !canUseSerialDocxStream) {
                         throw new Error('DOCX streaming output is unavailable on this desktop platform');
                     }
                     const docxChunks = params.signal === undefined
                         ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction)
                         : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction, params.signal);
-                    if (params.signal === undefined) {
-                        await writeDocxFileChunks(outPath, docxChunks);
-                    } else {
-                        await writeDocxFileChunks(outPath, docxChunks, params.signal);
-                    }
-                    throwIfAborted(params.signal);
+                    await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
                 } else {
                     let catalogTextLength = 0;
                     const catalogTextParts: string[] = [];

@@ -9,8 +9,8 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
-    copyFileSync,
     mkdirSync,
+    readFileSync,
     unlinkSync,
 } from 'node:fs';
 import {
@@ -20,6 +20,7 @@ import {
 import {
     createFixturePath,
     createLargeScannedFixturePdf,
+    createScannedTextFixturePdf,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -36,6 +37,7 @@ import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
+import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     findCommittedSurfaceCausalOpenViolations,
     installCommittedSurfaceSampler,
@@ -1232,16 +1234,25 @@ describe('Electron E2E - Recent Files', () => {
         }
 
         const sharedName = 'duplicate-recent-source.pdf';
-        const seedPath = await createLargeScannedFixturePdf(`seed-${sharedName}`, 2, 0);
         const firstPath = createFixturePath(`duplicate-source-a/${sharedName}`);
         const secondPath = createFixturePath(`duplicate-source-b/${sharedName}`);
         mkdirSync(dirname(firstPath), {recursive: true});
         mkdirSync(dirname(secondPath), {recursive: true});
-        copyFileSync(seedPath, firstPath);
-        copyFileSync(seedPath, secondPath);
+        await createScannedTextFixturePdf(`duplicate-source-a/${sharedName}`, 'EVB SOURCE A');
+        await createScannedTextFixturePdf(`duplicate-source-b/${sharedName}`, 'EVB SOURCE B');
+        const secondBeforeSave = readFileSync(secondPath);
 
         await openPdfInApp(session.page, firstPath);
         await waitForPdfLoaded(session.page);
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleRotateCw', [[1]])).resolves.toMatchObject({
+            called: true,
+            value: true,
+        });
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSave')).resolves.toMatchObject({
+            called: true,
+            value: true,
+        });
+        expect(readFileSync(secondPath)).toEqual(secondBeforeSave);
         await openPdfInApp(session.page, secondPath);
         await waitForPdfLoaded(session.page);
         session = await sessionFixture.restart({
@@ -1270,6 +1281,18 @@ describe('Electron E2E - Recent Files', () => {
         await clickRecentFile(session, firstPath);
         await waitForRecentPdfOpen(session, firstPath);
         await waitForActiveDocumentSource(session.page, firstPath);
+        session = await sessionFixture.restart({
+            clean: false,
+            keepNuxt: true,
+        });
+        if (!session) {
+            return;
+        }
+        await waitForStartupOverlayRemoved(session);
+        await waitForRecentFileRow(session, secondPath);
+        await clickRecentFile(session, secondPath);
+        await waitForRecentPdfOpen(session, secondPath);
+        await waitForActiveDocumentSource(session.page, secondPath);
     });
 });
 

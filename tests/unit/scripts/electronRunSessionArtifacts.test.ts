@@ -3,11 +3,13 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
+import {createServer} from 'node:http';
 import {
     afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     clearSessionStarting,
@@ -84,5 +86,70 @@ describe('electron run session artifacts', () => {
         });
 
         clearSessionStarting();
+    });
+
+    it.each([
+        'headers',
+        'body',
+    ])('bounds readiness when the controller stalls during %s', async (stallStage) => {
+        vi.resetModules();
+        vi.doMock('@scripts/electron-run/electronRunProcessIdentity', () => ({
+            findSessionOwnedElectronPids: () => [],
+            inspectProcessIdentity: () => ({
+                pid: 1,
+                platform: process.platform,
+                command: 'fixture-controller',
+                cwd: null,
+                environment: '',
+                descendantPids: [],
+                pidsOnExpectedPort: [],
+            }),
+            killVerifiedSessionProcess: () => false,
+            matchesSessionProcessIdentity: () => true,
+        }));
+        const {isSessionRunning: isFreshSessionRunning} = await import('@scripts/electron-run/electronRunSessionArtifacts');
+        const {
+            sessionDir: freshSessionDir,
+            sessionFilePath: freshSessionFilePath,
+            setCurrentSessionName: setFreshSessionName,
+        } = await import('@scripts/electron-run/electronRunSessionPaths');
+        setFreshSessionName(testSessionName);
+        rmSync(freshSessionDir(), {
+            recursive: true,
+            force: true,
+        });
+        resetTestSession();
+        const server = createServer((_request, response) => {
+            if (stallStage === 'body') {
+                response.writeHead(200, {'content-type': 'application/json'});
+                response.write('{"success":');
+                return;
+            }
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => resolve());
+        });
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+            server.close();
+            throw new Error('readiness fixture did not expose a TCP port');
+        }
+        mkdirSync(freshSessionDir(), {recursive: true});
+        writeFileSync(freshSessionFilePath(), JSON.stringify({
+            port: address.port,
+            pid: 1,
+            cdpPort: 39202,
+            electronPid: null,
+            nuxtPid: null,
+            nuxtPort: 3235,
+        }));
+        const startedAt = Date.now();
+        try {
+            await expect(isFreshSessionRunning(testSessionName, AbortSignal.timeout(50))).resolves.toBe(false);
+            expect(Date.now() - startedAt).toBeLessThan(1000);
+        } finally {
+            await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+        }
     });
 });

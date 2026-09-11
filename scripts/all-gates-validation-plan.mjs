@@ -70,51 +70,12 @@ export function createAllGatesValidationStages({cold = false} = {}) {
             priority: 95,
             weight: 4,
         }),
-        pnpmStage('native.resource-matrix', 'check:resources:matrix', {
-            cacheable: true,
-            // The host native binaries are produced by build.strict. Running
-            // this check beside that build makes a clean checkout fail before
-            // the artifacts exist.
-            dependsOn: ['build.strict'],
-            env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
-            inputScope: 'native',
-            priority: 25,
-        }),
-        pnpmStage('build.strict', 'build:strict', {
-            dependsOn: ['build.prepare'],
-            env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
-            heavyWeight: 2,
-            inputScope: 'build',
-            priority: 96,
-            weight: 2,
-        }),
-        pnpmStage(
-            'electron.bundle-integrity',
-            'test:electron-bundle-static-integrity:no-build',
-            {
-                dependsOn: ['build.strict'],
-                inputScope: 'build',
-                priority: 50,
-            },
-        ),
-        {
-            args: [
-                'scripts/test-electron-e2e-headless.sh',
-                '--no-build',
-                'e2e-blocking-smoke',
-            ],
-            command: 'bash',
-            dependsOn: [
-                'build.strict',
-                'electron.bundle-integrity',
-            ],
-            env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-            heavyWeight: 3,
-            id: 'electron.blocking-smoke',
-            inputScope: 'build',
-            priority: 45,
-            weight: 3,
-        },
+        // build.strict, native.resource-matrix, electron.bundle-integrity and
+        // electron.blocking-smoke are deliberately absent. They are the strict
+        // build and its dependents, and hosted CI proves the same contracts on
+        // the platform releases ship from. Locally they dominated the run,
+        // never once predicted a Linux verdict, and their Electron launches
+        // competed with the developer's own session for the desktop.
     ];
 }
 

@@ -500,7 +500,6 @@ export default defineNuxtConfig({
         'ph:rows',
         'ph:tree-view',
         'ph:crosshair-simple',
-        'ph:chat-circle',
         'ph:chat-circle-text',
         'ph:chat',
         'ph:chat-circle-dots',

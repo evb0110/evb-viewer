@@ -3,6 +3,7 @@ import {
     existsSync,
     statSync,
 } from 'fs';
+import {stat} from 'node:fs/promises';
 import {
     basename,
     dirname,
@@ -40,9 +41,12 @@ import {
     type IWorkingCopyRevisionSidecar,
 } from '@electron/file-access/documentRevisionSidecar';
 import {
+    getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
+    getWorkingCopyOriginalFileExpectation,
     getWorkingCopyRegistrationId,
     normalizePathForLookup,
+    refreshWorkingCopyOriginalFileExpectation,
     workingCopyMap,
 } from '@electron/file-access/workingCopyStore';
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
@@ -119,6 +123,112 @@ function isExistingFile(workingCopyPath: string) {
     } catch {
         return false;
     }
+}
+
+interface ILinkedOriginalExpectationFence {
+    ctimeNs: bigint;
+    deviceId: bigint;
+    inode: bigint;
+    linkCount: bigint;
+    mtimeNs: bigint;
+    originalPath: string;
+    size: bigint;
+    workingCopyPath: string;
+}
+
+async function captureLinkedOriginalExpectationFence(
+    workingCopyPath: string,
+    senderId?: number,
+): Promise<ILinkedOriginalExpectationFence | null> {
+    const entry = getWorkingCopyBackingEntry(workingCopyPath, senderId);
+    const expected = getWorkingCopyOriginalFileExpectation(workingCopyPath, senderId);
+    if (!entry || !expected
+        || expected.ctimeNs === undefined
+        || expected.deviceId === undefined
+        || expected.inode === undefined
+        || expected.mtimeNs === undefined) {
+        return null;
+    }
+
+    try {
+        const [
+            originalStat,
+            workingCopyStat,
+        ] = await Promise.all([
+            stat(entry.originalPath, {bigint: true}),
+            stat(workingCopyPath, {bigint: true}),
+        ]);
+        if (
+            !originalStat.isFile()
+            || !workingCopyStat.isFile()
+            || originalStat.dev !== workingCopyStat.dev
+            || originalStat.ino !== workingCopyStat.ino
+            || originalStat.nlink < 2n
+            || originalStat.ctimeNs.toString() !== expected.ctimeNs
+            || originalStat.dev.toString() !== expected.deviceId
+            || originalStat.ino.toString() !== expected.inode
+            || originalStat.mtimeNs.toString() !== expected.mtimeNs
+            || originalStat.size !== BigInt(expected.size)
+        ) {
+            return null;
+        }
+        return {
+            ctimeNs: originalStat.ctimeNs,
+            deviceId: originalStat.dev,
+            inode: originalStat.ino,
+            linkCount: originalStat.nlink,
+            mtimeNs: originalStat.mtimeNs,
+            originalPath: entry.originalPath,
+            size: originalStat.size,
+            workingCopyPath,
+        };
+    } catch {
+        return null;
+    }
+}
+
+async function refreshOriginalExpectationAfterManagedLinkedDetach(
+    fence: ILinkedOriginalExpectationFence,
+    senderId?: number,
+) {
+    const entry = getWorkingCopyBackingEntry(fence.workingCopyPath, senderId);
+    if (!entry || entry.originalPath !== fence.originalPath) {
+        return;
+    }
+
+    try {
+        const [
+            originalStat,
+            workingCopyStat,
+        ] = await Promise.all([
+            stat(fence.originalPath, {bigint: true}),
+            stat(fence.workingCopyPath, {bigint: true}),
+        ]);
+        const workingCopyStillUsesOriginal = (
+            workingCopyStat.dev === fence.deviceId
+            && workingCopyStat.ino === fence.inode
+        );
+        if (
+            !originalStat.isFile()
+            || !workingCopyStat.isFile()
+            || originalStat.dev !== fence.deviceId
+            || originalStat.ino !== fence.inode
+            || originalStat.ctimeNs === fence.ctimeNs
+            || originalStat.mtimeNs !== fence.mtimeNs
+            || originalStat.size !== fence.size
+            || originalStat.nlink !== fence.linkCount - 1n
+            || workingCopyStillUsesOriginal
+        ) {
+            return;
+        }
+    } catch {
+        return;
+    }
+
+    // A page/content transition owns the working-copy replacement. Refreshing
+    // only after the source hard link was proven to detach preserves the save
+    // fence for edits made outside this transition.
+    await refreshWorkingCopyOriginalFileExpectation(fence.workingCopyPath, senderId);
 }
 
 async function rebasePageIdentityAfterContentCommit(
@@ -406,6 +516,10 @@ async function runWorkingCopyContentRevisionTransition(
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
     await measureRevisionTransitionPhase('revision-await-existing-durability', onPhase, () =>
         awaitWorkingCopyRevisionDurability(normalizedWorkingPath));
+    const linkedOriginalExpectationFence = await captureLinkedOriginalExpectationFence(
+        normalizedWorkingPath,
+        senderId,
+    );
 
     const previous = await measureRevisionTransitionPhase('revision-read-previous', onPhase, () =>
         readWorkingCopyRevisionSidecar(normalizedWorkingPath));
@@ -441,6 +555,12 @@ async function runWorkingCopyContentRevisionTransition(
             completeWorkingCopyContentTransition(contentJournal));
     } catch (error) {
         log.debug(`Failed to clean committed content transition journal: ${getErrorMessage(error)}`);
+    }
+    if (linkedOriginalExpectationFence) {
+        await refreshOriginalExpectationAfterManagedLinkedDetach(
+            linkedOriginalExpectationFence,
+            senderId,
+        );
     }
 
     const event: IDocumentRevisionChangedEvent = {

@@ -33,7 +33,8 @@ describe('ipcAssertions', () => {
     });
 
     it('asserts required and optional absolute paths', () => {
-        expect(assertAbsolutePath(' /tmp/file.pdf ', 'path')).toBe('/tmp/file.pdf');
+        expect(assertAbsolutePath('/tmp/file.pdf', 'path')).toBe('/tmp/file.pdf');
+        expect(() => assertAbsolutePath(' /tmp/file.pdf ', 'path')).toThrowError('path must be an absolute path');
         expect(assertOptionalAbsolutePath('   ', 'path')).toBeUndefined();
         expect(assertOptionalAbsolutePath(undefined, 'path')).toBeUndefined();
         expect(assertOptionalAbsolutePath(' C:\\temp\\file.pdf ', 'path')).toBe('C:\\temp\\file.pdf');
