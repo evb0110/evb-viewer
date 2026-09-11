@@ -189,6 +189,31 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: bundled OCR model integrity and paths
+
+This slot started from `07530a552`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #437
+through the bundled-model, resource-base, OCR-path, and worker-path owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrLanguageModels.test.ts \
+  tests/unit/electron/ocrResourceBase.test.ts \
+  tests/unit/electron/ocrPaths.test.ts \
+  tests/unit/electron/ocrWorkerPaths.test.ts --reporter=dot
+
+4 files passed, 31 tests passed
+```
+
+The run covered concurrent model seeding, missing-model restoration, staged
+copy retry, traineddata validation, incremental checksum verification and
+abort fencing, packaged/source resource resolution, tool availability checks,
+and required versus optional worker paths. A packaged install repair followed
+by a fresh process reopen remains coordinator-owned evidence. No new model,
+fixture, screenshot, or telemetry artifact was generated. Test-owned model
+directories and temporary state were cleaned by the suites, and the worktree
+is clean.
+
 ## Follow-up slot: raster batch publication and retention
 
 This slot started from `ac338329a`, the current
