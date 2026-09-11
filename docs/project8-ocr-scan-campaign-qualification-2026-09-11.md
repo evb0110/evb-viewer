@@ -332,6 +332,31 @@ fixture, settings file, screenshot, or telemetry artifact was generated.
 Test-owned temporary directories were cleaned by the existing suites, and the
 worktree remains clean.
 
+## Follow-up slot: OCR worker and native-child shutdown
+
+This slot started from `cd04be264`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #402
+through the OCR worker lifecycle, abort, and process-tree owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrJobWorkerLifecycle.test.ts \
+  tests/unit/electron/ocrRunOcrAbortWindow.test.ts \
+  tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts \
+  tests/unit/electron/utils/processExit.test.ts \
+  tests/unit/electron/utils/processTree.test.ts --reporter=dot
+
+5 files passed, 16 tests passed
+```
+
+The run covered abort races, delayed native-child cleanup, child identity
+fencing, exactly-once release, process-tree termination, and unproven
+termination reporting. A real packaged worker shutdown and cross-platform
+native process run remain coordinator-owned evidence. No new fixture,
+screenshot, or telemetry artifact was generated. Temporary child processes
+and test-owned state were cleaned by the existing suites, and the worktree
+remains clean.
+
 ## Follow-up slot: recovery adoption and hydration fallback
 
 This slot started from `3486f2fbd`, the current
