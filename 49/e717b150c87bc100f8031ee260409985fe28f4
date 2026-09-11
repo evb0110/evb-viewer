@@ -1,0 +1,21 @@
+docs/project8-quality-legacy-release-audit-2026-09-11.md
+  s_caaca00913ff0c::t_8fdd46c9b61129 1-81
+docs/project8-locale-equality-review-2026-09-11.md
+  s_caaca00913ff0c::t_8fdd46c9b61129 1-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "49e717b150c87bc100f8031ee260409985fe28f4",
+  "prompts": {},
+  "sessions": {
+    "s_caaca00913ff0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-a40b-7e32-8762-b32ad720b12c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
