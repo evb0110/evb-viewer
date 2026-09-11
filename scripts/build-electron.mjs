@@ -178,7 +178,6 @@ const canvasTargetPackageJson = join(dirname(canvasPackageRoot), canvasTargetPac
 const stagedCanvasRoot = 'dist-electron/runtime/@napi-rs/canvas';
 await cp(canvasPackageRoot, stagedCanvasRoot, {recursive: true});
 await rm(join(stagedCanvasRoot, 'README.md'), {force: true});
-await rm(join(stagedCanvasRoot, 'LICENSE'), {force: true});
 await rm(join(stagedCanvasRoot, 'index.d.ts'), {force: true});
 await rm(join(stagedCanvasRoot, 'node-canvas.d.ts'), {force: true});
 await cp(
@@ -188,7 +187,7 @@ await cp(
 
 function resolveCanvasTargetPackage() {
     const platform = process.platform;
-    const architecture = process.arch;
+    const architecture = process.env.EVB_RELEASE_TARGET_ARCH?.trim() || process.arch;
     if (platform === 'darwin' && architecture === 'arm64') {
         return 'canvas-darwin-arm64';
     }
