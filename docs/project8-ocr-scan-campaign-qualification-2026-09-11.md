@@ -211,3 +211,30 @@ races before and after replacement. A real packaged DOCX export on macOS and
 Windows remains coordinator-owned platform evidence. No new fixture, DOCX,
 screenshot, or telemetry artifact was generated. Temporary test paths were
 cleaned up by the existing suites.
+
+## Follow-up slot: OCR resource preservation and replacement
+
+This slot started from `892cdf248`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #425
+and #426 through the PDF assembler, classifier, streaming assembler, and index
+owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrPdfAssembler.test.ts \
+  tests/unit/electron/ocrStreamingPdfAssembler.test.ts \
+  tests/unit/electron/ocrPageTextClassifier.test.ts \
+  tests/unit/electron/ocrIndexWriterSidecar.test.ts \
+  tests/unit/electron/ocrIndexWriterPath.test.ts \
+  tests/unit/electron/ocrMixedDocumentCorpus.test.ts --reporter=dot
+
+6 files passed, 49 tests passed
+```
+
+The run covered foreign hidden-text classification, replacement without old
+words, visible-content preservation, escaped resource names, nested and
+streaming resource reachability, and partial index preservation. Packaged OCR
+replacement with an independently rendered real-world PDF remains
+coordinator-owned evidence. No new fixture, PDF, screenshot, or telemetry
+artifact was generated. Temporary test paths were cleaned up by the existing
+suites.
