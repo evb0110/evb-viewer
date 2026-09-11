@@ -466,11 +466,28 @@ export const usePdfTextLayerRenderer = (deps: {
         mountedPageNumber: number,
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
+        currentMatchPresentationReady: boolean,
     ) {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
         const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
         if (!textLayerDiv) {
             pageHighlightState.signatureByPage.delete(mountedPageNumber);
+            return;
+        }
+
+        // A search navigation changes the current mark before the target page's
+        // text layer has committed. Keep the outgoing current mark until the
+        // target can paint its replacement. Clearing it here exposes a stale
+        // page with no visible match during the real compositor handoff.
+        const targetPageNumber = currentMatchValue
+            ? currentMatchValue.pageIndex + 1
+            : null;
+        if (
+            !currentMatchPresentationReady
+            && targetPageNumber !== null
+            && mountedPageNumber !== targetPageNumber
+            && container.querySelector('.pdf-search-highlight--current')
+        ) {
             return;
         }
 
@@ -550,6 +567,13 @@ export const usePdfTextLayerRenderer = (deps: {
             const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
             const searchMatchesValue = toValue(deps.searchPageMatches);
             const currentMatchValue = toValue(deps.currentSearchMatch);
+            const currentMatchPresentationReady = currentMatchValue === null
+                || Array.from(root.querySelectorAll<HTMLElement>('.page_container')).some(pageContainer => {
+                    if (pageContainer.dataset.page !== String(currentMatchValue.pageIndex + 1)) {
+                        return false;
+                    }
+                    return pageContainer.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true';
+                });
             let nextIndex = 0;
 
             const processSlice = () => {
@@ -580,6 +604,7 @@ export const usePdfTextLayerRenderer = (deps: {
                             mountedPageNumber,
                             pageMatchData,
                             currentMatchValue,
+                            currentMatchPresentationReady,
                         );
 
                         if (shouldPauseHighlightRefreshSlice(processedPages, sliceStartedAt)) {

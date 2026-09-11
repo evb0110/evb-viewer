@@ -585,6 +585,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             await Promise.all(waits);
         }
         await promotePrioritizedTextLayers(pageRenderer, targetPages, renderOptions);
+        // The committed canvas is mounted synchronously, but the page
+        // container's rendered class controls its visibility through Vue.
+        // Do not release navigation readiness until that projection has
+        // reached the DOM, otherwise scroll can expose the hidden canvas for
+        // one compositor frame.
+        await nextTick();
     }
     const pageRenderer = usePdfPageRenderer({
         container: options.viewerContainer,
@@ -604,6 +610,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
             pageTextLayerReadyWaiter.resolveReady();
+            // Reconcile search marks when a target text layer commits. The
+            // renderer preserves the outgoing current mark while this target
+            // is still hydrating, then clears it in the same refresh that paints
+            // the target mark.
+            pageRenderer?.applySearchHighlights();
             queueFrame();
         },
         pageRenderState,
