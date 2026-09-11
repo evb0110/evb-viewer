@@ -1,6 +1,9 @@
+import type {StorageLike} from '@vueuse/core';
+
 interface IStorageLike {
     getItem?: (key: string) => string | null;
     setItem?: (key: string, value: string) => void;
+    removeItem?: (key: string) => void;
 }
 
 export type TLocalStorageReadResult =
@@ -73,3 +76,31 @@ export function safeSetLocalStorageItem(key: string, value: string) {
         return false;
     }
 }
+
+export function safeRemoveLocalStorageItem(key: string) {
+    const storage = getLocalStorageSafe();
+    if (!storage || typeof storage.removeItem !== 'function') {
+        return false;
+    }
+
+    try {
+        storage.removeItem(key);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * VueUse storage adapter for optional browser preferences. Each operation
+ * resolves the storage lazily so a denied browser getter cannot break setup.
+ */
+export const safeLocalStorage: StorageLike = {
+    getItem: (key: string) => safeGetLocalStorageItem(key),
+    setItem: (key: string, value: string) => {
+        safeSetLocalStorageItem(key, value);
+    },
+    removeItem: (key: string) => {
+        safeRemoveLocalStorageItem(key);
+    },
+};

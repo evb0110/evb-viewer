@@ -290,10 +290,10 @@ export default defineNuxtConfig({
 
     colorMode: {
         preference: 'light',
-        // The settings capability owns the hardened SSR bootstrap cookie.
-        // Cookie storage keeps the Nuxt bootstrap safe when a browser policy
-        // denies the localStorage getter before application code hydrates.
-        storage: 'cookie',
+        // The settings capability owns the durable, hardened theme cookie.
+        // Session storage keeps Nuxt's bootstrap off that cookie and avoids
+        // the localStorage getter before application code hydrates.
+        storage: 'sessionStorage',
         disableTransition: true,
     },
 
