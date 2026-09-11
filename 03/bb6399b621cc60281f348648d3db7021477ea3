@@ -1,0 +1,19 @@
+tests/unit/scripts/cutRelease.test.ts
+  s_3d279d029e00e2::t_f2b3cee7049dca 455,461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "03bb6399b621cc60281f348648d3db7021477ea3",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
