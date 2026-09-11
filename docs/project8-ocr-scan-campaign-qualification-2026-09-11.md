@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: OCR cancellation ownership
+
+This slot started from `213689808`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #439
+and #440 through the OCR job-manager and native-runner cancellation owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrJobManager.test.ts \
+  tests/unit/electron/ocrRunOcrAbortWindow.test.ts \
+  tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts --reporter=dot
+
+3 files passed, 32 tests passed
+```
+
+The run covered queue and preparing-job cancellation, worker termination
+fencing, stale progress suppression, terminal completion behavior, resource
+release during active cancellation, delivered-result retention, shutdown
+request IDs, and native-runner abort windows. Packaged cross-platform worker
+termination remains coordinator-owned evidence. No new OCR result, fixture,
+screenshot, or telemetry artifact was generated. Test-owned workers and
+temporary state were cleaned by the suites, and the worktree is clean.
+
 ## Follow-up slot: document-scoped OCR recovery and resume
 
 This slot started from `36a46412a`, the current
