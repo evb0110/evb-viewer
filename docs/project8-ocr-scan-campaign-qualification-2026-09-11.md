@@ -163,3 +163,28 @@ payloads, service admission, preview calibration, and persisted placement
 anchors. The exact 138,000-page memory, restart, and exported-PDF readback
 acceptance remains open for the coordinator's fixture-backed Electron lane.
 No new fixture, PDF, screenshot, or telemetry artifact was generated here.
+
+## Follow-up slot: DjVu export publication
+
+This slot started from `dd447a69b`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered the
+write-before-replace and failed-batch cleanup paths owned by #431 and #442:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/djvuPdfExport.test.ts \
+  tests/unit/electron/djvuImageExportLimits.test.ts \
+  tests/unit/electron/djvuArtifactManifest.test.ts \
+  tests/unit/electron/djvuConversion.test.ts \
+  tests/unit/electron/djvuBuildOptimizedPdfNative.test.ts \
+  tests/unit/electron/djvuIpcHandlers.test.ts --reporter=dot
+
+6 files passed, 100 tests passed
+```
+
+The run covered atomic destination replacement, partial-write completion,
+rollback after failed PNG batches, artifact manifest cleanup, cancellation, and
+IPC lifecycle handling. The real multi-page DjVu fixture export and headed
+viewer readback remain coordinator-owned platform evidence. No new fixture,
+PDF, screenshot, or telemetry artifact was generated. Temporary test paths
+were test-owned and cleaned up by the existing suites.
