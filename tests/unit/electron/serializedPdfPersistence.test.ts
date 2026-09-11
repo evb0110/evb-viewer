@@ -1087,7 +1087,7 @@ describe('serializedPdfPersistence', () => {
                 ],
             );
             const firstPortClosed = attachSerializedPdfPersistencePort(createPortEvent(sender, port1), firstBeginResult.sessionId);
-            attachSerializedPdfPersistencePort(createPortEvent(sender, port2), secondBeginResult.sessionId);
+            const secondPortClosed = attachSerializedPdfPersistencePort(createPortEvent(sender, port2), secondBeginResult.sessionId);
 
             const progressTimeoutMs = firstBeginResult.progressTimeoutMs!;
             vi.advanceTimersByTime(progressTimeoutMs - 2_000);
@@ -1102,9 +1102,9 @@ describe('serializedPdfPersistence', () => {
             });
 
             vi.advanceTimersByTime(2_001);
-            await waitForCondition(() => {
-                expect(existsSync(secondTempPath)).toBe(false);
-            });
+            port2.close();
+            await secondPortClosed;
+            expect(existsSync(secondTempPath)).toBe(false);
             expect(existsSync(firstTempPath)).toBe(true);
 
             port1.close();
@@ -1370,7 +1370,7 @@ describe('serializedPdfPersistence', () => {
             undefined,
             SERIALIZED_TEST_REVISION_OPTIONS,
         );
-        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        const portClosed = attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
         expect(() => attachSerializedPdfPersistencePort({
             sender,
@@ -1378,9 +1378,8 @@ describe('serializedPdfPersistence', () => {
         } as never, beginResult.sessionId)).toThrow('PDF persistence MessagePort is already attached');
 
         port.close();
-        await waitForCondition(() => {
-            expect(existsSync(tempPath)).toBe(false);
-        });
+        await portClosed;
+        expect(existsSync(tempPath)).toBe(false);
     });
 
     it('rejects serialized PDF chunks larger than the protocol chunk budget', async () => {

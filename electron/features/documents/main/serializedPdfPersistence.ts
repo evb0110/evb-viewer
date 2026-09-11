@@ -926,7 +926,9 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
             void cleanupSession(session).then(resolvePortClosed, resolvePortClosed);
             return;
         }
-        resolvePortClosed();
+        // A session that timed out or failed is already being cleaned up; the
+        // port counts as closed once that cleanup has removed its temp file.
+        void (session.cleanupPromise ?? Promise.resolve()).then(resolvePortClosed, resolvePortClosed);
     });
     port.start();
     refreshSessionTimeout(session, 'progress');
