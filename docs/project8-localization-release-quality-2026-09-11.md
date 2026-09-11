@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `ad2ea1439` (`origin/project8/integration`)
+Source under review: `876be7914` (`origin/project8/integration`)
 
 Tickets: [#547](https://github.com/evb0110/evb-viewer/issues/547),
 [#548](https://github.com/evb0110/evb-viewer/issues/548), and
@@ -16,6 +16,12 @@ implementation. The current English-equality inventory was regenerated from
 `packages/i18n-app/messages/en.ts` and compared with `nl.ts`, `pt.ts`,
 `ptBr.ts`, and `ru.ts`. Plural objects count as one leaf. Equality is a review
 signal, not a translation failure.
+
+The integration tip moved from `ad2ea1439` to `876be7914` during this campaign.
+Its intervening commits change native, OCR scrolling, and annotation tests only;
+the reserved catalog and quality-document paths are unchanged. The inventory
+and checks below therefore requalify the current integration inputs without
+claiming acceptance for those other lanes.
 
 Every current equal leaf is listed below. `shared` means the same short word is
 valid in the target language. `technical` means a product name, format,
@@ -64,7 +70,7 @@ runtime code, moving files, or adding a suppression.
 
 ## Checks
 
-Existing checks passed on `ad2ea1439`:
+Existing checks passed against the unchanged reserved inputs at `876be7914`:
 
 ```text
 pnpm install --frozen-lockfile --ignore-scripts
