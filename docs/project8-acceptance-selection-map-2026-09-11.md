@@ -28,7 +28,7 @@ was available here, not that the project is green.
 | `e2e-blocking-smoke` | `pnpm run test:e2e:electron:blocking-smoke:headless` | Changed app/Electron push gate | Unknown |
 | `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | Unknown |
 | `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | Unknown |
-| `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | Unknown |
+| `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
 | `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Unknown |
 | `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Unknown |
 | `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | Unknown |
@@ -91,3 +91,21 @@ journey. Both scenarios passed. The native build gate also passed.
 This is local Linux Electron evidence. The package script has no automatic CI
 invocation in the current map, and hosted exact-SHA status, platform-specific
 acceptance, and any supplied production PDF replay remain external gaps.
+
+## Rapid-navigation acceptance run
+
+The next feasible browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:rapid-navigation
+2 test files passed, 17 tests passed
+Duration: 284.04s
+```
+
+The run built Electron and passed the deep page-jump, rapid wheel and keyboard
+navigation, fit-mode continuity, invalid-open recovery, and overlay-preservation
+journeys. Both the generated page-jump fixture and the standard 1,200-page
+fixture completed under the existing headless Electron harness.
+
+This is local Linux Electron evidence. Hosted exact-SHA status, Windows and
+macOS acceptance, and any production-artifact replay remain external gaps.
