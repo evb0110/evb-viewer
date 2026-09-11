@@ -1,0 +1,48 @@
+tests/unit/app/modules/workspace-shell/components/sidebarOpenLayoutStability.test.ts
+  s_e40316ce2751c9::t_948b6e05994915 15,24,31-32,42,47-55,62-72,104-159
+  s_e40316ce2751c9::t_0ec937ff541cae 56-61
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerResizeLifecycle.test.ts
+  s_e40316ce2751c9::t_028edbe97ebba4 745
+  s_e40316ce2751c9::t_70d6b563b096e6 625,657-659,670,708,794,810-811
+  s_e40316ce2751c9::t_02ebe3d06a5509 43,70,695-707,709-744,746-748
+tests/unit/app/composables/useToolbarOverflow.test.ts
+  s_e40316ce2751c9::t_1fd235bc38c804 131,142-152,326-367,380
+  s_e40316ce2751c9::t_c77e5f71ca5dc8 119-129,309
+  s_e40316ce2751c9::t_a836f13a02ab40 24,130,132,275,315-325,368-379
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_e40316ce2751c9::t_e008819624de63 100,104-105,114,116,190,707-708,733-742
+  s_e40316ce2751c9::t_c2961162d928df 743
+tests/unit/app/modules/workspace-shell/composables/useSidebarResize.test.ts
+  s_e40316ce2751c9::t_948b6e05994915 153,163-167
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_e40316ce2751c9::t_71e564e6c708f8 4,13,55-56,59,65-69,75-146,229,237,245
+app/modules/workspace-shell/composables/useSidebarResize.ts
+  s_e40316ce2751c9::t_552264f0f06b1f 33-37,174-175
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_e40316ce2751c9::t_f73d68e862b68c 517-524
+  s_e40316ce2751c9::t_3d10c61a4a5e59 643-663
+app/modules/workspace-shell/composables/useWorkspaceSearchSidebar.ts
+  s_e40316ce2751c9::t_552264f0f06b1f 81-82,120-121
+app/composables/useToolbarOverflow.ts
+  s_e40316ce2751c9::t_53757133ea35cd 37-39,63-80,90-104,106-109,159-166,169-170,174-178,180-184,186-188,190-195,197-198,284-287,289-290,294-296,299,303-306
+  s_e40316ce2751c9::t_c534c77a02fbbe 105
+  s_e40316ce2751c9::t_16862bee47ba2f 185
+  s_e40316ce2751c9::t_f67a003084a4b2 189
+  s_e40316ce2751c9::t_a45dc303659be6 3,13-17,339-340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9461fda75788d61b0c18bea3d4763403990a357e",
+  "prompts": {},
+  "sessions": {
+    "s_e40316ce2751c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a1ff0c0-b9df-4b68-820b-80f71519f351",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
