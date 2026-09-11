@@ -1,0 +1,19 @@
+docs/project8-acceptance-selection-map-2026-09-11.md
+  s_eaa3470b82e9cd::t_9bb289cf6d8542 28,112-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "026d6b8205c955081c9906022bad13f3f0dd71bf",
+  "prompts": {},
+  "sessions": {
+    "s_eaa3470b82e9cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09187-65f3-7543-8cb3-18e04f7e8db5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
