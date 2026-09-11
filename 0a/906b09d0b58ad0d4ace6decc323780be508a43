@@ -1,0 +1,29 @@
+tests/unit/scripts/electronRunClient.test.ts
+  s_456e84a0f861a6::t_e3414abd14755e 1,71-121
+tests/unit/scripts/electronRunSessionArtifacts.test.ts
+  s_456e84a0f861a6::t_e3414abd14755e 6,12,90-153
+tests/unit/scripts/worktreesPrune.test.ts
+  s_456e84a0f861a6::t_e3414abd14755e 72,159-165
+scripts/worktrees-prune.mjs
+  s_456e84a0f861a6::t_e3414abd14755e 89-90,483
+docs/agents/workspace-hygiene.md
+  s_456e84a0f861a6::t_e3414abd14755e 32-34
+tests/unit/scripts/checkBuildWarnings.test.ts
+  s_456e84a0f861a6::t_e3414abd14755e 119-128,184-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0a906b09d0b58ad0d4ace6decc323780be508a43",
+  "prompts": {},
+  "sessions": {
+    "s_456e84a0f861a6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d84-6683-71d1-8a23-195d39eacbaa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
