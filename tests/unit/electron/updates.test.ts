@@ -792,7 +792,7 @@ describe('updates robustness', () => {
     it('does not let a timed-out feed probe or its late response replace a later check result', async () => {
         const lateProbe = Promise.withResolvers<ReturnType<typeof createEmptyResponse>>();
         let feedProbeCalls = 0;
-        let firstFeedSignal: AbortSignal | null = null;
+        let firstFeedSignal = null as AbortSignal | null;
         let firstFeedAborted = false;
         const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((delayMs: number) => {
             const controller = new AbortController();

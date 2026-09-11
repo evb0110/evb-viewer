@@ -2,7 +2,11 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TTranslateFn } from '@i18n-app';
-import type { IDocxExportFileCapability } from '@contracts/docxExport';
+import type {
+    IDocxExportFileCapability,
+    IDocxExportStreamBeginResult,
+} from '@contracts/docxExport';
+import type { TSessionId } from '@contracts/shared';
 import {
     resolveDocxParagraphDirection,
     type TDocxParagraphDirection,
@@ -59,15 +63,24 @@ function hasNonEmptyPage(catalogPages: ReadonlyArray<{text: string}> | null) {
     return (catalogPages ?? []).some(page => page.text.trim().length > 0);
 }
 
+function hasSerialDocxStream<T extends object>(files: T): files is T & IDocxExportFileCapability {
+    return [
+        'beginDocxFileStream',
+        'writeDocxFileStreamChunk',
+        'commitDocxFileStream',
+        'cancelDocxFileStream',
+    ].every(name => typeof Reflect.get(files, name) === 'function');
+}
+
 async function writeDocxChunksThroughSerialTransport(
     stream: Pick<IDocxExportFileCapability, 'beginDocxFileStream' | 'writeDocxFileStreamChunk' | 'commitDocxFileStream' | 'cancelDocxFileStream'>,
     outPath: TDocumentRef,
     chunks: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
 ) {
-    let sessionId: string | undefined;
+    let sessionId: TSessionId | undefined;
     let cancelPromise: Promise<boolean> | undefined;
-    let beginPromise: Promise<{sessionId: string}> | undefined;
+    let beginPromise: Promise<IDocxExportStreamBeginResult> | undefined;
     let committed = false;
     const cancelSession = () => {
         if (!sessionId) {
@@ -151,15 +164,10 @@ export async function exportTextAsDocx(params: {
                 && pageCount > 0
                 ? pageCount
                 : undefined;
-            const docxStream = !isBrowserOutput
-                ? (documentFiles as typeof documentFiles & Partial<IDocxExportFileCapability>)
+            const docxStream = !isBrowserOutput && hasSerialDocxStream(documentFiles)
+                ? documentFiles
                 : undefined;
-            const canUseSerialDocxStream = Boolean(
-                docxStream?.beginDocxFileStream
-                && docxStream.writeDocxFileStreamChunk
-                && docxStream.commitDocxFileStream
-                && docxStream.cancelDocxFileStream,
-            );
+            const canUseSerialDocxStream = docxStream !== undefined;
             if (
                 !isBrowserOutput
                 && params.workingCopyPath
@@ -188,7 +196,7 @@ export async function exportTextAsDocx(params: {
                 const docxChunks = params.signal === undefined
                     ? await params.buildDocxChunks(textPages, direction)
                     : await params.buildDocxChunks(textPages, direction, params.signal);
-                await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
+                await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
             } else {
                 const catalogPages = params.workingCopyPath && params.documentRevisionToken
                     ? params.signal === undefined
@@ -220,7 +228,7 @@ export async function exportTextAsDocx(params: {
                     const docxChunks = params.signal === undefined
                         ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction)
                         : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction, params.signal);
-                    await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
+                    await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
                 } else {
                     let catalogTextLength = 0;
                     const catalogTextParts: string[] = [];

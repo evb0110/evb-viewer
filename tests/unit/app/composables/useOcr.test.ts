@@ -952,10 +952,7 @@ describe('useOcr', () => {
             text: 'pdf text',
             source: 'pdf-native',
         }]);
-        mockDocuments.writeDocxFileStreamChunk.mockImplementationOnce(async (
-            _session,
-            _chunks,
-        ) => {
+        mockDocuments.writeDocxFileStreamChunk.mockImplementationOnce(async () => {
             writeStarted.resolve(true);
             await writeRelease.promise;
             return true;
