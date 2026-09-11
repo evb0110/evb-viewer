@@ -1,0 +1,21 @@
+tests/unit/electron/processDeathRecovery.test.ts
+  s_ee46735e87d8ec::t_6eaa3070a0589f 253-269
+electron/processDeathRecovery.ts
+  s_ee46735e87d8ec::t_6eaa3070a0589f 21,78,81,83-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "28c9791c6e5bfcd9e3235f4e56c25e618ab882d3",
+  "prompts": {},
+  "sessions": {
+    "s_ee46735e87d8ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d74-8061-7522-8389-f177f5631442",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
