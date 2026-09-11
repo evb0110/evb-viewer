@@ -45,7 +45,10 @@ const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<Ar
 const documentFilesMock = vi.hoisted(() => ({
     saveDocxAs: vi.fn(async () => '/tmp/export.docx'),
     writeDocxFile: vi.fn(async () => {}),
-    writeDocxFileChunks: vi.fn<IDocxExportFileCapability['writeDocxFileChunks']>(async () => true),
+    beginDocxFileStream: vi.fn<IDocxExportFileCapability['beginDocxFileStream']>(async () => ({sessionId: 'docx-session'})),
+    writeDocxFileStreamChunk: vi.fn<IDocxExportFileCapability['writeDocxFileStreamChunk']>(async () => true),
+    commitDocxFileStream: vi.fn<IDocxExportFileCapability['commitDocxFileStream']>(async () => true),
+    cancelDocxFileStream: vi.fn<IDocxExportFileCapability['cancelDocxFileStream']>(async () => true),
 }));
 const documentWorkingCopyMock = vi.hoisted(() => ({cleanupFile: vi.fn(async () => {})}));
 const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
@@ -82,6 +85,17 @@ vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
 beforeEach(() => {
     vi.clearAllMocks();
+    loadDocumentTextCatalogPagesMock.mockImplementation(async () => null);
+    createDocxFromTextChunksMock.mockImplementation(() => (async function* () {
+        yield new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+    })());
+    documentFilesMock.writeDocxFileStreamChunk.mockImplementation(async () => true);
+    documentFilesMock.commitDocxFileStream.mockImplementation(async () => true);
+    documentFilesMock.cancelDocxFileStream.mockImplementation(async () => true);
 });
 
 describe('useDocxExport', () => {
@@ -129,11 +143,9 @@ describe('useDocxExport', () => {
         expect((direction as ((text: string) => boolean))('אבג 123')).toBe(true);
         expect((direction as ((text: string) => boolean))('Latin 123')).toBe(false);
         expect(documentFilesMock.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
-        expect(documentFilesMock.writeDocxFileChunks).toHaveBeenCalledWith(
-            '/tmp/export.docx',
-            expect.anything(),
-            expect.any(AbortSignal),
-        );
+        expect(documentFilesMock.beginDocxFileStream).toHaveBeenCalledWith('/tmp/export.docx');
+        expect(documentFilesMock.writeDocxFileStreamChunk).toHaveBeenCalled();
+        expect(documentFilesMock.commitDocxFileStream).toHaveBeenCalledWith('docx-session');
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -156,11 +168,9 @@ describe('useDocxExport', () => {
         } = await vi.importActual<IActualDocxStreamingModule>('@app/utils/docxStreaming');
         const chunks: Uint8Array[] = [];
         createDocxFromTextChunksMock.mockImplementationOnce(actualCreateDocxFromTextChunks);
-        documentFilesMock.writeDocxFileChunks.mockImplementationOnce(async (_path, stream) => {
-            for await (const chunk of stream) {
-                expect(chunk.byteLength).toBeLessThanOrEqual(DOCX_STREAM_CHUNK_BYTES);
-                chunks.push(chunk);
-            }
+        documentFilesMock.writeDocxFileStreamChunk.mockImplementation(async (_session, chunk) => {
+            expect(chunk.byteLength).toBeLessThanOrEqual(DOCX_STREAM_CHUNK_BYTES);
+            chunks.push(chunk);
             return true;
         });
         loadDocumentTextCatalogPagesMock.mockResolvedValueOnce(
@@ -181,7 +191,41 @@ describe('useDocxExport', () => {
         expect(result).toBe(true);
         expect(chunks.length).toBeGreaterThan(4);
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
-        expect(documentFilesMock.writeDocxFileChunks).toHaveBeenCalledOnce();
+        expect(documentFilesMock.beginDocxFileStream).toHaveBeenCalledOnce();
+    });
+
+    it('cancels and reports a rejected chunk acknowledgement', async () => {
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
+            pageNumber: 1,
+            text: 'catalog text',
+        }]);
+        documentFilesMock.writeDocxFileStreamChunk.mockResolvedValueOnce(false);
+        const { useDocxExport } = await import('@app/composables/useDocxExport');
+        const result = await useDocxExport().exportDocx({
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
+            pdfDocument: {} as IPdfDocument,
+        });
+        expect(result).toBe(false);
+        expect(documentFilesMock.cancelDocxFileStream).toHaveBeenCalledWith('docx-session');
+        expect(documentFilesMock.commitDocxFileStream).not.toHaveBeenCalled();
+    });
+
+    it('does not commit an empty DOCX stream', async () => {
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
+            pageNumber: 1,
+            text: 'catalog text',
+        }]);
+        createDocxFromTextChunksMock.mockImplementationOnce(async function* () {});
+        const { useDocxExport } = await import('@app/composables/useDocxExport');
+        const result = await useDocxExport().exportDocx({
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
+            pdfDocument: {} as IPdfDocument,
+        });
+        expect(result).toBe(false);
+        expect(documentFilesMock.cancelDocxFileStream).toHaveBeenCalledWith('docx-session');
+        expect(documentFilesMock.commitDocxFileStream).not.toHaveBeenCalled();
     });
 
     it('does not cleanup filesystem output paths when no DOCX text is available', async () => {
@@ -200,7 +244,7 @@ describe('useDocxExport', () => {
         expect(result).toBe(false);
         expect(exportState.docxExportError.value).toBe('errors.ocr.noText');
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
-        expect(documentFilesMock.writeDocxFileChunks).not.toHaveBeenCalled();
+        expect(documentFilesMock.writeDocxFileStreamChunk).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).not.toHaveBeenCalled();
     });
@@ -220,7 +264,7 @@ describe('useDocxExport', () => {
 
         expect(result).toBe(false);
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
-        expect(documentFilesMock.writeDocxFileChunks).not.toHaveBeenCalled();
+        expect(documentFilesMock.beginDocxFileStream).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).toHaveBeenCalledWith('browser://documents/output/empty.docx');
     });
 
@@ -252,14 +296,13 @@ describe('useDocxExport', () => {
             pageNumber: 1,
             text: 'catalog text',
         }]);
-        documentFilesMock.writeDocxFileChunks.mockImplementationOnce(async (
-            _path,
-            _chunks,
-            signal,
-        ) => {
+        documentFilesMock.writeDocxFileStreamChunk.mockImplementationOnce(async () => {
             resolveWriteStarted?.();
             await new Promise<void>(resolve => {
-                signal?.addEventListener('abort', () => resolve(), {once: true});
+                documentFilesMock.cancelDocxFileStream.mockImplementationOnce(async () => {
+                    resolve();
+                    return true;
+                });
             });
             return true;
         });
@@ -279,11 +322,7 @@ describe('useDocxExport', () => {
         await expect(exportPromise).resolves.toBe(false);
         expect(exportState.isExportingDocx.value).toBe(false);
         expect(exportState.docxExportError.value).toBeNull();
-        expect(documentFilesMock.writeDocxFileChunks).toHaveBeenCalledWith(
-            '/tmp/export.docx',
-            expect.anything(),
-            expect.objectContaining({aborted: true}),
-        );
+        expect(documentFilesMock.cancelDocxFileStream).toHaveBeenCalledWith('docx-session');
         expect(toastAddMock).not.toHaveBeenCalled();
         expect(trackMock).not.toHaveBeenCalled();
     });
@@ -297,14 +336,13 @@ describe('useDocxExport', () => {
             pageNumber: 1,
             text: 'catalog text',
         }]);
-        documentFilesMock.writeDocxFileChunks.mockImplementationOnce(async (
-            _path,
-            _chunks,
-            signal,
-        ) => {
+        documentFilesMock.writeDocxFileStreamChunk.mockImplementationOnce(async () => {
             resolveWriteStarted?.();
             await new Promise<void>(resolve => {
-                signal?.addEventListener('abort', () => resolve(), {once: true});
+                documentFilesMock.cancelDocxFileStream.mockImplementationOnce(async () => {
+                    resolve();
+                    return true;
+                });
             });
             return true;
         });

@@ -10,12 +10,6 @@ export interface IDocxExportFileCapability {
     writeDocxFileStreamChunk: (sessionId: TSessionId, chunk: Uint8Array) => Promise<boolean>;
     commitDocxFileStream: (sessionId: TSessionId) => Promise<boolean>;
     cancelDocxFileStream: (sessionId: TSessionId) => Promise<boolean>;
-    /** Kept for direct preload clients and existing unit fixtures, never exposed through contextBridge. */
-    writeDocxFileChunks?: (
-        path: TDocumentRef,
-        chunks: TDocxExportChunkSource,
-        signal?: AbortSignal,
-    ) => Promise<boolean>;
 }
 
 export const DOCX_EXPORT_STREAM_CHANNELS = {

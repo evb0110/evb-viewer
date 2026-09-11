@@ -392,10 +392,10 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.writeDocxFileChunks(requireDocumentRef('/tmp/export.docx'), [
-            Uint8Array.of(1, 2),
-            Uint8Array.of(3, 4),
-        ])).resolves.toBe(true);
+        const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
+        await expect(client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(1, 2))).resolves.toBe(true);
+        await expect(client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(3, 4))).resolves.toBe(true);
+        await expect(client.commitDocxFileStream(session.sessionId)).resolves.toBe(true);
 
         expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
             1,
@@ -427,15 +427,12 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.writeDocxFileChunks(requireDocumentRef('/tmp/export.docx'), [new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)])).rejects.toThrow('writeDocxFileChunks chunk exceeds maximum size');
-        expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(
-            DOCX_EXPORT_STREAM_CHANNELS.cancel,
-            'docx-session',
-        );
+        const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
+        await expect(Promise.resolve().then(() => client.writeDocxFileStreamChunk(session.sessionId, new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)))).rejects.toThrow('writeDocxFileStreamChunk chunk exceeds maximum size');
+        await expect(client.cancelDocxFileStream(session.sessionId)).resolves.toBe(true);
     });
 
     it('cancels exactly once when the renderer aborts during a DOCX chunk write', async () => {
-        const controller = new AbortController();
         let resolveWriteStarted: (() => void) | undefined;
         const writeStarted = new Promise<void>(resolve => {
             resolveWriteStarted = resolve;
@@ -470,25 +467,19 @@ describe('createDocumentsPreloadFileClient', () => {
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const writePromise = client.writeDocxFileChunks(
-            requireDocumentRef('/tmp/export.docx'),
-            [Uint8Array.of(1, 2)],
-            controller.signal,
-        );
+        const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
+        const writePromise = client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(1, 2));
 
         await writeStarted;
-        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+        await client.cancelDocxFileStream(session.sessionId);
         await cancelStarted;
         resolveWrite?.();
 
-        await expect(writePromise).rejects.toMatchObject({name: 'AbortError'});
+        await expect(writePromise).resolves.toBe(true);
         expect(ipcRenderer.invoke.mock.calls.filter(([channel]) => (
             channel === DOCX_EXPORT_STREAM_CHANNELS.cancel
         ))).toHaveLength(1);
-        expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
-            DOCX_EXPORT_STREAM_CHANNELS.commit,
-            'docx-session',
-        );
+        expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(DOCX_EXPORT_STREAM_CHANNELS.commit, session.sessionId);
     });
 
     it('passes lossless optimization options when starting streamed Save As persistence', async () => {
