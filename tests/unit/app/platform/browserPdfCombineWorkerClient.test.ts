@@ -137,6 +137,75 @@ describe('browserPdfCombineWorkerClient', () => {
         vi.stubGlobal('Worker', FakeWorker);
     });
 
+    it('shares malformed verdicts and keeps writer admission at each named limit', async () => {
+        const {parseBrowserPdfCombineWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPdfCombineWorker.types'
+        );
+        const bookmark = (items: unknown[] = []) => ({
+            title: 'Chapter α',
+            pageIndex: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items,
+        });
+        const catalogRequest = (catalog: unknown) => ({
+            id: 1,
+            type: 'combinePdfs',
+            payload: {
+                inputs: [{
+                    fileName: 'source.pdf',
+                    data: new Uint8Array([1]),
+                }],
+                wasmImagePreprocessing: {catalog},
+            },
+        });
+        const chain = (count: number) => {
+            let value = bookmark();
+            for (let index = 1; index < count; index += 1) {
+                value = bookmark([value]);
+            }
+            return value;
+        };
+        const labels = (count: number) => Array.from({length: count}, (_, pageIndex) => ({pageIndex}));
+
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: [{
+                ...bookmark(),
+                pageIndex: undefined,
+            }],
+            pageLabels: [],
+        }))).toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: [{
+                ...bookmark(),
+                pageYRatio: 'bad',
+            }],
+            pageLabels: [],
+        }))).toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: Array.from({length: 5_000}, () => bookmark()),
+            pageLabels: labels(2_048),
+        }))).not.toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: Array.from({length: 5_001}, () => bookmark()),
+            pageLabels: [],
+        }))).toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: [chain(64)],
+            pageLabels: [],
+        }))).not.toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: [chain(65)],
+            pageLabels: [],
+        }))).toBeNull();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: [],
+            pageLabels: labels(2_049),
+        }))).toBeNull();
+    });
+
     it('posts cloned PDF buffers to the worker and returns the combined result', async () => {
         const {
             cloneCombineWorkerInput,

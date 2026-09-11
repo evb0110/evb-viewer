@@ -9,7 +9,9 @@ import {
     vi,
 } from 'vitest';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import type {ISearchErrorEnvelope} from '@contracts/search';
+import type {
+    IPdfSearchResponse, ISearchErrorEnvelope,
+} from '@contracts/search';
 import {
     ref,
     type Ref,
@@ -18,6 +20,11 @@ import type * as TimeoutConstants from '@app/constants/timeouts';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {
+    createPlatformApiFixtureOperation,
+    type IPlatformApiFixtureEventMethod,
+} from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 import type { usePdfSearch as TUsePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 
 interface IPdfSearchTestExcerpt {
@@ -1084,6 +1091,88 @@ describe('usePdfSearch', () => {
         expect(search.isTruncated.value).toBe(false);
         expect(search.isSearching.value).toBe(false);
         expect(search.submittedSearchQuery.value).toBe('alpha');
+    });
+
+    it('drives a real search consumer with replay, cancellation, late events and typed failure controls', async () => {
+        const operation = createPlatformApiFixtureOperation<IPdfSearchResponse>();
+        const fixture = createElectronPlatformApiFixture({search: {run: operation.method}});
+        const event = fixture.search.onProgress as typeof fixture.search.onProgress & IPlatformApiFixtureEventMethod<IPdfSearchTestProgress>;
+        mockSearch.onProgress.mockImplementation(listener => fixture.search.onProgress(progress => listener({
+            requestId: String(progress.requestId),
+            processed: progress.processed,
+            total: progress.total,
+            ...(progress.results === undefined ? {} : {results: progress.results.map(result => ({...result}))}),
+            ...(progress.resultsStartIndex === undefined ? {} : {resultsStartIndex: progress.resultsStartIndex}),
+            ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+            ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
+        })));
+        mockSearch.run.mockImplementation(async (pdfPath, query) => {
+            const response = await fixture.search.run(pdfPath, query);
+            return {
+                ...response,
+                results: [...response.results],
+            };
+        });
+        mockSearch.cancel.mockImplementation(() => {
+            operation.cancel();
+        });
+        const search = await createPdfSearch();
+
+        const canceled = search.search('alpha', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const requestId = mockSearch.run.mock.calls[0]?.[2]?.requestId;
+        if (typeof requestId !== 'string') {
+            throw new Error('Expected the fixture search request to have an ID');
+        }
+
+        event.replay({
+            requestId,
+            processed: 1,
+            total: 928,
+        });
+        expect(search.searchProgress.value).toEqual({
+            processed: 1,
+            total: 928,
+        });
+        search.cancelSearch();
+        event.emitLate({
+            requestId,
+            processed: 928,
+            total: 928,
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+        });
+        await expect(canceled).resolves.toBe(false);
+        expect(search.results.value).toEqual([]);
+
+        const failedOperation = createPlatformApiFixtureOperation<IPdfSearchResponse>();
+        const failedFixture = createElectronPlatformApiFixture({search: {run: failedOperation.method}});
+        mockSearch.onProgress.mockImplementation(listener => failedFixture.search.onProgress(progress => listener({
+            requestId: String(progress.requestId),
+            processed: progress.processed,
+            total: progress.total,
+            ...(progress.results === undefined ? {} : {results: progress.results.map(result => ({...result}))}),
+            ...(progress.resultsStartIndex === undefined ? {} : {resultsStartIndex: progress.resultsStartIndex}),
+            ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+            ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
+        })));
+        mockSearch.run.mockImplementation(async (pdfPath, query) => {
+            const response = await failedFixture.search.run(pdfPath, query);
+            return {
+                ...response,
+                results: [...response.results],
+            };
+        });
+        const failed = search.search('beta', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        failedOperation.reject(new Error('fixture search failure'));
+        await expect(failed).resolves.toBe(false);
+        expect(search.searchError.value).toBe('errors.search.unavailable');
     });
 
     it('keeps a canceled search restartable', async () => {

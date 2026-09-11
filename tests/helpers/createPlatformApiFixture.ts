@@ -11,12 +11,19 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
-type TDeepPartial<T> = {
-    [TKey in keyof T]?: NonNullable<T[TKey]> extends (...args: never[]) => unknown
-        ? T[TKey] | undefined
-        : NonNullable<T[TKey]> extends object
-            ? TDeepPartial<NonNullable<T[TKey]>> | undefined
-            : T[TKey] | undefined;
+type TDeepPartialValue<T> = NonNullable<T> extends (...args: never[]) => unknown
+    ? T
+    : NonNullable<T> extends object
+        ? TDeepPartial<NonNullable<T>>
+        : T;
+type TRequiredKey<T, TKey extends keyof T> = Pick<T, TKey> extends Required<Pick<T, TKey>>
+    ? true
+    : false;
+
+export type TDeepPartial<T> = {
+    [TKey in keyof T]?: TRequiredKey<T, TKey> extends true
+        ? TDeepPartialValue<T[TKey]>
+        : TDeepPartialValue<T[TKey]> | undefined;
 };
 
 export type TPlatformApiFixtureOverrides = TDeepPartial<IPlatformApi>;
@@ -120,7 +127,7 @@ function assertPlatformApiFixture(
     backend: TPlatformBackend,
 ): asserts api is Record<string, unknown> & IPlatformApi {
     for (const descriptor of PLATFORM_API_DESCRIPTOR.methods) {
-        if (!descriptor.required[backend]) {
+        if (!descriptor.required[backend] || descriptor.optionalWhenImplemented) {
             continue;
         }
         if (typeof readPath(api, descriptor.path) !== 'function') {

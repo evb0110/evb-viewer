@@ -2,9 +2,52 @@ import { vi } from 'vitest';
 import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
 import { cast } from '@tests/helpers/cast';
 
-export interface IPlatformApiFixtureEventMethod {
-    emit: (payload: unknown) => void;
+export interface IPlatformApiFixtureEventMethod<TPayload = unknown> {
+    /** Deliver a live event to the subscribers that are currently attached. */
+    emit: (payload: TPayload) => void;
+    /** Deliver an explicit replay in the feature's chosen order. */
+    replay: (payload: TPayload) => void;
+    /** Inject a late or out-of-order event without helper-side filtering. */
+    emitLate: (payload: TPayload) => void;
     dispose: () => void;
+}
+
+export interface IPlatformApiFixtureOperation<TResult> {
+    method: () => Promise<TResult>;
+    resolve: (value: TResult) => void;
+    reject: (reason: unknown) => void;
+    cancel: () => void;
+}
+
+/**
+ * Creates an explicitly controlled async boundary for a real consumer test.
+ * The default descriptor methods remain immediate and inert.
+ */
+export function createPlatformApiFixtureOperation<TResult>(): IPlatformApiFixtureOperation<TResult> {
+    let settle: ((value: TResult) => void) | undefined;
+    let fail: ((reason: unknown) => void) | undefined;
+    const method = vi.fn(() => new Promise<TResult>((resolve, reject) => {
+        settle = resolve;
+        fail = reject;
+    }));
+    return {
+        method,
+        resolve: value => {
+            settle?.(value);
+            settle = undefined;
+            fail = undefined;
+        },
+        reject: reason => {
+            fail?.(reason);
+            settle = undefined;
+            fail = undefined;
+        },
+        cancel: () => {
+            fail?.(new Error('Fixture operation canceled'));
+            settle = undefined;
+            fail = undefined;
+        },
+    };
 }
 
 type TPlatformApiFixtureEventFunction = (
@@ -102,6 +145,16 @@ export function createDefaultPlatformApiFixtureMethod(
         }));
         const controls: IPlatformApiFixtureEventMethod = {
             emit: payload => {
+                for (const subscriber of subscribers) {
+                    subscriber(payload);
+                }
+            },
+            replay: payload => {
+                for (const subscriber of subscribers) {
+                    subscriber(payload);
+                }
+            },
+            emitLate: payload => {
                 for (const subscriber of subscribers) {
                     subscriber(payload);
                 }

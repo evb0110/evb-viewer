@@ -7,13 +7,17 @@ import {
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { IPdfSearchProgress } from '@contracts/search';
 import { requireRequestId } from '@contracts/shared';
-import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
+import {
+    BROWSER_PLATFORM_MANIFEST,
+    PLATFORM_API_DESCRIPTOR,
+} from '@contracts/platformApi';
 import {
     createDefaultPlatformApiFixtureMethod,
+    createPlatformApiFixtureOperation,
     type IPlatformApiFixtureEventMethod,
 } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import type { TPlatformApiFixtureOverrides } from '@tests/helpers/createPlatformApiFixture';
+import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 
 function readPath(root: unknown, path: readonly string[]) {
     let value = root;
@@ -28,10 +32,6 @@ function readPath(root: unknown, path: readonly string[]) {
 
 function formatPath(path: readonly string[]) {
     return path.join('.');
-}
-
-function asFixtureOverrides(value: unknown): TPlatformApiFixtureOverrides {
-    return value as TPlatformApiFixtureOverrides;
 }
 
 describe('createElectronPlatformApiFixture', () => {
@@ -67,6 +67,9 @@ describe('createElectronPlatformApiFixture', () => {
         expect(api.documentFiles.getPdfNativePageSizes).toEqual(expect.any(Function));
         expect(api.documentFiles.cancelPdfNativePagePreview).toEqual(expect.any(Function));
         expect(api.documentFiles.renderPdfNativePagePreview).toEqual(expect.any(Function));
+        expect(api.diagnostics.startupPolicy).toEqual({mode: 'unknown'});
+        expect(api.diagnostics.sendRecord).toEqual(expect.any(Function));
+        expect(api.diagnostics.onDebugLog).toEqual(expect.any(Function));
     });
 
     it('uses migrated schema examples for Search defaults', async () => {
@@ -109,6 +112,53 @@ describe('createElectronPlatformApiFixture', () => {
         expect(second).toHaveBeenCalledTimes(2);
     });
 
+    it('exposes explicit replay and raw late-event controls without filtering the consumer input', () => {
+        const api = createElectronPlatformApiFixture();
+        const event = api.search.onProgress as typeof api.search.onProgress & IPlatformApiFixtureEventMethod<IPdfSearchProgress>;
+        const received: IPdfSearchProgress[] = [];
+        api.search.onProgress(progress => received.push(progress));
+        const running = {
+            requestId: requireRequestId('search-replay'),
+            processed: 1,
+            total: 2,
+            status: 'running' as const,
+        };
+        const terminal = {
+            ...running,
+            processed: 2,
+            status: 'success' as const,
+        };
+        event.replay(running);
+        event.emit(terminal);
+        event.emitLate({
+            ...running,
+            processed: 0,
+        });
+
+        expect(received).toEqual([
+            running,
+            terminal,
+            {
+                ...running,
+                processed: 0,
+            },
+        ]);
+    });
+
+    it('provides an opt-in operation control for consumer cancellation and typed errors', async () => {
+        const operation = createPlatformApiFixtureOperation<{ok: true}>();
+        const pending = operation.method();
+        operation.cancel();
+        expect(operation.method).toHaveBeenCalledOnce();
+        expect(operation.cancel).not.toThrow();
+        await expect(pending).rejects.toThrow('Fixture operation canceled');
+
+        const failedOperation = createPlatformApiFixtureOperation<{ok: true}>();
+        const failed = failedOperation.method();
+        failedOperation.reject(new Error('fixture failure'));
+        await expect(failed).rejects.toThrow('fixture failure');
+    });
+
     it('resolves valid undefined results without consuming examples during construction', async () => {
         const api = createElectronPlatformApiFixture();
 
@@ -139,10 +189,36 @@ describe('createElectronPlatformApiFixture', () => {
     });
 
     it('rejects overrides that remove a required manifest method', () => {
-        const overrides = asFixtureOverrides({documentFiles: {readFile: undefined}});
+        const overrides = {documentFiles: {}};
+        Reflect.set(overrides.documentFiles, 'readFile', undefined);
 
         expect(() => createElectronPlatformApiFixture(overrides))
             .toThrow('Missing platform API fixture method documentFiles.readFile');
+    });
+
+    it('keeps required override members typed while allowing optional capability omission', () => {
+        const browserApi = createPlatformApiFixture({
+            backend: 'browser',
+            manifest: BROWSER_PLATFORM_MANIFEST,
+            overrides: {scanCleanup: {getSettings: undefined}},
+        });
+        const api = createElectronPlatformApiFixture({diagnostics: {
+            startupPolicy: {mode: 'granted'},
+            sendRecord: vi.fn(),
+        }});
+
+        expect(api.diagnostics.startupPolicy).toEqual({mode: 'granted'});
+        expect(api.scanCleanup).toEqual(expect.any(Object));
+        expect(browserApi.scanCleanup?.getSettings).toBeUndefined();
+    });
+
+    it('rejects required-field erasure and invalid typed diagnostics overrides at compile time', () => {
+        if (process.env.EVB_FIXTURE_TYPE_ASSERTIONS === '1') {
+            // @ts-expect-error Required Electron methods cannot be replaced with undefined.
+            createElectronPlatformApiFixture({documentFiles: {readFile: undefined}});
+            // @ts-expect-error Diagnostics policy values are closed by the shared contract.
+            createElectronPlatformApiFixture({diagnostics: {startupPolicy: {mode: 'invalid'}}});
+        }
     });
 
     it('rejects unsupported default calls instead of silently resolving undefined', async () => {

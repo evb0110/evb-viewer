@@ -171,6 +171,80 @@ describe('browserPageOpsWorkerClient', () => {
                 prefix: 'Page ',
             }],
         });
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{
+                ...baseBookmark,
+                pageYRatio: Number.NaN,
+            }],
+            pageLabels: [],
+        }, {maxPageLabels: 2_048})).toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{
+                ...baseBookmark,
+                pageYRatio: Number.POSITIVE_INFINITY,
+            }],
+            pageLabels: [],
+        }, {maxPageLabels: 2_048})).toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{
+                ...baseBookmark,
+                items: [{
+                    ...baseBookmark,
+                    pageIndex: undefined,
+                }],
+            }],
+            pageLabels: [],
+        }, {maxPageLabels: 2_048})).toBeNull();
+    });
+
+    it('enforces the named reader budgets at the exact boundary and one over', async () => {
+        const {
+            decodeBrowserPdfCatalog, BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
+            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS, BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
+            BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
+        } = await import('@contracts/browserPdfCatalog');
+        const bookmark = (items: unknown[] = []) => ({
+            title: 'Chapter α',
+            pageIndex: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items,
+        });
+        const labels = (count: number) => Array.from({length: count}, (_, pageIndex) => ({pageIndex}));
+        const chain = (count: number) => {
+            let value = bookmark();
+            for (let index = 1; index < count; index += 1) {
+                value = bookmark([value]);
+            }
+            return value;
+        };
+
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS}, () => bookmark()),
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS),
+        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).not.toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS + 1}, () => bookmark()),
+            pageLabels: [],
+        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH)],
+            pageLabels: [],
+        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).not.toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH + 1)],
+            pageLabels: [],
+        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})).toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [],
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS),
+        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})).not.toBeNull();
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [],
+            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS + 1),
+        }, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})).toBeNull();
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
