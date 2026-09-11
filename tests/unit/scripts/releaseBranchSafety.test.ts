@@ -35,7 +35,7 @@ interface IReleaseHandoffModule { printReleaseWorkflowHandoff: (
         readHandoffTimeoutMs: () => number;
         sleepFn: (duration: number) => Promise<void>;
         stdout: { write: (message: string) => void };
-        waitForRun: () => Promise<{
+        waitForRun: (options: Record<string, unknown>) => Promise<{
             conclusion: string | null;
             status: string;
             url: string;
@@ -297,6 +297,7 @@ describe('release branch safety', () => {
         status,
     }) => {
         const output: string[] = [];
+        const waitForRunCalls: Array<Record<string, unknown>> = [];
 
         await printReleaseWorkflowHandoff({
             dispatchStartedAt: '2026-08-22T00:00:00.000Z',
@@ -307,13 +308,27 @@ describe('release branch safety', () => {
             readHandoffTimeoutMs: () => 60_000,
             sleepFn: async () => undefined,
             stdout: { write: (message: string) => output.push(message) },
-            waitForRun: async () => ({
-                conclusion,
-                status,
-                url: 'https://github.com/evb0110/evb-viewer/actions/runs/123',
-            }),
+            waitForRun: async (options) => {
+                waitForRunCalls.push(options);
+
+                return {
+                    conclusion,
+                    status,
+                    url: 'https://github.com/evb0110/evb-viewer/actions/runs/123',
+                };
+            },
         });
 
         expect(output.join('')).toContain('Release v9.9.9 queued for commit abc123.');
+        // The run is dispatched on main, so its head SHA is never the release commit.
+        expect(waitForRunCalls).toEqual([{
+            createdAfter: '2026-08-22T00:00:00.000Z',
+            displayTitles: [
+                'Release v9.9.9',
+                'Release (v9.9.9)',
+            ],
+            label: 'Release workflow for v9.9.9',
+            workflow: 'Release',
+        }]);
     });
 });

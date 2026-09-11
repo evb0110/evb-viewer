@@ -625,12 +625,14 @@ export async function printReleaseWorkflowHandoff({
     const handoffDeadline = nowFn() + readHandoffTimeoutMs();
     let runInfo;
 
+    // The workflow is dispatched with `--ref main`, so the run's head SHA is
+    // the main tip, not the release commit. The run name `Release <tag>` and
+    // the dispatch time identify it; matching on the head SHA never succeeds.
     while (true) {
         runInfo = await waitForRun({
             createdAfter: dispatchStartedAt,
             displayTitles: getReleaseWorkflowDisplayTitles(tag),
             label: `Release workflow for ${tag}`,
-            targetSha,
             workflow: 'Release',
         });
         if (runInfo.status === 'completed' && runInfo.conclusion != null) {
