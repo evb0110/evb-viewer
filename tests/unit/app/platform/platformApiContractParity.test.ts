@@ -104,10 +104,17 @@ describe('platform API contract parity', () => {
     });
 
     it('keeps the Electron fixture descriptor-complete', () => {
-        const api = createElectronPlatformApiFixture();
+        const {
+            diagnostics,
+            ...platformApi
+        } = createElectronPlatformApiFixture();
         const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
 
-        expectCallablePathParity(api, descriptorPaths);
+        expectCallablePathParity(platformApi, descriptorPaths);
+        expectCallablePathParity(diagnostics, [
+            ['sendRecord'],
+            ['onDebugLog'],
+        ]);
     });
 
     it('keeps mocked Electron preload descriptor-complete', async () => {
