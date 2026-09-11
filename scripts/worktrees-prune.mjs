@@ -85,27 +85,9 @@ export function classifyWorktree(worktree) {
         };
     }
     if (worktree.missing) {
-        if (!worktree.selectedTarget) {
-            return {
-                action: 'keep',
-                reason: 'stale registration requires an explicit target',
-            };
-        }
-        if (!worktree.completedTask) {
-            return {
-                action: 'keep',
-                reason: 'completed-task evidence required',
-            };
-        }
-        if (worktree.ownerStatus !== 'absent') {
-            return {
-                action: 'keep',
-                reason: worktree.ownerReason ?? 'live-owner probe did not prove absence',
-            };
-        }
         return {
-            action: 'remove',
-            reason: 'targeted stale registration with no live owner',
+            action: 'keep',
+            reason: 'stale registration cleanup requires a safe metadata-only operation',
         };
     }
     if (worktree.dirtyEntries === null) {
@@ -498,8 +480,7 @@ export async function pruneWorktrees(options) {
             continue;
         }
         if (worktree.missing) {
-            removed.push(worktree.path);
-            console.log(`forgot ${worktree.path} (directory already gone)`);
+            console.error(`kept ${worktree.path}: stale registration cleanup requires a safe metadata-only operation`);
             continue;
         }
         const sizeKiB = directorySizeKiB(worktree.path);

@@ -69,7 +69,7 @@ describe('worktrees prune', () => {
             mergedInto: [],
         })).toEqual({
             action: 'keep',
-            reason: 'stale registration requires an explicit target',
+            reason: 'stale registration cleanup requires a safe metadata-only operation',
         });
         expect(classifyWorktree({
             isPrimary: false,
@@ -155,6 +155,14 @@ describe('worktrees prune', () => {
         })).toEqual({
             action: 'remove',
             reason: 'completed target merged into origin/main',
+        });
+        expect(classifyWorktree({
+            ...base,
+            missing: true,
+            mergedInto: [],
+        })).toEqual({
+            action: 'keep',
+            reason: 'stale registration cleanup requires a safe metadata-only operation',
         });
     });
 
