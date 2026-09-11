@@ -1027,7 +1027,8 @@ function checkContractsRuntimeBoundary(filePath, sourceFiles) {
                 const importClause = node.importClause;
                 const hasRuntimeBinding = importClause === undefined
                     || (!importClause.isTypeOnly
-                        && (!importClause.namedBindings
+                        && (importClause.name !== undefined
+                            || !importClause.namedBindings
                             || ts.isNamespaceImport(importClause.namedBindings)
                             || importClause.namedBindings.elements.some(element => !element.isTypeOnly)));
                 if (hasRuntimeBinding && isNodeRuntimeModuleSpecifier(specifier)) {
@@ -1043,7 +1044,11 @@ function checkContractsRuntimeBoundary(filePath, sourceFiles) {
                 }
             } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
                 const specifier = node.moduleSpecifier.text;
-                if (!node.isTypeOnly && isNodeRuntimeModuleSpecifier(specifier)) {
+                const hasRuntimeBinding = !node.isTypeOnly
+                    && (!node.exportClause
+                        || !ts.isNamedExports(node.exportClause)
+                        || node.exportClause.elements.some(element => !element.isTypeOnly));
+                if (hasRuntimeBinding && isNodeRuntimeModuleSpecifier(specifier)) {
                     record(specifier, 'Portable contracts must not re-export Node runtime modules.');
                 }
             } else if (ts.isCallExpression(node)) {
