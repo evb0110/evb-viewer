@@ -1,0 +1,46 @@
+electron/native-tools/runNativeCommand.ts
+  s_ee46735e87d8ec::t_75ba5ea818ba2e 159,162,327,470-472,499,501,670-686,697-709
+tests/unit/electron/nativeRunCommand.test.ts
+  s_ee46735e87d8ec::t_c7245264a1fb81 473
+  s_ee46735e87d8ec::t_e5b913c7a7f69e 463-472,474-479
+electron/features/documents/main/documentSaveUtilityProcess.ts
+  s_ee46735e87d8ec::t_9caa8e6bf8bb33 15,20,27-28,75-79,81-84,88,90-93,140-154
+tests/unit/electron/documentSaveUtilityAbort.test.ts
+  s_ee46735e87d8ec::t_0c8c8904326bbe 338,343-344
+  s_ee46735e87d8ec::t_c7245264a1fb81 339-342
+  s_ee46735e87d8ec::t_7a698fad743ba4 41,51,306-337
+  s_ee46735e87d8ec::t_a0e16541e0b311 42-50,52-57,91,118,141,182,228,267,345,349,381,419,443
+  s_ee46735e87d8ec::t_98ef847b1f8303 435-436
+  s_f8adcf939cc7fb::t_ca0ac97c4fa999 346
+electron/features/documents/main/documentSaveUtilityProtocol.ts
+  s_ee46735e87d8ec::t_fb3e8b025c7098 35
+  s_ee46735e87d8ec::t_6ea49980f859a5 36-41,204-215
+electron/features/documents/main/fingerprintFileWithUtilityProcess.ts
+  s_ee46735e87d8ec::t_a6727eb3cf3108 147,165-170
+  s_ee46735e87d8ec::t_f7a0671082b38e 171-181,183,185
+  s_ee46735e87d8ec::t_a93ab992175480 8-11,109-111,144-146,148-156,158-164,256-262,283-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8b0eff4a4281e35827735234382fb602d22d66a8",
+  "prompts": {},
+  "sessions": {
+    "s_ee46735e87d8ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d74-8061-7522-8389-f177f5631442",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f8adcf939cc7fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ba1c-72d2-b391-97f24f1ef5da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
