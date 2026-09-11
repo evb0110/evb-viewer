@@ -4204,9 +4204,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             const rect = sidebar?.getBoundingClientRect();
             return Boolean(rect && rect.width > 10 && rect.height > 10);
         }, {timeout: 10_000});
-        // The panel reaches its open size before the wrapper's documented
-        // width transition finishes. Wait for the final shared boundary before
-        // starting the drag.
+        // The panel reaches its open size before the wrapper's documented width
+        // transition finishes, and the sash rides the wrapper's clip edge for
+        // the whole slide, so the shared boundary holds mid-slide as well. Wait
+        // until the host stops reporting the slide and the wrapper has grown to
+        // the width it was told to animate to; pressing on a sash that is still
+        // travelling misses it and drags nothing.
         await waitForFunctionInPage(session.page, () => {
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const wrapper = host?.querySelector<HTMLElement>('.sidebar-wrapper');
@@ -4215,6 +4218,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             if (!wrapper || !sash || !viewer) {
                 return false;
             }
+            const targetWidth = Number.parseFloat(wrapper.style.width);
             const wrapperRect = wrapper.getBoundingClientRect();
             const sashRect = sash.getBoundingClientRect();
             const viewerRect = viewer.getBoundingClientRect();
@@ -4222,6 +4226,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                 wrapperRect.width > 10
                 && sashRect.width > 0
                 && viewerRect.width > 10
+                && !wrapper.classList.contains('is-resizing')
+                && Number.isFinite(targetWidth)
+                && Math.abs(wrapperRect.width - targetWidth) <= 1
                 && Math.abs(wrapperRect.right - sashRect.right) <= 1
                 && Math.abs(viewerRect.left - sashRect.right) <= 1,
             );
