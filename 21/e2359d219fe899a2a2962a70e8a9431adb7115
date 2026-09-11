@@ -1,0 +1,19 @@
+packages/i18n-app/messages/nl.ts
+  s_67b46e6881995c::t_7572dcc2893899 1062
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "21e2359d219fe899a2a2962a70e8a9431adb7115",
+  "prompts": {},
+  "sessions": {
+    "s_67b46e6881995c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d64-e037-7631-a59d-a88ba8aa8269",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
