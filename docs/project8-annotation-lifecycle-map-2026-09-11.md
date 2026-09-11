@@ -196,3 +196,39 @@ canonical annotation surface renders once and PDF.js remains read-only. The
 keyboard/history acceptance and the other filtered lifecycle cases remain
 unverified. The session log is
 `.devkit/sessions/e2e-run-mtxa00k8-42a57f-annotation-lifecycle-1789150496406/session.log`.
+
+## V5b keyboard and selection-history acceptance
+
+The next disjoint acceptance ran from integration context `8652fce8` with
+native page-ops enabled:
+
+```text
+EVB_PDF_PAGE_OPS_ENABLE=1 pnpm exec vitest run --project e2e-regression \
+  tests/e2e/electron/annotationLifecycle.e2e.test.ts \
+  -t 'supports keyboard editing for every canonical kind and atomic mixed selection history' \
+  --reporter verbose
+```
+
+The real macOS Electron test passed 1/1 in 43.36 seconds. It covered keyboard
+editing for every canonical kind and atomic mixed-selection history. Stamp,
+text-box, sticky-note, and the remaining lifecycle cases are still
+unverified. The session log is
+`.devkit/sessions/e2e-run-mtxa59vj-c5a587-annotation-lifecycle-1789150740724/session.log`.
+
+## V5b stamp geometry acceptance
+
+The next disjoint acceptance ran from integration context `3486f2fbd` with
+native page-ops enabled:
+
+```text
+EVB_PDF_PAGE_OPS_ENABLE=1 pnpm exec vitest run --project e2e-regression \
+  tests/e2e/electron/annotationLifecycle.e2e.test.ts \
+  -t 'places a stamp through the editor layer and round-trips its edited geometry' \
+  --reporter verbose
+```
+
+The real macOS Electron test passed 1/1 in 33.78 seconds. It placed a stamp
+through the editor layer and round-tripped its edited geometry. Text-box,
+sticky-note, and the remaining filtered lifecycle cases remain unverified.
+The session log is
+`.devkit/sessions/e2e-run-mtxa84aw-5ebb97-annotation-lifecycle-1789150873535/session.log`.
