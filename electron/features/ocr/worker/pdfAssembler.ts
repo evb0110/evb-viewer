@@ -352,6 +352,24 @@ function filterOwnedOcrResourceNames(names: Set<string>) {
     return new Set([...names].filter(name => name.replace(/^\//u, '').startsWith('EvbOcr')));
 }
 
+function hasFormXObject(resources: PDFDict) {
+    const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME);
+    if (!xObject) {
+        return false;
+    }
+    for (const key of xObject.keys()) {
+        try {
+            const value = xObject.lookup(key);
+            if (value instanceof PDFStream && value.dict.get(PDFName.of('Subtype'))?.toString() === '/Form') {
+                return true;
+            }
+        } catch {
+            return true;
+        }
+    }
+    return false;
+}
+
 function cloneMutablePageResources(page: PDFPage) {
     const context = page.doc.context;
     const resources = safePdfPageInheritableDict(page, RESOURCES_NAME)?.clone(context) ?? context.obj({});
@@ -365,6 +383,7 @@ function cloneMutablePageResources(page: PDFPage) {
     return {
         extGState,
         font,
+        resources,
         xObject,
     };
 }
@@ -430,6 +449,7 @@ function removePreviousOcrLayer(page: PDFPage) {
     const {
         extGState,
         font,
+        resources,
         xObject,
     } = cloneMutablePageResources(page);
     const context = page.doc.context;
@@ -519,7 +539,9 @@ function removePreviousOcrLayer(page: PDFPage) {
         // only those names, and continue preserving every arbitrary source
         // Form and resource that the kept content may reach.
         deleteProvenUnusedEntries(extGState, filterOwnedOcrResourceNames(removedExtGStateNames), scanResourceReferences(keptText, 'gs'));
-        deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
+        if (!hasFormXObject(resources)) {
+            deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
+        }
         deleteProvenUnusedEntries(xObject, filterOwnedOcrResourceNames(removedXObjectNames), scanResourceReferences(keptText, 'Do'));
     }
 }
