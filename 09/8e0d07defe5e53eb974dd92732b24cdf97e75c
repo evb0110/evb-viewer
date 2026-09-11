@@ -1,0 +1,21 @@
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_3d279d029e00e2::t_4b4f152724def4 929-931
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_3d279d029e00e2::t_4b4f152724def4 1090,1105-1107,1373,1381-1382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "098e0d07defe5e53eb974dd92732b24cdf97e75c",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
