@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `8585fe08` (`origin/project8/integration`)
+Reviewed source: `5ca8106c` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -38,11 +38,10 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34634009652` for `8585fe08`. It completed
-cancelled with `gates_ok` failure after its selected quality jobs were
-cancelled, so it provides no current-tip hosted pass. The immediately prior
-run `34633711377` was also cancelled before acceptance while newer integration
-merges were admitted. The separate
+The current integration CI run is `34634319197` for `5ca8106c`. It is queued
+behind run `34634223766`, so no current-tip hosted pass is claimed. The
+immediately prior run `34634009652` completed cancelled with `gates_ok`
+failure after its selected quality jobs were cancelled. The separate
 configured publish-chain
 drill is terminal-successful in run `34630569082`; no terminal current-tip
 release artifact digest is claimed here.
