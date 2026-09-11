@@ -57,12 +57,14 @@ const sidebarPresentationStyle = computed<CSSProperties>(() => ({
     width: showSidebar ? sidebarWrapperStyle?.width : '0px',
 }));
 /**
- * The wrapper animates its own width open and closed. The panel inside jumps
- * straight to its open width so the tab bar, the thumbnail rail and everything
- * else lay out once instead of reflowing and re-rasterizing on every frame of
- * the slide. Collapsing back to zero is delayed by the stylesheet until the
- * closing slide has finished, which keeps hidden panels from measuring as
- * visible.
+ * The wrapper never animates its width. It steps to the open width the moment
+ * the sidebar opens and steps back to zero once the closing slide has finished,
+ * so the viewer beside it sees exactly one geometry change per toggle. Fit
+ * width would otherwise recompute and commit a new scale on every frame of a
+ * width animation and starve the animation it reacts to. The panel inside slides
+ * with a transform, which the compositor animates without layout, and it takes
+ * its open width immediately so the tab bar and thumbnail rail lay out once.
+ * The delayed collapse keeps a hidden panel from measuring as visible.
  */
 const sidebarContentStyle = computed<CSSProperties>(() => (
     {width: showSidebar ? `${String(sidebarContentWidth)}px` : '0px'}
@@ -150,7 +152,7 @@ watch(
     flex-shrink: 0;
     overflow: hidden;
     background: var(--app-sidebar-bg);
-    transition: width var(--app-transition-reorder);
+    transition: width 0s;
 }
 
 .sidebar-wrapper__content {
@@ -158,22 +160,24 @@ watch(
     height: 100%;
     flex: 0 0 auto;
     overflow: hidden;
-    transition: width 0s;
-}
-
-.sidebar-wrapper.is-closed .sidebar-wrapper__content {
-    transition: width 0s var(--app-transition-reorder-duration);
-}
-
-.sidebar-wrapper.is-resizing .sidebar-wrapper__content {
-    transition: none;
+    transform: translateX(0);
+    transition: transform var(--app-transition-reorder), width 0s;
 }
 
 .sidebar-wrapper.is-closed {
     pointer-events: none;
+    transition: width 0s var(--app-transition-reorder-duration);
 }
 
-.sidebar-wrapper.is-resizing {
+.sidebar-wrapper.is-closed .sidebar-wrapper__content {
+    transform: translateX(-100%);
+    transition:
+        transform var(--app-transition-reorder),
+        width 0s var(--app-transition-reorder-duration);
+}
+
+.sidebar-wrapper.is-resizing,
+.sidebar-wrapper.is-resizing .sidebar-wrapper__content {
     transition: none;
 }
 
@@ -196,6 +200,8 @@ watch(
 
 @media (prefers-reduced-motion: reduce) {
     .sidebar-wrapper,
+    .sidebar-wrapper.is-closed,
+    .sidebar-wrapper__content,
     .sidebar-wrapper.is-closed .sidebar-wrapper__content {
         transition: none;
     }
