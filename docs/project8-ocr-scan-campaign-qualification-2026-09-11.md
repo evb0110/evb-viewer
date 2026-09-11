@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: PNG payload validation and native raster manifest
+
+This slot started from `f0e656660`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #432
+and #433 through exact raster payload validation and native manifest assembly:
+
+```text
+pnpm exec vitest run \
+  tests/unit/packages/rasterLayerDimensions.test.ts \
+  tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts --reporter=dot
+
+2 files passed, 54 tests passed
+```
+
+The run covered exact PPM payload sizing, surplus-tail and truncation
+rejection, cancellation before allocation, heterogeneous page ledgers,
+trusted pixel-limit clamping, alpha-plane validation, shared manifest
+goldens, staged-raster lookahead, geometry placeholders, and path ownership.
+A packaged raster export with independent density readback remains
+coordinator-owned evidence. No new raster, PDF, fixture, screenshot, or
+telemetry artifact was generated. Test-owned payloads and temporary state were
+cleaned by the suites, and the worktree is clean.
+
 ## Follow-up slot: DjVu raster batch rollback and limits
 
 This slot started from `d40e1f040`, the current
