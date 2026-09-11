@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `2efcebc0` (`origin/project8/integration`)
+Reviewed source: `8585fe08` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -38,10 +38,11 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34633711377` for `2efcebc0`. It is queued
-at receipt time, so no current-tip hosted pass is claimed. The immediately
-prior run `34633594425` was cancelled before terminal acceptance, as was
-`34633498813`, while newer integration merges were admitted. The separate
+The current integration CI run is `34634009652` for `8585fe08`. It completed
+cancelled with `gates_ok` failure after its selected quality jobs were
+cancelled, so it provides no current-tip hosted pass. The immediately prior
+run `34633711377` was also cancelled before acceptance while newer integration
+merges were admitted. The separate
 configured publish-chain
 drill is terminal-successful in run `34630569082`; no terminal current-tip
 release artifact digest is claimed here.
@@ -50,10 +51,14 @@ release artifact digest is claimed here.
 
 The 60 supplemental recommendations remain accounted for with explicit
 dispositions, linked owners or follow-ups, and reasons for no action. This
-receipt updates only the dated CI evidence: run `34633711377` is queued for
-integration tip `2efcebc0`, while runs `34633594425` and `34633498813` were
-cancelled before terminal acceptance. No supplemental implementation issue was duplicated, and no issue
-or tracker state was changed.
+receipt updates only the dated CI evidence: run `34634009652` completed
+cancelled for integration tip `8585fe08`, while run `34633711377` was also
+cancelled before terminal acceptance. No supplemental implementation issue was
+duplicated, and no issue or tracker state was changed.
+
+The #566 operations/release register therefore remains open for the exact
+current-tip ARM64 installed rerun and final artifact-digest evidence. The
+cancelled CI result is recorded as a gap, not as acceptance.
 
 ## Source disposition
 
