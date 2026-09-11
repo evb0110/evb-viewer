@@ -1,0 +1,19 @@
+docs/project8-saved-highlight-undo-redo-acceptance-2026-09-11.md
+  s_e95abd168e6adf::t_351bc4c6da6462 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2fb6216299c6b321a26e3a92b533884e586fdcdb",
+  "prompts": {},
+  "sessions": {
+    "s_e95abd168e6adf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-fee0-7150-a974-1706aae47b66",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
