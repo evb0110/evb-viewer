@@ -1,11 +1,11 @@
-import { mkdirSync } from 'node:fs';
+import {
+    mkdirSync,
+    readFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
+import { decode } from 'fast-png';
 import { chromium } from 'playwright';
 import type { Page as ElectronPage } from 'puppeteer-core';
-import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
 import {
     describe,
     expect,
@@ -160,11 +160,8 @@ async function readBlueStrokePixelMetrics(
     path: string,
     pageOrigin: IPageSurfaceOrigin,
 ): Promise<IBlueStrokePixelMetrics> {
-    const image = await loadImage(path);
-    const canvas = createCanvas(image.width, image.height);
-    const context = canvas.getContext('2d');
-    context.drawImage(image, 0, 0);
-    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const image = decode(readFileSync(path));
+    const pixels = image.data;
     const startX = Math.floor(image.width * 0.15);
     const endX = Math.ceil(image.width * 0.85);
     const startY = Math.floor(image.height * 0.4);
