@@ -374,8 +374,15 @@ export class DocumentThumbnailLayout {
     }
 
     getPageAspect(page: number) {
-        return this.getBlockForPage(page)?.aspectOverrides.get(getBlockLocalPage(page))
-            ?? this.estimatedAspectRatio;
+        return this.getExactPageAspect(page) ?? this.estimatedAspectRatio;
+    }
+
+    getExactPageAspect(page: number) {
+        return this.getBlockForPage(page)?.aspectOverrides.get(getBlockLocalPage(page));
+    }
+
+    getExactAspectCount() {
+        return this.exactAspectCount;
     }
 
     getPageHeight(page: number) {

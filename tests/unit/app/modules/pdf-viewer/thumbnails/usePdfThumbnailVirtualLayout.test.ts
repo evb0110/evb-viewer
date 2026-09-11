@@ -9,10 +9,11 @@ import {
     ref,
 } from 'vue';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
 import {DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 
 describe('usePdfThumbnailVirtualLayout', () => {
-    it('keeps aspect ratios sparse for pages late in a large document', () => {
+    it('projects sparse page metrics without allocating by page count', () => {
         const pageCount = ref(1_000_000);
         const scheduleReaction = vi.fn();
         const layout = usePdfThumbnailVirtualLayout({
@@ -21,38 +22,59 @@ describe('usePdfThumbnailVirtualLayout', () => {
             scheduleReaction,
         });
 
-        expect(layout.aspectRatios.value).toBeInstanceOf(Map);
-        expect(layout.aspectRatios.value.size).toBe(0);
+        expect(layout.hasExactAspects()).toBe(false);
         expect(layout.layout.value.getLoadedBlockCount()).toBe(0);
 
-        layout.updateAspectRatio(999_999, 1.8);
+        const metrics: IPdfPageMetric[] = [];
+        metrics.length = pageCount.value;
+        metrics[999_998] = {
+            height: 180,
+            width: 100,
+        };
+        layout.applyPageMetrics(metrics);
 
-        expect(layout.aspectRatios.value.get(999_999)).toBe(1.8);
-        expect(layout.aspectRatios.value.size).toBe(1);
+        expect(layout.getExactAspect(999_999)).toBe(1.8);
+        expect(layout.hasExactAspects()).toBe(true);
         expect(layout.layout.value.getLoadedBlockCount()).toBe(1);
         expect(scheduleReaction).toHaveBeenCalledTimes(1);
 
-        layout.updateAspectRatio(999_999, null);
+        layout.applyPageMetrics(metrics);
 
-        expect(layout.aspectRatios.value.has(999_999)).toBe(false);
-        expect(layout.aspectRatios.value.size).toBe(0);
+        expect(scheduleReaction).toHaveBeenCalledTimes(1);
     });
 
-    it('resets sparse aspect ratios without allocating by page count', () => {
-        const pageCount = ref(1_000_000);
+    it('estimates unmeasured pages from the most common known aspect in one commit', () => {
+        const pageCount = ref(200);
+        const scheduleReaction = vi.fn();
         const layout = usePdfThumbnailVirtualLayout({
             captureAnchor: () => null,
             pageCount,
-            scheduleReaction: () => {},
+            scheduleReaction,
         });
 
-        layout.updateAspectRatio(1, 1.2);
-        layout.updateAspectRatio(250_000, 1.5);
-        expect(layout.aspectRatios.value.size).toBe(2);
+        const metrics: IPdfPageMetric[] = [];
+        metrics.length = pageCount.value;
+        metrics[0] = {
+            height: 150,
+            width: 100,
+        };
+        for (let index = 98; index <= 102; index += 1) {
+            metrics[index] = {
+                height: 160,
+                width: 100,
+            };
+        }
+        layout.applyPageMetrics(metrics);
 
-        layout.clearAspectRatios();
+        expect(scheduleReaction).toHaveBeenCalledTimes(1);
+        expect(layout.getExactAspect(1)).toBe(1.5);
+        expect(layout.getExactAspect(50)).toBeUndefined();
+        expect(layout.getAspect(50)).toBe(1.6);
+        expect(layout.getPageBounds(50).height).toBe(layout.getPageBounds(100).height);
 
-        expect(layout.aspectRatios.value.size).toBe(0);
+        layout.resetDocumentLayout();
+
+        expect(layout.hasExactAspects()).toBe(false);
         expect(layout.layout.value.getLoadedBlockCount()).toBe(0);
         expect(layout.contentHeight.value).toBeGreaterThan(0);
     });

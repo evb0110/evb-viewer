@@ -116,6 +116,7 @@
                     :is-resizing="isPointerResizingSidebar"
                     :pdf-document="pdfDocument"
                     :raster-scheduler="pdfRasterScheduler"
+                    :page-geometry="thumbnailPageGeometry"
                     :current-page="currentPage"
                     :total-pages="totalPages"
                     :page-labels="toolbarPageLabels"
@@ -435,7 +436,10 @@ import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspac
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import type {
+    IPdfThumbnailPageGeometry,
+    IScrollToPageOptions,
+} from '@app/modules/pdf-viewer/public';
 import {
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
@@ -710,6 +714,17 @@ const {
     setSidebarContainerWidth,
     cleanupSidebarResizeListeners,
 } = viewerShell;
+const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
+    const viewer = pdfViewerRef.value;
+    if (!viewer?.pageMetrics || !viewer.ensurePageMetricsInRange) {
+        return null;
+    }
+    return {
+        ensureRange: viewer.ensurePageMetricsInRange,
+        metrics: toRaw(viewer.pageMetrics),
+        version: viewer.pageMetricsVersion ?? 0,
+    };
+});
 const toolbarTotalPages = computed(() => (
     openingPreviewReady.value ? openingPreviewPageCount.value : totalPages.value
 ));

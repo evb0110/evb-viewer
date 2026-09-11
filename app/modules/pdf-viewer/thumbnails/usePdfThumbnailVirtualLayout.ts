@@ -1,5 +1,7 @@
 import type {Ref} from 'vue';
 import {THUMBNAIL_WIDTH} from '@app/constants/pdfLayout';
+import {forEachKnownPageMetric} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
 import {
     DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
     DocumentThumbnailLayout,
@@ -15,14 +17,9 @@ interface IUsePdfThumbnailVirtualLayoutOptions {
 export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLayoutOptions) => {
     const itemChromeHeight = ref(DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT);
     const layoutWidth = ref(THUMBNAIL_WIDTH);
-    // Aspect ratios are sparse because PDF metadata arrives as pages render.
-    // A page-indexed array would allocate a large logical range when a late
-    // page is measured in a very large document.
-    const aspectRatios = shallowRef(new Map<number, number>());
     const revision = ref(0);
     const activeScrollSegmentIndex = ref(0);
     const layout = shallowRef(new DocumentThumbnailLayout({
-        adoptFirstAspectAsEstimate: true,
         itemChromeHeight: itemChromeHeight.value,
         pageCount: options.pageCount.value,
         renderWidth: layoutWidth.value,
@@ -33,25 +30,82 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
         options.scheduleReaction(anchor);
     }
 
-    function updateAspectRatio(page: number, aspectRatio: number | null) {
+    /**
+     * Projects the document session's page metrics into the rail layout in
+     * one commit. The session is the only owner of page geometry; the rail
+     * used to learn aspects from its own renders, one page per commit, and
+     * the first opening of the sidebar showed every visible row growing in
+     * turn as its thumbnail arrived.
+     *
+     * Unmeasured pages take the most common known aspect. Adopting the first
+     * measured page instead pinned the estimate to the front matter, which
+     * mismatched the body of most books.
+     */
+    function applyPageMetrics(
+        pageMetrics: readonly IPdfPageMetric[],
+    ) {
         const anchor = options.captureAnchor();
-        if (page < 1 || page > options.pageCount.value) {
-            return;
+        const aspectCounts = new Map<number, {
+            aspect: number;
+            count: number
+        }>();
+        let changed = false;
+        forEachKnownPageMetric(pageMetrics, (metric, index) => {
+            const page = index + 1;
+            const aspect = metric.height / metric.width;
+            if (page > options.pageCount.value || !Number.isFinite(aspect) || aspect <= 0) {
+                return;
+            }
+            const aspectKey = Math.round(aspect * 1_000);
+            const counted = aspectCounts.get(aspectKey);
+            if (counted) {
+                counted.count += 1;
+            } else {
+                aspectCounts.set(aspectKey, {
+                    aspect,
+                    count: 1,
+                });
+            }
+            const known = layout.value.getExactPageAspect(page);
+            if (known !== undefined && Math.abs(known - aspect) < 0.001) {
+                return;
+            }
+            changed = layout.value.updatePageAspect(page, aspect) || changed;
+        });
+        let dominant: {
+            aspect: number;
+            count: number
+        } | null = null;
+        for (const entry of aspectCounts.values()) {
+            if (!dominant || entry.count > dominant.count) {
+                dominant = entry;
+            }
         }
-        if (aspectRatio === null) {
-            aspectRatios.value.delete(page);
-        } else {
-            aspectRatios.value.set(page, aspectRatio);
+        if (dominant && layout.value.setEstimatedAspectRatio(dominant.aspect)) {
+            changed = true;
         }
-        triggerRef(aspectRatios);
-        if (layout.value.updatePageAspect(page, aspectRatio)) {
+        if (changed) {
             commitLayoutReaction(anchor);
         }
     }
 
-    function clearAspectRatios() {
+    function hasExactAspects() {
+        void revision.value;
+        return layout.value.getExactAspectCount() > 0;
+    }
+
+    function getExactAspect(page: number) {
+        void revision.value;
+        return layout.value.getExactPageAspect(page);
+    }
+
+    function getAspect(page: number) {
+        void revision.value;
+        return layout.value.getPageAspect(page);
+    }
+
+    function resetDocumentLayout() {
         const anchor = options.captureAnchor();
-        aspectRatios.value = new Map();
         layout.value.resetDocument({
             itemChromeHeight: itemChromeHeight.value,
             pageCount: options.pageCount.value,
@@ -67,16 +121,6 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
         layoutWidth,
     ], () => {
         const anchor = options.captureAnchor();
-        let pruned = false;
-        for (const page of aspectRatios.value.keys()) {
-            if (page > options.pageCount.value) {
-                aspectRatios.value.delete(page);
-                pruned = true;
-            }
-        }
-        if (pruned) {
-            triggerRef(aspectRatios);
-        }
         layout.value.reset({
             itemChromeHeight: itemChromeHeight.value,
             pageCount: options.pageCount.value,
@@ -169,21 +213,23 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
 
     return {
         activeScrollSegmentIndex,
-        aspectRatios,
-        clearAspectRatios,
+        applyPageMetrics,
         contentHeight,
+        getAspect,
+        getExactAspect,
         getPageTop,
         getPageBounds,
         getMaxScrollTop,
         getViewport,
+        hasExactAspects,
         itemChromeHeight,
         layout,
         layoutWidth,
+        resetDocumentLayout,
         resolveInsertionIndex,
         resolvePageAtOffset,
         resolveScrollSegmentTransition,
         setActiveScrollSegment,
         setActiveScrollSegmentForPage,
-        updateAspectRatio,
     };
 };

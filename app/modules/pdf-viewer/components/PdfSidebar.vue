@@ -55,6 +55,7 @@
                     <PdfThumbnails
                         :pdf-document="pdfDocument"
                         :raster-scheduler="rasterScheduler"
+                        :page-geometry="pageGeometry"
                         :current-page="currentPage"
                         :total-pages="totalPages"
                         :page-labels="pageLabels"
@@ -156,6 +157,7 @@ import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/c
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
+import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 type TPageSelectionInput = number[] | TPageSelection;
 
@@ -165,6 +167,7 @@ interface IProps {
     isResizing?: boolean | undefined;
     pdfDocument: IPdfDocument | null;
     rasterScheduler: IPdfPageRasterScheduler | null;
+    pageGeometry?: IPdfThumbnailPageGeometry | null | undefined;
     currentPage: number;
     totalPages: number;
     pageLabels?: TDocumentPageLabelLookup | undefined;
@@ -238,6 +241,7 @@ const {
     isSearching,
     isTruncated = undefined,
     minQueryLength = undefined,
+    pageGeometry = undefined,
     pageLabelRanges = undefined,
     pageLabels = undefined,
     pdfDocument,

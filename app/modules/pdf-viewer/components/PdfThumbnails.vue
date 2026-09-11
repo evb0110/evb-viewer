@@ -145,6 +145,7 @@ const {
     invalidationRequest = undefined,
     isActive = true,
     isResizing = false,
+    pageGeometry = undefined,
     pageLabels = undefined,
     pdfDocument,
     rasterScheduler,
@@ -182,21 +183,23 @@ let getThumbnailRenderSummary = () => ({
 });
 const {
     activeScrollSegmentIndex: thumbnailScrollSegmentIndex,
-    aspectRatios: thumbnailAspectRatios,
-    clearAspectRatios: clearThumbnailAspectRatios,
+    applyPageMetrics: applyThumbnailPageMetrics,
     contentHeight: thumbnailContentHeight,
+    getAspect: getThumbnailAspectRatio,
+    getExactAspect: getExactThumbnailAspectRatio,
     getMaxScrollTop: getThumbnailMaxScrollTop,
     getPageBounds: getThumbnailPageBounds,
     getPageTop: getThumbnailTop,
     getViewport: getThumbnailViewport,
+    hasExactAspects: hasExactThumbnailAspects,
     itemChromeHeight: thumbnailItemChromeHeight,
     layout: thumbnailLayout,
     layoutWidth: thumbnailLayoutWidth,
+    resetDocumentLayout: resetThumbnailLayout,
     resolveInsertionIndex,
     resolvePageAtOffset: resolvePageAtScrollOffset,
     resolveScrollSegmentTransition,
     setActiveScrollSegmentForPage,
-    updateAspectRatio: updateThumbnailAspectRatio,
 } = usePdfThumbnailVirtualLayout({
     captureAnchor: captureThumbnailLayoutAnchor,
     pageCount: computed(() => totalPages),
@@ -246,6 +249,40 @@ const virtualWrapperStyle = computed(() => {
 
 watch(() => currentPage, page => {
     setActiveScrollSegmentForPage(page);
+}, {immediate: true});
+
+watch(() => pageGeometry?.version, () => {
+    if (pageGeometry) {
+        applyThumbnailPageMetrics(pageGeometry.metrics);
+    }
+}, {immediate: true});
+
+// The rail lays out pages the viewer may never have measured. Ask the
+// session for each contiguous run it still lacks; the session dedupes
+// in-flight loads, so repeated requests cost one array scan.
+watch([
+    virtualPages,
+    () => pageGeometry?.version,
+], ([pages]) => {
+    if (!pageGeometry) {
+        return;
+    }
+    let runStart: number | null = null;
+    let runEnd = 0;
+    for (const page of pages) {
+        if (getExactThumbnailAspectRatio(page) !== undefined) {
+            continue;
+        }
+        if (runStart !== null && page !== runEnd + 1) {
+            void pageGeometry.ensureRange(runStart, runEnd);
+            runStart = null;
+        }
+        runStart ??= page;
+        runEnd = page;
+    }
+    if (runStart !== null) {
+        void pageGeometry.ensureRange(runStart, runEnd);
+    }
 }, {immediate: true});
 function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
@@ -387,7 +424,7 @@ function isThumbnailPaneActive() {
 }
 function isThumbnailLayoutStabilizing() {
     return (
-        thumbnailAspectRatios.value.size === 0
+        !hasExactThumbnailAspects()
         || !thumbnailMeasurementDiagnostics.isReady()
         || !thumbnailRenderRuntime.hasRenderedThumbnails()
     );
@@ -793,14 +830,13 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         scheduleActivePaneRefresh,
     },
     layout: {
+        getThumbnailAspectRatio,
+        resetThumbnailLayout,
         resolveViewportAnchorPage,
         shouldPreferVisibleAnchorOverCurrentPage,
-        thumbnailAspectRatios,
         thumbnailLayoutWidth,
         thumbnailRenderWidth,
         viewportPages,
-        clearThumbnailAspectRatios,
-        updateThumbnailAspectRatio,
         virtualPages,
     },
     source: {

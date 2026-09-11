@@ -28,15 +28,14 @@ interface IPdfThumbnailRenderRuntimeVisuals {
 }
 
 interface IPdfThumbnailRenderRuntimeLayout {
-    clearThumbnailAspectRatios: () => void;
+    getThumbnailAspectRatio: (page: number) => number;
+    resetThumbnailLayout: () => void;
     shouldPreferVisibleAnchorOverCurrentPage: () => boolean;
     resolveViewportAnchorPage: () => number | null;
-    thumbnailAspectRatios: Ref<Map<number, number>>;
     thumbnailLayoutWidth: Ref<number>;
     thumbnailRenderWidth: Ref<number>;
     viewportPages: ComputedRef<number[]>;
     virtualPages: ComputedRef<number[]>;
-    updateThumbnailAspectRatio: (page: number, aspectRatio: number | null) => void;
 }
 
 interface IPdfThumbnailRenderRuntimeDom {
