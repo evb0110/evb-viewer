@@ -189,6 +189,28 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: document-scoped OCR recovery and resume
+
+This slot started from `36a46412a`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #436
+through page-selection supersession and resumable OCR manifest owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrSupersessionPageSelection.test.ts \
+  tests/unit/electron/ocrJobManifest.test.ts --reporter=dot
+
+2 files passed, 10 tests passed
+```
+
+The run covered million-page scalar selections, contiguous text probing,
+manifest recognition, partial re-OCR retention, stale-revision rejection,
+degraded visibility reporting, and resuming from the first unverified page.
+A packaged restart that recovers a completed OCR result across real process
+boundaries remains coordinator-owned evidence. No new OCR catalog, manifest,
+PDF, fixture, screenshot, or telemetry artifact was generated. Test-owned
+state was cleaned by the suites, and the worktree is clean.
+
 ## Follow-up slot: OCR generation and checkpoint budgets
 
 This slot started from `7a65c02d1`, the current
