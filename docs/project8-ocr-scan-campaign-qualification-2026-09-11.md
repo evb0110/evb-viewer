@@ -238,3 +238,27 @@ replacement with an independently rendered real-world PDF remains
 coordinator-owned evidence. No new fixture, PDF, screenshot, or telemetry
 artifact was generated. Temporary test paths were cleaned up by the existing
 suites.
+
+## Follow-up slot: bundled OCR model integrity
+
+This slot started from `6fad2304d`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #437
+and #509 through the bundled-model and resource-path owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrLanguageModels.test.ts \
+  tests/unit/electron/ocrResourceBase.test.ts \
+  tests/unit/electron/ocrPaths.test.ts \
+  tests/unit/electron/ocrWorkerPaths.test.ts --reporter=dot
+
+4 files passed, 31 tests passed
+```
+
+The run covered offline bundled-model restoration, concurrent seeding,
+same-size in-place mutation invalidation, incremental SHA-256 verification,
+aborted verification, and retryable offline download behavior. A real
+installed-model repair against a packaged application and a fresh process
+reopen remain coordinator-owned platform evidence. No new model, fixture,
+screenshot, or telemetry artifact was generated. Temporary model directories
+were test-owned and cleaned up by the existing suites.
