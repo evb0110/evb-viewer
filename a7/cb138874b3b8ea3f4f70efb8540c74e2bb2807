@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue
+  s_2d12541a55aa56::t_a5cfc9580762d3 790
+tests/integration/browser/annotationCommentRowScale.test.ts
+  s_2d12541a55aa56::t_4daf9182f827bd 246-250,258-274,279-282
+  s_2d12541a55aa56::t_168c85100e3ab0 251-257,275-278,283-286,288-290
+  s_2d12541a55aa56::t_ce86505a209f61 287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a7cb138874b3b8ea3f4f70efb8540c74e2bb2807",
+  "prompts": {},
+  "sessions": {
+    "s_2d12541a55aa56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a090d8-f721-77d2-913b-b39944de36dd",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
