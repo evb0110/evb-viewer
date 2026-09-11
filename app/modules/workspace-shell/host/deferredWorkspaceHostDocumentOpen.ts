@@ -480,6 +480,9 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             ) {
                 return false;
             }
+            if (sourceResult === false) {
+                return false;
+            }
             const reachedTerminalState = await waitForDocumentOpenTerminalState(
                 openHost,
                 transaction,
