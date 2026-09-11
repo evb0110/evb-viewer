@@ -1,0 +1,43 @@
+electron-builder.yml
+  s_1b452cdf36f007::t_860c3735bdf67b 9,43-44
+  s_1b452cdf36f007::t_ff391117280fba 10
+  s_1b452cdf36f007::t_3333166cc3993d 45
+  s_1b452cdf36f007::t_1d042611cdf380 23,46
+electron/image/pdfCombineShared.ts
+  s_1b452cdf36f007::t_ff391117280fba 542,544-552,617
+  s_1b452cdf36f007::t_cd8c9217c70347 107
+  s_1b452cdf36f007::t_4d53a868d0a2a0 106,108-117,433
+scripts/build-electron.mjs
+  s_1b452cdf36f007::t_ec26c80c707a7e 8-11,14-17,192-209
+  s_1b452cdf36f007::t_99c09e44e8a29e 177
+  s_1b452cdf36f007::t_860c3735bdf67b 4,173-174,176,179,188-191,210-212
+  s_1b452cdf36f007::t_82af5aa714f943 182-183
+  s_1b452cdf36f007::t_90c0f4567003e8 175
+  s_1b452cdf36f007::t_1d042611cdf380 178,184,186-187
+  s_1b452cdf36f007::t_b5a3bb0fac9b33 180-181,185
+  s_1b452cdf36f007::t_73f192a91cc239 13
+scripts/check-electron-builder-asar-unpack.mjs
+  s_1b452cdf36f007::t_cd8c9217c70347 12
+scripts/release/assert-packaged-app-contents.mjs
+  s_1b452cdf36f007::t_b5a3bb0fac9b33 66
+package.json
+  s_1b452cdf36f007::t_860c3735bdf67b 160
+pnpm-lock.yaml
+  s_1b452cdf36f007::t_8b8d8df96278df 108-110,1597-1602,1609-1614,1621-1626,1633-1638,1646-1652,1660-1666,1674-1680,1688-1694,1702-1708,1715-1720,1727-1732,1737-1740,10465-10467,10471-10473,10477-10479,10483-10485,10489-10491,10495-10497,10501-10503,10507-10509,10513-10515,10519-10521,10525-10527,10542-10556,17562
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "26fae74da7d2cc35960b8e0357a82e719a2bcd63",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
