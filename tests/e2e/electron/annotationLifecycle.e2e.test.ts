@@ -489,24 +489,31 @@ async function releaseManagedImageHandle(page: Page, leaseId: string) {
 
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
-    let actualDirty = await page.evaluate(() => (
-        document.querySelector<HTMLElement>('.tab.is-active')?.classList.contains('is-dirty') ?? false
-    ));
+    const readDirtyState = async () => {
+        const workspaceDirty = await readWorkspaceStateValues<{dirtyState?: {
+            fileDirty?: boolean;
+            hasAnnotationChanges?: boolean;
+            hasPendingUnsavedChanges?: boolean;
+            pageLabelsDirty?: boolean;
+        };}>(page, ['dirtyState']);
+        return Boolean(
+            workspaceDirty.dirtyState?.fileDirty
+            || workspaceDirty.dirtyState?.hasAnnotationChanges
+            || workspaceDirty.dirtyState?.hasPendingUnsavedChanges
+            || workspaceDirty.dirtyState?.pageLabelsDirty,
+        );
+    };
+    let actualDirty = await readDirtyState();
     while (Date.now() - startedAt < 10_000) {
         if (actualDirty === expectedDirty) {
             return;
         }
         await delay(100);
-        actualDirty = await page.evaluate(() => (
-            document.querySelector<HTMLElement>('.tab.is-active')?.classList.contains('is-dirty') ?? false
-        ));
+        actualDirty = await readDirtyState();
     }
     const debugState = await page.evaluate(() => {
         const api = (window as Window & { __evbTestApi?: { collectWorkspaceDebugState?: () => unknown; }; }).__evbTestApi;
-        return {
-            activeTabClassName: document.querySelector<HTMLElement>('.tab.is-active')?.className ?? null,
-            workspace: api?.collectWorkspaceDebugState?.() ?? null,
-        };
+        return {workspace: api?.collectWorkspaceDebugState?.() ?? null};
     });
     throw new Error(`Expected active tab dirty=${expectedDirty}, got ${actualDirty}; debug=${JSON.stringify(debugState)}`);
 }
@@ -2415,6 +2422,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         if (!created.markerRect) {
             throw new Error(`Created canonical note has no marker rectangle: ${JSON.stringify(created)}`);
         }
+        const initialNoteEditorCount = await getFreeTextEditorCount(page);
         await clickAnnotationTool(page, 'Select');
         const clearSelectionPoint = await page.evaluate(() => {
             const pageElement = document.querySelector<HTMLElement>('.page_container--rendered');
@@ -2507,6 +2515,16 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // The native `/Text` writer expands the in-memory point marker to its
         // 20-point icon rectangle. Its normalized anchor remains stable.
         expectMarkerAnchorClose(reopened.markerRect, moved.markerRect);
+        const secondEditText = `${editedText} second`;
+        const secondEdited = await editCanonicalNoteText(page, editedText, secondEditText);
+        expect(secondEdited.stableKey).toBe(reopened.stableKey);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        const secondSaveEvent = await saveViaVisibleToolbar(page, 30_000);
+        expect(realpathSync(String(secondSaveEvent.detail.path))).toBe(realpathSync(reopenPath));
+        const secondSavedNotes = await readPdfTextAnnotationRecords(reopenPath);
+        expect(secondSavedNotes.filter(note => note.contents === secondEditText)).toEqual([expect.objectContaining({subtype: '/Text'})]);
+        expect(await getFreeTextEditorCount(page)).toBe(initialNoteEditorCount);
     }, 90_000);
 
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {
