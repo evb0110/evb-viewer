@@ -94,3 +94,41 @@ settled. Gate evidence is retained at
 This proves the current search-match scrolling path with the native search
 tool. It does not prove all four rotated OCR overlay orientations, CropBox
 projection, or native annotation save. Those remain separate gaps.
+
+## V5b follow-up acceptance
+
+The next native viewer acceptance was attempted from integration context
+`61981ea3d` with:
+
+```text
+pnpm run build:native:e2e
+pnpm run build:electron
+EVB_PDF_PAGE_OPS_ENABLE=1 EVB_PDF_SEARCH_ENABLE=1 \
+  pnpm exec vitest run --project e2e-regression \
+  tests/e2e/electron/viewerSmoke.e2e.test.ts \
+  -t 'searches deterministic late-page native DjVu text through the common sidebar with visible result geometry' \
+  --reporter verbose
+```
+
+The native build passed and Electron reached a ready session. The test then
+failed before search began because `openDocumentSidebarTab` timed out after
+30 seconds waiting for the common sidebar tab to become active. The first
+failure is retained in
+`.devkit/sessions/e2e-run-mtx9783h-86772a-djvu-viewer-smoke-1789149152269/session.log`.
+This is a renderer/sidebar acceptance gap, not a native build or Electron
+startup failure.
+
+The disjoint fallback passed on the same current integration context:
+
+```text
+pnpm exec vitest run --project unit-app --project unit-electron \
+  tests/unit/app/composables/pdfWordBoxGeometry.test.ts \
+  tests/unit/app/composables/pdfSearchMatchScroller.test.ts \
+  tests/unit/app/modules/pdf-viewer/composables/usePdfTextLayerRenderer.test.ts \
+  tests/unit/app/modules/pdf-viewer/components/annotationGeometryRendering.test.ts \
+  tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts \
+  tests/unit/electron/searchMatch.test.ts --reporter=dot
+```
+
+Result: 6 files passed, 96 tests passed. The fallback does not hide or replace
+the failed real viewer acceptance.
