@@ -189,6 +189,27 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: persisted scan-settings normalization
+
+This slot started from `f2b30e8b4`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #445
+through the Electron settings-store owner:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/scanCleanupSettingsStore.test.ts --reporter=dot
+
+1 file passed, 15 tests passed
+```
+
+The run covered atomic replacement, concurrent global-patch merging, malformed
+and future-schema handling, pre-ink migration, legacy SHA-256 document-key
+merging, page-override resets, oversized legacy envelopes, and expiration
+while preserving recent entries. A packaged upgrade using real user settings
+remains coordinator-owned evidence. No new settings file, fixture,
+screenshot, or telemetry artifact was generated. Test-owned files were
+cleaned by the suite, and the worktree is clean.
+
 ## Follow-up slot: full-document raster budgeting
 
 This slot started from `e9f082ae5`, the current
