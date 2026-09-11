@@ -259,7 +259,6 @@ function assertArtifactCanaryGreen(upstream, runCommand) {
     }
 }
 
-/** @param {{headSha: string, runCommand: TCommandRunner, findCiRunFn: TFindCiRun, waitForCiFn: TWaitForCi}} options */
 /**
  * The newest commit on main whose own push CI run succeeded with a green
  * gates_ok aggregate. This is what the release is built from. Main itself

@@ -554,33 +554,6 @@ export function getReleaseMainUpstream(context = 'Release', {
 }
 
 /** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner}} [options] */
-export function assertReleaseMainTip(upstream, {runCommand = run} = {}) {
-    fetchReleaseMain(upstream, {runCommand});
-
-    const headSha = runCommand('git', [
-        'rev-parse',
-        'HEAD',
-    ]);
-    const upstreamSha = runCommand('git', [
-        'rev-parse',
-        upstream.ref,
-    ]);
-
-    if (headSha !== upstreamSha) {
-        throw new Error(
-            `Release requires HEAD to equal ${upstream.ref} after fetching. `
-            + `HEAD is ${headSha}; ${upstream.ref} is ${upstreamSha}. `
-            + `Run \`git fetch ${upstream.remote} ${upstream.branch}\`, reconcile the divergence, and retry.`,
-        );
-    }
-
-    return {
-        headSha,
-        upstreamSha,
-    };
-}
-
-/** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner}} [options] */
 export function fetchReleaseMain(upstream, {runCommand = run} = {}) {
     runCommand('git', [
         'fetch',
