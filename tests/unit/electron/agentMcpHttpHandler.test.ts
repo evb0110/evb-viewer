@@ -15,7 +15,10 @@ import type {
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
+import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import type { IProcessMcpRequestOptions } from '@electron/features/agent/mcp/mcpServerCore';
+import {requireTabId} from '@contracts/windowTabs';
 
 const servers: Server[] = [];
 
@@ -252,6 +255,75 @@ describe('createHttpHandler', () => {
 
         await expect(response).rejects.toThrow();
         await vi.waitFor(() => expect(receivedSignal?.aborted).toBe(true));
+    });
+
+    it('cancels a captured embedded request before its document operation starts', async () => {
+        const started = Promise.withResolvers<undefined>();
+        const binding: IAssistantSessionScopeBinding = {
+            sessionKey: 'codex:document-a',
+            scopeKey: 'document-a',
+            provider: 'codex',
+            turnGeneration: 4,
+            windowId: 7,
+            tabId: requireTabId('tab-a'),
+            documentRef: null,
+            documentIdentity: null,
+        };
+        const activeRequestControllers = new Map<AbortController, IAssistantSessionScopeBinding | null>();
+        let receivedSignal: AbortSignal | undefined;
+        let operationStarted = false;
+        const options = createOptions();
+        options.getWorkspaceSnapshot = vi.fn().mockResolvedValue({
+            activeTabId: 'tab-1',
+            tabs: [{
+                tabId: 'tab-1',
+                kind: 'pdf',
+                fileName: 'test.pdf',
+                originalPath: '/tmp/test.pdf',
+                currentPage: 1,
+                totalPages: 1,
+            }],
+        });
+        options.inspectDocumentText = vi.fn().mockImplementation(async (
+            _input,
+            _windowId,
+            signal: AbortSignal | undefined,
+        ) => {
+            receivedSignal = signal;
+            started.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+            });
+            operationStarted = true;
+            return {};
+        });
+        const url = await listen(createHttpHandler(options, {
+            bearerToken: 'secret',
+            activeRequestControllers,
+            getRequestContext: () => binding,
+        }));
+        const request = fetch(url, {
+            method: 'POST',
+            headers: {Authorization: 'Bearer secret'},
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'evb_inspect_document_text',
+                    arguments: {tabId: 'tab-1'},
+                },
+            }),
+        });
+
+        await started.promise;
+        expect(abortAssistantToolRequestsForBinding(activeRequestControllers, binding, 'Reset canceled the request')).toBe(1);
+        const response = await request;
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({result: {isError: true}});
+        expect(receivedSignal?.aborted).toBe(true);
+        expect(operationStarted).toBe(false);
+        expect(activeRequestControllers).toHaveLength(0);
     });
 
     it('rejects browser-origin requests unless explicitly allowed', async () => {
