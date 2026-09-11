@@ -1,0 +1,21 @@
+tests/unit/app/modules/pdf-viewer/components/annotationGeometryRendering.test.ts
+  s_e95abd168e6adf::t_7ea52f62e5c629 27,34,307,314-331,340-350,355-367
+  s_e95abd168e6adf::t_bcc2a43b394c9c 308-313,332-339,351-354
+  s_e95abd168e6adf::t_920b632b44b526 368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "49f6dfd12e95370a2b95a5aa4cae24aef32f5324",
+  "prompts": {},
+  "sessions": {
+    "s_e95abd168e6adf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-fee0-7150-a974-1706aae47b66",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
