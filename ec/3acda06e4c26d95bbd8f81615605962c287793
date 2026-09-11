@@ -1,0 +1,19 @@
+native/pdf-page-ops/src/incremental_document.rs
+  s_373ce6c8bbe11e::t_38183a7ca97a7f 22-23,139-145,1230-1233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ec3acda06e4c26d95bbd8f81615605962c287793",
+  "prompts": {},
+  "sessions": {
+    "s_373ce6c8bbe11e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09138-55a0-7352-bbf8-7af1e0a32c1e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
