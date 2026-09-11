@@ -18,7 +18,7 @@ const TRANSIENT_GITHUB_CLI_ERROR_PATTERNS = [
     /504 Gateway Timeout/i,
 ];
 
-/** @typedef {{createdAt?: string, databaseId?: number, displayTitle?: string, headSha?: string, status?: string, conclusion?: string | null, url: string}} IWorkflowRun */
+/** @typedef {{createdAt?: string, databaseId?: number, displayTitle?: string, headBranch?: string, headSha?: string, status?: string, conclusion?: string | null, url: string}} IWorkflowRun */
 /** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
 /** @typedef {{write: (chunk: string) => unknown}} IWritable */
 /** @typedef {{createdAfter?: string, displayTitles?: string[], runCommand?: TCommandRunner, targetSha?: string, workflow: string}} IFindWorkflowRunOptions */

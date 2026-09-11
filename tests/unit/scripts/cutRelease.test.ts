@@ -24,6 +24,7 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
     const events: string[] = [];
 
     return {
+        assertArtifactCanaryGreenFn: () => events.push('canary'),
         assertCleanWorktreeFn: () => events.push('clean'),
         assertCurrentReleaseIsNotDraftFn: (tag: string) => events.push(`draft:${tag}`),
         assertGitHubCliReadyFn: async () => {
@@ -79,7 +80,7 @@ describe('cut-release', () => {
         ])).toThrow(/Unknown release option/u);
     });
 
-    it('checks the fetched main tip, CI, current release, and next tag before bumping', async () => {
+    it('checks the fetched main tip, CI, canary, current release, and next tag before bumping', async () => {
         const options = createPreconditionOptions();
         const result = await assertReleaseCutPreconditions(options);
 
@@ -96,9 +97,32 @@ describe('cut-release', () => {
             'tip',
             'ancestor-version',
             `wait:${HEAD_SHA}`,
+            'canary',
             'draft:v0.1.445',
             'tag:v0.1.446',
         ]);
+    });
+
+    it('refuses a red artifact canary on main with its URL', async () => {
+        const options = createPreconditionOptions({
+            assertArtifactCanaryGreenFn: undefined,
+            runCommand: () => JSON.stringify([{
+                conclusion: 'failure',
+                createdAt: '2026-09-10T08:54:36Z',
+                databaseId: 7,
+                displayTitle: 'Build Release Artifacts',
+                event: 'schedule',
+                headBranch: 'main',
+                headSha: PARENT_SHA,
+                name: 'Build Release Artifacts',
+                status: 'completed',
+                url: 'https://github.com/example/canary/runs/7',
+                workflowName: 'Build Release Artifacts',
+            }]),
+        });
+
+        await expect(assertReleaseCutPreconditions(options))
+            .rejects.toThrow(/release:artifacts.*https:\/\/github\.com\/example\/canary\/runs\/7/u);
     });
 
     it('waits for the push run when HEAD has none yet', async () => {

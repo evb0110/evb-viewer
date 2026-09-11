@@ -62,6 +62,9 @@ The original package remains unchanged. The automation copy has modified
 launch metadata, so report original artifact identity and copied launch path
 separately. A hidden copy tests packaged application behavior. It does not prove
 the original signature, Gatekeeper startup, Dock registration, or activation.
+The `LSUIElement` edit breaks a Developer ID seal and macOS kills such an app
+about two seconds after launch, so the preparer re-signs the copy ad hoc without
+the hardened runtime; the original bundle is never touched.
 
 ## Visible acceptance and ownership
 

@@ -105,7 +105,9 @@ async function collectWasmIdentityViolations(asarPath, asar) {
         const entry = `nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`;
         let bytes;
         try {
-            bytes = asar.extractFile(asarPath, entry);
+            // @electron/asar resolves entries with the host separator, so a POSIX path
+            // never matches inside the archive on Windows.
+            bytes = asar.extractFile(asarPath, entry.split('/').join(path.sep));
         } catch {
             problems.push(`cannot extract packaged WASM artifact: ${entry}`);
             continue;

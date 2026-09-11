@@ -14,6 +14,7 @@ Before changing `package.json`, the cutter checks the following.
 
 - The checkout is clean, the branch is `main`, and `HEAD` equals freshly fetched `origin/main`.
 - `ci.yml` passed for that exact `HEAD`. A running check is awaited. Every push to `main` runs `ci.yml`, so a `HEAD` without a run is one whose run has not appeared yet; the cutter waits up to a minute for it.
+- The latest artifact canary run (`release-artifacts.yml`) on `main` succeeded. Push CI proves packaging on Linux only; the canary is the macOS and Windows proof, and a red one means the release would fail at the same platform step.
 - The current-version GitHub release is not a draft, and the next tag does not exist.
 
 The cutter then writes only the new package version and creates `release: <version> [skip ci]`. The commit is pushed, the cutter pushes the lightweight tag `vX.Y.Z` at that commit, and `release.yml` is dispatched with that commit SHA. The command stops after the workflow appears and prints the run and release links.
@@ -38,7 +39,7 @@ A release run must never be the first execution of one of its own checks. Three 
 - The artifact canary (`release-artifacts.yml`) packages the current `main` tip on every platform once a day when `main` changed in the last 24 hours. It covers drift the path filter does not catch.
 - The dependency audit runs daily in `dependency-audit.yml`, never on push CI or the release path. It maintains one open issue labelled `dependency-audit`. An advisory published five minutes ago is not a reason to stop a cut; fix it as ordinary dependency work.
 
-Windows-, macOS-, and signing-specific steps still run first during the release. When one of them fails on a code or verifier change, fix it, push, wait for green CI, and cut again.
+Windows-, macOS-, and signing-specific steps run in the canary and in the release. When one of them fails on a code or verifier change, fix it, push, run `pnpm run release:artifacts` from the fixed `main` tip, and cut once that canary run is green. The cutter refuses a red or running canary, so a platform break can no longer ride into a release unnoticed.
 
 ## Check a release
 

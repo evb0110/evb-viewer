@@ -9,6 +9,7 @@ import {
 import {
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
+    listWorkflowRuns,
     readWorkflowStartTimeoutMs,
     waitForWorkflowRunStart,
 } from './github-workflow-run.mjs';
@@ -38,6 +39,7 @@ import {
 } from './shared.mjs';
 
 const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
+const ARTIFACT_CANARY_WORKFLOW_FILE = 'release-artifacts.yml';
 
 /** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
 /** @typedef {{branch: string, ref: string, remote: string}} IUpstream */
@@ -55,6 +57,7 @@ const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
 /** @typedef {{dispatchWorkflow?: (dispatch: IReleaseDispatch, runCommand: TCommandRunner) => void, printHandoff?: (handoff: IReleaseHandoff) => Promise<void>, push?: boolean, pushReleaseTag?: typeof pushReleaseTag, runCommand?: TCommandRunner}} IPublishReleaseOptions */
 /** @typedef {{nowFn?: () => number, readHandoffTimeoutMs?: () => number, sleepFn?: (milliseconds: number) => Promise<void>, stdout?: IWritable, waitForRun?: typeof waitForWorkflowRunStart}} IReleaseHandoffOptions */
 /** @typedef {{
+ *   assertArtifactCanaryGreenFn?: (upstream: IUpstream) => void,
  *   assertChangedFilesMatchFn?: (expectedFiles: string[], options?: object) => void,
  *   assertCleanWorktreeFn?: (options: {ignoredPathPrefixes: string[]}) => void,
  *   assertCurrentReleaseIsNotDraftFn?: (tag: string) => void,
@@ -218,6 +221,35 @@ function assertCurrentReleaseIsNotDraft(tag, runCommand) {
     }
 }
 
+/**
+ * Push CI proves packaging on Linux only. The artifact canary builds the same
+ * macOS and Windows matrix the release runs, so a red canary means the next
+ * release fails at that platform step; refuse the cut here instead.
+ */
+/** @param {IUpstream} upstream @param {TCommandRunner} runCommand */
+function assertArtifactCanaryGreen(upstream, runCommand) {
+    const latest = listWorkflowRuns(ARTIFACT_CANARY_WORKFLOW_FILE, {runCommand})
+        .find(runInfo => runInfo.headBranch === upstream.branch);
+    if (!latest) {
+        return;
+    }
+    const target = latest.headSha ?? 'an unknown commit';
+    if (latest.status !== 'completed') {
+        throw new Error(
+            `The artifact canary (${ARTIFACT_CANARY_WORKFLOW_FILE}) is still running for ${target}. `
+            + `Wait for it and cut again. Inspect: ${latest.url}`,
+        );
+    }
+    if (latest.conclusion !== 'success') {
+        throw new Error(
+            `The latest artifact canary (${ARTIFACT_CANARY_WORKFLOW_FILE}) concluded `
+            + `'${latest.conclusion}' for ${target}. The release builds the same platform matrix, `
+            + 'so fix the cause, push, run `pnpm run release:artifacts` from the fixed main tip, '
+            + `and cut once it passes. Inspect: ${latest.url}`,
+        );
+    }
+}
+
 /** @param {{headSha: string, runCommand: TCommandRunner, findCiRunFn: TFindCiRun, waitForCiFn: TWaitForCi}} options */
 async function assertHeadCiGreen({
     headSha,
@@ -287,6 +319,9 @@ export async function assertReleaseCutPreconditions(options = {}) {
     const assertCurrentReleaseIsNotDraftFn = options.assertCurrentReleaseIsNotDraftFn ?? (
         tag => assertCurrentReleaseIsNotDraft(tag, runCommand)
     );
+    const assertArtifactCanaryGreenFn = options.assertArtifactCanaryGreenFn ?? (
+        upstream => assertArtifactCanaryGreen(upstream, runCommand)
+    );
     const readVersionFn = options.readVersionFn ?? readVersion;
     const assertVersionNotBehindAncestorFn = options.assertVersionNotBehindAncestorFn ?? (
         (version, sha, ancestorOptions) => assertVersionNotBehindAncestorRelease(version, sha, ancestorOptions)
@@ -310,6 +345,7 @@ export async function assertReleaseCutPreconditions(options = {}) {
         runCommand,
         waitForCiFn,
     });
+    assertArtifactCanaryGreenFn(upstream);
     const nextVersion = bumpVersion(currentVersion, options.level ?? 'patch');
     const nextTag = `v${nextVersion}`;
 
