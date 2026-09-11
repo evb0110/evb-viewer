@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `61981ea3` (`origin/project8/integration`)
+Reviewed source: `fc251b85` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -30,9 +30,9 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34629814457` for `61981ea3`. It was pending
-when this receipt was written. No terminal current-tip hosted result is
-claimed.
+The current integration CI run is `34629913242` for `fc251b85`. It was in
+progress when this receipt was written. No terminal current-tip hosted result
+is claimed.
 
 ## Source disposition
 
