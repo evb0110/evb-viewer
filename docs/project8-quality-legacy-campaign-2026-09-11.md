@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `36a46412` (`origin/project8/integration`)
+Reviewed source: `ac338329` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -38,10 +38,9 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34636313258` for `36a46412`. It is pending
+The current integration CI run is `34636913052` for `ac338329`. It is pending
 at receipt time, so no current-tip hosted pass is claimed. The prior run
-`34636023855` remains in progress, while runs `34635826575` and `34635733990`
-were cancelled before acceptance. The separate
+`34636623709` remains in progress without a terminal result. The separate
 configured publish-chain
 drill is terminal-successful in run `34630569082`; no terminal current-tip
 release artifact digest is claimed here.
@@ -50,9 +49,9 @@ release artifact digest is claimed here.
 
 The 60 supplemental recommendations remain accounted for with explicit
 dispositions, linked owners or follow-ups, and reasons for no action. This
-receipt updates only the dated CI evidence: run `34636313258` is pending for
-integration tip `36a46412`, while run `34635826575` was cancelled before
-acceptance. No supplemental implementation issue was
+receipt updates only the dated CI evidence: run `34636913052` is pending for
+integration tip `ac338329`, while run `34636623709` remains active without
+terminal acceptance. No supplemental implementation issue was
 duplicated, and no issue or tracker state was changed.
 
 The #566 operations/release register therefore remains open for the exact
