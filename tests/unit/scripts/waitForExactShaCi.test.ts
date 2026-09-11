@@ -8,6 +8,7 @@ import {
     EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS,
     EXACT_SHA_CI_COMPLETION_TIMEOUT_MS,
     findLatestMatchingRun,
+    listSuccessfulMainPushRuns,
     waitForExactShaCiGates,
 } from '@scripts/release/wait-for-exact-sha-ci.mjs';
 
@@ -15,8 +16,6 @@ const TARGET_SHA = 'a'.repeat(40);
 const PARENT_SHA = 'b'.repeat(40);
 const RUN_URL = 'https://github.com/evb0110/evb-viewer/actions/runs/424242';
 const PARENT_RUN_URL = 'https://github.com/evb0110/evb-viewer/actions/runs/313131';
-const NEWER_SHA = 'c'.repeat(40);
-const NEWER_RUN_URL = 'https://github.com/evb0110/evb-viewer/actions/runs/535353';
 // The stale budget that failed release run 32691744074 three seconds before
 // its gates_ok completed (issue #109). The regression scenario below crosses
 // it deliberately.
@@ -39,9 +38,18 @@ function createHarness(timeline: (elapsedMs: number) => IScriptedMinute) {
     const sleepFn = async (ms?: number) => {
         now += ms ?? 0;
     };
-    const runCommand = (_command: string, args: string[]) => {
+    const runCommand = (command: string, args: string[]) => {
         const spec = args.join(' ');
         const frame = timeline(now);
+        if (command === 'git' && spec.includes('rev-parse --verify --quiet')) {
+            return PARENT_SHA;
+        }
+        if (command === 'git' && spec.includes('diff --numstat')) {
+            return '5\t5\tsrc/feature.ts\n';
+        }
+        if (command === 'git' && spec.includes('fetch --depth=2')) {
+            return '';
+        }
         if (spec.includes('/runs?head_sha=')) {
             pollTimes.push(now);
             if (frame.status === 'absent') {
@@ -72,18 +80,11 @@ function createHarness(timeline: (elapsedMs: number) => IScriptedMinute) {
     };
 }
 
-interface ISupersedingRun {
-    conclusion?: string | null;
-    containsParent?: boolean;
-    status?: string;
-}
-
 function createParentVerificationHarness({
     parentEvent = 'push',
     parentGates = 'success',
     parentStatus = 'completed',
     parentConclusion = 'success',
-    supersedingRun = null as ISupersedingRun | null,
     numstat = '1\t1\tpackage.json\n',
     diff = [
         'diff --git a/package.json b/package.json',
@@ -118,23 +119,6 @@ function createParentVerificationHarness({
                     status: parentStatus,
                 }].filter(() => !parentRunMissing)});
             }
-        }
-        if (command === 'gh' && spec.includes('/runs?branch=main&event=push')) {
-            return JSON.stringify({workflow_runs: supersedingRun
-                ? [{
-                    conclusion: supersedingRun.conclusion ?? 'success',
-                    event: 'push',
-                    head_branch: 'main',
-                    head_sha: NEWER_SHA,
-                    html_url: NEWER_RUN_URL,
-                    id: 535353,
-                    run_number: 8,
-                    status: supersedingRun.status ?? 'completed',
-                }]
-                : []});
-        }
-        if (command === 'gh' && spec.includes(`/compare/${PARENT_SHA}...${NEWER_SHA}`)) {
-            return supersedingRun?.containsParent === false ? 'diverged' : 'ahead';
         }
         if (command === 'gh' && spec.includes('/jobs?per_page=100')) {
             return parentGates;
@@ -255,50 +239,61 @@ describe('waitForExactShaCiGates', () => {
         })).rejects.toThrow(/parent.*did not contain a successful gates_ok/u);
     });
 
-    it('accepts a cancelled parent through the newer green run that contains it', async () => {
-        const harness = createParentVerificationHarness({
-            parentConclusion: 'cancelled',
-            supersedingRun: {},
-        });
+    it('rejects a cancelled parent and names the rerun that would give it a verdict', async () => {
+        const harness = createParentVerificationHarness({parentConclusion: 'cancelled'});
 
         await expect(waitForExactShaCiGates(TARGET_SHA, {
             ...harness,
             appearanceTimeoutMs: 0,
-        })).resolves.toEqual({
-            id: 535353,
-            parentSha: PARENT_SHA,
-            supersededBy: NEWER_SHA,
-            url: NEWER_RUN_URL,
+        })).rejects.toThrow(/concluded 'cancelled'.*gh run rerun 313131/u);
+    });
+
+    it('judges a version-only release commit by its parent at once, without polling for its own run', async () => {
+        const harness = createParentVerificationHarness();
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).resolves.toMatchObject({
+            id: 313131,
             verifiedByParent: true,
         });
-        expect(harness.commands.some(command => command.includes(`/compare/${PARENT_SHA}...${NEWER_SHA}`))).toBe(true);
+        expect(harness.commands.some(command => command.includes(`head_sha=${TARGET_SHA}`))).toBe(false);
+        expect(harness.nowFn()).toBe(0);
     });
 
-    it('rejects a cancelled parent whose newer run is still running, naming the rerun path', async () => {
-        const harness = createParentVerificationHarness({
-            parentConclusion: 'cancelled',
-            supersedingRun: {
-                conclusion: null,
-                status: 'in_progress',
-            },
+    it('lists successful main push runs newest first from the conclusion-filtered query', () => {
+        const runs = listSuccessfulMainPushRuns((_command: string, args: string[]) => {
+            expect(args.join(' ')).toContain('runs?branch=main&event=push&status=success&per_page=30');
+            return JSON.stringify({workflow_runs: [
+                {
+                    conclusion: 'success',
+                    event: 'push',
+                    head_branch: 'main',
+                    head_sha: PARENT_SHA,
+                    id: 1,
+                    run_number: 5,
+                },
+                {
+                    conclusion: 'success',
+                    event: 'workflow_dispatch',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 2,
+                    run_number: 7,
+                },
+                {
+                    conclusion: 'success',
+                    event: 'push',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 3,
+                    run_number: 6,
+                },
+            ]});
         });
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(/superseding run 535353 .*is still in_progress.*gh run rerun 313131/u);
-    });
-
-    it('rejects a cancelled parent when no newer run contains it', async () => {
-        const harness = createParentVerificationHarness({
-            parentConclusion: 'cancelled',
-            supersedingRun: {containsParent: false},
-        });
-
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(/was cancelled and no newer main push run contains it/u);
+        expect(runs.map(runInfo => runInfo.id)).toEqual([
+            3,
+            1,
+        ]);
     });
 
     it('stops when the exact target run was cancelled', async () => {

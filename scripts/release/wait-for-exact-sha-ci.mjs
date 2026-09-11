@@ -24,9 +24,8 @@ import {
 /** @typedef {{write: (chunk: string) => unknown}} IWritable */
 /** @typedef {{appearanceTimeoutMs?: number | undefined, completionTimeoutMs?: number | undefined, pollIntervalMs?: number | undefined, nowFn?: (() => number) | undefined, sleepFn?: (milliseconds: number) => Promise<unknown>, runCommand?: TCommandRunner | undefined, stderr?: IWritable | undefined}} IWaitOptions */
 
-// Release commits use [skip ci], so the target may have no push run. The
-// short window leaves enough time for an ordinary run to appear before the
-// verified-by-parent path takes over.
+// A target that is not a version-only release commit must have its own push
+// run; this window covers the API lag between a push and its run listing.
 export const EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS = 60_000;
 // Must cover the slowest blocking CI job's declared timeout (currently 60
 // minutes) plus runner queueing and the gates_ok aggregation tail.
@@ -83,43 +82,25 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
 }
 
 /**
- * A cancelled main push run (stopped by hand, or by a concurrency policy)
- * is not a verdict, so the newer run that contains the commit stands in for
- * it. Returns the newest later main push run whose head contains targetSha,
- * or null.
+ * Successful ci.yml push runs on main, newest first. The release cutter
+ * walks this list to find the newest verified commit; `status=success` is
+ * the API's conclusion filter, so cancelled and failed runs never appear.
  */
-/** @param {string} targetSha @param {IWorkflowRun} cancelledRun @param {TCommandRunner} [runCommand] @returns {IWorkflowRun | null} */
-export function findSupersedingRun(targetSha, cancelledRun, runCommand = defaultCommandRunner) {
+/** @param {TCommandRunner} [runCommand] @param {number} [limit] @returns {IWorkflowRun[]} */
+export function listSuccessfulMainPushRuns(runCommand = defaultCommandRunner, limit = 30) {
     const payload = runCommand('gh', [
         'api',
         '-H',
         'Accept: application/vnd.github+json',
-        'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=20',
+        `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=${limit}`,
     ]);
     const workflowRuns = JSON.parse(payload)?.workflow_runs;
     if (!Array.isArray(workflowRuns)) {
-        return null;
+        throw new Error('Unexpected GitHub API response while listing successful main push runs');
     }
-    const candidates = workflowRuns
-        .filter(runInfo => isMainPushRun(runInfo)
-            && runInfo.head_sha !== targetSha
-            && (runInfo.run_number ?? 0) > (cancelledRun.run_number ?? 0))
+    return workflowRuns
+        .filter(runInfo => isMainPushRun(runInfo) && runInfo.conclusion === 'success')
         .sort((left, right) => (right.run_number ?? 0) - (left.run_number ?? 0));
-    for (const candidate of candidates) {
-        // "ahead" means the candidate head descends from the target.
-        const status = runCommand('gh', [
-            'api',
-            '-H',
-            'Accept: application/vnd.github+json',
-            `repos/{owner}/{repo}/compare/${targetSha}...${candidate.head_sha}`,
-            '--jq',
-            '.status',
-        ]).trim();
-        if (status === 'ahead') {
-            return candidate;
-        }
-    }
-    return null;
 }
 
 /** @param {number} runId @param {TCommandRunner} [runCommand] @returns {string | undefined} */
@@ -140,14 +121,14 @@ function describeRun(runInfo) {
     return `run ${runInfo.id} (${runInfo.html_url ?? 'no url'})`;
 }
 
-/** @param {string} targetSha @param {unknown} error @returns {string} */
-function describeParentVerificationFailure(targetSha, error) {
-    return `No accepted CI run appeared for exact target ${targetSha} within 1 minute; verified-by-parent acceptance failed: ${
-        getCliErrorMessage(error)}`;
-}
-
-/** @param {string} targetSha @param {TCommandRunner} runCommand @returns {{id: number, parentSha: string, url: string, verifiedByParent: true}} */
-function verifyByParent(targetSha, runCommand) {
+/**
+ * A release commit changes only the package.json version line over a parent
+ * on main and carries [skip ci], so it never has a push run of its own. Its
+ * verdict is the parent's push run. Returns the parent SHA when the target
+ * is such a commit, null when the target has to prove itself.
+ */
+/** @param {string} targetSha @param {TCommandRunner} runCommand @returns {string | null} */
+function readVersionOnlyParent(targetSha, runCommand) {
     let parentSha;
     try {
         parentSha = getCommitParentSha(targetSha, {runCommand});
@@ -158,13 +139,11 @@ function verifyByParent(targetSha, runCommand) {
         );
     }
 
-    if (!isVersionOnlyPackageCommit(parentSha, targetSha, {runCommand})) {
-        throw new Error(
-            `Release target ${targetSha} is not a version-only package.json commit; `
-            + 'run CI for the target before releasing.',
-        );
-    }
+    return isVersionOnlyPackageCommit(parentSha, targetSha, {runCommand}) ? parentSha : null;
+}
 
+/** @param {string} targetSha @param {string} parentSha @param {TCommandRunner} runCommand @returns {{id: number, parentSha: string, url: string, verifiedByParent: true}} */
+function verifyByParent(targetSha, parentSha, runCommand) {
     const parentRun = findLatestMatchingRun(parentSha, runCommand);
     if (!parentRun) {
         throw new Error(
@@ -178,22 +157,18 @@ function verifyByParent(targetSha, runCommand) {
             + 'wait for it to finish.',
         );
     }
-    let acceptedRun = parentRun;
-    if (parentRun.conclusion === 'cancelled') {
-        // A push after the version commit cancels the parent's run. The
-        // newer run's tree contains the parent, so its verdict stands in;
-        // otherwise `gh run rerun <id>` restores an exact verdict.
-        acceptedRun = verifySupersedingRun(parentSha, parentRun, runCommand);
-    } else if (parentRun.conclusion !== 'success') {
+    if (parentRun.conclusion !== 'success') {
         throw new Error(
             `Release parent ${parentSha} ${describeRun(parentRun)} concluded '${parentRun.conclusion}'. `
-            + 'Fix the failure with a new green commit and version.',
+            + (parentRun.conclusion === 'cancelled'
+                ? `A cancelled run has no verdict; re-run it with \`gh run rerun ${parentRun.id}\` and dispatch the release again.`
+                : 'Fix the failure with a new green commit and version.'),
         );
     }
 
     let gatesConclusion;
     try {
-        gatesConclusion = readGatesOkConclusion(acceptedRun.id, runCommand);
+        gatesConclusion = readGatesOkConclusion(parentRun.id, runCommand);
     } catch (error) {
         throw new Error(
             `Release parent ${parentSha} ${describeRun(parentRun)} succeeded but the gates_ok lookup failed: ${
@@ -202,55 +177,29 @@ function verifyByParent(targetSha, runCommand) {
     }
     if (gatesConclusion !== 'success') {
         throw new Error(
-            `Release parent ${parentSha} ${describeRun(acceptedRun)} did not contain a successful gates_ok `
+            `Release parent ${parentSha} ${describeRun(parentRun)} did not contain a successful gates_ok `
             + `aggregate (saw '${gatesConclusion ?? 'no gates_ok job'}').`,
         );
     }
 
     return {
-        id: acceptedRun.id,
+        id: parentRun.id,
         parentSha,
-        url: acceptedRun.html_url ?? '',
+        url: parentRun.html_url ?? '',
         verifiedByParent: true,
-        ...(acceptedRun === parentRun ? {} : {supersededBy: acceptedRun.head_sha}),
     };
 }
 
-/** @param {string} parentSha @param {IWorkflowRun} cancelledRun @param {TCommandRunner} runCommand @returns {IWorkflowRun} */
-function verifySupersedingRun(parentSha, cancelledRun, runCommand) {
-    const rerunHint = `re-run it with \`gh run rerun ${cancelledRun.id}\` and dispatch the release again`;
-    const superseding = findSupersedingRun(parentSha, cancelledRun, runCommand);
-    if (!superseding) {
-        throw new Error(
-            `Release parent ${parentSha} ${describeRun(cancelledRun)} was cancelled and no newer main push run `
-            + `contains it; ${rerunHint}.`,
-        );
-    }
-    if (superseding.status !== 'completed') {
-        throw new Error(
-            `Release parent ${parentSha} ${describeRun(cancelledRun)} was cancelled by a newer push; its `
-            + `superseding ${describeRun(superseding)} is still ${superseding.status}. Wait for it, or ${rerunHint}.`,
-        );
-    }
-    if (superseding.conclusion !== 'success') {
-        throw new Error(
-            `Release parent ${parentSha} ${describeRun(cancelledRun)} was cancelled by a newer push and its `
-            + `superseding ${describeRun(superseding)} concluded '${superseding.conclusion}'. `
-            + 'Fix the failure with a new green commit and version.',
-        );
-    }
-    return superseding;
-}
-
 /**
- * Resolves with {id, url} once the exact-SHA push CI run concludes
- * successfully with a green gates_ok. Throws distinct errors for: no run
- * appearing, a known run exceeding the completion deadline, a cancelled run
- * (main moved on), a failed run (with its actual conclusion, promptly), and
- * a missing/failed gates_ok. A cancelled parent run is accepted through the
- * newer green run that contains it (see findSupersedingRun).
- * A poll always immediately precedes a deadline decision, so a run that
- * turns terminal at the boundary is still observed.
+ * Resolves with {id, url} once the target is vouched for. A version-only
+ * release commit is judged by its parent's push run at once, without waiting
+ * for a run that [skip ci] guarantees will never appear. Any other target
+ * needs its own exact-SHA push run to conclude successfully with a green
+ * gates_ok. Throws distinct errors for: no run appearing, a known run
+ * exceeding the completion deadline, a cancelled run (main moved on), a
+ * failed run (with its actual conclusion, promptly), and a missing/failed
+ * gates_ok. A poll always immediately precedes a deadline decision, so a
+ * run that turns terminal at the boundary is still observed.
  */
 /** @param {string} targetSha @param {IWaitOptions} [options] @returns {Promise<{id: number, url: string}>} */
 export async function waitForExactShaCiGates(targetSha, {
@@ -264,6 +213,11 @@ export async function waitForExactShaCiGates(targetSha, {
     // harnesses can satisfy it without impersonating process.stderr.
     stderr = {write: chunk => process.stderr.write(chunk)},
 } = {}) {
+    const versionOnlyParentSha = readVersionOnlyParent(targetSha, runCommand);
+    if (versionOnlyParentSha !== null) {
+        return verifyByParent(targetSha, versionOnlyParentSha, runCommand);
+    }
+
     const startedAt = nowFn();
     let knownRun = null;
 
@@ -316,11 +270,12 @@ export async function waitForExactShaCiGates(targetSha, {
 
         const elapsedMs = nowFn() - startedAt;
         if (!knownRun && elapsedMs >= appearanceTimeoutMs) {
-            try {
-                return verifyByParent(targetSha, runCommand);
-            } catch (error) {
-                throw new Error(describeParentVerificationFailure(targetSha, error));
-            }
+            throw new Error(
+                `No push CI run appeared for release target ${targetSha} within `
+                + `${Math.round(appearanceTimeoutMs / 1_000)}s, and it is not a version-only package.json commit `
+                + 'whose parent could vouch for it. Every push to main runs ci.yml; check the Actions page for '
+                + 'that commit, or release a version-only commit over a green parent.',
+            );
         }
         if (knownRun && elapsedMs >= completionTimeoutMs) {
             throw new Error(

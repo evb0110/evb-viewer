@@ -286,7 +286,9 @@ interface ICutReleaseModule {
     parseCutReleaseArgs: (argv: string[]) => ICutReleaseArgs;
     publishReleaseCommit: (
         options: {
+            parentSha: string;
             tag: string;
+            targetSha: string;
             upstream: IUpstream;
         },
         dependencies: IPublishDependencies,
@@ -1011,29 +1013,17 @@ describe('release policy', () => {
             };
         }
 
-        // Only the release cutter pushes a tag between the branch push and the
-        // dispatch; the artifact-only flow publishes no tag.
-        const publishers = [
-            [
-                'release:cut / release:resume',
-                async (dependencies: IPublishDependencies) => await publishReleaseCommit({
-                    tag: 'v1.2.3',
-                    upstream,
-                }, dependencies),
-                [
-                    ['tag'],
-                    ['dispatch'],
-                ],
-            ],
-            [
-                'release:artifacts',
-                async (dependencies: IPublishDependencies) => await publishReleaseArtifactsCommit(
-                    {upstream},
-                    dependencies,
-                ),
-                [['dispatch']],
-            ],
-        ] as const;
+        // The artifact canary pushes the operator's branch tip, so it scans
+        // the whole upstream-before..HEAD range. The release cutter is tested
+        // separately below: it publishes one version-only commit by tag.
+        const publishers = [[
+            'release:artifacts',
+            async (dependencies: IPublishDependencies) => await publishReleaseArtifactsCommit(
+                {upstream},
+                dependencies,
+            ),
+            [['dispatch']],
+        ]] as const;
 
         function publish(
             publisher: (dependencies: IPublishDependencies) => Promise<string>,
@@ -1060,6 +1050,59 @@ describe('release policy', () => {
                 }),
             };
         }
+
+        it('release:cut scans exactly the release commit over its parent before tagging and dispatching', async () => {
+            const recorder = createRunCommandRecorder();
+
+            await expect(publishReleaseCommit({
+                parentSha: 'parentsha',
+                tag: 'v1.2.3',
+                targetSha: 'releasesha',
+                upstream,
+            }, {
+                dispatchWorkflow: () => recorder.calls.push({
+                    args: [],
+                    command: 'dispatch',
+                }),
+                printHandoff: async () => undefined,
+                pushReleaseTag: () => recorder.calls.push({
+                    args: [],
+                    command: 'tag',
+                }),
+                runCommand: recorder.runCommand,
+            })).resolves.toBe('releasesha');
+
+            expect(recorder.calls.map(({command}) => command)).toEqual([
+                'node',
+                'tag',
+                'dispatch',
+            ]);
+            expect(recorder.calls[0]?.args).toEqual(getPublicationPolicyCheckArgs('parentsha', 'releasesha'));
+        });
+
+        it('release:cut propagates a failing scan and never tags or dispatches', async () => {
+            const recorder = createRunCommandRecorder('node');
+
+            await expect(publishReleaseCommit({
+                parentSha: 'parentsha',
+                tag: 'v1.2.3',
+                targetSha: 'releasesha',
+                upstream,
+            }, {
+                dispatchWorkflow: () => recorder.calls.push({
+                    args: [],
+                    command: 'dispatch',
+                }),
+                printHandoff: async () => undefined,
+                pushReleaseTag: () => recorder.calls.push({
+                    args: [],
+                    command: 'tag',
+                }),
+                runCommand: recorder.runCommand,
+            })).rejects.toThrow('prohibited attribution was found');
+
+            expect(recorder.calls.map(({command}) => command)).toEqual(['node']);
+        });
 
         it.each(publishers)('%s scans the upstream-before SHA through HEAD before pushing', async (
             _label,
@@ -1225,8 +1268,8 @@ describe('release policy', () => {
         // in these scripts spells the subcommand as a string literal in the
         // argument array whatever the surrounding formatting, so count those:
         // exactly two, both in the module that owns the scanned publisher. The
-        // second is the release tag push, which publishes only a ref to the
-        // commit the scanned branch push already made public.
+        // second is the release tag push, which the cutter reaches only after
+        // scanning the one commit that tag makes public.
         it('routes every release push through the scanned publisher', () => {
             const releaseDirectory = resolve(process.cwd(), 'scripts/release');
             const sources = new Map(readdirSync(releaseDirectory)
@@ -1262,7 +1305,7 @@ describe('release policy', () => {
                 'cut-release.mjs',
                 'build-artifacts.mjs',
             ]) {
-                expect(sources.get(fileName), fileName).toMatch(/\bpushReleaseBranch\s*\(/u);
+                expect(sources.get(fileName), fileName).toMatch(/\bpushReleaseBranch\b/u);
             }
         });
     });
