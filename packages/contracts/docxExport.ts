@@ -4,7 +4,7 @@ import type {TSessionId} from '@contracts/shared';
 /** Binary chunks accepted by the desktop DOCX output sink. */
 export type TDocxExportChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
 
-/** Optional file capability kept separate from the legacy all-at-once API. */
+/** Serial file capability kept separate from the legacy all-at-once API. */
 export interface IDocxExportFileCapability {
     beginDocxFileStream: (path: TDocumentRef) => Promise<IDocxExportStreamBeginResult>;
     writeDocxFileStreamChunk: (sessionId: TSessionId, chunk: Uint8Array) => Promise<boolean>;
