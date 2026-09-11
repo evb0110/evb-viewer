@@ -2,12 +2,29 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `876be7914` (`origin/project8/integration`)
+Reviewed source: `a00c3fcb` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
 tip already contains. It does not close issues or turn unavailable hosted
 acceptance into a local pass.
+
+## v5b fallback requalification
+
+The primary release acceptance, #522, remains unverified because this slot has
+no authorized live mirror/GitHub promotion interruption drill. Its local
+publisher safeguards and protocol tests do not prove restart reconciliation
+across both services. The disjoint fallback, #568, is covered by this receipt:
+all 60 supplemental recommendations retain an explicit disposition, linked
+owner or follow-up, and a concrete reason for no action where applicable. The
+register remains accounting evidence, not permission to create duplicate tests
+or claim the hosted baseline is green.
+
+The current integration CI run is `34629315606` for `a00c3fcb`. It was pending
+when this receipt was written. The preceding run `34628983816` for
+`7d784ada3` had passed Changed Area Detection and Commit Attribution; Quality
+Gates, Electron Blocking Smoke, Browser Integration, native, Windows,
+scan-cleanup, and packaged Linux jobs were still running at last inspection.
 
 ## Source disposition
 
@@ -54,5 +71,5 @@ worktree were changed. The dependency install only populated ignored workspace
 dependencies. No browser, Electron app, Windows VM, hosted release, or GitHub
 promotion was launched from this lane.
 
-The coordinator should merge this receipt with the campaign branch and attach
-the hosted/platform results listed above. The issues remain open.
+The coordinator should attach the terminal hosted/platform results to the
+fallback receipt before changing its tracker status. The issues remain open.
