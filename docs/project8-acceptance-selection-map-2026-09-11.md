@@ -24,7 +24,7 @@ was available here, not that the project is green.
 | `browser-integration` | `pnpm run test:integration:browser` | Changed-area browser job on push/PR | 12 files passed, 25 tests passed, 1 skipped |
 | `native-integration` | `vitest run --project native-integration` | Changed-area native/build job on push/PR | Unknown |
 | `electron-bundle-static-integrity` | `pnpm run test:electron-bundle-static-integrity:no-build`, after the build job | Native/build safety and release checks | Unknown |
-| `e2e-regression` | `pnpm run test:e2e:electron:regression` | Changed app/Electron integration; manual dispatch | Unknown |
+| `e2e-regression` | `pnpm run test:e2e:electron:regression` | Changed app/Electron integration; manual dispatch | Interrupted after 1,679.58s; at least 2 failures observed, no final counts |
 | `e2e-blocking-smoke` | `pnpm run test:e2e:electron:blocking-smoke:headless` | Changed app/Electron push gate | 5 files passed, 41 tests passed, 5 skipped |
 | `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | 1 file passed, 16 tests passed; 1 parity test failed |
 | `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | 3 files passed; 2 suites blocked by exact-fixture opt-in |
@@ -260,3 +260,27 @@ coordinator-approved scan-cleanup fixture on this VPS, verify their path and
 manifest metadata, then rerun `test:e2e:electron:xlarge`. Do not generate a
 replacement fixture, remove the opt-in guards, or count the source-contract
 test as the PDF acceptance.
+
+## Electron regression acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:regression
+native-e2e build gate passed; Electron regression runner interrupted
+Duration: 1,679.58s
+```
+
+The native PDF image-combine, page-operations, and scan-cleanup artifacts were
+reused successfully. The run passed many viewer-smoke, PR-blocking, annotation,
+and Recent Files cases before the runner stopped without a Vitest final
+summary. Two failures were observed: annotation undo/redo left the tab dirty
+when the test expected `dirty=false`, and Recent-file removal returned
+`removed:false` instead of `removed:true`. The legacy #350 cases skipped because
+their two fixture files are absent. This run is incomplete evidence, not a
+regression acceptance pass.
+
+Disjoint fallback TODO: rerun the two named failing tests in isolated focused
+commands with retained session logs, diagnose the dirty-state and Recent-file
+removal results, then rerun the full regression project. Do not infer totals
+from the interrupted stream or mark the project green without a final summary.
