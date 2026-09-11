@@ -1,0 +1,28 @@
+electron/image/pdfCombineShared.ts
+  s_1b452cdf36f007::t_a4e9ea0bcb1aea 15,105
+  s_1b452cdf36f007::t_0411581c5c7816 53
+  s_1b452cdf36f007::t_9b7a34e65f01ed 51-52,54-63,418-421
+  s_1b452cdf36f007::t_d8a058d7b2ccc4 413-417,422-428
+electron/file-access/isAllowedOriginalSavePath.ts
+  s_1b452cdf36f007::t_cd4b4936a8add1 16
+packages/contracts/ipcAssertions.ts
+  s_1b452cdf36f007::t_cd4b4936a8add1 39-51
+tests/unit/electron/pathEncoding.test.ts
+  s_1b452cdf36f007::t_cd4b4936a8add1 17-18,58-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d318f70d4b83ff7460a9dd451f93dd73d17d51ef",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+tests/unit/electron/ocrRevisionTransitionRecovery.test.ts
+  s_503d7ca8eb72b6::t_fcb66d921d67d0 99
+electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts
+  s_503d7ca8eb72b6::t_3a4724020b56dd 25,180,199
+  s_503d7ca8eb72b6::t_a4e1fab445a734 101-112
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_503d7ca8eb72b6::t_97e4363298b7d6 447,466,474,494,556,574
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e7e5f493119c50e028bdce52cfaee6c2c5fa6b7f",
+  "prompts": {},
+  "sessions": {
+    "s_503d7ca8eb72b6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3d-12b3-7f11-a017-5a260666c7e4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
