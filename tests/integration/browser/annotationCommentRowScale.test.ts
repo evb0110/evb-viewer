@@ -243,6 +243,51 @@ describe('annotation comment row geometry in Chromium', () => {
                     padding + geometry.rowVerticalBordersPx[index]! < geometry.rowPaintedHeightsPx[index]!))
                     .toBe(true);
                 expect(geometry.activeRowCount).toBe(1);
+                for (const width of [
+                    240,
+                    SIDEBAR_WIDTH_PX,
+                    480,
+                ]) {
+                    await page.locator('#sidebar').evaluate((sidebar, sidebarWidth) => {
+                        (sidebar as HTMLElement).style.width = `${sidebarWidth}px`;
+                    }, width);
+                    const button = page.locator('.note-item-delete').first();
+                    const box = await button.boundingBox();
+                    expect(box).not.toBeNull();
+                    expect(box!.width).toBeCloseTo(box!.height, 1);
+                    for (const [
+                        x,
+                        y,
+                    ] of [
+                            [
+                                box!.x + 2,
+                                box!.y + 2,
+                            ],
+                            [
+                                box!.x + box!.width - 2,
+                                box!.y + box!.height - 2,
+                            ],
+                            [
+                                box!.x + box!.width / 2,
+                                box!.y + box!.height / 2,
+                            ],
+                        ]) {
+                        await page.mouse.move(x!, y!);
+                        expect(await button.evaluate((element, point) => ({
+                            hit: element.contains(document.elementFromPoint(point.x, point.y)),
+                            hovered: element.matches(':hover'),
+                        }), {
+                            x: x!,
+                            y: y!,
+                        })).toEqual({
+                            hit: true,
+                            hovered: true,
+                        });
+                    }
+                }
+                await page.locator('#sidebar').evaluate((sidebar, width) => {
+                    (sidebar as HTMLElement).style.width = `${width}px`;
+                }, SIDEBAR_WIDTH_PX);
 
                 list.unmount();
             }
