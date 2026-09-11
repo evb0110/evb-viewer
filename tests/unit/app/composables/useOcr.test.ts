@@ -44,7 +44,10 @@ const mockOcr = {
 const mockDocuments = {
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
-    writeDocxFileChunks: vi.fn(),
+    beginDocxFileStream: vi.fn(async () => ({sessionId: 'docx-session'})),
+    writeDocxFileStreamChunk: vi.fn(async () => true),
+    commitDocxFileStream: vi.fn(async () => true),
+    cancelDocxFileStream: vi.fn(async () => true),
     cleanupFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
     getDocumentRevision: vi.fn(),
@@ -886,7 +889,7 @@ describe('useOcr', () => {
             callOrder.push('saveDocxAs');
             return '/tmp/export.docx';
         });
-        mockDocuments.writeDocxFileChunks.mockResolvedValueOnce(undefined);
+        mockDocuments.writeDocxFileStreamChunk.mockResolvedValueOnce(true);
         mockDocuments.cleanupFile.mockResolvedValueOnce(undefined);
         loadDocumentTextCatalogPagesMock.mockImplementationOnce(async () => {
             callOrder.push('loadOcrText');
@@ -922,11 +925,12 @@ describe('useOcr', () => {
                 expect.any(AbortSignal),
             );
             expect(extractPdfTextMock).not.toHaveBeenCalled();
-            expect(mockDocuments.writeDocxFileChunks).toHaveBeenCalledWith(
-                '/tmp/export.docx',
-                expect.anything(),
-                expect.any(AbortSignal),
+            expect(mockDocuments.beginDocxFileStream).toHaveBeenCalledWith('/tmp/export.docx');
+            expect(mockDocuments.writeDocxFileStreamChunk).toHaveBeenCalledWith(
+                'docx-session',
+                expect.any(Uint8Array),
             );
+            expect(mockDocuments.commitDocxFileStream).toHaveBeenCalledWith('docx-session');
             expect(mockDocuments.writeDocxFile).not.toHaveBeenCalled();
             expect(mockDocuments.cleanupFile).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -939,33 +943,21 @@ describe('useOcr', () => {
         }
     });
 
-    it('cancels the deprecated DOCX export path without committing output', async () => {
+    it('cancels the serial DOCX export path without committing output', async () => {
         const writeStarted = Promise.withResolvers<boolean>();
         const writeRelease = Promise.withResolvers<boolean>();
-        let receivedSignal: AbortSignal | undefined;
         mockDocuments.saveDocxAs.mockResolvedValueOnce('/tmp/export.docx');
         loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
             pageNumber: 1,
             text: 'pdf text',
             source: 'pdf-native',
         }]);
-        mockDocuments.writeDocxFileChunks.mockImplementationOnce(async (
-            _path,
+        mockDocuments.writeDocxFileStreamChunk.mockImplementationOnce(async (
+            _session,
             _chunks,
-            signal,
         ) => {
-            receivedSignal = signal;
             writeStarted.resolve(true);
-            await Promise.race([
-                writeRelease.promise,
-                new Promise<never>((_resolve, reject) => {
-                    if (signal?.aborted) {
-                        reject(signal.reason);
-                        return;
-                    }
-                    signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
-                }),
-            ]);
+            await writeRelease.promise;
             return true;
         });
 
@@ -981,7 +973,8 @@ describe('useOcr', () => {
             await writeStarted.promise;
 
             ocr.cancelDocxExport();
-            expect(receivedSignal?.aborted).toBe(true);
+            await waitForCondition(() => mockDocuments.cancelDocxFileStream.mock.calls.length > 0);
+            expect(mockDocuments.cancelDocxFileStream).toHaveBeenCalledWith('docx-session');
             writeRelease.resolve(true);
 
             await expect(exportPromise).resolves.toBe(false);
