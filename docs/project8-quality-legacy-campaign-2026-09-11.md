@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `7d784ada3` (`origin/project8/integration`)
+Reviewed source: `a00c3fcb` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -20,10 +20,11 @@ owner or follow-up, and a concrete reason for no action where applicable. The
 register remains accounting evidence, not permission to create duplicate tests
 or claim the hosted baseline is green.
 
-The current integration CI run is `34628983816` for `7d784ada3`. Changed Area
-Detection and Commit Attribution passed. Quality Gates, Electron Blocking
-Smoke, Browser Integration, native, Windows, scan-cleanup, and packaged Linux
-jobs were still running when this receipt was written.
+The current integration CI run is `34629315606` for `a00c3fcb`. It was pending
+when this receipt was written. The preceding run `34628983816` for
+`7d784ada3` had passed Changed Area Detection and Commit Attribution; Quality
+Gates, Electron Blocking Smoke, Browser Integration, native, Windows,
+scan-cleanup, and packaged Linux jobs were still running at last inspection.
 
 ## Source disposition
 
