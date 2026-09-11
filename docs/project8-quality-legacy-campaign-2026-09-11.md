@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `403a97a0` (`origin/project8/integration`)
+Reviewed source: `98085bd9` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -38,10 +38,10 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34634950385` for `403a97a0`. It is pending
-at receipt time, so no current-tip hosted pass is claimed. The immediately
-prior run `34634840135` remains in progress while `34634639597` completed
-cancelled with `gates_ok` failure. The separate
+The current integration CI run is `34635826575` for `98085bd9`. It is pending
+at receipt time, so no current-tip hosted pass is claimed. Run `34635438352`
+on the prior tip completed with its Quality Gates and Linux ARM64 jobs
+cancelled, while run `34635733990` was also cancelled. The separate
 configured publish-chain
 drill is terminal-successful in run `34630569082`; no terminal current-tip
 release artifact digest is claimed here.
@@ -50,9 +50,9 @@ release artifact digest is claimed here.
 
 The 60 supplemental recommendations remain accounted for with explicit
 dispositions, linked owners or follow-ups, and reasons for no action. This
-receipt updates only the dated CI evidence: run `34634950385` is pending for
-integration tip `403a97a0`, while run `34634639597` completed cancelled
-before terminal acceptance. No supplemental implementation issue was
+receipt updates only the dated CI evidence: run `34635826575` is pending for
+integration tip `98085bd9`, while run `34635438352` completed with its Quality
+Gates and Linux ARM64 jobs cancelled. No supplemental implementation issue was
 duplicated, and no issue or tracker state was changed.
 
 The #566 operations/release register therefore remains open for the exact
