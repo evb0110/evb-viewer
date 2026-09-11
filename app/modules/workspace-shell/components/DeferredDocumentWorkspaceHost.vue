@@ -84,6 +84,7 @@ import {
 } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import * as platformDocuments from '@app/utils/platformDocuments';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
@@ -134,6 +135,7 @@ import {
 import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
 import { isRecentOpenCommandEligible } from '@app/modules/workspace-shell/host/isRecentOpenCommandEligible';
+import { getErrorMessage } from '@app/utils/error';
 
 const {
     hasDocumentHint = false,
@@ -669,10 +671,39 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    return activeDocumentSession.value.open({
+    let sourceStat: {
+        fileSize?: number;
+        modifiedAt?: number;
+    } | null = null;
+    if (isBrowserDocumentRef(file.originalPath)) {
+        try {
+            const stat = await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
+            sourceStat = {
+                fileSize: stat.size,
+                ...(stat.modifiedAt === undefined ? {} : {modifiedAt: stat.modifiedAt}),
+            };
+        } catch (error) {
+            recentFilesError.value = getErrorMessage(error);
+            BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item is unavailable before opening', {
+                tabId: tabId,
+                path: file.originalPath,
+                error,
+            });
+            return false;
+        }
+    }
+
+    const statMatches = sourceStat !== null
+        && sourceStat.fileSize === file.fileSize
+        && sourceStat.modifiedAt === file.modifiedAt;
+    const result = await activeDocumentSession.value.open({
         action: 'openRecentFromPlaceholder',
-        preparedSourceModifiedAt: file.modifiedAt,
-        preparedSourceSize: file.fileSize,
+        ...(statMatches
+            ? {
+                preparedSourceModifiedAt: file.modifiedAt,
+                preparedSourceSize: file.fileSize,
+            }
+            : {}),
         target: buildPendingTabDocumentHint(file),
     }, async (signal) => {
         const preloadedWorkspace = mountedWorkspace.value
@@ -694,6 +725,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
             signal,
         );
     });
+    return result;
 }
 
 async function handleRemoveRecentFromPlaceholder(file: IRecentFile) {

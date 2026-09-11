@@ -333,6 +333,22 @@ describe('scan cleanup renderer preference store', () => {
         consoleError.mockRestore();
     });
 
+    it('explicitly retries a settled global failure with a fresh write promise', async () => {
+        const durable = createDefaultScanCleanupSettingsFile();
+        capability.value.updateSettings
+            .mockRejectedValueOnce(new Error('temporary failure'))
+            .mockResolvedValueOnce(durable);
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        const preferences = getScanCleanupPreferencesStore();
+        preferences.readingOrder = 'rtl';
+        await nextTick();
+        await expect(flushScanCleanupPreferencesStore()).rejects.toThrow('temporary failure');
+        await retryScanCleanupPreferences();
+        expect(capability.value.updateSettings).toHaveBeenCalledTimes(2);
+        expect(capability.value.updateSettings).toHaveBeenLastCalledWith({settingsPatch: {readingOrder: 'rtl'}});
+    });
+
     it('drains failed document A after document B succeeds', async () => {
         vi.useFakeTimers();
         const sourceA = 'a'.repeat(64);
