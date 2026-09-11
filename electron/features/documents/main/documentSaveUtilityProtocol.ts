@@ -32,6 +32,17 @@ export type TDocumentSaveUtilityRequest =
     | IDocumentSaveUtilityCommitRequest
     | IDocumentSaveUtilityInspectRequest;
 
+export interface IDocumentSaveUtilityShutdownRequest {
+    type: 'shutdown';
+    requestId: string;
+}
+
+export interface IDocumentSaveUtilityShutdownResult {
+    type: 'shutdown-complete';
+    requestId: string;
+    terminated: boolean;
+}
+
 const PDF_OBJECT_REF_PATTERN = /^\d+ \d+ R$/u;
 const MAX_CHANGED_OBJECT_REFS = 128;
 
@@ -193,4 +204,19 @@ export function decodeDocumentSaveUtilityResult(value: unknown): TDocumentSaveUt
             error: value.error,
         }
         : null;
+}
+
+export function decodeDocumentSaveUtilityShutdownResult(value: unknown): IDocumentSaveUtilityShutdownResult | null {
+    if (!isRecord(value)
+        || value.type !== 'shutdown-complete'
+        || typeof value.requestId !== 'string'
+        || value.requestId.length === 0
+        || typeof value.terminated !== 'boolean') {
+        return null;
+    }
+    return {
+        type: 'shutdown-complete',
+        requestId: value.requestId,
+        terminated: value.terminated,
+    };
 }

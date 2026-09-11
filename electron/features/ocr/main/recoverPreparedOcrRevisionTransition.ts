@@ -5,7 +5,6 @@ import {
     rename,
     rm,
     unlink,
-    writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {copyFileAtomic} from '@electron/features/documents/public/index';
@@ -23,8 +22,20 @@ import {
     invalidDocumentRecoveryJournal,
     readDocumentRecoveryJournal,
 } from '@electron/file-access/documentRecoveryJournal';
+import {writeFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
 
 const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
+
+function hasWorkingCopyIdentity(journalPath: unknown, workingCopyPath: string) {
+    if (typeof journalPath !== 'string') {
+        return false;
+    }
+    const normalizedJournalPath = normalizePathForLookup(journalPath);
+    const normalizedWorkingCopyPath = normalizePathForLookup(workingCopyPath);
+    return normalizedJournalPath.length > 0
+        && normalizedJournalPath === normalizedWorkingCopyPath;
+}
 
 async function isLegacyCatalogWithinBudget(path: string) {
     let totalBytes = 0;
@@ -98,6 +109,31 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
     if (journal === undefined) {
         return false;
     }
+    if (
+        isRecord(journal)
+        && journal.version === 1
+        && journal.state === 'committed'
+        && hasWorkingCopyIdentity(journal.workingCopyPath, workingCopyPath)
+        && typeof journal.transitionId === 'string'
+        && typeof journal.targetDocumentRevisionToken === 'string'
+        && typeof journal.undoPdfPath === 'string'
+        && typeof journal.undoCatalogExisted === 'boolean'
+        && (journal.undoCatalogPath === undefined || typeof journal.undoCatalogPath === 'string')
+        && (!journal.undoCatalogExisted || typeof journal.undoCatalogPath === 'string')
+        && (journal.catalogBackupMode === undefined
+            || journal.catalogBackupMode === 'copy'
+            || journal.catalogBackupMode === 'rename')
+        && (journal.catalogApplyMode === undefined
+            || journal.catalogApplyMode === 'copy'
+            || journal.catalogApplyMode === 'rename')
+        && (journal.catalogKind === undefined || journal.catalogKind === 'v4-root')
+        && (journal.descriptorPath === undefined || typeof journal.descriptorPath === 'string')
+        && ((journal.catalogKind === 'v4-root') === (typeof journal.descriptorPath === 'string'))
+        && typeof journal.committedAt === 'number'
+        && Number.isFinite(journal.committedAt)
+    ) {
+        return false;
+    }
     if (!isRecord(journal) || journal.version !== 1 || journal.state !== 'prepared') {
         throw invalidDocumentRecoveryJournal(
             journalPath,
@@ -107,7 +143,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
     }
     if (
         typeof journal.workingCopyPath !== 'string'
-        || journal.workingCopyPath !== workingCopyPath
+        || !hasWorkingCopyIdentity(journal.workingCopyPath, workingCopyPath)
         || typeof journal.transitionId !== 'string'
         || typeof journal.pdfBackupPath !== 'string'
         || (journal.catalogBackupPath !== undefined && typeof journal.catalogBackupPath !== 'string')
@@ -165,7 +201,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
         typeof journal.targetDocumentRevisionToken === 'string'
         && currentRevision?.token === journal.targetDocumentRevisionToken
     ) {
-        await writeFile(journalPath, JSON.stringify({
+        await writeFileAtomic(journalPath, Buffer.from(JSON.stringify({
             version: 1,
             transitionId: journal.transitionId,
             state: 'committed',
@@ -184,7 +220,7 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
                 : {}),
             ...(isV4Prepared ? {catalogKind: 'v4-root'} : {}),
             committedAt: Date.now(),
-        }), 'utf8');
+        }), 'utf8'));
         return true;
     }
 

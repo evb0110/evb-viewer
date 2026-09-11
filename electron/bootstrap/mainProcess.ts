@@ -105,6 +105,7 @@ import {
 } from '@electron/utils/createLogger';
 import {
     closeCachedRangeReadHandles,
+    shutdownRetainedDocumentSaveUtilityProcesses,
     sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfAnnotationIndexArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,
@@ -620,6 +621,10 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         {
             label: 'working-copy-materializations',
             run: () => settleAllWorkingCopyMaterializations(),
+        },
+        {
+            label: 'document-save-utilities',
+            run: () => shutdownRetainedDocumentSaveUtilityProcesses(),
         },
         {
             label: 'djvu-conversions',

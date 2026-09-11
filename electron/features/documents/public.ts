@@ -9,6 +9,7 @@ export {
     attachSerializedPdfPersistencePort,
     shutdownSerializedPdfPersistence,
 } from '@electron/features/documents/main/serializedPdfPersistence';
+export {shutdownRetainedDocumentSaveUtilityProcesses} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 export { closeCachedRangeReadHandles } from '@electron/features/documents/main/documentFileReadHandlers';
 export { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
