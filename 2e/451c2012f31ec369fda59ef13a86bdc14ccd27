@@ -1,0 +1,20 @@
+docs/project8-localization-release-quality-2026-09-11.md
+  s_5051e92ba44291::t_62d7c08ef68c18 21-25
+  s_5051e92ba44291::t_1e74fad49ca581 5,20,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2e451c2012f31ec369fda59ef13a86bdc14ccd27",
+  "prompts": {},
+  "sessions": {
+    "s_5051e92ba44291": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0917b-2786-7ec3-8f95-b6a65d27816f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
