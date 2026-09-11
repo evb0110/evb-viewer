@@ -332,6 +332,43 @@ fixture, settings file, screenshot, or telemetry artifact was generated.
 Test-owned temporary directories were cleaned by the existing suites, and the
 worktree remains clean.
 
+## Follow-up slot: recovery adoption and hydration fallback
+
+This slot started from `3486f2fbd`, the current
+`origin/project8/integration` tip. The primary #397 recovery-owned-bytes
+acceptance was attempted with the working-copy and checkpoint suites:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/scanCleanupWorkingCopyClose.test.ts \
+  tests/unit/electron/workingCopyMaterialization.test.ts \
+  tests/unit/electron/workingCopyCleanup.test.ts \
+  tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts \
+  tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts --reporter=dot
+
+4 files passed; 60 tests passed, 1 failed
+FAIL: transitionOriginalAndWorkingCopyRevision.test.ts > links an immutable original into the working-copy path when reflinks are unavailable
+Error: Test timed out in 5000ms
+```
+
+The timeout is recorded as a gap. No timeout or retry setting was changed.
+
+Disjoint fallback #399, late scan-settings hydration rebasing, passed:
+
+```text
+pnpm exec vitest run tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts \
+  -t "rebases a later global edit|retains binding edits made while document hydration is pending|retains an edit made while initial file-backed hydration is unavailable|does not enqueue a pending global snapshot" --reporter=dot
+
+1 file passed; 4 tests passed, 10 skipped by the name filter
+```
+
+The fallback covered late global rebasing, edits during hydration, unavailable
+file-backed hydration recovery, and suppression of redundant global patches.
+No new fixture, checkpoint, screenshot, or telemetry artifact was generated.
+Test-owned temporary state was cleaned by the existing suites. Recovery
+adoption timeout diagnosis and the full checkpoint acceptance remain open for
+the coordinator.
+
 ## Follow-up slot: scan preference rebase and retry
 
 This slot started from `402d5371b`, the current
