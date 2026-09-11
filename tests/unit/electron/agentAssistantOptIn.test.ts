@@ -80,6 +80,8 @@ const mocks = vi.hoisted(() => ({
     claudeSessionConstructor: vi.fn(),
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
+    turnStartResponseId: undefined as unknown,
+    malformedTurnStartResponse: false,
     logger: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -253,7 +255,12 @@ class FakeCodexAppServerProcess extends EventEmitter {
                             turnId,
                         });
                     }
-                    this.respond(request.id!, { turn: { id: turnId } });
+                    this.respond(request.id!, mocks.malformedTurnStartResponse
+                        ? {turn: {id: mocks.turnStartResponseId}}
+                        : {turn: {id: turnId}});
+                    if (mocks.malformedTurnStartResponse) {
+                        return;
+                    }
                     mocks.turnStartResponseHook?.();
                     this.notify('turn/started', {
                         threadId: request.params?.threadId,
@@ -465,6 +472,8 @@ describe('agent assistant opt-in gating', () => {
         mocks.claudeSessionConstructor.mockReset();
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
+        mocks.turnStartResponseId = undefined;
+        mocks.malformedTurnStartResponse = false;
         mocks.runCodexCli.mockResolvedValue({ok: true});
     });
 
@@ -790,6 +799,46 @@ describe('agent assistant opt-in gating', () => {
         })).resolves.toMatchObject({ok: false});
         expect(process.requestMethods).toContain('turn/interrupt');
         expect(process.requestMethods).toContain('thread/archive');
+    });
+
+    it.each([
+        undefined,
+        null,
+        42,
+        '',
+        '   ',
+    ])('settles a malformed Codex turn-start success without leaving a stale claim (%s)', async (turnStartResponseId) => {
+        const documentScope = createDocumentScope(`malformed-turn-${String(turnStartResponseId)}.pdf`);
+        const process = enableAssistantRuntime();
+        mocks.turnStartResponseId = turnStartResponseId;
+        mocks.malformedTurnStartResponse = true;
+
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const failed = await sendAgentAssistantMessage({
+            text: 'Malformed turn response',
+            scope: documentScope,
+        });
+
+        expect(failed).toMatchObject({
+            ok: false,
+            error: 'Codex returned an invalid turn/start response.',
+        });
+        const failedState = await getAgentAssistantState({scope: documentScope});
+        expect(failedState.status.turn.phase).toBe('failed');
+
+        mocks.turnStartResponseId = undefined;
+        mocks.malformedTurnStartResponse = false;
+        const recovered = await sendAgentAssistantMessage({
+            text: 'Valid replacement turn',
+            scope: documentScope,
+        });
+
+        expect(recovered.ok).toBe(true);
+        expect(process.requestMethods.filter(method => method === 'turn/start')).toHaveLength(2);
     });
 
     it('does not create a Claude session when opt-out wins during adapter loading', async () => {
