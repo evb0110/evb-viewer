@@ -1236,11 +1236,13 @@ export const usePdfTextLayerRenderer = (deps: {
             return false;
         }
         const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
+        const currentMatchPresentationReady = textLayerDiv.dataset.pdfTextLayerReady === 'true';
         refreshSearchHighlightsForPage(
             targetContainer,
             pageIndex + 1,
             pageMatchData,
             currentMatchValue,
+            currentMatchPresentationReady,
         );
 
         const currentWordBox = targetContainer.querySelector<HTMLElement>('.pdf-word-box--current');
