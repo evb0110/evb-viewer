@@ -1,0 +1,19 @@
+docs/project8-annotation-lifecycle-map-2026-09-11.md
+  s_de8c7e1b29fd81::t_bf1ff2a4487694 142-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ed9785d066f157854d4218aba84a7e22a85264f1",
+  "prompts": {},
+  "sessions": {
+    "s_de8c7e1b29fd81": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09187-2cc3-7581-87d2-2e0930e8dabb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
