@@ -132,3 +132,10 @@ pnpm exec vitest run --project unit-app --project unit-electron \
 
 Result: 6 files passed, 96 tests passed. The fallback does not hide or replace
 the failed real viewer acceptance.
+
+The same primary journey was retried after the branch advanced to integration
+`26c37a9ef`. It reproduced the identical 30-second timeout in
+`openDocumentSidebarTab` at `tests/e2e/electron/helpers/viewerCore.ts:1051`,
+before search began. The second session log is retained at
+`.devkit/sessions/e2e-run-mtx9bkgu-f734da-djvu-viewer-smoke-1789149354849/session.log`.
+The six-file fallback was rerun on that tip and passed 96/96 tests again.
