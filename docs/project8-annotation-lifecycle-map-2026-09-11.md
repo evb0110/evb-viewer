@@ -75,3 +75,22 @@ Result: 10 files passed, 133 tests passed. This covers annotation identity,
 dirty frontiers, history replay/document swaps, OCR catalog consumption and
 search/renderer behavior. It does not replace the blocked real Electron
 rotated-OCR or native annotation-save journeys.
+
+## V5b primary acceptance evidence
+
+The reserved #470 search-match Electron gate was rerun after the branch was
+fast-forwarded to `origin/project8/integration` at `a00c3fcb2`:
+
+```text
+pnpm run test:e2e:electron:search-match-scroll
+```
+
+The native `evb-pdf-search` build passed and the real macOS Electron journey
+passed 1 file and 2 tests. The tests kept the final high-zoom result visible
+and centered, then kept repeated match selections visible after navigation
+settled. Gate evidence is retained at
+`.devkit/analysis/gates/2026-09-11T17-45-50-580Z-57289-a920f567.ndjson`.
+
+This proves the current search-match scrolling path with the native search
+tool. It does not prove all four rotated OCR overlay orientations, CropBox
+projection, or native annotation save. Those remain separate gaps.
