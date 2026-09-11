@@ -1,0 +1,22 @@
+docs/project8-quality-legacy-release-audit-2026-09-11.md
+  s_4d6ccd02827650::t_bd23975949aef2 50-56,58-61,84,92-94
+  s_4d6ccd02827650::t_93d56db0d41a6c 95
+docs/project8-quality-legacy-campaign-2026-09-11.md
+  s_4d6ccd02827650::t_bd23975949aef2 14-17,33-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0fab34e8d973dfec2e7f683adc39e1368a1e7f60",
+  "prompts": {},
+  "sessions": {
+    "s_4d6ccd02827650": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09187-4393-7e81-b6bb-4ca39f2443d1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
