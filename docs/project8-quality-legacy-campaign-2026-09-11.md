@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `669e01e3` (`origin/project8/integration`)
+Reviewed source: `fc251b85` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -30,9 +30,9 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34629527128` for `669e01e3`. It was pending
-when this receipt was written. The preceding run `34629315606` for
-`a00c3fcb` was also still pending. No terminal hosted result is claimed.
+The current integration CI run is `34629913242` for `fc251b85`. It was in
+progress when this receipt was written. No terminal current-tip hosted result
+is claimed.
 
 ## Source disposition
 
@@ -42,7 +42,7 @@ when this receipt was written. The preceding run `34629315606` for
 | #375-378 | Worktree ownership is hardened by `3f5403a61`; bounded Electron startup and no-replay behavior by `791622444`; Windows lease recovery by `ec7126aca` and `f0219a948`; colored warning headers by `2353dce58`. | Windows lab restart and host-platform acceptance were not available in this VPS lane. |
 | #420-423 | Diagnostics revocation and delayed-send fencing are in `dec477ac0` and `d64e195a5`; successful-response accounting is in `8337b8fa4`; incompatible crash markers are fenced by `20821f18c`. | Live multi-tab hosted diagnostics and GitHub/Windows platform runs remain external evidence. |
 | #477-478 | Native batch growth is bounded by `4d8acfe04`; render-stage decomposition and its follow-up are in `8ad516919` and `f2b989a32`. | The large-document Electron performance lane (#552) is still red or unavailable here. |
-| #521-522 | Windows ARM64 install proof is recorded in `docs/project8-quality-legacy-release-audit-2026-09-11.md`; release promotion has local safeguards. | No Windows ARM64 runner was available. Cross-service mirror/GitHub interruption recovery still needs hosted proof and durable transaction work. |
+| #521-522 | Hosted run `34617444334` passed the Windows 11 ARM64 NSIS installed journey and both ARM64 Store installed-smoke jobs; release promotion has local safeguards. | The exact current-tip hosted rerun and final artifact-digest acceptance remain coordinator evidence. Cross-service mirror/GitHub interruption recovery still needs hosted proof and durable transaction work. |
 | #526-534 | Shared fixture result/backend/event work and portable catalog, namespace, encoder, host, and runtime boundaries are present in the integration history. | The full tooling and platform CI selections were not run in this slot. |
 | #536-538 | Fuzz-lock, acceptance-selection, and locale/scope evidence are recorded in the existing Project 8 qualification docs. | `cargo-deny` is not installed here; full acceptance-project and hosted coverage evidence remains coordinator-owned. |
 | #539-551 | Existing assistant, browser, release, locale, icon, error-ID, and suppression repairs are present; prior qualification docs record the bounded checks. | Browser/Electron visual acceptance and hosted exact-SHA receipts remain outside this lane. |

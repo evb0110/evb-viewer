@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `669e01e3` (`origin/project8/integration`)
+Source under review: `fc251b85` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -27,10 +27,17 @@ Relevant source:
 - `.github/workflows/release-supplemental.yml`, the ARM64 build and attach
   dependency chain.
 
-This is a source qualification only. No Windows ARM64 hosted runner was
-available in this VPS lane, so an exact installer digest, tested commit, and
-successful installed-app run remain external acceptance gaps. The branch does
-not claim those results.
+Hosted run [34617444334](https://github.com/evb0110/evb-viewer/actions/runs/34617444334)
+at `e77c8500e1fcc74f0b9e9bce1fd1ab0c09d853e8` passed the Windows 11 ARM64
+NSIS package job, including the installed Windows NSIS journey, and passed both
+Windows 11 ARM64 Store installed-smoke jobs. That SHA is an ancestor of the
+reviewed integration tip. The later source commit `19830bd36` binds Windows
+artifact readiness to the NSIS journey outcome, and is also present in the
+reviewed tip.
+
+This qualifies the installed ARM64 behavior and the source gate, but the exact
+current-tip hosted rerun has not completed in this campaign. Release publication
+and final artifact-digest acceptance remain coordinator evidence.
 
 ## #522, mirror and GitHub promotion ordering
 
