@@ -26,7 +26,7 @@ was available here, not that the project is green.
 | `electron-bundle-static-integrity` | `pnpm run test:electron-bundle-static-integrity:no-build`, after the build job | Native/build safety and release checks | Unknown |
 | `e2e-regression` | `pnpm run test:e2e:electron:regression` | Changed app/Electron integration; manual dispatch | Unknown |
 | `e2e-blocking-smoke` | `pnpm run test:e2e:electron:blocking-smoke:headless` | Changed app/Electron push gate | 5 files passed, 41 tests passed, 5 skipped |
-| `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | Unknown |
+| `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | 1 file passed, 16 tests passed; 1 parity test failed |
 | `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | Unknown |
 | `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
 | `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Unknown |
@@ -128,3 +128,24 @@ including pressure and large-PDF checks.
 
 This is local Linux Electron evidence. Hosted exact-SHA status, Windows and
 macOS acceptance, and production-artifact replay remain external gaps.
+
+## Draw-shapes acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:draw-shapes
+1 test file passed, 16 tests passed; 1 test failed
+Duration: 518.03s
+```
+
+The native page-operations build reused its fingerprinted artifact and the
+draw-shape lifecycle file passed all 16 scenarios. The independent
+Electron/Playwright stroke-parity test failed at
+`annotationStrokeParity.e2e.test.ts:369`: the measured blue-pixel difference
+was 41, above the allowed 28. The run is therefore not an acceptance pass.
+
+Disjoint fallback TODO: investigate the Electron versus Playwright stroke
+pixel-count delta, including the captured runtime metrics and viewport/device
+scale inputs, then rerun only the parity acceptance after the cause is fixed.
+Do not change the threshold to make this run green.
