@@ -188,3 +188,26 @@ IPC lifecycle handling. The real multi-page DjVu fixture export and headed
 viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
+
+## Follow-up slot: DOCX text direction and commit
+
+This slot started from `fc251b855`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #438's
+direction derivation and its existing streamed-export commit boundary:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/utils/docxStreaming.test.ts \
+  tests/unit/electron/docxExportStream.test.ts \
+  tests/unit/electron/docxExportStreamCommitRace.test.ts \
+  tests/unit/electron/docxExportPaths.test.ts --reporter=dot
+
+4 files passed, 19 tests passed
+```
+
+The run covered mixed paragraph direction, neutral numeric paragraphs, RTL
+language hints, bounded stream chunks, atomic DOCX commit, and cancellation
+races before and after replacement. A real packaged DOCX export on macOS and
+Windows remains coordinator-owned platform evidence. No new fixture, DOCX,
+screenshot, or telemetry artifact was generated. Temporary test paths were
+cleaned up by the existing suites.
