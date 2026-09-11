@@ -680,7 +680,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
             const stat = await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
             sourceStat = {
                 fileSize: stat.size,
-                modifiedAt: stat.modifiedAt,
+                ...(stat.modifiedAt === undefined ? {} : {modifiedAt: stat.modifiedAt}),
             };
         } catch (error) {
             recentFilesError.value = getErrorMessage(error);
@@ -693,9 +693,12 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         }
     }
 
+    const statMatches = sourceStat !== null
+        && sourceStat.fileSize === file.fileSize
+        && sourceStat.modifiedAt === file.modifiedAt;
     const result = await activeDocumentSession.value.open({
         action: 'openRecentFromPlaceholder',
-        ...(sourceStat?.fileSize === file.fileSize && sourceStat.modifiedAt === file.modifiedAt
+        ...(statMatches
             ? {
                 preparedSourceModifiedAt: file.modifiedAt,
                 preparedSourceSize: file.fileSize,
