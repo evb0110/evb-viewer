@@ -1129,6 +1129,8 @@ function createLazyPageRasterSource({
     let compactLayeredPageCount = 0;
     let nextExpectedPageNumber = 1;
     let rasterProbeFailed = false;
+    let observedLegacyRasterMap = false;
+    let legacyRasterMapCoverageComplete = true;
     let documentDpi: number | null = null;
     const getPageRaster = (pageNumber: number) => {
         const cached = cache.get(pageNumber);
@@ -1178,6 +1180,12 @@ function createLazyPageRasterSource({
                 if ('getPageRaster' in result) {
                     return markObserved(await result.getPageRaster(pageNumber));
                 }
+                observedLegacyRasterMap = true;
+                legacyRasterMapCoverageComplete = legacyRasterMapCoverageComplete
+                    && hasCompletePageRasterCoverage(
+                        result.pageRasterByNumber,
+                        documentPageCount,
+                    );
                 return markObserved(result.pageRasterByNumber.get(pageNumber));
             } catch (error) {
                 signal.throwIfAborted();
@@ -1205,7 +1213,8 @@ function createLazyPageRasterSource({
         },
         get compactLayeredPageCountComplete() {
             return !rasterProbeFailed
-                && nextExpectedPageNumber > documentPageCount;
+                && nextExpectedPageNumber > documentPageCount
+                && (!observedLegacyRasterMap || legacyRasterMapCoverageComplete);
         },
         getPageRaster,
     };
