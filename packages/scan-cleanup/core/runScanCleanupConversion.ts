@@ -1498,7 +1498,6 @@ async function runStreamingScanCleanupConversion({
                     progress.stage,
                     Math.min(pageCount, batch.startOffset + progress.completedUnits),
                     pageCount,
-                    [],
                 ),
                 policy,
                 log,
