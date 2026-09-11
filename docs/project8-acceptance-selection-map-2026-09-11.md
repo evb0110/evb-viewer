@@ -31,8 +31,8 @@ was available here, not that the project is green.
 | `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
 | `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Blocked at Electron sandbox startup; 3 platform tests skipped |
 | `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Runner exited 1; per-test report unavailable after temp cleanup |
-| `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | Unknown |
-| `e2e-native-save-reopen` | Invoked by the save-pipeline script after `e2e-save-pipeline` | Save-pipeline command, not a separate workflow job | Unknown |
+| `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | 2 files passed, 11 tests passed, 4 skipped |
+| `e2e-native-save-reopen` | Invoked by the save-pipeline script after `e2e-save-pipeline` | Save-pipeline command, not a separate workflow job | 2 files passed, 8 tests passed |
 | `e2e-xlarge-pdf` | `pnpm run test:e2e:electron:xlarge` | Manual dispatch and performance workflow | Unknown |
 | `e2e-search-match-scroll` | `pnpm run test:e2e:electron:search-match-scroll` | Package script only; no current CI workflow invocation found | 1 file passed, 2 tests passed |
 
@@ -213,3 +213,28 @@ Disjoint fallback TODO: preserve the quarantine JSON report before temporary
 directory cleanup, rerun the policy suite in an isolated slot, and identify the
 failing assertion or policy mismatch. Do not convert missing report data into a
 green result and do not loosen quarantine admission rules.
+
+## Save-pipeline acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:save-pipeline
+e2e-save-pipeline: 2 files passed, 11 tests passed, 4 skipped
+e2e-native-save-reopen: 2 files passed, 8 tests passed
+Durations: 432.60s and 461.50s
+```
+
+The page-operations artifact was reused. Both Electron stages built and
+started an isolated renderer. Save diagnostics, recovery-close scenarios,
+fresh-process native save/reopen scenarios, metadata preservation, and the
+page-operation matrix passed. The four first-stage skips were the three
+issue-124 lifecycle cases and the benchmark, which this command excludes.
+
+One recovery scenario needed the process-tree fallback after graceful
+controller shutdown timed out. The scenario still passed, so this is a
+cleanup diagnostic rather than an acceptance failure.
+
+This is local exact-run evidence only. It does not cover hosted CI, native
+dialog behavior on macOS or Windows, production replay, or the skipped
+issue-124 and benchmark projects.
