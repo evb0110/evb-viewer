@@ -235,14 +235,17 @@ describe('useDocxExport', () => {
         }]);
         const {useDocxExport} = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();
+        documentFilesMock.commitDocxFileStream.mockImplementationOnce(async () => {
+            exportState.cancelDocxExport();
+            return true;
+        });
         const result = await exportState.exportDocx({
             workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as IPdfDocument,
         });
-        exportState.cancelDocxExport();
         expect(result).toBe(true);
-        expect(documentFilesMock.cancelDocxFileStream).not.toHaveBeenCalled();
+        expect(documentFilesMock.cancelDocxFileStream).toHaveBeenCalledWith('docx-session');
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({color: 'success'}));
     });
 
