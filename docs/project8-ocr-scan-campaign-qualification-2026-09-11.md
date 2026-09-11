@@ -189,6 +189,27 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: preserved MRC source geometry
+
+This slot started from `3540fd20e`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #428
+through the source-MRC placement helpers:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/scanCleanupSourceMrcGeometry.test.ts \
+  --reporter=dot
+
+1 file passed, 4 tests passed
+```
+
+The run covered clipped intrinsic overflow, independent matched-canvas x and y
+scales, placement offsets, and non-unit page-to-canvas ratios. Packaged
+source-MRC output with independent PDF readback remains coordinator-owned
+evidence. No new PDF, fixture, raster, screenshot, or telemetry artifact was
+generated. Test-owned geometry state was cleaned by the suite, and the
+worktree is clean.
+
 ## Follow-up slot: compact DjVu foreground selection
 
 This slot started from `4f36d7f77`, the current
