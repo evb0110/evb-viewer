@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `8652fce8` (`origin/project8/integration`)
+Source under review: `ff9bcaf6` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -87,7 +87,7 @@ reviewed source:
 | `scripts/architecture/boundary-check.mjs` | File remains, but has no `max-lines` suppression. |
 | `scripts/diagnostics/scan-cleanup-representative-audit.mjs` | File remains, but has no `max-lines` suppression. |
 
-The current repository search at `8652fce839b4ca3bb645f4b093191d1d6fb47ee1`
+The current repository search at `ff9bcaf6815d6299fb7e9b8eafb8b32290fb2201`
 finds no source `max-lines` directive. `node --check` accepts both executable
 audit scripts. This is a qualification of an already-resolved finding, with no
 line-limit change, source move, or new suppression.
