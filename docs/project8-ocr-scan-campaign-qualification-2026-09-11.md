@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: raster batch publication and retention
+
+This slot started from `ac338329a`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #442
+through the raster-batch and retention owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/scanCleanupRasterBatch.test.ts \
+  tests/unit/electron/scanCleanupRasterRetention.test.ts --reporter=dot
+
+2 files passed, 27 tests passed
+```
+
+The run covered contiguous Poppler batches, scratch-cleanup failure recovery,
+non-contiguous and pixel-limit rejection, 1,024-page manifests, path-only
+raster retention, adopted-raster protection, bounded page reads, source-DPI
+measurements, concurrent owner claims, and publication cancellation. A full
+large-document native raster/export run remains coordinator-owned evidence.
+No new raster, PDF, fixture, screenshot, or telemetry artifact was generated.
+Test-owned raster paths and temporary state were cleaned by the suites, and
+the worktree is clean.
+
 ## Follow-up slot: OCR cancellation ownership
 
 This slot started from `213689808`, the current
