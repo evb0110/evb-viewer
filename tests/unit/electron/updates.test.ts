@@ -241,6 +241,7 @@ describe('updates robustness', () => {
         } catch {
             // Ignore reset/import failures during teardown.
         }
+        vi.restoreAllMocks();
         vi.unstubAllGlobals();
         vi.useRealTimers();
     });
@@ -791,7 +792,13 @@ describe('updates robustness', () => {
     it('does not let a timed-out feed probe or its late response replace a later check result', async () => {
         const lateProbe = Promise.withResolvers<ReturnType<typeof createEmptyResponse>>();
         let feedProbeCalls = 0;
-        let abortFirstProbe: (() => void) | null = null;
+        let firstFeedSignal: AbortSignal | null = null;
+        let firstFeedAborted = false;
+        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((delayMs: number) => {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), delayMs);
+            return controller.signal;
+        });
         mocks.fetch.mockImplementation((url: string, init?: {
             method?: string;
             signal?: AbortSignal;
@@ -806,8 +813,11 @@ describe('updates robustness', () => {
             if (feedProbeCalls === 1) {
                 return new Promise((resolve, reject) => {
                     const signal = init.signal;
-                    const abort = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
-                    abortFirstProbe = abort;
+                    firstFeedSignal = signal ?? null;
+                    const abort = () => {
+                        firstFeedAborted = true;
+                        reject(new DOMException('The operation was aborted.', 'AbortError'));
+                    };
                     if (signal?.aborted) {
                         abort();
                     } else {
@@ -825,9 +835,12 @@ describe('updates robustness', () => {
 
         const firstCheck = updates.triggerManualUpdateCheck();
         await flushPromises();
-        setTimeout(() => abortFirstProbe?.(), 10_000);
         await vi.advanceTimersByTimeAsync(10_000);
         await expect(firstCheck).resolves.toMatchObject({started: true});
+        expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+        expect(firstFeedSignal).not.toBeNull();
+        expect(firstFeedAborted).toBe(true);
+        expect(firstFeedSignal?.aborted).toBe(true);
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
             phase: 'error',
