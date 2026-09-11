@@ -189,6 +189,27 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: compact DjVu foreground selection
+
+This slot started from `4f36d7f77`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #427
+through the compact DjVu-aware PDF exporter:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/compactDjvuPdfExport.test.ts --reporter=dot
+
+1 file passed, 15 tests passed
+```
+
+The run covered bitonal mask selection, colored foreground preservation,
+full-color handling for real foregrounds, tiny-mask photo fallback, dense-mask
+behavior, bounded compact output, and cancellation without unsafe fallback.
+A packaged DjVu conversion with independent PDF readback remains
+coordinator-owned evidence. No new PDF, fixture, screenshot, or telemetry
+artifact was generated. Test-owned compact-export files and processes were
+cleaned by the suite, and the worktree is clean.
+
 ## Follow-up slot: OCR source-resource preservation
 
 This slot started from `a73dd77de`, the current
