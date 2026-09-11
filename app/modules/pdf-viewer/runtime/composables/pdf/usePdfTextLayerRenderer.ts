@@ -466,7 +466,7 @@ export const usePdfTextLayerRenderer = (deps: {
         mountedPageNumber: number,
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
-        currentMatchPresentationReady: boolean,
+        currentMatchPresentationReady = true,
     ) {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
         const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
