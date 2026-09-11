@@ -453,7 +453,32 @@ describe('release mirror publisher', () => {
         expect(fixture.maxInFlight()).toBeGreaterThan(1);
     });
 
-    it('aborts a failed multipart upload and retries the artifact from scratch', async () => {
+    it('resends a stalled part on the same multipart upload', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const artifact = Buffer.from('multipart drill payload');
+        let stalls = 0;
+        const fixture = createMultipartFixture({failPart: (partNumber, uploadId) => {
+            if (uploadId === 'upload-1' && partNumber === 2 && stalls === 0) {
+                stalls += 1;
+                return Object.assign(new Error('a request has exceeded the configured 120000 ms requestTimeout'), {name: 'TimeoutError'});
+            }
+            return undefined;
+        }});
+
+        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        expect(fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand)).toHaveLength(0);
+        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter(command => command instanceof UploadPartCommand
+            && command.input.PartNumber === 2)).toHaveLength(2);
+        expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
+        expect(fixture.openUploads.size).toBe(0);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Part 2 of asset.zip'));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('resending it (2/3)'));
+        warn.mockRestore();
+    });
+
+    it('aborts the multipart upload and restarts the artifact once a part keeps stalling', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const artifact = Buffer.from('multipart drill payload');
         const fixture = createMultipartFixture({failPart: (partNumber, uploadId) => (uploadId === 'upload-1' && partNumber === 2
@@ -465,6 +490,8 @@ describe('release mirror publisher', () => {
         const aborts = fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand);
         expect(aborts.map(command => command.input.UploadId)).toEqual(['upload-1']);
         expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(2);
+        expect(fixture.commands.filter(command => command instanceof UploadPartCommand
+            && command.input.UploadId === 'upload-1' && command.input.PartNumber === 2)).toHaveLength(3);
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(fixture.openUploads.size).toBe(0);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('retrying (2/3)'));

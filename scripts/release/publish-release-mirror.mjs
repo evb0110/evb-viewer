@@ -544,6 +544,7 @@ async function putImmutableFile(client, bucket, key, {
                     name,
                     partBytes,
                     partCount,
+                    retryDelayMs,
                     sha256,
                     size,
                 })
@@ -593,12 +594,13 @@ async function uploadWhole(client, bucket, key, {
 // One HTTP request per part keeps a stalled connection from costing more
 // than one part's timeout, and the conditional completion keeps the object
 // immutable exactly like the single-request path.
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, partBytes: number, partCount: number, sha256: string, size: number}} parameters @returns {Promise<void>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, partBytes: number, partCount: number, retryDelayMs: number, sha256: string, size: number}} parameters @returns {Promise<void>} */
 async function uploadMultipart(client, bucket, key, {
     filePath,
     name,
     partBytes,
     partCount,
+    retryDelayMs,
     sha256,
     size,
 }) {
@@ -616,8 +618,10 @@ async function uploadMultipart(client, bucket, key, {
     try {
         const parts = await uploadParts(client, bucket, key, uploadId, {
             file,
+            name,
             partBytes,
             partCount,
+            retryDelayMs,
             size,
         });
         await client.send(new CompleteMultipartUploadCommand({
@@ -635,11 +639,13 @@ async function uploadMultipart(client, bucket, key, {
     }
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @param {{file: import('node:fs/promises').FileHandle, partBytes: number, partCount: number, size: number}} parameters @returns {Promise<{ETag: string, PartNumber: number}[]>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @param {{file: import('node:fs/promises').FileHandle, name: string, partBytes: number, partCount: number, retryDelayMs: number, size: number}} parameters @returns {Promise<{ETag: string, PartNumber: number}[]>} */
 async function uploadParts(client, bucket, key, uploadId, {
     file,
+    name,
     partBytes,
     partCount,
+    retryDelayMs,
     size,
 }) {
     /** @type {{ETag: string, PartNumber: number}[]} */
@@ -657,14 +663,18 @@ async function uploadParts(client, bucket, key, uploadId, {
             if (bytesRead !== length) {
                 throw new Error(`Short read of ${key} at byte ${offset}: expected ${length}, got ${bytesRead}`);
             }
-            const {ETag} = await client.send(new UploadPartCommand({
+            const {ETag} = await sendPart(client, () => new UploadPartCommand({
                 Bucket: bucket,
                 Key: key,
                 UploadId: uploadId,
                 PartNumber: index + 1,
                 Body: body,
                 ContentLength: length,
-            }));
+            }), {
+                name,
+                partNumber: index + 1,
+                retryDelayMs,
+            });
             if (!ETag) {
                 throw new Error(`Mirror returned no ETag for part ${index + 1} of ${key}`);
             }
@@ -685,6 +695,33 @@ async function uploadParts(client, bucket, key, uploadId, {
         throw failure.reason;
     }
     return parts;
+}
+
+// A stalled part is resent on the same multipart upload. Restarting the whole
+// file after one 60 s stall cost five minutes per stall on 2026-09-11 and ran
+// the mirror stage out of its 40-minute budget on a 12-asset release.
+/** @param {TMirrorClient} client @param {() => UploadPartCommand} createCommand @param {{name: string, partNumber: number, retryDelayMs: number}} parameters @returns {Promise<{ETag?: string | undefined}>} */
+async function sendPart(client, createCommand, {
+    name,
+    partNumber,
+    retryDelayMs,
+}) {
+    for (let attempt = 1; ; attempt += 1) {
+        const startedAt = Date.now();
+        try {
+            return await client.send(createCommand());
+        } catch (error) {
+            if (attempt === UPLOAD_ATTEMPTS || !isTransientTransferError(error)) {
+                throw error;
+            }
+            const reason = getCliErrorMessage(error);
+            console.warn(
+                `Part ${partNumber} of ${name} failed after ${elapsedSeconds(startedAt)}s (${reason}); `
+                + `resending it (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
+            );
+            await delay(retryDelayMs * attempt);
+        }
+    }
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @returns {Promise<void>} */
