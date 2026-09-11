@@ -365,6 +365,18 @@ async function getFirstPageExtGStateAlphaEntries(filePath: string) {
     });
 }
 
+async function getFirstPageResourceNames(filePath: string, category: string) {
+    const pdf = await PDFDocument.load(await readFile(filePath));
+    const resources = pdf.getPage(0).node.lookup(PDFName.of('Resources'));
+    if (!(resources instanceof PDFDict)) {
+        return [];
+    }
+    const dictionary = resources.lookup(PDFName.of(category));
+    return dictionary instanceof PDFDict
+        ? dictionary.keys().map(key => key.asString().replace(/^\//u, ''))
+        : [];
+}
+
 describe('assembleSearchablePdf', () => {
     let tempDir: string | null = null;
 
@@ -579,6 +591,19 @@ describe('assembleSearchablePdf', () => {
         expect(countTextOccurrences(extractedText, 'SECOND OCR')).toBe(1);
         expect(extractedText).not.toContain('FIRST OCR');
         expect(extractedText).not.toContain('ORIGINAL OCR');
+        const firstContent = await getFirstPageContentText(firstOutputPath);
+        const secondContent = await getFirstPageContentText(secondOutputPath);
+        const firstLayerName = firstContent.match(/\/(EvbOcrLayer-[^\s]+)\s+Do/u)?.[1];
+        const secondLayerName = secondContent.match(/\/(EvbOcrLayer-[^\s]+)\s+Do/u)?.[1];
+        expect(firstLayerName).toBeTruthy();
+        expect(secondLayerName).toBeTruthy();
+        expect(secondContent).toContain(`/${secondLayerName} Do`);
+        expect((await getFirstPageResourceNames(secondOutputPath, 'XObject'))
+            .filter(name => name.startsWith('EvbOcrLayer-')))
+            .toEqual([secondLayerName]);
+        expect((await getFirstPageResourceNames(secondOutputPath, 'ExtGState'))
+            .filter(name => name.startsWith('EvbOcrInvisible-')))
+            .toHaveLength(1);
     });
 
     it('removes foreign hidden text from an image-plus-text stream during replacement', async () => {

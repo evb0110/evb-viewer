@@ -341,30 +341,15 @@ function deleteProvenUnusedEntries(
         return;
     }
     for (const key of dict.keys()) {
-        const name = key.asString();
+        const name = key.asString().replace(/^\//u, '');
         if (candidates.has(name) && !referencedNames.names.has(name)) {
             dict.delete(key);
         }
     }
 }
 
-function hasFormXObject(resources: PDFDict) {
-    const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME);
-    if (!xObject) {
-        return false;
-    }
-    for (const key of xObject.keys()) {
-        try {
-            const value = xObject.lookup(key);
-            if (value instanceof PDFStream && value.dict.get(PDFName.of('Subtype'))?.toString() === '/Form') {
-                return true;
-            }
-        } catch {
-            // An unreadable resource is an ambiguity. Preserve candidates.
-            return true;
-        }
-    }
-    return false;
+function filterOwnedOcrResourceNames(names: Set<string>) {
+    return new Set([...names].filter(name => name.replace(/^\//u, '').startsWith('EvbOcr')));
 }
 
 function cloneMutablePageResources(page: PDFPage) {
@@ -380,7 +365,6 @@ function cloneMutablePageResources(page: PDFPage) {
     return {
         extGState,
         font,
-        resources,
         xObject,
     };
 }
@@ -446,7 +430,6 @@ function removePreviousOcrLayer(page: PDFPage) {
     const {
         extGState,
         font,
-        resources,
         xObject,
     } = cloneMutablePageResources(page);
     const context = page.doc.context;
@@ -530,10 +513,14 @@ function removePreviousOcrLayer(page: PDFPage) {
     }
 
     const keptText = keptContentText.join('\n');
-    if (canProveKeptContent && !hasFormXObject(resources)) {
-        deleteProvenUnusedEntries(extGState, removedExtGStateNames, scanResourceReferences(keptText, 'gs'));
+    if (canProveKeptContent) {
+        // A kept source Form makes nested reachability ambiguous, but the
+        // marker identifies these exact EVB-owned layer resources. Remove
+        // only those names, and continue preserving every arbitrary source
+        // Form and resource that the kept content may reach.
+        deleteProvenUnusedEntries(extGState, filterOwnedOcrResourceNames(removedExtGStateNames), scanResourceReferences(keptText, 'gs'));
         deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
-        deleteProvenUnusedEntries(xObject, removedXObjectNames, scanResourceReferences(keptText, 'Do'));
+        deleteProvenUnusedEntries(xObject, filterOwnedOcrResourceNames(removedXObjectNames), scanResourceReferences(keptText, 'Do'));
     }
 }
 
