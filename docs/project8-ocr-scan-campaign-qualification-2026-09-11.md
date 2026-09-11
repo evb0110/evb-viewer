@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: DjVu raster batch rollback and limits
+
+This slot started from `d40e1f040`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #431
+through the DjVu image-export limit and rollback owner:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/djvuImageExportLimits.test.ts --reporter=dot
+
+1 file passed, 8 tests passed
+```
+
+The run covered oversized-page rejection, multi-page aggregate budgeting,
+bounded TIFF splitting, rollback when a later PNG render fails, staged-byte
+accounting reset, sparse selected-page export beyond 100,000 pages, and
+cancellation of million-page size scans. A packaged DjVu export with
+independent output readback remains coordinator-owned evidence. The first
+attempt used a mistyped worktree path and did not start a process; the
+corrected command passed. No new DjVu, PDF, raster, fixture, screenshot, or
+telemetry artifact was generated. Test-owned output paths were cleaned by the
+suite, and the worktree is clean.
+
 ## Follow-up slot: bundled OCR model integrity and paths
 
 This slot started from `07530a552`, the current
