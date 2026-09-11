@@ -286,6 +286,26 @@ describe('processDeathRecovery', () => {
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
 
+    it('still reports an unexpected POSIX SIGTERM status for an app utility', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'abnormal-exit',
+            exitCode: 143 * 256,
+            name: DOCUMENT_FINGERPRINT_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB document fingerprint, reason=abnormal-exit, exitCode=36608)',
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
+        );
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+    });
+
     // Only named utility processes that the app forks are expected to be
     // terminated during ordinary teardown. A signal that ended any other
     // utility process came from outside the app, which is a fault the user
