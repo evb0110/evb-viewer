@@ -1,0 +1,22 @@
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_e40316ce2751c9::t_9bdf8d5fcc9f0e 19,84-86,120,142,227,260-264
+tests/unit/app/modules/workspace-shell/components/sidebarOpenLayoutStability.test.ts
+  s_e40316ce2751c9::t_98a9500a8da9dd 41,128-146
+  s_e40316ce2751c9::t_91073c63d0cbfd 147-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "20523cd38b94a3a203697102924e9ef8757cf817",
+  "prompts": {},
+  "sessions": {
+    "s_e40316ce2751c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a1ff0c0-b9df-4b68-820b-80f71519f351",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
