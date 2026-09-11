@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Installs apt packages on a GitHub runner without letting a stalled mirror
 # hold the job for its whole timeout budget. The runner image resolves
-# Ubuntu sources through a mirror list whose first entry,
-# azure.archive.ubuntu.com, has stalled `apt-get update` for 27 minutes
-# inside a 30-minute job, and apt's per-request Acquire timeouts did not
-# abort the stall. Dropping that mirror sends apt straight to the canonical
-# archive; a hard per-command timeout plus a retry loop turns any remaining
-# outage into a fast failure with a few chances to clear.
+# Ubuntu sources through `mirror+file:/etc/apt/apt-mirrors.txt`; apt tries
+# the entries by ascending priority and moves to the next one when a fetch
+# fails, so the list below is the fallback chain. The canonical archive goes
+# first, the kernel.org mirror takes over when it stalls (on 2026-09-11 it
+# timed out on one request in four for over an hour and failed four release
+# attempts), and the security archive comes last. The Azure mirror the image
+# ships as its first entry stays out: it stalled `apt-get update` for 27
+# minutes inside a 30-minute job, and apt's per-request timeouts did not
+# abort the stall. Per-request timeouts are short and retried once so apt
+# reaches the next mirror well inside the hard budget on each command.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -22,17 +26,23 @@ for package in "$@"; do
 done
 
 mirror_list=/etc/apt/apt-mirrors.txt
-if [ -f "$mirror_list" ] && grep -q 'azure.archive.ubuntu.com' "$mirror_list"; then
-    sudo sed -i '/azure\.archive\.ubuntu\.com/d' "$mirror_list"
-    if ! grep -q 'archive.ubuntu.com' "$mirror_list"; then
-        echo 'https://archive.ubuntu.com/ubuntu/	priority:1' | sudo tee -a "$mirror_list" >/dev/null
+if [ -f "$mirror_list" ]; then
+    if grep -q 'archive.ubuntu.com/ubuntu/' "$mirror_list"; then
+        printf '%s\tpriority:%s\n' \
+            https://archive.ubuntu.com/ubuntu/ 1 \
+            https://mirrors.edge.kernel.org/ubuntu/ 2 \
+            https://security.ubuntu.com/ubuntu/ 3 \
+            | sudo tee "$mirror_list" >/dev/null
+    else
+        # An arm64 runner lists ports.ubuntu.com, which kernel.org does not mirror.
+        sudo sed -i '/azure\.archive\.ubuntu\.com/d' "$mirror_list"
     fi
 fi
 
 apt_opts=(
-    -o Acquire::Retries=3
-    -o Acquire::http::Timeout=30
-    -o Acquire::https::Timeout=30
+    -o Acquire::Retries=1
+    -o Acquire::http::Timeout=15
+    -o Acquire::https::Timeout=15
     -o Acquire::ForceIPv4=true
     -o DPkg::Lock::Timeout=120
 )
