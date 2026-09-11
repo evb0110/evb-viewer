@@ -1,0 +1,25 @@
+app/types/pdfUi.ts
+  s_f8adcf939cc7fb::t_bbe8d627c928c0 118-119
+app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent.ts
+  s_f8adcf939cc7fb::t_bbe8d627c928c0 142-143,149-156,165,171
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_f8adcf939cc7fb::t_bbe8d627c928c0 200-207,222-231
+  s_f8adcf939cc7fb::t_42a0c9a1d4f55e 208-209,216-221
+  s_f8adcf939cc7fb::t_4d17f8e15f73be 210-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "94347064e7d9bd7ef0e986da7075210d39b9ee58",
+  "prompts": {},
+  "sessions": {
+    "s_f8adcf939cc7fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ba1c-72d2-b391-97f24f1ef5da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
