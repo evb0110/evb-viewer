@@ -1,0 +1,20 @@
+docs/project8-coverage-baseline-refresh-2026-09-11.md
+  s_caaca00913ff0c::t_7cfc56ec3c6908 1-39,45-56
+  s_caaca00913ff0c::t_50ea315c46146b 40-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d551750e96ddf552a1bc2d955fcd1d02b1e924a",
+  "prompts": {},
+  "sessions": {
+    "s_caaca00913ff0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-a40b-7e32-8762-b32ad720b12c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
