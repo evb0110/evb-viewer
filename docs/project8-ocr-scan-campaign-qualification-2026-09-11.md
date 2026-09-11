@@ -189,6 +189,28 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: DjVu source identity and artifact reuse
+
+This slot started from `4859287cf`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #429's
+digest-backed artifact identity through the DjVu artifact manifest owner:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/djvuArtifactManifest.test.ts --reporter=dot
+
+1 file passed, 10 tests passed
+```
+
+The run covered verified-range reuse, interrupted-range reset, same-size
+artifact tampering rejection, source-fingerprint serialization, path
+containment, explicit cleanup, compact-artifact aggregate accounting, and
+free-space/quota fencing. A direct compact-export assertion that one stable
+source digest is reused across the complete export remains coordinator-owned
+evidence. No new DjVu, PDF, fixture, screenshot, or telemetry artifact was
+generated. Test-owned artifact directories were cleaned by the suite, and the
+worktree is clean.
+
 ## Follow-up slot: preserved MRC source geometry
 
 This slot started from `3540fd20e`, the current
