@@ -2856,6 +2856,64 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(await session.page.evaluate(() => document.activeElement?.matches('.pdf-thumbnail-selection-toggle'))).toBe(true);
     }, 90_000);
 
+    it('activates a newly mounted distant thumbnail selection control', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-thumbnail-keyboard-virtualized-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            height: 600,
+            width: 1_200,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-thumbnail-keyboard-virtualized-${Date.now()}.pdf`,
+            64,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        const targetSelector = '.editor-pane.is-active .pdf-thumbnail[data-page="64"]';
+        const targetToggleSelector = `${targetSelector} .pdf-thumbnail-selection-toggle`;
+        await session.page.waitForSelector(
+            '.editor-pane.is-active .pdf-thumbnail[data-page="1"]',
+            {visible: true},
+        );
+
+        const initialTargetCount = await session.page.$$eval(
+            targetSelector,
+            elements => elements.length,
+        );
+        expect(initialTargetCount).toBe(0);
+
+        await goToPageViaToolbar(session.page, 64);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {currentPage: 64},
+            {timeoutMs: 15_000},
+        );
+        await session.page.waitForSelector(targetToggleSelector, {visible: true});
+        expect(await session.page.$$eval(targetSelector, elements => elements.length)).toBe(1);
+        expect(await session.page.$$eval(targetToggleSelector, elements => elements.length)).toBe(1);
+
+        await session.page.focus(targetSelector);
+        await session.page.keyboard.press('Tab');
+        expect(await session.page.evaluate(() => document.activeElement?.matches(
+            '.pdf-thumbnail[data-page="64"] .pdf-thumbnail-selection-toggle',
+        ))).toBe(true);
+        await session.page.keyboard.press('Space');
+        expect(await session.page.$eval(targetToggleSelector, element => element.getAttribute('aria-pressed'))).toBe('true');
+        expect((await getWorkspaceToolbarSnapshot(session.page))?.currentPage).toBe(64);
+    }, 90_000);
+
     it('fits explicitly navigated mixed-size pages without thumbnail overlap', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
