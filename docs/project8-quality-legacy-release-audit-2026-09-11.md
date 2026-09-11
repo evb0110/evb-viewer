@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `ad2ea1439` (`origin/project8/integration`)
+Source under review: `b25487ccb` (campaign branch with `origin/project8/integration` at `2dcf80dbd`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -78,7 +78,7 @@ move, or new suppression.
 
 ## Checks
 
-These existing checks passed on `ad2ea1439`:
+These existing checks passed on `b25487ccb`:
 
 ```text
 pnpm exec vitest run tests/unit/scripts/publishReleaseMirror.test.ts tests/unit/scripts/releasePolicy.test.ts tests/unit/scripts/releaseStatus.test.ts tests/unit/scripts/ciTopologyPolicy.test.ts --reporter=dot

@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `ad2ea1439` (`origin/project8/integration`)
+Source under review: `b25487ccb` (campaign branch with `origin/project8/integration` at `2dcf80dbd`)
 
 Tickets: [#547](https://github.com/evb0110/evb-viewer/issues/547) and [#548](https://github.com/evb0110/evb-viewer/issues/548)
 
@@ -47,7 +47,7 @@ assistant, OCR, browser, or native implementation files.
 
 ## Checks
 
-These existing checks passed on `ad2ea1439`:
+These existing checks passed on `b25487ccb`:
 
 ```text
 pnpm exec tsx --tsconfig tsconfig.workspace-paths.json scripts/checkLocales.ts --target=app
@@ -70,3 +70,26 @@ render of synthetic assistant/OCR states was not run in this quality lane. That
 visual acceptance remains with the browser/OCR owners and is an explicit gap,
 not a claim of completion here. No catalog source edit was needed in this
 campaign because the required translations are already present on the base.
+
+## Rendered acceptance
+
+The real web preview was started from `b25487ccb` with `pnpm run dev:web`.
+Port 3235 was occupied, so Nuxt served the same entrypoint on its configured
+fallback at `http://127.0.0.1:3000/`. At a 1280x800 browser viewport, I opened
+Settings, selected Nederlands, and verified rendered Dutch text for the
+language control, settings headings, PDF Save As explanation, performance,
+privacy, updates, and about copy. No unresolved `{...}` placeholders or
+horizontal overflow were visible in that view.
+
+| Rendered area | Locale | Result |
+| --- | --- | --- |
+| Settings and language selector | `nl` | Pass |
+| Synthetic assistant and OCR states | `nl`, `pt`, `ptBr`, `ru` | Not run; owner gap |
+| Portuguese and Russian settings pages | `pt`, `ptBr`, `ru` | Not run; owner gap |
+
+The captured browser artifact is
+`browser-screenshot-localhost-mtx8fehu-86a78847.png` in the local T3
+browser-artifact store. The preview also emitted repeated browser-recovery
+heartbeat warnings; they did not prevent the Dutch settings page from
+rendering, but they remain an environment warning rather than a localization
+result.
