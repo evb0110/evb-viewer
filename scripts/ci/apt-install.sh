@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 # Installs apt packages on a GitHub runner without letting a stalled mirror
-# hold the job for its whole timeout budget. The runner image resolves
-# Ubuntu sources through `mirror+file:/etc/apt/apt-mirrors.txt`; apt tries
-# the entries by ascending priority and moves to the next one when a fetch
-# fails, so the list below is the fallback chain. The canonical archive goes
-# first, the kernel.org mirror takes over when it stalls (on 2026-09-11 it
-# timed out on one request in four for over an hour and failed four release
-# attempts), and the security archive comes last. The Azure mirror the image
-# ships as its first entry stays out: it stalled `apt-get update` for 27
-# minutes inside a 30-minute job, and apt's per-request timeouts did not
-# abort the stall. Per-request timeouts are short and retried once so apt
-# reaches the next mirror well inside the hard budget on each command.
+# hold the job for its whole timeout budget. `select-apt-mirrors.sh` probes
+# the Ubuntu mirrors and writes the fallback chain apt reads through
+# `mirror+file:/etc/apt/apt-mirrors.txt`; the options below keep each
+# request short and send a failed file to the next mirror instead of
+# retrying the one that just timed out, so apt reaches a working mirror well
+# inside the hard budget on each command.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -25,22 +20,10 @@ for package in "$@"; do
     fi
 done
 
-mirror_list=/etc/apt/apt-mirrors.txt
-if [ -f "$mirror_list" ]; then
-    if grep -q 'archive.ubuntu.com/ubuntu/' "$mirror_list"; then
-        printf '%s\tpriority:%s\n' \
-            https://archive.ubuntu.com/ubuntu/ 1 \
-            https://mirrors.edge.kernel.org/ubuntu/ 2 \
-            https://security.ubuntu.com/ubuntu/ 3 \
-            | sudo tee "$mirror_list" >/dev/null
-    else
-        # An arm64 runner lists ports.ubuntu.com, which kernel.org does not mirror.
-        sudo sed -i '/azure\.archive\.ubuntu\.com/d' "$mirror_list"
-    fi
-fi
+bash "$(dirname "$0")/select-apt-mirrors.sh"
 
 apt_opts=(
-    -o Acquire::Retries=1
+    -o Acquire::Retries=0
     -o Acquire::http::Timeout=15
     -o Acquire::https::Timeout=15
     -o Acquire::ForceIPv4=true

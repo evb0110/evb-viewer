@@ -22,7 +22,7 @@ APT_TIMEOUT_UPDATE_SECONDS=600
 APT_TIMEOUT_INSTALL_SECONDS=900
 APT_RETRY_FLAGS=(
   -o
-  Acquire::Retries=1
+  Acquire::Retries=0
   -o
   Acquire::http::Timeout=15
   -o
@@ -46,34 +46,6 @@ run_apt_with_timeout() {
   as_root env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
 }
 
-# The pinned image reads archive.ubuntu.com alone. Point the Ubuntu entries at
-# a mirror list so apt moves to the kernel.org mirror, then the security
-# archive, when the canonical archive stalls; on 2026-09-11 it hung the
-# install for the whole 900s budget. Plain http keeps this independent of
-# ca-certificates, which is installed below; apt verifies the signed indexes
-# either way. ports.ubuntu.com has no kernel.org mirror, so arm64 keeps its
-# sources.
-configure_apt_mirror_fallback() {
-  if [ "$ARCH" != x86_64 ]; then
-    return 0
-  fi
-
-  local mirror_list=/etc/apt/apt-mirrors.txt
-  local source
-  printf '%s\tpriority:%s\n' \
-    http://archive.ubuntu.com/ubuntu/ 1 \
-    http://mirrors.edge.kernel.org/ubuntu/ 2 \
-    http://security.ubuntu.com/ubuntu/ 3 \
-    | as_root tee "$mirror_list" >/dev/null
-  for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
-    if [ -f "$source" ]; then
-      as_root sed -i -E \
-        "s#https?://(archive|security)\.ubuntu\.com/ubuntu/?#mirror+file:$mirror_list#g" \
-        "$source"
-    fi
-  done
-}
-
 reset_bundle_dir() {
   local bundle_dir="$1"
   if [ -z "$bundle_dir" ]; then
@@ -86,7 +58,7 @@ reset_bundle_dir() {
 # Install all required tools
 echo ""
 echo "Installing tools via apt..."
-configure_apt_mirror_fallback
+bash "$SCRIPT_DIR/ci/select-apt-mirrors.sh"
 run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" update -qq
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
   tesseract-ocr \
