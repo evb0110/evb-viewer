@@ -115,6 +115,8 @@ export type IPdfPageRange = IPdfUiPageRange;
 export interface IPdfRawDims {
     pageWidth: number;
     pageHeight: number;
+    pageX?: number;
+    pageY?: number;
 }
 
 export interface IPdfSaveResult {

@@ -197,6 +197,38 @@ describe('useOcrTextContent', () => {
         expect(textContent?.items[1]?.transform[3]).toBe(30);
     });
 
+    it('keeps OCR words in the PDF.js cropped viewport origin', async () => {
+        ocrCapability.resolveDocumentOcrPage.mockResolvedValue(createPageSnapshot([{
+            text: 'cropped',
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        }]));
+        const viewport = {
+            ...createViewport(),
+            viewBox: [
+                35,
+                25,
+                765,
+                575,
+            ],
+            rawDims: {
+                pageWidth: 730,
+                pageHeight: 550,
+                pageX: 35,
+                pageY: 25,
+            },
+        };
+        const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
+        const textContent = await useOcrTextContent().getOcrTextContent(
+            requireDocumentRef('/tmp/cropped.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(1), viewport,
+        );
+
+        expect(textContent?.items[0]?.transform[4]).toBe(35);
+        expect(textContent?.items[0]?.transform[5]).toBeGreaterThan(25);
+    });
+
     it('reuses the resolved ascent ratio for all OCR text items', async () => {
         const createElement = vi.fn(() => ({getContext: () => null}));
         vi.stubGlobal('document', {createElement});

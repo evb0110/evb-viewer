@@ -139,25 +139,21 @@ export const useOcrTextContent = () => {
             throw new Error(`EVB OCR catalog page ${ocrPage.pageNumber} is missing render geometry`);
         }
 
-        // Use the viewport view box as the OCR page space. rawDims describes
-        // the MediaBox, while the rendered canvas uses the cropped view box.
-        // Keeping the view-box origin here makes rotated text items undergo
-        // the same CropBox transform as the canvas.
+        // PDF.js rawDims is derived from the viewport viewBox. It carries the
+        // cropped page dimensions and origin, including CropBox offsets.
         const rawDims = (viewport.rawDims as IPdfRawDims | undefined) ?? {
             pageWidth: viewport.width / viewport.scale,
             pageHeight: viewport.height / viewport.scale,
         };
         const viewBox = Array.isArray(viewport.viewBox) ? viewport.viewBox : [];
-        const viewBoxLeft = typeof viewBox[0] === 'number' ? viewBox[0] : 0;
-        const viewBoxBottom = typeof viewBox[1] === 'number' ? viewBox[1] : 0;
-        const viewBoxWidth = typeof viewBox[2] === 'number' && typeof viewBox[0] === 'number'
-            ? viewBox[2] - viewBox[0]
-            : rawDims.pageWidth;
-        const viewBoxHeight = typeof viewBox[3] === 'number' && typeof viewBox[1] === 'number'
-            ? viewBox[3] - viewBox[1]
-            : rawDims.pageHeight;
-        const pageWidth = viewBoxWidth > 0 ? viewBoxWidth : rawDims.pageWidth;
-        const pageHeight = viewBoxHeight > 0 ? viewBoxHeight : rawDims.pageHeight;
+        const pageX = typeof rawDims.pageX === 'number'
+            ? rawDims.pageX
+            : (typeof viewBox[0] === 'number' ? viewBox[0] : 0);
+        const pageY = typeof rawDims.pageY === 'number'
+            ? rawDims.pageY
+            : (typeof viewBox[1] === 'number' ? viewBox[1] : 0);
+        const pageWidth = rawDims.pageWidth > 0 ? rawDims.pageWidth : viewport.width / viewport.scale;
+        const pageHeight = rawDims.pageHeight > 0 ? rawDims.pageHeight : viewport.height / viewport.scale;
 
         // Scale from OCR pixels to PDF user space
         const sx = pageWidth / render.imagePx.w;
@@ -166,13 +162,13 @@ export const useOcrTextContent = () => {
         // Transform coordinates
         // OCR word: x, y are top-left corner in pixel coords (y down)
         // PDF user space: origin at bottom-left, y up
-        const pdfX = viewBoxLeft + word.x * sx;
+        const pdfX = pageX + word.x * sx;
         const pdfW = word.width * sx;
         const pdfH = word.height * sy;
 
         // Flip Y: pageHeight - (top + height) gives us the bottom Y in PDF coords
         // Then we add height to get the top Y in PDF coords
-        const pdfBottomY = viewBoxBottom + pageHeight - (word.y + word.height) * sy;
+        const pdfBottomY = pageY + pageHeight - (word.y + word.height) * sy;
 
         // Compute baseline Y for PDF.js TextLayer alignment
         // baselineY should place the text so that the top of the glyph box aligns
