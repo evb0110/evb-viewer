@@ -1,0 +1,21 @@
+tests/unit/app/composables/useToolbarOverflow.test.ts
+  s_e40316ce2751c9::t_75c9cbf4450342 126,128,131-137
+tests/unit/app/modules/workspace-shell/components/sidebarOpenLayoutStability.test.ts
+  s_e40316ce2751c9::t_75c9cbf4450342 129-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88a07cdd1f2e4147e1f759d35353eecad2408bfd",
+  "prompts": {},
+  "sessions": {
+    "s_e40316ce2751c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a1ff0c0-b9df-4b68-820b-80f71519f351",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
