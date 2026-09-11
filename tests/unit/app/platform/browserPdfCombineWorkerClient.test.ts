@@ -99,7 +99,7 @@ class FakeWorker {
                 id: request.id,
                 type: request.type,
                 ok: true,
-                data: { data },
+                data,
             }} as MessageEvent;
             this.messageHandlers.forEach((handler) => handler(event));
         });
@@ -336,7 +336,7 @@ describe('browserPdfCombineWorkerClient', () => {
                     id: request.id,
                     type: request.type,
                     ok: true,
-                    data: { data: 'not-bytes' },
+                    data: 'not-bytes',
                 });
             });
         };

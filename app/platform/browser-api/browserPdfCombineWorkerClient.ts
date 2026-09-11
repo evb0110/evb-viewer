@@ -6,7 +6,6 @@ import type {
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import { isRecord } from '@contracts/runtimeGuards';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -122,15 +121,14 @@ function decodePdfCombineWorkerResult<K extends TBrowserPdfCombineWorkerRequestT
     data: unknown,
 ): IBrowserPdfCombineWorkerResultMap[K] | null {
     if (
-        !isRecord(data)
-        || !(data.data instanceof Uint8Array)
-        || data.data.byteLength < 8
-        || new TextDecoder().decode(data.data.subarray(0, 5)) !== '%PDF-'
+        !(data instanceof Uint8Array)
+        || data.byteLength < 8
+        || new TextDecoder().decode(data.subarray(0, 5)) !== '%PDF-'
     ) {
         return null;
     }
 
-    return {data: data.data};
+    return {data};
 }
 
 export function canUseBrowserPdfCombineWorker() {
