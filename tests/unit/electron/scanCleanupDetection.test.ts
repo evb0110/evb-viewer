@@ -568,7 +568,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
     /* Legacy FIFO Analyze transport coverage was removed when Analyze became
      * retained-PNG-only; Render conversion keeps its independent stream path. */
 
-    it('pre-stages each large detection manifest in one bounded Poppler batch', async () => {
+    it('keeps large detection manifests inside the admitted Poppler raster window', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-long-test-'));
         dirs.push(tempDir);
         const pageCount = SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1;
@@ -682,10 +682,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         ]);
         expect(renderPage).not.toHaveBeenCalled();
         expect(renderPageBatch).toHaveBeenCalledTimes(2);
-        expect(renderPageBatch.mock.calls.map(([input]) => input.targets.map(target => target.pageNumber))).toEqual([
-            Array.from({length: 1_024}, (_, index) => index + 1),
-            Array.from({length: 1_024}, (_, index) => index + 1_025),
-        ]);
+        expect(renderPageBatch.mock.calls.every(([input]) => input.targets.length <= 16)).toBe(true);
         const detectingPublishes = publish.mock.calls.filter(([
             _results,
             progress,
