@@ -1,0 +1,19 @@
+docs/project8-utility-cleanup-qualification-2026-09-11.md
+  s_caaca00913ff0c::t_1b97d5852b1672 1-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a7b4b6a702e1ac737dd4cb34ecb662977aa2ae34",
+  "prompts": {},
+  "sessions": {
+    "s_caaca00913ff0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-a40b-7e32-8762-b32ad720b12c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
