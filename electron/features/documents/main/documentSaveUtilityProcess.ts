@@ -96,7 +96,11 @@ process.once('SIGTERM', () => {
     exitTimer.unref();
     void cancelActiveValidationGroupsAndWait().finally(() => {
         clearTimeout(exitTimer);
-        process.exit(143);
+        // `once` already restored the default disposition, so re-raising ends the
+        // process by the signal itself. Chromium then reports the app's own
+        // teardown as `killed`; exit(143) surfaced as `abnormal-exit` and raised
+        // an error report after every successful fingerprint and save.
+        process.kill(process.pid, 'SIGTERM');
     });
 });
 
