@@ -337,6 +337,9 @@ function queueRemoteUpdate(
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
             context: {},
         });
+        if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
+            pendingRemoteGlobalWrite = null;
+        }
         schedulePersistenceRetry();
         throw error;
     });
@@ -483,6 +486,7 @@ export function flushScanCleanupPreferencesStore(): Promise<void> {
             pendingRemoteGlobalUpdate
             && pendingRemoteGlobalRevision === pendingPreferencesRevision
             && isEqual(pendingRemoteGlobalUpdate, request)
+            && pendingRemoteGlobalWrite !== null
         ) {
             return pendingRemoteGlobalWrite ?? remoteWriteQueue;
         }
@@ -566,11 +570,20 @@ export function whenScanCleanupPreferencesReady(): Promise<void> {
 }
 
 export function retryScanCleanupPreferences(): Promise<void> {
-    if (!desktopStore || !preferences || preferencesHydrated) {
+    if (!desktopStore || !preferences) {
         return Promise.resolve();
     }
-    preferencesHydrationPromise = hydratePreferences();
-    return preferencesHydrationPromise;
+    const retry = preferencesHydrated
+        ? Promise.resolve()
+        : (preferencesHydrationPromise = hydratePreferences());
+    return retry.then(async () => {
+        if (persistenceRetryTimer !== null) {
+            clearTimeout(persistenceRetryTimer);
+            persistenceRetryTimer = null;
+        }
+        await flushScanCleanupDocumentPreferencesStore();
+        await flushScanCleanupPreferencesStore();
+    });
 }
 
 export function loadScanCleanupDocumentSettings(
