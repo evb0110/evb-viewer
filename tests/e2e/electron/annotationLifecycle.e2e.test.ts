@@ -490,18 +490,39 @@ async function releaseManagedImageHandle(page: Page, leaseId: string) {
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
     const readDirtyState = async () => {
+        const mountedWorkspace = await page.evaluate(() => {
+            const pane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+            const host = pane?.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]')
+                ?? pane?.querySelector<HTMLElement>('.workspace-host');
+            const debug = (window as Window & { __evbTestApi?: {collectWorkspaceDebugState?: () => {activeTabId?: string | null}}; }).__evbTestApi?.collectWorkspaceDebugState?.();
+            return {
+                activeTabId: debug?.activeTabId ?? null,
+                hasMountedWorkspace: Boolean(host?.isConnected),
+            };
+        });
+        if (!mountedWorkspace.hasMountedWorkspace || !mountedWorkspace.activeTabId) {
+            throw new Error(`Active workspace is unavailable while reading dirty projection: ${JSON.stringify(mountedWorkspace)}`);
+        }
         const workspaceDirty = await readWorkspaceStateValues<{dirtyState?: {
             fileDirty?: boolean;
             hasAnnotationChanges?: boolean;
             hasPendingUnsavedChanges?: boolean;
             pageLabelsDirty?: boolean;
         };}>(page, ['dirtyState']);
-        return Boolean(
-            workspaceDirty.dirtyState?.fileDirty
-            || workspaceDirty.dirtyState?.hasAnnotationChanges
-            || workspaceDirty.dirtyState?.hasPendingUnsavedChanges
-            || workspaceDirty.dirtyState?.pageLabelsDirty,
-        );
+        const projection = workspaceDirty.dirtyState;
+        const projectionKeys = [
+            projection?.fileDirty,
+            projection?.hasAnnotationChanges,
+            projection?.hasPendingUnsavedChanges,
+            projection?.pageLabelsDirty,
+        ];
+        if (!projection || projectionKeys.some(value => typeof value !== 'boolean')) {
+            throw new Error(`Active workspace dirty projection is unavailable or invalid: ${JSON.stringify({
+                activeTabId: mountedWorkspace.activeTabId,
+                dirtyState: projection ?? null,
+            })}`);
+        }
+        return projectionKeys.some(Boolean);
     };
     let actualDirty = await readDirtyState();
     while (Date.now() - startedAt < 10_000) {
@@ -515,7 +536,7 @@ async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
         const api = (window as Window & { __evbTestApi?: { collectWorkspaceDebugState?: () => unknown; }; }).__evbTestApi;
         return {workspace: api?.collectWorkspaceDebugState?.() ?? null};
     });
-    throw new Error(`Expected active tab dirty=${expectedDirty}, got ${actualDirty}; debug=${JSON.stringify(debugState)}`);
+    throw new Error(`Expected active workspace dirty projection=${expectedDirty}, got ${actualDirty}; debug=${JSON.stringify(debugState)}`);
 }
 
 function preserveFixtureAcrossRestart(path: string) {
