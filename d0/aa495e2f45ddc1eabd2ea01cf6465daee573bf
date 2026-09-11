@@ -1,0 +1,19 @@
+docs/project8-quality-legacy-campaign-2026-09-11.md
+  s_4d6ccd02827650::t_c52571ab90d80b 5,12-27,73-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d0aa495e2f45ddc1eabd2ea01cf6465daee573bf",
+  "prompts": {},
+  "sessions": {
+    "s_4d6ccd02827650": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09187-4393-7e81-b6bb-4ca39f2443d1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
