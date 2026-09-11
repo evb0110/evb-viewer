@@ -4,6 +4,10 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TTranslateFn } from '@i18n-app';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import {
+    isSessionId,
+    type TSessionId,
+} from '@contracts/shared';
+import {
     resolveDocxParagraphDirection,
     type TDocxParagraphDirection,
     type TDocxTextPageSource,
@@ -65,9 +69,9 @@ async function writeDocxChunksThroughSerialTransport(
     chunks: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
 ) {
-    let sessionId: string | undefined;
+    let sessionId: TSessionId | undefined;
     let cancelPromise: Promise<boolean> | undefined;
-    let beginPromise: Promise<{sessionId: string}> | undefined;
+    let beginPromise: Promise<{sessionId: TSessionId}> | undefined;
     let committed = false;
     const cancelSession = () => {
         if (!sessionId) {
@@ -84,7 +88,7 @@ async function writeDocxChunksThroughSerialTransport(
     try {
         beginPromise = stream.beginDocxFileStream(outPath);
         const beginResult = await beginPromise;
-        if (!beginResult || typeof beginResult.sessionId !== 'string' || beginResult.sessionId.trim().length === 0) {
+        if (!beginResult || !isSessionId(beginResult.sessionId)) {
             throw new Error('Invalid DOCX stream begin response');
         }
         sessionId = beginResult.sessionId;
@@ -154,19 +158,28 @@ export async function exportTextAsDocx(params: {
             const docxStream = !isBrowserOutput
                 ? (documentFiles as typeof documentFiles & Partial<IDocxExportFileCapability>)
                 : undefined;
-            const canUseSerialDocxStream = Boolean(
-                docxStream?.beginDocxFileStream
-                && docxStream.writeDocxFileStreamChunk
-                && docxStream.commitDocxFileStream
-                && docxStream.cancelDocxFileStream,
-            );
+            const beginDocxFileStream = docxStream?.beginDocxFileStream;
+            const writeDocxFileStreamChunk = docxStream?.writeDocxFileStreamChunk;
+            const commitDocxFileStream = docxStream?.commitDocxFileStream;
+            const cancelDocxFileStream = docxStream?.cancelDocxFileStream;
+            const serialDocxStream = beginDocxFileStream
+                && writeDocxFileStreamChunk
+                && commitDocxFileStream
+                && cancelDocxFileStream
+                ? {
+                    beginDocxFileStream,
+                    writeDocxFileStreamChunk,
+                    commitDocxFileStream,
+                    cancelDocxFileStream,
+                }
+                : undefined;
             if (
                 !isBrowserOutput
                 && params.workingCopyPath
                 && params.documentRevisionToken
                 && knownPageCount !== undefined
                 && params.buildDocxChunks
-                && canUseSerialDocxStream
+                && serialDocxStream
             ) {
                 const textPages = params.signal === undefined
                     ? await prepareDocumentTextCatalogTextPages(
@@ -188,7 +201,7 @@ export async function exportTextAsDocx(params: {
                 const docxChunks = params.signal === undefined
                     ? await params.buildDocxChunks(textPages, direction)
                     : await params.buildDocxChunks(textPages, direction, params.signal);
-                await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
+                await writeDocxChunksThroughSerialTransport(serialDocxStream, outPath, docxChunks, params.signal);
             } else {
                 const catalogPages = params.workingCopyPath && params.documentRevisionToken
                     ? params.signal === undefined
@@ -214,13 +227,13 @@ export async function exportTextAsDocx(params: {
                 );
 
                 if (!isBrowserOutput) {
-                    if (!params.buildDocxChunks || !canUseSerialDocxStream) {
+                    if (!params.buildDocxChunks || !serialDocxStream) {
                         throw new Error('DOCX streaming output is unavailable on this desktop platform');
                     }
                     const docxChunks = params.signal === undefined
                         ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction)
                         : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction, params.signal);
-                    await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
+                    await writeDocxChunksThroughSerialTransport(serialDocxStream, outPath, docxChunks, params.signal);
                 } else {
                     let catalogTextLength = 0;
                     const catalogTextParts: string[] = [];

@@ -13,6 +13,8 @@ import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {requireDocumentRef} from '@contracts/documentRef';
+import type {IDocxExportFileCapability} from '@contracts/docxExport';
+import {requireSessionId} from '@contracts/shared';
 
 const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<unknown>>(async () => null));
 const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
@@ -44,10 +46,10 @@ const mockOcr = {
 const mockDocuments = {
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
-    beginDocxFileStream: vi.fn(async () => ({sessionId: 'docx-session'})),
-    writeDocxFileStreamChunk: vi.fn(async () => true),
-    commitDocxFileStream: vi.fn(async () => true),
-    cancelDocxFileStream: vi.fn(async () => true),
+    beginDocxFileStream: vi.fn<IDocxExportFileCapability['beginDocxFileStream']>(async () => ({sessionId: requireSessionId('docx-session')})),
+    writeDocxFileStreamChunk: vi.fn<IDocxExportFileCapability['writeDocxFileStreamChunk']>(async () => true),
+    commitDocxFileStream: vi.fn<IDocxExportFileCapability['commitDocxFileStream']>(async () => true),
+    cancelDocxFileStream: vi.fn<IDocxExportFileCapability['cancelDocxFileStream']>(async () => true),
     cleanupFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
     getDocumentRevision: vi.fn(),
