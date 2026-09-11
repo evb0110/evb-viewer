@@ -56,6 +56,7 @@ let preferencesHydrationPromise: Promise<void> | null = null;
 let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
 let remoteWriteQueue = Promise.resolve();
 let pendingRemoteGlobalUpdate: IScanCleanupSettingsUpdateRequest | null = null;
+let pendingRemoteGlobalWrite: Promise<void> | null = null;
 let pendingRemoteGlobalRevision = 0;
 let persistenceRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let persistenceRetryAttempt = 0;
@@ -65,6 +66,7 @@ let migrationContext: IScanCleanupPreferencesStoreOptions = {};
 let applyingRemotePreferences = false;
 let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
 let observedPreferences: IScanCleanupGlobalPreferences | null = null;
+
 const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, {
     value: unknown;
     generation: number
@@ -74,6 +76,7 @@ interface IPendingDocumentUpdate {
     token: IScanCleanupDocumentPersistenceToken;
     version: number;
     queued: boolean;
+    writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
 const pendingBrowserDocumentUpdates = new Map<string, {
@@ -337,6 +340,14 @@ function queueRemoteUpdate(
         schedulePersistenceRetry();
         throw error;
     });
+    if (isGlobalPreferencesWrite) {
+        pendingRemoteGlobalWrite = observedWrite;
+    } else if (documentKey !== null) {
+        const pending = pendingDocumentUpdates.get(documentKey);
+        if (pending?.request === queuedRequest && pending.version === documentVersion) {
+            pending.writePromise = observedWrite;
+        }
+    }
     void observedWrite.then(() => {
         if (!committed) {
             return;
@@ -357,6 +368,7 @@ function queueRemoteUpdate(
                 }
                 pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences!);
             }
+            if (pendingRemoteGlobalWrite === observedWrite) pendingRemoteGlobalWrite = null;
             return;
         }
         if (documentKey !== null) {
@@ -472,7 +484,7 @@ export function flushScanCleanupPreferencesStore(): Promise<void> {
             && pendingRemoteGlobalRevision === pendingPreferencesRevision
             && isEqual(pendingRemoteGlobalUpdate, request)
         ) {
-            return remoteWriteQueue;
+            return pendingRemoteGlobalWrite ?? remoteWriteQueue;
         }
         return queueRemoteUpdate(request);
     } else {
@@ -750,6 +762,12 @@ export async function flushScanCleanupDocumentPreferencesStore() {
             } catch (error) {
                 firstError ??= error;
             }
+        } else if (pending.writePromise) {
+            try {
+                await pending.writePromise;
+            } catch (error) {
+                firstError ??= error;
+            }
         }
     }
     if (firstError !== null) {
@@ -779,6 +797,7 @@ export function resetScanCleanupPreferencesStore() {
     pendingBrowserDocumentUpdates.clear();
     pendingGlobalFields.clear();
     pendingRemoteGlobalUpdate = null;
+    pendingRemoteGlobalWrite = null;
     pendingRemoteGlobalRevision = 0;
     persistenceRetryAttempt = 0;
     if (persistenceRetryTimer !== null) {
