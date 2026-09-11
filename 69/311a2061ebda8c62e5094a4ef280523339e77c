@@ -1,0 +1,29 @@
+tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts
+  s_1b452cdf36f007::t_16372fa978dd4c 11-13,287-290,292-295,332-335,354-363,419-420
+  s_1b452cdf36f007::t_62fefb8e373155 308
+  s_1b452cdf36f007::t_b0f8e65d89cac8 8,26,296,300-302,304-307,309,315
+  s_1b452cdf36f007::t_a0d2b8e7044593 303
+  s_1b452cdf36f007::t_7d7ae48eb129b7 286,396
+  s_1b452cdf36f007::t_3283adc605a47d 316
+  s_1b452cdf36f007::t_a606e93503a045 297-299,310-314
+  s_1b452cdf36f007::t_e742e5636d3162 397
+  s_1b452cdf36f007::t_43f47b67d88551 291
+  s_1b452cdf36f007::t_6a5e6484d2ce1a 10
+  s_1b452cdf36f007::t_c7c09bfa4a1368 317-318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "69311a2061ebda8c62e5094a4ef280523339e77c",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
