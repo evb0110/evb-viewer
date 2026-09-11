@@ -144,6 +144,23 @@ describe('BrowserDurableDjvuJobs', () => {
         expect(jobs.getState(requireJobId('convert-canceled'))).not.toHaveProperty('failure');
     });
 
+    it('starts conversion before returning so an immediate cancellation reaches the runner', async () => {
+        let started = false;
+        const jobId = requireJobId('convert-immediate-cancel');
+        const run = vi.fn(async () => {
+            started = true;
+            return {
+                success: false as const,
+                error: 'canceled',
+            };
+        });
+
+        jobs.startConvert(jobId, requireRequestId('request-immediate-cancel'), run);
+
+        expect(started).toBe(true);
+        expect(run).toHaveBeenCalledOnce();
+    });
+
     it('finalizes success, error, and canceled results with browser numeric timers', async () => {
         const timers = installNumericTimerHarness();
         const outcomes = [
