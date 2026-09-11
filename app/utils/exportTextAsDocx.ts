@@ -189,7 +189,6 @@ export async function exportTextAsDocx(params: {
                     ? await params.buildDocxChunks(textPages, direction)
                     : await params.buildDocxChunks(textPages, direction, params.signal);
                 await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
-                throwIfAborted(params.signal);
             } else {
                 const catalogPages = params.workingCopyPath && params.documentRevisionToken
                     ? params.signal === undefined
@@ -222,7 +221,6 @@ export async function exportTextAsDocx(params: {
                         ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction)
                         : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction, params.signal);
                     await writeDocxChunksThroughSerialTransport(docxStream!, outPath, docxChunks, params.signal);
-                    throwIfAborted(params.signal);
                 } else {
                     let catalogTextLength = 0;
                     const catalogTextParts: string[] = [];

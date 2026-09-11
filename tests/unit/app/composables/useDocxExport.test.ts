@@ -228,6 +228,24 @@ describe('useDocxExport', () => {
         expect(documentFilesMock.commitDocxFileStream).not.toHaveBeenCalled();
     });
 
+    it('reports success when cancellation arrives after commit accepted publication', async () => {
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
+            pageNumber: 1,
+            text: 'catalog text',
+        }]);
+        const {useDocxExport} = await import('@app/composables/useDocxExport');
+        const exportState = useDocxExport();
+        const result = await exportState.exportDocx({
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
+            pdfDocument: {} as IPdfDocument,
+        });
+        exportState.cancelDocxExport();
+        expect(result).toBe(true);
+        expect(documentFilesMock.cancelDocxFileStream).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({color: 'success'}));
+    });
+
     it('does not cleanup filesystem output paths when no DOCX text is available', async () => {
         documentFilesMock.saveDocxAs.mockResolvedValueOnce('/tmp/empty.docx');
         loadDocumentTextCatalogPagesMock.mockResolvedValueOnce(null);
