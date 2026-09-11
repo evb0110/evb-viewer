@@ -307,6 +307,31 @@ coordinator-owned desktop evidence. No new fixture, screenshot, or telemetry
 artifact was generated. Test-owned temporary paths were cleaned by the
 existing suites, and the worktree remains clean.
 
+## Follow-up slot: settings bootstrap failure handling
+
+This slot started from `8652fce83`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #396
+through the Electron bootstrap, binding, and renderer settings owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/settingsQuarantine.test.ts \
+  tests/unit/electron/settingsSingleFlight.test.ts \
+  tests/unit/electron/settingsMainBindingsDiagnostics.test.ts \
+  tests/unit/app/shared/settingsSanitizer.test.ts \
+  tests/unit/app/platform/settingsCapability.test.ts --reporter=dot
+
+5 files passed, 43 tests passed
+```
+
+The run covered malformed-settings quarantine, future-schema fail-closed
+behavior, single-flight loading, concurrent updates, diagnostics binding, and
+default sanitization. A headed startup run showing the app withholds readiness
+after a real settings I/O failure remains coordinator-owned evidence. No new
+fixture, settings file, screenshot, or telemetry artifact was generated.
+Test-owned temporary directories were cleaned by the existing suites, and the
+worktree remains clean.
+
 ## Follow-up slot: scan preference rebase and retry
 
 This slot started from `402d5371b`, the current
