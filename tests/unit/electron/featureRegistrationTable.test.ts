@@ -7,11 +7,31 @@ import {
 import {
     FEATURE_REGISTRATION_DESCRIPTORS,
     RAW_IPC_HANDLER_DESCRIPTORS,
+    type IFeatureRegistrationDescriptor,
 } from '@electron/platform-ipc/featureRegistrationTable';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {createFeatureRegistrationRuntime} from '@electron/platform-ipc/registerFeatureIpcAdapters';
 
 describe('main-process feature registration table', () => {
+    it('type-checks disposer keys against the binding returned by the loader', () => {
+        if (process.env.EVB_REGISTRATION_TYPE_ASSERTIONS === '1') {
+            const invalidDescriptor: IFeatureRegistrationDescriptor<{dispose: () => Promise<void>}> = {
+                name: 'invalid-fixture',
+                startOrder: 1,
+                kind: 'platform',
+                create: async () => ({dispose: async () => undefined}),
+                lifecycle: {
+                    create: 'fixture',
+                    ipcRegistration: 'fixture',
+                    shutdown: 'fixture',
+                },
+                // @ts-expect-error A disposer key must be exported by the loader binding.
+                disposeBindingKey: 'missing',
+            };
+            void invalidDescriptor;
+        }
+    });
+
     it('enumerates every feature with a unique start order and complete hooks', () => {
         const names = FEATURE_REGISTRATION_DESCRIPTORS.map(descriptor => descriptor.name);
         const startOrders = FEATURE_REGISTRATION_DESCRIPTORS.map(descriptor => descriptor.startOrder);

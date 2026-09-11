@@ -138,6 +138,49 @@ describe('browserPageOpsWorkerClient', () => {
             color: null,
             items: [],
         };
+        const missingPageIndex = Object.fromEntries(
+            Object.entries(baseBookmark).filter(([key]) => key !== 'pageIndex'),
+        );
+        const malformedCatalogs = [
+            {
+                bookmarks: [missingPageIndex],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...baseBookmark,
+                    pageYRatio: 'bad',
+                }],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...baseBookmark,
+                    pageYRatio: Number.NaN,
+                }],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...baseBookmark,
+                    pageYRatio: Number.POSITIVE_INFINITY,
+                }],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...baseBookmark,
+                    items: [{
+                        ...baseBookmark,
+                        pageIndex: undefined,
+                    }],
+                }],
+                pageLabels: [],
+            },
+        ];
+        for (const malformed of malformedCatalogs) {
+            expect(decodeBrowserPdfCatalog(malformed, {maxPageLabels: 2_048})).toBeNull();
+        }
         expect(decodeBrowserPdfCatalog({
             bookmarks: [{
                 ...baseBookmark,
@@ -169,6 +212,26 @@ describe('browserPageOpsWorkerClient', () => {
             pageLabels: [{
                 pageIndex: 0,
                 prefix: 'Page ',
+            }],
+        });
+        expect(decodeBrowserPdfCatalog({
+            bookmarks: [{
+                ...baseBookmark,
+                title: '章节 α',
+                pageYRatio: undefined,
+            }],
+            pageLabels: [{
+                pageIndex: 0,
+                prefix: '頁',
+            }],
+        }, {maxPageLabels: 2_048})).toMatchObject({
+            bookmarks: [{
+                title: '章节 α',
+                pageIndex: null,
+            }],
+            pageLabels: [{
+                pageIndex: 0,
+                prefix: '頁',
             }],
         });
         expect(decodeBrowserPdfCatalog({

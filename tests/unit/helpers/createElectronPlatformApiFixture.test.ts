@@ -148,8 +148,9 @@ describe('createElectronPlatformApiFixture', () => {
     it('provides an opt-in operation control for consumer cancellation and typed errors', async () => {
         const operation = createPlatformApiFixtureOperation<{ok: true}>();
         const pending = operation.method();
+        await expect(operation.method()).rejects.toThrow('already has an in-flight invocation');
         operation.cancel();
-        expect(operation.method).toHaveBeenCalledOnce();
+        expect(operation.method).toHaveBeenCalledTimes(2);
         expect(operation.cancel).not.toThrow();
         await expect(pending).rejects.toThrow('Fixture operation canceled');
 

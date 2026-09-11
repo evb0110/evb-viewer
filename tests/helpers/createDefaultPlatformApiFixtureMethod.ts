@@ -12,8 +12,8 @@ export interface IPlatformApiFixtureEventMethod<TPayload = unknown> {
     dispose: () => void;
 }
 
-export interface IPlatformApiFixtureOperation<TResult> {
-    method: () => Promise<TResult>;
+export interface IPlatformApiFixtureOperation<TResult, TArgs extends unknown[] = []> {
+    method: (...args: TArgs) => Promise<TResult>;
     resolve: (value: TResult) => void;
     reject: (reason: unknown) => void;
     cancel: () => void;
@@ -23,29 +23,39 @@ export interface IPlatformApiFixtureOperation<TResult> {
  * Creates an explicitly controlled async boundary for a real consumer test.
  * The default descriptor methods remain immediate and inert.
  */
-export function createPlatformApiFixtureOperation<TResult>(): IPlatformApiFixtureOperation<TResult> {
+export function createPlatformApiFixtureOperation<TResult, TArgs extends unknown[] = []>(): IPlatformApiFixtureOperation<TResult, TArgs> {
     let settle: ((value: TResult) => void) | undefined;
     let fail: ((reason: unknown) => void) | undefined;
-    const method = vi.fn(() => new Promise<TResult>((resolve, reject) => {
-        settle = resolve;
-        fail = reject;
-    }));
+    let active = false;
+    const method = vi.fn((..._args: TArgs) => {
+        if (active) {
+            return Promise.reject(new Error('Fixture operation already has an in-flight invocation'));
+        }
+        active = true;
+        return new Promise<TResult>((resolve, reject) => {
+            settle = resolve;
+            fail = reject;
+        });
+    });
     return {
         method,
         resolve: value => {
             settle?.(value);
             settle = undefined;
             fail = undefined;
+            active = false;
         },
         reject: reason => {
             fail?.(reason);
             settle = undefined;
             fail = undefined;
+            active = false;
         },
         cancel: () => {
             fail?.(new Error('Fixture operation canceled'));
             settle = undefined;
             fail = undefined;
+            active = false;
         },
     };
 }

@@ -15,6 +15,7 @@ import {
 } from '@contracts/agent';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
+import {cast} from '@tests/helpers/cast';
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
 interface IRegisterRendererLogBridgeMock { registerListener?: (channel: string, handler: (...args: unknown[]) => void) => void; }
@@ -340,6 +341,70 @@ describe('IPC registry sender trust', () => {
             .toThrow('Duplicate lazy IPC handler');
         await expect(dispose()).rejects.toThrow('Duplicate lazy IPC handler');
         expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('retries a failed generation and reuses its released handler for a fresh generation', async () => {
+        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+        let attempts = 0;
+        const handlers = new Map<string, TRegisteredHandler>();
+        const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
+            handlers.set(channel, handler);
+        });
+        const ipcMain = cast<Electron.IpcMain>({handle});
+        const descriptor = {
+            name: 'scan-cleanup-retry-fixture',
+            kind: 'platform',
+            feature: SCAN_CLEANUP_PLATFORM_FEATURE,
+            disposeBindingKey: 'disposeScanCleanupMainBindings',
+            lifecycle: {
+                create: 'fixture',
+                ipcRegistration: 'fixture',
+                shutdown: 'fixture',
+            },
+            create: async () => {
+                attempts += 1;
+                if (attempts === 1) {
+                    throw new Error('first lazy load failed');
+                }
+                return {
+                    pruneGeneratedOutputs: vi.fn(async () => 0),
+                    disposeScanCleanupMainBindings: mocks.scanCleanupDispose,
+                };
+            },
+        } as never;
+        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+        const firstDispose = registerLazyPlatformFeature(
+            ipcMain,
+            descriptor,
+            {agentService: mocks.agentService as never},
+        );
+        const firstHandler = handlers.get(channel);
+        expect(firstHandler).toBeTypeOf('function');
+        const firstHandleCallCount = handle.mock.calls.length;
+        await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .rejects.toThrow('first lazy load failed');
+        await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .resolves.toBe(0);
+        await expect(firstDispose()).resolves.toBeUndefined();
+
+        const secondDispose = registerLazyPlatformFeature(
+            ipcMain,
+            descriptor,
+            {agentService: mocks.agentService as never},
+        );
+        expect(handle).toHaveBeenCalledTimes(firstHandleCallCount);
+        const secondHandler = handlers.get(channel);
+        expect(secondHandler).toBe(firstHandler);
+        await expect(Promise.all([
+            secondHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')),
+            secondHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')),
+        ])).resolves.toEqual([
+            0,
+            0,
+        ]);
+        await expect(secondDispose()).resolves.toBeUndefined();
+        expect(attempts).toBe(3);
+        expect(mocks.scanCleanupDispose).toHaveBeenCalledTimes(2);
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('rejects same-origin senders outside the configured renderer route', async () => {

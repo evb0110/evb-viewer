@@ -13,6 +13,14 @@ import {
 
 type TDeferredHandler = (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown;
 
+interface ILazyChannelOwner {
+    readonly registrationKey: string;
+    currentGeneration: object | null;
+    dispatch: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+}
+
+const lazyChannelOwners = new WeakMap<object, Map<string, ILazyChannelOwner>>();
+
 export interface IFeatureRegistrationResult {
     readonly descriptor: IFeatureRegistrationDescriptor;
     readonly dispose: () => Promise<void>;
@@ -60,6 +68,7 @@ export function createFeatureRegistrationRuntime(
 
 function registerLazyValidatedFeature(
     ipcMain: Electron.IpcMain,
+    registrationKey: string,
     channels: Record<string, string>,
     codecs: Record<string, {
         decodeArgs: (args: readonly unknown[]) => unknown[];
@@ -69,30 +78,91 @@ function registerLazyValidatedFeature(
 ) {
     const handlers = new Map<string, TDeferredHandler>();
     let loading: Promise<void> | null = null;
+    let lastLoadError: unknown;
+    const generation = {};
+    const owners = lazyChannelOwners.get(ipcMain) ?? new Map<string, ILazyChannelOwner>();
+    lazyChannelOwners.set(ipcMain, owners);
     const ensureLoaded = async () => {
         loading ??= load({handle: (channel, handler) => {
             if (handlers.has(channel)) throw new Error(`Duplicate lazy IPC handler: ${channel}`);
             handlers.set(channel, handler);
-        }});
+        }}).then(() => {
+            lastLoadError = undefined;
+        }, error => {
+            lastLoadError = error;
+            loading = null;
+            handlers.clear();
+            throw error;
+        });
         await loading;
     };
     const registrar = createValidatedIpcMainRegistrar(ipcMain, {
         allowedChannels: createChannelSet(channels),
         codecs: codecs as never,
     });
-    for (const channel of new Set(Object.values(channels))) {
-        registrar.handle(channel, async (event, ...args: unknown[]) => {
-            await ensureLoaded();
-            const handler = handlers.get(channel);
-            if (!handler) throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
-            return handler(event, ...args as never[]);
-        });
+    const dispatch = async (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => {
+        await ensureLoaded();
+        const channel = args.shift();
+        if (typeof channel !== 'string') {
+            throw new Error('Lazy IPC dispatch lost its channel identity');
+        }
+        const handler = handlers.get(channel);
+        if (!handler) throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
+        return handler(event, ...args as never[]);
+    };
+    const ownedOwners: ILazyChannelOwner[] = [];
+    try {
+        for (const channel of new Set(Object.values(channels))) {
+            const existing = owners.get(channel);
+            if (existing) {
+                if (existing.registrationKey !== registrationKey || existing.currentGeneration !== null) {
+                    throw new Error(`Duplicate lazy IPC handler: ${channel}`);
+                }
+                existing.currentGeneration = generation;
+                existing.dispatch = dispatch;
+                ownedOwners.push(existing);
+                continue;
+            }
+            const owner: ILazyChannelOwner = {
+                registrationKey,
+                currentGeneration: generation,
+                dispatch: dispatch,
+            };
+            registrar.handle(channel, (event, ...args: unknown[]) => {
+                return owner.dispatch(event, channel, ...args);
+            });
+            owners.set(channel, owner);
+            ownedOwners.push(owner);
+        }
+    } catch (error) {
+        for (const owner of ownedOwners) {
+            if (owner.currentGeneration === generation) {
+                owner.currentGeneration = null;
+            }
+        }
+        throw error;
     }
 
-    return async () => {
-        if (loading !== null) {
-            await loading;
-        }
+    return {
+        waitForLoad: async () => {
+            if (loading !== null) {
+                await loading;
+                return;
+            }
+            if (lastLoadError !== undefined) {
+                if (lastLoadError instanceof Error) {
+                    throw lastLoadError;
+                }
+                throw new Error('Lazy feature load failed', {cause: lastLoadError});
+            }
+        },
+        release: () => {
+            for (const owner of ownedOwners) {
+                if (owner.currentGeneration === generation) {
+                    owner.currentGeneration = null;
+                }
+            }
+        },
     };
 }
 
@@ -102,8 +172,9 @@ export function registerLazyPlatformFeature(
     context: IFeatureIpcAdapterOptions,
 ) {
     let loadedBindings: Record<string, unknown> | null = null;
-    const waitForLoad = registerLazyValidatedFeature(
+    const lazyRegistration = registerLazyValidatedFeature(
         ipcMain,
+        descriptor.name,
         descriptor.feature.invokeChannels,
         descriptor.feature.ipcCodecs,
         async (registrar) => {
@@ -115,10 +186,15 @@ export function registerLazyPlatformFeature(
             );
         },
     );
+    let disposed = false;
     return async () => {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
         let loadError: unknown;
         try {
-            await waitForLoad();
+            await lazyRegistration.waitForLoad();
         } catch (error) {
             loadError = error;
         }
@@ -142,6 +218,7 @@ export function registerLazyPlatformFeature(
             disposalError = error;
         } finally {
             loadedBindings = null;
+            lazyRegistration.release();
         }
         if (loadError !== undefined) {
             if (loadError instanceof Error) {

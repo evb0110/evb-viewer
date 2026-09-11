@@ -169,6 +169,50 @@ describe('browserPdfCombineWorkerClient', () => {
             return value;
         };
         const labels = (count: number) => Array.from({length: count}, (_, pageIndex) => ({pageIndex}));
+        const missingPageIndex = Object.fromEntries(
+            Object.entries(bookmark()).filter(([key]) => key !== 'pageIndex'),
+        );
+        const malformedCatalogs = [
+            {
+                bookmarks: [missingPageIndex],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...bookmark(),
+                    pageYRatio: 'bad',
+                }],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...bookmark(),
+                    pageYRatio: Number.NaN,
+                }],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...bookmark(),
+                    pageYRatio: Number.POSITIVE_INFINITY,
+                }],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [{
+                    ...bookmark(),
+                    items: [{
+                        ...bookmark(),
+                        pageIndex: undefined,
+                    }],
+                }],
+                pageLabels: [],
+            },
+        ];
+
+        for (const malformed of malformedCatalogs) {
+            expect(parseBrowserPdfCombineWorkerRequest(catalogRequest(malformed))).toBeNull();
+        }
 
         expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
             bookmarks: [{
@@ -204,6 +248,39 @@ describe('browserPdfCombineWorkerClient', () => {
             bookmarks: [],
             pageLabels: labels(2_049),
         }))).toBeNull();
+        const sourceBytes = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        const sourceSnapshot = sourceBytes.slice();
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest({
+            bookmarks: Array.from({length: 5_001}, () => bookmark()),
+            pageLabels: [],
+        }))).toBeNull();
+        expect(sourceBytes).toEqual(sourceSnapshot);
+
+        const unicodeCatalog = {
+            bookmarks: [{
+                ...bookmark(),
+                title: '章节 α',
+                pageYRatio: undefined,
+            }],
+            pageLabels: [{
+                pageIndex: 0,
+                prefix: '頁',
+            }],
+        };
+        expect(parseBrowserPdfCombineWorkerRequest(catalogRequest(unicodeCatalog))).toMatchObject({payload: {wasmImagePreprocessing: {catalog: {
+            bookmarks: [{
+                title: '章节 α',
+                pageIndex: null,
+            }],
+            pageLabels: [{
+                pageIndex: 0,
+                prefix: '頁',
+            }],
+        }}}});
     });
 
     it('posts cloned PDF buffers to the worker and returns the combined result', async () => {
