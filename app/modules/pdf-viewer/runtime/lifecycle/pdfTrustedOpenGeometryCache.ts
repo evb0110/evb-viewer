@@ -5,6 +5,10 @@ import {
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
+import {
+    readLocalStorageItem,
+    safeSetLocalStorageItem,
+} from '@app/utils/localStorage';
 
 const STORAGE_KEY = 'evb:pdf-trusted-open-geometry:v1';
 const MAX_ENTRIES = 24;
@@ -78,11 +82,12 @@ function decode(value: unknown): IPdfTrustedOpenGeometry | null {
 }
 
 function readAll(): IPdfTrustedOpenGeometry[] {
-    if (typeof localStorage === 'undefined') {
+    const result = readLocalStorageItem(STORAGE_KEY);
+    if (result.status !== 'present') {
         return [];
     }
     try {
-        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as unknown;
+        const parsed = JSON.parse(result.value) as unknown;
         return Array.isArray(parsed) ? parsed.map(decode).filter(value => value !== null) : [];
     } catch {
         return [];
@@ -238,18 +243,11 @@ export function peekTrustedPdfOpenGeometry(documentId: string, pageNumber: TPage
 
 export function invalidateTrustedPdfOpenGeometry(documentId: string, pageNumber: TPageNumber) {
     forgetPrevalidatedTrustedPdfOpenGeometry(documentId, pageNumber);
-    if (typeof localStorage === 'undefined') {
-        return;
-    }
     const entries = readAll().filter(entry => (
         entry.documentId !== documentId
         || entry.pageNumber !== pageNumber
     ));
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-    } catch {
-        // Cache invalidation remains best-effort under denied storage.
-    }
+    safeSetLocalStorageItem(STORAGE_KEY, JSON.stringify(entries));
 }
 
 export function isTrustedPdfOpenGeometryCurrent(
@@ -273,7 +271,7 @@ export function isTrustedPdfOpenGeometryCurrent(
 }
 
 export function writeTrustedPdfOpenGeometry(entry: IPdfTrustedOpenGeometry) {
-    if (typeof localStorage === 'undefined' || decode(entry) === null) {
+    if (decode(entry) === null) {
         return;
     }
     const entries = readAll().filter(candidate => (
@@ -281,9 +279,5 @@ export function writeTrustedPdfOpenGeometry(entry: IPdfTrustedOpenGeometry) {
         || candidate.pageNumber !== entry.pageNumber
     ));
     entries.unshift(entry);
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
-    } catch {
-        // Geometry caching is an optimization. Storage denial cannot affect open.
-    }
+    safeSetLocalStorageItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
 }
