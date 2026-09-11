@@ -352,12 +352,16 @@ function filterOwnedOcrResourceNames(names: Set<string>) {
     return new Set([...names].filter(name => name.replace(/^\//u, '').startsWith('EvbOcr')));
 }
 
-function hasFormXObject(resources: PDFDict) {
+function hasKeptFormXObject(resources: PDFDict, removedXObjectNames: Set<string>) {
     const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME);
     if (!xObject) {
         return false;
     }
     for (const key of xObject.keys()) {
+        const name = key.asString().replace(/^\//u, '');
+        if (removedXObjectNames.has(name)) {
+            continue;
+        }
         try {
             const value = xObject.lookup(key);
             if (value instanceof PDFStream && value.dict.get(PDFName.of('Subtype'))?.toString() === '/Form') {
@@ -534,15 +538,15 @@ function removePreviousOcrLayer(page: PDFPage) {
 
     const keptText = keptContentText.join('\n');
     if (canProveKeptContent) {
-        // A kept source Form makes nested reachability ambiguous, but the
-        // marker identifies these exact EVB-owned layer resources. Remove
-        // only those names, and continue preserving every arbitrary source
-        // Form and resource that the kept content may reach.
-        deleteProvenUnusedEntries(extGState, filterOwnedOcrResourceNames(removedExtGStateNames), scanResourceReferences(keptText, 'gs'));
-        if (!hasFormXObject(resources)) {
+        // A kept source Form makes nested reachability ambiguous for every
+        // resource category. Preserve all candidates in that case. The
+        // direct-page path may prune only names proven unused by the kept
+        // streams, and only after restricting candidates to EVB-owned names.
+        if (!hasKeptFormXObject(resources, removedXObjectNames)) {
+            deleteProvenUnusedEntries(extGState, filterOwnedOcrResourceNames(removedExtGStateNames), scanResourceReferences(keptText, 'gs'));
             deleteProvenUnusedEntries(font, removedFontNames, scanResourceReferences(keptText, 'Tf'));
+            deleteProvenUnusedEntries(xObject, filterOwnedOcrResourceNames(removedXObjectNames), scanResourceReferences(keptText, 'Do'));
         }
-        deleteProvenUnusedEntries(xObject, filterOwnedOcrResourceNames(removedXObjectNames), scanResourceReferences(keptText, 'Do'));
     }
 }
 
