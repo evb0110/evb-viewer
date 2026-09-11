@@ -178,3 +178,21 @@ presets, save, hard reopen, and persisted paint/style checks. The remaining
 annotation lifecycle cases were intentionally filtered out and are not part
 of this result. The run's session log is
 `.devkit/sessions/e2e-run-mtx9ocwg-25dfab-annotation-lifecycle-1789149951481/session.log`.
+
+## V5b canonical surface ownership acceptance
+
+The next disjoint acceptance ran from integration context `800ea56d` with
+native page-ops enabled:
+
+```text
+EVB_PDF_PAGE_OPS_ENABLE=1 pnpm exec vitest run --project e2e-regression \
+  tests/e2e/electron/annotationLifecycle.e2e.test.ts \
+  -t 'renders the canonical annotation surface once and keeps PDF.js read-only' \
+  --reporter verbose
+```
+
+The real macOS Electron test passed 1/1 in 33.80 seconds. It verified that the
+canonical annotation surface renders once and PDF.js remains read-only. The
+keyboard/history acceptance and the other filtered lifecycle cases remain
+unverified. The session log is
+`.devkit/sessions/e2e-run-mtxa00k8-42a57f-annotation-lifecycle-1789150496406/session.log`.

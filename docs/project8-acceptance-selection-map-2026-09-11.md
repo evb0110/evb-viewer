@@ -25,7 +25,7 @@ was available here, not that the project is green.
 | `native-integration` | `vitest run --project native-integration` | Changed-area native/build job on push/PR | Unknown |
 | `electron-bundle-static-integrity` | `pnpm run test:electron-bundle-static-integrity:no-build`, after the build job | Native/build safety and release checks | Unknown |
 | `e2e-regression` | `pnpm run test:e2e:electron:regression` | Changed app/Electron integration; manual dispatch | Unknown |
-| `e2e-blocking-smoke` | `pnpm run test:e2e:electron:blocking-smoke:headless` | Changed app/Electron push gate | Unknown |
+| `e2e-blocking-smoke` | `pnpm run test:e2e:electron:blocking-smoke:headless` | Changed app/Electron push gate | 5 files passed, 41 tests passed, 5 skipped |
 | `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | Unknown |
 | `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | Unknown |
 | `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
@@ -109,3 +109,22 @@ fixture completed under the existing headless Electron harness.
 
 This is local Linux Electron evidence. Hosted exact-SHA status, Windows and
 macOS acceptance, and any production-artifact replay remain external gaps.
+
+## Blocking-smoke acceptance run
+
+The next feasible browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:blocking-smoke:headless
+5 test files passed, 41 tests passed, 5 skipped
+Duration: 726.07s
+```
+
+The command built and staged the Linux `scan-cleanup` and `pdf-page-ops`
+native tools, built Electron, and passed the PR smoke, DjVu committed-surface,
+text interaction, annotation controls, bounded PDF save, and scan-cleanup
+toolbar journeys. Five cases were intentionally skipped by the blocking scope,
+including pressure and large-PDF checks.
+
+This is local Linux Electron evidence. Hosted exact-SHA status, Windows and
+macOS acceptance, and production-artifact replay remain external gaps.
