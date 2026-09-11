@@ -1,0 +1,19 @@
+docs/project8-empty-sticky-note-acceptance-2026-09-11.md
+  s_e95abd168e6adf::t_9c7c61d482dd6c 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5e7eefefbb102a771f48b43dbfbf9c711f71a696",
+  "prompts": {},
+  "sessions": {
+    "s_e95abd168e6adf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-fee0-7150-a974-1706aae47b66",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
