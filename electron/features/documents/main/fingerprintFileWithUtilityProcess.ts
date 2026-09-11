@@ -47,7 +47,12 @@ export async function retryRetainedDocumentSaveUtilityProcesses() {
 }
 
 export async function shutdownRetainedDocumentSaveUtilityProcesses() {
-    await retryRetainedDocumentSaveUtilityProcesses();
+    const proven = await retryRetainedDocumentSaveUtilityProcesses();
+    if (!proven && retainedDocumentSaveUtilities.size > 0) {
+        throw new Error(
+            `Document save utility cleanup remains unproven (${retainedDocumentSaveUtilities.size} retained process${retainedDocumentSaveUtilities.size === 1 ? '' : 'es'})`,
+        );
+    }
 }
 
 export async function runDocumentSaveUtilityProcess(options: {

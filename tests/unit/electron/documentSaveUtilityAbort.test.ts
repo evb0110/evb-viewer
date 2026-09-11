@@ -14,6 +14,7 @@ import {
     getRetainedDocumentSaveUtilityCount,
     retryRetainedDocumentSaveUtilityProcesses,
     runDocumentSaveUtilityProcess,
+    shutdownRetainedDocumentSaveUtilityProcesses,
 } from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -219,6 +220,94 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
         mocks.terminateProcessTree.mockResolvedValueOnce(true);
         await retryRetainedDocumentSaveUtilityProcesses();
         expect(release).toHaveBeenCalledOnce();
+    });
+
+    it('does not treat a late direct-child exit as descendant termination proof', async () => {
+        const release = vi.fn();
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            pid: 8126,
+            postMessage: vi.fn(),
+        });
+        mocks.fork.mockReturnValueOnce(child);
+        mocks.terminateProcessTree.mockResolvedValueOnce(false);
+        const controller = new AbortController();
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+            signal: controller.signal,
+            resourceLease: {
+                token: 'utility-lease',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                release,
+            },
+        });
+
+        child.emit('spawn');
+        controller.abort(new Error('save cancellation'));
+        await expect(result).rejects.toThrow('save cancellation');
+        child.emit('exit', 0);
+
+        expect(release).not.toHaveBeenCalled();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
+
+        mocks.terminateProcessTree.mockResolvedValueOnce(true);
+        await expect(retryRetainedDocumentSaveUtilityProcesses()).resolves.toBe(true);
+        expect(release).toHaveBeenCalledOnce();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
+    });
+
+    it('reports unproven retained cleanup during shutdown without releasing its lease', async () => {
+        const release = vi.fn();
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            pid: 8127,
+            postMessage: vi.fn(),
+        });
+        mocks.fork.mockReturnValueOnce(child);
+        mocks.terminateProcessTree.mockResolvedValueOnce(false);
+        mocks.terminateProcessTree.mockResolvedValueOnce(false);
+        const controller = new AbortController();
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+            signal: controller.signal,
+            resourceLease: {
+                token: 'utility-lease',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 1,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                release,
+            },
+        });
+
+        child.emit('spawn');
+        controller.abort(new Error('save cancellation'));
+        await expect(result).rejects.toThrow('save cancellation');
+
+        await expect(shutdownRetainedDocumentSaveUtilityProcesses())
+            .rejects.toThrow('cleanup remains unproven (1 retained process)');
+        expect(release).not.toHaveBeenCalled();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(1);
+
+        mocks.terminateProcessTree.mockResolvedValueOnce(true);
+        await expect(shutdownRetainedDocumentSaveUtilityProcesses()).resolves.toBeUndefined();
+        expect(release).toHaveBeenCalledOnce();
+        expect(getRetainedDocumentSaveUtilityCount()).toBe(0);
     });
 
     it('waits for the spawned utility PID before attempting termination', async () => {
