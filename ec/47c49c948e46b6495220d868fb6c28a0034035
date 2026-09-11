@@ -1,0 +1,27 @@
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_503d7ca8eb72b6::t_7593c1c1762d8a 350
+  s_503d7ca8eb72b6::t_39d2b429057f57 330-332,335-337,395-399,401
+electron/preload/createElectronApi.ts
+  s_503d7ca8eb72b6::t_39d2b429057f57 574-577
+app/utils/exportTextAsDocx.ts
+  s_503d7ca8eb72b6::t_39d2b429057f57 100
+  s_503d7ca8eb72b6::t_d8427b01fbf442 103-108
+packages/contracts/docxExport.ts
+  s_503d7ca8eb72b6::t_39d2b429057f57 8-12,19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ec47c49c948e46b6495220d868fb6c28a0034035",
+  "prompts": {},
+  "sessions": {
+    "s_503d7ca8eb72b6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3d-12b3-7f11-a017-5a260666c7e4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
