@@ -1,0 +1,19 @@
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_3d279d029e00e2::t_3cd6d9e627f8b5 1132-1133,1183-1188,1216-1217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e77c8500e1fcc74f0b9e9bce1fd1ab0c09d853e8",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
