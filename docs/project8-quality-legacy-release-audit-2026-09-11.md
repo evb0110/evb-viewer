@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `fc251b85` (`origin/project8/integration`)
+Source under review: `402d5371` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -54,15 +54,27 @@ state as unresolved without changing the mirror channel. Commit `ea91cd36a`
 introduced this behavior, and `tests/unit/scripts/ciTopologyPolicy.test.ts`
 asserts the exact workflow branch on the reviewed tip.
 
-The cross-service transaction gap remains. The normal release flow activates
-the mirror and promotes the GitHub release in separate workflow steps. There is
+The configured isolated interruption/restart/concurrency drill passed in
+workflow run [`34630569082`](https://github.com/evb0110/evb-viewer/actions/runs/34630569082)
+at exact source `6fad2304d43594046c86d83c5885a262dd24fe85`. Seeding,
+immutable-asset finalization, mirror staging, promotion, both supplemental
+attachment passes, mirror verification, and cleanup succeeded. The cleanup
+job deleted 19 drill mirror objects under
+`evb-viewer/drill/34630569082/`, and a post-run release query found no
+`v0.0.0-drill.*` draft remaining.
+
+The cross-service transaction gap remains for the normal release flow. It
+activates the mirror and promotes the GitHub release in separate workflow
+steps. There is
 still no durable pair recording promotion state, prior channel version, or
 restart-safe reconciliation decision. A process exit between the two steps
 still needs the bounded transaction work described by #522.
 
-The local mirror suite passed the publisher's upload, retry, conditional-write,
-drill-isolation, same-tag, and supplemental-asset cases. It does not prove a
-real GitHub promotion interruption or a restart against live service state.
+The local mirror suite and the configured hosted drill passed the publisher's
+upload, retry, conditional-write, drill-isolation, same-tag, and
+supplemental-asset cases. The drill used isolated state and did not change a
+production release channel. It does not prove a real production GitHub
+promotion interruption or a restart against live service state.
 
 ## #551, stale suppression finding
 
@@ -81,7 +93,7 @@ move, or new suppression.
 
 ## Checks
 
-These existing checks passed on `91c3a36e` with release-owned inputs unchanged
+These existing checks passed on `6fad2304` with release-owned inputs unchanged
 since the prior qualification:
 
 ```text
@@ -90,8 +102,9 @@ pnpm exec vitest run tests/unit/scripts/publishReleaseMirror.test.ts tests/unit/
 ```
 
 The #522 source qualification is covered by the `ciTopologyPolicy` test in
-that run. The configured live interruption, restart, concurrency, and
-artifact-digest drill remains unproven.
+that run. The configured isolated hosted drill passed in run `34630569082`.
+Production-service interruption/restart behavior and final artifact-digest
+acceptance remain coordinator-owned evidence.
 
 The direct source audit also passed. `node --check` accepted both executable
 audit scripts, and the repository contains no `max-lines` suppression
