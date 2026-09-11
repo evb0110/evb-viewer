@@ -51,3 +51,27 @@ pnpm exec vitest run --project unit-app \
 Result: 6 files passed, 87 tests passed. This is supporting renderer evidence,
 not execution of the nine Electron lifecycle journeys. No historical ledger
 counts were rewritten.
+
+## V5b continuation evidence
+
+After reconciling this branch with `origin/project8/integration` at
+`7d784ada3`, the disjoint fallback selection passed on the owned branch:
+
+```text
+pnpm exec vitest run --project unit-app --project unit-electron \
+  tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveIdentityRebase.test.ts \
+  tests/unit/app/modules/pdf-viewer/annotations/annotationSavedHistoryLifecycle.test.ts \
+  tests/unit/app/modules/pdf-viewer/annotations/annotationStoreDirtyAndPersisted.test.ts \
+  tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveFrontierRollback.test.ts \
+  tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationHistoryDocumentSwap.test.ts \
+  tests/unit/app/modules/pdf-viewer/composables/usePdfTextLayerRenderer.test.ts \
+  tests/unit/app/composables/pdfWordBoxGeometry.test.ts \
+  tests/unit/app/composables/pdfSearchMatchScroller.test.ts \
+  tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts \
+  tests/unit/electron/searchMatch.test.ts --reporter=dot
+```
+
+Result: 10 files passed, 133 tests passed. This covers annotation identity,
+dirty frontiers, history replay/document swaps, OCR catalog consumption and
+search/renderer behavior. It does not replace the blocked real Electron
+rotated-OCR or native annotation-save journeys.
