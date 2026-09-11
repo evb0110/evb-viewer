@@ -1,0 +1,20 @@
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_3d279d029e00e2::t_982f35c189aa30 30-32,277-283
+  s_3d279d029e00e2::t_3d5af955e8bd0b 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "75c0132ef1f1d0d7c38e917ae566c326b39ded2c",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

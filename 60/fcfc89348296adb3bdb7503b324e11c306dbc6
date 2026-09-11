@@ -1,0 +1,21 @@
+scripts/ci/apt-install.sh
+  s_3d279d029e00e2::t_f303f23d912c6e 4-13,29-38,43-45
+scripts/bundle-tools-linux.sh
+  s_3d279d029e00e2::t_f303f23d912c6e 25,27,29,34-41,46-58,60-74,89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "60fcfc89348296adb3bdb7503b324e11c306dbc6",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+scripts/release/cut-release.mjs
+  s_3d279d029e00e2::t_f7e3e2a75a5969 628-630
+tests/unit/scripts/releaseBranchSafety.test.ts
+  s_3d279d029e00e2::t_507b2b3aeb9fd1 38,311-319,323
+  s_3d279d029e00e2::t_3e4a78597ff1fd 300,324-332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "af79637d643b415c5d82230e1c8125e349986179",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

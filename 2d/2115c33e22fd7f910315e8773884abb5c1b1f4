@@ -1,0 +1,25 @@
+scripts/release/publish-release-mirror.mjs
+  s_3d279d029e00e2::t_27bcf060fed6a8 176,200,817,826,881,937-938,962
+  s_3d279d029e00e2::t_26190f9308d12a 412,719
+  s_3d279d029e00e2::t_94341c71fddfaa 794,814
+  s_3d279d029e00e2::t_91d57166718c04 153,405-411,413-417,421-423,482-483,487,499,520-521,528,533,565,636,642-646,718,720-737,742,749-750,795,798
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_3d279d029e00e2::t_3b3f133b26f3ea 275,277,280,282,292-293,309-313,357-361,517-555
+  s_3d279d029e00e2::t_5c22bfb3f27067 556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d2115c33e22fd7f910315e8773884abb5c1b1f4",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+package.json
+  s_e44e34dc28162e::t_4a20ab61644c90 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9edd43540c0cf372808a03df3b9943029c9cfd8c",
+  "prompts": {},
+  "sessions": {
+    "s_e44e34dc28162e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c33-e64b-7780-87dc-1ed85002e44f",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
