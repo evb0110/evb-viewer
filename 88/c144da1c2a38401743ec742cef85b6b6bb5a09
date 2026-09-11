@@ -1,0 +1,32 @@
+tests/unit/electron/documentSaveUtilityAbort.test.ts
+  s_ee46735e87d8ec::t_5a04c9334ee238 49,258-285,287-289,291-352,354-355,358-367
+  s_ee46735e87d8ec::t_c6b50171863726 286,290,356-357
+  s_ee46735e87d8ec::t_f3fc2b2e425ad1 353
+  s_f8adcf939cc7fb::t_e76b09dd16c5e0 368
+electron/features/documents/main/fingerprintFileWithUtilityProcess.ts
+  s_ee46735e87d8ec::t_acc4e466167c0f 99-100,107,116,124-127,130-132,154,176,206-208,210-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88c144da1c2a38401743ec742cef85b6b6bb5a09",
+  "prompts": {},
+  "sessions": {
+    "s_ee46735e87d8ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d74-8061-7522-8389-f177f5631442",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f8adcf939cc7fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ba1c-72d2-b391-97f24f1ef5da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+tests/unit/electron/originalPathSaveWitness.test.ts
+  s_1b452cdf36f007::t_63659a45af5915 324-328,337-345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "777fb310b06b71c86fd8436df95d9bff8b3d00d0",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

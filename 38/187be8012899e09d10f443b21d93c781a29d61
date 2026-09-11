@@ -1,0 +1,38 @@
+electron/features/documents/main/fingerprintFileWithUtilityProcess.ts
+  s_ee46735e87d8ec::t_4396aa18c853d4 26,49-52,98-115,122,124,201-206,227
+electron/bootstrap/mainProcess.ts
+  s_ee46735e87d8ec::t_159dc012303d1e 108,625-627
+  s_3d279d029e00e2::t_6f021697d44ee4 628
+electron/features/documents/public.ts
+  s_ee46735e87d8ec::t_3773c0a036f618 12
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_ee46735e87d8ec::t_3773c0a036f618 66
+  s_ee46735e87d8ec::t_5632043a0136ba 64-65,67-75
+tests/unit/electron/documentSaveUtilityAbort.test.ts
+  s_ee46735e87d8ec::t_5632043a0136ba 223,225-228,230-247,249-256
+  s_ee46735e87d8ec::t_3773c0a036f618 224,229,248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "38187be8012899e09d10f443b21d93c781a29d61",
+  "prompts": {},
+  "sessions": {
+    "s_3d279d029e00e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47a25a6-5ebd-4055-a760-a5515e67c6d9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ee46735e87d8ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d74-8061-7522-8389-f177f5631442",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
