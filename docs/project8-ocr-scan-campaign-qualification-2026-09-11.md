@@ -189,6 +189,28 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: scan thickness and dewarp bounds
+
+This slot started from `04ea22da6`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #445
+through the persisted-settings contract and effective native-option mapping:
+
+```text
+pnpm exec vitest run \
+  tests/unit/contracts/scanCleanupSettings.test.ts \
+  tests/unit/electron/scanCleanupEffectiveOptions.test.ts --reporter=dot
+
+2 files passed, 18 tests passed
+```
+
+The run covered migration into the executable thickness range, preservation
+of valid document entries, physical-geometry raster budgeting, dewarp and
+margin composition, explicit page-option precedence, and native raster
+controls. A packaged settings upgrade and large anisotropic-document run
+remain coordinator-owned evidence. No new fixture, raster, screenshot, or
+telemetry artifact was generated. Test-owned state was cleaned by the suites,
+and the worktree is clean.
+
 ## Follow-up slot: authoritative detection-store eviction
 
 This slot started from `2efcebc01`, the current
