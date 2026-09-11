@@ -189,6 +189,53 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: original witness recovery
+
+This slot started from `2a1737bd5`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #398
+through the original-witness and dirty working-copy recovery scenarios:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts \
+  -t "refreshes the original witness|restores a witnessed publication|publishes a second witnessed save|restores the app-published original witness|rejects a same-inode external edit|rejects a distinct-inode external replacement|rejects Save after recovering a dirty materialized checkpoint" \
+  --reporter=dot
+
+1 file passed, 7 tests passed, 7 tests skipped by name filter
+```
+
+The passing cases covered witness refresh after managed replacement, witnessed
+publication recovery, a second witnessed save, hard-reopen recovery, same- and
+distinct-inode external replacement rejection, and Save rejection after dirty
+checkpoint recovery. The full source file still has a timeout in the separate
+reflink-unavailable setup case, so a complete file-wide green run remains a
+gap for coordinator follow-up. No new fixture, source document, screenshot, or
+telemetry artifact was generated. Test-owned temporary files were cleaned by
+the suite, and the worktree is clean.
+
+## Follow-up slot: legacy scan-settings migration and pruning
+
+This slot started from `1878052f0`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #443
+through the dedicated scan-preferences persistence suite:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/modules/scan-cleanup/scanCleanupPreferences.test.ts \
+  --reporter=dot
+
+1 file passed, 22 tests passed
+```
+
+The run covered legacy scalar and pixel-geometry migration, per-document
+override isolation, pruning of automatic page overrides, manual split
+migration, numeric validation, and safe handling of malformed persisted
+values. The migration warning for unavailable legacy raster dimensions was
+expected and the test passed. A packaged upgrade with real user preference
+files remains coordinator-owned evidence. No new preference file, fixture,
+screenshot, or telemetry artifact was generated. Test-owned storage was
+cleaned by the suite, and the worktree is clean.
+
 ## Follow-up slot: DOCX text direction and commit
 
 This slot started from `fc251b855`, the current
