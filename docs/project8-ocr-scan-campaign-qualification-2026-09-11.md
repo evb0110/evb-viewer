@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: full-document raster budgeting
+
+This slot started from `e9f082ae5`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #444
+through the scan-cleanup pipeline's shared budget decisions:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/scanCleanupPipeline.test.ts \
+  -t "budgets full-document Auto cleanup|does not apply the compact-source budget|fails closed before publishing|caps an oversized detected BW raster|says when the pixel budget lowered the grid" \
+  --reporter=dot
+
+1 file passed, 5 tests passed, 95 tests skipped by name filter
+```
+
+The passing cases covered full-document compact-source budgeting, exclusion
+of partial/manual/non-layered runs, fail-closed publication over budget,
+160-MP detected-raster capping, and reporting when the shared pixel budget
+lowers the selected grid. A large real-document native render remains
+coordinator-owned evidence. No new raster, PDF, fixture, screenshot, or
+telemetry artifact was generated. Test-owned state was cleaned by the suite,
+and the worktree is clean.
+
 ## Follow-up slot: DOCX mixed-direction export
 
 This slot started from `511268b52`, the current
