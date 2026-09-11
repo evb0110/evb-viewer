@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     rm: vi.fn(),
     stagePrivateSourcemaps: vi.fn(),
     writeFile: vi.fn(),
+    realpathSync: vi.fn((path: string) => path),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -27,16 +28,17 @@ vi.mock('node:fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 
-vi.mock('node:fs', async importOriginal => {
-    const actual = await importOriginal<{realpathSync: (path: string) => string}>();
-    return {
-        ...actual,
-        realpathSync: (path: string) => actual.realpathSync(path.replace(
-            'canvas-linux-arm64-gnu',
-            'canvas-linux-x64-gnu',
-        )),
-    };
-});
+vi.mock('node:fs', async importOriginal => ({
+    ...await importOriginal(),
+    realpathSync: mocks.realpathSync,
+}));
+
+vi.mock('node:module', () => ({createRequire: () => ({resolve: (specifier: string) => {
+    if (specifier === '@napi-rs/canvas/package.json') {
+        return '/fixture/node_modules/@napi-rs/canvas/package.json';
+    }
+    throw new Error(`unexpected fixture resolution: ${specifier}`);
+}})}));
 
 vi.mock('node:child_process', () => ({execFileSync: mocks.execFileSync}));
 
@@ -113,9 +115,19 @@ describe('Electron build script', () => {
             'dist-electron/pdf.worker.mjs',
         );
         expect(mocks.cp).toHaveBeenCalledWith(
-            expect.stringContaining('node_modules/@napi-rs/canvas'),
+            '/fixture/node_modules/@napi-rs/canvas',
             'dist-electron/runtime/@napi-rs/canvas',
             {recursive: true},
+        );
+        expect(mocks.cp).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas-linux-arm64-gnu/skia.linux-arm64-gnu.node',
+            'dist-electron/runtime/@napi-rs/canvas/skia.linux-arm64-gnu.node',
+        );
+        expect(mocks.realpathSync).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas',
+        );
+        expect(mocks.realpathSync).toHaveBeenCalledWith(
+            '/fixture/node_modules/@napi-rs/canvas-linux-arm64-gnu',
         );
         expect(mocks.writeFile).toHaveBeenCalledWith(
             'dist-electron/package.json',
