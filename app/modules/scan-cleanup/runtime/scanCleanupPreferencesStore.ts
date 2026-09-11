@@ -56,6 +56,8 @@ let preferencesHydrationPromise: Promise<void> | null = null;
 let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
 let remoteWriteQueue = Promise.resolve();
 let pendingRemoteGlobalUpdate: IScanCleanupSettingsUpdateRequest | null = null;
+let pendingRemoteGlobalWrite: Promise<void> | null = null;
+let pendingRemoteGlobalWriteSettledFailure = false;
 let pendingRemoteGlobalRevision = 0;
 let persistenceRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let persistenceRetryAttempt = 0;
@@ -65,6 +67,7 @@ let migrationContext: IScanCleanupPreferencesStoreOptions = {};
 let applyingRemotePreferences = false;
 let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
 let observedPreferences: IScanCleanupGlobalPreferences | null = null;
+
 const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, {
     value: unknown;
     generation: number
@@ -74,6 +77,7 @@ interface IPendingDocumentUpdate {
     token: IScanCleanupDocumentPersistenceToken;
     version: number;
     queued: boolean;
+    writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
 const pendingBrowserDocumentUpdates = new Map<string, {
@@ -285,6 +289,7 @@ function queueRemoteUpdate(
     if (isGlobalPreferencesWrite) {
         pendingRemoteGlobalUpdate = request;
         pendingRemoteGlobalRevision = preferencesRevision;
+        pendingRemoteGlobalWriteSettledFailure = false;
     } else if (documentKey !== null && documentToken && documentVersion !== undefined) {
         pendingDocumentUpdates.set(documentKey, {
             request,
@@ -334,9 +339,20 @@ function queueRemoteUpdate(
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
             context: {},
         });
+        if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
+            pendingRemoteGlobalWriteSettledFailure = true;
+        }
         schedulePersistenceRetry();
         throw error;
     });
+    if (isGlobalPreferencesWrite) {
+        pendingRemoteGlobalWrite = observedWrite;
+    } else if (documentKey !== null) {
+        const pending = pendingDocumentUpdates.get(documentKey);
+        if (pending?.request === queuedRequest && pending.version === documentVersion) {
+            pending.writePromise = observedWrite;
+        }
+    }
     void observedWrite.then(() => {
         if (!committed) {
             return;
@@ -357,6 +373,7 @@ function queueRemoteUpdate(
                 }
                 pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences!);
             }
+            if (pendingRemoteGlobalWrite === observedWrite) pendingRemoteGlobalWrite = null;
             return;
         }
         if (documentKey !== null) {
@@ -471,8 +488,10 @@ export function flushScanCleanupPreferencesStore(): Promise<void> {
             pendingRemoteGlobalUpdate
             && pendingRemoteGlobalRevision === pendingPreferencesRevision
             && isEqual(pendingRemoteGlobalUpdate, request)
+            && pendingRemoteGlobalWrite !== null
+            && !pendingRemoteGlobalWriteSettledFailure
         ) {
-            return remoteWriteQueue;
+            return pendingRemoteGlobalWrite ?? remoteWriteQueue;
         }
         return queueRemoteUpdate(request);
     } else {
@@ -554,11 +573,24 @@ export function whenScanCleanupPreferencesReady(): Promise<void> {
 }
 
 export function retryScanCleanupPreferences(): Promise<void> {
-    if (!desktopStore || !preferences || preferencesHydrated) {
+    if (!desktopStore || !preferences) {
         return Promise.resolve();
     }
-    preferencesHydrationPromise = hydratePreferences();
-    return preferencesHydrationPromise;
+    const retry = preferencesHydrated
+        ? Promise.resolve()
+        : (preferencesHydrationPromise = hydratePreferences());
+    return retry.then(async () => {
+        if (persistenceRetryTimer !== null) {
+            clearTimeout(persistenceRetryTimer);
+            persistenceRetryTimer = null;
+        }
+        if (pendingRemoteGlobalWriteSettledFailure) {
+            pendingRemoteGlobalWrite = null;
+            pendingRemoteGlobalWriteSettledFailure = false;
+        }
+        await flushScanCleanupDocumentPreferencesStore();
+        await flushScanCleanupPreferencesStore();
+    });
 }
 
 export function loadScanCleanupDocumentSettings(
@@ -750,6 +782,12 @@ export async function flushScanCleanupDocumentPreferencesStore() {
             } catch (error) {
                 firstError ??= error;
             }
+        } else if (pending.writePromise) {
+            try {
+                await pending.writePromise;
+            } catch (error) {
+                firstError ??= error;
+            }
         }
     }
     if (firstError !== null) {
@@ -779,6 +817,8 @@ export function resetScanCleanupPreferencesStore() {
     pendingBrowserDocumentUpdates.clear();
     pendingGlobalFields.clear();
     pendingRemoteGlobalUpdate = null;
+    pendingRemoteGlobalWrite = null;
+    pendingRemoteGlobalWriteSettledFailure = false;
     pendingRemoteGlobalRevision = 0;
     persistenceRetryAttempt = 0;
     if (persistenceRetryTimer !== null) {

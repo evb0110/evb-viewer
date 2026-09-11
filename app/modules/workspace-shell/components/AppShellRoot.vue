@@ -203,6 +203,10 @@ import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import { useBrowserDirtyUnloadGuard } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
+import {
+    flushScanCleanupDocumentPreferencesStore,
+    flushScanCleanupPreferencesStore,
+} from '@app/modules/scan-cleanup/public/runtime';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import { createFallbackToolbarCommandListeners } from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
 import { useScanCleanupRunCoordinator } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
@@ -252,8 +256,22 @@ ensureAtLeastOneTab();
 const { t } = useTypedI18n();
 const {
     settings: appSettings,
+    save: saveAppSettings,
     updateSetting,
 } = useSettings();
+
+async function flushDesktopSettings() {
+    if (!await saveAppSettings()) {
+        return false;
+    }
+    try {
+        await flushScanCleanupDocumentPreferencesStore();
+        await flushScanCleanupPreferencesStore();
+        return true;
+    } catch {
+        return false;
+    }
+}
 const {
     unencryptedSaveNoticeOpen,
     unencryptedSaveNoticeDontShowAgain,
@@ -375,6 +393,7 @@ const {
 });
 useNativeWindowCloseHandshake({
     documentSessionsByTabId,
+    flushSettings: flushDesktopSettings,
     requestDirtyCloseConfirmation: requestDirtyWindowCloseConfirmation,
     tabs,
 });
