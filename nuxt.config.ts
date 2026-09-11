@@ -237,6 +237,11 @@ export default defineNuxtConfig({
                     href: '/apple-touch-icon.png',
                 },
             ],
+            script: [
+                {
+                    innerHTML: `(()=>{try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{configurable:true,value:{getItem(){return null},setItem(){},removeItem(){}}})}})();`,
+                },
+            ],
         },
     },
 
@@ -290,10 +295,10 @@ export default defineNuxtConfig({
 
     colorMode: {
         preference: 'light',
-        // The settings capability owns the hardened SSR bootstrap cookie.
-        // Color mode keeps its client preference in localStorage so the module
-        // never rewrites that cookie without Secure/SameSite/expiry attributes.
-        storage: 'localStorage',
+        // The settings capability owns the durable, hardened theme cookie.
+        // Session storage keeps Nuxt's bootstrap off that cookie and avoids
+        // the localStorage getter before application code hydrates.
+        storage: 'sessionStorage',
         disableTransition: true,
     },
 
