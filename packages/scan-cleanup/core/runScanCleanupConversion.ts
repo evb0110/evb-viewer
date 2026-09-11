@@ -1498,7 +1498,6 @@ async function runStreamingScanCleanupConversion({
                     progress.stage,
                     Math.min(pageCount, batch.startOffset + progress.completedUnits),
                     pageCount,
-                    [],
                 ),
                 policy,
                 log,
@@ -1559,7 +1558,10 @@ async function runStreamingScanCleanupConversion({
             log,
             runCommand: dependencies.runCommand,
         });
-        emitProgress('assembling', summary.outputPages, summary.outputPages, []);
+        // The aggregate completion count is authoritative for this final
+        // event. Do not attach an empty page list, which the progress schema
+        // correctly rejects as inconsistent with completedUnits.
+        emitProgress('assembling', summary.outputPages, summary.outputPages);
         const [
             sourceFile,
             outputFile,
@@ -1630,7 +1632,9 @@ async function runStreamingScanCleanupConversion({
         await copyFile(stagedPdfPath, publishTempPath);
         signal.throwIfAborted();
         await rename(publishTempPath, request.outputPdfPath);
-        emitProgress('handoff', pageCount, pageCount, []);
+        // Publication completed, so report the aggregate count without an
+        // empty page list that would contradict completedUnits.
+        emitProgress('handoff', pageCount, pageCount);
         return summary;
     } finally {
         await Promise.all([

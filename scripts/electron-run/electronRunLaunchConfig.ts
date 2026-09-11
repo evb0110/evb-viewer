@@ -482,6 +482,24 @@ function isMacOSHiddenAppBundleComplete(bundlePaths: ReturnType<typeof buildMacO
     return existsSync(bundlePaths.executablePath) && existsSync(bundlePaths.infoPlistPath);
 }
 
+function resealMacOSAutomationAppBundle(appPath: string) {
+    // The LSUIElement edit invalidates a Developer ID seal, and the kernel kills a
+    // hardened-runtime app whose Info.plist no longer matches its signature about
+    // two seconds after launch. An ad-hoc seal without the hardened runtime keeps
+    // the copy launchable and still loads the team-signed Electron frameworks.
+    execFileSync('/usr/bin/codesign', [
+        '--force',
+        '--sign',
+        '-',
+        appPath,
+    ], { stdio: 'ignore' });
+    execFileSync('/usr/bin/codesign', [
+        '--verify',
+        '--strict',
+        appPath,
+    ], { stdio: 'ignore' });
+}
+
 function assertMacOSAutomationAgentMode(infoPlistPath: string) {
     let agentMode: string | undefined;
     try {
@@ -579,6 +597,7 @@ export function prepareMacOSHiddenAppBundle(options: {
         // Clone the real directory, never a symlink that would redirect plist edits to the source.
         cloneMacOSAppBundle(realpathSync(options.sourceAppPath), stagingPaths.appPath);
         setMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
+        resealMacOSAutomationAppBundle(stagingPaths.appPath);
         assertMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
         publishStagedMacOSHiddenAppBundle(stagingRoot, options.destinationRoot, bundlePaths);
     } catch (error) {

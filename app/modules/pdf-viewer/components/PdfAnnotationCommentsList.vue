@@ -787,6 +787,7 @@ function setTool(tool: TAnnotationTool) {
 }
 
 .note-item-delete {
+    flex-shrink: 0;
     margin-left: auto;
     display: inline-flex;
     align-items: center;

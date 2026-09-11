@@ -553,6 +553,7 @@ describe('browser page-ops WASM fast path', () => {
 
     it('reads catalog and conformance and merges N documents through EPPO v3', async () => {
         const sourcePdf = await createMetadataPdf();
+        const sourceSnapshot = sourcePdf.slice();
         const secondPdf = await createPdf({pageWidths: [500]});
         const wasm = await loadWasmRunner();
 
@@ -617,6 +618,7 @@ describe('browser page-ops WASM fast path', () => {
         });
         expect(readOutlineDestination(merged).objectNumber)
             .toBe(merged.getPage(2).ref.objectNumber);
+        expect(sourcePdf).toEqual(sourceSnapshot);
     });
 
     it('preserves and offsets catalogs from every document in mergePages', async () => {

@@ -3,80 +3,94 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {formatArtifactGroupList} from './artifact-groups.mjs';
 import {
-    findLatestMatchingRun,
-    waitForExactShaCiGates,
+    listSuccessfulMainPushRuns,
+    readGatesOkConclusion,
 } from './wait-for-exact-sha-ci.mjs';
 import {
+    findWorkflowRun,
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
+    listWorkflowRuns,
     readWorkflowStartTimeoutMs,
     waitForWorkflowRunStart,
 } from './github-workflow-run.mjs';
 import {
-    assertChangedFilesMatch,
     assertCleanWorktree,
     assertGitHubCliReady,
     assertNodeProjectBaseline,
-    assertReleaseMainTip,
     assertVersionNotBehindAncestorRelease,
     assertTagAbsent,
     assertVersionOnlyPackageCommit,
     bumpVersion,
+    compareReleaseVersions,
+    createVersionOnlyCommit,
     errorMessage,
     fetchReleaseMain,
     getCommitParentSha,
     getExitStatus,
+    getPublicationPolicyCheckArgs,
     getReleaseMainUpstream,
+    isAncestorCommit,
     MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
     pushReleaseBranch,
     pushReleaseTag,
-    readVersion,
+    readGreatestReleaseTag,
+    readVersionAt,
     run,
-    stageFiles,
+    sleep,
     VALID_RELEASE_LEVELS,
-    writeVersion,
 } from './shared.mjs';
 
 const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
+const ARTIFACT_CANARY_WORKFLOW_FILE = 'release-artifacts.yml';
+const CARRY_VERSION_ATTEMPTS = 5;
+const CARRY_VERSION_RETRY_DELAY_MS = 3_000;
+const PUSH_RACE_ERROR_PATTERN = /non-fast-forward|fetch first|\[rejected\]|stale info|missing from this checkout/iu;
 
 /** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
 /** @typedef {{branch: string, ref: string, remote: string}} IUpstream */
-/** @typedef {{headSha?: string, status?: string, conclusion?: string | null, html_url?: string, url?: string}} ICiRun */
-/** @typedef {{headSha: string, upstreamSha: string}} IReleaseTip */
+/** @typedef {import('./wait-for-exact-sha-ci.mjs').IWorkflowRun} ICiRun */
+/** @typedef {{run: ICiRun, sha: string}} IReleaseCandidate */
+/** @typedef {{candidateSha: string, currentVersion: string, nextVersion: string, upstream: IUpstream}} IReleaseCutPlan */
 /** @typedef {{isDraft: boolean, publishedAt: string | null, tagName: string, assets: unknown[]}} IGitHubRelease */
 /** @typedef {{status?: string, conclusion?: string | null, url: string}} IWorkflowRun */
 /** @typedef {{write: (chunk: string) => unknown}} IWritable */
 /** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
-/** @typedef {(headSha: string, runCommand: TCommandRunner) => ICiRun | null} TFindCiRun */
-/** @typedef {(headSha: string, runCommand: TCommandRunner) => Promise<unknown>} TWaitForCi */
 /** @typedef {{branch: string, tag: string, targetSha: string}} IReleaseDispatch */
 /** @typedef {{dispatchStartedAt: string, tag: string, targetSha: string}} IReleaseHandoff */
-/** @typedef {{tag: string, targetSha?: string | undefined, upstream: IUpstream}} IReleaseCommitInput */
-/** @typedef {{dispatchWorkflow?: (dispatch: IReleaseDispatch, runCommand: TCommandRunner) => void, printHandoff?: (handoff: IReleaseHandoff) => Promise<void>, push?: boolean, pushReleaseTag?: typeof pushReleaseTag, runCommand?: TCommandRunner}} IPublishReleaseOptions */
+/** @typedef {{parentSha: string, tag: string, targetSha: string, upstream: IUpstream}} IReleaseCommitInput */
+/** @typedef {{parentSha: string, subject: string, version: string}} IVersionCommitInput */
+/** @typedef {{releaseParentSha: string, releaseSha: string, subject: string, tag: string, upstream: IUpstream, version: string}} ICarryVersionInput */
+/** @typedef {{carried: boolean, sha: string}} ICarryVersionResult */
+/** @typedef {{dispatchWorkflow?: (dispatch: IReleaseDispatch, runCommand: TCommandRunner) => void, printHandoff?: (handoff: IReleaseHandoff) => Promise<void>, pushReleaseTag?: typeof pushReleaseTag, runCommand?: TCommandRunner, scanPublication?: (parentSha: string, targetSha: string, runCommand: TCommandRunner) => void}} IPublishReleaseOptions */
+/** @typedef {{attempts?: number, createCommitFn?: (input: IVersionCommitInput) => string, pushBranchFn?: typeof pushReleaseBranch, runCommand?: TCommandRunner, sleepFn?: (milliseconds: number) => Promise<void>, stderr?: IWritable}} ICarryVersionOptions */
 /** @typedef {{nowFn?: () => number, readHandoffTimeoutMs?: () => number, sleepFn?: (milliseconds: number) => Promise<void>, stdout?: IWritable, waitForRun?: typeof waitForWorkflowRunStart}} IReleaseHandoffOptions */
 /** @typedef {{
- *   assertChangedFilesMatchFn?: (expectedFiles: string[], options?: object) => void,
+ *   assertArtifactCanaryGreenFn?: (upstream: IUpstream) => void,
  *   assertCleanWorktreeFn?: (options: {ignoredPathPrefixes: string[]}) => void,
  *   assertCurrentReleaseIsNotDraftFn?: (tag: string) => void,
  *   assertGitHubCliReadyFn?: (context: string, options?: object) => Promise<void>,
- *   assertMainTipFn?: (upstream: IUpstream) => IReleaseTip | string,
  *   assertNodeBaselineFn?: (context: string) => void,
- *   assertReleaseIsNotDraftFn?: (tag: string) => void,
  *   assertTagAbsentFn?: (tag: string, remote: string) => Promise<void>,
  *   assertVersionNotBehindAncestorFn?: (version: string, sha: string, options: {remote: string, runCommand: TCommandRunner}) => void,
+ *   carryVersionToMainFn?: (input: ICarryVersionInput, options?: ICarryVersionOptions) => Promise<ICarryVersionResult>,
  *   context?: string,
+ *   createReleaseCommitFn?: (input: IVersionCommitInput) => string,
+ *   fastForwardLocalMainFn?: (upstream: IUpstream) => void,
  *   fetchReleaseMainFn?: (upstream: IUpstream) => void,
- *   findCiRunFn?: TFindCiRun,
+ *   fetchReleaseTagsFn?: (upstream: IUpstream) => void,
+ *   findActiveReleaseRunFn?: (tag: string) => import('./github-workflow-run.mjs').IWorkflowRun | null,
  *   getUpstreamFn?: (context: string) => IUpstream,
+ *   isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean,
  *   level?: TReleaseLevel,
  *   publishOptions?: object,
  *   publishReleaseCommitFn?: typeof publishReleaseCommit,
+ *   readGreatestReleaseTagFn?: () => {tag: string, version: string} | null,
  *   readReleaseFn?: (tag: string) => IGitHubRelease | null,
- *   readVersionFn?: () => string,
+ *   readVersionAtFn?: (sha: string) => string,
  *   runCommand?: TCommandRunner,
- *   stageFilesFn?: (files: string[], options?: object) => void,
- *   waitForCiFn?: TWaitForCi,
- *   writeVersionFn?: (version: string) => void,
+ *   selectReleaseCandidateFn?: (upstream: IUpstream) => IReleaseCandidate,
+ *   stderr?: IWritable,
  * }} IReleaseOptions */
 
 /** @param {string | undefined} value @returns {value is TReleaseLevel} */
@@ -218,22 +232,118 @@ function assertCurrentReleaseIsNotDraft(tag, runCommand) {
     }
 }
 
-/** @param {{headSha: string, runCommand: TCommandRunner, findCiRunFn: TFindCiRun, waitForCiFn: TWaitForCi}} options */
-async function assertHeadCiGreen({
-    headSha,
-    runCommand,
-    findCiRunFn,
-    waitForCiFn,
-}) {
-    const currentRun = findCiRunFn(headSha, runCommand);
-    if (currentRun?.status === 'completed' && currentRun.conclusion !== 'success') {
+/**
+ * Push CI proves packaging on Linux only. The artifact canary builds the same
+ * macOS and Windows matrix the release runs, so a red canary means the next
+ * release fails at that platform step; refuse the cut here instead.
+ */
+/** @param {IUpstream} upstream @param {TCommandRunner} runCommand */
+function assertArtifactCanaryGreen(upstream, runCommand) {
+    const latest = listWorkflowRuns(ARTIFACT_CANARY_WORKFLOW_FILE, {runCommand})
+        .find(runInfo => runInfo.headBranch === upstream.branch);
+    if (!latest) {
+        return;
+    }
+    const target = latest.headSha ?? 'an unknown commit';
+    if (latest.status !== 'completed') {
         throw new Error(
-            `The ci.yml run for HEAD ${headSha} concluded '${currentRun.conclusion}'. `
-            + `Refusing the release. Inspect: ${currentRun.html_url ?? currentRun.url ?? 'no URL'}`,
+            `The artifact canary (${ARTIFACT_CANARY_WORKFLOW_FILE}) is still running for ${target}. `
+            + `Wait for it and cut again. Inspect: ${latest.url}`,
         );
     }
+    if (latest.conclusion !== 'success') {
+        throw new Error(
+            `The latest artifact canary (${ARTIFACT_CANARY_WORKFLOW_FILE}) concluded `
+            + `'${latest.conclusion}' for ${target}. The release builds the same platform matrix, `
+            + 'so fix the cause, push, run `pnpm run release:artifacts` from the fixed main tip, '
+            + `and cut once it passes. Inspect: ${latest.url}`,
+        );
+    }
+}
 
-    await waitForCiFn(headSha, runCommand);
+/**
+ * The newest commit on main whose own push CI run succeeded with a green
+ * gates_ok aggregate. This is what the release is built from. Main itself
+ * has no owner of green: with dozens of pushes a day the tip is usually
+ * unverified, and a cutter that insists on releasing the tip loses the race
+ * against the next push. A verified ancestor is always available and never
+ * moves.
+ */
+/** @param {IUpstream} upstream @param {{isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean, listRunsFn?: (runCommand: TCommandRunner) => ICiRun[], readGatesFn?: (runId: number, runCommand: TCommandRunner) => string | undefined, runCommand?: TCommandRunner}} [options] @returns {IReleaseCandidate} */
+export function selectReleaseCandidate(upstream, {
+    isAncestorFn,
+    listRunsFn = listSuccessfulMainPushRuns,
+    readGatesFn = readGatesOkConclusion,
+    runCommand = run,
+} = {}) {
+    const isAncestor = isAncestorFn ?? (
+        (ancestorSha, descendantRef) => isAncestorCommit(ancestorSha, descendantRef, {runCommand})
+    );
+    const runs = listRunsFn(runCommand);
+    const rejected = [];
+    for (const runInfo of runs) {
+        const sha = runInfo.head_sha;
+        if (!sha) {
+            continue;
+        }
+        if (!isAncestor(sha, upstream.ref)) {
+            rejected.push(`${sha.slice(0, 9)} is not on ${upstream.ref}`);
+            continue;
+        }
+        const gates = readGatesFn(runInfo.id, runCommand);
+        if (gates !== 'success') {
+            rejected.push(`${sha.slice(0, 9)} gates_ok '${gates ?? 'missing'}' (${runInfo.html_url ?? `run ${runInfo.id}`})`);
+            continue;
+        }
+        return {
+            run: runInfo,
+            sha,
+        };
+    }
+
+    throw new Error(
+        `No commit on ${upstream.ref} has a successful ci.yml push run with a green gates_ok among the newest `
+        + `${runs.length} successful runs. Fix main or wait for its CI, then cut again.`
+        + (rejected.length > 0 ? ` Rejected: ${rejected.join('; ')}.` : ''),
+    );
+}
+
+/**
+ * A release must ship something newer than the last one. The last release's
+ * base is its tag commit when the cutter pushed that commit to main, and the
+ * tag commit's parent when the release was pinned to an older candidate.
+ */
+/** @param {string} candidateSha @param {{tag: string}} previousRelease @param {IUpstream} upstream @param {{isAncestorFn: (ancestorSha: string, descendantRef: string) => boolean, runCommand: TCommandRunner}} options */
+function assertCandidateSucceedsRelease(candidateSha, previousRelease, upstream, {
+    isAncestorFn,
+    runCommand,
+}) {
+    let tagSha;
+    try {
+        tagSha = runCommand('git', [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `refs/tags/${previousRelease.tag}^{commit}`,
+        ]);
+    } catch (error) {
+        if (getExitStatus(error) === 1) {
+            return;
+        }
+        throw error;
+    }
+    const baseSha = isAncestorFn(tagSha, upstream.ref)
+        ? tagSha
+        : getCommitParentSha(tagSha, {
+            fetchParent: false,
+            runCommand,
+        });
+    if (baseSha === candidateSha || !isAncestorFn(baseSha, candidateSha)) {
+        throw new Error(
+            `Release candidate ${candidateSha} is not newer than ${previousRelease.tag} (built from ${baseSha}). `
+            + `No green commit on ${upstream.ref} has landed since that release; nothing to cut.`,
+        );
+    }
 }
 
 // Both entry points share the same first checks, in an order that answers
@@ -265,51 +375,66 @@ async function assertReleaseEntryPreconditions(options, context) {
     };
 }
 
-/** @param {IReleaseOptions} [options] */
+/**
+ * Decides what the next release is built from without waiting on anything:
+ * every answer is a lookup against finished CI, so the same call serves the
+ * preflight and the cut.
+ */
+/** @param {IReleaseOptions} [options] @returns {Promise<IReleaseCutPlan>} */
 export async function assertReleaseCutPreconditions(options = {}) {
     const context = options.context ?? 'Release cut';
     const {
         runCommand,
         upstream,
     } = await assertReleaseEntryPreconditions(options, context);
-    const assertMainTipFn = options.assertMainTipFn ?? (
-        upstream => assertReleaseMainTip(upstream, {runCommand})
+    const fetchReleaseMainFn = options.fetchReleaseMainFn ?? (
+        upstream => fetchReleaseMain(upstream, {runCommand})
     );
-    const findCiRunFn = options.findCiRunFn ?? (
-        (headSha, commandRunner) => findLatestMatchingRun(headSha, commandRunner)
+    const isAncestorFn = options.isAncestorFn ?? (
+        (ancestorSha, descendantRef) => isAncestorCommit(ancestorSha, descendantRef, {runCommand})
     );
-    const waitForCiFn = options.waitForCiFn ?? (
-        (headSha, commandRunner) => waitForExactShaCiGates(headSha, {runCommand: commandRunner})
+    const selectReleaseCandidateFn = options.selectReleaseCandidateFn ?? (
+        upstream => selectReleaseCandidate(upstream, {
+            isAncestorFn,
+            runCommand,
+        })
     );
-    const assertTagAbsentFn = options.assertTagAbsentFn ?? (
-        (tag, remote) => assertTagAbsent(tag, remote, {runCommand})
+    const readVersionAtFn = options.readVersionAtFn ?? (sha => readVersionAt(sha, {runCommand}));
+    const assertVersionNotBehindAncestorFn = options.assertVersionNotBehindAncestorFn ?? (
+        (version, sha, ancestorOptions) => assertVersionNotBehindAncestorRelease(version, sha, ancestorOptions)
+    );
+    const readGreatestReleaseTagFn = options.readGreatestReleaseTagFn ?? (() => readGreatestReleaseTag({runCommand}));
+    const assertArtifactCanaryGreenFn = options.assertArtifactCanaryGreenFn ?? (
+        upstream => assertArtifactCanaryGreen(upstream, runCommand)
     );
     const assertCurrentReleaseIsNotDraftFn = options.assertCurrentReleaseIsNotDraftFn ?? (
         tag => assertCurrentReleaseIsNotDraft(tag, runCommand)
     );
-    const readVersionFn = options.readVersionFn ?? readVersion;
-    const assertVersionNotBehindAncestorFn = options.assertVersionNotBehindAncestorFn ?? (
-        (version, sha, ancestorOptions) => assertVersionNotBehindAncestorRelease(version, sha, ancestorOptions)
+    const assertTagAbsentFn = options.assertTagAbsentFn ?? (
+        (tag, remote) => assertTagAbsent(tag, remote, {runCommand})
     );
 
-    const tip = assertMainTipFn(upstream);
-    const headSha = typeof tip === 'string' ? tip : tip.headSha;
-    if (!headSha) {
-        throw new Error('Release main-tip verification did not return a commit SHA');
-    }
-    const currentVersion = readVersionFn();
-
-    assertVersionNotBehindAncestorFn(currentVersion, headSha, {
+    fetchReleaseMainFn(upstream);
+    const candidate = selectReleaseCandidateFn(upstream);
+    const candidateVersion = readVersionAtFn(candidate.sha);
+    // Fetches tags (and unshallows) as a side effect; the tag reads below rely on it.
+    assertVersionNotBehindAncestorFn(candidateVersion, candidate.sha, {
         remote: upstream.remote,
         runCommand,
     });
-
-    await assertHeadCiGreen({
-        findCiRunFn,
-        headSha,
-        runCommand,
-        waitForCiFn,
-    });
+    const previousRelease = readGreatestReleaseTagFn();
+    // The candidate can predate the last release's version carry to main, so
+    // its package.json alone would repeat a released version.
+    const currentVersion = previousRelease && compareReleaseVersions(previousRelease.version, candidateVersion) > 0
+        ? previousRelease.version
+        : candidateVersion;
+    if (previousRelease) {
+        assertCandidateSucceedsRelease(candidate.sha, previousRelease, upstream, {
+            isAncestorFn,
+            runCommand,
+        });
+    }
+    assertArtifactCanaryGreenFn(upstream);
     const nextVersion = bumpVersion(currentVersion, options.level ?? 'patch');
     const nextTag = `v${nextVersion}`;
 
@@ -317,39 +442,41 @@ export async function assertReleaseCutPreconditions(options = {}) {
     await assertTagAbsentFn(nextTag, upstream.remote);
 
     return {
+        candidateSha: candidate.sha,
         currentVersion,
-        headSha,
         nextVersion,
         upstream,
     };
 }
 
+/** @param {string} parentSha @param {string} targetSha @param {TCommandRunner} runCommand */
+function scanReleaseCommitPublication(parentSha, targetSha, runCommand) {
+    runCommand('node', getPublicationPolicyCheckArgs(parentSha, targetSha), {stdio: 'inherit'});
+}
+
 /**
- * Publishes the release commit, pushes the release tag at that commit, and
- * dispatches the release workflow against exactly that SHA.
- * `pushReleaseBranch` runs the publication policy scan first and throws on a
- * violation, so a failing scan leaves the push, the tag, and the dispatch
- * undone. The tag is pushed here because the workflow's own token cannot
- * create it once a later commit changed `.github/workflows/` on main.
+ * Publishes the release commit by pushing the release tag at it and
+ * dispatching the release workflow against exactly that SHA. The commit
+ * hangs off its verified parent on main; the tag is what makes it public,
+ * so the publication policy scan covers that one commit first and a failing
+ * scan leaves the tag and the dispatch undone. The tag is pushed here
+ * because the workflow's own token cannot create it once a later commit
+ * changed `.github/workflows/` on main.
  */
 /** @param {IReleaseCommitInput} input @param {IPublishReleaseOptions} [options] @returns {Promise<string>} */
 export async function publishReleaseCommit({
+    parentSha,
     tag,
-    targetSha: requestedTargetSha,
+    targetSha,
     upstream,
 }, {
     dispatchWorkflow = dispatchReleaseWorkflow,
     printHandoff = printReleaseWorkflowHandoff,
-    push = true,
     pushReleaseTag: pushReleaseTagFn = pushReleaseTag,
     runCommand = run,
+    scanPublication = scanReleaseCommitPublication,
 } = {}) {
-    const targetSha = requestedTargetSha ?? (push
-        ? pushReleaseBranch({upstream}, {runCommand})
-        : runCommand('git', [
-            'rev-parse',
-            'HEAD',
-        ]));
+    scanPublication(parentSha, targetSha, runCommand);
 
     pushReleaseTagFn({
         tag,
@@ -370,6 +497,105 @@ export async function publishReleaseCommit({
     });
 
     return targetSha;
+}
+
+/**
+ * Brings the released version to main so the next cut and every reader of
+ * package.json agree with the newest tag. When main still sits at the
+ * release parent, the release commit itself fast-forwards main, exactly as
+ * before pinning. When main moved on, a fresh version-only commit on the
+ * current tip carries the number instead. A push that loses to another
+ * writer is retried from the new tip; the release is already tagged and
+ * dispatched by now, so losing every retry leaves main behind by one
+ * version line and nothing else.
+ */
+/** @param {ICarryVersionInput} input @param {ICarryVersionOptions} [options] @returns {Promise<ICarryVersionResult>} */
+export async function carryVersionToMain({
+    releaseParentSha,
+    releaseSha,
+    subject,
+    tag,
+    upstream,
+    version,
+}, {
+    attempts = CARRY_VERSION_ATTEMPTS,
+    createCommitFn,
+    pushBranchFn = pushReleaseBranch,
+    runCommand = run,
+    sleepFn = sleep,
+    stderr = process.stderr,
+} = {}) {
+    const createCommit = createCommitFn ?? (input => createVersionOnlyCommit(input, {runCommand}));
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        fetchReleaseMain(upstream, {runCommand});
+        const tipSha = runCommand('git', [
+            'rev-parse',
+            upstream.ref,
+        ]);
+        if (compareReleaseVersions(readVersionAt(tipSha, {runCommand}), version) >= 0) {
+            return {
+                carried: false,
+                sha: tipSha,
+            };
+        }
+        const carrySha = tipSha === releaseParentSha
+            ? releaseSha
+            : createCommit({
+                parentSha: tipSha,
+                subject,
+                version,
+            });
+        try {
+            pushBranchFn({
+                targetSha: carrySha,
+                upstream,
+            }, {runCommand});
+            return {
+                carried: true,
+                sha: carrySha,
+            };
+        } catch (error) {
+            const message = errorMessage(error);
+            if (attempt < attempts && PUSH_RACE_ERROR_PATTERN.test(message)) {
+                stderr.write(
+                    `Carrying version ${version} to ${upstream.ref} lost a push race `
+                    + `(attempt ${attempt}/${attempts}); refetching and retrying.\n`,
+                );
+                await sleepFn(CARRY_VERSION_RETRY_DELAY_MS);
+                continue;
+            }
+            throw new Error(
+                `Release ${tag} is tagged and dispatched, but carrying version ${version} to ${upstream.ref} failed: `
+                + `${message.split('\n')[0]}. Run \`pnpm run release:resume\` to retry the carry; the next cut reads `
+                + 'the newest tag, so a stale package.json on main cannot reuse the version.',
+            );
+        }
+    }
+    throw new Error(`Carrying version ${version} to ${upstream.ref} did not finish within ${attempts} attempts.`);
+}
+
+/**
+ * The operator's checkout was clean and on main; catching it up to the tip
+ * that now carries the version is the ordinary `git pull` they would run
+ * next. A checkout with unpushed commits is left alone and told so.
+ */
+/** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner, stderr?: IWritable}} [options] */
+export function fastForwardLocalMain(upstream, {
+    runCommand = run,
+    stderr = process.stderr,
+} = {}) {
+    try {
+        runCommand('git', [
+            'merge',
+            '--ff-only',
+            upstream.ref,
+        ], {stdio: 'inherit'});
+    } catch (error) {
+        stderr.write(
+            `Local ${upstream.branch} was not fast-forwarded to ${upstream.ref}: `
+            + `${errorMessage(error).split('\n')[0]}. Reconcile it with \`git pull --ff-only\` when convenient.\n`,
+        );
+    }
 }
 
 /** @param {{runUrl: string, tag: string}} options */
@@ -401,12 +627,14 @@ export async function printReleaseWorkflowHandoff({
     const handoffDeadline = nowFn() + readHandoffTimeoutMs();
     let runInfo;
 
+    // The workflow is dispatched with `--ref main`, so the run's head SHA is
+    // the main tip, not the release commit. The run name `Release <tag>` and
+    // the dispatch time identify it; matching on the head SHA never succeeds.
     while (true) {
         runInfo = await waitForRun({
             createdAfter: dispatchStartedAt,
             displayTitles: getReleaseWorkflowDisplayTitles(tag),
             label: `Release workflow for ${tag}`,
-            targetSha,
             workflow: 'Release',
         });
         if (runInfo.status === 'completed' && runInfo.conclusion != null) {
@@ -445,55 +673,42 @@ export async function printReleaseWorkflowHandoff({
     stdout.write(`Check status: pnpm run release:status ${tag}\n`);
 }
 
+/**
+ * A queued or running release for the tag. Dispatching a second run while
+ * one is still going would publish the same tag twice, serialized by the
+ * workflow's concurrency group rather than rejected.
+ * @param {string} tag @param {{runCommand: TCommandRunner}} options
+ */
+function findActiveReleaseRun(tag, {runCommand}) {
+    const runInfo = findWorkflowRun({
+        displayTitles: getReleaseWorkflowDisplayTitles(tag),
+        runCommand,
+        workflow: 'Release',
+    });
+
+    return runInfo && runInfo.status !== 'completed' ? runInfo : null;
+}
+
 /** @param {number} milliseconds */
 function runSleep(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-/** @param {{currentVersion: string, targetSha: string, upstream: IUpstream, runCommand: TCommandRunner}} options */
-function assertReleaseCommitForCurrentVersion({
-    currentVersion,
-    targetSha,
-    upstream,
-    runCommand,
-}) {
-    const parentSha = getCommitParentSha(targetSha, {
-        fetchParent: false,
-        runCommand,
-    });
-    assertVersionOnlyPackageCommit(parentSha, targetSha, {
-        context: 'Release resume',
-        runCommand,
-    });
-
-    const subject = runCommand('git', [
-        'log',
-        '-1',
-        '--format=%s',
-        targetSha,
-    ]);
-    const expectedSubject = `release: ${currentVersion} [skip ci]`;
-    if (subject !== expectedSubject) {
-        throw new Error(
-            `Release resume requires HEAD ${targetSha} to have subject "${expectedSubject}", received "${subject}".`,
-        );
-    }
-
-    try {
-        runCommand('git', [
-            'merge-base',
-            '--is-ancestor',
-            targetSha,
-            upstream.ref,
-        ]);
-    } catch (error) {
-        throw new Error(
-            `Release resume requires commit ${targetSha} to exist on ${upstream.ref}. `
-            + `Fetch ${upstream.ref} and retry: ${errorMessage(error)}`,
-        );
-    }
+/** @param {IUpstream} upstream @param {TCommandRunner} runCommand */
+function fetchReleaseTags(upstream, runCommand) {
+    runCommand('git', [
+        'fetch',
+        '--tags',
+        upstream.remote,
+    ], {stdio: 'inherit'});
 }
 
+/**
+ * Repairs the newest release: pushes its tag if the cutter died before the
+ * push, redispatches the workflow while the release is still a draft or
+ * missing, and carries the version to main if that push lost every retry.
+ * Nothing here needs the checkout to sit on any particular commit.
+ */
 /** @param {IReleaseOptions} [options] @returns {Promise<void>} */
 export async function resumeRelease(options = {}) {
     const context = options.context ?? 'Release resume';
@@ -504,99 +719,133 @@ export async function resumeRelease(options = {}) {
     const fetchReleaseMainFn = options.fetchReleaseMainFn ?? (
         upstream => fetchReleaseMain(upstream, {runCommand})
     );
-    const readVersionFn = options.readVersionFn ?? readVersion;
+    const fetchReleaseTagsFn = options.fetchReleaseTagsFn ?? (upstream => fetchReleaseTags(upstream, runCommand));
+    const readGreatestReleaseTagFn = options.readGreatestReleaseTagFn ?? (() => readGreatestReleaseTag({runCommand}));
+    const isAncestorFn = options.isAncestorFn ?? (
+        (ancestorSha, descendantRef) => isAncestorCommit(ancestorSha, descendantRef, {runCommand})
+    );
     const readReleaseFn = options.readReleaseFn ?? (
         tag => readGitHubRelease(tag, {runCommand})
     );
+    const findActiveReleaseRunFn = options.findActiveReleaseRunFn ?? (
+        tag => findActiveReleaseRun(tag, {runCommand})
+    );
     const publishReleaseCommitFn = options.publishReleaseCommitFn ?? publishReleaseCommit;
+    const carryVersionToMainFn = options.carryVersionToMainFn ?? carryVersionToMain;
+    const fastForwardLocalMainFn = options.fastForwardLocalMainFn ?? (
+        upstream => fastForwardLocalMain(upstream, {runCommand})
+    );
+    const stderr = options.stderr ?? process.stderr;
 
     fetchReleaseMainFn(upstream);
-    const currentVersion = readVersionFn();
-    const tag = `v${currentVersion}`;
+    fetchReleaseTagsFn(upstream);
+    const newest = readGreatestReleaseTagFn();
+    if (!newest) {
+        throw new Error(`Release resume found no release tag on ${upstream.remote}; run \`pnpm run release:cut\` instead.`);
+    }
+    const {
+        tag,
+        version,
+    } = newest;
     const targetSha = runCommand('git', [
         'rev-parse',
-        'HEAD',
+        '--verify',
+        `refs/tags/${tag}^{commit}`,
     ]);
-
-    assertReleaseCommitForCurrentVersion({
-        currentVersion,
+    const parentSha = getCommitParentSha(targetSha, {
+        fetchParent: false,
         runCommand,
-        targetSha,
-        upstream,
     });
-
-    const release = readReleaseFn(tag);
-    if (release && !release.isDraft) {
+    assertVersionOnlyPackageCommit(parentSha, targetSha, {
+        context: 'Release resume',
+        runCommand,
+    });
+    if (!isAncestorFn(parentSha, upstream.ref)) {
         throw new Error(
-            `Release ${tag} is already public. Run \`pnpm run release:status ${tag}\` to inspect it.`,
+            `Release resume requires the parent ${parentSha} of ${tag} to be on ${upstream.ref}.`,
         );
     }
-    await publishReleaseCommitFn({
-        tag,
-        targetSha,
-        upstream,
-    }, {
-        ...options.publishOptions,
-        push: false,
-        runCommand,
-    });
-}
 
-/** @param {TReleaseLevel} level @param {IReleaseOptions} [options] @returns {Promise<void>} */
-export async function cutRelease(level, options = {}) {
-    const preconditions = await assertReleaseCutPreconditions({
-        ...options,
-        level,
-    });
-    const runCommand = options.runCommand ?? run;
-    const readVersionFn = options.readVersionFn ?? readVersion;
-    const writeVersionFn = options.writeVersionFn ?? writeVersion;
-    const assertChangedFilesMatchFn = options.assertChangedFilesMatchFn ?? assertChangedFilesMatch;
-    const stageFilesFn = options.stageFilesFn ?? stageFiles;
-    const publishReleaseCommitFn = options.publishReleaseCommitFn ?? publishReleaseCommit;
-    const nextTag = `v${preconditions.nextVersion}`;
-    let committed = false;
-
-    writeVersionFn(preconditions.nextVersion);
-
-    try {
-        const version = readVersionFn();
-        if (version !== preconditions.nextVersion) {
-            throw new Error(`Expected bumped version to be ${preconditions.nextVersion}, received ${version}`);
-        }
-
-        assertChangedFilesMatchFn(
-            ['package.json'],
-            {
-                ignoredPathPrefixes: [...MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES],
-                runCommand,
-            },
+    const release = readReleaseFn(tag);
+    const isPublic = release !== null && !release.isDraft;
+    const activeRun = isPublic ? null : findActiveReleaseRunFn(tag);
+    if (isPublic) {
+        stderr.write(`Release ${tag} is already public; checking that ${upstream.ref} carries ${version}.\n`);
+    } else if (activeRun) {
+        stderr.write(
+            `Release ${tag} already has a ${activeRun.status} workflow run; not dispatching another: ${activeRun.url}\n`,
         );
-        stageFilesFn(['package.json'], {runCommand});
-        runCommand('git', [
-            'commit',
-            '-m',
-            `release: ${version} [skip ci]`,
-            '--',
-            'package.json',
-        ], {stdio: 'inherit'});
-        committed = true;
+    } else {
         await publishReleaseCommitFn({
-            tag: nextTag,
-            upstream: preconditions.upstream,
+            parentSha,
+            tag,
+            targetSha,
+            upstream,
         }, {
             ...options.publishOptions,
             runCommand,
         });
-    } catch (error) {
-        if (!committed) {
-            writeVersionFn(preconditions.currentVersion);
-            process.stderr.write(
-                `Restored package.json version to ${preconditions.currentVersion} after release failure.\n`,
-            );
-        }
-        throw error;
     }
+    const carry = await carryVersionToMainFn({
+        releaseParentSha: parentSha,
+        releaseSha: targetSha,
+        subject: `release: ${version} [skip ci]`,
+        tag,
+        upstream,
+        version,
+    }, {runCommand});
+    if (isPublic && !carry.carried) {
+        throw new Error(
+            `Release ${tag} is already public and ${upstream.ref} carries ${version}. `
+            + `Run \`pnpm run release:status ${tag}\` to inspect it.`,
+        );
+    }
+    fastForwardLocalMainFn(upstream);
+}
+
+/** @param {TReleaseLevel} level @param {IReleaseOptions} [options] @returns {Promise<void>} */
+export async function cutRelease(level, options = {}) {
+    const plan = await assertReleaseCutPreconditions({
+        ...options,
+        level,
+    });
+    const runCommand = options.runCommand ?? run;
+    const createReleaseCommitFn = options.createReleaseCommitFn ?? (
+        input => createVersionOnlyCommit(input, {runCommand})
+    );
+    const publishReleaseCommitFn = options.publishReleaseCommitFn ?? publishReleaseCommit;
+    const carryVersionToMainFn = options.carryVersionToMainFn ?? carryVersionToMain;
+    const fastForwardLocalMainFn = options.fastForwardLocalMainFn ?? (
+        upstream => fastForwardLocalMain(upstream, {runCommand})
+    );
+    const stderr = options.stderr ?? process.stderr;
+    const tag = `v${plan.nextVersion}`;
+    const subject = `release: ${plan.nextVersion} [skip ci]`;
+
+    stderr.write(`Cutting ${tag} from ${plan.candidateSha} (newest green commit on ${plan.upstream.ref}).\n`);
+    const releaseSha = createReleaseCommitFn({
+        parentSha: plan.candidateSha,
+        subject,
+        version: plan.nextVersion,
+    });
+    await publishReleaseCommitFn({
+        parentSha: plan.candidateSha,
+        tag,
+        targetSha: releaseSha,
+        upstream: plan.upstream,
+    }, {
+        ...options.publishOptions,
+        runCommand,
+    });
+    await carryVersionToMainFn({
+        releaseParentSha: plan.candidateSha,
+        releaseSha,
+        subject,
+        tag,
+        upstream: plan.upstream,
+        version: plan.nextVersion,
+    }, {runCommand});
+    fastForwardLocalMainFn(plan.upstream);
 }
 
 /** @returns {Promise<void>} */

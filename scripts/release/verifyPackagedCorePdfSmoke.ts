@@ -26,7 +26,10 @@ import {
 import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
 import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
-import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {
+    waitForPackagedCdpEndpoint,
+    waitForPackagedRendererPage,
+} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     findFreePort,
     isProcessAlive,
@@ -271,12 +274,13 @@ async function run() {
             defaultViewport: null,
             protocolTimeout: 420_000,
         });
-        const pages = await browser.pages();
-        const page = pages.find(candidate => candidate.url().startsWith('evb-viewer://app/'))
-            ?? pages.find(candidate => !candidate.isClosed());
-        if (!page) {
-            throw new Error('Packaged Electron exposed no renderer page');
-        }
+        // CDP answers before the main process has created its BrowserWindow, so a
+        // single pages() snapshot taken right after connect can be empty.
+        const page = await waitForPackagedRendererPage(
+            browser,
+            STARTUP_TIMEOUT_MS,
+            'Packaged Electron',
+        );
         const rendererFailures: string[] = [];
         page.on('console', (message) => {
             const renderedMessage = `[packaged-renderer:${message.type()}] ${message.text()}`;

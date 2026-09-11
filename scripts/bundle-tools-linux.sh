@@ -22,24 +22,28 @@ APT_TIMEOUT_UPDATE_SECONDS=600
 APT_TIMEOUT_INSTALL_SECONDS=900
 APT_RETRY_FLAGS=(
   -o
-  Acquire::Retries=3
+  Acquire::Retries=0
   -o
-  Acquire::http::Timeout=30
+  Acquire::http::Timeout=15
   -o
-  Acquire::https::Timeout=30
+  Acquire::https::Timeout=15
   -o
   Dpkg::Use-Pty=0
 )
+
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
 
 run_apt_with_timeout() {
   local timeout_seconds="$1"
   shift
 
-  if [ "$(id -u)" -eq 0 ]; then
-    env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
-  else
-    sudo env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
-  fi
+  as_root env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
 }
 
 reset_bundle_dir() {
@@ -54,6 +58,7 @@ reset_bundle_dir() {
 # Install all required tools
 echo ""
 echo "Installing tools via apt..."
+bash "$SCRIPT_DIR/ci/select-apt-mirrors.sh"
 run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" update -qq
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
   tesseract-ocr \

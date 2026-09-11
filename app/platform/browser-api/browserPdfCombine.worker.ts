@@ -356,7 +356,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             id: request.id,
             type: request.type,
             ok: true,
-            data,
+            data: data.data,
         } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response, [data.data.buffer]);
     } catch (error) {
@@ -365,7 +365,10 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
-            ...(errorEnvelope === null ? {} : {errorEnvelope}),
+            ...(errorEnvelope === null ? {} : {errorEnvelope: {
+                code: errorEnvelope.code,
+                message: errorEnvelope.message,
+            }}),
         } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response);
     }

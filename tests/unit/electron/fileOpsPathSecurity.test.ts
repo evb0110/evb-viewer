@@ -203,6 +203,16 @@ const {
 } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
 
+function expectAtomicJournalWrite(journalPath: string, fragment: string) {
+    expect(mocks.rename).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
+        journalPath,
+    );
+    const writtenText = mocks.writeFile.mock.calls
+        .map(([payload]) => payload instanceof Uint8Array ? Buffer.from(payload).toString('utf8') : null);
+    expect(writtenText).toContainEqual(expect.stringContaining(fragment));
+}
+
 describe('fileOps path security', () => {
     const readContext = {senderId: 42};
     const writeContext = {senderId: 42};
@@ -530,11 +540,7 @@ describe('fileOps path security', () => {
             '/tmp/electron-test/work.pdf.ocr',
             {recursive: true},
         );
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/electron-test/work.pdf.ocr-transition.json',
-            expect.stringContaining('"targetDocumentRevisionToken":"next-revision"'),
-            'utf8',
-        );
+        expectAtomicJournalWrite('/tmp/electron-test/work.pdf.ocr-transition.json', '"targetDocumentRevisionToken":"next-revision"');
     });
 
     it('publishes a prepared v4 OCR root without recursively copying catalog artifacts', async () => {
@@ -627,12 +633,11 @@ describe('fileOps path security', () => {
         mocks.cp.mockImplementation(() => {
             throw new Error('recursive catalog copy forbidden');
         });
-        mocks.rename
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce(undefined)
-            .mockRejectedValueOnce(new Error('staged rename failed'))
-            .mockResolvedValueOnce(undefined);
+        mocks.rename.mockImplementation(async (from: string, to: string) => {
+            if (from === stagedCatalogPath && to === catalogPath) {
+                throw new Error('staged rename failed');
+            }
+        });
 
         await expect(handleReplaceWorkingCopyFromPath(
             writeContext,
@@ -671,11 +676,7 @@ describe('fileOps path security', () => {
             '/tmp/electron-test/work.pdf.ocr',
             {recursive: true},
         );
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/electron-test/work.pdf.ocr-transition.json',
-            expect.stringContaining('"undoCatalogExisted":false'),
-            'utf8',
-        );
+        expectAtomicJournalWrite('/tmp/electron-test/work.pdf.ocr-transition.json', '"undoCatalogExisted":false');
     });
 
     it('refreshes the original save base after an OCR replacement when the previous base still matches', async () => {

@@ -241,6 +241,7 @@ describe('updates robustness', () => {
         } catch {
             // Ignore reset/import failures during teardown.
         }
+        vi.restoreAllMocks();
         vi.unstubAllGlobals();
         vi.useRealTimers();
     });
@@ -740,6 +741,135 @@ describe('updates robustness', () => {
             phase: 'error',
             version: '1.1.0',
             message: 'Update 1.1.0 is available, but its latest.yml feed is not published. Download the release manually.',
+        });
+    });
+
+    it.each([
+        {
+            name: 'GitHub 404 followed by mirror rejection',
+            github: 404,
+            mirror: 'rejected',
+        },
+        {
+            name: 'GitHub rejection followed by mirror 404',
+            github: 'rejected',
+            mirror: 404,
+        },
+    ])('keeps one feed error inconclusive when the other feed is $name', async ({
+        github,
+        mirror,
+    }) => {
+        mocks.fetch.mockImplementation(async (url: string, init?: {method?: string}) => {
+            if (url === 'https://updates.example.test/latest') {
+                return createMetadataResponse('1.1.0');
+            }
+            if (init?.method !== 'HEAD') {
+                throw new Error(`Unexpected request: ${url}`);
+            }
+            const isGithub = url.startsWith('https://github.com/');
+            const outcome = isGithub ? github : mirror;
+            if (outcome === 404) {
+                return createEmptyResponse(404);
+            }
+            throw new Error(`${isGithub ? 'github' : 'mirror'} unavailable`);
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({...status}));
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'error',
+            message: expect.stringContaining('Update feed verification failed:'),
+        });
+    });
+
+    it('does not let a timed-out feed probe or its late response replace a later check result', async () => {
+        const lateProbe = Promise.withResolvers<ReturnType<typeof createEmptyResponse>>();
+        let feedProbeCalls = 0;
+        let firstFeedSignal = null as AbortSignal | null;
+        let firstFeedAborted = false;
+        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((delayMs: number) => {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), delayMs);
+            return controller.signal;
+        });
+        mocks.fetch.mockImplementation((url: string, init?: {
+            method?: string;
+            signal?: AbortSignal;
+        }) => {
+            if (url === 'https://updates.example.test/latest') {
+                return Promise.resolve(createMetadataResponse('1.1.0'));
+            }
+            if (init?.method !== 'HEAD') {
+                return Promise.reject(new Error(`Unexpected request: ${url}`));
+            }
+            feedProbeCalls += 1;
+            if (feedProbeCalls === 1) {
+                return new Promise((resolve, reject) => {
+                    const signal = init.signal;
+                    firstFeedSignal = signal ?? null;
+                    const abort = () => {
+                        firstFeedAborted = true;
+                        reject(new DOMException('The operation was aborted.', 'AbortError'));
+                    };
+                    if (signal?.aborted) {
+                        abort();
+                    } else {
+                        signal?.addEventListener('abort', abort, {once: true});
+                    }
+                    lateProbe.promise.then(resolve);
+                });
+            }
+            return Promise.resolve(createEmptyResponse(404));
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({...status}));
+
+        const firstCheck = updates.triggerManualUpdateCheck();
+        await flushPromises();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await expect(firstCheck).resolves.toMatchObject({started: true});
+        expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+        expect(firstFeedSignal).not.toBeNull();
+        expect(firstFeedAborted).toBe(true);
+        expect(firstFeedSignal?.aborted).toBe(true);
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'error',
+        });
+
+        mocks.fetch.mockImplementation(async (url: string, init?: {method?: string}) => {
+            if (url === 'https://updates.example.test/latest') {
+                return createMetadataResponse('1.1.0');
+            }
+            if (init?.method === 'HEAD') {
+                return createEmptyResponse(200);
+            }
+            throw new Error(`Unexpected request: ${url}`);
+        });
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
+        });
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+        lateProbe.resolve(createEmptyResponse(200));
+        await flushPromises();
+
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledOnce();
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'no-update',
+            version: '1.0.0',
         });
     });
 

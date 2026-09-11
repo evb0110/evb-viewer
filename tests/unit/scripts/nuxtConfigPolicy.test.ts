@@ -94,7 +94,7 @@ describe('Nuxt config policy', () => {
         const rootSource = await readProjectFile('nuxt.config.ts');
         const landingSource = await readProjectFile('landing/nuxt.config.ts');
 
-        expect(rootSource).toContain('storage: \'localStorage\'');
+        expect(rootSource).toContain('storage: \'sessionStorage\'');
         expect(rootSource).not.toContain('storage: \'cookie\'');
         expect(rootSource).toMatch(
             /cookieKey: 'i18n_redirected',[\s\S]*?cookieSecure: process\.env\.NODE_ENV === 'production'/u,

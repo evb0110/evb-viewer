@@ -16,6 +16,7 @@ import type {
     EffectScope,
     Ref,
 } from 'vue';
+import type {StorageLike} from '@vueuse/core';
 import {
     BROWSER_INSTALL_HINT_COOKIE_KEY,
     BROWSER_INSTALL_HINT_STORAGE_KEY,
@@ -24,7 +25,7 @@ import {
 const mocks = vi.hoisted(() => ({
     mountedCallbacks: [] as Array<() => void>,
     startAutoDismiss: vi.fn(),
-    useLocalStorage: vi.fn(),
+    useStorage: vi.fn(),
     useTimeoutFn: vi.fn(),
 }));
 
@@ -36,7 +37,7 @@ vi.mock('vue', async (importOriginal) => ({
 }));
 
 vi.mock('@vueuse/core', () => ({
-    useLocalStorage: mocks.useLocalStorage,
+    useStorage: mocks.useStorage,
     useTimeoutFn: mocks.useTimeoutFn,
 }));
 
@@ -106,10 +107,10 @@ describe('useBrowserInstallHint persistence', () => {
         cookieWrites.length = 0;
         mocks.mountedCallbacks.length = 0;
         cookieHeader = '';
-        mocks.useLocalStorage.mockImplementation((key: string, defaultValue: boolean) => {
-            const stored = browserStorage.get(key);
-            const state = ref(stored === undefined ? defaultValue : stored === 'true');
-            watch(state, value => browserStorage.set(key, String(value)), {flush: 'sync'});
+        mocks.useStorage.mockImplementation((key: string, defaultValue: boolean, storage: StorageLike) => {
+            const stored = storage.getItem(key);
+            const state = ref(stored === null ? defaultValue : stored === 'true');
+            watch(state, value => storage.setItem(key, String(value)), {flush: 'sync'});
             return state;
         });
         mocks.useTimeoutFn.mockReturnValue({start: mocks.startAutoDismiss});

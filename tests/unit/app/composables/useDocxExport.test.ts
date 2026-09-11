@@ -13,6 +13,7 @@ import {effectScope} from 'vue';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
+import {requireSessionId} from '@contracts/shared';
 import type {
     TDocxParagraphDirection,
     TDocxTextPageSource,
@@ -45,7 +46,7 @@ const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<Ar
 const documentFilesMock = vi.hoisted(() => ({
     saveDocxAs: vi.fn(async () => '/tmp/export.docx'),
     writeDocxFile: vi.fn(async () => {}),
-    beginDocxFileStream: vi.fn<IDocxExportFileCapability['beginDocxFileStream']>(async () => ({sessionId: 'docx-session'})),
+    beginDocxFileStream: vi.fn<IDocxExportFileCapability['beginDocxFileStream']>(async () => ({sessionId: requireSessionId('docx-session')})),
     writeDocxFileStreamChunk: vi.fn<IDocxExportFileCapability['writeDocxFileStreamChunk']>(async () => true),
     commitDocxFileStream: vi.fn<IDocxExportFileCapability['commitDocxFileStream']>(async () => true),
     cancelDocxFileStream: vi.fn<IDocxExportFileCapability['cancelDocxFileStream']>(async () => true),

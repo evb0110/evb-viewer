@@ -2,6 +2,7 @@ import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import { execFileSync } from 'node:child_process';
 import {
     readFileSync,
+    rmSync,
     writeFileSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
@@ -553,33 +554,6 @@ export function getReleaseMainUpstream(context = 'Release', {
 }
 
 /** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner}} [options] */
-export function assertReleaseMainTip(upstream, {runCommand = run} = {}) {
-    fetchReleaseMain(upstream, {runCommand});
-
-    const headSha = runCommand('git', [
-        'rev-parse',
-        'HEAD',
-    ]);
-    const upstreamSha = runCommand('git', [
-        'rev-parse',
-        upstream.ref,
-    ]);
-
-    if (headSha !== upstreamSha) {
-        throw new Error(
-            `Release requires HEAD to equal ${upstream.ref} after fetching. `
-            + `HEAD is ${headSha}; ${upstream.ref} is ${upstreamSha}. `
-            + `Run \`git fetch ${upstream.remote} ${upstream.branch}\`, reconcile the divergence, and retry.`,
-        );
-    }
-
-    return {
-        headSha,
-        upstreamSha,
-    };
-}
-
-/** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner}} [options] */
 export function fetchReleaseMain(upstream, {runCommand = run} = {}) {
     runCommand('git', [
         'fetch',
@@ -769,9 +743,12 @@ export function assertUpstreamBeforeShaPresent(beforeSha, {
  * A failing scan throws out of here, so the push — and any dispatch a caller
  * would run afterwards — cannot happen.
  */
-/** @param {{upstream: IUpstream}} options @param {{runCommand?: TCommandRunner}} [runOptions] */
-export function pushReleaseBranch({upstream}, {runCommand = run} = {}) {
-    const targetSha = runCommand('git', [
+/** @param {{targetSha?: string, upstream: IUpstream}} options @param {{runCommand?: TCommandRunner}} [runOptions] */
+export function pushReleaseBranch({
+    targetSha: requestedTargetSha,
+    upstream,
+}, {runCommand = run} = {}) {
+    const targetSha = requestedTargetSha ?? runCommand('git', [
         'rev-parse',
         'HEAD',
     ]);
@@ -788,10 +765,151 @@ export function pushReleaseBranch({upstream}, {runCommand = run} = {}) {
     runCommand('git', [
         'push',
         upstream.remote,
-        `HEAD:${upstream.branch}`,
+        `${requestedTargetSha ?? 'HEAD'}:${requestedTargetSha ? `refs/heads/${upstream.branch}` : upstream.branch}`,
     ], {stdio: 'inherit'});
 
     return targetSha;
+}
+
+/** @param {string} ancestorSha @param {string} descendantRef @param {{runCommand?: TCommandRunner}} [options] */
+export function isAncestorCommit(ancestorSha, descendantRef, {runCommand = run} = {}) {
+    try {
+        runCommand('git', [
+            'merge-base',
+            '--is-ancestor',
+            ancestorSha,
+            descendantRef,
+        ]);
+        return true;
+    } catch (error) {
+        // Exit 1 means "not an ancestor"; 128 means the object is not in this
+        // checkout, which is equally "not on that line of history" here.
+        if ([
+            1,
+            128,
+        ].includes(getExitStatus(error) ?? -1)) {
+            return false;
+        }
+        throw error;
+    }
+}
+
+/** @param {string} commitSha @param {{runCommand?: TCommandRunner}} [options] @returns {string} */
+export function readPackageJsonAt(commitSha, {runCommand = run} = {}) {
+    return runCommand('git', [
+        'show',
+        `${commitSha}:package.json`,
+    ]);
+}
+
+/** @param {string} commitSha @param {{runCommand?: TCommandRunner}} [options] @returns {string} */
+export function readVersionAt(commitSha, {runCommand = run} = {}) {
+    const version = JSON.parse(readPackageJsonAt(commitSha, {runCommand})).version;
+    if (typeof version !== 'string') {
+        throw new Error(`package.json at ${commitSha} has no string version`);
+    }
+    return version;
+}
+
+const PACKAGE_VERSION_LINE_PATTERN = /^(\s*"version"\s*:\s*")([^"]+)(",?)$/mu;
+
+/**
+ * Writes a commit whose only change from `parentSha` is the package.json
+ * version line, without touching the checkout: the release candidate is an
+ * arbitrary commit on main, not necessarily HEAD, and the operator's working
+ * tree must stay theirs. A temporary index under .git keeps `read-tree` and
+ * `write-tree` away from the real one.
+ */
+/** @param {{parentSha: string, subject: string, version: string}} input @param {{runCommand?: TCommandRunner}} [options] @returns {string} */
+export function createVersionOnlyCommit({
+    parentSha,
+    subject,
+    version,
+}, {runCommand = run} = {}) {
+    const packageJson = `${readPackageJsonAt(parentSha, {runCommand})}\n`;
+    const matches = packageJson.match(new RegExp(PACKAGE_VERSION_LINE_PATTERN.source, 'gmu')) ?? [];
+    if (matches.length !== 1) {
+        throw new Error(`package.json at ${parentSha} must contain exactly one version line, found ${matches.length}`);
+    }
+    const bumped = packageJson.replace(PACKAGE_VERSION_LINE_PATTERN, `$1${version}$3`);
+    if (bumped === packageJson) {
+        throw new Error(`package.json at ${parentSha} already carries version ${version}`);
+    }
+
+    const blobSha = runCommand('git', [
+        'hash-object',
+        '-w',
+        '--stdin',
+    ], {
+        input: bumped,
+        stdio: [
+            'pipe',
+            'pipe',
+            'pipe',
+        ],
+    });
+    const gitDirectory = resolve(process.cwd(), runCommand('git', [
+        'rev-parse',
+        '--git-dir',
+    ]));
+    const indexPath = resolve(gitDirectory, `release-cut-${process.pid}.index`);
+    const env = {
+        ...process.env,
+        GIT_INDEX_FILE: indexPath,
+    };
+    try {
+        runCommand('git', [
+            'read-tree',
+            parentSha,
+        ], {env});
+        runCommand('git', [
+            'update-index',
+            '--cacheinfo',
+            `100644,${blobSha},package.json`,
+        ], {env});
+        const treeSha = runCommand('git', ['write-tree'], {env});
+        return runCommand('git', [
+            'commit-tree',
+            treeSha,
+            '-p',
+            parentSha,
+            '-m',
+            subject,
+        ]);
+    } finally {
+        rmSync(indexPath, {force: true});
+    }
+}
+
+/** @param {string} left @param {string} right @returns {number} */
+export function compareReleaseVersions(left, right) {
+    return compareComparableSemVer(parseComparableSemVer(left), parseComparableSemVer(right));
+}
+
+/**
+ * The newest release tag this checkout knows. Callers fetch tags first; the
+ * cutter does so through `assertVersionNotBehindAncestorRelease`.
+ */
+/** @param {{runCommand?: TCommandRunner}} [options] @returns {{tag: string, version: string} | null} */
+export function readGreatestReleaseTag({runCommand = run} = {}) {
+    const tags = runCommand('git', [
+        'for-each-ref',
+        '--format=%(refname:strip=2)',
+        'refs/tags',
+    ])
+        .split('\n')
+        .map(tag => tag.trim())
+        .filter(tag => RELEASE_TAG_PATTERN.test(tag));
+    let greatest = null;
+    for (const tag of tags) {
+        if (greatest === null || compareReleaseVersions(releaseTagVersion(tag), greatest.version) > 0) {
+            greatest = {
+                tag,
+                version: releaseTagVersion(tag),
+            };
+        }
+    }
+    return greatest;
 }
 
 /** @param {string} tag @param {TCommandRunner} runCommand */

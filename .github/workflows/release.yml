@@ -110,7 +110,9 @@ jobs:
             exit 1
           fi
 
-          git fetch --no-tags --depth=1 origin "$target_sha"
+          # A full fetch, not --depth=1: a shallow marker on the target would
+          # hide its parent from the ancestry check below.
+          git fetch --no-tags origin "$target_sha"
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
@@ -127,10 +129,24 @@ jobs:
           # target_ref is operator input. Do not execute that checkout or expose
           # release secrets until protected main and its aggregate CI gate have
           # vouched for this exact commit.
+          # The cutter releases the newest verified commit on main, which is
+          # rarely the tip, so the release commit itself is usually not on
+          # main: it changes only the package.json version line over a parent
+          # that is. Accept exactly that shape; anything else must be on main.
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main; then
-            echo "::error::Release target $TARGET_SHA is not reachable from protected main."
-            exit 1
+          if git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main; then
+            echo "Release target $TARGET_SHA is on protected main."
+          else
+            parent_sha="$(git rev-parse --verify "${TARGET_SHA}^" 2>/dev/null || true)"
+            if [ -z "$parent_sha" ] || ! git merge-base --is-ancestor "$parent_sha" refs/remotes/origin/main; then
+              echo "::error::Release target $TARGET_SHA is not reachable from protected main and neither is its parent."
+              exit 1
+            fi
+            if [ "$(git diff --numstat "$parent_sha" "$TARGET_SHA")" != "$(printf '1\t1\tpackage.json')" ]; then
+              echo "::error::Release target $TARGET_SHA is off protected main and changes more than the package.json version line over $parent_sha."
+              exit 1
+            fi
+            echo "Release target $TARGET_SHA is a version-only commit over $parent_sha on protected main."
           fi
 
           # The wait script runs from this job's dispatch-ref checkout (the
@@ -139,7 +155,7 @@ jobs:
           # blocking CI job timeouts so the release wait can never fall
           # behind its own CI graph again (issue #109).
           node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"
-          echo "::notice::Release target $TARGET_SHA is on protected main and passed exact-SHA CI."
+          echo "::notice::Release target $TARGET_SHA is anchored to protected main and passed exact-SHA CI."
 
       - name: Validate target
         id: validate

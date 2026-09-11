@@ -150,6 +150,7 @@ export async function publishReleaseMirror({
         `${mirrorPaths.releasePrefix}${releaseTag}/manifest.json`,
         manifest,
         IMMUTABLE_CACHE_CONTROL,
+        uploadRetryDelayMs,
     );
 
     let prunedTags = /** @type {string[]} */ ([]);
@@ -172,6 +173,7 @@ export async function publishReleaseMirror({
                 environment,
                 mirrorPaths.channelKey,
                 releaseTagPattern,
+                uploadRetryDelayMs,
             );
             prunedTags = await pruneOldReleases(
                 client,
@@ -195,6 +197,7 @@ export async function publishReleaseMirror({
                         previousChannel,
                         mirrorPaths.channelKey,
                         releaseTagPattern,
+                        uploadRetryDelayMs,
                     );
                 } catch (rollbackError) {
                     throw new Error(
@@ -399,19 +402,25 @@ function validateDrillCleanupPrefix(prefix) {
     return prefix;
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<boolean>} */
-async function objectMatches(client, bucket, key, expectedSize, expectedSha256) {
-    const result = await client.send(new GetObjectCommand({
-        Bucket: bucket,
-        Key: key,
-    }));
-    const actual = await hashObjectBody(result.Body);
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<boolean>} */
+async function objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs) {
+    const actual = await retryTransient(async () => {
+        const result = await client.send(new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        }));
+        return hashObjectBody(result.Body);
+    }, {
+        label: `Verification read of ${key}`,
+        retryDelayMs,
+        verb: 're-reading it',
+    });
     return actual.size === expectedSize && actual.sha256 === expectedSha256;
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<void>} */
-async function verifyUpload(client, bucket, key, expectedSize, expectedSha256) {
-    if (!await objectMatches(client, bucket, key, expectedSize, expectedSha256)) {
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<void>} */
+async function verifyUpload(client, bucket, key, expectedSize, expectedSha256, retryDelayMs) {
+    if (!await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs)) {
         throw new Error(`Mirror verification failed for ${key}`);
     }
 }
@@ -470,12 +479,12 @@ async function objectExists(client, bucket, key) {
     }
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<'match' | 'mismatch' | 'missing'>} */
-async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256) {
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<'match' | 'mismatch' | 'missing'>} */
+async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256, retryDelayMs) {
     if (!await objectExists(client, bucket, key)) {
         return 'missing';
     }
-    return await objectMatches(client, bucket, key, expectedSize, expectedSha256)
+    return await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs)
         ? 'match'
         : 'mismatch';
 }
@@ -487,7 +496,7 @@ async function mirrorImmutableAsset(client, bucket, key, {
     size,
 }, upload) {
     const sha256 = await hashFile(filePath);
-    const existingState = await immutableUploadState(client, bucket, key, size, sha256);
+    const existingState = await immutableUploadState(client, bucket, key, size, sha256, upload.retryDelayMs);
     if (existingState === 'match') {
         console.log(`Already verified ${name} (${size} bytes)`);
     } else if (existingState === 'mismatch') {
@@ -508,20 +517,20 @@ async function mirrorImmutableAsset(client, bucket, key, {
     };
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {() => Promise<unknown>} upload @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<void>} */
-async function putImmutableObject(client, bucket, key, upload, expectedSize, expectedSha256) {
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {() => Promise<unknown>} upload @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<void>} */
+async function putImmutableObject(client, bucket, key, upload, expectedSize, expectedSha256, retryDelayMs) {
     try {
         await upload();
     } catch (error) {
         if (!isConditionalWriteConflict(error)) {
             throw error;
         }
-        if (await objectMatches(client, bucket, key, expectedSize, expectedSha256)) {
+        if (await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs)) {
             return;
         }
         throw new Error(`Immutable mirror object mismatch for ${key}`, {cause: error});
     }
-    await verifyUpload(client, bucket, key, expectedSize, expectedSha256);
+    await verifyUpload(client, bucket, key, expectedSize, expectedSha256, retryDelayMs);
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, sha256: string, size: number}} file @param {{partBytes: number, retryDelayMs: number}} upload @returns {Promise<void>} */
@@ -544,6 +553,7 @@ async function putImmutableFile(client, bucket, key, {
                     name,
                     partBytes,
                     partCount,
+                    retryDelayMs,
                     sha256,
                     size,
                 })
@@ -552,7 +562,7 @@ async function putImmutableFile(client, bucket, key, {
                     name,
                     sha256,
                     size,
-                })), size, sha256);
+                })), size, sha256, retryDelayMs);
             console.log(`Uploaded ${name} in ${elapsedSeconds(startedAt)}s${
                 partCount > 1 ? ` (${partCount} parts)` : ''
             }`);
@@ -593,12 +603,13 @@ async function uploadWhole(client, bucket, key, {
 // One HTTP request per part keeps a stalled connection from costing more
 // than one part's timeout, and the conditional completion keeps the object
 // immutable exactly like the single-request path.
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, partBytes: number, partCount: number, sha256: string, size: number}} parameters @returns {Promise<void>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, partBytes: number, partCount: number, retryDelayMs: number, sha256: string, size: number}} parameters @returns {Promise<void>} */
 async function uploadMultipart(client, bucket, key, {
     filePath,
     name,
     partBytes,
     partCount,
+    retryDelayMs,
     sha256,
     size,
 }) {
@@ -616,17 +627,23 @@ async function uploadMultipart(client, bucket, key, {
     try {
         const parts = await uploadParts(client, bucket, key, uploadId, {
             file,
+            name,
             partBytes,
             partCount,
+            retryDelayMs,
             size,
         });
-        await client.send(new CompleteMultipartUploadCommand({
+        await retryTransient(() => client.send(new CompleteMultipartUploadCommand({
             Bucket: bucket,
             Key: key,
             UploadId: uploadId,
             MultipartUpload: {Parts: parts},
             IfNoneMatch: '*',
-        }));
+        })), {
+            label: `Completion of ${name}`,
+            retryDelayMs,
+            verb: 'repeating it',
+        });
     } catch (error) {
         await abortMultipartUpload(client, bucket, key, uploadId);
         throw error;
@@ -635,11 +652,13 @@ async function uploadMultipart(client, bucket, key, {
     }
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @param {{file: import('node:fs/promises').FileHandle, partBytes: number, partCount: number, size: number}} parameters @returns {Promise<{ETag: string, PartNumber: number}[]>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @param {{file: import('node:fs/promises').FileHandle, name: string, partBytes: number, partCount: number, retryDelayMs: number, size: number}} parameters @returns {Promise<{ETag: string, PartNumber: number}[]>} */
 async function uploadParts(client, bucket, key, uploadId, {
     file,
+    name,
     partBytes,
     partCount,
+    retryDelayMs,
     size,
 }) {
     /** @type {{ETag: string, PartNumber: number}[]} */
@@ -657,14 +676,18 @@ async function uploadParts(client, bucket, key, uploadId, {
             if (bytesRead !== length) {
                 throw new Error(`Short read of ${key} at byte ${offset}: expected ${length}, got ${bytesRead}`);
             }
-            const {ETag} = await client.send(new UploadPartCommand({
+            const {ETag} = await sendPart(client, () => new UploadPartCommand({
                 Bucket: bucket,
                 Key: key,
                 UploadId: uploadId,
                 PartNumber: index + 1,
                 Body: body,
                 ContentLength: length,
-            }));
+            }), {
+                name,
+                partNumber: index + 1,
+                retryDelayMs,
+            });
             if (!ETag) {
                 throw new Error(`Mirror returned no ETag for part ${index + 1} of ${key}`);
             }
@@ -685,6 +708,50 @@ async function uploadParts(client, bucket, key, uploadId, {
         throw failure.reason;
     }
     return parts;
+}
+
+/** @param {TMirrorClient} client @param {() => UploadPartCommand} createCommand @param {{name: string, partNumber: number, retryDelayMs: number}} parameters @returns {Promise<{ETag?: string | undefined}>} */
+async function sendPart(client, createCommand, {
+    name,
+    partNumber,
+    retryDelayMs,
+}) {
+    return retryTransient(() => client.send(createCommand()), {
+        label: `Part ${partNumber} of ${name}`,
+        retryDelayMs,
+        verb: 'resending it',
+    });
+}
+
+// One transient failure costs one request, never the whole file: a stalled
+// part is resent on the same multipart upload, a stalled completion is
+// repeated for the same upload id, and a stalled verification read is read
+// again. On 2026-09-11 every stall restarted the whole artifact: the core
+// mirror stage ran out of its 40-minute budget on 12 assets, and after parts
+// alone were covered, a 184 MB supplemental asset still restarted twice from
+// its completion and verification calls.
+/** @template T @param {() => Promise<T>} action @param {{label: string, retryDelayMs: number, verb: string}} parameters @returns {Promise<T>} */
+async function retryTransient(action, {
+    label,
+    retryDelayMs,
+    verb,
+}) {
+    for (let attempt = 1; ; attempt += 1) {
+        const startedAt = Date.now();
+        try {
+            return await action();
+        } catch (error) {
+            if (attempt === UPLOAD_ATTEMPTS || !isTransientTransferError(error)) {
+                throw error;
+            }
+            const reason = getCliErrorMessage(error);
+            console.warn(
+                `${label} failed after ${elapsedSeconds(startedAt)}s (${reason}); `
+                + `${verb} (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
+            );
+            await delay(retryDelayMs * attempt);
+        }
+    }
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @returns {Promise<void>} */
@@ -724,11 +791,11 @@ function isConditionalWriteConflict(error) {
     );
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} body @param {string} cacheControl @returns {Promise<void>} */
-async function putImmutableJson(client, bucket, key, body, cacheControl) {
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} body @param {string} cacheControl @param {number} retryDelayMs @returns {Promise<void>} */
+async function putImmutableJson(client, bucket, key, body, cacheControl, retryDelayMs) {
     const size = Buffer.byteLength(body);
     const sha256 = createHash('sha256').update(body).digest('hex');
-    const existingState = await immutableUploadState(client, bucket, key, size, sha256);
+    const existingState = await immutableUploadState(client, bucket, key, size, sha256, retryDelayMs);
     if (existingState === 'match') {
         return;
     }
@@ -744,10 +811,10 @@ async function putImmutableJson(client, bucket, key, body, cacheControl) {
         CacheControl: cacheControl,
         Metadata: { sha256 },
         IfNoneMatch: '*',
-    })), size, sha256);
+    })), size, sha256, retryDelayMs);
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} body @param {string} releaseTag @param {NodeJS.ProcessEnv} environment @param {string} channelKey @param {RegExp} releaseTagPattern @returns {Promise<boolean>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {string} body @param {string} releaseTag @param {NodeJS.ProcessEnv} environment @param {string} channelKey @param {RegExp} releaseTagPattern @param {number} retryDelayMs @returns {Promise<boolean>} */
 async function publishStableChannel(
     client,
     bucket,
@@ -756,6 +823,7 @@ async function publishStableChannel(
     environment,
     channelKey,
     releaseTagPattern,
+    retryDelayMs,
 ) {
     const sha256 = createHash('sha256').update(body).digest('hex');
     const size = Buffer.byteLength(body);
@@ -810,7 +878,7 @@ async function publishStableChannel(
             // The pointer may have changed even if verification fails. Keep
             // the outer transaction informed so it can restore the old value.
             stableChannelMutationAttempted = true;
-            await verifyUpload(client, bucket, channelKey, size, sha256);
+            await verifyUpload(client, bucket, channelKey, size, sha256, retryDelayMs);
             return true;
         } catch (error) {
             if (!isConditionalWriteConflict(error)) {
@@ -866,8 +934,8 @@ async function readStableChannel(client, bucket, channelKey, releaseTagPattern) 
     };
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {IStableChannel} previousChannel @param {string} channelKey @param {RegExp} releaseTagPattern @returns {Promise<void>} */
-async function restoreStableChannel(client, bucket, previousChannel, channelKey, releaseTagPattern) {
+/** @param {TMirrorClient} client @param {string} bucket @param {IStableChannel} previousChannel @param {string} channelKey @param {RegExp} releaseTagPattern @param {number} retryDelayMs @returns {Promise<void>} */
+async function restoreStableChannel(client, bucket, previousChannel, channelKey, releaseTagPattern, retryDelayMs) {
     const current = await readStableChannel(
         client,
         bucket,
@@ -891,7 +959,7 @@ async function restoreStableChannel(client, bucket, previousChannel, channelKey,
         Metadata: {sha256: previousChannel.sha256},
         IfMatch: current.etag,
     }));
-    await verifyUpload(client, bucket, channelKey, previousChannel.size, previousChannel.sha256);
+    await verifyUpload(client, bucket, channelKey, previousChannel.size, previousChannel.sha256, retryDelayMs);
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} protectedTag @param {string} releasePrefix @param {RegExp} releaseTagPattern @returns {Promise<string[]>} */

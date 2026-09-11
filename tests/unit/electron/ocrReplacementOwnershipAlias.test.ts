@@ -158,6 +158,7 @@ describe('OCR replacement ownership path aliases', () => {
         mocks.open.mockResolvedValue({
             close: vi.fn(async () => undefined),
             sync: vi.fn(async () => undefined),
+            writeFile: mocks.writeFile,
         });
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
         mocks.prepareOcrCatalogV4Generation.mockResolvedValue({});
