@@ -78,6 +78,21 @@ function expectationMatchesStat(
         || Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) < 1;
 }
 
+function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
+    return expected.deviceId !== undefined
+        && expected.inode !== undefined
+        && expected.ctimeNs !== undefined
+        && expected.mtimeNs !== undefined;
+}
+
+function isExpectationUsableForCurrentPlatform(expected: IWorkingCopyOriginalFileExpectation) {
+    // Older recovery checkpoints can contain only size and mtime. Those
+    // fields cannot distinguish an unseen same-size interior edit on POSIX.
+    // Windows retains its legacy compatibility path and its bounded full
+    // fingerprint path where available.
+    return process.platform === 'win32' || hasImmutablePosixExpectation(expected);
+}
+
 function snapshotsMatch(
     left: IOriginalPathSaveSnapshot,
     right: IOriginalPathSaveSnapshot,
@@ -452,7 +467,7 @@ export async function captureOriginalPathSaveWitness(
     senderWebContentsId: number,
 ): Promise<IOriginalPathSaveWitness | null> {
     let expected = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
-    if (!expected) {
+    if (!expected || !isExpectationUsableForCurrentPlatform(expected)) {
         return null;
     }
 
@@ -586,7 +601,7 @@ export async function originalPathSaveBaseMatches(
     senderWebContentsId: number,
 ) {
     const expected = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
-    if (!expected) {
+    if (!expected || !isExpectationUsableForCurrentPlatform(expected)) {
         return false;
     }
 

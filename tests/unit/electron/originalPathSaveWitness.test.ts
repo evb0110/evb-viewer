@@ -296,7 +296,12 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('keeps legacy size and mtime expectations compatible without reading bytes', async () => {
+    it('keeps legacy size and mtime expectations compatible on Windows without reading bytes', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
         const originalPath = join(tempDir, 'original.pdf');
         await writeFile(originalPath, Buffer.from('base'));
         const fileStat = await stat(originalPath);
@@ -305,10 +310,35 @@ describe('originalPathSaveBaseMatches', () => {
             size: fileStat.size,
         });
 
-        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+        try {
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+        } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
+    });
+
+    it('rejects a legacy size and mtime expectation on POSIX', async () => {
+        const originalPath = join(tempDir, 'legacy-posix-original.pdf');
+        await writeFile(originalPath, Buffer.from('base'));
+        const fileStat = await stat(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            mtimeMs: fileStat.mtimeMs,
+            size: fileStat.size,
+        });
+
+        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12)).resolves.toBeNull();
     });
 
     it('accepts sub-millisecond rounding in a legacy mtime witness', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
         const originalPath = join(tempDir, 'original.pdf');
         await writeFile(originalPath, Buffer.from('base'));
         const fileStat = await stat(originalPath);
@@ -317,7 +347,14 @@ describe('originalPathSaveBaseMatches', () => {
             size: fileStat.size,
         });
 
-        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+        try {
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+        } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
     });
 
     it('fails closed when no original expectation exists', async () => {
