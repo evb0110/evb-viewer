@@ -452,12 +452,13 @@ describe('carryVersionToMain', () => {
                     commands.push(`create ${input.parentSha}`);
                     return TIP_SHA.replace(/e/gu, 'f');
                 },
-                pushBranchFn: (input: {targetSha: string}) => {
+                pushBranchFn: (input: {targetSha?: string}) => {
                     commands.push(`push ${input.targetSha}`);
                     const failure = pushFailures.shift();
                     if (failure !== undefined) {
                         throw new Error(failure);
                     }
+                    return input.targetSha ?? '';
                 },
                 runCommand,
                 sleepFn: async () => undefined,
