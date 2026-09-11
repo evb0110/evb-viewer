@@ -47,12 +47,18 @@ writes, keeps drill prefixes isolated, and restores the previous channel after
 a publisher-owned channel mutation fails. The release status command reports
 GitHub release visibility, assets, workflow results, and mirror state.
 
+The source-level lost-response guard is present. After `gh release edit` fails,
+the workflow rereads authoritative GitHub state and treats a public matching
+release as success, a remaining draft as a failed promotion, and an unreadable
+state as unresolved without changing the mirror channel. Commit `ea91cd36a`
+introduced this behavior, and `tests/unit/scripts/ciTopologyPolicy.test.ts`
+asserts the exact workflow branch on the reviewed tip.
+
 The cross-service transaction gap remains. The normal release flow activates
-the mirror and promotes the GitHub release in separate workflow steps. The
-current mirror record contains release assets and channel state, but no durable
-pair recording promotion state, prior channel version, or restart-safe
-reconciliation decision. A process exit or lost GitHub response between the two
-steps therefore still needs the bounded transaction work described by #522.
+the mirror and promotes the GitHub release in separate workflow steps. There is
+still no durable pair recording promotion state, prior channel version, or
+restart-safe reconciliation decision. A process exit between the two steps
+still needs the bounded transaction work described by #522.
 
 The local mirror suite passed the publisher's upload, retry, conditional-write,
 drill-isolation, same-tag, and supplemental-asset cases. It does not prove a
@@ -75,13 +81,17 @@ move, or new suppression.
 
 ## Checks
 
-These existing checks passed on `669e01e3` with release-owned inputs unchanged
+These existing checks passed on `91c3a36e` with release-owned inputs unchanged
 since the prior qualification:
 
 ```text
 pnpm exec vitest run tests/unit/scripts/publishReleaseMirror.test.ts tests/unit/scripts/releasePolicy.test.ts tests/unit/scripts/releaseStatus.test.ts tests/unit/scripts/ciTopologyPolicy.test.ts --reporter=dot
 4 test files passed, 97 tests passed
 ```
+
+The #522 source qualification is covered by the `ciTopologyPolicy` test in
+that run. The configured live interruption, restart, concurrency, and
+artifact-digest drill remains unproven.
 
 The direct source audit also passed. `node --check` accepted both executable
 audit scripts, and the repository contains no `max-lines` suppression

@@ -11,10 +11,10 @@ acceptance into a local pass.
 
 ## v5b fallback requalification
 
-The primary release acceptance, #522, remains unverified because this slot has
-no authorized live mirror/GitHub promotion interruption drill. Its local
-publisher safeguards and protocol tests do not prove restart reconciliation
-across both services. The disjoint fallback, #568, is covered by this receipt:
+The #522 source qualification is now evidenced by the authoritative
+post-promotion-state branch and its `ciTopologyPolicy` regression. The live
+mirror/GitHub interruption and restart drill remains unverified, so its full
+acceptance is still open. The disjoint fallback, #568, is covered by this receipt:
 all 60 supplemental recommendations retain an explicit disposition, linked
 owner or follow-up, and a concrete reason for no action where applicable. The
 register remains accounting evidence, not permission to create duplicate tests
@@ -30,9 +30,9 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34629913242` for `fc251b85`. It was in
-progress when this receipt was written. No terminal current-tip hosted result
-is claimed.
+The current integration CI run is `34630209641` for `91c3a36e`. It was pending
+when this receipt was written. No terminal current-tip hosted result is
+claimed.
 
 ## Source disposition
 
