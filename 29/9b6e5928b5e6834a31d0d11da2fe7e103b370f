@@ -1,0 +1,19 @@
+tests/e2e/electron/recentFiles.e2e.test.ts
+  s_1b452cdf36f007::t_0aec3e8a7375cd 13,23,40,1241-1243,1247-1255,1284-1295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "299b6e5928b5e6834a31d0d11da2fe7e103b370f",
+  "prompts": {},
+  "sessions": {
+    "s_1b452cdf36f007": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d41-971d-7a92-8b96-5ed4adcce323",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
