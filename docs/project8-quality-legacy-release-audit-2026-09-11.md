@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `ff9bcaf6` (`origin/project8/integration`)
+Source under review: `2a1737bd` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
