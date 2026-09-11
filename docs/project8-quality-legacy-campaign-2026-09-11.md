@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `a00c3fcb` (`origin/project8/integration`)
+Reviewed source: `669e01e3` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -20,11 +20,19 @@ owner or follow-up, and a concrete reason for no action where applicable. The
 register remains accounting evidence, not permission to create duplicate tests
 or claim the hosted baseline is green.
 
-The current integration CI run is `34629315606` for `a00c3fcb`. It was pending
-when this receipt was written. The preceding run `34628983816` for
-`7d784ada3` had passed Changed Area Detection and Commit Attribution; Quality
-Gates, Electron Blocking Smoke, Browser Integration, native, Windows,
-scan-cleanup, and packaged Linux jobs were still running at last inspection.
+## #566 operations and release register
+
+The operations/release register remains a tracking receipt whose implementation
+acceptance belongs to its linked issues. The current source review preserves
+the existing #521 Windows ARM64 qualification and #522 release-promotion
+qualification in the dedicated audit document. No row was silently converted
+to Done, and no duplicate implementation ticket or release drill was created.
+The unresolved rows remain visible through the Windows-runner and
+cross-service-reconciliation gaps below.
+
+The current integration CI run is `34629527128` for `669e01e3`. It was pending
+when this receipt was written. The preceding run `34629315606` for
+`a00c3fcb` was also still pending. No terminal hosted result is claimed.
 
 ## Source disposition
 
