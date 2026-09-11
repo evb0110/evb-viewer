@@ -162,6 +162,10 @@ async function readBlueStrokePixelMetrics(
 ): Promise<IBlueStrokePixelMetrics> {
     const image = decode(readFileSync(path));
     const pixels = image.data;
+    const channels = pixels.length / (image.width * image.height);
+    if (!Number.isInteger(channels) || channels < 3 || channels > 4) {
+        throw new Error(`Unsupported screenshot channel count: ${channels}`);
+    }
     const startX = Math.floor(image.width * 0.15);
     const endX = Math.ceil(image.width * 0.85);
     const startY = Math.floor(image.height * 0.4);
@@ -173,7 +177,7 @@ async function readBlueStrokePixelMetrics(
     let bottom = -1;
     for (let y = startY; y < endY; y += 1) {
         for (let x = startX; x < endX; x += 1) {
-            const index = (y * image.width + x) * 4;
+            const index = (y * image.width + x) * channels;
             const red = pixels[index] ?? 0;
             const green = pixels[index + 1] ?? 0;
             const blue = pixels[index + 2] ?? 0;
