@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts
+  s_f8adcf939cc7fb::t_1133a07cb27e67 1239,1245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "911b67beb7242aff0d2b6c7df5cd4a4bf7ed6ea8",
+  "prompts": {},
+  "sessions": {
+    "s_f8adcf939cc7fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ba1c-72d2-b391-97f24f1ef5da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
