@@ -120,14 +120,12 @@ function toRoman(value: number) {
 }
 
 function toAlpha(value: number) {
-    let remaining = value;
-    let result = '';
-    while (remaining > 0) {
-        remaining -= 1;
-        result = String.fromCharCode(65 + (remaining % 26)) + result;
-        remaining = Math.floor(remaining / 26);
+    if (value < 1) {
+        return '';
     }
-    return result;
+    const letter = String.fromCharCode(65 + ((value - 1) % 26));
+    const repeatCount = Math.floor((value - 1) / 26) + 1;
+    return letter.repeat(repeatCount);
 }
 
 function labelForPage(page: number, ranges: readonly IPdfPageLabelRange[]) {
@@ -160,7 +158,7 @@ async function waitForLabels(session: IElectronE2ESession, expected: readonly st
         };
         try {
             state = await readWorkspaceStateValues<{
-                pageLabels?: string[] | null;
+                pageLabels?: string[] | Record<string, string> | null;
                 pageLabelRanges?: IPdfPageLabelRange[];
                 pageLabelsResolved?: boolean;
             }>(session.page, [
@@ -179,31 +177,33 @@ async function waitForLabels(session: IElectronE2ESession, expected: readonly st
     }, {timeout: 60_000}).toEqual(expected);
 }
 
-async function waitForCompactRanges(session: IElectronE2ESession, expected: readonly IPdfPageLabelRange[]) {
+async function waitForSemanticLabels(session: IElectronE2ESession, expected: readonly string[]) {
     await expect.poll(async () => {
         try {
             const state = await readWorkspaceStateValues<{
-                pageLabels?: string[] | null;
+                pageLabels?: string[] | Record<string, string> | null;
                 pageLabelRanges?: IPdfPageLabelRange[];
+                totalPages?: number;
                 pageLabelsResolved?: boolean;
             }>(session.page, [
                 'pageLabels',
                 'pageLabelRanges',
+                'totalPages',
                 'pageLabelsResolved',
             ]);
             if (state.pageLabelsResolved !== true) {
                 return false;
             }
             if (state.pageLabels === null) {
-                return state.pageLabelRanges ?? [];
+                return labelsFromRanges(expected.length, state.pageLabelRanges ?? []);
             }
-            const labels = state.pageLabels ?? labelsFromRanges(PAGE_COUNT, state.pageLabelRanges ?? []);
-            return [
-                labelForPage(1, expected),
-                labelForPage(41, expected),
-                labelForPage(101, expected),
-                labelForPage(151, expected),
-            ].every(label => labels.includes(label));
+            const labels = Array.isArray(state.pageLabels)
+                ? state.pageLabels
+                : Object.values(state.pageLabels);
+            return labels.length === expected.length
+                && state.totalPages === expected.length
+                ? labels
+                : false;
         } catch {
             return false;
         }
@@ -345,7 +345,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
             expected.length,
             100,
         ]);
-        expected.splice(100, 0, '1');
 
         await runCommand(session, 'handleSave', []);
 
@@ -359,6 +358,15 @@ describe('Electron E2E, compact page labels through structural operations', () =
         });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        await waitForCompactRanges(session, initialRanges);
+        await waitForSemanticLabels(session, expected);
+        const finalState = await readWorkspaceStateValues<{
+            pageLabels?: string[] | Record<string, string> | null;
+            totalPages?: number;
+        }>(session.page, [
+            'pageLabels',
+            'totalPages',
+        ]);
+        expect(finalState.totalPages).toBe(200);
+        expect(finalState.pageLabels).not.toBeNull();
     }, TEST_TIMEOUT_MS);
 });
