@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `876be7914` (`origin/project8/integration`)
+Source under review: `669e01e3` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -68,7 +68,8 @@ move, or new suppression.
 
 ## Checks
 
-These existing checks passed on `876be7914`:
+These existing checks passed on `669e01e3` with release-owned inputs unchanged
+since the prior qualification:
 
 ```text
 pnpm exec vitest run tests/unit/scripts/publishReleaseMirror.test.ts tests/unit/scripts/releasePolicy.test.ts tests/unit/scripts/releaseStatus.test.ts tests/unit/scripts/ciTopologyPolicy.test.ts --reporter=dot
