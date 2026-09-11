@@ -1,0 +1,19 @@
+docs/project8-electron-blocking-smoke-acceptance-2026-09-11.md
+  s_58625a6da22803::t_1dca5939572c7e 1-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b8c06b2e1dacd851625df2b9d3bab71b6016408c",
+  "prompts": {},
+  "sessions": {
+    "s_58625a6da22803": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09187-bc17-7421-addc-7dea74f8b464",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
