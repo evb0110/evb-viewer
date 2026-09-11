@@ -26,7 +26,7 @@ interface IDocumentSaveUtilityResult {
 
 interface IRetainedDocumentSaveUtility {
     child: ReturnType<typeof utilityProcess.fork>;
-    pid?: number;
+    pid: number | undefined;
     releaseResourceLease: () => void;
     retryTermination: () => Promise<boolean>;
 }
@@ -115,7 +115,7 @@ export async function runDocumentSaveUtilityProcess(options: {
         const spawnState = new Promise<void>(resolve => {
             resolveSpawnState = resolve;
         });
-        const waitForSpawnState = async () => {
+        const waitForSpawnState = async (): Promise<boolean> => {
             if (spawned || childExited) {
                 return spawned;
             }
@@ -192,7 +192,7 @@ export async function runDocumentSaveUtilityProcess(options: {
                     resolveShutdownProof = null;
                     shutdownProofRequestId = null;
                 }
-                let directProcessTerminated = childExited;
+                let directProcessTerminated: boolean = childExited;
                 try {
                     if (!childExited) {
                         directProcessTerminated = await terminateProcessTree(pid, {
@@ -217,13 +217,14 @@ export async function runDocumentSaveUtilityProcess(options: {
             return attempt;
         };
         const retainUntilTerminationProof = () => {
-            retained = {
+            const retainedUtility: IRetainedDocumentSaveUtility = {
                 child,
                 pid,
                 releaseResourceLease,
                 retryTermination: stopChild,
-            } satisfies IRetainedDocumentSaveUtility;
-            retainedDocumentSaveUtilities.set(child, retained);
+            };
+            retained = retainedUtility;
+            retainedDocumentSaveUtilities.set(child, retainedUtility);
         };
         const finish = async (error?: Error, result?: IDocumentSaveUtilityResult) => {
             if (settled) {

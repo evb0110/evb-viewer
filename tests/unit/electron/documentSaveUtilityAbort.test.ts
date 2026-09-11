@@ -45,12 +45,20 @@ function createChild(pid: number | undefined, shutdownResponses: Array<boolean |
         postMessage: vi.fn(),
     });
     child.postMessage.mockImplementation((value: unknown) => {
-        if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'shutdown') {
+        if (
+            typeof value === 'object'
+            && value !== null
+            && 'type' in value
+            && value.type === 'shutdown'
+            && 'requestId' in value
+            && typeof value.requestId === 'string'
+        ) {
             const terminated = shutdownResponses.shift();
             if (terminated !== undefined) {
+                const requestId = value.requestId;
                 queueMicrotask(() => child.emit('message', {
                     type: 'shutdown-complete',
-                    requestId: value.requestId,
+                    requestId,
                     terminated,
                 }));
             }
