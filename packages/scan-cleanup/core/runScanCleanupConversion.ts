@@ -1129,8 +1129,6 @@ function createLazyPageRasterSource({
     let compactLayeredPageCount = 0;
     let nextExpectedPageNumber = 1;
     let rasterProbeFailed = false;
-    let observedLegacyRasterMap = false;
-    let legacyRasterMapCoverageComplete = true;
     let documentDpi: number | null = null;
     const getPageRaster = (pageNumber: number) => {
         const cached = cache.get(pageNumber);
@@ -1180,12 +1178,6 @@ function createLazyPageRasterSource({
                 if ('getPageRaster' in result) {
                     return markObserved(await result.getPageRaster(pageNumber));
                 }
-                observedLegacyRasterMap = true;
-                legacyRasterMapCoverageComplete = legacyRasterMapCoverageComplete
-                    && hasCompletePageRasterCoverage(
-                        result.pageRasterByNumber,
-                        documentPageCount,
-                    );
                 return markObserved(result.pageRasterByNumber.get(pageNumber));
             } catch (error) {
                 signal.throwIfAborted();
@@ -1213,8 +1205,7 @@ function createLazyPageRasterSource({
         },
         get compactLayeredPageCountComplete() {
             return !rasterProbeFailed
-                && nextExpectedPageNumber > documentPageCount
-                && (!observedLegacyRasterMap || legacyRasterMapCoverageComplete);
+                && nextExpectedPageNumber > documentPageCount;
         },
         getPageRaster,
     };
@@ -1558,7 +1549,10 @@ async function runStreamingScanCleanupConversion({
             log,
             runCommand: dependencies.runCommand,
         });
-        emitProgress('assembling', summary.outputPages, summary.outputPages, []);
+        // The aggregate completion count is authoritative for this final
+        // event. Do not attach an empty page list, which the progress schema
+        // correctly rejects as inconsistent with completedUnits.
+        emitProgress('assembling', summary.outputPages, summary.outputPages);
         const [
             sourceFile,
             outputFile,
@@ -1629,7 +1623,9 @@ async function runStreamingScanCleanupConversion({
         await copyFile(stagedPdfPath, publishTempPath);
         signal.throwIfAborted();
         await rename(publishTempPath, request.outputPdfPath);
-        emitProgress('handoff', pageCount, pageCount, []);
+        // Publication completed, so report the aggregate count without an
+        // empty page list that would contradict completedUnits.
+        emitProgress('handoff', pageCount, pageCount);
         return summary;
     } finally {
         await Promise.all([
