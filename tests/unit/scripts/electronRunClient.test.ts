@@ -74,7 +74,7 @@ describe('electron run client', () => {
         const deliveryObserved = new Promise<void>(resolve => {
             resolveDelivery = resolve;
         });
-        let releaseResponse: (() => void) | null = null;
+        let releaseResponse = () => {};
         const responseReleased = new Promise<void>(resolve => {
             releaseResponse = resolve;
         });

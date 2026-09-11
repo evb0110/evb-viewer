@@ -172,7 +172,16 @@ describe('browser worker request parsers', () => {
 
     it('uses the writer catalog policy for structural validation at every bound', () => {
         const data = new Uint8Array([1]);
-        const bookmark = (title: string) => ({
+        interface IBookmarkFixture {
+            title: string;
+            pageIndex: unknown;
+            namedDest: unknown;
+            bold: boolean;
+            italic: boolean;
+            color: unknown;
+            items: IBookmarkFixture[];
+        }
+        const bookmark = (title: string): IBookmarkFixture => ({
             title,
             pageIndex: 0,
             namedDest: null,
