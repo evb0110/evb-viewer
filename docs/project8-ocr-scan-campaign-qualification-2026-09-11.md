@@ -284,6 +284,29 @@ readback remain coordinator-owned evidence. No new fixture or generated
 artifact was added. Temporary test state was cleaned by the existing suites,
 and the worktree remains clean.
 
+## Follow-up slot: scan preference rebase and retry
+
+This slot started from `402d5371b`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #393
+and #394 through the renderer preference store and file-backed settings owner:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts \
+  tests/unit/electron/scanCleanupSettingsStore.test.ts \
+  tests/unit/app/modules/scan-cleanup/scanCleanupScopedSettings.test.ts \
+  tests/unit/electron/settingsSingleFlight.test.ts --reporter=dot
+
+4 files passed, 48 tests passed
+```
+
+The run covered cross-window baseline rebasing, failed document A draining
+after document B succeeds, hydration races, discard fencing, legacy migration,
+and durable settings updates. A two-window headed desktop run remains
+coordinator-owned evidence. No new fixture, settings file, screenshot, or
+telemetry artifact was generated. Test-owned temporary state was cleaned by
+the existing suites, and the worktree remains clean.
+
 ## Follow-up slot: preview frame and ink calibration
 
 This slot started from `d4e490d8d`, the current
