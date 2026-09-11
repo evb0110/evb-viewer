@@ -512,11 +512,9 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
     }, E2E_TIMEOUT_MS);
 
-    // Canonical note creation is live before the store-to-Rust save projection
-    // lands. #186 owns the save assertion for the configured annotation author.
-    it.skip('uses the configured display name as the native annotation author', async () => {
+    it('uses the configured Unicode display name as the native annotation author', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-author-${Date.now()}.pdf`, 1);
-        const author = `E2E Author ${Date.now()}`;
+        const author = `E2E Автор café ${Date.now()}`;
         session = await startElectronE2ESession(`e2e-save-author-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [pdfPath],
@@ -534,10 +532,10 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         );
         expect(defaultAuthor.length).toBeGreaterThan(0);
         await session.page.click('#settings-author');
-        const modifier: 'Control' | 'Meta' = process.platform === 'darwin' ? 'Meta' : 'Control';
-        await session.page.keyboard.down(modifier);
-        await session.page.keyboard.press('A');
-        await session.page.keyboard.up(modifier);
+        await session.page.$eval(
+            '#settings-author',
+            element => (element as HTMLInputElement).select(),
+        );
         await session.page.keyboard.type(author);
         await waitForPersistedAuthor(session.page, author);
         // Settings opens in a separate empty tab from the shell toolbar. Its
@@ -550,6 +548,72 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await saveFromWorkspace(session.page, pdfPath);
         const annotations = await readPdfAnnotationDetails(pdfPath);
         expect(annotations.some(annotation => annotation.author === author)).toBe(true);
+
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-save-author-reopen-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session.page, pdfPath);
+        await session.page.waitForFunction((expectedAuthor) => {
+            const expose = (window as Window & {__evbFindWorkspaceExpose?: (options: {requiredProperties: string[]}) => {annotationComments?: unknown[] | {value?: unknown[]};} | null;}).__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']});
+            const comments = Array.isArray(expose?.annotationComments)
+                ? expose.annotationComments
+                : expose?.annotationComments?.value;
+            return comments?.some(comment => (
+                typeof comment === 'object'
+                && comment !== null
+                && 'author' in comment
+                && comment.author === expectedAuthor
+            )) ?? false;
+        }, {timeout: SAVE_TIMEOUT_MS}, author);
+
+        const secondAuthor = `E2E Второй café ${Date.now()}`;
+        await clickVisibleToolbarButton(session.page, 'Settings');
+        await session.page.waitForSelector('#settings-author', {
+            timeout: SAVE_TIMEOUT_MS,
+            visible: true,
+        });
+        await session.page.click('#settings-author');
+        await session.page.$eval(
+            '#settings-author',
+            element => (element as HTMLInputElement).select(),
+        );
+        await session.page.keyboard.type(secondAuthor);
+        await waitForPersistedAuthor(session.page, secondAuthor);
+        await session.page.click('button.tab-close.is-visible');
+        await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
+        await createDirtyStickyNote(session.page);
+        await saveFromWorkspace(session.page, pdfPath);
+
+        const annotationsAfterSecondSave = await readPdfAnnotationDetails(pdfPath);
+        expect(annotationsAfterSecondSave.filter(annotation => annotation.author === author)).toHaveLength(2);
+        expect(annotationsAfterSecondSave.filter(annotation => annotation.author === secondAuthor)).toHaveLength(2);
+
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-save-author-final-reopen-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session.page, pdfPath);
+        await session.page.waitForFunction((expectedAuthors) => {
+            const expose = (window as Window & {__evbFindWorkspaceExpose?: (options: {requiredProperties: string[]}) => {annotationComments?: unknown[] | {value?: unknown[]};} | null;}).__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']});
+            const comments = Array.isArray(expose?.annotationComments)
+                ? expose.annotationComments
+                : expose?.annotationComments?.value;
+            const authors = new Set(comments?.flatMap(comment => (
+                typeof comment === 'object'
+                && comment !== null
+                && 'author' in comment
+                && typeof comment.author === 'string'
+                    ? [comment.author]
+                    : []
+            )) ?? []);
+            return expectedAuthors.every(authorName => authors.has(authorName));
+        }, {timeout: SAVE_TIMEOUT_MS}, [
+            author,
+            secondAuthor,
+        ]);
     }, E2E_TIMEOUT_MS);
 
     it('reuses an unchanged staged receipt and keeps the native save path-backed and live', async () => {

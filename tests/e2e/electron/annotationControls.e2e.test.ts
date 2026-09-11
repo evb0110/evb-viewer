@@ -1,4 +1,8 @@
-import {rmSync} from 'node:fs';
+import {
+    copyFileSync, mkdtempSync, rmSync,
+} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import type {Page} from 'puppeteer-core';
 import {
     describe,
@@ -18,6 +22,7 @@ import {
 import {
     openAnnotationsTab,
     openPdfInApp,
+    saveViaVisibleToolbar,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -510,6 +515,86 @@ describe('Electron E2E - annotation controls', () => {
         });
         expect(await readActiveAnnotationTool(page)).toBe('text');
         await setAnnotationKeepActiveWithPointer(page, false);
+    });
+
+    it('places one text box through sequential keyboard activation and reopens it', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) throw new Error('Annotation controls session did not start');
+        const {page} = session;
+        const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}-keyboard-text.pdf`);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+
+        let textToolFocused = false;
+        for (let attempt = 0; attempt < 32; attempt += 1) {
+            const active = await page.evaluate(() => {
+                const element = document.activeElement;
+                return element instanceof HTMLButtonElement && element.getAttribute('aria-label') === 'Text';
+            });
+            if (active) {
+                textToolFocused = true;
+                break;
+            }
+            await page.keyboard.press('Tab');
+        }
+        expect(textToolFocused).toBe(true);
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector(
+            '.editor-pane.is-active .notes-panel .tool-button[data-tool="text"].is-active',
+        ) !== null, {timeout: STYLE_UPDATE_TIMEOUT_MS});
+
+        let layerFocused = false;
+        for (let attempt = 0; attempt < 48; attempt += 1) {
+            const active = await page.evaluate(() => document.activeElement?.matches(
+                '.editor-pane.is-active .pdf-annotation-editor-layer',
+            ) ?? false);
+            if (active) {
+                layerFocused = true;
+                break;
+            }
+            await page.keyboard.press('Tab');
+        }
+        expect(layerFocused).toBe(true);
+        await page.keyboard.press('Enter');
+
+        const editorSelector = '.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
+        await page.waitForSelector(editorSelector, {
+            visible: true,
+            timeout: STYLE_UPDATE_TIMEOUT_MS,
+        });
+        await page.keyboard.type('Keyboard text box', {delay: 4});
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try {
+            await page.keyboard.press('Enter');
+        } finally {
+            await page.keyboard.up(modifier);
+        }
+        await page.waitForFunction(() => document.querySelector(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        ) !== null, {timeout: STYLE_UPDATE_TIMEOUT_MS});
+        await saveViaVisibleToolbar(page, 30_000);
+
+        const reopenDirectory = mkdtempSync(join(tmpdir(), 'evb-annotation-keyboard-reopen-'));
+        const reopenPath = join(reopenDirectory, 'saved.pdf');
+        onTestFinished(() => rmSync(reopenDirectory, {
+            recursive: true,
+            force: true,
+        }));
+        copyFileSync(fixturePath, reopenPath);
+        const restarted = await sessionFixture.restart({hard: true});
+        if (!restarted) throw new Error('Keyboard text-box reopen did not start');
+        await openPdfInApp(restarted.page, reopenPath);
+        await waitForPdfLoaded(restarted.page);
+        await waitForViewerInteractive(restarted.page);
+        await openAnnotationsTab(restarted.page);
+        await restarted.page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        )).some(element => element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Keyboard text box'), {timeout: STYLE_UPDATE_TIMEOUT_MS});
     });
 
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {
