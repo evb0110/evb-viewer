@@ -1,0 +1,21 @@
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_c13c0618fa8743 2425,2518-2525,2527
+  s_bfcd3c2ec84d8f::t_41a0e08544fc4a 492-506,512
+  s_bfcd3c2ec84d8f::t_86bc3344f27756 516,2526
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93bb41893e60a7d942800f280578865e9638c1a2",
+  "prompts": {},
+  "sessions": {
+    "s_bfcd3c2ec84d8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-2e36-7c60-81dd-110c27330f8b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
