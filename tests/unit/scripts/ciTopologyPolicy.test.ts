@@ -378,6 +378,14 @@ describe('CI topology policy', () => {
         }
 
         expect(installedJourney['continue-on-error']).toBeUndefined();
+
+        const readinessStep = buildJob.steps?.find(step => step.id === 'artifact_status');
+        if (readinessStep === undefined) {
+            throw new Error('build-target workflow must define its artifact readiness step.');
+        }
+        expect(readinessStep.run).toContain('steps.upload_artifacts.outcome == \'success\'');
+        expect(readinessStep.run).toContain('runner.os != \'Windows\' || steps.nsis_journey.outcome == \'success\'');
+        expect(readinessStep.run).not.toContain('ARM64 NSIS outcome is advisory');
     });
 
     it('runs changed lint only for a valid base and falls back to full lint otherwise', async () => {
