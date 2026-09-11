@@ -34,6 +34,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfTextLayerRendererTypes';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
+import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import {
     getHighlightMode,
     isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
@@ -66,6 +67,7 @@ interface IRenderedTextLayer {
     structTreeLayer?: IPdfStructTreeLayer;
     structTreeDom?: HTMLElement | null;
     pdfPage: IPdfPage;
+    viewport: IPdfViewport;
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
 }
@@ -858,6 +860,7 @@ export const usePdfTextLayerRenderer = (deps: {
             && rendered.documentRevisionToken === currentDocumentRevisionToken
         ) {
             rendered.textLayer.update({ viewport });
+            rendered.viewport = viewport;
             return;
         }
 
@@ -988,6 +991,7 @@ export const usePdfTextLayerRenderer = (deps: {
             ...(structTreeLayer ? {structTreeLayer} : {}),
             structTreeDom,
             pdfPage,
+            viewport,
             workingCopyPath: currentWorkingCopyPath,
             documentRevisionToken: currentDocumentRevisionToken,
         });
@@ -1181,16 +1185,44 @@ export const usePdfTextLayerRenderer = (deps: {
             const canvasRect = canvas.getBoundingClientRect();
             const renderedPageWidth = canvas.offsetWidth || canvasRect.width;
             const renderedPageHeight = canvas.offsetHeight || canvasRect.height;
+            const renderedTextLayer = textLayerDiv ? renderedTextLayers.get(textLayerDiv) : undefined;
+            const viewport = renderedTextLayer?.viewport;
+            const rawDims = viewport?.rawDims as {
+                pageWidth?: unknown;
+                pageHeight?: unknown;
+            } | undefined;
+            const viewportPageWidth = typeof rawDims?.pageWidth === 'number' && rawDims.pageWidth > 0
+                ? rawDims.pageWidth
+                : pageWidth;
+            const viewportPageHeight = typeof rawDims?.pageHeight === 'number' && rawDims.pageHeight > 0
+                ? rawDims.pageHeight
+                : pageHeight;
             const boxes = currentWords
-                .map(word => transformWordBox(
-                    word,
-                    pageWidth,
-                    pageHeight,
-                    renderedPageWidth,
-                    renderedPageHeight,
-                    currentMatchValue.rotation ?? geometryMatch?.rotation ?? 0,
-                ))
-                .filter(box => box.width > 0 || box.height > 0);
+                .map(word => viewport
+                    ? transformOcrWordToViewport(
+                        word,
+                        {render: {imagePx: {
+                            w: pageWidth,
+                            h: pageHeight,
+                        }}},
+                        viewportPageWidth,
+                        viewportPageHeight,
+                        viewport,
+                    )
+                    : transformWordBox(
+                        word,
+                        pageWidth,
+                        pageHeight,
+                        renderedPageWidth,
+                        renderedPageHeight,
+                        currentMatchValue.rotation ?? geometryMatch?.rotation ?? 0,
+                    ))
+                .filter((box): box is NonNullable<typeof box> => {
+                    if (!box) {
+                        return false;
+                    }
+                    return box.width > 0 || box.height > 0;
+                });
 
             if (boxes.length === 0) {
                 return null;
