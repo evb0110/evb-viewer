@@ -30,7 +30,7 @@ was available here, not that the project is green.
 | `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | 3 files passed; 2 suites blocked by exact-fixture opt-in |
 | `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
 | `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Blocked at Electron sandbox startup; 3 platform tests skipped |
-| `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Unknown |
+| `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Runner exited 1; per-test report unavailable after temp cleanup |
 | `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | Unknown |
 | `e2e-native-save-reopen` | Invoked by the save-pipeline script after `e2e-save-pipeline` | Save-pipeline command, not a separate workflow job | Unknown |
 | `e2e-xlarge-pdf` | `pnpm run test:e2e:electron:xlarge` | Manual dispatch and performance workflow | Unknown |
@@ -192,3 +192,24 @@ Disjoint fallback TODO: repair or provision the approved Electron installation
 with the required sandbox-helper ownership and mode, then rerun the visible
 window test. Do not add `--no-sandbox`, weaken the launcher policy, or treat a
 debug-only launch as visible-window acceptance.
+
+## Quarantine acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:quarantine
+native builds passed; quarantine gate exited 1
+Duration: 252.51s
+```
+
+The page-operations and scan-cleanup native artifacts were reused, the
+PDF-image-combine artifact built successfully, and Electron plus the isolated
+renderer started. The quarantine runner then failed its validation stage. Its
+temporary JSON report was removed by the runner, so this slot has no reliable
+per-test counts or assertion identity and is not an acceptance pass.
+
+Disjoint fallback TODO: preserve the quarantine JSON report before temporary
+directory cleanup, rerun the policy suite in an isolated slot, and identify the
+failing assertion or policy mismatch. Do not convert missing report data into a
+green result and do not loosen quarantine admission rules.
