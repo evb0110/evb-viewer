@@ -77,6 +77,7 @@ interface IPendingDocumentUpdate {
     token: IScanCleanupDocumentPersistenceToken;
     version: number;
     queued: boolean;
+    failed?: boolean;
     writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
@@ -333,6 +334,7 @@ function queueRemoteUpdate(
             const pending = pendingDocumentUpdates.get(documentKey);
             if (pending?.request === queuedRequest && pending.version === documentVersion) {
                 pending.queued = false;
+                pending.failed = true;
             }
         }
         BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {
@@ -588,6 +590,12 @@ export function retryScanCleanupPreferences(): Promise<void> {
             pendingRemoteGlobalWrite = null;
             pendingRemoteGlobalWriteSettledFailure = false;
         }
+        for (const pending of pendingDocumentUpdates.values()) {
+            if (pending.failed) {
+                pending.failed = false;
+                pending.queued = false;
+            }
+        }
         await flushScanCleanupDocumentPreferencesStore();
         await flushScanCleanupPreferencesStore();
     });
@@ -777,6 +785,14 @@ export async function flushScanCleanupDocumentPreferencesStore() {
     }
     for (const pending of pendingDocumentUpdates.values()) {
         if (!pending.queued) {
+            if (pending.failed && pending.writePromise) {
+                try {
+                    await pending.writePromise;
+                } catch (error) {
+                    firstError ??= error;
+                }
+                continue;
+            }
             try {
                 await queueRemoteUpdate(pending.request, pending.token, pending.version);
             } catch (error) {
