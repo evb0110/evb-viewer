@@ -160,3 +160,21 @@ The disjoint six-file renderer/OCR fallback passed 96/96 tests again. No
 threshold or source change was made to hide the parity mismatch. The saved
 parity artifacts and session logs remain owned by this run for coordinator
 review.
+
+## V5b canonical annotation matrix
+
+The focused canonical annotation matrix ran from integration context
+`b97ddd26a` with native page-ops enabled:
+
+```text
+EVB_PDF_PAGE_OPS_ENABLE=1 pnpm exec vitest run --project e2e-regression \
+  tests/e2e/electron/annotationLifecycle.e2e.test.ts \
+  -t 'creates every shape, draw preset and markup with matching styles, undo, save and hard reopen' \
+  --reporter verbose
+```
+
+The real macOS Electron test passed 1/1. It exercised 11 authored kinds and
+presets, save, hard reopen, and persisted paint/style checks. The remaining
+annotation lifecycle cases were intentionally filtered out and are not part
+of this result. The run's session log is
+`.devkit/sessions/e2e-run-mtx9ocwg-25dfab-annotation-lifecycle-1789149951481/session.log`.
