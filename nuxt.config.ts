@@ -237,6 +237,11 @@ export default defineNuxtConfig({
                     href: '/apple-touch-icon.png',
                 },
             ],
+            script: [
+                {
+                    innerHTML: `(()=>{try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{configurable:true,value:{getItem(){return null},setItem(){},removeItem(){}}})}})();`,
+                },
+            ],
         },
     },
 

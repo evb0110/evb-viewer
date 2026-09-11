@@ -104,3 +104,14 @@ export const safeLocalStorage: StorageLike = {
         safeRemoveLocalStorageItem(key);
     },
 };
+
+/** Use the native object when available so browser storage events retain identity. */
+export function getLocalStorageForVueUse(): StorageLike {
+    const storage = getLocalStorageSafe();
+    return storage !== null
+        && typeof storage.getItem === 'function'
+        && typeof storage.setItem === 'function'
+        && typeof storage.removeItem === 'function'
+        ? storage as StorageLike
+        : safeLocalStorage;
+}

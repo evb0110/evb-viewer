@@ -7,7 +7,7 @@ import {
     BROWSER_INSTALL_HINT_STORAGE_KEY,
     migrateLegacyBrowserInstallHintCookie,
 } from '@app/utils/browserRuntimePersistence';
-import { safeLocalStorage } from '@app/utils/localStorage';
+import { getLocalStorageForVueUse } from '@app/utils/localStorage';
 import type { TAnalyticsEventName } from '@contracts/analytics';
 
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
@@ -28,8 +28,7 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
     const browserInstallHintDismissed = useStorage(
         BROWSER_INSTALL_HINT_STORAGE_KEY,
         false,
-        safeLocalStorage,
-        { listenToStorageChanges: false },
+        getLocalStorageForVueUse(),
     );
     const isBrowserInstallHintClientReady = ref(false);
     const didTrackViewerSession = useState(
