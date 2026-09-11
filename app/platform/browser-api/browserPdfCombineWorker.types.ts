@@ -72,7 +72,7 @@ type TBrowserPdfCombineWorkerResponse =
             id: number;
             type: K;
             ok: true;
-            data: IBrowserPdfCombineWorkerResultMap[K];
+            data: IBrowserPdfCombineWorkerResultMap[K]['data'];
         };
     }[TBrowserPdfCombineWorkerRequestType]
     | {
