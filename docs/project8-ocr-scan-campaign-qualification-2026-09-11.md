@@ -284,6 +284,29 @@ readback remain coordinator-owned evidence. No new fixture or generated
 artifact was added. Temporary test state was cleaned by the existing suites,
 and the worktree remains clean.
 
+## Follow-up slot: non-destructive Recent opens
+
+This slot started from `800ea56d4`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #395
+through the main Recent owner, renderer persistence, and open-command owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/recentFiles.test.ts \
+  tests/unit/app/utils/recentFilesPersistence.test.ts \
+  tests/unit/app/modules/workspace-shell/host/recentOpenCommandEligibility.test.ts \
+  tests/unit/app/modules/workspace-shell/host/recentOpenGeometryReadiness.test.ts --reporter=dot
+
+4 files passed, 41 tests passed
+```
+
+The run covered missing entries, ENOTDIR/EIO/permission failures, transient
+ENOENT retry, explicit-only removal, persistence migration, and open-command
+eligibility. A headed row-action run against a restored file remains
+coordinator-owned desktop evidence. No new fixture, screenshot, or telemetry
+artifact was generated. Test-owned temporary paths were cleaned by the
+existing suites, and the worktree remains clean.
+
 ## Follow-up slot: scan preference rebase and retry
 
 This slot started from `402d5371b`, the current
