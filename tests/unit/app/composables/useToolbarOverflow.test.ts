@@ -123,11 +123,18 @@ function toNodeList(nodes: Node[]) {
 }
 
 function childListMutation(added: Node[], removed: Node[] = []) {
-    return {
+    const record: MutationRecord = {
         type: 'childList',
+        target: document.body,
         addedNodes: toNodeList(added),
         removedNodes: toNodeList(removed),
-    } as MutationRecord;
+        previousSibling: null,
+        nextSibling: null,
+        attributeName: null,
+        attributeNamespace: null,
+        oldValue: null,
+    };
+    return record;
 }
 
 function createResponsiveToolbarElement(getClientWidth: () => number) {

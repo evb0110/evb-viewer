@@ -126,7 +126,9 @@ describe('sidebar open layout stability', () => {
 
     it('ends the slide on a timer when the transition never reports its end', async () => {
         vi.useFakeTimers();
-        onTestFinished(() => vi.useRealTimers());
+        onTestFinished(() => {
+            vi.useRealTimers();
+        });
         const view = mountHost();
         onTestFinished(view.dispose);
         await nextTick();
