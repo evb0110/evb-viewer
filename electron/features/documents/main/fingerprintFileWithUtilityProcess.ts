@@ -108,7 +108,9 @@ export async function runDocumentSaveUtilityProcess(options: {
         let retained: IRetainedDocumentSaveUtility | undefined;
         let shutdownProof: boolean | undefined;
         let shutdownProofPromise: Promise<boolean> | null = null;
-        let resolveShutdownProof: ((proven: boolean) => void) | null = null;
+        let shutdownProofRequestId: string | null = null;
+        let shutdownRequestSequence = 0;
+        let resolveShutdownProof: ((requestId: string, proven: boolean) => void) | null = null;
         let resolveSpawnState!: () => void;
         const spawnState = new Promise<void>(resolve => {
             resolveSpawnState = resolve;
@@ -145,21 +147,42 @@ export async function runDocumentSaveUtilityProcess(options: {
                     return shutdownProof === true;
                 }
                 if (shutdownProof !== true && shutdownProofPromise === null) {
+                    const requestId = `${pid}:${++shutdownRequestSequence}`;
+                    shutdownProofRequestId = requestId;
+                    shutdownProof = undefined;
                     shutdownProofPromise = new Promise(resolve => {
-                        resolveShutdownProof = resolve;
+                        let settled = false;
+                        const settle = (proven: boolean) => {
+                            if (settled) {
+                                return;
+                            }
+                            settled = true;
+                            clearTimeout(timer);
+                            resolve(proven);
+                        };
+                        resolveShutdownProof = (responseRequestId, proven) => {
+                            if (responseRequestId !== requestId) {
+                                return;
+                            }
+                            shutdownProof = proven;
+                            settle(proven);
+                        };
                         const timer = setTimeout(() => {
-                            if (shutdownProof === undefined) {
+                            if (shutdownProofRequestId === requestId) {
                                 shutdownProof = false;
-                                resolve(false);
+                                settle(false);
                             }
                         }, 2_500);
                         timer.unref();
                     });
                     try {
-                        child.postMessage({type: 'shutdown'});
+                        child.postMessage({
+                            type: 'shutdown',
+                            requestId,
+                        });
                     } catch {
                         shutdownProof = false;
-                        resolveShutdownProof?.(false);
+                        resolveShutdownProof?.(requestId, false);
                     }
                 }
                 const nativeDescendantsTerminated = shutdownProof === true
@@ -167,6 +190,7 @@ export async function runDocumentSaveUtilityProcess(options: {
                 if (!nativeDescendantsTerminated) {
                     shutdownProofPromise = null;
                     resolveShutdownProof = null;
+                    shutdownProofRequestId = null;
                 }
                 let directProcessTerminated = childExited;
                 try {
@@ -255,9 +279,9 @@ export async function runDocumentSaveUtilityProcess(options: {
         });
         child.on('message', (value) => {
             const shutdownResult = decodeDocumentSaveUtilityShutdownResult(value);
-            if (shutdownResult) {
+            if (shutdownResult && shutdownResult.requestId === shutdownProofRequestId) {
                 shutdownProof = shutdownResult.terminated;
-                resolveShutdownProof?.(shutdownResult.terminated);
+                resolveShutdownProof?.(shutdownResult.requestId, shutdownResult.terminated);
                 return;
             }
             const result = decodeDocumentSaveUtilityResult(value);
@@ -282,7 +306,9 @@ export async function runDocumentSaveUtilityProcess(options: {
             resolveSpawnState();
             if (shutdownProof === undefined) {
                 shutdownProof = false;
-                resolveShutdownProof?.(false);
+                if (shutdownProofRequestId) {
+                    resolveShutdownProof?.(shutdownProofRequestId, false);
+                }
             }
             if (!settled) {
                 void finish(new Error(`${options.utilityName} exited before completion (${code})`));

@@ -73,15 +73,22 @@ let validationSequence = 0;
 const activeValidationGroups = new Set<string>();
 
 let shutdownInFlight: Promise<boolean> | null = null;
+let shutdownRequested = false;
 
 function cancelActiveValidationGroupsAndWait() {
     if (shutdownInFlight) {
         return shutdownInFlight;
     }
-    shutdownInFlight = Promise.all(
+    const attempt = Promise.all(
         [...activeValidationGroups].map(cancelGroup => cancelNativeCommandGroupAndWait(cancelGroup)),
     ).then(results => results.every(Boolean));
-    return shutdownInFlight;
+    shutdownInFlight = attempt;
+    void attempt.then(terminated => {
+        if (!terminated && shutdownInFlight === attempt) {
+            shutdownInFlight = null;
+        }
+    });
+    return attempt;
 }
 
 process.once('SIGTERM', () => {
@@ -143,10 +150,16 @@ utilityParentPort.on('message', (event) => {
         && event.data !== null
         && 'type' in event.data
         && event.data.type === 'shutdown'
+        && 'requestId' in event.data
+        && typeof event.data.requestId === 'string'
+        && event.data.requestId.length > 0
     ) {
+        shutdownRequested = true;
+        const requestId = event.data.requestId;
         void cancelActiveValidationGroupsAndWait().then(terminated => {
             utilityParentPort.postMessage({
                 type: 'shutdown-complete',
+                requestId,
                 terminated,
             });
         });
@@ -155,6 +168,7 @@ utilityParentPort.on('message', (event) => {
     void (async () => {
         const request = decodeDocumentSaveUtilityRequest(event.data);
         if (!request) throw new Error('Invalid document save utility request');
+        if (shutdownRequested) throw new Error('Document save utility is shutting down');
         if (request.type === 'inspect') {
             const inspection = await fingerprintFileBounded(request.sourcePath, request.expectedBytes);
             const result: TDocumentSaveUtilityResult = {
