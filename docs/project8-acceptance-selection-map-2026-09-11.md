@@ -29,7 +29,7 @@ was available here, not that the project is green.
 | `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | 1 file passed, 16 tests passed; 1 parity test failed |
 | `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | 3 files passed; 2 suites blocked by exact-fixture opt-in |
 | `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
-| `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Unknown |
+| `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Blocked at Electron sandbox startup; 3 platform tests skipped |
 | `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Unknown |
 | `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | Unknown |
 | `e2e-native-save-reopen` | Invoked by the save-pipeline script after `e2e-save-pipeline` | Save-pipeline command, not a separate workflow job | Unknown |
@@ -172,3 +172,23 @@ profile (`auditedZaliznyak882`, `localZaliznyak882`, or
 `xlargeZaliznyak2646`), stage the matching fixture, and rerun the two blocked
 suites with that profile. Do not bypass the opt-in boundary or substitute a
 generated fixture for exact-fixture evidence.
+
+## Visible-window acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:visible-window
+1 suite failed at Electron startup, 3 tests skipped
+Duration: 35.77s
+```
+
+The macOS print cases were correctly skipped on Linux. The visible-window test
+did not reach its application assertion because Electron exited before CDP
+readiness. The session log reports that `chrome-sandbox` is not root-owned with
+mode `4755`, so Electron refused to launch.
+
+Disjoint fallback TODO: repair or provision the approved Electron installation
+with the required sandbox-helper ownership and mode, then rerun the visible
+window test. Do not add `--no-sandbox`, weaken the launcher policy, or treat a
+debug-only launch as visible-window acceptance.
