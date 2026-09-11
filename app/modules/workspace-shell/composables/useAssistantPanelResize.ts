@@ -1,9 +1,10 @@
 import {
     useEventListener,
-    useLocalStorage,
+    useStorage,
 } from '@vueuse/core';
 import { useClamp } from '@vueuse/math';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import { getLocalStorageForVueUse } from '@app/utils/localStorage';
 
 const ASSISTANT_PANEL = {
     DEFAULT_WIDTH: 384,
@@ -21,7 +22,11 @@ function normalizePanelWidth(value: unknown) {
 }
 
 export const useAssistantPanelResize = () => {
-    const persistedPanelWidth = useLocalStorage(ASSISTANT_PANEL_WIDTH_STORAGE_KEY, ASSISTANT_PANEL.DEFAULT_WIDTH);
+    const persistedPanelWidth = useStorage(
+        ASSISTANT_PANEL_WIDTH_STORAGE_KEY,
+        ASSISTANT_PANEL.DEFAULT_WIDTH,
+        getLocalStorageForVueUse(),
+    );
     const initialPanelWidth = normalizePanelWidth(persistedPanelWidth.value);
     if (persistedPanelWidth.value !== initialPanelWidth) {
         persistedPanelWidth.value = initialPanelWidth;

@@ -1,5 +1,5 @@
 import {
-    useLocalStorage,
+    useStorage,
     useTimeoutFn,
 } from '@vueuse/core';
 import type { Ref } from 'vue';
@@ -7,6 +7,7 @@ import {
     BROWSER_INSTALL_HINT_STORAGE_KEY,
     migrateLegacyBrowserInstallHintCookie,
 } from '@app/utils/browserRuntimePersistence';
+import { getLocalStorageForVueUse } from '@app/utils/localStorage';
 import type { TAnalyticsEventName } from '@contracts/analytics';
 
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
@@ -24,9 +25,10 @@ interface IUseBrowserInstallHintOptions {
 
 export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) => {
     const runtimeConfig = useRuntimeConfig();
-    const browserInstallHintDismissed = useLocalStorage(
+    const browserInstallHintDismissed = useStorage(
         BROWSER_INSTALL_HINT_STORAGE_KEY,
         false,
+        getLocalStorageForVueUse(),
     );
     const isBrowserInstallHintClientReady = ref(false);
     const didTrackViewerSession = useState(

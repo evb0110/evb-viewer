@@ -104,7 +104,14 @@ export function resolveBrowserCapabilityTier(): IBrowserCapabilityTier {
     const saveFilePicker = typeof pickerWindow?.showSaveFilePicker === 'function'
         ? pickerWindow.showSaveFilePicker.bind(pickerWindow)
         : null;
-    const indexedDbFactory = typeof indexedDB === 'undefined' ? null : indexedDB;
+    let indexedDbFactory: IDBFactory | null = null;
+    try {
+        indexedDbFactory = typeof indexedDB === 'undefined' ? null : indexedDB;
+    } catch {
+        // Browser policy can deny access while evaluating the global getter.
+        // Treat that the same as an unavailable persistence API.
+        indexedDbFactory = null;
+    }
     const fileAccessTier: TBrowserFileAccessTier = openFilePicker
         ? (saveFilePicker ? 'file-system-access' : 'open-handle-only')
         : (saveFilePicker ? 'save-handle-only' : 'download-only');

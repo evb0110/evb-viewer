@@ -5,6 +5,7 @@ import {
     useStorage,
 } from '@vueuse/core';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
+import { getLocalStorageForVueUse } from '@app/utils/localStorage';
 import {annotationIdForSummary} from '@app/modules/pdf-viewer/public';
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
@@ -100,8 +101,8 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const annotationKeepActiveStorage = useStorage<string>(
         STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE,
         '1',
-        undefined,
-        { initOnMounted: true },
+        getLocalStorageForVueUse(),
+        {initOnMounted: true},
     );
     syncRef(annotationKeepActive, annotationKeepActiveStorage, {transform: {
         ltr: value => (value ? '1' : '0'),
