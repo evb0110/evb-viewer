@@ -189,6 +189,28 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: foreign hidden OCR replacement
+
+This slot started from `873c1621d`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #426
+through the OCR PDF assembler's replacement path:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrPdfAssembler.test.ts \
+  -t "removes foreign hidden text from an image-plus-text stream during replacement" \
+  --reporter=dot
+
+1 file passed, 1 test passed, 20 tests skipped by name filter
+```
+
+The passing case covered removing a foreign hidden text stream while retaining
+the image-plus-text page content during OCR replacement. Full packaged OCR
+replacement with independently rendered output remains coordinator-owned
+evidence. No new PDF, fixture, screenshot, or telemetry artifact was
+generated. Test-owned PDF state was cleaned by the suite, and the worktree is
+clean.
+
 ## Follow-up slot: contiguous scan split windows
 
 This slot started from `5ca8106cc`, the current
