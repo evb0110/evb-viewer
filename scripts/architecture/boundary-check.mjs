@@ -100,11 +100,12 @@ const NODE_RUNTIME_MODULE_SPECIFIERS = new Set([
     'zlib',
 ]);
 
+/** @param {string} specifier @returns {boolean} */
 function isNodeRuntimeModuleSpecifier(specifier) {
     if (specifier.startsWith('node:')) {
         return true;
     }
-    const moduleName = specifier.split('/')[0];
+    const moduleName = specifier.split('/')[0] ?? '';
     return NODE_RUNTIME_MODULE_SPECIFIERS.has(moduleName) || moduleName === 'electron';
 }
 
@@ -1004,6 +1005,7 @@ function checkContractsRuntimeBoundary(filePath, sourceFiles) {
     /** @type {IArchitectureViolation[]} */
     const violations = [];
     const seen = new Set();
+    /** @param {string} target @param {string} message */
     const record = (target, message) => {
         const key = `${target}\0${message}`;
         if (seen.has(key)) {
