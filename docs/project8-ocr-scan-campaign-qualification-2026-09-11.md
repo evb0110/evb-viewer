@@ -284,6 +284,31 @@ readback remain coordinator-owned evidence. No new fixture or generated
 artifact was added. Temporary test state was cleaned by the existing suites,
 and the worktree remains clean.
 
+## Follow-up slot: preview frame and ink calibration
+
+This slot started from `d4e490d8d`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #447
+and #449 through the displayed-frame, preview lifecycle, rendering, and
+placement-summary owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/modules/scan-cleanup/scanCleanupPreviewGeometry.test.ts \
+  tests/unit/electron/scanCleanupPreviewComposition.test.ts \
+  tests/unit/electron/scanCleanupPreviewRendering.test.ts \
+  tests/unit/electron/scanCleanupPlacementAnchors.test.ts --reporter=dot
+
+4 files passed, 86 tests passed
+```
+
+The run covered the displayed native canvas frame, stale-generation fencing,
+preview option invalidation, matched preview rendering, rotated cutter
+coordinates, and bounded early/middle/late placement anchors. A full
+fixture-backed preview/export comparison on a large document remains
+coordinator-owned evidence. No new fixture, PDF, screenshot, or telemetry
+artifact was generated. Temporary test state was cleaned by the existing
+suites, and the worktree remains clean.
+
 ## Follow-up slot: OCR rendered-page geometry
 
 This slot started from `2457060e5`, the current
