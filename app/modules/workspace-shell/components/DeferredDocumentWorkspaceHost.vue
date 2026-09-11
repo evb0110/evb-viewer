@@ -84,6 +84,7 @@ import {
 } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import * as platformDocuments from '@app/utils/platformDocuments';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
@@ -670,22 +671,36 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    try {
-        await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
-    } catch (error) {
-        recentFilesError.value = getErrorMessage(error);
-        BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item is unavailable before opening', {
-            tabId: tabId,
-            path: file.originalPath,
-            error,
-        });
-        return false;
+    let sourceStat: {
+        fileSize?: number;
+        modifiedAt?: number;
+    } | null = null;
+    if (isBrowserDocumentRef(file.originalPath)) {
+        try {
+            const stat = await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
+            sourceStat = {
+                fileSize: stat.size,
+                modifiedAt: stat.modifiedAt,
+            };
+        } catch (error) {
+            recentFilesError.value = getErrorMessage(error);
+            BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item is unavailable before opening', {
+                tabId: tabId,
+                path: file.originalPath,
+                error,
+            });
+            return false;
+        }
     }
 
     const result = await activeDocumentSession.value.open({
         action: 'openRecentFromPlaceholder',
-        preparedSourceModifiedAt: file.modifiedAt,
-        preparedSourceSize: file.fileSize,
+        ...(sourceStat?.fileSize === file.fileSize && sourceStat.modifiedAt === file.modifiedAt
+            ? {
+                preparedSourceModifiedAt: file.modifiedAt,
+                preparedSourceSize: file.fileSize,
+            }
+            : {}),
         target: buildPendingTabDocumentHint(file),
     }, async (signal) => {
         const preloadedWorkspace = mountedWorkspace.value
