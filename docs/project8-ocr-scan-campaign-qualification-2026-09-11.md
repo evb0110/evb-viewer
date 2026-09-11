@@ -189,6 +189,48 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: contiguous scan split windows
+
+This slot started from `5ca8106cc`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #446
+through the contiguous-page-run planner:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/scanCleanupSplitContiguousPageRuns.test.ts \
+  --reporter=dot
+
+1 file passed, 3 tests passed
+```
+
+The run covered gap-free windows, sorting a window that starts at the
+requested page, splitting at page gaps, and empty-window handling. A full
+large-document split/export run remains coordinator-owned evidence. No new
+fixture, raster, screenshot, or telemetry artifact was generated. Test-owned
+state was cleaned by the suite, and the worktree is clean.
+
+## Follow-up slot: detection-store lifetime and ownership
+
+This slot started from `4c53f111a`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #441
+and #450 through the detection session cache and main-process service owners:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/modules/scan-cleanup/scanCleanupDetectionSessionCache.test.ts \
+  tests/unit/electron/scanCleanupService.test.ts --reporter=dot
+
+2 files passed, 33 tests passed
+```
+
+The run covered LRU touch behavior, entry and byte budgets, revision fencing,
+promotion to authoritative source identity, alias disposal, completed-store
+claims across retries, output-grant lifecycle replacement, cancellation
+idempotence, and main-owned output pruning. Packaged multi-window lifecycle
+and long-running detection evidence remain coordinator-owned. No new fixture,
+raster, screenshot, or telemetry artifact was generated. Test-owned stores and
+temporary state were cleaned by the suites, and the worktree is clean.
+
 ## Follow-up slot: scan thickness and dewarp bounds
 
 This slot started from `04ea22da6`, the current
