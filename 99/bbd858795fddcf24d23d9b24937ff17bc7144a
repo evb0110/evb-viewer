@@ -1,0 +1,23 @@
+tests/unit/app/composables/useOcr.test.ts
+  s_503d7ca8eb72b6::t_b69c7ec0fdf5af 16-17,49-52
+tests/unit/app/composables/useDocxExport.test.ts
+  s_503d7ca8eb72b6::t_b69c7ec0fdf5af 16,49
+app/utils/exportTextAsDocx.ts
+  s_503d7ca8eb72b6::t_6bfd2feba709b0 81,169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99bbd858795fddcf24d23d9b24937ff17bc7144a",
+  "prompts": {},
+  "sessions": {
+    "s_503d7ca8eb72b6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3d-12b3-7f11-a017-5a260666c7e4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
