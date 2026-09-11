@@ -150,7 +150,7 @@ describe('useSidebarResize', () => {
         expect(resize.sidebarWidth.value).toBe(SIDEBAR.DEFAULT_WIDTH);
     });
 
-    it('does not report a pointer resize during sidebar open and close toggles', async () => {
+    it('reports a resize only while the host slides the sidebar, never for the toggle itself', async () => {
         const showSidebar = ref(false);
         const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
         const resize = useSidebarResize({ showSidebar });
@@ -160,6 +160,11 @@ describe('useSidebarResize', () => {
 
         expect(resize.isResizingSidebar.value).toBe(false);
 
+        resize.isSlidingSidebar.value = true;
+        expect(resize.isResizingSidebar.value).toBe(true);
+        expect(resize.isPointerResizingSidebar.value).toBe(false);
+
+        resize.isSlidingSidebar.value = false;
         showSidebar.value = false;
         await nextTick();
 

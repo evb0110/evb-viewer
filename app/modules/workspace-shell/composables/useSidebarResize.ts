@@ -30,7 +30,11 @@ export const useSidebarResize = (deps: {
     const sidebarWidth = ref(initialWidth);
     const lastOpenSidebarWidth = ref(initialWidth);
     const isPointerResizingSidebar = ref(false);
-    const isResizingSidebar = computed(() => isPointerResizingSidebar.value);
+    // The sidebar host reports the open/close slide it animates; while either
+    // a pointer drag or that slide runs, the viewer beside the sidebar is
+    // resizing continuously and must not commit a fit scale per frame.
+    const isSlidingSidebar = ref(false);
+    const isResizingSidebar = computed(() => isPointerResizingSidebar.value || isSlidingSidebar.value);
     const containerWidth = ref(Number.POSITIVE_INFINITY);
     const effectiveMaxWidth = computed(() => resolveSidebarEffectiveMaxWidth(containerWidth.value));
 
@@ -167,6 +171,8 @@ export const useSidebarResize = (deps: {
         sidebarWidth,
         sidebarWrapperStyle,
         isResizingSidebar,
+        isPointerResizingSidebar,
+        isSlidingSidebar,
         effectiveMaxWidth,
         setSidebarContainerWidth,
         startSidebarResize,
