@@ -18,7 +18,6 @@ import type {
 export const PROCESS_SAFE_MODE_ARGUMENT = '--evb-safe-mode';
 const GPU_CRASH_WINDOW_MS = 5 * 60 * 1_000;
 const GPU_CRASH_RELAUNCH_THRESHOLD = 2;
-const POSIX_SIGTERM_EXIT_STATUS = 143 * 256;
 
 interface IProcessSafeModeApp {commandLine: {appendSwitch(name: string): void};}
 
@@ -75,20 +74,11 @@ const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([
  * one a given Electron build populates.
  */
 function isAppTerminatedUtilityProcess(details: IChildProcessGoneDetails) {
-    if (details.type !== 'Utility') {
+    if (details.type !== 'Utility' || details.reason !== 'killed') {
         return false;
     }
-    const appOwnsIdentity = APP_TERMINATED_UTILITY_IDENTITIES.has(details.name ?? '')
+    return APP_TERMINATED_UTILITY_IDENTITIES.has(details.name ?? '')
         || APP_TERMINATED_UTILITY_IDENTITIES.has(details.serviceName ?? '');
-    if (!appOwnsIdentity) {
-        return false;
-    }
-    // Electron reports a utility worker that handles SIGTERM and exits with
-    // its conventional 143 status as an abnormal exit with the raw POSIX
-    // wait status. This is the normal termination path used by the document
-    // utility, not an unowned crash.
-    return details.reason === 'killed'
-        || (details.reason === 'abnormal-exit' && details.exitCode === POSIX_SIGTERM_EXIT_STATUS);
 }
 
 function clampGpuCrashCount(crashCount: number) {
