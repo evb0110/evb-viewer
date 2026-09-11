@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `402d5371` (`origin/project8/integration`)
+Source under review: `8652fce8` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -87,9 +87,10 @@ reviewed source:
 | `scripts/architecture/boundary-check.mjs` | File remains, but has no `max-lines` suppression. |
 | `scripts/diagnostics/scan-cleanup-representative-audit.mjs` | File remains, but has no `max-lines` suppression. |
 
-The current repository search finds no source `max-lines` directive. This is a
-qualification of an already-resolved finding, with no line-limit change, source
-move, or new suppression.
+The current repository search at `8652fce839b4ca3bb645f4b093191d1d6fb47ee1`
+finds no source `max-lines` directive. `node --check` accepts both executable
+audit scripts. This is a qualification of an already-resolved finding, with no
+line-limit change, source move, or new suppression.
 
 ## Checks
 
@@ -106,9 +107,9 @@ that run. The configured isolated hosted drill passed in run `34630569082`.
 Production-service interruption/restart behavior and final artifact-digest
 acceptance remain coordinator-owned evidence.
 
-The direct source audit also passed. `node --check` accepted both executable
-audit scripts, and the repository contains no `max-lines` suppression
-directive.
+The direct source audit also passed on the current integration tip. The locale
+parity check passed for desktop package locales, and the repository contains no
+`max-lines` suppression directive.
 
 The locale and suppression evidence is recorded in
 `docs/project8-locale-equality-review-2026-09-11.md` and this file. Live
