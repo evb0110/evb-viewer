@@ -386,6 +386,8 @@ describe('IPC registry sender trust', () => {
         await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
             .resolves.toBe(0);
         await expect(firstDispose()).resolves.toBeUndefined();
+        await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .rejects.toThrow('no longer active');
 
         const secondDispose = registerLazyPlatformFeature(
             ipcMain,
@@ -405,6 +407,146 @@ describe('IPC registry sender trust', () => {
         await expect(secondDispose()).resolves.toBeUndefined();
         expect(attempts).toBe(3);
         expect(mocks.scanCleanupDispose).toHaveBeenCalledTimes(2);
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('fences held requests and shares concurrent disposal completion', async () => {
+        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+        let resolveCreate!: (bindings: Record<string, unknown>) => void;
+        const createCompletion = new Promise<Record<string, unknown>>(resolve => {
+            resolveCreate = resolve;
+        });
+        const bindingCall = vi.fn(async () => 0);
+        const disposeBinding = vi.fn(async () => {
+            throw new Error('held disposal failed');
+        });
+        const handlers = new Map<string, TRegisteredHandler>();
+        const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
+            handlers.set(channel, handler);
+        });
+        const ipcMain = cast<Electron.IpcMain>({handle});
+        const descriptor = {
+            name: 'scan-cleanup-held-load-fixture',
+            kind: 'platform',
+            feature: SCAN_CLEANUP_PLATFORM_FEATURE,
+            disposeBindingKey: 'disposeScanCleanupMainBindings',
+            lifecycle: {
+                create: 'fixture',
+                ipcRegistration: 'fixture',
+                shutdown: 'fixture',
+            },
+            create: () => createCompletion,
+        } as never;
+        const dispose = registerLazyPlatformFeature(
+            ipcMain,
+            descriptor,
+            {agentService: mocks.agentService as never},
+        );
+        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+        const handler = handlers.get(channel);
+        expect(handler).toBeTypeOf('function');
+
+        const heldRequest = handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'));
+        await Promise.resolve();
+        const firstDisposal = dispose();
+        const secondDisposal = dispose();
+        expect(secondDisposal).toBe(firstDisposal);
+        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .rejects.toThrow('no longer active');
+
+        resolveCreate({
+            pruneGeneratedOutputs: bindingCall,
+            disposeScanCleanupMainBindings: disposeBinding,
+        });
+        await expect(heldRequest).rejects.toThrow('no longer active');
+        await expect(firstDisposal).rejects.toThrow('held disposal failed');
+        await expect(secondDisposal).rejects.toThrow('held disposal failed');
+        expect(bindingCall).not.toHaveBeenCalled();
+        expect(disposeBinding).toHaveBeenCalledOnce();
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('tombstones every channel when multi-channel registration rolls back partially', async () => {
+        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+        const handlers = new Map<string, TRegisteredHandler>();
+        const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
+            handlers.set(channel, handler);
+        });
+        const ipcMain = cast<Electron.IpcMain>({handle});
+        const firstChannel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+        const secondChannel = 'scan-cleanup:partial-rollback';
+        const firstDescriptor = {
+            name: 'partial-rollback-first',
+            kind: 'platform',
+            feature: SCAN_CLEANUP_PLATFORM_FEATURE,
+            lifecycle: {
+                create: 'fixture',
+                ipcRegistration: 'fixture',
+                shutdown: 'fixture',
+            },
+            create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
+        } as never;
+        registerLazyPlatformFeature(ipcMain, firstDescriptor, {agentService: mocks.agentService as never});
+
+        const partialFeature = {
+            ...SCAN_CLEANUP_PLATFORM_FEATURE,
+            invokeChannels: {
+                second: secondChannel,
+                first: firstChannel,
+            },
+            ipcCodecs: {
+                ...SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs,
+                [secondChannel]: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[firstChannel],
+            },
+        };
+        const partialDescriptor = {
+            name: 'partial-rollback',
+            kind: 'platform',
+            feature: partialFeature,
+            lifecycle: {
+                create: 'fixture',
+                ipcRegistration: 'fixture',
+                shutdown: 'fixture',
+            },
+            create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
+        } as never;
+        expect(() => registerLazyPlatformFeature(
+            ipcMain,
+            partialDescriptor,
+            {agentService: mocks.agentService as never},
+        )).toThrow('Duplicate lazy IPC handler');
+
+        const partialHandler = handlers.get(secondChannel);
+        expect(partialHandler).toBeTypeOf('function');
+        await expect(partialHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .rejects.toThrow('no longer active');
+
+        const recoveryFeature = {
+            ...SCAN_CLEANUP_PLATFORM_FEATURE,
+            methods: {pruneGeneratedOutputs: {
+                ...SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                channel: secondChannel,
+            }},
+            invokeChannels: {pruneGeneratedOutputs: secondChannel},
+            ipcCodecs: {[secondChannel]: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[firstChannel]},
+        };
+        const recoveryDescriptor = {
+            name: 'partial-rollback',
+            kind: 'platform',
+            feature: recoveryFeature,
+            lifecycle: {
+                create: 'fixture',
+                ipcRegistration: 'fixture',
+                shutdown: 'fixture',
+            },
+            create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
+        } as never;
+        const dispose = registerLazyPlatformFeature(
+            ipcMain,
+            recoveryDescriptor,
+            {agentService: mocks.agentService as never},
+        );
+        await expect(handlers.get(secondChannel)?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
+            .resolves.toBe(0);
+        await expect(dispose()).resolves.toBeUndefined();
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('rejects same-origin senders outside the configured renderer route', async () => {

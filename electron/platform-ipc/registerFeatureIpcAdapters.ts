@@ -82,6 +82,10 @@ function registerLazyValidatedFeature(
     const generation = {};
     const owners = lazyChannelOwners.get(ipcMain) ?? new Map<string, ILazyChannelOwner>();
     lazyChannelOwners.set(ipcMain, owners);
+    const ownedOwners: ILazyChannelOwner[] = [];
+    const rejectReleasedRequest: ILazyChannelOwner['dispatch'] = () => Promise.reject(
+        new Error(`Lazy IPC feature ${registrationKey} is no longer active`),
+    );
     const ensureLoaded = async () => {
         loading ??= load({handle: (channel, handler) => {
             if (handlers.has(channel)) throw new Error(`Duplicate lazy IPC handler: ${channel}`);
@@ -102,6 +106,9 @@ function registerLazyValidatedFeature(
     });
     const dispatch = async (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => {
         await ensureLoaded();
+        if (!ownedOwners.every(owner => owner.currentGeneration === generation)) {
+            throw new Error(`Lazy IPC feature ${registrationKey} is no longer active`);
+        }
         const channel = args.shift();
         if (typeof channel !== 'string') {
             throw new Error('Lazy IPC dispatch lost its channel identity');
@@ -110,7 +117,6 @@ function registerLazyValidatedFeature(
         if (!handler) throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
         return handler(event, ...args as never[]);
     };
-    const ownedOwners: ILazyChannelOwner[] = [];
     try {
         for (const channel of new Set(Object.values(channels))) {
             const existing = owners.get(channel);
@@ -138,6 +144,7 @@ function registerLazyValidatedFeature(
         for (const owner of ownedOwners) {
             if (owner.currentGeneration === generation) {
                 owner.currentGeneration = null;
+                owner.dispatch = rejectReleasedRequest;
             }
         }
         throw error;
@@ -160,6 +167,7 @@ function registerLazyValidatedFeature(
             for (const owner of ownedOwners) {
                 if (owner.currentGeneration === generation) {
                     owner.currentGeneration = null;
+                    owner.dispatch = rejectReleasedRequest;
                 }
             }
         },
@@ -186,52 +194,51 @@ export function registerLazyPlatformFeature(
             );
         },
     );
-    let disposed = false;
-    return async () => {
-        if (disposed) {
-            return;
-        }
-        disposed = true;
-        let loadError: unknown;
-        try {
-            await lazyRegistration.waitForLoad();
-        } catch (error) {
-            loadError = error;
-        }
-        let disposalError: unknown;
-        const disposer = descriptor.disposeBindingKey === undefined
-            ? undefined
-            : loadedBindings?.[descriptor.disposeBindingKey];
-        try {
-            if (descriptor.disposeBindingKey !== undefined
-                && loadError === undefined
-                && loadedBindings !== null
-                && typeof disposer !== 'function') {
-                throw new Error(
-                    `Feature ${descriptor.name} did not provide callable disposer ${descriptor.disposeBindingKey}`,
-                );
-            }
-            if (typeof disposer === 'function') {
-                await (disposer as () => Promise<void>)();
-            }
-        } catch (error) {
-            disposalError = error;
-        } finally {
-            loadedBindings = null;
+    let disposalPromise: Promise<void> | null = null;
+    return () => {
+        disposalPromise ??= (async () => {
             lazyRegistration.release();
-        }
-        if (loadError !== undefined) {
-            if (loadError instanceof Error) {
-                throw loadError;
+            let loadError: unknown;
+            try {
+                await lazyRegistration.waitForLoad();
+            } catch (error) {
+                loadError = error;
             }
-            throw new Error('Lazy feature load failed', {cause: loadError});
-        }
-        if (disposalError !== undefined) {
-            if (disposalError instanceof Error) {
-                throw disposalError;
+            let disposalError: unknown;
+            const disposer = descriptor.disposeBindingKey === undefined
+                ? undefined
+                : loadedBindings?.[descriptor.disposeBindingKey];
+            try {
+                if (descriptor.disposeBindingKey !== undefined
+                    && loadError === undefined
+                    && loadedBindings !== null
+                    && typeof disposer !== 'function') {
+                    throw new Error(
+                        `Feature ${descriptor.name} did not provide callable disposer ${descriptor.disposeBindingKey}`,
+                    );
+                }
+                if (typeof disposer === 'function') {
+                    await (disposer as () => Promise<void>)();
+                }
+            } catch (error) {
+                disposalError = error;
+            } finally {
+                loadedBindings = null;
             }
-            throw new Error('Feature binding disposal failed', {cause: disposalError});
-        }
+            if (loadError !== undefined) {
+                if (loadError instanceof Error) {
+                    throw loadError;
+                }
+                throw new Error('Lazy feature load failed', {cause: loadError});
+            }
+            if (disposalError !== undefined) {
+                if (disposalError instanceof Error) {
+                    throw disposalError;
+                }
+                throw new Error('Feature binding disposal failed', {cause: disposalError});
+            }
+        })();
+        return disposalPromise;
     };
 }
 
