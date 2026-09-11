@@ -418,4 +418,5 @@ describe('browserDjvuConversionPipeline', () => {
             getSaveTarget.mockRestore();
         }
     });
+
 });
