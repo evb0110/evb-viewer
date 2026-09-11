@@ -259,6 +259,31 @@ readback remain coordinator-owned evidence. Cargo's ignored target cache was
 updated; no source fixture or generated artifact was added, and the worktree
 remains clean.
 
+## Follow-up slot: scan numeric limits and split planning
+
+This slot started from `3e6af870f`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered the
+persisted numeric limits, raster budgeting, and split planning owned by
+#444-#446:
+
+```text
+pnpm exec vitest run \
+  tests/unit/contracts/scanCleanupSettings.test.ts \
+  tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts \
+  tests/unit/electron/scanCleanupPageBatches.test.ts \
+  tests/unit/electron/scanCleanupEffectiveOptions.test.ts \
+  tests/unit/electron/scanCleanupDetectionPlan.test.ts --reporter=dot
+
+5 files passed, 82 tests passed
+```
+
+The run covered persisted thickness normalization, native pixel guardrails,
+1,024-page batching, effective option limits, and split retry/planning
+boundaries. A real large-document conversion and cross-platform native
+readback remain coordinator-owned evidence. No new fixture or generated
+artifact was added. Temporary test state was cleaned by the existing suites,
+and the worktree remains clean.
+
 ## Follow-up slot: OCR rendered-page geometry
 
 This slot started from `2457060e5`, the current
