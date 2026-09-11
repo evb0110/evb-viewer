@@ -327,6 +327,14 @@ function createDocxExportFileCapability(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
 ): IDocxExportFileCapability {
     const invoke = async <TResult>(channel: string, ...args: unknown[]) => await ipcRenderer.invoke(channel, ...args) as TResult;
+    const beginDocxFileStream = (path: Parameters<IDocxExportFileCapability['beginDocxFileStream']>[0]) => invoke<IDocxExportStreamBeginResult>(DOCX_EXPORT_STREAM_CHANNELS.begin, assertAbsolutePath(path, 'beginDocxFileStream.path'));
+    const writeDocxFileStreamChunk = (sessionId: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[0], chunk: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[1]) => {
+        const checkedSessionId = requireSessionId(sessionId);
+        const checkedChunk = assertDocxExportChunk(chunk);
+        return invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.writeChunk, checkedSessionId, Uint8Array.from(checkedChunk));
+    };
+    const commitDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['commitDocxFileStream']>[0]) => invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.commit, requireSessionId(sessionId));
+    const cancelDocxFileStream = (sessionId: Parameters<IDocxExportFileCapability['cancelDocxFileStream']>[0]) => invoke<boolean>(DOCX_EXPORT_STREAM_CHANNELS.cancel, requireSessionId(sessionId));
     const writeDocxFileChunks = async (path: Parameters<IDocxExportFileCapability['writeDocxFileChunks']>[0], chunks: TDocxExportChunkSource, signal?: AbortSignal) => {
         const checkedPath = assertAbsolutePath(path, 'writeDocxFileChunks.path'); throwIfAborted(signal);
         const beginResult = await invoke<IDocxExportStreamBeginResult>(
@@ -384,7 +392,13 @@ function createDocxExportFileCapability(
             throw error;
         } finally { signal?.removeEventListener('abort', handleAbort); }
     };
-    return {writeDocxFileChunks};
+    return {
+        beginDocxFileStream,
+        writeDocxFileStreamChunk,
+        commitDocxFileStream,
+        cancelDocxFileStream,
+        writeDocxFileChunks,
+    };
 }
 
 function assertPositiveSafeInteger(value: unknown, fieldName: string) {

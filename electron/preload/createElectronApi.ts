@@ -571,7 +571,10 @@ export function createElectronApi(
         savePdfData: baseDocuments.savePdfData,
         savePdfDataChunks: baseDocuments.savePdfDataChunks,
         ...optionalDocumentFileMethods,
-        writeDocxFileChunks: baseDocuments.writeDocxFileChunks,
+        beginDocxFileStream: baseDocuments.beginDocxFileStream,
+        writeDocxFileStreamChunk: baseDocuments.writeDocxFileStreamChunk,
+        commitDocxFileStream: baseDocuments.commitDocxFileStream,
+        cancelDocxFileStream: baseDocuments.cancelDocxFileStream,
     } satisfies IDocumentsFileIoCapability & IDocxExportFileCapability;
     const documentPdf = {
         analyzePdfConformance: baseDocuments.analyzePdfConformance,

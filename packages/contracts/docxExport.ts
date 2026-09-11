@@ -5,11 +5,18 @@ import type {TSessionId} from '@contracts/shared';
 export type TDocxExportChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
 
 /** Optional file capability kept separate from the legacy all-at-once API. */
-export interface IDocxExportFileCapability {writeDocxFileChunks: (
-    path: TDocumentRef,
-    chunks: TDocxExportChunkSource,
-    signal?: AbortSignal,
-) => Promise<boolean>;}
+export interface IDocxExportFileCapability {
+    beginDocxFileStream: (path: TDocumentRef) => Promise<IDocxExportStreamBeginResult>;
+    writeDocxFileStreamChunk: (sessionId: TSessionId, chunk: Uint8Array) => Promise<boolean>;
+    commitDocxFileStream: (sessionId: TSessionId) => Promise<boolean>;
+    cancelDocxFileStream: (sessionId: TSessionId) => Promise<boolean>;
+    /** Kept for direct preload clients and existing unit fixtures, never exposed through contextBridge. */
+    writeDocxFileChunks?: (
+        path: TDocumentRef,
+        chunks: TDocxExportChunkSource,
+        signal?: AbortSignal,
+    ) => Promise<boolean>;
+}
 
 export const DOCX_EXPORT_STREAM_CHANNELS = {
     begin: 'file:writeDocx:stream:begin',
