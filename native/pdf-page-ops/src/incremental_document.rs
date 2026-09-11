@@ -19,6 +19,8 @@ const QPDF_STRUCTURE_TIMEOUT: Duration = Duration::from_secs(110);
 const QPDF_STALE_FILE_AGE: Duration = Duration::from_secs(10 * 60);
 const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
 static QPDF_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static TEST_QPDF_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // Keep this argument set compatible with the oldest qpdf shipped by the
 // supported Linux packaging image. qpdf 10 rejects the newer
 // --decode-level/--json-stream-data options; the JSON object section already
@@ -131,6 +133,13 @@ impl TempQpdfFiles {
 fn qpdf_temp_nonce() -> Result<String> {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let sequence = QPDF_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    Ok(format!("{}-{timestamp}-{sequence}", std::process::id()))
+}
+
+#[cfg(test)]
+fn test_qpdf_temp_nonce() -> Result<String> {
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let sequence = TEST_QPDF_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     Ok(format!("{}-{timestamp}-{sequence}", std::process::id()))
 }
 
@@ -1218,9 +1227,10 @@ mod tests {
     fn load_with_fake_qpdf(status: i32, structure: &str) -> Result<IncrementalDocument> {
         use std::os::unix::fs::PermissionsExt;
 
-        let nonce = qpdf_temp_nonce()?;
-        let input_path = std::env::temp_dir().join(format!("evb-qpdf-status-input-{nonce}.pdf"));
-        let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-status-command-{nonce}"));
+        let nonce = test_qpdf_temp_nonce()?;
+        let stem = format!("evb-qpdf-status-{}-{nonce}", std::process::id());
+        let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
+        let qpdf_path = std::env::temp_dir().join(format!("{stem}-command"));
 
         let mut input = Document::with_version("1.4");
         let catalog_id = input.add_object(dictionary! { "Type" => "Catalog" });
