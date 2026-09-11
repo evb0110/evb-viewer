@@ -189,6 +189,29 @@ viewer readback remain coordinator-owned platform evidence. No new fixture,
 PDF, screenshot, or telemetry artifact was generated. Temporary test paths
 were test-owned and cleaned up by the existing suites.
 
+## Follow-up slot: authoritative detection-store eviction
+
+This slot started from `2efcebc01`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #448
+through the workspace-session detection-store handoff:
+
+```text
+pnpm exec vitest run \
+  tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts \
+  -t "refuses an ink run for a selected page whose bounded detection record was evicted|reuses completed detection after authoritative reopen but invalidates it on settings change" \
+  --reporter=dot
+
+1 file passed, 2 tests passed, 79 tests skipped by name filter
+```
+
+The passing cases covered refusing an ink-aligned run when the selected page
+was evicted from the bounded detection record, and reusing completed detection
+after an authoritative reopen while invalidating it after a settings change.
+A full large-document detection and cleanup run remains coordinator-owned
+evidence. No new fixture, raster, screenshot, or telemetry artifact was
+generated. Test-owned session and temporary state were cleaned by the suite,
+and the worktree is clean.
+
 ## Follow-up slot: original witness recovery
 
 This slot started from `2a1737bd5`, the current
