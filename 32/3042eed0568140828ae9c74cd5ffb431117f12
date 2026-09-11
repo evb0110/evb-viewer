@@ -1,0 +1,19 @@
+docs/project8-text-box-pointer-acceptance-2026-09-11.md
+  s_e95abd168e6adf::t_3791562b578fea 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "323042eed0568140828ae9c74cd5ffb431117f12",
+  "prompts": {},
+  "sessions": {
+    "s_e95abd168e6adf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09167-fee0-7150-a974-1706aae47b66",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
