@@ -1,0 +1,32 @@
+tests/unit/electron/updates.test.ts
+  s_ee46735e87d8ec::t_34645542bf94b9 761
+  s_ee46735e87d8ec::t_cf91fcd9ec9f76 794,810,828
+  s_ee46735e87d8ec::t_2b659f6e6bcbc4 757-760,795-798
+  s_ee46735e87d8ec::t_ac44f79fb4f7ad 747-756,762-793,799-809,811-827,829,831-862
+  s_ee46735e87d8ec::t_e5b35176f3eef3 830
+  s_f8adcf939cc7fb::t_852a13987139d9 746
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "74614efa7d00dff7ff6eb840fb6b451cb91dbe59",
+  "prompts": {},
+  "sessions": {
+    "s_ee46735e87d8ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d74-8061-7522-8389-f177f5631442",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f8adcf939cc7fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-ba1c-72d2-b391-97f24f1ef5da",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
