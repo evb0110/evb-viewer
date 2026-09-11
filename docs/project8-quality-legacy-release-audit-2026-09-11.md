@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Source under review: `19830bd36` (`origin/project8/integration`)
+Source under review: `ad2ea1439` (`origin/project8/integration`)
 
 Tickets: [#521](https://github.com/evb0110/evb-viewer/issues/521),
 [#522](https://github.com/evb0110/evb-viewer/issues/522), and
@@ -51,6 +51,16 @@ The local mirror suite passed the publisher's upload, retry, conditional-write,
 drill-isolation, same-tag, and supplemental-asset cases. It does not prove a
 real GitHub promotion interruption or a restart against live service state.
 
+## Campaign disposition
+
+This document qualifies the already-delivered #521 workflow repair, records the
+remaining #522 transaction gap, and confirms the no-op state of #551 on the
+current integration base. The locale equality review in
+`docs/project8-locale-equality-review-2026-09-11.md` records the complete
+#547/#548 candidate inventory and the unchanged-value reasons. No workflow,
+release publisher, architecture checker, or runtime source was changed in this
+campaign.
+
 ## #551, stale suppression finding
 
 The three historical unexplained large-file suppressions are not present in the
@@ -68,7 +78,7 @@ move, or new suppression.
 
 ## Checks
 
-These existing checks passed:
+These existing checks passed on `ad2ea1439`:
 
 ```text
 pnpm exec vitest run tests/unit/scripts/publishReleaseMirror.test.ts tests/unit/scripts/releasePolicy.test.ts tests/unit/scripts/releaseStatus.test.ts tests/unit/scripts/ciTopologyPolicy.test.ts --reporter=dot
