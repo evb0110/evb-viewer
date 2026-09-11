@@ -34,7 +34,7 @@ was available here, not that the project is green.
 | `e2e-save-pipeline` | `pnpm run test:e2e:electron:save-pipeline` | Push/PR save-path integration and manual dispatch | Unknown |
 | `e2e-native-save-reopen` | Invoked by the save-pipeline script after `e2e-save-pipeline` | Save-pipeline command, not a separate workflow job | Unknown |
 | `e2e-xlarge-pdf` | `pnpm run test:e2e:electron:xlarge` | Manual dispatch and performance workflow | Unknown |
-| `e2e-search-match-scroll` | `pnpm run test:e2e:electron:search-match-scroll` | Package script only; no current CI workflow invocation found | Unknown, no automatic lane found |
+| `e2e-search-match-scroll` | `pnpm run test:e2e:electron:search-match-scroll` | Package script only; no current CI workflow invocation found | 1 file passed, 2 tests passed |
 
 ## Policy checks
 
@@ -73,3 +73,21 @@ This is local Chromium evidence for the configured browser project. Hosted
 exact-SHA CI remains the source for publication status, and native-dialog,
 installed-app, Windows, macOS, and production-deployment acceptance remain
 outside this VPS run.
+
+## Search-match scroll acceptance run
+
+The next feasible browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:search-match-scroll
+1 test file passed, 2 tests passed
+Duration: 118.09s
+```
+
+The command built and staged the Linux PDF-search native tool, built Electron,
+then ran the high-zoom xlarge search journey and the repeated-match navigation
+journey. Both scenarios passed. The native build gate also passed.
+
+This is local Linux Electron evidence. The package script has no automatic CI
+invocation in the current map, and hosted exact-SHA status, platform-specific
+acceptance, and any supplied production PDF replay remain external gaps.
