@@ -27,7 +27,7 @@ was available here, not that the project is green.
 | `e2e-regression` | `pnpm run test:e2e:electron:regression` | Changed app/Electron integration; manual dispatch | Unknown |
 | `e2e-blocking-smoke` | `pnpm run test:e2e:electron:blocking-smoke:headless` | Changed app/Electron push gate | 5 files passed, 41 tests passed, 5 skipped |
 | `e2e-draw-shapes` | `pnpm run test:e2e:electron:draw-shapes` | Manual dispatch | 1 file passed, 16 tests passed; 1 parity test failed |
-| `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | Unknown |
+| `e2e-large-pdf` | `pnpm run test:e2e:electron:large` | Manual dispatch and performance workflow | 3 files passed; 2 suites blocked by exact-fixture opt-in |
 | `e2e-rapid-navigation` | `pnpm run test:e2e:electron:rapid-navigation` | Manual dispatch | 2 files passed, 17 tests passed |
 | `e2e-visible-window` | `pnpm run test:e2e:electron:visible-window` | Manual dispatch | Unknown |
 | `e2e-quarantine` | `pnpm run test:e2e:electron:quarantine` | Manual dispatch | Unknown |
@@ -149,3 +149,26 @@ Disjoint fallback TODO: investigate the Electron versus Playwright stroke
 pixel-count delta, including the captured runtime metrics and viewport/device
 scale inputs, then rerun only the parity acceptance after the cause is fixed.
 Do not change the threshold to make this run green.
+
+## Large-PDF acceptance run
+
+The next browser-owned acceptance ran with its documented command:
+
+```text
+pnpm run test:e2e:electron:large
+3 test files passed, 4 tests passed, 2 skipped
+2 suites blocked at exact-fixture opt-in
+Duration: 114.96s
+```
+
+The page-operations artifact reused successfully and the native-preview and
+split-pane scenarios passed. The annotation-save and native-annotation-matrix
+suites failed closed before their tests because
+`EVB_EXACT_FIXTURE_PROFILE` was not set to an audited profile. This is not a
+green large-PDF acceptance result.
+
+Disjoint fallback TODO: obtain the coordinator-approved audited exact fixture
+profile (`auditedZaliznyak882`, `localZaliznyak882`, or
+`xlargeZaliznyak2646`), stage the matching fixture, and rerun the two blocked
+suites with that profile. Do not bypass the opt-in boundary or substitute a
+generated fixture for exact-fixture evidence.
