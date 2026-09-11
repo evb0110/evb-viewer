@@ -2,7 +2,7 @@
 
 Review date: 2026-09-11
 
-Reviewed source: `402d5371` (`origin/project8/integration`)
+Reviewed source: `ff9bcaf6` (`origin/project8/integration`)
 
 This receipt covers the requested continuation set: #333, #375-378,
 #420-423, #477-478, #521-522, and #526-568. It records what the integration
@@ -19,7 +19,10 @@ at exact source `6fad2304d43594046c86d83c5885a262dd24fe85`. The drill passed
 core promotion, both supplemental attachment passes, mirror verification, and
 cleanup, which deleted 19 isolated mirror objects and left no drill draft
 release. Production-service interruption/restart behavior and final artifact
-digests remain coordinator evidence. The disjoint fallback, #568, is covered by this receipt:
+digests remain coordinator evidence. The disjoint fallback, #551, is covered by this receipt:
+the current source has no `max-lines` suppression directive, both executable
+audit scripts pass `node --check`, and locale parity passes. The disjoint
+register issue #568 remains accounting evidence:
 all 60 supplemental recommendations retain an explicit disposition, linked
 owner or follow-up, and a concrete reason for no action where applicable. The
 register remains accounting evidence, not permission to create duplicate tests
@@ -35,10 +38,12 @@ to Done, and no duplicate implementation ticket or release drill was created.
 The unresolved rows remain visible through the Windows-runner and
 cross-service-reconciliation gaps below.
 
-The current integration CI run is `34631710760` for `402d5371b`. It was
-pending when this receipt was written. The separate configured publish-chain
-drill is terminal-successful in run `34630569082`; no terminal current-tip
-release artifact digest is claimed here.
+The current integration CI run is `34632985114` for `ff9bcaf6`. It is pending
+at receipt time, so no current-tip hosted pass is claimed. The prior run
+`34632522496` for `8652fce8` was cancelled before terminal quality acceptance.
+The separate configured publish-chain drill is terminal-successful in run
+`34630569082`; no terminal current-tip release artifact digest is claimed
+here.
 
 ## Source disposition
 
