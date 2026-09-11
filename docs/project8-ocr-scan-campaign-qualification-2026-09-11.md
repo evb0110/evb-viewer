@@ -239,6 +239,28 @@ coordinator-owned evidence. No new fixture, PDF, screenshot, or telemetry
 artifact was generated. Temporary test paths were cleaned up by the existing
 suites.
 
+## Follow-up slot: OCR rendered-page geometry
+
+This slot started from `2457060e5`, the current
+`origin/project8/integration` tip. The next bounded acceptance covered #424
+and #430 through real generated PDF fixtures and the preprocessing geometry
+owner:
+
+```text
+pnpm exec vitest run \
+  tests/unit/electron/ocrPdfAssembler.test.ts \
+  tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts --reporter=dot
+
+2 files passed, 32 tests passed
+```
+
+The run covered OCR word geometry at 0, 90, 180, and 270 degrees, a nonzero
+CropBox, a nonzero MediaBox origin, and composition of a preprocessing inverse
+transform with CropBox mapping. The full packaged save/reopen and independent
+renderer readback remain coordinator-owned evidence. No new fixture, PDF,
+screenshot, or telemetry artifact was generated. Temporary PDF paths were
+test-owned and cleaned up by the existing suites.
+
 ## Follow-up slot: bundled OCR model integrity
 
 This slot started from `6fad2304d`, the current
