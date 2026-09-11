@@ -57,6 +57,7 @@ let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
 let remoteWriteQueue = Promise.resolve();
 let pendingRemoteGlobalUpdate: IScanCleanupSettingsUpdateRequest | null = null;
 let pendingRemoteGlobalWrite: Promise<void> | null = null;
+let pendingRemoteGlobalWriteSettledFailure = false;
 let pendingRemoteGlobalRevision = 0;
 let persistenceRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let persistenceRetryAttempt = 0;
@@ -288,6 +289,7 @@ function queueRemoteUpdate(
     if (isGlobalPreferencesWrite) {
         pendingRemoteGlobalUpdate = request;
         pendingRemoteGlobalRevision = preferencesRevision;
+        pendingRemoteGlobalWriteSettledFailure = false;
     } else if (documentKey !== null && documentToken && documentVersion !== undefined) {
         pendingDocumentUpdates.set(documentKey, {
             request,
@@ -338,7 +340,7 @@ function queueRemoteUpdate(
             context: {},
         });
         if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
-            pendingRemoteGlobalWrite = null;
+            pendingRemoteGlobalWriteSettledFailure = true;
         }
         schedulePersistenceRetry();
         throw error;
@@ -487,6 +489,7 @@ export function flushScanCleanupPreferencesStore(): Promise<void> {
             && pendingRemoteGlobalRevision === pendingPreferencesRevision
             && isEqual(pendingRemoteGlobalUpdate, request)
             && pendingRemoteGlobalWrite !== null
+            && !pendingRemoteGlobalWriteSettledFailure
         ) {
             return pendingRemoteGlobalWrite ?? remoteWriteQueue;
         }
@@ -580,6 +583,10 @@ export function retryScanCleanupPreferences(): Promise<void> {
         if (persistenceRetryTimer !== null) {
             clearTimeout(persistenceRetryTimer);
             persistenceRetryTimer = null;
+        }
+        if (pendingRemoteGlobalWriteSettledFailure) {
+            pendingRemoteGlobalWrite = null;
+            pendingRemoteGlobalWriteSettledFailure = false;
         }
         await flushScanCleanupDocumentPreferencesStore();
         await flushScanCleanupPreferencesStore();
@@ -811,6 +818,7 @@ export function resetScanCleanupPreferencesStore() {
     pendingGlobalFields.clear();
     pendingRemoteGlobalUpdate = null;
     pendingRemoteGlobalWrite = null;
+    pendingRemoteGlobalWriteSettledFailure = false;
     pendingRemoteGlobalRevision = 0;
     persistenceRetryAttempt = 0;
     if (persistenceRetryTimer !== null) {
