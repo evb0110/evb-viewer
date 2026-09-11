@@ -1,0 +1,39 @@
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 347-360
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 890-893
+tests/e2e/electron/annotationControls.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 1-5,25,520-589,596-597,599
+  s_bfcd3c2ec84d8f::t_cc21c5b545d0eb 590-595,598
+tests/e2e/electron/drawShapeLifecycle.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 433-446,449,517-575,880-890,893-898,918,922-928,961
+tests/integration/browser/browserAnnotationSaveAcceptanceEntry.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 5,38,91,125,127
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 21,1246-1294
+  s_bfcd3c2ec84d8f::t_f984d25e8a7ecf 1295-1296
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 3657-3663
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_19cdd32cb6b595 1-4,6,163-168,180
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_8e99cd40d0e933 2140,2245
+tests/e2e/electron/savePipeline.e2e.test.ts
+  s_bfcd3c2ec84d8f::t_e52cbb53279376 515,517,535-538,551-616
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bec6664d07a56d818c897e25568bc5841b87de9c",
+  "prompts": {},
+  "sessions": {
+    "s_bfcd3c2ec84d8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d3c-2e36-7c60-81dd-110c27330f8b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
