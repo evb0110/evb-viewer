@@ -1,0 +1,269 @@
+.coderabbit.yaml
+  s_247a07a16a61fa::t_566e30582e3922 36,43,50,58,65,73
+.github/workflows/ci.yml
+  s_247a07a16a61fa::t_1a5bdd93762382 33-34,46,55,58,60,453,584
+.gitignore
+  s_247a07a16a61fa::t_8bb90402b4027d 23-26
+.husky/commit-msg
+  s_247a07a16a61fa::t_b36190e18f9054 1
+.husky/pre-commit
+  s_247a07a16a61fa::t_44744870477933 1
+.husky/pre-push
+  s_247a07a16a61fa::t_c351e584af4483 8
+AGENTS.md
+  s_247a07a16a61fa::t_b4a39720ce6777 1-101
+ARCHITECTURE.md
+  s_247a07a16a61fa::t_ba6b97a4eecfb3 1-146
+CLAUDE.md
+  s_247a07a16a61fa::t_d19e92acab5259 1-14
+CONTRIBUTING.md
+  s_247a07a16a61fa::t_ea3b7a388ae68b 3-37,41-43,53,70,74-75,96-97
+README.md
+  s_247a07a16a61fa::t_4815b179b9b90e 3-148
+app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy.ts
+  s_247a07a16a61fa::t_3834501451bb25 13
+docs/README.md
+  s_247a07a16a61fa::t_bfef63004ee20c 1-13
+docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md
+  s_247a07a16a61fa::t_d1b9f3ac55d959 7-10,28
+docs/architecture/adr/0003-notes-are-text-annotations.md
+  s_247a07a16a61fa::t_0d7079b7dcff7d 4,43
+docs/architecture/adr/0004-assistant-is-optional-with-provider-adapters.md
+  s_247a07a16a61fa::t_da0020572bd1b9 100,109
+docs/architecture/design-charter.md
+  s_247a07a16a61fa::t_7a28e6165b3948 12
+docs/architecture/pdf-viewer-architecture.md
+  s_247a07a16a61fa::t_200001dd46aa93 54,76,134
+docs/contributing/development.md
+  s_247a07a16a61fa::t_b1f20b962ea190 1-264
+docs/contributing/local-gates.md
+  s_247a07a16a61fa::t_8178684203455f 47-48,64,144
+docs/contributing/release-guardrails.md
+  s_247a07a16a61fa::t_2c15f5c263bc34 14,54,60,87
+docs/contributing/windows-tests/setup-and-repair.md
+  s_247a07a16a61fa::t_e5b33c4f795f20 265
+docs/internal/README.md
+  s_247a07a16a61fa::t_a7bef78e39da5d 1-9
+docs/internal/agents/domain.md
+  s_247a07a16a61fa::t_b6ff2326a43386 7-9,19-20,31,34-35,37-38,43
+docs/internal/agents/utm-windows-tests.md
+  s_247a07a16a61fa::t_11f266b4cd7d5d 138,141-142
+docs/internal/architecture-audit-2026-07-03.md
+  s_247a07a16a61fa::t_4f65e45cbf65d6 48
+docs/internal/architecture-audit-2026-07-23.md
+  s_247a07a16a61fa::t_107cb5b45c8476 193
+docs/internal/navigation-zoom-audit-2026-08-22-implementation-ledger.md
+  s_247a07a16a61fa::t_181e814f447953 5,275,335
+docs/internal/navigation-zoom-feature-audit-2026-08-22.md
+  s_247a07a16a61fa::t_ae7d99d6d345dd 284
+docs/internal/operations/sentry-agent-check.md
+  s_247a07a16a61fa::t_27b3481f120f7b 25
+docs/internal/operations/sentry-delivery-closure.md
+  s_247a07a16a61fa::t_fba0354e5e6533 1-47
+docs/internal/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_247a07a16a61fa::t_4004da72e71408 5,1259
+docs/internal/pdf-annotations-feature-audit-2026-08-22.md
+  s_247a07a16a61fa::t_9a59921b364fcd 16,631
+docs/internal/project6-324-ci-workflow-consolidation-20260908.md
+  s_247a07a16a61fa::t_5bca3b233705ca 79
+docs/internal/project6-325-binary-provenance-platform-inventory.md
+  s_247a07a16a61fa::t_cf7bad473b8f0c 176,217
+docs/internal/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_247a07a16a61fa::t_3db864ad169a24 156
+docs/internal/reliability/large-document-audit-ledger-2026-08-27.md
+  s_247a07a16a61fa::t_57d3606a2cc591 96,296
+docs/internal/reliability/static-breaking-points-audit-2026-08-31.md
+  s_247a07a16a61fa::t_1fca074bd15828 56,60,608
+docs/internal/reliability/whole-repo-program-ledger-2026-08-21.md
+  s_247a07a16a61fa::t_2669f40914dbf2 88
+docs/internal/research/annotation-system-rework-2026-09-08.md
+  s_247a07a16a61fa::t_1d6767ff0074d6 15-16
+docs/internal/research/pdf-engine-architecture-assessment-2026-08-30.md
+  s_247a07a16a61fa::t_f6c87830c48b1b 3
+docs/internal/research/pdf-engine-strategy-assessment-2026-08-30.md
+  s_247a07a16a61fa::t_5580537fdf897f 3,48,50,54,60-67,69-71,73,97,99,113,119,125,136-137,140,154,183,201,203,259,261,269,285,415-421,442-443,447
+docs/internal/research/pdfjs-dependency-cost-assessment-2026-08-30.md
+  s_247a07a16a61fa::t_ddb319bb868980 3,167,325-328
+docs/internal/research/pdfjs-source-fork-build-2026-08-30.md
+  s_247a07a16a61fa::t_e7d383fed08f3e 27,70
+docs/internal/research/rust-pdf-engine-rewrite-feasibility-2026-08-30.md
+  s_247a07a16a61fa::t_30c4a1f333659c 3,134,561-562
+docs/internal/research/sentry-opt-out-diagnostics-2026-09-01.md
+  s_247a07a16a61fa::t_7333c8d67ea9b9 17
+docs/internal/research/stale-revision-xlarge-search-2026-09-02.md
+  s_247a07a16a61fa::t_15460cccec002a 22,34,38,40,42,44,58-64,68,72,74,82-87,93-99,159
+docs/internal/research/stress-test-automation-implementation-ledger-2026-09-04.md
+  s_247a07a16a61fa::t_4616bbca13e4f6 20,95
+docs/internal/research/stress-test-automation-plan-2026-09-04.md
+  s_247a07a16a61fa::t_eb116638c3ad23 7,205
+docs/internal/research/utm-windows-autotest-plan-2026-09-04.md
+  s_247a07a16a61fa::t_2d08f4204f0e06 104,324,404,426,430-435,443-455,457-461,543
+docs/internal/research/xlarge-document-path-architecture-2026-08-27.md
+  s_247a07a16a61fa::t_5723ac8ddb22a3 23
+docs/internal/scan-cleanup-feature-audit-2026-08-22.md
+  s_247a07a16a61fa::t_32653d99cd577b 335
+docs/internal/scan-cleanup/audit-2026-08-14/COMPLETENESS-CRITIC.md
+  s_247a07a16a61fa::t_5e8ea95386a3e7 124
+docs/internal/scan-cleanup/audit-2026-08-15-corrections.md
+  s_247a07a16a61fa::t_96a372dafb97a8 305
+docs/internal/scan-cleanup/audit-2026-08-15-corrective.md
+  s_247a07a16a61fa::t_d8d583b16ef61b 313,326,442,450,455,679,764,766
+docs/internal/scan-cleanup/audit-2026-08-22-implementation-ledger.md
+  s_247a07a16a61fa::t_c01c5420a89f07 5
+docs/internal/scan-cleanup/audit-2026-08-22-verification-ledger.md
+  s_247a07a16a61fa::t_6e44925a39e4ad 20,316
+docs/internal/scan-cleanup/process/DEV-VALIDATION-APPROACH-2026-08-14.md
+  s_247a07a16a61fa::t_38f3f1d7e415c6 12,272,467
+docs/internal/scan-cleanup/process/LEDGER-2026-08-14-process-v2.md
+  s_247a07a16a61fa::t_5ef682eb824b09 7,494,823
+docs/internal/scan-cleanup/process/REMAINING-PROBLEMS-CLOSURE-2026-08-16.md
+  s_247a07a16a61fa::t_feec03a335b472 44
+docs/internal/scan-cleanup/process/reviews/round4-sol-xhigh.md
+  s_247a07a16a61fa::t_f97882e1df4580 49,209
+docs/internal/sentry-error-telemetry-ledger-2026-09-01.md
+  s_247a07a16a61fa::t_6e12bb9d559adb 94
+docs/internal/sentry-implementation-ledger-2026-09-01.md
+  s_247a07a16a61fa::t_22a5960a879549 7-8,251,254,333,523,1165,1297,1726,1771
+docs/user/assistant.md
+  s_247a07a16a61fa::t_9b48e99fc15bd7 1-113
+docs/user/formats-and-languages.md
+  s_247a07a16a61fa::t_dfc6fb080348e0 1-79
+docs/user/mcp-clients.md
+  s_247a07a16a61fa::t_5a29655138676c 1-53
+electron/bootstrap/externalOpen.ts
+  s_247a07a16a61fa::t_f00b1123f41f3c 3-7,31-36,99-108,164,245-246,534,543-553,560
+electron/bootstrap/mainProcess.ts
+  s_247a07a16a61fa::t_8bf84b8e3ba1a2 460,465-466,468,472-476,709,711,715-718
+electron/features/agent/assistantService.ts
+  s_247a07a16a61fa::t_b86ce2b4f5e3f6 110-111
+electron/features/djvu/main/djvuArtifactManifest.ts
+  s_247a07a16a61fa::t_4c4bcef8849f2c 80-81
+electron/features/djvu/main/pdfWorkerClient.ts
+  s_247a07a16a61fa::t_67f12a702a930d 29-30
+electron/features/ocr/contracts.ts
+  s_247a07a16a61fa::t_b4c167a478b61e 176
+electron/features/ocr/main/ocrCatalogV4.ts
+  s_247a07a16a61fa::t_72a32b367d09d5 147
+electron/features/search/main/searchErrors.ts
+  s_247a07a16a61fa::t_fbc695815e6549 24
+electron/native-tools/runNativeCommand.ts
+  s_247a07a16a61fa::t_63303c06d0c516 311
+electron/tsconfig.json
+  s_247a07a16a61fa::t_3cd947b2187c94 2
+electron/unhandledRejectionRecovery.ts
+  s_247a07a16a61fa::t_1d229ec0ffa206 7-8,18,24,27,31,35,39,43,47-88,90-93,97,109
+landing/app/locales/de.ts
+  s_247a07a16a61fa::t_7d9b4ad7c95c1b 4,29,32-35,149-151
+landing/app/locales/en.ts
+  s_247a07a16a61fa::t_650a085ce0558a 4,29,32-35,149-151
+landing/app/locales/es.ts
+  s_247a07a16a61fa::t_5c31707b9c42bb 4,29,32-35,149-151
+landing/app/locales/fr.ts
+  s_247a07a16a61fa::t_86cee6f1662057 4,29,32-35,149-151
+landing/app/locales/it.ts
+  s_247a07a16a61fa::t_97004792b27d1b 4,29,32-35,149-151
+landing/app/locales/nl.ts
+  s_247a07a16a61fa::t_51b717783ae35c 4,29,32-35,149-151
+landing/app/locales/pt.ts
+  s_247a07a16a61fa::t_02c8a53febccf3 4,29,32-35,149-151
+landing/app/locales/ptBr.ts
+  s_247a07a16a61fa::t_83d4617ca174b2 4,29,32-35,149-151
+landing/app/locales/ru.ts
+  s_247a07a16a61fa::t_2e60b2e267f57b 4,29,32-35,149-151
+native/Cargo.toml
+  s_247a07a16a61fa::t_6b8f1b8f9725d5 29
+native/deny.toml
+  s_247a07a16a61fa::t_d08edcba580ac4 2-5
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_247a07a16a61fa::t_26337f6d5367a0 642
+packages/contracts/tsconfig.json
+  s_247a07a16a61fa::t_5c46adbfac1d95 3
+packages/i18n-app/tsconfig.json
+  s_247a07a16a61fa::t_b7ee7d3f14a9b3 3
+packages/i18n-core/tsconfig.json
+  s_247a07a16a61fa::t_339b8d4e585fb4 3
+packages/node-runtime/tsconfig.json
+  s_247a07a16a61fa::t_4bfa6640b2be21 3
+packages/pdf-core/tsconfig.json
+  s_247a07a16a61fa::t_f30f7271ebfbe4 3
+packages/release-selection/tsconfig.json
+  s_247a07a16a61fa::t_6c6b15305702b6 3
+packages/scan-cleanup/tsconfig.json
+  s_247a07a16a61fa::t_3d39dff458b068 3
+scripts/check-dev-environment.mjs
+  s_247a07a16a61fa::t_36024e93620561 304
+scripts/check-publication-policy.mjs
+  s_247a07a16a61fa::t_eebd296d4b3726 27-28,395,403-404,481
+scripts/diagnostics/README.md
+  s_247a07a16a61fa::t_77784de5c0cc7b 347
+scripts/lib/added-checks.mjs
+  s_247a07a16a61fa::t_efa706ffb45232 13-14
+scripts/lib/local-artifact-policy.mjs
+  s_247a07a16a61fa::t_a3b77709f5ee37 7,22-31,158-163,183-190
+scripts/release/policy.mjs
+  s_247a07a16a61fa::t_20834da526a627 2
+scripts/release/shared.mjs
+  s_247a07a16a61fa::t_af3026c42bc1e4 650,741
+scripts/stress/README.md
+  s_247a07a16a61fa::t_94f902b364d5e6 10,56,143
+scripts/stress/stressCliOptions.ts
+  s_247a07a16a61fa::t_d3bfbd6c8eeee2 41
+scripts/test-ocr-quality-corpus.mjs
+  s_247a07a16a61fa::t_b963cfb2b015bd 99
+scripts/validation-gates.mjs
+  s_247a07a16a61fa::t_badcce3dcccb28 35
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_247a07a16a61fa::t_2c2a0f794b03bf 54
+scripts/windows-test/host/doctor.ts
+  s_247a07a16a61fa::t_ae61f69041d061 249,432
+scripts/windows-test/host/hostConfig.ts
+  s_247a07a16a61fa::t_954466b232c978 236
+tests/helpers/ocrWorkerPipelineHarness.ts
+  s_247a07a16a61fa::t_088088ca101de8 35
+tests/unit/electron/externalOpen.test.ts
+  s_247a07a16a61fa::t_c52b754c498f27 8,198-199,202,204,208-217,461-480
+tests/unit/electron/helpers/createRealWorkerProtocolHarness.ts
+  s_247a07a16a61fa::t_07f7ff9ceb5415 60
+tests/unit/electron/nativeRunCommand.test.ts
+  s_247a07a16a61fa::t_8294dfb9d938e2 262,283-301
+tests/unit/electron/ocrDocs.test.ts
+  s_247a07a16a61fa::t_7a6ff2f8d404b8 88,91
+tests/unit/electron/unhandledRejectionRecovery.test.ts
+  s_247a07a16a61fa::t_b7613da490230b 19,23-34,84,104,107
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_247a07a16a61fa::t_4933b471382bd7 239,245,280
+tests/unit/scripts/localArtifactPolicy.test.ts
+  s_247a07a16a61fa::t_45d55a2cec585c 12,49-52,62-66,162-163,166,177
+tests/unit/scripts/publicationPolicy.test.ts
+  s_247a07a16a61fa::t_c7ea304b808137 33,50-51,205,210,216-218,317,322,326,518,538,550,556,629,639,881,970,977,991-994,1020
+tests/unit/scripts/releasePolicy.test.ts
+  s_247a07a16a61fa::t_d6b3ca5c5cdc89 961,991,1102,1157,1257
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_247a07a16a61fa::t_983fc2700ef318 437
+tests/unit/scripts/windows-test/changeSelector.test.ts
+  s_247a07a16a61fa::t_d80059bcf7eef0 95
+tsconfig.base.json
+  s_247a07a16a61fa::t_5a209ae7c760f9 15-39
+tsconfig.json
+  s_247a07a16a61fa::t_ddc87bca2bdf4e 6
+tsconfig.scripts-js.json
+  s_247a07a16a61fa::t_4928fc64ff2b0f 2,14-15,17-83
+tsconfig.scripts.json
+  s_247a07a16a61fa::t_5bb7f21231d285 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "14f407c1fcd4408e672a5b7229a106ea08747452",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
