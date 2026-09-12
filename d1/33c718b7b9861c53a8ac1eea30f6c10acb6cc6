@@ -1,0 +1,41 @@
+electron/bootstrap/runInitSequence.ts
+  s_7ad60803b20ed8::t_4f4f1a532985b4 23
+electron/updates.ts
+  s_7ad60803b20ed8::t_8317fbdc3ab133 95-97
+  s_7ad60803b20ed8::t_1f837295e4a79c 104-106,1110
+  s_7ad60803b20ed8::t_4f4f1a532985b4 1102-1105
+  s_7ad60803b20ed8::t_3f096c70646a99 98-103,1108
+  s_247a07a16a61fa::t_dec482f8efd9b2 107-108,123,1106-1107,1109,1111
+tests/unit/electron/updates.test.ts
+  s_7ad60803b20ed8::t_33a453d5f989bb 981,992,1000-1001,1142,1183,1187-1188
+  s_7ad60803b20ed8::t_7fdc28efe2f87f 974-980
+  s_7ad60803b20ed8::t_88d8730bd7fc92 1003-1006
+electron/bootstrap/shutdown.ts
+  s_7ad60803b20ed8::t_3f096c70646a99 165
+  s_7ad60803b20ed8::t_407b08e038589d 270
+  s_7ad60803b20ed8::t_4f4f1a532985b4 47,284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d133c718b7b9861c53a8ac1eea30f6c10acb6cc6",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_7ad60803b20ed8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094c3-1c49-7682-ab7a-44e25f8a0c13",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
