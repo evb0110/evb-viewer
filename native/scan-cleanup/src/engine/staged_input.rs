@@ -312,6 +312,7 @@ pub(crate) fn materialize_stream_page(
     if let Err(error) = copy_result {
         let _ = fs::remove_file(&temporary_input);
         let code = match &error {
+            BoundedIoError::ConnectTimeout => NativeErrorCode::Timeout,
             BoundedIoError::TooLarge { .. } => NativeErrorCode::TooLarge,
             BoundedIoError::Canceled | BoundedIoError::Io(_) => NativeErrorCode::Io,
         };
