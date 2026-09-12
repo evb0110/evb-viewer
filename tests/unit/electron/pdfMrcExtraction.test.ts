@@ -175,6 +175,13 @@ describe('batched PDF MRC extraction', () => {
             1,
         ]);
         expect(peakListings).toBe(2);
+        // A malformed PDF can make either tool spin, and the stage has no other
+        // end condition when the caller passes no signal.
+        expect(runCommand.mock.calls.every(([
+            ,
+            ,
+            options,
+        ]) => (options?.timeoutMs ?? 0) > 0)).toBe(true);
         expect(runCommand.mock.calls.some(([
             ,
             args,

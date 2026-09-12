@@ -24,6 +24,14 @@ import {
     encode as encodePng,
 } from 'fast-png';
 
+// A malformed PDF can make pdfimages or qpdf spin forever, and the extraction
+// stage has no other end condition when the caller passes no signal. The
+// listing ceiling covers metadata probes, which read structure and decode no
+// image; the extraction ceiling matches the whole-document ceiling the rest of
+// the package uses, so a legitimately slow large book still finishes.
+const MRC_LISTING_TIMEOUT_MS = 2 * 60 * 1000;
+const MRC_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
+
 interface IPdfImagesRow {
     bitsPerComponent: number;
     dpi: number;
@@ -195,6 +203,7 @@ async function queryQpdfObjects(input: {
         {
             ...input.commandOptions,
             commandLabel: `qpdf(MRC-mask-dictionaries,objects=${String(selectors.length)})`,
+            timeoutMs: MRC_LISTING_TIMEOUT_MS,
             // A batch's worth of image dictionaries is kilobytes; this ceiling
             // only exists so a pathological dictionary fails loudly instead of
             // parsing truncated JSON as a syntax error.
@@ -428,6 +437,7 @@ export async function extractPdfMrcLayersBatch(input: {
     const pdfimagesBinary = input.pdfimagesBinary;
     const commandOptions = {
         log: input.log,
+        timeoutMs: MRC_EXTRACTION_TIMEOUT_MS,
         ...(input.signal === undefined ? {} : {signal: input.signal}),
     };
     let completedPages = 0;
@@ -481,6 +491,7 @@ export async function extractPdfMrcLayersBatch(input: {
                         {
                             ...commandOptions,
                             commandLabel: `pdfimages(MRC-batch-list,pages=${String(firstPage)}-${String(lastPage)})`,
+                            timeoutMs: MRC_LISTING_TIMEOUT_MS,
                         },
                     );
                     const rows = parsePdfImagesRows(listing.stdout);
@@ -715,6 +726,7 @@ export async function extractPdfMrcLayers(input: {
     ];
     const commandOptions = {
         log: input.log,
+        timeoutMs: MRC_EXTRACTION_TIMEOUT_MS,
         ...(input.signal === undefined ? {} : {signal: input.signal}),
     };
     const listing = await input.runCommand(
@@ -727,6 +739,7 @@ export async function extractPdfMrcLayers(input: {
         {
             ...commandOptions,
             commandLabel: `pdfimages(MRC-list,page=${String(input.pageNumber)})`,
+            timeoutMs: MRC_LISTING_TIMEOUT_MS,
         },
     );
     const rows = parsePdfImagesRows(listing.stdout);
