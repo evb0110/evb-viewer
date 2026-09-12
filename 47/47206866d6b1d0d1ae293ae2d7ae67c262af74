@@ -1,0 +1,43 @@
+electron/file-access/recoverTwoTargetDocumentTransition.ts
+  s_247a07a16a61fa::t_02f82968135370 19-20,49,53,56-60,64,67,70,75-78,81,88,92-94,96,102,107,113
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_247a07a16a61fa::t_02f82968135370 20-25,60,64,77,79-80,82,99,105-107,114,119-140,142,144,154-157,168,183,185-186
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_247a07a16a61fa::t_02f82968135370 334
+electron/file-access/documentRevisionStore.ts
+  s_247a07a16a61fa::t_02f82968135370 62,436,635,642,651,656-657,670
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_247a07a16a61fa::t_02f82968135370 234,237-238,241,245-246
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_247a07a16a61fa::t_02f82968135370 13,94,96
+electron/features/documents/main/documentSave.service.ts
+  s_247a07a16a61fa::t_02f82968135370 41,47-50,83-84,163-174,252-253,255-261
+electron/file-access/workingCopyCreation.ts
+  s_247a07a16a61fa::t_02f82968135370 418
+tests/unit/electron/workingCopyCleanup.test.ts
+  s_247a07a16a61fa::t_02f82968135370 224
+tests/unit/electron/workingCopySave.test.ts
+  s_247a07a16a61fa::t_02f82968135370 458
+electron/file-access/workingCopyCleanup.ts
+  s_247a07a16a61fa::t_02f82968135370 260
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_247a07a16a61fa::t_02f82968135370 84,89,726-730,732-736,738-743
+electron/features/documents/main/workingCopySave.ts
+  s_247a07a16a61fa::t_02f82968135370 33,42,49,403-406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4747206866d6b1d0d1ae293ae2d7ae67c262af74",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
