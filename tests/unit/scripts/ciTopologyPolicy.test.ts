@@ -24,6 +24,7 @@ import {
 } from 'yaml-eslint-parser';
 
 interface IWorkflowStep {
+    id?: string;
     'continue-on-error'?: boolean | string;
     env?: Record<string, unknown>;
     if?: string;
