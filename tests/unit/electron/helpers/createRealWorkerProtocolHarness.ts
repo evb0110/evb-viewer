@@ -57,7 +57,7 @@ export async function createRealWorkerProtocolHarness(options: {
         format: 'cjs',
         platform: 'node',
         target: 'node22',
-        tsconfig: resolve(process.cwd(), 'tsconfig.workspace-paths.json'),
+        tsconfig: resolve(process.cwd(), 'tsconfig.base.json'),
         write: false,
         stdin: {
             contents: source,

@@ -21,6 +21,7 @@ function trimSearchErrorDetails(details: string) {
 export class SearchIpcError extends Error implements ISearchErrorEnvelopeCarrier {
     readonly errorEnvelope: ISearchErrorEnvelope;
     readonly code: TSearchErrorCode;
+    readonly subsystem = 'search';
 
     constructor(envelope: ISearchErrorEnvelope) {
         super(encodeSerializableErrorEnvelope(envelope));

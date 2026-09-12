@@ -10,8 +10,8 @@
 // it, and each one made CI slower and less trustworthy in the past. Fix the
 // flake or delete the check; tolerating it needs the user's words too.
 //
-// The commit-msg hook, the pre-push hook, and the CI attribution job all run
-// this through `check-commit-attribution.mjs`.
+// The commit-msg hook, the pre-push hook, and the CI publication-policy job all run
+// this through `check-publication-policy.mjs`.
 
 import {spawnSync} from 'node:child_process';
 

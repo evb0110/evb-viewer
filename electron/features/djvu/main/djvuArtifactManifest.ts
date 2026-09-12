@@ -77,6 +77,8 @@ export interface IDjvuArtifactVerification {
 }
 
 class DjvuDiskQuotaError extends Error {
+    readonly subsystem = 'djvu';
+
     constructor(message: string) {
         super(`DjVu disk quota exceeded: ${message}`);
         this.name = 'DjvuDiskQuotaError';

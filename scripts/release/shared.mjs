@@ -647,7 +647,7 @@ export function assertVersionOnlyPackageCommit(parentSha, commitSha, {
 
 // Resolved from this module, so the gate does not depend on the caller's cwd.
 export const PUBLICATION_POLICY_SCRIPT = fileURLToPath(
-    new URL('../check-commit-attribution.mjs', import.meta.url),
+    new URL('../check-publication-policy.mjs', import.meta.url),
 );
 
 /**
@@ -738,7 +738,7 @@ export function assertUpstreamBeforeShaPresent(beforeSha, {
  *
  * Every release entry point runs with `HUSKY=0`, so the pre-push hook never sees
  * these pushes, and the version-bump commit `cut-release` creates carries
- * `[skip ci]`, so the CI attribution job does not see it either. This scan is
+ * `[skip ci]`, so the CI publication-policy job does not see it either. This scan is
  * therefore the only check standing between the local branch and the public one.
  * A failing scan throws out of here, so the push — and any dispatch a caller
  * would run afterwards — cannot happen.

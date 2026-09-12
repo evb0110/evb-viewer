@@ -1,1 +1,1 @@
-node scripts/check-commit-attribution.mjs --message-file "$1"
+node scripts/check-publication-policy.mjs --message-file "$1"

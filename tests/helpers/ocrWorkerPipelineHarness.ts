@@ -32,7 +32,7 @@ async function buildWorkerBundle(root: string) {
         format: 'cjs',
         platform: 'node',
         target: 'node22',
-        tsconfig: resolve('tsconfig.workspace-paths.json'),
+        tsconfig: resolve('tsconfig.base.json'),
         write: false,
     });
     const output = result.outputFiles[0]?.contents;

@@ -236,13 +236,13 @@ describe('changed-area classifier', () => {
             'tests/helpers/pdfAnnotationCommentsListHarness.ts',
             'tests/setup.ts',
             'tests/setupApp.ts',
-            'tsconfig.workspace-paths.json',
+            'tsconfig.base.json',
         ]) {
             expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(true);
         }
 
         for (const file of [
-            'docs/releasing.md',
+            'docs/contributing/releasing.md',
             'electron/main.ts',
             'landing/app/pages/index.vue',
             'native/pdf-search/src/main.rs',
@@ -277,7 +277,7 @@ describe('changed-area classifier', () => {
         }
 
         for (const file of [
-            'docs/releasing.md',
+            'docs/contributing/releasing.md',
             'electron/updater.ts',
             'landing/app/pages/index.vue',
             'native/pdf-search/src/main.rs',

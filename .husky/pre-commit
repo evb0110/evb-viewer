@@ -1,2 +1,2 @@
-node scripts/check-commit-attribution.mjs --staged
+node scripts/check-publication-policy.mjs --staged
 pnpm exec lint-staged
