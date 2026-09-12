@@ -1,0 +1,23 @@
+tests/unit/scripts/wasmFreshness.test.ts
+  s_ae757872e5d914::t_128063437da7a2 92
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_ae757872e5d914::t_128063437da7a2 1386-1393
+native/scan-cleanup/src/engine/staged_input.rs
+  s_ae757872e5d914::t_acaa0d44cb787e 704-709
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ed1df865e1257a08ead5edb7605d9d70a2dfae41",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
