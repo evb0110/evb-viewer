@@ -304,16 +304,20 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         intent: IPrintDialogSubmitPayload,
         action: 'default' | 'current-page' = 'default',
     ): IPrintRunOwner | null {
+        if (printScopeDisposed) {
+            return null;
+        }
         if (isPreparingPrint.value) {
             showPreparingPrintToast();
             return null;
         }
 
         const abortController = new AbortController();
+        const sourcePdf = deps.sourcePdf.value;
         const owner: IPrintRunOwner = {
             runId: ++nextPrintRunId,
             abortController,
-            sourcePdf: deps.sourcePdf.value,
+            sourcePdf: isPathPdfSource(sourcePdf) ? {...sourcePdf} : sourcePdf,
             workingCopyPath: deps.workingCopyPath.value,
             fileName: deps.fileName.value,
             totalPages: deps.totalPages.value,
@@ -352,20 +356,22 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             && owner.totalPages === deps.totalPages.value;
     }
 
+    function isPrintRunCurrent(owner: IPrintRunOwner) {
+        return !printScopeDisposed
+            && activePrintAbortController === owner.abortController
+            && !owner.abortController.signal.aborted
+            && isSamePrintSource(owner);
+    }
+
     function assertPrintRunCurrent(owner: IPrintRunOwner) {
-        if (
-            printScopeDisposed
-            || activePrintAbortController !== owner.abortController
-            || !isSamePrintSource(owner)
-        ) {
+        if (!isPrintRunCurrent(owner)) {
             owner.abortController.abort();
             throw createPrintAbortError();
         }
-        throwIfPrintAborted(owner.abortController.signal);
     }
 
-    function reportPrintError(error: unknown, reopenDialogOnError: boolean | undefined) {
-        if (isPrintAbortError(error)) {
+    function reportPrintError(error: unknown, reopenDialogOnError: boolean | undefined, owner: IPrintRunOwner) {
+        if (!isPrintRunCurrent(owner) || isPrintAbortError(error)) {
             return;
         }
         const localizedError = error instanceof Error && getErrorMessage(error)
@@ -531,7 +537,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 printOwner,
             });
         } catch (error) {
-            reportPrintError(error, false);
+            reportPrintError(error, false, printOwner);
         } finally {
             finishPrintRun(printOwner);
         }
@@ -800,7 +806,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         ) {
             const requestId = createNativePrintRequestId();
             const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
-                if (event.requestId === requestId) {
+                if (event.requestId === requestId && (!printRunOwner || isPrintRunCurrent(printRunOwner))) {
                     clearPreparingPrintToast();
                 }
             });
@@ -990,7 +996,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         showPreparingPrintToast();
         const requestId = createNativePrintRequestId();
         const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
-            if (event.requestId === requestId) {
+            if (event.requestId === requestId && (!printRunOwner || isPrintRunCurrent(printRunOwner))) {
                 clearPreparingPrintToast();
             }
         });
@@ -1104,6 +1110,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 const driverResult = await deps.preparePrintSource(payload, {
                     signal,
                     onNativePrintHandoffStart: () => {
+                        if (!isPrintRunCurrent(printOwner)) {
+                            return;
+                        }
                         nativePrintHandoff.started = true;
                         closePrintDialogForSystemDialog();
                     },
@@ -1191,7 +1200,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             if (isPrintAbortError(error)) {
                 return;
             }
-            reportPrintError(error, options.reopenDialogOnError);
+            reportPrintError(error, options.reopenDialogOnError, printOwner);
         } finally {
             finishPrintRun(printOwner);
         }
