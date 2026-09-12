@@ -847,6 +847,7 @@ void runInitSequence({
     logger,
     loadSettings,
     logStartupPhase: startupTrace.log,
+    onPrimaryInstanceReady: startupCrashMarker.markPrimaryInstanceReady,
     markWindowRendererReady: (windowId) => {
         markWindowRendererReady(windowId);
         if (windowId !== getRegisteredMainWindow()?.id) {

@@ -27,6 +27,8 @@ describe('runInitSequence external open IPC', () => {
         hasWindows?: boolean;
         initRecentFilesCache?: () => Promise<void>;
         isPackaged?: boolean;
+        onPrimaryInstanceReady?: () => void;
+        singleInstanceLock?: boolean;
     } = {}) {
         const app = new EventEmitter() as EventEmitter & {
             dock?: { hide: () => void; };
@@ -42,7 +44,8 @@ describe('runInitSequence external open IPC', () => {
         app.getVersion = vi.fn(() => options.appVersion ?? '1.0.0');
         app.hide = vi.fn();
         app.quit = vi.fn();
-        app.requestSingleInstanceLock = vi.fn(() => true);
+        const requestSingleInstanceLock = vi.fn(() => options.singleInstanceLock ?? true);
+        app.requestSingleInstanceLock = requestSingleInstanceLock;
         app.setAboutPanelOptions = vi.fn();
         app.whenReady = vi.fn(async () => {});
 
@@ -129,6 +132,7 @@ describe('runInitSequence external open IPC', () => {
             loadSettings,
             logStartupPhase: vi.fn(),
             markWindowRendererReady: vi.fn(),
+            onPrimaryInstanceReady: options.onPrimaryInstanceReady ?? vi.fn(),
             markWindowTabTransferNotReady: vi.fn(),
             markWindowTabTransferReady: vi.fn(),
             markWindowTabTransferWindowClosed: vi.fn(),
@@ -163,6 +167,7 @@ describe('runInitSequence external open IPC', () => {
             initRecentFilesCache,
             loadSettings,
             pruneStaleDjvuArtifactJobs,
+            requestSingleInstanceLock,
             setupMenu,
             shutdownCoordinator,
             sweepStaleDefaultAppTempPdfs,
@@ -205,6 +210,32 @@ describe('runInitSequence external open IPC', () => {
         expect(harness.initializeElectronTranslations).toHaveBeenCalledOnce();
         expect(harness.initializeElectronTranslations.mock.invocationCallOrder[0])
             .toBeLessThan(harness.createWindow.mock.invocationCallOrder[0]!);
+    });
+
+    it('notifies startup diagnostics only after acquiring the single-instance lock', async () => {
+        const onPrimaryInstanceReady = vi.fn();
+        const harness = await createHarness({onPrimaryInstanceReady});
+
+        expect(harness.requestSingleInstanceLock).toHaveBeenCalledOnce();
+        expect(onPrimaryInstanceReady).toHaveBeenCalledOnce();
+        expect(onPrimaryInstanceReady.mock.invocationCallOrder[0])
+            .toBeGreaterThan(harness.requestSingleInstanceLock.mock.invocationCallOrder[0]!);
+    });
+
+    it('does not notify startup diagnostics in a secondary instance', async () => {
+        const onPrimaryInstanceReady = vi.fn();
+        const processExit = vi.spyOn(process, 'exit').mockImplementation(() => {
+            throw new Error('secondary instance exit');
+        });
+        try {
+            await expect(createHarness({
+                onPrimaryInstanceReady,
+                singleInstanceLock: false,
+            })).rejects.toThrow('secondary instance exit');
+            expect(onPrimaryInstanceReady).not.toHaveBeenCalled();
+        } finally {
+            processExit.mockRestore();
+        }
     });
 
     it('never displays the generic Electron runtime version in the development About panel', async () => {
