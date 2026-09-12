@@ -1,0 +1,22 @@
+electron/bootstrap/mainProcess.ts
+  s_dbb7a94ab04d23::t_0a4bc3b69e77f6 480-484
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_dbb7a94ab04d23::t_b4452c5c59bb23 14
+  s_dbb7a94ab04d23::t_885509a95fa61c 10-13,15-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "df0097a079ea363b909df2a36339ce3382310369",
+  "prompts": {},
+  "sessions": {
+    "s_dbb7a94ab04d23": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097da-fcf3-76b3-b7b3-440b85bd1922",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
