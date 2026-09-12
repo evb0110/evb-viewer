@@ -151,6 +151,7 @@ describe('shutdown coordinator', () => {
         expect(fixture.app.exit).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(1);
+        await vi.runOnlyPendingTimersAsync();
         expect(fixture.app.exit).toHaveBeenCalledWith(0);
         expect(fixture.app.quit).not.toHaveBeenCalled();
 
@@ -463,5 +464,19 @@ describe('shutdown coordinator', () => {
             expect(fixture.app.exit).toHaveBeenCalledWith(1);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
+    });
+
+    it('forces a fatal shutdown when preservation never settles', async () => {
+        vi.useFakeTimers();
+        const fixture = createCoordinator({runPreservationSteps: () => new Promise<void>(() => undefined)});
+
+        fixture.coordinator.requestFatalShutdown('fatal shutdown is wedged', 9);
+        await vi.advanceTimersByTimeAsync(112_999);
+        expect(fixture.app.exit).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await vi.runOnlyPendingTimersAsync();
+        expect(fixture.app.exit).toHaveBeenCalledOnce();
+        expect(fixture.app.exit).toHaveBeenCalledWith(9);
     });
 });
