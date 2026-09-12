@@ -832,11 +832,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             || resizeTransitionVisible.value
             || zoomSnapSuppressedForClass.value
         ) {
+            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(authority.currentPage.value);
             return;
         }
-        const isPhysicalNavigation = navigationEpochs.markScrollInteraction();
+        const isPhysicalNavigation = navigationEpochs.markScrollInteraction({
+            top: container.scrollTop,
+            maxTop: container.scrollHeight - container.clientHeight,
+        });
         if (!isPhysicalNavigation) {
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(authority.currentPage.value);
