@@ -1,0 +1,36 @@
+tests/unit/electron/largePdfMutationAdmission.test.ts
+  s_3fe9cdf846aa76::t_c512b0e3a0347b 9,113,115,117,184-214,216
+  s_247a07a16a61fa::t_b449375ca0a726 215,217-219
+electron/features/documents/main/withLargePdfMutationAdmission.ts
+  s_3fe9cdf846aa76::t_c512b0e3a0347b 5-33,35-36,42-50,56,59,65-68,70-77
+  s_3fe9cdf846aa76::t_3c0eff6db48eef 64
+  s_3fe9cdf846aa76::t_cede47896f6aac 38
+  s_3fe9cdf846aa76::t_872d47f4d5d399 34,37,39-41,85
+  s_247a07a16a61fa::t_6b5779c1b389aa 79-81,83-84,87,89-90
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_3fe9cdf846aa76::t_c512b0e3a0347b 302,355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cb3025cd6503396a0036e469d0f041fbab62c7b4",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_3fe9cdf846aa76": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09526-4258-7031-9936-ffd146c44296",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
