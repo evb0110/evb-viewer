@@ -15,13 +15,10 @@ import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runt
 import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import { buildNativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import type {
-    IPdfSaveByteRouteDecision,
     IPdfViewerNativeRequiredFailure,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
-    IPdfViewerSaveTransactionSerializedResult,
     TNativeSaveRouteRejection,
-    TPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {
     ISerializationPlan,
@@ -33,7 +30,6 @@ import {
     mapPdfAnnotationParseEntity,
     mapPdfAnnotationParseForeign,
 } from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -43,7 +39,6 @@ import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 
 const SLOW_SAVE_PREPARATION_STEP_MS = 250;
-const DEFAULT_TRANSACTION_SAVE_MODE = 'rewrite';
 const AVAILABLE_SERIALIZATION_BACKENDS = ['native-append'] as const;
 const emptyLiveAnnotationChanges: IPdfLiveAnnotationChangeSummary = {
     ids: new Set(),
@@ -151,27 +146,6 @@ function logSaveRouteDecision(
     });
 }
 
-function createSerializedResult(input: {
-    request: IPdfViewerSaveTransactionRequest;
-    resultSource: TPdfViewerSaveTransactionSource;
-    serializedBytes: Uint8Array | null;
-}): IPdfViewerSaveTransactionSerializedResult | null {
-    if (!input.request.serializeResult || !input.serializedBytes) {
-        return null;
-    }
-
-    return {
-        finalBytes: input.serializedBytes,
-        saveMode: input.request.saveMode ?? DEFAULT_TRANSACTION_SAVE_MODE,
-        source: input.resultSource,
-        changedObjectRefs: input.request.annotationSerializationPlan?.changedObjectRefs ?? [],
-    };
-}
-
-function isNativeSaveRequired(request: IPdfViewerSaveTransactionRequest) {
-    return isNativeDocumentRef(request.workingPath);
-}
-
 function nativeRequiredFailureReason(
     rejection: TNativeSaveRouteRejection,
 ): IPdfViewerNativeRequiredFailure['reason'] {
@@ -227,25 +201,6 @@ export const usePdfViewerSaveTransaction = (
                 result.foreign.map(mapPdfAnnotationParseForeign),
             ),
         };
-    }
-
-    async function readSourcePdfBytes(request: IPdfViewerSaveTransactionRequest) {
-        return await request.source?.getSourcePdfData() ?? null;
-    }
-
-    async function selectBaseBytes(input: {
-        request: IPdfViewerSaveTransactionRequest;
-        byteRoute: IPdfSaveByteRouteDecision;
-    }) {
-        return readSourcePdfBytes(input.request);
-    }
-
-    function serializeResultBytes(input: {
-        request: IPdfViewerSaveTransactionRequest;
-        baseBytes: Uint8Array | null;
-    }) {
-        void input.request;
-        return input.baseBytes;
     }
 
     async function runSaveTransaction(
@@ -446,7 +401,7 @@ export const usePdfViewerSaveTransaction = (
         });
         const annotationSavePlan = decision.annotationPlan;
         logSaveRouteDecision(request, decision);
-        if (isNativeSaveRequired(request) && decision.route !== 'native-append') {
+        if (decision.route !== 'native-append') {
             await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
             return {
                 source: 'native-required-failure',
@@ -468,109 +423,39 @@ export const usePdfViewerSaveTransaction = (
                 ...canonicalSaveCallbacks,
             };
         }
-        async function executeByteRoute(
-            byteRoute: IPdfSaveByteRouteDecision,
-            executionRequest: IPdfViewerSaveTransactionRequest = request,
+        const nativeMutationProjection = decision.nativeMutationProjection;
+        if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'loaded-source') {
+            throw new Error(`Native annotation replay was granted on the ${decision.annotationRoute.route} route`);
+        }
+        if (
+            !decision.replayableAnnotationMutationsAllowed
+            && (
+                nativeMutationProjection.noteTextUpdates.length > 0
+                || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
+                || nativeMutationProjection.freeTextEditors.length > 0
+                || nativeMutationProjection.annotationDeletes.length > 0
+            )
         ) {
-            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
-            const baseBytes = await selectBaseBytes({
-                request: executionRequest,
-                byteRoute,
-            });
-            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
-            const serializedBytes = serializeResultBytes({
-                request: executionRequest,
-                baseBytes,
-            });
-            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
-            const resultSource: TPdfViewerSaveTransactionSource = executionRequest.source
-                ? serializedBytes ? 'serialized-rewrite' : byteRoute.route
-                : 'writer-save';
-            const serializedResult = createSerializedResult({
-                request: executionRequest,
-                resultSource,
-                serializedBytes,
-            });
-
-            return {
-                source: resultSource,
-                baseBytes: serializedBytes ? null : executionRequest.source ? baseBytes : null,
-                serializedBytes: serializedResult ? null : serializedBytes,
-                serializedResult,
-                nativeMutationProjection: null,
-                fallbackDecision: byteRoute,
-                annotationSavePlan,
-                ...canonicalSaveCallbacks,
-            };
+            throw new Error('Native annotation mutations were projected without a loaded-source grant');
         }
-        if (decision.route === 'native-append') {
-            const nativeMutationProjection = decision.nativeMutationProjection;
-            if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'loaded-source') {
-                throw new Error(`Native annotation replay was granted on the ${decision.annotationRoute.route} route`);
-            }
-            if (
-                !decision.replayableAnnotationMutationsAllowed
-                && (
-                    nativeMutationProjection.noteTextUpdates.length > 0
-                    || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
-                    || nativeMutationProjection.freeTextEditors.length > 0
-                    || nativeMutationProjection.annotationDeletes.length > 0
-                )
-            ) {
-                throw new Error('Native annotation mutations were projected without a loaded-source grant');
-            }
-            if (
-                !decision.metadataMutationsAllowed
-                && (nativeMutationProjection.hasMetadataMutations || nativeMutationProjection.hasShapeMutations)
-            ) {
-                throw new Error('Structured native mutations were projected without capability');
-            }
-            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
-            const result: IPdfViewerSaveTransactionResult = {
-                source: 'native-mutation-projection',
-                baseBytes: null,
-                serializedBytes: null,
-                serializedResult: null,
-                nativeMutationProjection,
-                fallbackDecision: decision.fallback,
-                annotationSavePlan,
-                ...canonicalSaveCallbacks,
-            };
-            if (!isNativeSaveRequired(request)) {
-                const fallbackExecutionRequest = {
-                    ...request,
-                    planOnly: false,
-                };
-                let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
-                result.executeFallback = () => (
-                    fallbackExecution ??= executeByteRoute(decision.fallback, fallbackExecutionRequest)
-                );
-            }
-            return result;
+        if (
+            !decision.metadataMutationsAllowed
+            && (nativeMutationProjection.hasMetadataMutations || nativeMutationProjection.hasShapeMutations)
+        ) {
+            throw new Error('Structured native mutations were projected without capability');
         }
-
-        const byteRoute = decision;
-        if (request.planOnly) {
-            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
-            let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
-            return {
-                source: byteRoute.route,
-                baseBytes: null,
-                serializedBytes: null,
-                serializedResult: null,
-                nativeMutationProjection: null,
-                fallbackDecision: byteRoute,
-                annotationSavePlan,
-                ...canonicalSaveCallbacks,
-                executeFallback: () => (
-                    fallbackExecution ??= executeByteRoute(byteRoute, {
-                        ...request,
-                        planOnly: false,
-                    })
-                ),
-            };
-        }
-        return executeByteRoute(byteRoute);
+        await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+        const result: IPdfViewerSaveTransactionResult = {
+            source: 'native-mutation-projection',
+            baseBytes: null,
+            serializedBytes: null,
+            serializedResult: null,
+            nativeMutationProjection,
+            fallbackDecision: decision.fallback,
+            annotationSavePlan,
+            ...canonicalSaveCallbacks,
+        };
+        return result;
     }
 
     return {

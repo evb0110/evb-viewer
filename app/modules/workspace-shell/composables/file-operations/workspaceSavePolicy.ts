@@ -191,10 +191,7 @@ export function buildSaveTransactionRequest(
     plan: TWorkspaceSavePlan,
     deps: IWorkspaceSaveTransactionDependencies,
     body: IWorkspaceSerializedSaveBody,
-    options: {
-        allowNativeMutationPlan: boolean;
-        planOnly?: boolean
-    },
+    options: {allowNativeMutationPlan: boolean;},
 ): IPdfViewerSaveTransactionRequest {
     const documentStructure: IPdfViewerSaveTransactionDocumentStructure = {
         pageLabelsDirty: plan.dirtyState.pageLabels,
@@ -216,7 +213,6 @@ export function buildSaveTransactionRequest(
         includeManagedShapes: body.includeManagedShapes,
         rewriteShapeState: plan.dirtyState.shapes,
         forceRewrite: body.forceRewrite,
-        ...(options.planOnly === undefined ? {} : {planOnly: options.planOnly}),
         dirtyState: {
             annotationDirty: plan.dirtyState.annotationDirty,
             hasAnnotationChanges: plan.dirtyState.annotationChanges,

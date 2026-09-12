@@ -93,6 +93,25 @@ function createResolverHarness(options: {
 }
 
 describe('createPrintableSourceDataResolver', () => {
+    it('does not expose loaded source bytes as serialized output without a writer', async () => {
+        const sourceBytes = Uint8Array.of(1, 2, 3);
+        const getSourcePdfData = vi.fn(async () => sourceBytes);
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({});
+
+        const result = await runSaveTransaction({
+            mode: 'snapshot',
+            serializeResult: true,
+            source: {getSourcePdfData},
+        });
+
+        expect(result.source).toBe('native-required-failure');
+        expect(result.nativeRequiredFailure?.code).toBe('native-save-required');
+        expect(result.serializedResult).toBeNull();
+        expect(result.serializedBytes).toBeNull();
+        expect(result.baseBytes).toBeNull();
+        expect(getSourcePdfData).not.toHaveBeenCalled();
+    });
+
     it('prints loaded bytes without a transaction or a lease when the document is clean', async () => {
         const leaseKinds: TDocumentOperationKind[] = [];
         const runSaveTransaction = vi.fn(async () => createTransactionResult(Uint8Array.of(1)));
