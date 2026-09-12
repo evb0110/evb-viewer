@@ -34,6 +34,7 @@ const manifestPath = path.join(repositoryRoot, 'tests', 'windows', 'fixtures', '
 const planPath = path.join(
     repositoryRoot,
     'docs',
+    'internal',
     'research',
     'utm-windows-autotest-plan-2026-09-04.md',
 );
@@ -41,6 +42,7 @@ const planPath = path.join(
 const ledgerPath = path.join(
     repositoryRoot,
     'docs',
+    'internal',
     'research',
     'utm-windows-autotest-implementation-ledger-2026-09-04.md',
 );
