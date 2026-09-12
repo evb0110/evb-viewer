@@ -124,8 +124,8 @@ impl AtomicOutput {
         let parent = destination.parent().unwrap_or_else(|| Path::new("."));
         let file_name = destination
             .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("output");
+            .map(|value| value.to_string_lossy())
+            .unwrap_or_else(|| std::borrow::Cow::Borrowed("output"));
         let destination_state = match fs::symlink_metadata(destination) {
             Ok(path_metadata) => {
                 if !path_metadata.file_type().is_file() {
@@ -199,33 +199,7 @@ impl AtomicOutput {
         }
         let source_length = fs::metadata(source)?.len();
 
-        #[cfg(target_os = "macos")]
-        let clone_status = std::process::Command::new("/bin/cp")
-            .args(["-c", "--"])
-            .arg(source)
-            .arg(&self.temporary_path)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-
-        #[cfg(target_os = "linux")]
-        let clone_status = std::process::Command::new("/bin/cp")
-            .args(["--reflink=always", "--"])
-            .arg(source)
-            .arg(&self.temporary_path)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        let clone_status: io::Result<std::process::ExitStatus> = Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "copy-on-write cloning is unavailable on this platform",
-        ));
-
-        let cloned = clone_status.is_ok_and(|status| status.success());
+        let cloned = clone_file(source, &self.temporary_path).unwrap_or(false);
         if !cloned {
             let _ = fs::remove_file(&self.temporary_path);
             self.file = Some(create_exclusive_temporary_file(&self.temporary_path)?);
@@ -315,6 +289,44 @@ impl AtomicOutput {
             (Some(state), Ok(_)) => state.witness.assert_current(),
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn clone_file(source: &Path, destination: &Path) -> io::Result<bool> {
+    use std::os::unix::io::AsRawFd;
+
+    let source_file = File::open(source)?;
+    let destination_file = create_exclusive_temporary_file(destination)?;
+    let result = unsafe {
+        libc::ioctl(
+            destination_file.as_raw_fd(),
+            libc::FICLONE as libc::c_ulong,
+            source_file.as_raw_fd(),
+        )
+    };
+    if result == 0 {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn clone_file(source: &Path, destination: &Path) -> io::Result<bool> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let source = CString::new(source.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "source path contains NUL"))?;
+    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "destination path contains NUL")
+    })?;
+    let result = unsafe { libc::clonefile(source.as_ptr(), destination.as_ptr(), 0) };
+    Ok(result == 0)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn clone_file(_source: &Path, _destination: &Path) -> io::Result<bool> {
+    Ok(false)
 }
 
 fn capture_destination_snapshot(file: &File) -> io::Result<DestinationSnapshot> {
@@ -808,6 +820,29 @@ mod tests {
 
         assert_eq!(paths.len(), thread_count);
         drop(outputs);
+        assert_no_sibling_temporary(&destination);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_destination_contributes_to_temporary_name() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let destination = env::temp_dir().join(std::ffi::OsString::from_vec(
+            format!("evb-native-support-non-utf8-{}", process::id()).into_bytes(),
+        ));
+        let mut name = format!("page-{}-", process::id()).into_bytes();
+        name.extend_from_slice(&[0xff, b'.', b'p', b'n', b'g']);
+        let destination = destination.with_file_name(std::ffi::OsString::from_vec(name));
+        let output = AtomicOutput::create(&destination).unwrap();
+
+        assert!(output
+            .temporary_path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(&format!("page-{}-�.png", process::id())));
+        drop(output);
         assert_no_sibling_temporary(&destination);
     }
 
