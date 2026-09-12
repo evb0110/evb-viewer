@@ -86,41 +86,71 @@ function findRestoredWorkspace(
     return null;
 }
 
-async function applyViewState(tab: IWorkspaceCheckpointTab, workspace: IWorkspaceExpose) {
-    await workspace.waitForDocumentOpenSettled();
-    if (tab.annotationRecovery?.payload !== undefined) {
-        workspace.restoreCanonicalAnnotationRecovery?.(tab.annotationRecovery.payload);
+// Recovery carries annotations that were never written to the file, so it may
+// only be replayed onto the exact bytes it was captured from. A working copy
+// that moved, was rewritten, or belongs to a different document instance makes
+// the payload unattributable rather than merely stale.
+function applyAnnotationRecovery(
+    checkpointTab: IWorkspaceCheckpointTab,
+    workspace: IWorkspaceExpose,
+    restoredTab: ITab | undefined,
+) {
+    const recovery = checkpointTab.annotationRecovery;
+    if (!recovery) {
+        return true;
     }
+    const state = workspace.getAutomationStateSnapshot();
+    if (
+        state.workingCopyPath !== recovery.workingCopyRef
+        || state.documentIdentity?.token !== recovery.workingByteRevision
+        || restoredTab?.documentInstanceId !== recovery.documentInstanceId
+    ) {
+        return false;
+    }
+    if (recovery.payload !== undefined) {
+        workspace.restoreCanonicalAnnotationRecovery?.(recovery.payload);
+    }
+    return true;
+}
+
+async function applyViewState(
+    checkpointTab: IWorkspaceCheckpointTab,
+    workspace: IWorkspaceExpose,
+    restoredTab: ITab | undefined,
+) {
+    await workspace.waitForDocumentOpenSettled();
+    const recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, restoredTab);
     const toolbar = workspace.getToolbarSnapshot();
     if (
-        tab.continuousScroll != null
+        checkpointTab.continuousScroll != null
         && toolbar.viewerCapabilities.continuousScroll
-        && toolbar.continuousScroll !== tab.continuousScroll
+        && toolbar.continuousScroll !== checkpointTab.continuousScroll
     ) {
         workspace.handleToggleContinuousScroll();
     }
-    if (tab.viewMode != null && toolbar.viewerCapabilities.viewMode) {
-        if (tab.viewMode === 'single') {
+    if (checkpointTab.viewMode != null && toolbar.viewerCapabilities.viewMode) {
+        if (checkpointTab.viewMode === 'single') {
             workspace.handleViewModeSingle();
-        } else if (tab.viewMode === 'facing') {
+        } else if (checkpointTab.viewMode === 'facing') {
             workspace.handleViewModeFacing();
         } else {
             workspace.handleViewModeFacingFirstSingle();
         }
     }
-    if (tab.viewRotation != null && toolbar.viewerCapabilities.viewRotation) {
-        workspace.setViewRotation(tab.viewRotation);
+    if (checkpointTab.viewRotation != null && toolbar.viewerCapabilities.viewRotation) {
+        workspace.setViewRotation(checkpointTab.viewRotation);
     }
-    if (tab.currentPage !== null) {
-        workspace.handleGoToPage(tab.currentPage);
+    if (checkpointTab.currentPage !== null) {
+        workspace.handleGoToPage(checkpointTab.currentPage);
     }
-    if (tab.zoomMode === 'fit-width') {
+    if (checkpointTab.zoomMode === 'fit-width') {
         workspace.handleFitWidth();
-    } else if (tab.zoomMode === 'fit-height') {
+    } else if (checkpointTab.zoomMode === 'fit-height') {
         workspace.handleFitHeight();
-    } else if (tab.zoom !== null) {
-        workspace.setCustomZoomFromDisplay(tab.zoom);
+    } else if (checkpointTab.zoom !== null) {
+        workspace.setCustomZoomFromDisplay(checkpointTab.zoom);
     }
+    return recoveryApplied;
 }
 
 export async function restoreWorkspaceCheckpoint(
@@ -195,7 +225,18 @@ export async function restoreWorkspaceCheckpoint(
             continue;
         }
         if (restoreTarget) {
-            await applyViewState(checkpointTab, restored.workspace);
+            const restoredTab = options.tabs.value.find(tab => tab.id === restored.tabId);
+            const recoveryApplied = await applyViewState(checkpointTab, restored.workspace, restoredTab);
+            if (!recoveryApplied) {
+                // The tab itself opened, so keep its view state and let it
+                // activate. Only the unattributable recovery is withheld, and
+                // reporting the path keeps the checkpoint unacknowledged so the
+                // evidence survives for the next attempt.
+                const failedPath = checkpointTab.sourceRef ?? checkpointTab.workingCopyRef;
+                if (failedPath) {
+                    failedPaths.push(failedPath);
+                }
+            }
         }
         if (checkpointTab === activeCheckpointTab) {
             restoredActiveTabId = restored.tabId;

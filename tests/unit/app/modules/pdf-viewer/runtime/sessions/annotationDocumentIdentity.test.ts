@@ -1,9 +1,12 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 // @vitest-environment happy-dom
 
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     afterEach,
     describe,
@@ -19,15 +22,22 @@ import {
     nextTick,
     ref,
     shallowRef,
+    type Ref,
 } from 'vue';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 import type { TPdfSource } from '@app/types/pdfUi';
+import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
     GenericL10n: vi.fn(),
 }));
+
+const revisionRead = vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>();
+const electronApi = createElectronPlatformApiFixture({documentFiles: {getDocumentRevision: revisionRead}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {
     createPdfAnnotationSession,
@@ -86,6 +96,8 @@ function mountAnnotationSession(initial: {
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const emitAnnotationComments = vi.fn();
     const viewRotation = ref<0 | 90 | 180 | 270>(0);
+    let annotationProjectionReady: Ref<boolean> | undefined;
+    let currentTransition = true;
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
     document.body.append(host);
@@ -107,7 +119,7 @@ function mountAnnotationSession(initial: {
                     documentRevision: null,
                     openSurfaceGeneration: 0,
                 })),
-                isCurrent: vi.fn(() => true),
+                isCurrent: vi.fn(() => currentTransition),
             },
             viewport: {
                 currentPage: ref(1),
@@ -120,7 +132,10 @@ function mountAnnotationSession(initial: {
                 singlePageScroll: {scrollToPage: vi.fn()},
             },
             rendering: {
-                attachAnnotationProjection: vi.fn(() => vi.fn()),
+                attachAnnotationProjection: vi.fn((options: {annotationProjectionReady: Ref<boolean>}) => {
+                    annotationProjectionReady = options.annotationProjectionReady;
+                    return vi.fn();
+                }),
                 hideManagedAnnotationEditors: vi.fn(),
                 invalidatePages: vi.fn(),
                 isPageRendered: vi.fn(() => false),
@@ -179,6 +194,10 @@ function mountAnnotationSession(initial: {
         src,
         pdfDocument,
         emitAnnotationComments,
+        annotationProjectionReady: () => annotationProjectionReady?.value,
+        invalidateCurrentTransition: () => {
+            currentTransition = false;
+        },
         storeDocumentKey: () => activeSession.annotationApplication.value.documentKey,
         snapshotDocumentKey: () => resolveAnnotationSnapshotDocumentIdentity({
             originalPath: originalPath.value,
@@ -220,6 +239,40 @@ function mountAnnotationSession(initial: {
 }
 
 describe('annotation document identity', () => {
+    it('does not publish readiness when a revision read resumes after its transition is stale', async () => {
+        const revision = requireDocumentRevisionToken('revision-a');
+        const revisionReadResult = Promise.withResolvers<IDocumentRevisionInfo>();
+        revisionRead.mockReturnValue(revisionReadResult.promise);
+        const harness = mountAnnotationSession({
+            workingCopyPath: '/managed/working.pdf',
+            src: {
+                kind: 'path',
+                path: requireDocumentRef('/managed/working.pdf'),
+                size: 4,
+            },
+        });
+
+        harness.pdfDocument.value = cast<IPdfDocument>({numPages: 1});
+        await nextTick();
+        expect(revisionRead).toHaveBeenCalledWith(requireDocumentRef('/managed/working.pdf'));
+        expect(harness.annotationProjectionReady()).toBe(false);
+
+        harness.invalidateCurrentTransition();
+        revisionReadResult.resolve({
+            token: revision,
+            version: 1,
+            documentRef: requireDocumentRef('/managed/working.pdf'),
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: requireEpochMs(1),
+        });
+        await revisionReadResult.promise;
+        await Promise.resolve();
+        await nextTick();
+
+        expect(harness.annotationProjectionReady()).toBe(false);
+    });
+
     it('keys the canonical store on the working copy while the snapshot keeps the original path', () => {
         const harness = mountAnnotationSession({
             originalPath: '/documents/original.pdf',
@@ -484,6 +537,30 @@ describe('canonical image placement', () => {
 
 
 describe('live canonical text box sidebar drafts', () => {
+    it('reattaches a recovered inline draft to the active editor surface', () => {
+        const source = mountAnnotationSession();
+        const surface = source.session.annotationEditorSurface;
+        const entity = surface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'Canonical'});
+        surface.beginTextEditing(entity.identity.id);
+        surface.setTextBoxDraftPending(entity.identity.id, 'Completed draft');
+
+        const recovery = source.session.captureCanonicalAnnotationRecovery();
+        const restored = mountAnnotationSession();
+        const restoredSurface = restored.session.annotationEditorSurface;
+        restored.session.restoreCanonicalAnnotationRecovery(recovery);
+
+        expect(restored.session.annotationApplication.value.store.get(entity.identity.id))
+            .toMatchObject({text: 'Canonical'});
+        expect(restoredSurface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(restoredSurface.editingId.value).toBe(entity.identity.id);
+        expect(restored.session.annotationCommentsCache.value[0]?.text).toBe('Completed draft');
+    });
+
     it('projects each input and restores canonical text on cancel without mutating history', () => {
         const {
             session,

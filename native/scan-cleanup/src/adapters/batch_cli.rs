@@ -60,6 +60,7 @@ use std::{
     collections::HashSet,
     error::Error,
     fs,
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Instant,
@@ -719,6 +720,7 @@ fn match_page_sizes(
 }
 
 const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
+const CANCELLATION_EXIT_CODE: i32 = 130;
 
 #[derive(Debug, Eq, PartialEq)]
 enum ScanCleanupCliInvocation {
@@ -825,6 +827,15 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
 }
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
+    match run_inner(args) {
+        // A closed pipe is the host cancelling, not a failure to report: the
+        // shared CLI wrapper would otherwise turn it into a native-error exit.
+        Err(error) if error.is::<ClosedOutputPipe>() => std::process::exit(CANCELLATION_EXIT_CODE),
+        result => result,
+    }
+}
+
+fn run_inner(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = args.into_iter().collect();
     let (input, output, metadata, options, ocr_mode, experimental_auto_dewarp) =
         match parse_cli_args(&args)? {
@@ -898,18 +909,17 @@ fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box
     let result = run_manifest_transaction(&manifest, || run_manifest_inner(&manifest));
     match result {
         Ok(()) => {
-            println!(
-                "{}",
-                serde_json::to_string(&ResultEnvelope::success(total, total))?
-            );
+            write_protocol_line(&ResultEnvelope::success(total, total))?;
             Ok(())
         }
         Err(error) => {
+            // Reporting a failure down a pipe nobody reads would only replace the
+            // real cause with a second broken-pipe error.
+            if error.is::<ClosedOutputPipe>() {
+                return Err(error);
+            }
             let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-            println!(
-                "{}",
-                serde_json::to_string(&ResultEnvelope::failure(&envelope))?
-            );
+            write_protocol_line(&ResultEnvelope::failure(&envelope))?;
             Err(error)
         }
     }
@@ -1257,21 +1267,49 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
 }
 
 pub(crate) fn write_progress(progress: Progress) -> Result<(), Box<dyn Error>> {
-    println!(
-        "{}",
-        serde_json::to_string(&ProgressEnvelope::new(progress))?
-    );
-    Ok(())
+    write_protocol_line(&ProgressEnvelope::new(progress))
+}
+
+/// Raised when the host has stopped reading our stdout, which is how a
+/// cancelled run reaches us. It travels as an ordinary error so the manifest
+/// transaction still rolls back the half-written outputs before `run` turns it
+/// into the cancellation exit code.
+#[derive(Debug)]
+struct ClosedOutputPipe;
+
+impl std::fmt::Display for ClosedOutputPipe {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("the host stopped reading scan-cleanup output")
+    }
+}
+
+impl Error for ClosedOutputPipe {}
+
+fn write_protocol_line(value: &impl Serialize) -> Result<(), Box<dyn Error>> {
+    let bytes = serde_json::to_vec(value)?;
+    let mut stdout = io::stdout().lock();
+    let result = stdout
+        .write_all(&bytes)
+        .and_then(|_| stdout.write_all(b"\n"))
+        .and_then(|_| stdout.flush());
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Err(ClosedOutputPipe.into()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 mod page_workflow {
     use super::*;
 
-    pub(crate) fn map_image_error(message: String) -> NativeError {
-        let code = if message.contains("guardrails") {
-            NativeErrorCode::TooLarge
-        } else {
-            NativeErrorCode::InvalidRequest
+    pub(crate) fn map_analysis_error(error: crate::pipeline::AnalysisError) -> NativeError {
+        let (code, message) = match error {
+            crate::pipeline::AnalysisError::Invalid(message) => {
+                (NativeErrorCode::InvalidRequest, message)
+            }
+            crate::pipeline::AnalysisError::TooLarge(message) => {
+                (NativeErrorCode::TooLarge, message)
+            }
         };
         NativeError::new(code, message)
     }
@@ -1636,7 +1674,7 @@ mod page_workflow {
                 &base_metadata,
                 &mut timings,
             )
-            .map_err(map_image_error)?
+            .map_err(map_analysis_error)?
         } else {
             clean_page_with_color_and_document_prior_cached(
                 input_gray,
@@ -1656,7 +1694,7 @@ mod page_workflow {
                 options.output_mode == OutputMode::Auto,
                 &mut timings,
             )
-            .map_err(map_image_error)?
+            .map_err(map_analysis_error)?
         };
         if final_render && result.classification == LayoutClassification::TwoPageSpread {
             // The matched-canvas planner must measure the same visible raster that
@@ -2177,7 +2215,7 @@ mod page_workflow {
             cache,
             &mut timings,
         )
-        .map_err(map_image_error)?;
+        .map_err(map_analysis_error)?;
         let page_metadata = PageResultMetadata {
             source_page_index: page.source_page_index,
             layout_classification: result.classification,
@@ -2348,7 +2386,7 @@ pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::page_workflow::decode_page_inputs;
-    use super::page_workflow::{map_image_error, write_gray_layer_background};
+    use super::page_workflow::{map_analysis_error, write_gray_layer_background};
     use super::planning_page;
     use super::{
         map_raster_error, parse_cli_args, ManifestV3, PlanningManifest, ScanCleanupCliInvocation,
@@ -3606,11 +3644,24 @@ mod tests {
     #[test]
     fn derived_geometry_guardrail_errors_are_too_large() {
         assert_eq!(
-            map_image_error("Derived raster 100x100 exceeds cleanup guardrails".into()).code,
+            map_analysis_error(crate::pipeline::AnalysisError::TooLarge(
+                "Derived raster 100x100 exceeds cleanup guardrails".into(),
+            ))
+            .code,
             NativeErrorCode::TooLarge,
         );
         assert_eq!(
-            map_image_error("Derived content geometry must be finite".into()).code,
+            map_analysis_error(crate::pipeline::AnalysisError::Invalid(
+                "Derived content geometry must be finite".into(),
+            ))
+            .code,
+            NativeErrorCode::InvalidRequest,
+        );
+        assert_eq!(
+            map_analysis_error(crate::pipeline::AnalysisError::Invalid(
+                "A request value mentions guardrails".into(),
+            ))
+            .code,
             NativeErrorCode::InvalidRequest,
         );
     }

@@ -1,1 +1,22 @@
-node scripts/check-publication-policy.mjs --pre-push "$1" "$2" || exit $?
+# Husky runs this with `sh -e`, so it must stay POSIX: no bashisms.
+# Git sends the ref-update lines once on stdin; both checks need them, so they
+# are captured to a file rather than read from the already-drained fd.
+refs_file="$(mktemp -t evb-pre-push)"
+trap 'rm -f "$refs_file"' EXIT
+cat >"$refs_file"
+
+node scripts/check-publication-policy.mjs --pre-push "$1" "${2-}" <"$refs_file"
+
+if [ "${EVB_SKIP_PRE_PUSH_VERIFICATION:-}" = "1" ]; then
+    echo '[pre-push] Affected typecheck skipped via EVB_SKIP_PRE_PUSH_VERIFICATION=1.' >&2
+    exit 0
+fi
+
+# `$?` inside `if ! cmd` is the negation's status, so capture it in the `||`
+# branch instead: a hook that exits 0 here lets the broken push through.
+node scripts/validation-gates.mjs pre-push "$1" "${2-}" <"$refs_file" || {
+    status=$?
+    echo '[pre-push] Affected typecheck failed. Reproduce with:' >&2
+    echo "  git rev-parse HEAD | awk '{print \"HEAD \" \$1 \" $1 \" \$1}' | node scripts/validation-gates.mjs pre-push $1" >&2
+    exit "$status"
+}

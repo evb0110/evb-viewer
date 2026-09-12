@@ -1,3 +1,4 @@
+import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 import {
     describe,
     expect,
@@ -186,11 +187,14 @@ describe('in-process preload to validated IPC round trips', () => {
             '/tmp/working-copy.pdf',
             {expectedDocumentRevisionToken: parseRevision},
         );
+        // The wire carries the cancellation request id; the assertion above proves
+        // the registrar strips it before the handler's own decoder runs.
         expect(harness.invokeCalls).toContainEqual({
             channel: DOCUMENTS_CHANNELS.parsePdfAnnotations,
             args: [
                 '/tmp/working-copy.pdf',
                 {expectedDocumentRevisionToken: parseRevision},
+                {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
             ],
         });
         await expect(harness.client.savePdfDataChunks(requireDocumentRef('/tmp/working.pdf'), 5, [

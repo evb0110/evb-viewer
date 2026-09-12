@@ -109,15 +109,29 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
         ) {
             return null;
         }
+        const originalState = sidecar.originalState === 'present' || sidecar.originalState === 'absent'
+            ? sidecar.originalState
+            : sidecar.backupPath !== null || sidecar.kind === 'ocr-v3-untouched'
+                ? 'present'
+                : 'unknown';
+        if (
+            originalState === 'absent'
+            && (sidecar.backupPath !== null || sidecar.kind === 'ocr-v3-untouched')
+        ) {
+            return null;
+        }
+        if (
+            originalState === 'present'
+            && sidecar.backupPath === null
+            && sidecar.kind !== 'ocr-v3-untouched'
+        ) {
+            return null;
+        }
         sidecars.push({
             targetPath: sidecar.targetPath,
             backupPath: sidecar.backupPath,
             directory: sidecar.directory,
-            originalState: sidecar.originalState === 'present' || sidecar.originalState === 'absent'
-                ? sidecar.originalState
-                : sidecar.backupPath !== null || sidecar.kind === 'ocr-v3-untouched'
-                    ? 'present'
-                    : 'unknown',
+            originalState,
             ...(sidecar.kind === 'ocr-v4-root' || sidecar.kind === 'ocr-v3-untouched'
                 ? {kind: sidecar.kind}
                 : {}),

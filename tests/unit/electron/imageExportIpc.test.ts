@@ -296,7 +296,10 @@ describe('image export IPC lifecycle', () => {
         expect(mocks.exportPdfPagesAsImages).toHaveBeenCalledWith(
             '/original/source.pdf',
             '/tmp/export.jpg',
-            expect.objectContaining({signal: expect.any(AbortSignal)}),
+            expect.objectContaining({
+                beforePublish: expect.any(Function),
+                signal: expect.any(AbortSignal),
+            }),
         );
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
     });
@@ -419,6 +422,7 @@ describe('image export IPC lifecycle', () => {
 
     it('returns every split multi-page TIFF output path', async () => {
         const sender = createSender();
+        mocks.backingState = 'lazy-original';
         mocks.showSaveDialog.mockResolvedValueOnce({
             canceled: false,
             filePath: '/tmp/export.tiff',
@@ -439,6 +443,42 @@ describe('image export IPC lifecycle', () => {
                 '/tmp/export-part-002.tiff',
             ],
         });
+        expect(mocks.exportPdfAsMultiPageTiff).toHaveBeenCalledWith(
+            '/original/source.pdf',
+            '/tmp/export.tiff',
+            expect.objectContaining({beforePublish: expect.any(Function)}),
+        );
+    });
+
+    it('does not delete image outputs when the source changes after export', async () => {
+        const sender = createSender();
+        mocks.backingState = 'lazy-original';
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockReset()
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 3n,
+                size: 1024n,
+            });
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.pdf',
+            [1],
+        )).rejects.toThrow('The original document changed while it was being read');
+
+        expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('replays active image-export progress when the renderer subscribes after progress starts', async () => {
@@ -563,7 +603,7 @@ describe('image export IPC lifecycle', () => {
         ]]);
     });
 
-    it('refuses a page image export past the output-path budget and deletes the generated files', async () => {
+    it('never deletes page images the exporter already wrote to the chosen folder', async () => {
         const sender = createSender();
         const oversizedOutputPaths = Array.from(
             {length: 100_001},
@@ -571,26 +611,18 @@ describe('image export IPC lifecycle', () => {
         );
         mocks.exportPdfPagesAsImages.mockResolvedValueOnce(oversizedOutputPaths);
 
-        const rejection = await handlePdfExportImages(
+        await expect(handlePdfExportImages(
             createContext(sender),
             '/tmp/working.pdf',
             [1],
-        ).catch((error: unknown) => error);
-
-        expect(rejection).toBeInstanceOf(Error);
-        expect((rejection as Error).name).toBe('ImageExportOutputBudgetError');
-        expect((rejection as Error).message).toMatch(/output-path budget/);
-        expect(mocks.rm).toHaveBeenCalledTimes(oversizedOutputPaths.length);
-        for (const [
-            index,
-            path,
-        ] of oversizedOutputPaths.entries()) {
-            if (index > 2 && index < oversizedOutputPaths.length - 2) continue;
-            expect(mocks.rm).toHaveBeenCalledWith(path, {force: true});
-        }
+        )).resolves.toEqual({
+            success: true,
+            outputPaths: oversizedOutputPaths,
+        });
+        expect(mocks.rm).not.toHaveBeenCalled();
     });
 
-    it('refuses a split multi-page TIFF export past the output-path budget and deletes every part', async () => {
+    it('never deletes multi-page TIFF parts the exporter already wrote', async () => {
         const sender = createSender();
         const oversizedParts = Array.from({length: 100_001}, (_unused, index) => `/tmp/export-part-${String(index + 1).padStart(3, '0')}.tiff`);
         mocks.showSaveDialog.mockResolvedValueOnce({
@@ -599,17 +631,11 @@ describe('image export IPC lifecycle', () => {
         });
         mocks.exportPdfAsMultiPageTiff.mockResolvedValueOnce(oversizedParts);
 
-        const rejection = await handlePdfExportMultiPageTiff(
+        await expect(handlePdfExportMultiPageTiff(
             createContext(sender),
             '/tmp/working.pdf',
-        ).catch((error: unknown) => error);
-
-        expect(rejection).toBeInstanceOf(Error);
-        expect((rejection as Error).name).toBe('ImageExportOutputBudgetError');
-        expect((rejection as Error).message).toMatch(/output-path budget/);
-        expect(mocks.rm).toHaveBeenCalledTimes(oversizedParts.length);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/export-part-001.tiff', {force: true});
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/export-part-100001.tiff', {force: true});
+        )).resolves.toMatchObject({success: true});
+        expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('still returns output paths for a page image export at the output-path budget boundary', async () => {

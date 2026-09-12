@@ -82,6 +82,7 @@ import {
 } from '@electron/features/diagnostics/startupCrashMarker';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
+    createAppWindow,
     createWindow,
     configureNativeWindowCloseHandshake,
     hasWindows,
@@ -133,6 +134,7 @@ import {
     cancelAllMainOperations,
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import type { IMainOperationSnapshot } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
 import {
     cleanupStaleAppTempNamespaces,
@@ -457,16 +459,23 @@ const externalOpenManager = createExternalOpenManager({
             return false;
         }
 
+        const validPaths: string[] = [];
         const documentRefs = [];
         for (const path of paths) {
             const documentRef = parseDocumentRef(path);
             if (documentRef === null) {
-                return false;
+                logger.warn(`Ignoring unparseable external open path during dispatch: ${path}`);
+                continue;
             }
+            validPaths.push(path);
             documentRefs.push(documentRef);
         }
 
-        allowOpenPaths(paths, window.webContents);
+        if (documentRefs.length === 0) {
+            return true;
+        }
+
+        allowOpenPaths(validPaths, window.webContents);
         return sendToWindow(window, 'menu:openExternalPaths', documentRefs);
     },
 });
@@ -499,6 +508,35 @@ function maybePromptForDefaultViewer() {
 }
 
 const workingCopyCleanupSkipPaths = new Set<string>();
+
+/**
+ * A critical write that did not reach its commit boundary leaves the only copy
+ * of the user's edits in its working copy, so the shutdown sweep must not
+ * delete it. Both the cancelled writes and the ones the drain gave up on need
+ * the same treatment; the caller supplies the wording for the log.
+ */
+function preserveCriticalWriteWorkingCopies(
+    operations: readonly IMainOperationSnapshot[],
+    description: string,
+) {
+    for (const operation of operations) {
+        if (operation.workingCopyPath) {
+            workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
+            logger.error(
+                `Skipping working-copy deletion for ${description} critical write path: ${operation.workingCopyPath}`,
+                {
+                    code: 'MAIN_SHUTDOWN_FAILED',
+                    context: {},
+                },
+            );
+        } else {
+            logger.error(`A ${description} critical write has no working-copy path; operation=${operation.id}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+            });
+        }
+    }
+}
 const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
     createPreservationSteps: context => {
         workingCopyCleanupSkipPaths.clear();
@@ -549,7 +587,11 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             {
                 label: 'main-operations-cancel',
                 run: () => {
-                    cancelAllMainOperations('app shutdown');
+                    const canceledCriticalWrites = cancelAllMainOperations('app shutdown');
+                    if (canceledCriticalWrites.length > 0) {
+                        context.preserveRecoveryState = true;
+                        preserveCriticalWriteWorkingCopies(canceledCriticalWrites, 'cancelled pre-commit');
+                    }
                 },
             },
             {
@@ -569,23 +611,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                             code: 'MAIN_SHUTDOWN_FAILED',
                             context: {},
                         });
-                        for (const operation of result.pending) {
-                            if (operation.workingCopyPath) {
-                                workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
-                                logger.error(
-                                    `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
-                                    {
-                                        code: 'MAIN_SHUTDOWN_FAILED',
-                                        context: {},
-                                    },
-                                );
-                            } else {
-                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`, {
-                                    code: 'MAIN_SHUTDOWN_FAILED',
-                                    context: {},
-                                });
-                            }
-                        }
+                        preserveCriticalWriteWorkingCopies(result.pending, 'pending');
                     }
                 },
             },
@@ -658,6 +684,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         // Last, so lines emitted by every earlier shutdown step reach disk.
         {
             label: 'log-flush',
+            runsAfterDeadline: true,
             timeoutMs: 2_000,
             run: () => flushPendingLogWrites(),
         },
@@ -699,14 +726,16 @@ process.on('unhandledRejection', (reason) => {
         return;
     }
     const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? getErrorMessage(reason) : getErrorMessage(reason)}`;
-    const receipt = logMainFailure(
+    logMainFailure(
         'MAIN_UNHANDLED_REJECTION',
-        {subsystem: decision.action === 'fatal' ? 'unknown' : decision.subsystem},
+        {subsystem: decision.action === 'recover' ? decision.subsystem : 'unknown'},
         rejectionMessage,
         reason,
     );
-    if (decision.action === 'fatal') {
-        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown', receipt);
+    // An unclassified rejection is logged and survived rather than treated as
+    // proof of corrupted state; only a subsystem whose recovery fails below is
+    // still fatal.
+    if (decision.action === 'report') {
         return;
     }
     const recoveryLoggerError = (message: string) => {
@@ -808,6 +837,7 @@ void runInitSequence({
     broadcastUpdateStatus,
     cleanupStaleAppTempNamespaces,
     cleanupStaleWorkingCopyDirectories,
+    createAdditionalWindow: () => createAppWindow(),
     createWindow,
     devDockBadgeText: DEV_DOCK_BADGE_TEXT,
     devDockIconPath,
@@ -837,6 +867,7 @@ void runInitSequence({
     logger,
     loadSettings,
     logStartupPhase: startupTrace.log,
+    onPrimaryInstanceReady: startupCrashMarker.markPrimaryInstanceReady,
     markWindowRendererReady: (windowId) => {
         markWindowRendererReady(windowId);
         if (windowId !== getRegisteredMainWindow()?.id) {

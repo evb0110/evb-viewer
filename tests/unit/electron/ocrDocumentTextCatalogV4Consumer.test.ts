@@ -1,4 +1,13 @@
 import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {
     afterEach,
     beforeEach,
     describe,
@@ -8,6 +17,7 @@ import {
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TOcrPageArtifact} from '@contracts/ocrIndex';
+import {OcrCatalogCorruptError} from '@electron/features/ocr/main/ocrCatalogV4';
 
 const state = vi.hoisted(() => {
     const page: TOcrPageArtifact = {
@@ -108,6 +118,15 @@ const {
 } = await import('@electron/features/ocr/main/documentTextCatalog');
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('drt1:v4-consumer');
+const OTHER_DOCUMENT_REVISION = requireDocumentRevisionToken('drt1:v4-consumer-new');
+const recoveryTestRoots: string[] = [];
+
+afterEach(async () => {
+    await Promise.all(recoveryTestRoots.splice(0).map(root => rm(root, {
+        recursive: true,
+        force: true,
+    })));
+});
 
 describe('DocumentTextCatalog v4 consumers', () => {
     beforeEach(() => {
@@ -133,6 +152,33 @@ describe('DocumentTextCatalog v4 consumers', () => {
             _start,
             count,
         ]) => count <= 256)).toBe(true);
+    });
+
+    it('marks a corrupt catalog for OCR rebuild instead of reporting it as absent', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-ocr-catalog-recovery-'));
+        recoveryTestRoots.push(root);
+        const workingCopyPath = join(root, 'document.pdf');
+        await mkdir(`${workingCopyPath}.ocr`);
+        state.openCatalog.mockRejectedValueOnce(new OcrCatalogCorruptError('truncated shard index'));
+
+        await expect(resolveDocumentOcrAvailability(workingCopyPath, DOCUMENT_REVISION)).resolves.toMatchObject({
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 0,
+            mappedPageCount: 0,
+            pageRanges: [],
+            rangesComplete: true,
+            needsReOcr: true,
+        });
+
+        const entries = await readdir(root);
+        expect(entries.some(entry => entry.startsWith('document.pdf.ocr.') && entry.endsWith('.corrupt'))).toBe(true);
+        const recoveryReceipt = entries.find(entry => entry === 'document.pdf.ocr.recovery.json');
+        expect(recoveryReceipt).toBeDefined();
+        await expect(readFile(join(root, recoveryReceipt!), 'utf8')).resolves.toContain('truncated shard index');
+
+        state.openCatalog.mockResolvedValueOnce(null);
+        await expect(resolveDocumentOcrAvailability(workingCopyPath, OTHER_DOCUMENT_REVISION))
+            .resolves.not.toHaveProperty('needsReOcr');
     });
 
     it('addresses one v4 page and one v4 window without a snapshot', async () => {

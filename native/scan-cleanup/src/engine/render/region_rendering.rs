@@ -44,7 +44,9 @@ struct RegionAssemblyInput<'a> {
     trusted_selection_applied: bool,
 }
 
-fn assemble_region_result(input: RegionAssemblyInput<'_>) -> Result<RegionSemanticOutput, String> {
+fn assemble_region_result(
+    input: RegionAssemblyInput<'_>,
+) -> Result<RegionSemanticOutput, super::AnalysisError> {
     let RegionAssemblyInput {
         image,
         color_image,
@@ -262,7 +264,9 @@ struct OutputProcessingInput<'a> {
     normalized_height: usize,
 }
 
-fn process_region_output(input: OutputProcessingInput<'_>) -> Result<RegionSemanticOutput, String> {
+fn process_region_output(
+    input: OutputProcessingInput<'_>,
+) -> Result<RegionSemanticOutput, super::AnalysisError> {
     let OutputProcessingInput {
         rendered_gray,
         rendered_source_gray,
@@ -588,7 +592,7 @@ pub(crate) struct TransformPreparationOutput {
 
 fn prepare_region_transforms(
     input: TransformPreparationInput<'_>,
-) -> Result<TransformPreparationOutput, String> {
+) -> Result<TransformPreparationOutput, super::AnalysisError> {
     let TransformPreparationInput {
         analysis_working,
         analysis_picture_working,
@@ -799,7 +803,7 @@ struct ContentDetectionInput<'a> {
 
 fn detect_region_content(
     input: ContentDetectionInput<'_>,
-) -> Result<CachedContentDetection, String> {
+) -> Result<CachedContentDetection, super::AnalysisError> {
     let ContentDetectionInput {
         content_analysis,
         content_picture_mask,
@@ -1024,7 +1028,9 @@ struct RenderGeometryOutput {
     rendered_height: usize,
 }
 
-fn plan_render_geometry(input: RenderGeometryInput<'_>) -> Result<RenderGeometryOutput, String> {
+fn plan_render_geometry(
+    input: RenderGeometryInput<'_>,
+) -> Result<RenderGeometryOutput, super::AnalysisError> {
     let RenderGeometryInput {
         detected,
         options,
@@ -1158,7 +1164,9 @@ struct RasterPlaneOutput {
     dewarp_mapping: Option<DewarpMappingGrid>,
 }
 
-fn prepare_render_planes(input: RasterPlaneInput<'_>) -> Result<RasterPlaneOutput, String> {
+fn prepare_render_planes(
+    input: RasterPlaneInput<'_>,
+) -> Result<RasterPlaneOutput, super::AnalysisError> {
     let RasterPlaneInput {
         normalized,
         routing_source,
@@ -2497,7 +2505,7 @@ pub(crate) struct RegionSemanticOutput {
     pub(crate) metadata: CleanupMetadata,
 }
 
-pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, String> {
+pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::AnalysisError> {
     let Input {
         source,
         routing_source,

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
@@ -77,6 +78,7 @@ interface IMainOperationRecord {
 }
 
 const operations = new Map<string, IMainOperationRecord>();
+const cancellationSignals = new AsyncLocalStorage<AbortSignal>();
 const log = createLogger('main-operation-lifecycle');
 let shutdownAdmissionMessage: string | null = null;
 
@@ -100,6 +102,7 @@ export function registerMainOperation(
     const done = new Promise<void>((resolve) => {
         resolveDone = resolve;
     });
+    let removeCancellationListener: () => void = () => undefined;
     const record: IMainOperationRecord = {
         id,
         kind: registration.kind,
@@ -115,10 +118,32 @@ export function registerMainOperation(
             if (!operations.delete(id)) {
                 return;
             }
+            removeCancellationListener();
             resolveDone?.();
         },
     };
     operations.set(id, record);
+
+    const cancellationSignal = cancellationSignals.getStore();
+    const cancelFromParent = () => {
+        // A critical write past its commit boundary is publishing, not reading:
+        // the caller giving up on the reply does not make a half-written output
+        // acceptable, so the same protection the other cancel paths apply holds
+        // here too.
+        if (record.kind === 'critical-write' && record.commitStarted) {
+            return;
+        }
+        const reason = cancellationSignal?.reason instanceof Error
+            ? cancellationSignal.reason.message
+            : 'IPC invoke canceled';
+        requestOperationCancel(record, reason);
+    };
+    if (cancellationSignal?.aborted) {
+        cancelFromParent();
+    } else if (cancellationSignal) {
+        cancellationSignal.addEventListener('abort', cancelFromParent, {once: true});
+        removeCancellationListener = () => cancellationSignal.removeEventListener('abort', cancelFromParent);
+    }
 
     return {
         id,
@@ -131,6 +156,13 @@ export function registerMainOperation(
         },
         complete: record.complete,
     };
+}
+
+export function runWithMainOperationCancellationSignal<TResult>(
+    signal: AbortSignal,
+    callback: () => TResult,
+): TResult {
+    return cancellationSignals.run(signal, callback);
 }
 
 export function beginMainOperationShutdown(message = 'Main process is shutting down') {
@@ -152,13 +184,18 @@ function requestOperationCancel(operation: IMainOperationRecord, reason: string)
     }
 }
 
-export function cancelAllMainOperations(reason: string): void {
+export function cancelAllMainOperations(reason: string): IMainOperationSnapshot[] {
+    const canceledCriticalWrites: IMainOperationSnapshot[] = [];
     for (const operation of operations.values()) {
         if (operation.kind === 'critical-write' && operation.commitStarted) {
             continue;
         }
         requestOperationCancel(operation, reason);
+        if (operation.kind === 'critical-write') {
+            canceledCriticalWrites.push(toMainOperationSnapshot(operation));
+        }
     }
+    return canceledCriticalWrites;
 }
 
 export function cancelMainOperationsForOwner(

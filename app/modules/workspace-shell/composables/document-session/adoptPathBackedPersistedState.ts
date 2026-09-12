@@ -1,6 +1,8 @@
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo, TDocumentRevisionToken, 
+} from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
@@ -81,4 +83,24 @@ export async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {
         }
     }
     throw new Error('Working-copy revision changed while adopting the saved path');
+}
+
+// The preserved-source path keeps the loaded document on screen, so `pdfSrc`
+// must not be reassigned: a new object identity restarts the viewer's open
+// flow. Its recorded length still has to follow the file, because a later
+// range-backed open reads the length from this source.
+export function alignLoadedPathSourceLength(
+    state: IDocumentSessionState,
+    path: TDocumentRef,
+    size: number,
+    revision?: TDocumentRevisionToken,
+) {
+    const source = state.pdfSrc.value;
+    if (!isPathPdfSource(source) || source.path !== path) {
+        return;
+    }
+    source.size = size;
+    if (revision !== undefined) {
+        source.revision = revision;
+    }
 }

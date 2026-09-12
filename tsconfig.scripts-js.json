@@ -68,7 +68,6 @@
         "scripts/generate-freetext-lifecycle-fixture.mjs",
         "scripts/generate-interop-corpus.mjs",
         "scripts/generate-large-pdf-e2e-fixture.mjs",
-        "scripts/lib/added-checks.mjs",
         "scripts/lib/pdfjs-package-path.mjs",
         "scripts/ocrQualityMetrics.mjs",
         "scripts/prune-build-artifacts.mjs",

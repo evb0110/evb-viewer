@@ -399,6 +399,12 @@ export function createMainJobRegistry<
                 signal.addEventListener('abort', abort, {once: true}); record.cleanupSignals.push(() => signal.removeEventListener('abort', abort));
             }
         }
+        // Sampled here, while start() is still on the stack: only a signal that
+        // was already aborted when the job was handed over means the work never
+        // began. A cancel that lands later in the same turn belongs to a job the
+        // caller has already started acting on, and must settle through its own
+        // cancellation path rather than being short-circuited here.
+        const abortedBeforeRun = controller.signal.aborted;
         const context: IMainJobRunContext<TProgress, TResult, TError> = {
             jobId,
             signal: controller.signal,
@@ -433,7 +439,14 @@ export function createMainJobRegistry<
                 fail: (cause, progress) => finish(record, 'failed', cause, progress),
             },
         };
-        void Promise.resolve().then(() => startOptions.run(context))
+        void Promise.resolve().then(() => {
+            // The catch below maps this to the same outcome as a cancellation
+            // that lands mid-run.
+            if (abortedBeforeRun) {
+                throw controller.signal.reason;
+            }
+            return startOptions.run(context);
+        })
             .then(result => finish(record, 'completed', result))
             .catch(error => finish(record, controller.signal.aborted ? 'canceled' : 'failed', error))
             .finally(async () => {

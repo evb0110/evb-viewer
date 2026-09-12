@@ -11,6 +11,7 @@ import {
     assertSupportedSettingsSchema,
     sanitizeSettings,
     UnsupportedSettingsSchemaError,
+    type ISettingsRecoveryNotice,
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import {
@@ -42,6 +43,7 @@ let settingsCacheGeneration = 0;
 let settingsMutationQueue: Promise<unknown> = Promise.resolve();
 let diagnosticsConsentRevision = 0;
 let diagnosticsDeniedOverride: TClientDiagnosticsPreference | null = null;
+let settingsRecoveryNotice: ISettingsRecoveryNotice | null = null;
 
 type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
 type TSettingsUpdater = (
@@ -115,20 +117,50 @@ async function writeSettingsAtomically(storagePath: string, settings: ISettingsD
     }
 }
 
+function getDefaultSettings() {
+    return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
+}
+
+async function recoverSettingsFromStorage(storagePath: string, reason: 'corrupt' | 'unsupported') {
+    settingsRecoveryNotice ??= {reason};
+    try {
+        const quarantinePath = await quarantineCorruptFile(storagePath);
+        await writeSettingsAtomically(storagePath, getDefaultSettings());
+        logger.warn(`Quarantined ${reason} settings at ${quarantinePath ?? storagePath}`);
+    } catch (recoveryError) {
+        logger.error(`Failed to recover ${reason} settings: ${getErrorMessage(recoveryError)}`, {
+            code: 'MAIN_SETTINGS_OPERATION_FAILED',
+            context: {},
+            cause: recoveryError,
+        });
+    }
+    return getDefaultSettings();
+}
+
+export function consumeSettingsRecoveryNotice() {
+    const notice = settingsRecoveryNotice;
+    settingsRecoveryNotice = null;
+    return notice;
+}
+
 async function readSettingsFromStorage(storagePath: string) {
     let content: string;
     try {
         content = await readFile(storagePath, 'utf-8');
     } catch (err) {
         if (isErrnoException(err) && err.code === 'ENOENT') {
-            return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
+            return getDefaultSettings();
         }
         logger.error(`Failed to read settings: ${getErrorMessage(err)}`, {
             code: 'MAIN_SETTINGS_OPERATION_FAILED',
             context: {},
             cause: err,
         });
-        throw err;
+        // An EIO or a permission blip can be transient, and quarantining renames
+        // the file away: one bad boot would become permanently lost settings.
+        // Boot on defaults, leave the file alone, and let the next launch retry.
+        settingsRecoveryNotice ??= {reason: 'unreadable'};
+        return getDefaultSettings();
     }
 
     try {
@@ -142,25 +174,14 @@ async function readSettingsFromStorage(storagePath: string) {
                 context: {},
                 cause: err,
             });
-            throw err;
+            return recoverSettingsFromStorage(storagePath, 'unsupported');
         }
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {
             code: 'MAIN_SETTINGS_OPERATION_FAILED',
             context: {},
             cause: err,
         });
-        try {
-            const quarantinePath = await quarantineCorruptFile(storagePath);
-            await writeSettingsAtomically(storagePath, applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS)));
-            logger.warn(`Quarantined corrupt settings at ${quarantinePath ?? storagePath}`);
-        } catch (recoveryError) {
-            logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`, {
-                code: 'MAIN_SETTINGS_OPERATION_FAILED',
-                context: {},
-                cause: recoveryError,
-            });
-        }
-        return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
+        return recoverSettingsFromStorage(storagePath, 'corrupt');
     }
 }
 
@@ -202,6 +223,7 @@ export function resetSettingsCacheAfterUserDataPathChange() {
     settingsCacheGeneration += 1;
     settingsCache = null;
     settingsLoadPromise = null;
+    settingsRecoveryNotice = null;
 }
 
 export async function updateSettings(

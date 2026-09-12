@@ -86,11 +86,13 @@ function isOwnedResourceWorker(
 function createOcrResourceRequest(
     scopedJobId: string,
     message: Extract<TOcrWorkerResourceMessage, { type: 'resource-acquire' }>,
+    signal: AbortSignal,
 ): IOcrResourceRequest {
     const resourceRequest: IOcrResourceRequest = {
         jobId: scopedJobId,
         pageNumber: message.pageNumber,
         requestedDpi: message.requestedDpi,
+        signal,
     };
     if (message.pageWidthIn !== undefined) {
         resourceRequest.pageWidthIn = message.pageWidthIn;
@@ -134,13 +136,17 @@ export function handleWorkerResourceMessage(
         terminalResultSent: activeJob?.terminalResultSent === true,
         rejectAfterTerminalResult: true,
     });
-    if (!disposition.accepted) {
+    // An accepted disposition already requires `activeJob` to be the current
+    // worker's job; the second half of the test is what narrows the type.
+    if (!disposition.accepted || !activeJob) {
         log.debug(`[${scopedJobId}] Ignoring OCR resource ${message.type}: ${disposition.reason ?? '<unknown>'}`);
         sendResourceDenied(`OCR resource request denied because job ${message.jobId} is no longer active`);
         return;
     }
 
-    void ocrResourceGovernor.acquire(createOcrResourceRequest(scopedJobId, message)).then((lease) => {
+    void ocrResourceGovernor.acquire(
+        createOcrResourceRequest(scopedJobId, message, activeJob.registry.signal),
+    ).then((lease) => {
         const active = activeJobs.get(scopedJobId);
         const leaseDisposition = getOcrWorkerMessageDisposition({
             incomingJobId: message.jobId,
@@ -162,7 +168,15 @@ export function handleWorkerResourceMessage(
             token: lease.token,
             effectiveDpi: lease.effectiveDpi,
         };
-        worker.postMessage(response);
+        try {
+            worker.postMessage(response);
+        } catch (error) {
+            // The lease is held by the governor from `acquire` onwards, but the worker
+            // only learns its token from this message. A delivery failure leaves nobody
+            // able to release it, so the slot has to go back here.
+            ocrResourceGovernor.releaseForJob(lease.token, scopedJobId);
+            throw error;
+        }
     }).catch((error: unknown) => {
         const messageText = getErrorMessage(error);
         sendResourceDenied(messageText);

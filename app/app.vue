@@ -190,6 +190,7 @@ import {
     waitForPreferredDesktopPlatformBridge,
 } from '@app/utils/platform';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import {runPostReadyRecentGeometryPrewarm} from '@app/modules/workspace-shell/host/runPostReadyRecentGeometryPrewarm';
 import {
@@ -636,6 +637,13 @@ onMounted(async () => {
         hostEnvironmentUnsubscribers.push(unsubscribeHostEnvironment);
         void refreshHostSnapshot();
         await loadSettings();
+        if (await getSettingsCapability().getRecoveryNotice()) {
+            toast.add({
+                color: 'warning',
+                title: t('settings.title'),
+                description: t('errors.settings.recovered'),
+            });
+        }
         setPreferenceFromSettings(settings.value);
         if (locale.value !== settings.value.locale) {
             await setLocale(settings.value.locale);

@@ -9,6 +9,7 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { ICropMargins } from '@app/types/crop';
 import type {
     TPageMoveOperation,
@@ -135,6 +136,7 @@ export interface ICreateWorkspaceExposeDeps extends
     captureSplitPayload: IWorkspaceExpose['captureSplitPayload'];
     restoreSplitPayload: IWorkspaceExpose['restoreSplitPayload'];
     waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
+    documentIdentity: Ref<IDocumentRevisionInfo | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
     pdfData: Ref<Uint8Array | null>;
@@ -417,6 +419,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
         const reloadSrc = deps.pdfReloadSrc.value;
         return {
+            documentIdentity: deps.documentIdentity.value,
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
             annotationInventory: cloneAnnotationInventory(deps.annotationInventory.value),
@@ -724,6 +727,7 @@ export function createWorkspaceExposeFromOwners(
         captureSplitPayload: options.captureSplitPayload,
         restoreSplitPayload: options.restoreSplitPayload,
         waitForDocumentOpenSettled: options.waitForDocumentOpenSettled,
+        documentIdentity: fileLifecycle.documentRevisionInfo,
         runAgentAction: options.runAgentAction,
         readAgentResource: options.readAgentResource,
         ...(options.ensurePdfProjectionForEdit === undefined

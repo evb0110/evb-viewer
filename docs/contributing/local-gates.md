@@ -10,6 +10,13 @@ expensive run when its scope is unclear.
 
 Run `pnpm test:tooling` when editing `scripts/windows-test` or `scripts/stress`; it is not part of `pnpm test:unit`.
 
+The pre-push hook checks commit attribution and runs the existing affected
+typecheck plan for the commits being pushed. It reads the ref-update lines once
+and passes them to both checks, so first pushes, force pushes, deletions, and
+multiple ref updates use the push's actual range. It does not run unit tests.
+For a rare deliberate bypass, set `EVB_SKIP_PRE_PUSH_VERIFICATION=1` for that
+push. The attribution check still runs.
+
 | Change | Useful checks |
 | --- | --- |
 | Documentation | Checks for the changed document or executable example |

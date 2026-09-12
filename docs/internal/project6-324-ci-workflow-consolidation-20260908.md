@@ -38,11 +38,11 @@ Job IDs, conditions, needs, permissions, secrets, matrices, artifact names and p
 
 The 26 current CI job IDs remain present:
 
-`commit_attribution`, `pr_quality`, `pr_electron_blocking_smoke`, `pr_packaged_linux`, `pr_electron_native_save_reopen`, `pr_native_pdf_integration`, `pr_changed_areas`, `pr_browser_integration`, `pr_native_build_safety`, `pr_scan_cleanup_heavy`, `pr_rust_tests_arm64`, `pr_scan_cleanup_oracles`, `pr_landing_quality`, `nuxt_compatibility_v5`, `gates_ok`, `manual_quality`, `nightly_rust_fuzz`, `manual_landing`, `nightly_maintenance`, `nightly_electron_e2e_regression`, `nightly_electron_e2e_save_pipeline`, `nightly_electron_e2e_rapid_navigation`, `nightly_electron_e2e_large_pdf`, `nightly_electron_e2e_quarantine`, `nightly_electron_e2e_visible_window`, and `nightly_pdf_tabs_diagnostics`.
+`commit_attribution`, `pr_quality`, `pr_electron_blocking_smoke`, `pr_packaged_linux`, `pr_electron_native_save_reopen`, `pr_native_pdf_integration`, `pr_changed_areas`, `pr_browser_integration`, `pr_native_build_safety`, `pr_scan_cleanup_heavy`, `pr_rust_tests_arm64`, `pr_scan_cleanup_oracles`, `pr_landing_quality`, `nuxt_compatibility_v5`, `gates_ok`, `manual_quality`, `nightly_rust_fuzz`, `manual_landing`, `nightly_maintenance`, `push_electron_e2e_regression`, `push_electron_e2e_save_pipeline`, `push_electron_e2e_rapid_navigation`, `nightly_electron_e2e_large_pdf`, `nightly_electron_e2e_quarantine`, `nightly_electron_e2e_visible_window`, and `nightly_pdf_tabs_diagnostics`.
 
 The shared setup action is used by:
 
-`pr_quality`, `pr_electron_blocking_smoke`, `pr_electron_native_save_reopen`, `pr_native_pdf_integration`, `pr_browser_integration`, `pr_native_build_safety`, `pr_scan_cleanup_heavy`, `pr_rust_tests_arm64`, `pr_scan_cleanup_oracles`, `pr_landing_quality`, `nuxt_compatibility_v5`, `manual_quality`, `manual_landing`, `nightly_maintenance`, `nightly_electron_e2e_regression`, `nightly_electron_e2e_save_pipeline`, `nightly_electron_e2e_rapid_navigation`, `nightly_electron_e2e_large_pdf`, `nightly_electron_e2e_quarantine`, `nightly_electron_e2e_visible_window`, and `nightly_pdf_tabs_diagnostics`.
+`pr_quality`, `pr_electron_blocking_smoke`, `pr_electron_native_save_reopen`, `pr_native_pdf_integration`, `pr_browser_integration`, `pr_native_build_safety`, `pr_scan_cleanup_heavy`, `pr_rust_tests_arm64`, `pr_scan_cleanup_oracles`, `pr_landing_quality`, `nuxt_compatibility_v5`, `manual_quality`, `manual_landing`, `nightly_maintenance`, `push_electron_e2e_regression`, `push_electron_e2e_save_pipeline`, `push_electron_e2e_rapid_navigation`, `nightly_electron_e2e_large_pdf`, `nightly_electron_e2e_quarantine`, `nightly_electron_e2e_visible_window`, and `nightly_pdf_tabs_diagnostics`.
 
 ## Ownership and handoffs
 

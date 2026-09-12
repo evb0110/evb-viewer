@@ -170,6 +170,39 @@ describe('assistant chat session store persistence', () => {
         expect(recoveredStore.getMessages(scope, selection)[0]?.text).toBe('01234567890123456789');
     });
 
+    it('does not clone the transcript for each streamed delta', async () => {
+        const persistence = createPersistence(createTempRoot(), {snapshotDebounceMs: 60_000});
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        const message = store.addMessage(session, {
+            role: 'user',
+            text: 'long conversation history',
+        });
+        store.upsertAssistantMessage(session, 'assistant-1', {
+            role: 'assistant',
+            text: '',
+            pending: true,
+        });
+        const createdAt = message.createdAt;
+        let createdAtReads = 0;
+        Object.defineProperty(message, 'createdAt', {
+            configurable: true,
+            enumerable: true,
+            get() {
+                createdAtReads += 1;
+                return createdAt;
+            },
+        });
+
+        for (let index = 0; index < 20; index += 1) {
+            store.appendAssistantDelta(session, 'assistant-1', String(index));
+        }
+
+        expect(createdAtReads).toBe(0);
+        await store.flushPersistenceForTests();
+        expect(createdAtReads).toBe(1);
+    });
+
     it('writes a turn boundary without waiting for the snapshot debounce', async () => {
         const persistence = createPersistence(createTempRoot(), {snapshotDebounceMs: 60_000});
         const store = createAssistantChatSessionStore({persistence});

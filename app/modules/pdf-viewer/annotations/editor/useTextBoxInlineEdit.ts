@@ -11,6 +11,7 @@ import {
 interface ITextBoxInlineEditOptions {
     entity: ComputedRef<ITextBoxEntity>;
     editing: Readonly<Ref<boolean>>;
+    recoveredDraftText?: Readonly<Ref<string | null>>;
     caretPoint?: Readonly<Ref<IAnnotationTextEditPoint | null>>;
     onCommit: (text: string, options?: {restoreFocus: boolean}) => void;
     onCancel: () => void;
@@ -19,6 +20,7 @@ interface ITextBoxInlineEditOptions {
 interface ITextBoxInputEvent {
     currentTarget: EventTarget | null;
     target?: EventTarget | null;
+    isComposing?: boolean;
 }
 
 interface ITextBoxKeydownEvent {
@@ -93,7 +95,7 @@ export const useTextBoxInlineEdit = (
         }
         completed = false;
         ignoreBlur = false;
-        draftText.value = options.entity.value.text;
+        draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
         void focusEditor();
     }, {immediate: true});
 
@@ -104,7 +106,7 @@ export const useTextBoxInlineEdit = (
     });
 
     function handleInput(event: ITextBoxInputEvent) {
-        if (!options.editing.value) {
+        if (!options.editing.value || event.isComposing) {
             return;
         }
         const target = event.currentTarget ?? event.target ?? null;

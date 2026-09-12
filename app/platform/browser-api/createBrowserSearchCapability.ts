@@ -27,6 +27,7 @@ import {
 } from '@app/platform/browser-api/browserSearchLimits';
 import {
     BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
+    BrowserSearchWorkerTimeoutError,
     BrowserSearchWorkerUnavailableError,
     canUseBrowserSearchWorker,
     cancelBrowserSearchWorkerRequest,
@@ -833,6 +834,13 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     truncated: false,
                 }
                 : result;
+        } catch (error) {
+            if (error instanceof BrowserSearchWorkerTimeoutError) {
+                throw new SearchRegexLimitError(
+                    `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
+                );
+            }
+            throw error;
         } finally {
             const activeWorkerRequest = activeMatchWorkerSearchRequests.get(requestId);
             if (activeWorkerRequest?.generation === requestGeneration
@@ -1159,9 +1167,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             let truncated = false;
             const pageMatchCounts = new Map<number, number>();
             const requestGeneration = startSearchRequest(requestId);
-            const regexDeadlineAtMs = matchOptions.useRegex
-                ? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
-                : null;
+            let regexDeadlineAtMs: number | null = null;
             try {
                 const { size } = await browserDocumentStore.stat(pdfPath);
                 const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
@@ -1177,6 +1183,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             return false;
                         }
 
+                        if (matchOptions.useRegex && regexDeadlineAtMs === null) {
+                            regexDeadlineAtMs = Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS;
+                        }
                         const matchResult = await matchSearchPage(
                             page.text,
                             query,
@@ -1232,9 +1241,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             requestId,
                             processed: page.pageNumber,
                             total: pageCount,
-                            results: delta,
-                            resultsStartIndex: emittedResultCount,
-                            truncated: false,
+                            ...(matchOptions.useRegex ? {} : {
+                                results: delta,
+                                resultsStartIndex: emittedResultCount,
+                                truncated: false,
+                            }),
                         });
                         emittedResultCount = results.length;
                         await yieldToBrowser();

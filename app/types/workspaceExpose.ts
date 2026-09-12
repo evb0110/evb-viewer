@@ -261,6 +261,8 @@ export interface IWorkspaceAgentPort {
 interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 
 export interface IWorkspaceAutomationStateSnapshot {
+    /** Revision identity for the bytes currently opened by the workspace. */
+    documentIdentity: IDocumentRevisionInfo | null;
     pageLabels?: string[] | null;
     pageLabelRanges?: Array<{
         startPage: number;

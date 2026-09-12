@@ -7,6 +7,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         onDebugLog: {kind: 'event', path: ["settings","onDebugLog"]},
         rendererLog: {kind: 'void', path: ["settings","rendererLog"]},
         get: {kind: 'async', path: ["settings","get"]},
+        getRecoveryNotice: {kind: 'async', path: ["settings","getRecoveryNotice"]},
         save: {kind: 'async', path: ["settings","save"]},
     },
     system: {

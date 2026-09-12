@@ -35,6 +35,16 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
+const fileMocks = vi.hoisted(() => ({
+    readFile: vi.fn(async () => '[mcp_servers.evb_viewer_dev.env]\nEVB_MCP_TOKEN = "__EVB_MCP_TOKEN_PLACEHOLDER__"\n'),
+    writeFile: vi.fn(async () => undefined),
+    rename: vi.fn(async () => undefined),
+    open: vi.fn(async () => ({
+        sync: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+    })),
+}));
+
 const descriptor = {
     name: 'evb_viewer_dev',
     title: 'EVB Viewer Dev',
@@ -56,6 +66,13 @@ const launchConfig = {
 vi.mock('electron', () => ({
     dialog: {showMessageBox: mocks.showMessageBox},
     shell: {openExternal: mocks.openExternal},
+}));
+
+vi.mock('node:fs/promises', () => ({
+    open: fileMocks.open,
+    readFile: fileMocks.readFile,
+    rename: fileMocks.rename,
+    writeFile: fileMocks.writeFile,
 }));
 
 vi.mock('@electron/settings', () => ({
@@ -104,6 +121,8 @@ describe('codexMcpIntegration', () => {
         mocks.openExternal.mockClear();
         mocks.logger.error.mockClear();
         mocks.logger.warn.mockClear();
+        fileMocks.readFile.mockClear();
+        fileMocks.writeFile.mockClear();
     });
 
     it('registers Codex against the durable stdio proxy transport', async () => {
@@ -144,11 +163,25 @@ describe('codexMcpIntegration', () => {
             '--env',
             `EVB_MCP_URL=${descriptor.url}`,
             '--env',
-            'EVB_MCP_TOKEN=persisted-token',
+            'EVB_MCP_TOKEN=__EVB_MCP_TOKEN_PLACEHOLDER__',
             '--',
             launchConfig.command,
             ...launchConfig.args,
         ]);
+        // The real token reaches disk only through a staged file renamed over
+        // the config, never through argv and never through a truncating write.
+        expect(fileMocks.writeFile).toHaveBeenCalledWith(
+            expect.stringMatching(/[\\/]\.codex[\\/]config\.toml\.evb-\d+\.tmp$/u),
+            expect.stringContaining('EVB_MCP_TOKEN = "persisted-token"'),
+            {
+                encoding: 'utf8',
+                mode: 0o600,
+            },
+        );
+        expect(fileMocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/\.tmp$/u),
+            expect.stringMatching(/[\\/]\.codex[\\/]config\.toml$/u),
+        );
         expect(state.settings.agentMcpEnabled).toBe(true);
     });
 
@@ -156,13 +189,15 @@ describe('codexMcpIntegration', () => {
         mocks.runCodexCli.mockResolvedValue({
             ok: false,
             stdout: '',
-            stderr: 'Codex registration refused',
+            stderr: 'EVB_MCP_TOKEN=persisted-token\nCodex registration refused',
         });
 
         const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
         const result = await setAgentMcpIntegrationEnabled(true);
 
         expect(result.ok).toBe(false);
+        expect(result.error).toContain('Codex registration refused');
+        expect(result.error).not.toContain('persisted-token');
         expect(mocks.logger.error).toHaveBeenCalledWith(
             expect.stringContaining('Failed to enable Codex MCP integration'),
             {
@@ -171,6 +206,7 @@ describe('codexMcpIntegration', () => {
                 cause: expect.any(Error),
             },
         );
+        expect(mocks.logger.error.mock.calls[0]?.[0]).not.toContain('persisted-token');
     });
 
     it('treats legacy URL-only Codex registrations as mismatched and preserves authenticated setup snippets', async () => {

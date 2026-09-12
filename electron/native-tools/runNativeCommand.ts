@@ -15,7 +15,7 @@ import {
     prependDirectoryToPath,
 } from '@electron/native-tools/toolRegistry';
 import { getErrorMessage } from '@electron/utils/error';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -176,18 +176,21 @@ class NativeToolError extends Error {
 }
 
 function parseNativeErrorEnvelope(stderr: string): NativeToolError | null {
-    const lines = stderr.trim().split(/\r?\n/u).reverse();
-    for (const line of lines) {
-        try {
-            const value: unknown = JSON.parse(line);
-            if (isNativeErrorEnvelope(value)) {
-                return new NativeToolError(value.code, value.message);
-            }
-        } catch {
-            // Native progress and third-party diagnostics are allowed alongside the final envelope.
-        }
+    const line = stderr.trim().split(/\r?\n/u).pop();
+    if (!line) {
+        return null;
     }
-    return null;
+    try {
+        const value: unknown = JSON.parse(line);
+        return isNativeErrorEnvelope(value)
+            ? new NativeToolError(value.code, value.message)
+            : null;
+    } catch {
+        // Only the last line is trusted: the tool writes its envelope last, and
+        // scanning earlier lines let document content that happens to be a valid
+        // envelope choose the error code.
+        return null;
+    }
 }
 
 function createCommandRunContext(command: string, args: string[], options: IRunCommandOptions): ICommandRunContext {
@@ -220,28 +223,22 @@ function createCommandRunContext(command: string, args: string[], options: IRunC
 }
 
 function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: number) {
-    let stdout = '';
-    let stderr = '';
-    let stdoutTruncated = false;
-    let stderrTruncated = false;
+    const stdout = createTextChunkAccumulator(maxStdoutBytes);
+    const stderr = createTextChunkAccumulator(maxStderrBytes);
 
     return {
         appendStdout(data: Buffer) {
-            const appended = appendTextChunkWithByteCap(stdout, data, maxStdoutBytes);
-            stdout = appended.text;
-            stdoutTruncated = stdoutTruncated || appended.truncated;
+            stdout.append(data);
         },
         appendStderr(data: Buffer) {
-            const appended = appendTextChunkWithByteCap(stderr, data, maxStderrBytes);
-            stderr = appended.text;
-            stderrTruncated = stderrTruncated || appended.truncated;
+            stderr.append(data);
         },
         snapshot() {
             return {
-                stdout,
-                stderr,
-                stdoutTruncated,
-                stderrTruncated,
+                stdout: stdout.text(),
+                stderr: stderr.text(),
+                stdoutTruncated: stdout.truncated,
+                stderrTruncated: stderr.truncated,
             };
         },
     };
@@ -308,7 +305,7 @@ export async function runNativeCommand(
         prependCommandDirToPath = false,
         includeProcessEnv = true,
         windowsHide = true,
-        rejectOnStdoutTruncation = false,
+        rejectOnStdoutTruncation = true,
         onStdout,
         onStderr,
         onSpawn,
@@ -541,7 +538,6 @@ export async function runNativeCommand(
             if (!text) {
                 return;
             }
-            output.appendStdout(Buffer.from(text, 'utf8'));
             try {
                 onStdout?.(text);
             } catch (error) {
@@ -554,7 +550,6 @@ export async function runNativeCommand(
             if (!text) {
                 return;
             }
-            output.appendStderr(Buffer.from(text, 'utf8'));
             try {
                 onStderr?.(text);
             } catch (error) {
@@ -563,8 +558,16 @@ export async function runNativeCommand(
                 ));
             }
         };
-        stdoutDataHandler = (data: Buffer) => appendDecodedStdout(stdoutDecoder.write(data));
-        stderrDataHandler = (data: Buffer) => appendDecodedStderr(stderrDecoder.write(data));
+        // The raw chunk goes to the capture and the decoder separately, rather
+        // than the capture re-encoding what the decoder just decoded.
+        stdoutDataHandler = (data: Buffer) => {
+            output.appendStdout(data);
+            appendDecodedStdout(stdoutDecoder.write(data));
+        };
+        stderrDataHandler = (data: Buffer) => {
+            output.appendStderr(data);
+            appendDecodedStderr(stderrDecoder.write(data));
+        };
         proc.stdout.on('data', stdoutDataHandler);
         proc.stderr.on('data', stderrDataHandler);
 

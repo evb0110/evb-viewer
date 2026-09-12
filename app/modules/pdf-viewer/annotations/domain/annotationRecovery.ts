@@ -23,12 +23,18 @@ export interface IAnnotationRecoveryDraft {
     readonly generation: number;
 }
 
+export interface IAnnotationRecoveryDraftError extends IAnnotationRecoveryDraft {readonly error: string;}
+
 export interface ICanonicalAnnotationRecovery {
     readonly version: typeof CANONICAL_ANNOTATION_RECOVERY_VERSION;
     readonly annotationMutationGeneration: number;
     readonly entities: readonly AnnotationEntity[];
     readonly foreign: readonly IPdfForeignAnnotationRecord[];
     readonly drafts: readonly IAnnotationRecoveryDraft[];
+    // Derived while validating, never persisted: a draft is incompatible only
+    // relative to the entities it arrives with, so the verdict is recomputed on
+    // every load rather than trusted from the payload.
+    readonly draftErrors?: readonly IAnnotationRecoveryDraftError[];
 }
 
 export class AnnotationRecoveryAdmissionError extends Error {
@@ -146,6 +152,7 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
     const drafts = candidate.drafts as readonly unknown[];
     const validatedEntities: AnnotationEntity[] = [];
     const validatedDrafts: IAnnotationRecoveryDraft[] = [];
+    const draftErrors: IAnnotationRecoveryDraftError[] = [];
     entities.forEach((entity) => {
         validateEntity(entity);
         if (entityIds.has(entity.identity.id)) {
@@ -156,15 +163,15 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
     });
     drafts.forEach((draft) => {
         validateDraft(draft);
-        validatedDrafts.push(draft);
-    });
-    validatedDrafts.forEach((draft) => {
         const entity = validatedEntities.find(candidateEntity => candidateEntity.identity.id === draft.annotationId);
-        if (!entity || entity.kind !== draft.kind || entity.revision !== draft.canonicalRevision) {
-            throw new AnnotationRecoveryAdmissionError(
-                `Recovery draft ${draft.annotationId} does not match its canonical entity`,
-            );
+        if (!entity || entity.kind !== draft.kind || entity.revision !== draft.canonicalRevision || entity.deleted) {
+            draftErrors.push({
+                ...draft,
+                error: `Recovery draft ${draft.annotationId} does not match an active canonical entity`,
+            });
+            return;
         }
+        validatedDrafts.push(draft);
     });
     const recovery: ICanonicalAnnotationRecovery = {
         version: CANONICAL_ANNOTATION_RECOVERY_VERSION,
@@ -172,6 +179,7 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
         entities: validatedEntities,
         foreign: candidate.foreign as readonly IPdfForeignAnnotationRecord[],
         drafts: validatedDrafts,
+        draftErrors,
     };
     assertRecoveryWithinBudget(recovery);
     return recovery;

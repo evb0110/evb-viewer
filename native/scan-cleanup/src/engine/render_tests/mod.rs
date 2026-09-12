@@ -18,6 +18,7 @@ pub(crate) fn analyze_page_with_document_prior_cached(
         cache,
         timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 #[allow(clippy::too_many_arguments)]

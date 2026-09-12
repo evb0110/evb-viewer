@@ -323,7 +323,7 @@ describe('waitForExactShaCiGates', () => {
         const harness = createHarness(() => ({status: 'in_progress'}));
 
         await expect(waitForExactShaCiGates(TARGET_SHA, harness))
-            .rejects.toThrow(/run 424242 .*did not reach a terminal state within 75 minutes/u);
+            .rejects.toThrow(/run 424242 .*did not reach a terminal state within 100 minutes/u);
         expect(Math.max(...harness.pollTimes)).toBeGreaterThanOrEqual(EXACT_SHA_CI_COMPLETION_TIMEOUT_MS);
     });
 

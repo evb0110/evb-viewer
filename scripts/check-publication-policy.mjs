@@ -21,6 +21,15 @@ const PUBLISHABLE_REF_PREFIXES = [
 // still batching a full-history scan into a handful of processes.
 const COMMIT_BATCH_SIZE = 400;
 
+/** @typedef {{commit: string, paths: string[]}} ICommitPaths */
+/** @typedef {{content: string, oid: string, ref: string}} ITagObject */
+/** @typedef {{matches: string[], subject: string}} IViolation */
+/** @typedef {{nestedTagRefs?: string[], rejectedRefs?: string[]}} IPushPolicyOptions */
+/** @typedef {{commits: string[], nestedTagRefs: string[], rejectedRefs: string[]}} IPrePushWork */
+/** @typedef {{localOid: string, localRef: string, remoteOid: string, remoteRef: string}} IPrePushUpdate */
+/** @typedef {{content: string, nested: boolean, oid: string}} IPushedTagObject */
+
+/** @param {string[]} arguments_ @param {string} [cwd] @param {string} [input] @returns {string} */
 function runGit(arguments_, cwd = process.cwd(), input) {
     const result = spawnSync('git', arguments_, {
         cwd,
@@ -35,6 +44,7 @@ function runGit(arguments_, cwd = process.cwd(), input) {
     return result.stdout;
 }
 
+/** @param {string[]} arguments_ @param {string} cwd @returns {string | null} */
 function tryGit(arguments_, cwd) {
     const result = spawnSync('git', arguments_, {
         cwd,
@@ -43,7 +53,9 @@ function tryGit(arguments_, cwd) {
     return result.status === 0 ? result.stdout : null;
 }
 
+/** @param {string[]} items @returns {string[][]} */
 function batches(items) {
+    /** @type {string[][]} */
     const result = [];
     for (let index = 0; index < items.length; index += COMMIT_BATCH_SIZE) {
         result.push(items.slice(index, index + COMMIT_BATCH_SIZE));
@@ -51,6 +63,8 @@ function batches(items) {
     return result;
 }
 
+
+/** @param {string} input @returns {IPrePushUpdate[]} */
 export function parsePrePushUpdates(input) {
     return input
         .split(/\r?\n/u)
@@ -66,6 +80,10 @@ export function parsePrePushUpdates(input) {
                 remoteRef,
                 remoteOid,
             ] = fields;
+            if (localRef === undefined || localOid === undefined
+                || remoteRef === undefined || remoteOid === undefined) {
+                throw new Error(`Invalid pre-push update: ${line}`);
+            }
             return {
                 localOid,
                 localRef,
@@ -75,6 +93,7 @@ export function parsePrePushUpdates(input) {
         });
 }
 
+/** @param {string[]} arguments_ @param {string} cwd @returns {string[]} */
 function listCommits(arguments_, cwd) {
     return runGit([
         'rev-list',
@@ -85,6 +104,7 @@ function listCommits(arguments_, cwd) {
         .filter(Boolean);
 }
 
+/** @param {string} revision @param {string} cwd @returns {boolean} */
 function commitExists(revision, cwd) {
     return tryGit([
         'rev-parse',
@@ -99,10 +119,15 @@ function commitExists(revision, cwd) {
  * authoritative: they can name commits the remote never received, or miss
  * commits another push has since published.
  */
+/** @param {(string | undefined)[]} remoteTargets @param {string} [cwd] @returns {string[]} */
 export function readAdvertisedOids(remoteTargets, cwd = process.cwd()) {
+    /** @type {string[]} */
     const errors = [];
 
-    for (const target of remoteTargets.filter(Boolean)) {
+    for (const target of remoteTargets) {
+        if (!target) {
+            continue;
+        }
         const output = tryGit([
             'ls-remote',
             '--heads',
@@ -135,6 +160,7 @@ export function readAdvertisedOids(remoteTargets, cwd = process.cwd()) {
  * sense of everything that follows it, so `--not A --not B` excludes A and then
  * adds B back as a positive tip, dragging already-public history into the scan.
  */
+/** @param {string[]} advertisedOids @param {string} cwd @returns {string[]} */
 function publicExclusions(advertisedOids, cwd) {
     return [...new Set(advertisedOids)]
         .filter(oid => commitExists(oid, cwd))
@@ -154,6 +180,7 @@ function publicExclusions(advertisedOids, cwd) {
  * reported (`nested: true`) so the push fails closed with a clear reason instead
  * of the inner objects being silently skipped.
  */
+/** @param {string} oid @param {string} cwd @returns {IPushedTagObject | null} */
 function readPushedTagObject(oid, cwd) {
     if (tryGit([
         'cat-file',
@@ -182,11 +209,16 @@ function readPushedTagObject(oid, cwd) {
  * objects themselves, whose messages and tagger identities never appear in the
  * commit graph.
  */
+/** @param {string} input @param {(string | undefined)[]} remoteTargets @param {string} [cwd] @returns {IPrePushWork} */
 export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
     const updates = parsePrePushUpdates(input);
+    /** @type {string[]} */
     const rejectedRefs = [];
+    /** @type {string[]} */
     const nestedTagRefs = [];
+    /** @type {string[]} */
     const localOids = [];
+    /** @type {ITagObject[]} */
 
     for (const update of updates) {
         if (update.localOid === ZERO_OID) {
@@ -228,8 +260,9 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
  * fall back to the complete history of the pushed head rather than erroring or
  * silently checking nothing.
  */
+/** @param {string | undefined} beforeOid @param {string} headOid @param {string} [cwd] @returns {string[]} */
 export function collectPushedRangeCommits(beforeOid, headOid, cwd = process.cwd()) {
-    const hasUsableBefore = Boolean(beforeOid)
+    const hasUsableBefore = typeof beforeOid === 'string' && beforeOid !== ''
         && beforeOid !== ZERO_OID
         && commitExists(beforeOid, cwd)
         && tryGit([
@@ -241,6 +274,8 @@ export function collectPushedRangeCommits(beforeOid, headOid, cwd = process.cwd(
     return listCommits(hasUsableBefore ? [`${beforeOid}..${headOid}`] : [headOid], cwd);
 }
 
+
+
 /**
  * Groups `git diff-tree --stdin -z` output back into per-commit path lists.
  *
@@ -249,8 +284,10 @@ export function collectPushedRangeCommits(beforeOid, headOid, cwd = process.cwd(
  * `"docs/\321\202\320\265\321\201\321\202/AGENTS.md"` and its basename would no
  * longer match. `-z` also emits paths containing newlines verbatim.
  */
+/** @param {string} output @param {string[]} requestedCommits @returns {ICommitPaths[]} */
 export function parseDiffTreeRecords(output, requestedCommits) {
     const requested = new Set(requestedCommits);
+    /** @type {ICommitPaths[]} */
     const records = [];
 
     for (const token of output.split('\0')) {
@@ -270,6 +307,7 @@ export function parseDiffTreeRecords(output, requestedCommits) {
     return records;
 }
 
+/** @param {string[]} commits @param {string} cwd @returns {ICommitPaths[]} */
 function readCommitPaths(commits, cwd) {
     return batches(commits).flatMap(batch => parseDiffTreeRecords(runGit([
         'diff-tree',
@@ -287,6 +325,7 @@ function readCommitPaths(commits, cwd) {
     ], cwd, `${batch.join('\n')}\n`), batch));
 }
 
+/** @param {string[]} commits @param {string} [cwd] @returns {IViolation[]} */
 export function findHistoryArtifactViolations(commits, cwd = process.cwd()) {
     if (commits.length === 0) {
         return [];
@@ -297,7 +336,7 @@ export function findHistoryArtifactViolations(commits, cwd = process.cwd()) {
     }) => {
         const matches = [...new Set(paths
             .map(path => describeForbiddenArtifactPath(path))
-            .filter(Boolean))];
+            .filter((match) => match !== null))];
         return matches.length > 0 ? [{
             matches,
             subject: commit,
@@ -305,6 +344,8 @@ export function findHistoryArtifactViolations(commits, cwd = process.cwd()) {
     });
 }
 
+
+/** @param {IViolation[][]} violationGroups @returns {IViolation[]} */
 function mergeViolations(violationGroups) {
     const matchesBySubject = new Map();
 
@@ -327,6 +368,7 @@ function mergeViolations(violationGroups) {
     }));
 }
 
+/** @param {string[]} commits @param {string} [cwd] @param {IPushPolicyOptions} [options] @returns {IViolation[]} */
 export function findPushPolicyViolations(commits, cwd = process.cwd(), {
     nestedTagRefs = [],
     rejectedRefs = [],
@@ -345,6 +387,7 @@ export function findPushPolicyViolations(commits, cwd = process.cwd(), {
     ]);
 }
 
+/** @param {IViolation[]} violations @returns {void} */
 function rejectViolations(violations) {
     if (violations.length === 0) {
         return;
@@ -363,18 +406,24 @@ function rejectViolations(violations) {
     process.exitCode = 1;
 }
 
+/** @param {string[]} arguments_ @param {string} option @returns {string[]} */
 function readOptionValues(arguments_, option) {
+    /** @type {string[]} */
     const values = [];
     for (let index = 0; index < arguments_.length; index += 1) {
-        if (arguments_[index] === option) {
+        const argument = arguments_[index];
+        if (argument === undefined) {
+            continue;
+        }
+        if (argument === option) {
             const value = arguments_[index + 1];
             if (!value) {
                 throw new Error(`${option} requires a value`);
             }
             values.push(value);
             index += 1;
-        } else if (arguments_[index].startsWith(`${option}=`)) {
-            values.push(arguments_[index].slice(option.length + 1));
+        } else if (argument.startsWith(`${option}=`)) {
+            values.push(argument.slice(option.length + 1));
         }
     }
     return values;
@@ -382,6 +431,7 @@ function readOptionValues(arguments_, option) {
 
 // `git diff --cached` compares against the empty tree when HEAD is unborn, so
 // the very first commit of a repository is checked like any other.
+/** @param {string} [cwd] @returns {string[]} */
 export function findStagedArtifactViolations(cwd = process.cwd()) {
     const output = runGit([
         'diff',
@@ -396,9 +446,10 @@ export function findStagedArtifactViolations(cwd = process.cwd()) {
         .split('\0')
         .filter(Boolean)
         .map(path => describeForbiddenArtifactPath(path))
-        .filter(Boolean);
+        .filter((match) => match !== null);
 }
 
+/** @param {string} cwd @returns {void} */
 function runStagedCheck(cwd) {
     const matches = [...new Set(findStagedArtifactViolations(cwd))];
     if (matches.length === 0) {
@@ -412,6 +463,7 @@ function runStagedCheck(cwd) {
     process.exitCode = 1;
 }
 
+/** @param {string[]} [arguments_] @param {string} [cwd] @returns {void} */
 export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
     const messageFiles = readOptionValues(arguments_, '--message-file');
     const stagedIndex = arguments_.indexOf('--staged');
@@ -435,7 +487,11 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
         if (messageFiles.length !== 1) {
             throw new Error('--message-file accepts one path');
         }
-        const message = readFileSync(messageFiles[0], 'utf8');
+        const messageFile = messageFiles[0];
+        if (messageFile === undefined) {
+            throw new Error('--message-file accepts one path');
+        }
+        const message = readFileSync(messageFile, 'utf8');
         const added = readAddsChecksTrailer(message) === null ? findStagedAddedChecks(cwd) : [];
         if (added.length > 0) {
             console.error(`Commit blocked: ${describeMissingTrailer(added).join('\n  ')}`);

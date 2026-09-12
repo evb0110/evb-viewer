@@ -999,17 +999,23 @@ export async function executeWindowsTestRun(
                         policy,
                         dependencies.identityGuard,
                     );
-                    await assertOwnedClone();
-                    await utmctl.stop(ownedVmId, 'request');
-                    const stopped = await pollUntil(
+                    const waitForStopped = () => pollUntil(
                         clock,
                         deadlines.cancelGraceMs,
                         deadlines.pollIntervalMs,
                         async () => (await utmctl.status(ownedVmId)) === 'stopped' ? true : null,
                     );
-                    if (stopped === null) {
+                    await assertOwnedClone();
+                    await utmctl.stop(ownedVmId, 'request');
+                    if (await waitForStopped() === null) {
                         await assertOwnedClone();
                         await utmctl.stop(ownedVmId, 'force');
+                        if (await waitForStopped() === null) {
+                            // Everything below this point either deletes the bundle or
+                            // releases the host exclusion. Both are unsafe against a VM
+                            // that may still be writing to its disk.
+                            throw new Error(`Owned clone ${ownedVmId} did not acknowledge stopped status after a forced stop; retaining the host exclusion.`);
+                        }
                     }
                     const alreadyRetained = registered.filter(entry => entry.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)
                         && entry.uuid.toLowerCase() !== ownedVmId).length;

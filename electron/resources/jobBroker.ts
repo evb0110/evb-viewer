@@ -1,11 +1,19 @@
 import { clamp } from 'es-toolkit/math';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import { createLogger } from '@electron/utils/createLogger';
 
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 const DEFAULT_AGING_INTERVAL_MS = 5_000;
+/**
+ * A lease that outlives this is treated as abandoned rather than merely slow: a
+ * holder that has not released by now has almost certainly lost its release path,
+ * and its resources would otherwise be unreachable for the life of the process.
+ */
+export const JOB_LEASE_MAX_HOLD_MS = 30 * 60 * 1_000;
 const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS = 256;
 const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER = 64;
+const logger = createLogger('job-broker');
 
 export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
     cpuTokens: 2,
@@ -69,7 +77,10 @@ export function createStableJobBrokerOwnerId(
     return `${feature}:${senderId}:${logicalOwnerId}`;
 }
 
-interface IActiveJob extends IJobBrokerRequest {token: string;}
+interface IActiveJob extends IJobBrokerRequest {
+    token: string;
+    grantedAt: number;
+}
 
 interface IQueuedJob {
     id: number;
@@ -238,7 +249,7 @@ export class JobBroker {
         return true;
     }
 
-    cancelOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
+    cancelPendingOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
         for (let index = this.queue.length - 1; index >= 0; index -= 1) {
             const queued = this.queue[index];
             if (queued?.request.ownerId !== ownerId) {
@@ -247,6 +258,27 @@ export class JobBroker {
             this.queue.splice(index, 1);
             queued.removeAbortListener();
             queued.reject(new Error(reason));
+        }
+    }
+
+    cancelOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
+        this.cancelPendingOwner(ownerId, reason);
+        // Cancelling an owner has to drop its granted leases too. The holder is
+        // being torn down and will never call `release()`, so leaving the leases
+        // active would hold the resources until the process exits.
+        let releasedLeaseCount = 0;
+        for (const [
+            token,
+            active,
+        ] of this.active) {
+            if (active.ownerId !== ownerId) {
+                continue;
+            }
+            this.active.delete(token);
+            releasedLeaseCount += 1;
+        }
+        if (releasedLeaseCount > 0) {
+            this.dispatch();
         }
     }
 
@@ -263,6 +295,7 @@ export class JobBroker {
     }
 
     private dispatch() {
+        this.sweepExpiredLeases();
         while (this.queue.length > 0) {
             const grantableIndex = this.findNextGrantableIndex();
             if (grantableIndex < 0) {
@@ -277,6 +310,7 @@ export class JobBroker {
             this.active.set(token, {
                 ...next.request,
                 token,
+                grantedAt: this.now(),
             });
             let released = false;
             next.resolve({
@@ -290,6 +324,24 @@ export class JobBroker {
                     return this.release(token);
                 },
             });
+        }
+    }
+
+    private sweepExpiredLeases() {
+        const now = this.now();
+        for (const [
+            token,
+            active,
+        ] of this.active) {
+            const heldMs = now - active.grantedAt;
+            if (heldMs < JOB_LEASE_MAX_HOLD_MS) {
+                continue;
+            }
+            this.active.delete(token);
+            logger.warn(
+                `Reclaimed expired job broker lease token=${token} owner=${active.ownerId} `
+                + `kind=${active.kind} heldMs=${heldMs}`,
+            );
         }
     }
 

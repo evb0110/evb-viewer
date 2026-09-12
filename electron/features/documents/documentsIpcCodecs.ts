@@ -16,6 +16,7 @@ import {
     decodePdfSaveAsOptions as decodeSaveAsOptions,
     decodePdfValidation,
     decodeRequiredDocumentObject as decodeRequiredObject,
+    decodeSaveAsWarning,
 } from '@contracts/documentsPersistenceSchemas';
 import {
     DOCUMENT_FILES_PLATFORM_FEATURE,
@@ -85,9 +86,11 @@ function decodeCommittedPathValidationResult(value: unknown) {
     if (!isRecord(value) || (value.path !== null && typeof value.path !== 'string')) {
         throw new Error('invalid committed PDF persistence result');
     }
+    const warning = decodeSaveAsWarning(value.warning);
     return {
         path: value.path === null ? null : decodeDocumentRef(value.path, 'committed result.path'),
         validation: decodePdfValidation(value.validation),
+        ...(warning === undefined ? {} : {warning}),
     };
 }
 

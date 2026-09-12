@@ -13,6 +13,7 @@ import {
     requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import {
     requireDocumentRevisionToken,
     type IDocumentRevisionInfo,
@@ -173,6 +174,13 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         options.documentRecordsByTabId.value = {'tab-a': createWorkspaceDocumentRecord({documentIdentity: createIdentity('token-2', 2)})};
         const afterTokenChange = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterTokenChange.tabSignatures.get('tab-a')).not.toBe(after.tabSignatures.get('tab-a'));
+
+        options.tabs.value = [
+            createTab('tab-a', {documentInstanceId: requireDocumentInstanceId('document-1')}),
+            createTab('tab-b'),
+        ];
+        const afterDocumentInstanceChange = buildWorkspaceCheckpointChangeSignature(options);
+        expect(afterDocumentInstanceChange.tabSignatures.get('tab-a')).not.toBe(afterTokenChange.tabSignatures.get('tab-a'));
     });
 
     it('tracks live document refs owned by a mounted workspace', () => {
@@ -180,6 +188,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         let originalPath: TDocumentRef | null = null;
         const workspace = {} as IWorkspaceExpose;
         workspace.getAutomationStateSnapshot = () => ({
+            documentIdentity: null,
             annotationComments: [],
             annotationCommentsStatus: 'ready',
             annotationInventory: null,

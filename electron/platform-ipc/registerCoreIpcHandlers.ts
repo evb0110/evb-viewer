@@ -29,12 +29,15 @@ import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
     decodeDiagnosticsCanaryAction,
+    decodeIpcInvokeRequestId,
 } from '@electron/platform-ipc/coreContract';
+import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {
     acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
     discardWorkspaceCheckpoint,
+    hasRecoverableWorkspaceCheckpoints,
     resumeWorkspaceCheckpoint,
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
@@ -42,6 +45,7 @@ import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
+    onWorkspaceCheckpointClaimed?: () => void | Promise<void>;
     claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
@@ -49,6 +53,7 @@ export interface ICoreIpcHandlerOptions {
 
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_CHANNELS.rendererReady,
+    CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled,
     CORE_IPC_SEND_CHANNELS.rendererLog,
     CORE_IPC_SEND_CHANNELS.windowCloseResponse,
 ]);
@@ -174,6 +179,12 @@ export function registerCoreIpcHandlers(
     eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
         options.onRendererReady?.(event);
     });
+    eventRegistrar.on(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, (event, payload) => {
+        const requestId = decodeIpcInvokeRequestId(payload);
+        if (requestId !== null) {
+            cancelIpcInvoke(event.sender, requestId);
+        }
+    });
 
     const bindings: TFeatureMainBindings<
         typeof WINDOW_TABS_PLATFORM_FEATURE,
@@ -190,29 +201,41 @@ export function registerCoreIpcHandlers(
         }, checkpoint) => {
             await saveWorkspaceCheckpoint(checkpoint, senderId, sender);
         },
-        discardWorkspaceCheckpoint: async ({senderId}) => {
+        discardWorkspaceCheckpoint: async ({
+            sender,
+            senderId,
+        }) => {
             assertAutomationCheckpointReset();
-            return discardWorkspaceCheckpoint(senderId);
+            return discardWorkspaceCheckpoint(senderId, sender);
         },
-        resumeWorkspaceCheckpoint: ({senderId}, discardToken) => {
+        resumeWorkspaceCheckpoint: ({
+            sender,
+            senderId,
+        }, discardToken) => {
             assertAutomationCheckpointReset();
-            resumeWorkspaceCheckpoint(senderId, discardToken);
+            resumeWorkspaceCheckpoint(senderId, discardToken, sender);
         },
         claimWorkspaceCheckpoint: async ({
             sender,
             senderId,
         }) => {
-            const checkpoint = await claimWorkspaceCheckpoint(senderId);
+            const checkpoint = await claimWorkspaceCheckpoint(senderId, sender);
             if (checkpoint) {
                 allowOpenPaths(checkpoint.tabs.flatMap(tab => [
                     tab.sourceRef,
                     tab.workingCopyRef,
                 ].filter((path): path is TDocumentRef => path !== null)), sender);
+                if (await hasRecoverableWorkspaceCheckpoints(senderId, sender)) {
+                    await options.onWorkspaceCheckpointClaimed?.();
+                }
             }
             return checkpoint;
         },
-        acknowledgeWorkspaceCheckpoint: async ({senderId}) => {
-            await acknowledgeWorkspaceCheckpoint(senderId);
+        acknowledgeWorkspaceCheckpoint: async ({
+            sender,
+            senderId,
+        }) => {
+            await acknowledgeWorkspaceCheckpoint(senderId, sender);
         },
         requestWindowTabTransfer: async ({sender}, request) => {
             const sourceWindow = BrowserWindow.fromWebContents(sender);

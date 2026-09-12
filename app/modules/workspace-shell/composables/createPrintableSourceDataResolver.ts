@@ -3,9 +3,12 @@ import type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/public';
-import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
+import { readDocumentBytes } from '@app/utils/documentBytes';
+import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 
 interface IPrintSaveViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
@@ -14,6 +17,9 @@ interface ICreatePrintableSourceDataResolverDeps {
     pdfData: Readonly<Ref<Uint8Array | null>>;
     pdfViewerRef: Readonly<Ref<IPrintSaveViewer | null>>;
     source: NonNullable<IPdfViewerSaveTransactionRequest['source']>;
+    workingCopyPath: Readonly<Ref<TDocumentRef | null>>;
+    originalPath: Readonly<Ref<TDocumentRef | null>>;
+    documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -39,15 +45,34 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         const printTransaction = await deps.pdfViewerRef.value?.runSaveTransaction({
             mode: 'print',
             forceWriterSave: true,
-            serializeResult: true,
+            requiresManagedShapeBaseline: true,
             includeManagedShapes: true,
             rewriteShapeState: true,
             source: deps.source,
         });
+        const workingCopyPath = deps.workingCopyPath.value;
+        const expectedDocumentRevisionToken = deps.documentRevisionToken.value;
+        if (!printTransaction?.nativeMutationProjection || !workingCopyPath || !expectedDocumentRevisionToken) {
+            return readPersistedPrintableBytes();
+        }
         // Print never acknowledges the frontier: the document stays dirty and
-        // the bytes are a detached snapshot handed to the print pipeline.
-        return resolvePdfViewerSaveTransactionFinalBytes(printTransaction)
-            ?? await readPersistedPrintableBytes();
+        // the clone is a detached snapshot handed to the print pipeline. The
+        // transaction returns a projection rather than bytes, so staging it is
+        // the only way to print what the user currently sees.
+        const snapshotRef = await consumeNativePdfMutationProjection({
+            workingPath: workingCopyPath,
+            expectedDocumentRevisionToken,
+            projection: printTransaction.nativeMutationProjection,
+            operation: 'clone',
+            originalPath: deps.originalPath.value,
+            ...(printTransaction.verifyAnnotationSavePath
+                ? {verifyPathBeforeExpose: printTransaction.verifyAnnotationSavePath}
+                : {}),
+            ...(printTransaction.assertAnnotationSaveCurrent
+                ? {assertBeforeExpose: printTransaction.assertAnnotationSaveCurrent}
+                : {}),
+        });
+        return snapshotRef ? readDocumentBytes(snapshotRef) : readPersistedPrintableBytes();
     }
 
     return async function getPrintableSourceData(options?: {signal?: AbortSignal}) {

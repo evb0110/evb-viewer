@@ -24,6 +24,7 @@
                 :navigation-command="navigationCommand"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
+                :ocr-document-revision="documentRevisionToken"
                 :ocr-external-error="docxExportError"
                 :ocr-is-exporting-docx="isExportingDocx"
                 :ocr-popup-open="ocrPopupOpen"
@@ -1191,7 +1192,7 @@ const {
     isDjvuMode,
     currentPage,
     documentViewerRef,
-    ensureProjection: reason => ensureDjvuPdfProjection(reason, new AbortController().signal),
+    ensureProjection: ensureDjvuPdfProjection,
     saveAs: handleSaveAsDirect,
     exportDocx: handleExportDocxDirect,
     isExportingDocx,

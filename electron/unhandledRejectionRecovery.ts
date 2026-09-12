@@ -4,6 +4,8 @@ import { isAbortError } from '@electron/utils/abort';
 export type TMainSubsystem = 'agent' | 'djvu' | 'documents' | 'ocr' | 'search' | 'unknown';
 type TRecoverableMainSubsystem = Exclude<TMainSubsystem, 'unknown'>;
 
+interface ISubsystemTaggedValue {subsystem: TRecoverableMainSubsystem;}
+
 interface IUnhandledRejectionRecoveryOptions {
     threshold?: number;
     windowMs?: number;
@@ -12,41 +14,87 @@ interface IUnhandledRejectionRecoveryOptions {
 }
 
 export type TUnhandledRejectionDecision =
-    | {action: 'fatal'}
     | {action: 'ignore'}
+    | {action: 'report'}
     | {
         action: 'recover';
         subsystem: TRecoverableMainSubsystem;
     };
 
-const SUBSYSTEM_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
+const SUBSYSTEM_MESSAGE_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
     [
         'ocr',
-        /(?:electron[\\/](?:features[\\/])?ocr|ocr job|tesseract)/iu,
+        /(?:ocr job|tesseract)/iu,
     ],
     [
         'search',
-        /(?:electron[\\/](?:features[\\/])?search|search worker)/iu,
+        /search worker/iu,
     ],
     [
         'djvu',
-        /(?:electron[\\/](?:features[\\/])?djvu|ddjvu|djvm)/iu,
+        /(?:ddjvu|djvm)/iu,
     ],
     [
         'agent',
-        /(?:electron[\\/]features[\\/]agent|(?:^|[\s:])assistant(?:\s|$)|mcp server)/imu,
+        /(?:^|[\s:])assistant(?:\s|$)|mcp server/imu,
     ],
     [
         'documents',
-        /(?:electron[\\/]features[\\/]documents|working copy|pdf mutation)/iu,
+        /(?:working copy|pdf mutation)/iu,
     ],
 ];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isRecoverableMainSubsystem(value: unknown): value is TRecoverableMainSubsystem {
+    return value === 'agent'
+        || value === 'djvu'
+        || value === 'documents'
+        || value === 'ocr'
+        || value === 'search';
+}
+
+function isSubsystemTaggedValue(value: unknown): value is ISubsystemTaggedValue {
+    return isRecord(value) && isRecoverableMainSubsystem(value.subsystem);
+}
+
+function readTaggedSubsystem(reason: unknown): TRecoverableMainSubsystem | null {
+    const seen = new Set<unknown>();
+    let current: unknown = reason;
+    while (isRecord(current) && !seen.has(current)) {
+        seen.add(current);
+        if (isSubsystemTaggedValue(current)) {
+            return current.subsystem;
+        }
+        current = current.cause;
+    }
+    return null;
+}
+
+function readStableSubsystemCode(reason: unknown): TRecoverableMainSubsystem | null {
+    if (!isRecord(reason) || typeof reason.code !== 'string') {
+        return null;
+    }
+    if (/^OCR_/u.test(reason.code)) {
+        return 'ocr';
+    }
+    if (/^SEARCH_/u.test(reason.code)) {
+        return 'search';
+    }
+    return null;
+}
+
 export function classifyUnhandledRejectionSubsystem(reason: unknown): TMainSubsystem {
+    const taggedSubsystem = readTaggedSubsystem(reason) ?? readStableSubsystemCode(reason);
+    if (taggedSubsystem) {
+        return taggedSubsystem;
+    }
     const details = reason instanceof Error
         ? `${getErrorMessage(reason)}\n${reason.stack ?? ''}`
         : getErrorMessage(reason);
-    return SUBSYSTEM_PATTERNS.find(([
+    return SUBSYSTEM_MESSAGE_PATTERNS.find(([
         , pattern,
     ]) => pattern.test(details))?.[0] ?? 'unknown';
 }
@@ -58,7 +106,7 @@ export function decideUnhandledRejection(reason: unknown): TUnhandledRejectionDe
 
     const subsystem = classifyUnhandledRejectionSubsystem(reason);
     return subsystem === 'unknown'
-        ? {action: 'fatal'}
+        ? {action: 'report'}
         : {
             action: 'recover',
             subsystem,

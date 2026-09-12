@@ -34,34 +34,51 @@ afterEach(async () => {
 });
 
 describe('batched PDF MRC extraction', () => {
-    it('preserves compact layers and inspects the qpdf object table once across chunks', async () => {
+    it('preserves compact layers and asks qpdf only for the mask dictionaries it needs', async () => {
         const scratch = await createScratch();
         const progress: Array<[number, number]> = [];
         let activeListings = 0;
         let peakListings = 0;
+        const qpdfSelectorCounts: number[] = [];
         const runCommand = vi.fn<typeof runNativeToolCommand>(async (command, args) => {
             if (command === '/qpdf') {
+                const objectTable: Record<string, unknown> = {
+                    'obj:2 0 R': {stream: {dict: {'/SMask': '20 0 R'}}},
+                    'obj:20 0 R': {stream: {dict: {
+                        '/BitsPerComponent': 1,
+                        '/Decode': [
+                            1,
+                            0,
+                        ],
+                        '/Filter': '/JBIG2Decode',
+                    }}},
+                    'obj:4 0 R': {stream: {dict: {'/SMask': '40 0 R'}}},
+                    'obj:40 0 R': {stream: {dict: {
+                        '/BitsPerComponent': 1,
+                        '/Filter': '/JBIG2Decode',
+                    }}},
+                };
+                // qpdf emits only the objects the selectors name, so the mock
+                // does the same: a lookup that still relied on the whole table
+                // would come back empty here.
+                const requested = args.flatMap((arg) => {
+                    const parsed = /^--json-object=(\d+),(\d+)$/u.exec(arg);
+                    return parsed === null ? [] : [`obj:${parsed[1]!} ${parsed[2]!} R`];
+                });
+                qpdfSelectorCounts.push(requested.length);
                 return {
                     exitCode: 0,
                     stderr: '',
                     stdout: JSON.stringify({qpdf: [
                         {jsonversion: 2},
-                        {
-                            'obj:2 0 R': {stream: {dict: {'/SMask': '20 0 R'}}},
-                            'obj:20 0 R': {stream: {dict: {
-                                '/BitsPerComponent': 1,
-                                '/Decode': [
-                                    1,
-                                    0,
-                                ],
-                                '/Filter': '/JBIG2Decode',
-                            }}},
-                            'obj:4 0 R': {stream: {dict: {'/SMask': '40 0 R'}}},
-                            'obj:40 0 R': {stream: {dict: {
-                                '/BitsPerComponent': 1,
-                                '/Filter': '/JBIG2Decode',
-                            }}},
-                        },
+                        Object.fromEntries(
+                            requested.flatMap(key =>
+                                key in objectTable ? [[
+                                    key,
+                                    objectTable[key],
+                                ]] : [],
+                            ),
+                        ),
                     ]}),
                 };
             }
@@ -147,9 +164,24 @@ describe('batched PDF MRC extraction', () => {
             11,
             35,
         ]);
-        expect(runCommand).toHaveBeenCalledTimes(9);
-        expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(1);
+        expect(runCommand).toHaveBeenCalledTimes(12);
+        // Two chunks, each asking once for its foreground objects and once for
+        // the masks they point at, and never for more objects than that.
+        expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(4);
+        expect(qpdfSelectorCounts).toEqual([
+            1,
+            1,
+            1,
+            1,
+        ]);
         expect(peakListings).toBe(2);
+        // A malformed PDF can make either tool spin, and the stage has no other
+        // end condition when the caller passes no signal.
+        expect(runCommand.mock.calls.every(([
+            ,
+            ,
+            options,
+        ]) => (options?.timeoutMs ?? 0) > 0)).toBe(true);
         expect(runCommand.mock.calls.some(([
             ,
             args,

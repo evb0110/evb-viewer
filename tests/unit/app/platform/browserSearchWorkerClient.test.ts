@@ -488,6 +488,7 @@ describe('browserSearchWorkerClient', () => {
         await matchFailure;
         await siblingFailure;
         expect(terminateSpy).toHaveBeenCalledOnce();
+        expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
     it('rejects the active job and sends a request-scoped worker cancel', async () => {

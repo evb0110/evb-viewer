@@ -363,6 +363,24 @@ fn manifest_v3_emits_typed_progress_and_terminal_result() {
     assert_eq!(envelopes.last().unwrap()["type"], "result");
     assert_eq!(envelopes.last().unwrap()["result"]["status"], "success");
     assert!(page_metadata.exists());
+
+    #[cfg(unix)]
+    {
+        let mut closed_stdout = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(closed_stdout.stdout.take());
+        let output = closed_stdout.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(130));
+        assert!(
+            output.stderr.is_empty(),
+            "closed stdout must not report a panic: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]

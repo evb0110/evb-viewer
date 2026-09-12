@@ -117,8 +117,12 @@ export interface IAnnotationEditorSurface {
     registerTextBoxDraftCommitter(committer: () => void): () => void;
     commitPendingTextBoxDraftsForSave(): void;
     setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
+    restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
     clearTextBoxDraftPending(annotationId: AnnotationId): void;
+    hasTextBoxDraftPending(annotationId: AnnotationId): boolean;
     hasPendingTextBoxDrafts(): boolean;
+    getTextBoxDraftText(annotationId: AnnotationId): string | null;
+    getTextBoxDraftRect(annotationId: AnnotationId): IAnnotationMarkerRect | null;
     updateSelectedTextBoxProperties(
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
     ): boolean;
@@ -203,6 +207,7 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     authorName?: ComputedRef<string | null | undefined>;
     onCreationCompleted?: (tool: TAnnotationTool) => void;
     onTextBoxDraftChanged?: (annotationId: AnnotationId, text: string | null) => void;
+    getTextBoxDraftText?: (annotationId: AnnotationId) => string | null;
     onToolCancel?: (() => void) | undefined;
     emitOpenNote?: (entity: AnnotationEntity) => void;
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
@@ -293,6 +298,7 @@ export const usePdfAnnotationEditorSurface = (
     const selectedIds = shallowRef<ReadonlySet<AnnotationId>>(new Set());
     const textBoxDraftCommitters = new Set<() => void>();
     const pendingTextBoxDraftIds = new Set<AnnotationId>();
+    const restoredTextBoxDraftRects = new Map<AnnotationId, IAnnotationMarkerRect>();
     const pendingTextBoxDraftCount = ref(0);
     let stopSubscription: (() => void) | null = null;
     let subscribedApplication: AnnotationApplication | null = null;
@@ -665,7 +671,23 @@ export const usePdfAnnotationEditorSurface = (
         pendingTextBoxDraftCount.value += 1;
     }
 
+    function restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect) {
+        const entity = store().get(annotationId);
+        if (entity?.kind !== 'text-box' || entity.deleted) {
+            return;
+        }
+        if (geometry) {
+            restoredTextBoxDraftRects.set(annotationId, {...geometry});
+        }
+        if (!pendingTextBoxDraftIds.has(annotationId)) {
+            pendingTextBoxDraftIds.add(annotationId);
+            pendingTextBoxDraftCount.value += 1;
+        }
+        beginTextEditing(annotationId);
+    }
+
     function clearTextBoxDraftPending(annotationId: AnnotationId) {
+        restoredTextBoxDraftRects.delete(annotationId);
         if (!pendingTextBoxDraftIds.delete(annotationId)) {
             return;
         }
@@ -673,8 +695,28 @@ export const usePdfAnnotationEditorSurface = (
         options.onTextBoxDraftChanged?.(annotationId, null);
     }
 
+    function hasTextBoxDraftPending(annotationId: AnnotationId) {
+        return pendingTextBoxDraftIds.has(annotationId);
+    }
+
     function hasPendingTextBoxDrafts() {
         return pendingTextBoxDraftCount.value > 0;
+    }
+
+    function getTextBoxDraftText(annotationId: AnnotationId) {
+        return options.getTextBoxDraftText?.(annotationId) ?? null;
+    }
+
+    function getTextBoxDraftRect(annotationId: AnnotationId) {
+        if (!hasTextBoxDraftPending(annotationId)) {
+            return null;
+        }
+        const entity = store().get(annotationId);
+        if (!entity || entity.kind !== 'text-box' || editingId.value !== annotationId) {
+            return restoredTextBoxDraftRects.get(annotationId) ?? null;
+        }
+        const current = pageInteractions.get(entity.pageIndex)?.getTextBoxDraftRect?.(annotationId);
+        return current ?? restoredTextBoxDraftRects.get(annotationId) ?? null;
     }
 
     function store() {
@@ -1121,8 +1163,12 @@ export const usePdfAnnotationEditorSurface = (
         registerTextBoxDraftCommitter,
         commitPendingTextBoxDraftsForSave,
         setTextBoxDraftPending,
+        restoreTextBoxDraftPending,
         clearTextBoxDraftPending,
+        hasTextBoxDraftPending,
         hasPendingTextBoxDrafts,
+        getTextBoxDraftText,
+        getTextBoxDraftRect,
         updateSelectedTextBoxProperties,
         discardUnsavedAnnotation,
         deleteAnnotation,

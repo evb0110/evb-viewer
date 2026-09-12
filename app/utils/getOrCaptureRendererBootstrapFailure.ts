@@ -4,7 +4,8 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 export type TRendererBootstrapFailureKey =
     | 'app-bootstrap'
     | 'electron-platform-contract'
-    | 'electron-preload-bridge';
+    | 'electron-preload-bridge'
+    | 'workspace-startup';
 
 export interface IRendererBootstrapFailureOptions {
     error: unknown;

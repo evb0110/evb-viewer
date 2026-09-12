@@ -43,6 +43,7 @@ interface ITransitionSidecarFixture {
     targetPath: string;
     kind?: string;
     backupPath: string | null;
+    originalState?: 'present' | 'absent';
 }
 
 interface ITransitionJournalFixture {sidecars: ITransitionSidecarFixture[];}
@@ -187,6 +188,37 @@ describe('workingCopyContentTransitionJournal', () => {
         );
         await expect(readFile(path, 'utf8')).resolves.toBe('original');
         await expect(readFile(pageIdentityPath, 'utf8')).resolves.toBe('new-page-identities');
+        await expect(readFile(journalPath)).resolves.toBeTruthy();
+    });
+
+    it('rejects a prepared journal with contradictory sidecar state', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const backupPath = `${path}.evb-content-old.bak`;
+        const pageIdentityPath = `${path}.evb-pages.json`;
+        const journalPath = `${path}.evb-content-transition.json`;
+        await writeFile(path, 'prepared');
+        await writeFile(backupPath, 'original');
+        await writeFile(pageIdentityPath, 'new-page-identities');
+        await writeFile(journalPath, JSON.stringify({
+            version: 1,
+            state: 'prepared',
+            workingCopyPath: path,
+            backupPath,
+            nextRevisionToken: requireDocumentRevisionToken('revision-n-plus-one'),
+            sidecars: [{
+                targetPath: pageIdentityPath,
+                backupPath,
+                directory: false,
+                originalState: 'absent',
+            }],
+        }));
+
+        await expect(recoverWorkingCopyContentTransition(path)).rejects
+            .toMatchObject({code: 'DOCUMENT_RECOVERY_JOURNAL_INVALID'});
+        await expect(readFile(path, 'utf8')).resolves.toBe('prepared');
+        await expect(readFile(pageIdentityPath, 'utf8')).resolves.toBe('new-page-identities');
+        await expect(readFile(backupPath, 'utf8')).resolves.toBe('original');
         await expect(readFile(journalPath)).resolves.toBeTruthy();
     });
 

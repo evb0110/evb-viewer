@@ -228,6 +228,7 @@ describe('DOCX export component coverage', () => {
         });
         const {host} = mountComponent(OcrPopup, {
             currentPage: 1,
+            documentRevision: null,
             isExportingDocx: true,
             open: true,
             pdfDocument: null,

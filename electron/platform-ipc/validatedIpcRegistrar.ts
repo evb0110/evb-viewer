@@ -17,6 +17,12 @@ import {
     isTrustedWebContentsSender,
 } from '@electron/platform-ipc/trustedIpcSender';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    decodeIpcInvokeRequestId,
+    IPC_INVOKE_REQUEST_ID_FIELD,
+} from '@electron/platform-ipc/coreContract';
+import {beginIpcInvokeCancellation} from '@electron/platform-ipc/ipcInvokeCancellation';
+import {runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const registeredInvokeChannels = new Set<string>();
 const registeredEventChannels = new Set<string>();
@@ -102,6 +108,19 @@ function getPolicyChannels(policy: IIpcInvokeArgumentValidationPolicy | undefine
     return [...(policy?.noArgumentChannels ?? [])];
 }
 
+function extractIpcInvokeRequestId(args: unknown[]) {
+    const metadata = args.at(-1);
+    if (typeof metadata !== 'object' || metadata === null || !Object.hasOwn(metadata, IPC_INVOKE_REQUEST_ID_FIELD)) {
+        return null;
+    }
+    const requestId = decodeIpcInvokeRequestId(metadata);
+    if (requestId === null) {
+        throw new Error('Invalid IPC invoke request metadata');
+    }
+    args.pop();
+    return requestId;
+}
+
 function assertArgumentValidationPolicyChannelsAreKnown(options: {
     allowedChannels?: ReadonlySet<string>;
     argumentValidation?: IIpcInvokeArgumentValidationPolicy;
@@ -153,27 +172,42 @@ export function createValidatedIpcMainRegistrar(
             if (!isTrustedIpcInvokeSender(event, channel)) {
                 throw new Error('IPC sender is not trusted');
             }
-            let decodedArgs: TArgs;
+            const requestId = extractIpcInvokeRequestId(args);
+            const cancellation = requestId === null
+                ? null
+                : beginIpcInvokeCancellation(event.sender, requestId);
             try {
-                if (isExactNoArgumentChannel) {
-                    if (args.length > 0) {
-                        throw new Error('expected no arguments');
+                let decodedArgs: TArgs;
+                try {
+                    if (isExactNoArgumentChannel) {
+                        if (args.length > 0) {
+                            throw new Error('expected no arguments');
+                        }
+                        const noArgs: unknown[] = [];
+                        decodedArgs = noArgs as TArgs;
+                    } else if (decode) {
+                        decodedArgs = decode(args);
+                        const unexpectedArgs = args.slice(decodedArgs.length);
+                        if (unexpectedArgs.some(argument => argument !== undefined)) {
+                            throw new Error(`unexpected trailing arguments after position ${decodedArgs.length}`);
+                        }
+                    } else {
+                        throw new Error('argument decoder is unavailable');
                     }
-                    const noArgs: unknown[] = [];
-                    decodedArgs = noArgs as TArgs;
-                } else if (decode) {
-                    decodedArgs = decode(args);
-                    const unexpectedArgs = args.slice(decodedArgs.length);
-                    if (unexpectedArgs.some(argument => argument !== undefined)) {
-                        throw new Error(`unexpected trailing arguments after position ${decodedArgs.length}`);
-                    }
-                } else {
-                    throw new Error('argument decoder is unavailable');
+                } catch (error) {
+                    throw new IpcArgumentValidationError(channel, getErrorMessage(error), error);
                 }
-            } catch (error) {
-                throw new IpcArgumentValidationError(channel, getErrorMessage(error), error);
+                const invokeHandler = () => handler(event, ...decodedArgs);
+                // The signal reaches the handler through async context rather than
+                // its signature: every channel would otherwise have to thread a
+                // parameter it mostly ignores, and the operations that can act on a
+                // cancellation already register themselves with the lifecycle.
+                return cancellation === null
+                    ? await invokeHandler()
+                    : await runWithMainOperationCancellationSignal(cancellation.signal, invokeHandler);
+            } finally {
+                cancellation?.complete();
             }
-            return handler(event, ...decodedArgs);
         });
     }};
 }

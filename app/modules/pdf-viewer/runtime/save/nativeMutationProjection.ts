@@ -104,7 +104,7 @@ export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
     readonly canonical: IPdfSaveCanonicalInputs;
     readonly dirtyState: IPdfViewerSaveTransactionDirtyState;
     readonly documentStructure: IPdfViewerSaveTransactionDocumentStructure;
-    /** Preclassified atomic alternate if native persistence cannot expose its output. */
+    /** The byte route this native decision was preferred over. */
     readonly fallback: IPdfSaveByteRouteDecision;
 }
 
@@ -1109,8 +1109,8 @@ export function buildNativePdfMutationProjection(
     capabilities: IPdfSaveRouteCapabilities,
 ): TPdfSaveRouteDecision {
     const canonical = deriveCanonicalSaveInputs(plan, capabilities);
-    // Forced materialization overrides the byte source but never the native-append
-    // grant: bounded native mutations still beat a full PDF.js rewrite.
+    // Forced materialization selects the full writer route but never removes the
+    // native-append grant: bounded native mutations still beat a full rewrite.
     const replayPlan = planAnnotationRoute(canonical);
     const annotationPlan: IPdfViewerAnnotationSavePlan = capabilities.forceWriterSave
         ? {

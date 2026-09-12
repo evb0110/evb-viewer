@@ -224,6 +224,32 @@ describe('AnnotationStore public API', () => {
         })).toThrow(/unsupported version/u);
     });
 
+    it('retains an incompatible draft as an error without applying its text', () => {
+        const store = new AnnotationStore();
+        const entity = store.createTextBox(textBox('mismatched-draft'));
+        const result = restoreCanonicalAnnotationRecovery(store, {
+            version: 1,
+            annotationMutationGeneration: 1,
+            entities: [entity],
+            foreign: [],
+            drafts: [{
+                annotationId: entity.identity.id,
+                kind: 'text-box',
+                canonicalRevision: entity.revision + 1,
+                text: 'Retained text',
+                generation: 2,
+            }],
+        });
+
+        expect(result.drafts).toEqual([]);
+        expect(result.draftErrors).toMatchObject([{
+            annotationId: entity.identity.id,
+            text: 'Retained text',
+            error: expect.stringContaining('active canonical entity'),
+        }]);
+        expect(store.get(entity.identity.id)).toMatchObject({text: 'Text'});
+    });
+
     it.each(creators)('creates a canonical %s', (_label, create, fixture) => {
         const store = new AnnotationStore();
         const entity = fixture();

@@ -144,6 +144,7 @@ export interface IResolveCatalogPathOptions {kind?: 'legacy' | 'canonical-v4' | 
 
 class OcrCatalogError extends Error {
     readonly code: string;
+    readonly subsystem = 'ocr';
 
     constructor(message: string, code = 'OCR_CATALOG_ERROR') {
         super(message);

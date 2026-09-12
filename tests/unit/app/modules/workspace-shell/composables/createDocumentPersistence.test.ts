@@ -1221,7 +1221,7 @@ describe('createDocumentPersistence', () => {
         });
     });
 
-    it('keeps the active native path source mounted when a native mutation preserves the live session', async () => {
+    it('refreshes the mounted native path length in place when a native mutation preserves the live session', async () => {
         const {
             deps,
             persistence,
@@ -1230,7 +1230,7 @@ describe('createDocumentPersistence', () => {
         const liveSource = {
             kind: 'path' as const,
             path: requireDocumentRef('/tmp/old-working.pdf'),
-            size: 3,
+            size: 9,
             revision: TEST_DOCUMENT_REVISION_TOKEN,
         };
         state.pdfSrc.value = liveSource;
@@ -1250,6 +1250,8 @@ describe('createDocumentPersistence', () => {
 
         expect(result?.success).toBe(true);
         expect(state.pdfSrc.value).toBe(liveSource);
+        expect(liveSource.size).toBe(3);
+        expect(liveSource.revision).toBe(nextRevision);
         expect(state.pdfReloadSrc.value).toEqual({
             ...liveSource,
             revision: nextRevision,

@@ -237,6 +237,16 @@ async function createPdfWithEscapedImageResourceNames(filePath: string) {
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         'base64',
     ));
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const encodedText = font.encodeText('SOURCE').toString();
+    const fontDictionary = pdf.context.obj({});
+    fontDictionary.set(PDFName.of('Font+1'), font.ref);
+    const extGStateDictionary = pdf.context.obj({});
+    extGStateDictionary.set(PDFName.of('GS A'), pdf.context.obj({
+        Type: PDFName.of('ExtGState'),
+        CA: 0.5,
+        ca: 0.5,
+    }));
     const xObject = pdf.context.obj({});
     for (const name of [
         'Im+1',
@@ -247,11 +257,14 @@ async function createPdfWithEscapedImageResourceNames(filePath: string) {
         xObject.set(PDFName.of(name), image.ref);
     }
     page.node.set(PDFName.of('Resources'), pdf.context.obj({
-        ExtGState: pdf.context.obj({}),
-        Font: pdf.context.obj({}),
+        ExtGState: extGStateDictionary,
+        Font: fontDictionary,
         XObject: xObject,
     }));
     page.node.addContentStream(pdf.context.register(pdf.context.flateStream([
+        'q /GS#20A gs',
+        `BT /Font#2B1 18 Tf 1 0 0 1 20 150 Tm ${encodedText} Tj ET`,
+        'Q',
         'q 40 0 0 40 10 10 cm /Im#2B1 Do Q',
         'q 40 0 0 40 60 10 cm /Im#20A Do Q',
         'q 40 0 0 40 110 10 cm /ordinary Do Q',
@@ -512,6 +525,46 @@ describe('assembleSearchablePdf', () => {
         expect(extractedText).toContain('SECOND OCR');
     });
 
+    it('retains source resources when removed OCR content cannot be parsed', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'malformed-content-original.pdf');
+        const ocrPath = join(tempDir, 'malformed-content-ocr.pdf');
+        const originalPdf = await PDFDocument.create();
+        const page = originalPdf.addPage([
+            200,
+            200,
+        ]);
+        const font = await originalPdf.embedFont(StandardFonts.Helvetica);
+        const sourceFontName = page.node.newFontDictionary('Source+Font', font.ref);
+        page.node.addContentStream(originalPdf.context.register(originalPdf.context.flateStream([
+            'BT',
+            `${sourceFontName} 12 Tf`,
+            '3 Tr',
+            '(BROKEN OCR Tj',
+            'ET',
+            '',
+        ].join('\n'))));
+        await writeFile(originalPath, await originalPdf.save());
+        await createPdfWithVisibleAndHiddenText(ocrPath, { hiddenText: 'NEW OCR' });
+
+        const outputPath = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                ocrPath,
+            ]]),
+            1,
+            tempDir,
+            'malformed-content-session',
+            vi.fn(),
+            path => path,
+        );
+
+        expect((await getFirstPageResourceNames(outputPath, 'Font'))
+            .some(name => name.startsWith('Source+Font'))).toBe(true);
+    });
+
     it('preserves source image resources whose PDF names contain escapes', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'escaped-resource-names-original.pdf');
@@ -545,6 +598,10 @@ describe('assembleSearchablePdf', () => {
         expect(outputContent).toContain('/Im#20A Do');
         expect(outputContent).toContain('/ordinary Do');
         expect(outputContent).toContain('/P#21unct Do');
+        expect(outputContent).toContain('/GS#20A gs');
+        expect(outputContent).toContain('/Font#2B1 18 Tf');
+        expect(await getFirstPageResourceNames(outputPath, 'Font')).toContain('Font+1');
+        expect(await getFirstPageResourceNames(outputPath, 'ExtGState')).toContain('GS#20A');
     });
 
     it('replaces previous OCR page text when applying OCR again', async () => {

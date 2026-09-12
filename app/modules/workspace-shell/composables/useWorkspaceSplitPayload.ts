@@ -30,7 +30,6 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
-import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {
     consumeNativePdfMutationProjection,
@@ -164,7 +163,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 mode: 'snapshot',
                 saveFlowMode: 'save',
                 forceWriterSave: false,
-                serializeResult: true,
+                requiresManagedShapeBaseline: true,
                 ...(workingCopyPath ? {workingPath: workingCopyPath} : {}),
                 ...(options.getNativeSaveTransactionOptions?.() ?? {}),
                 source: {getSourcePdfData: async () => {
@@ -197,11 +196,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     return readDocumentBytes(snapshotPath);
                 }
             }
-            const viewerSnapshot = resolvePdfViewerSaveTransactionFinalBytes(viewerTransaction);
-            if (viewerSnapshot) {
-                return viewerSnapshot;
-            }
-
             if (options.pdfData.value) {
                 return options.pdfData.value;
             }

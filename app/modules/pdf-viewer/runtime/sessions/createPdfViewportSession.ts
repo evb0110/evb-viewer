@@ -832,11 +832,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             || resizeTransitionVisible.value
             || zoomSnapSuppressedForClass.value
         ) {
+            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(authority.currentPage.value);
             return;
         }
-        const isPhysicalNavigation = navigationEpochs.markScrollInteraction();
+        const isPhysicalNavigation = navigationEpochs.markScrollInteraction({
+            top: container.scrollTop,
+            maxTop: container.scrollHeight - container.clientHeight,
+        });
         if (!isPhysicalNavigation) {
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(authority.currentPage.value);
@@ -1098,6 +1102,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             transactionController.advanceTransaction(transactionId, 'settled');
         }
     }
+    function preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
+        nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
+        documentSession.preserveNextReloadVisibleContent(true);
+    }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
         if (!transition.isCurrent()) {
             return;
@@ -1112,8 +1120,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             singlePageScroll.viewportAuthority.suspend();
             activeDocumentPlacement = null;
             cancelMandatoryRaster();
+            // A page operation rewrites the file the viewer already has open.
+            // Tearing the presentation down here is what leaves the empty
+            // shell on screen until the replacement paints, so hold the last
+            // picture instead and let the reload plan consume it.
+            const holdsVisibleContent = transition.isSameDocumentRewrite;
+            if (holdsVisibleContent) {
+                preserveNextSourceReloadVisibleContent();
+            }
             const preserved = activePreservedVisibleContent;
-            if (preserved) {
+            if (preserved && !holdsVisibleContent) {
                 releasePreservedVisualSnapshotNow(preserved);
             }
             settleVisualReloadTransition(transition.reason);
@@ -1124,7 +1140,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                     reason: transition.reason === 'load-aborted' ? 'reload' : 'document-changed',
                     cancelInFlightRenders: true,
                     bumpRenderVersion: true,
-                    preserveVisualContent: false,
+                    preserveVisualContent: holdsVisibleContent,
                 }, transactionId);
             }
             cancelPendingSearchRevision.value += 1;
@@ -1208,10 +1224,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         requestMandatoryRaster,
         settleMandatoryRaster,
         commitVisibleRange,
-        preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
-            nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
-            documentSession.preserveNextReloadVisibleContent(true);
-        },
+        preserveNextSourceReloadVisibleContent,
     };
 };
 export type TPdfViewportSession = ReturnType<typeof createPdfViewportSession>;

@@ -107,6 +107,8 @@ const ASSISTANT_TURN_CANCELLED_ERROR = 'Assistant turn was canceled before provi
 const CLAUDE_CONTEXT_UNAVAILABLE_ERROR = 'Claude cannot continue this chat because its provider context is unavailable. Start a new chat to continue.';
 
 class AssistantTurnSupersededError extends Error {
+    readonly subsystem = 'agent';
+
     constructor() {
         super(ASSISTANT_TURN_CANCELLED_ERROR);
     }

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { IPC_INVOKE_REQUEST_ID_FIELD } from '@electron/platform-ipc/coreContract';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { requireEpochMs } from '@contracts/timestamps';
@@ -212,6 +213,7 @@ describe('DjVu platform feature', () => {
                 wholeWord: true,
                 useRegex: false,
             },
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
         // This deliberately invalid branded value reaches the client validator.
         const invalidRequestId = 'x'.repeat(129) as TRequestId;

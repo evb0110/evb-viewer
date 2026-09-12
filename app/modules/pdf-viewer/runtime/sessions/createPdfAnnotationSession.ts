@@ -421,6 +421,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
             projectCanonicalAnnotations();
         },
+        getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
         onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,
         resolveStampImage,
@@ -967,6 +968,22 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
+        writerParseAbortController?.abort();
+        const request = ++writerParseRequest;
+        const abortController = new AbortController();
+        writerParseAbortController = abortController;
+        // Both exits from this function settle through here so they cannot
+        // drift apart: a superseded parse must not unblock consumers, and the
+        // document may have swapped during any await above.
+        function settleProjection() {
+            if (writerParseAbortController !== abortController) {
+                return;
+            }
+            writerParseAbortController = null;
+            if (request === writerParseRequest && transition.isCurrent()) {
+                annotationProjectionReady.value = true;
+            }
+        }
         const parsePath = parseDocumentRef(options.workingCopyPath.value)
             ?? parseDocumentRef(options.originalPath.value)
             ?? (options.src.value instanceof Blob ? null : parseDocumentRef(options.src.value?.path ?? null));
@@ -986,13 +1003,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 && !isProvisionalRevisionFence
             )
         ) {
-            annotationProjectionReady.value = true;
+            settleProjection();
             return;
         }
-        writerParseAbortController?.abort();
-        const request = ++writerParseRequest;
-        const abortController = new AbortController();
-        writerParseAbortController = abortController;
         const targetStore = annotationApplication.value.store;
         const targetStoreMutationEpoch = targetStore.mutationEpoch;
         try {
@@ -1059,12 +1072,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
             }
         } finally {
-            if (writerParseAbortController === abortController) {
-                writerParseAbortController = null;
-                if (request === writerParseRequest && transition.isCurrent()) {
-                    annotationProjectionReady.value = true;
-                }
-            }
+            settleProjection();
         }
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
@@ -1167,15 +1175,18 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     text,
                 ]) => {
                     const entity = annotationApplication.value.store.get(asAnnotationId(annotationId));
-                    return entity?.kind === 'text-box'
-                        ? {
-                            annotationId: entity.identity.id,
-                            kind: 'text-box' as const,
-                            canonicalRevision: entity.revision,
-                            text,
-                            generation: textBoxDraftGenerations.get(annotationId) ?? 0,
-                        }
-                        : null;
+                    if (entity?.kind !== 'text-box') {
+                        return null;
+                    }
+                    const geometry = annotationEditorSurface.getTextBoxDraftRect(entity.identity.id);
+                    return {
+                        annotationId: entity.identity.id,
+                        kind: 'text-box' as const,
+                        canonicalRevision: entity.revision,
+                        text,
+                        ...(geometry ? {geometry} : {}),
+                        generation: textBoxDraftGenerations.get(annotationId) ?? 0,
+                    };
                 },
             ).filter((draft): draft is NonNullable<typeof draft> => draft !== null);
             return captureCanonicalAnnotationRecovery(
@@ -1193,6 +1204,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             recovery.drafts.filter(draft => draft.kind === 'text-box').forEach((draft) => {
                 textBoxDrafts.set(draft.annotationId, draft.text);
                 textBoxDraftGenerations.set(draft.annotationId, draft.generation);
+                annotationEditorSurface.restoreTextBoxDraftPending(draft.annotationId, draft.geometry);
             });
             projectCanonicalAnnotations();
             return recovery;

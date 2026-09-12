@@ -42,6 +42,8 @@ interface IRecoveredSession {
     session: IElectronE2ESession;
 }
 
+interface ICreateRecoveredSessionOptions {replacementSourcePath?: string;}
+
 interface IRecoveryDirtyState {
     [key: string]: unknown;
     fileDirty?: boolean;
@@ -55,7 +57,10 @@ interface IRecoveryAutomationState {
 
 const RECOVERED_ANNOTATION_TEXT = 'Project 8 recovered annotation';
 
-async function createRecoveredSession(label: string): Promise<IRecoveredSession> {
+async function createRecoveredSession(
+    label: string,
+    options: ICreateRecoveredSessionOptions = {},
+): Promise<IRecoveredSession> {
     const pdfPath = await createMultiPageTextFixturePdf(`project8-close-${label}-${Date.now()}.pdf`, 2);
     const sessionName = `e2e-project8-close-${label}-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
@@ -94,6 +99,9 @@ async function createRecoveredSession(label: string): Promise<IRecoveredSession>
         preserveWorkspaceCheckpoint: true,
         crashElectronBeforeStop: true,
     });
+    if (options.replacementSourcePath) {
+        await rename(options.replacementSourcePath, pdfPath);
+    }
     session = await startElectronE2ESession(sessionName, {
         clean: false,
         extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
@@ -208,6 +216,26 @@ describe('Project 8 recovered close decisions', () => {
         await expect.poll(async () => (await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation, {timeout: 60_000}).toBe(90);
     }, E2E_TIMEOUT_MS);
 
+    it('rejects Save after the source changes while EVB is stopped', async () => {
+        const replacementSourcePath = await createMultiPageTextFixturePdf(`project8-close-external-${Date.now()}.pdf`, 2);
+        const externalBytes = await readFile(replacementSourcePath);
+        const recovered = await createRecoveredSession('external-replacement', {replacementSourcePath});
+        session = recovered.session;
+        const recoveredWorkingBytes = await readFile(recovered.workingCopyPath);
+
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSave')).resolves.toEqual({
+            called: true,
+            value: false,
+        });
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
+        expect(state.dirtyState?.fileDirty).toBe(true);
+        await expect(readFile(recovered.pdfPath)).resolves.toEqual(externalBytes);
+        await expect(readFile(recovered.workingCopyPath)).resolves.toEqual(recoveredWorkingBytes);
+        expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(0);
+        expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);
+    }, E2E_TIMEOUT_MS);
+
     it('Discard closes without committing recovered bytes', async () => {
         const recovered = await createRecoveredSession('discard');
         session = recovered.session;
@@ -305,6 +333,11 @@ describe('Project 8 recovered close decisions', () => {
         ]));
         expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
         expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+        const firstRecoverySidecarPaths = [
+            `${firstWorkingCopyPath}.evb-revision.json`,
+            `${firstWorkingCopyPath}.evb-pages.json`,
+        ];
+        expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
 
         const initialCheckpoint = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
             sourceRef?: string | null;
@@ -348,6 +381,7 @@ describe('Project 8 recovered close decisions', () => {
             workingCopyRef: firstWorkingCopyPath,
             isDirty: true,
         });
+        expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
         await rename(unavailableWorkingCopyPath, firstWorkingCopyPath);
 
         const recoveredAfterFailedOpen = await readPdfPageSnapshots(firstWorkingCopyPath);
@@ -407,5 +441,81 @@ describe('Project 8 recovered close decisions', () => {
         expect(settledSuccessfulState.workingCopyPath).toEqual(expect.any(String));
         expect((await readPdfPageSnapshots(settledSuccessfulState.workingCopyPath!))[0]?.rotation).toBe(90);
         expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
+    }, E2E_TIMEOUT_MS);
+
+    it('keeps dirty checkpoints separate across two windows and a restart', async () => {
+        const firstPdfPath = await createMultiPageTextFixturePdf(`project8-owner-a-${Date.now()}.pdf`, 1);
+        const secondPdfPath = await createMultiPageTextFixturePdf(`project8-owner-b-${Date.now()}.pdf`, 1);
+        const sessionName = `e2e-project8-owner-isolation-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [firstPdfPath],
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await expect(callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).resolves.toMatchObject({called: true});
+
+        await createNewWorkspaceTab(session);
+        await openPdfInApp(session.page, secondPdfPath, 60_000);
+        await expect(callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).resolves.toMatchObject({called: true});
+        await session.page.click('.tab-list .tab[data-tab-id]:last-child', {button: 'right'});
+        await session.page.waitForSelector('.tab-context-menu');
+        const movedToNewWindow = await session.page.evaluate(() => {
+            const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(candidate => (candidate.textContent ?? '').toLowerCase().includes('move tab to new window'));
+            item?.click();
+            return Boolean(item);
+        });
+        expect(movedToNewWindow, 'move tab to new window menu item').toBe(true);
+
+        const appPages = async () => (await session!.browser.pages()).filter(page => (
+            !page.isClosed()
+            && (page.url().startsWith('evb-viewer://app/')
+                || page.url().includes('localhost:')
+                || page.url().includes('127.0.0.1:'))
+        ));
+        await expect.poll(async () => (await appPages()).length, {timeout: 60_000}).toBe(2);
+        const livePages = await appPages();
+        await Promise.all(livePages.map(page => waitForViewerInteractive(page, 60_000)));
+
+        const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        await expect.poll(async () => {
+            try {
+                const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {
+                    checkpoint?: {tabs?: unknown[]};
+                    records?: Array<{checkpoint?: {tabs?: unknown[]}}>
+                };
+                return stored.records?.length ?? (stored.checkpoint ? 1 : 0);
+            } catch {
+                return 0;
+            }
+        }, {timeout: 60_000}).toBe(2);
+
+        await session.browser.disconnect();
+        await stopSingleSession(session.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = await startElectronE2ESession(sessionName, {
+            clean: false,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await expect.poll(async () => (await appPages()).length, {timeout: 60_000}).toBe(2);
+
+        const recoveredPages = await appPages();
+        const recoveredFileNames = await Promise.all(recoveredPages.map(page => page.evaluate(() => (
+            document.querySelector('.tab-list .tab[data-tab-id]')?.textContent?.trim() ?? ''
+        ))));
+        expect(recoveredFileNames.some(name => name.includes('project8-owner-a-'))).toBe(true);
+        expect(recoveredFileNames.some(name => name.includes('project8-owner-b-'))).toBe(true);
+        await expect.poll(async () => {
+            const recoveredDirtyStates = await Promise.all(recoveredPages.map(page => (
+                readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(page, ['dirtyState'])
+            )));
+            return recoveredDirtyStates.every(state => state.dirtyState?.fileDirty === true);
+        }, {timeout: 60_000}).toBe(true);
     }, E2E_TIMEOUT_MS);
 });

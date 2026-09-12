@@ -1,9 +1,10 @@
 export interface IPdfVisualSnapshotReleaseOptions {
-    forceReleaseAfterMaxDelay?: boolean;
     maxDelayMs?: number;
     minFrames?: number;
     waitFor?: () => boolean;
 }
+
+export type TPdfVisualSnapshotReleaseCancellation = () => void;
 
 function normalizeMaxDelayMs(maxDelayMs: number | undefined) {
     if (
@@ -30,17 +31,48 @@ function normalizeMinFrames(minFrames: number | undefined) {
 export function schedulePdfVisualSnapshotRelease(
     release: (() => void) | null | undefined,
     options: IPdfVisualSnapshotReleaseOptions = {},
-) {
+): TPdfVisualSnapshotReleaseCancellation {
     if (!release) {
-        return;
+        return () => {};
     }
+    const releaseSnapshot = release;
 
     const maxDelayMs = normalizeMaxDelayMs(options.maxDelayMs);
     const minFrames = normalizeMinFrames(options.minFrames);
     const startTime = Date.now();
     let frameCount = 0;
+    let frameId: number | null = null;
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
 
-    const shouldRelease = () => {
+    function stop() {
+        settled = true;
+        if (frameId !== null) {
+            window.cancelAnimationFrame(frameId);
+            frameId = null;
+        }
+        if (deadlineTimer !== null) {
+            clearTimeout(deadlineTimer);
+            deadlineTimer = null;
+        }
+    }
+
+    function complete() {
+        if (settled) {
+            return;
+        }
+        stop();
+        releaseSnapshot();
+    }
+
+    function cancel() {
+        if (settled) {
+            return;
+        }
+        stop();
+    }
+
+    function shouldRelease() {
         frameCount += 1;
         if (frameCount < minFrames) {
             return false;
@@ -48,26 +80,34 @@ export function schedulePdfVisualSnapshotRelease(
         if (!options.waitFor || options.waitFor()) {
             return true;
         }
-        if (options.forceReleaseAfterMaxDelay === false) {
-            return false;
-        }
         return Date.now() - startTime >= maxDelayMs;
-    };
+    }
 
     if (
         typeof window !== 'undefined'
         && typeof window.requestAnimationFrame === 'function'
     ) {
         const tick = () => {
-            if (shouldRelease()) {
-                release();
+            frameId = null;
+            if (settled) {
                 return;
             }
-            window.requestAnimationFrame(tick);
+            if (shouldRelease()) {
+                complete();
+                return;
+            }
+            frameId = window.requestAnimationFrame(tick);
         };
-        window.requestAnimationFrame(tick);
-        return;
+        frameId = window.requestAnimationFrame(tick);
+        if (maxDelayMs > 0) {
+            // The deadline inside the loop only fires when a frame is served.
+            // A backgrounded tab stops serving them, so without a wall-clock
+            // timer the snapshot would be held until the tab is looked at again.
+            deadlineTimer = setTimeout(complete, maxDelayMs);
+        }
+        return cancel;
     }
 
-    setTimeout(release, 0);
+    deadlineTimer = setTimeout(complete, 0);
+    return cancel;
 }

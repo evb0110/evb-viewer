@@ -58,6 +58,7 @@ interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     isXlarge: boolean;
     shouldWarmup: boolean;
     signal: AbortSignal;
+    regexBudgetMs: number | null;
     regexDeadlineAtMs: number | null;
 }
 
@@ -197,6 +198,16 @@ function throwIfRegexDeadlineExceeded(deadlineAtMs: number | null) {
     );
 }
 
+function startRegexMatching(context: ISearchRequestContext) {
+    if (context.regexBudgetMs !== null && context.regexDeadlineAtMs === null) {
+        context.regexDeadlineAtMs = Date.now() + context.regexBudgetMs;
+        postMessage({
+            type: 'matching-started',
+            requestId: context.requestId,
+        });
+    }
+}
+
 function sendProgress(
     requestId: TRequestId,
     processed: number,
@@ -282,10 +293,9 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
     if (context.isXlarge || context.shouldWarmup || isNativeSearchAttemptDisabledForRuntime()) {
         return false;
     }
-    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
-
     try {
         const {tryRunNativeSearch} = await import('@electron/features/search/nativeSearch');
+        startRegexMatching(context);
         const nativeResult = await tryRunNativeSearch({
             pdfPath: context.pdfPath,
             documentRevision: context.documentRevision,
@@ -357,8 +367,6 @@ async function tryCompleteWithXlargeSearch(context: ISearchRequestContext) {
     if (!context.isXlarge) {
         return false;
     }
-    throwIfRegexDeadlineExceeded(context.regexDeadlineAtMs);
-
     if (context.shouldWarmup) {
         await buildXlargeSearchIndex(context);
         throwIfCancelled(context.requestId, context.signal);
@@ -371,6 +379,7 @@ async function tryCompleteWithXlargeSearch(context: ISearchRequestContext) {
         XlargeNativeSearchCapabilityError,
         isXlargeNativeSearchCapabilityError,
     } = await import('@electron/features/search/nativeSearch');
+    startRegexMatching(context);
     const isCapabilityError = (error: unknown) => (
         (typeof isXlargeNativeSearchCapabilityError === 'function'
             && isXlargeNativeSearchCapabilityError(error))
@@ -467,6 +476,7 @@ function postSearchError(
         type: 'error',
         requestId,
         error: `Search failed: ${errMsg}`,
+        ...(error instanceof SearchRegexLimitError ? {errorCode: 'SEARCH_REGEX_LIMIT' as const} : {}),
     });
 }
 
@@ -481,15 +491,12 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         matchCase = false,
         wholeWord = false,
         useRegex = false,
-        regexDeadlineAtMs,
+        regexBudgetMs,
     } = request;
 
     const abortController = new AbortController();
     requestAbortControllers.set(requestId, abortController);
     const { signal } = abortController;
-    const effectiveRegexDeadlineAtMs = useRegex
-        ? regexDeadlineAtMs ?? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
-        : null;
     pruneCancelledRequests();
     progressSentAt.delete(requestId);
     throwIfCancelled(requestId, signal);
@@ -499,7 +506,6 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         throw new Error(`PDF not found: ${pdfPath}`);
     }
     throwIfCancelled(requestId, signal);
-    throwIfRegexDeadlineExceeded(effectiveRegexDeadlineAtMs);
 
     const pathSizeBytes = typeof fileStat.size === 'number' && Number.isFinite(fileStat.size)
         ? fileStat.size
@@ -520,7 +526,8 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
         wholeWord,
         useRegex,
         signal,
-        regexDeadlineAtMs: effectiveRegexDeadlineAtMs,
+        regexBudgetMs: useRegex ? regexBudgetMs ?? SEARCH_REGEX_MAX_EXECUTION_MS : null,
+        regexDeadlineAtMs: null,
     };
     if (pageCount !== undefined) {
         context.pageCount = pageCount;
@@ -662,6 +669,7 @@ function appendPageMatches(
             truncated,
         };
     }
+    startRegexMatching(context);
     const pageMatches = iteratePageMatches(pageText, context.normalizedQuery, {
         matchCase: context.matchCase,
         wholeWord: context.wholeWord,
@@ -736,6 +744,10 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
         globalMatchIndex = pageResult.globalMatchIndex;
         truncated = pageResult.truncated;
         const resultDelta = results.slice(previousResultCount);
+        if (context.useRegex) {
+            sendProgress(context.requestId, processedCount, total);
+            return;
+        }
         if (resultDelta.length > 0 || (!wasTruncated && truncated)) {
             sendProgress(context.requestId, processedCount, total, true, {
                 results: resultDelta,

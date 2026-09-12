@@ -32,6 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { collectPrePushWork } from './check-publication-policy.mjs';
 import { getValidationImpactPolicy } from './release/policy.mjs';
 import { matchesChangedAreaPattern } from './ci/classify-changed-areas.mjs';
 import { withNodeHeap } from './typecheckNodeEnv.mjs';
@@ -949,6 +950,37 @@ export function getValidationPlan({
         ),
     ];
 }
+
+/** @param {string[]} commits @returns {string[]} */
+function collectPushedCommitFiles(commits) {
+    const output = execFileSync('git', [
+        'diff-tree',
+        '--stdin',
+        '-r',
+        '-z',
+        '--name-only',
+        '--no-renames',
+        '--root',
+        '--diff-merges=first-parent',
+        '--diff-filter=ACDMRT',
+    ], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        input: `${commits.join('\n')}\n`,
+    });
+    const requestedCommits = new Set(commits);
+    let currentCommit;
+    const files = [];
+    for (const token of output.split('\0')) {
+        if (requestedCommits.has(token)) {
+            currentCommit = token;
+        } else if (currentCommit && token.length > 0) {
+            files.push(normalizePath(token));
+        }
+    }
+    return unique(files).sort();
+}
+
 /** @param {string[]} filePaths @param {unknown[]} [extraValues] @param {string} [root] @returns {string} */
 function hashFiles(filePaths, extraValues = [], root = projectRoot) {
     const hash = createHash('sha256');
@@ -2901,6 +2933,57 @@ async function runStages(stages, {
     }
 }
 
+/** @param {string[]} argv @returns {Promise<void>} */
+async function runPrePush(argv) {
+    const remoteName = argv[0];
+    if (!remoteName) {
+        throw new Error('Usage: validation-gates.mjs pre-push <remote> [<url>]');
+    }
+    const work = collectPrePushWork(readFileSync(0, 'utf8'), [
+        remoteName,
+        argv[1],
+    ], projectRoot);
+    if (work.commits.length === 0) {
+        process.stdout.write('[gate] pre-push: no commits to verify\n');
+        return;
+    }
+
+    const changes = {
+        files: collectPushedCommitFiles(work.commits),
+        known: true,
+        reason: 'pre-push',
+    };
+    const classification = classifyValidationImpacts(changes.files);
+    if (classification.unmatchedFiles.length > 0) {
+        process.stderr.write(
+            `[gate] Unclassified pushed paths force the full pre-push typecheck: ${classification.unmatchedFiles.join(', ')}\n`,
+        );
+    }
+    const plan = getValidationPlan({
+        changes,
+        classification,
+        tier: 'acceptance',
+    });
+    const typecheckPlan = plan.filter(stageDefinition => (
+        stageDefinition.id.startsWith('typecheck.')
+        || stageDefinition.id === 'landing.typecheck'
+    ));
+    process.stdout.write(
+        `[gate] pre-push: ${String(work.commits.length)} commit(s), ${String(changes.files.length)} changed path(s); `
+        + `${typecheckPlan.map(stageDefinition => stageDefinition.id).join(', ') || 'no affected typecheck'}\n`,
+    );
+    if (typecheckPlan.length === 0) {
+        return;
+    }
+    await runStages(typecheckPlan, {
+        changes: {
+            ...changes,
+            classification,
+        },
+        tier: 'acceptance',
+    });
+}
+
 /** @param {TValidationTier} tier @param {string[]} argv @param {IValidationSignalOptions} [options] @returns {Promise<void>} */
 async function runTier(tier, argv, {signal} = {}) {
     const changes = await collectValidationChanges({
@@ -2986,12 +3069,16 @@ async function main() {
         await runHeavyCommand(argv, {signal: cancellation.signal});
         return;
     }
+    if (command === 'pre-push') {
+        await runPrePush(argv);
+        return;
+    }
     if (isValidationTier(command)) {
         await runTier(command, argv, {signal: cancellation.signal});
         return;
     }
     throw new Error(
-        'Usage: validation-gates.mjs <iteration|acceptance|integration|nightly|lint|heavy> [options]',
+        'Usage: validation-gates.mjs <iteration|acceptance|integration|nightly|lint|heavy|pre-push> [options]',
     );
 }
 

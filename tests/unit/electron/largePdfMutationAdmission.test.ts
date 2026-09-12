@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {
     LARGE_PDF_MUTATION_THRESHOLD_BYTES,
+    LARGE_PDF_MUTATION_QUEUE_LIMIT,
     withLargePdfMutationAdmission,
 } from '@electron/features/documents/main/withLargePdfMutationAdmission';
 
@@ -109,11 +110,11 @@ describe('withLargePdfMutationAdmission', () => {
         const active = withLargePdfMutationAdmission(
             LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
             controller.signal,
-            async () => {
+            async signal => {
                 operationStarted.resolve();
-                await operationSawAbort.promise;
+                signal.addEventListener('abort', operationSawAbort.resolve, {once: true});
                 await releaseCleanup.promise;
-                throw controller.signal.reason;
+                throw signal.reason;
             },
         );
         let settled = false;
@@ -179,5 +180,41 @@ describe('withLargePdfMutationAdmission', () => {
             releaseLarge.resolve();
         }
         await large;
+    });
+
+    it('rejects admissions beyond the bounded queue', async () => {
+        const firstStarted = deferred();
+        const releaseFirst = deferred();
+        const first = withLargePdfMutationAdmission(
+            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
+            new AbortController().signal,
+            async () => {
+                firstStarted.resolve();
+                await releaseFirst.promise;
+            },
+        );
+        await firstStarted.promise;
+        const queued = withLargePdfMutationAdmission(
+            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
+            new AbortController().signal,
+            async () => undefined,
+        );
+        const rejected = withLargePdfMutationAdmission(
+            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
+            new AbortController().signal,
+            async () => undefined,
+        );
+
+        try {
+            await expect(rejected).rejects.toThrow(
+                `maximum ${String(LARGE_PDF_MUTATION_QUEUE_LIMIT)} queued operation`,
+            );
+        } finally {
+            releaseFirst.resolve();
+        }
+        await Promise.all([
+            first,
+            queued,
+        ]);
     });
 });
