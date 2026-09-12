@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Espacio de trabajo documental para navegador y escritorio. Abre PDF locales, archivos DjVu e imágenes en el navegador; instala la app de escritorio para OCR de PDF con texto buscable, flujos nativos más pesados, EVB Assistant mediante Codex y compatibilidad opcional con MCP local.',
+        description: 'Herramientas sin conexión para limpiar escaneos sin procesar y archivos DjVu, hacer OCR, añadir anotaciones y exportar PDF en macOS, Windows y Linux. Gratis y con licencia MIT.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -26,13 +26,13 @@ export default {
         seo: {
             title: 'Aplicación web de EVB Viewer y descargas de escritorio',
             ogTitle: 'EVB Viewer para trabajo documental en web y escritorio',
-            ogDescription: 'Usa EVB Viewer en el navegador para trabajar con PDF, DjVu e imágenes locales, o instala la app de escritorio para OCR de PDF con texto buscable, flujos nativos más pesados, EVB Assistant mediante Codex y compatibilidad opcional con MCP local.',
+            ogDescription: 'Convierte escaneos sin procesar y archivos DjVu en PDF buscables y anotables con limpieza, OCR, anotación y exportación sin conexión en macOS, Windows y Linux. Gratis y con licencia MIT.',
         },
         hero: {
-            badge: 'App en navegador + builds de escritorio',
-            title: 'PDF, DjVu, imágenes',
-            subtitle: 'Abre PDF locales, archivos DjVu e imágenes en el navegador. Usa los builds de escritorio para OCR de PDF con texto buscable y trabajos de combinación más grandes.',
-            aiNote: 'EVB Assistant se integra con tu suscripción de ChatGPT/OpenAI mediante Codex por debajo. Los usuarios técnicos también pueden exponer un servidor MCP local.',
+            badge: 'Limpieza de escaneos, OCR y exportación a PDF',
+            title: 'Convierte escaneos sin procesar en PDF buscables',
+            subtitle: 'EVB Viewer limpia escaneos sin procesar y archivos DjVu, ejecuta OCR y los convierte en PDF buscables y anotables para archivistas, bibliotecarios, historiadores, filólogos y personas que mantienen bibliotecas personales de escaneos. Funciona sin conexión en macOS, Windows y Linux. Es gratis y tiene licencia MIT.',
+            aiNote: 'EVB Assistant es opcional y está desactivado por defecto. Si lo activas, usa tu propia cuenta de Codex o Claude y puede exponer un servidor MCP local; la limpieza de escaneos, el OCR, la búsqueda y la exportación nunca lo usan.',
             downloadFor: 'Descargar para {platform}',
             downloadForArch: 'Descargar para {platform} ({arch})',
             downloadInstaller: 'Descargar {installerLabel}',
@@ -146,9 +146,9 @@ export default {
             ogDescription: 'Mira qué cubre EVB Viewer en el navegador hoy y qué añade la app de escritorio para OCR de PDF con texto buscable, integración nativa con el sistema y trabajos más grandes.',
         },
         hero: {
-            badge: 'Vista general de funciones',
-            title: 'Un espacio de trabajo documental compartido, con el entorno adecuado para cada tarea.',
-            subtitle: 'EVB Viewer abre archivos PDF, DjVu e imágenes locales en el navegador. La app de escritorio añade OCR de PDF con texto buscable, integración nativa con el sistema y más margen para trabajos grandes de combinación/exportación.',
+            badge: 'Limpieza nativa de escaneos y OCR',
+            title: 'Limpia escaneos sin procesar, luego busca y anota el PDF',
+            subtitle: 'EVB Viewer funciona sin conexión en macOS, Windows y Linux. Su motor nativo en Rust endereza, elimina motas, binariza, recorta y divide páginas dobles. El OCR de Tesseract con modelos tessdata-best admite 30 idiomas. Está pensado para archivistas, bibliotecarios, historiadores, filólogos y personas que mantienen bibliotecas personales de escaneos.',
         },
         capabilities: {
             heading: 'Capacidades principales del espacio de trabajo',
