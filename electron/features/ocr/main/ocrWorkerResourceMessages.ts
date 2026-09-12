@@ -86,11 +86,13 @@ function isOwnedResourceWorker(
 function createOcrResourceRequest(
     scopedJobId: string,
     message: Extract<TOcrWorkerResourceMessage, { type: 'resource-acquire' }>,
+    signal: AbortSignal,
 ): IOcrResourceRequest {
     const resourceRequest: IOcrResourceRequest = {
         jobId: scopedJobId,
         pageNumber: message.pageNumber,
         requestedDpi: message.requestedDpi,
+        signal,
     };
     if (message.pageWidthIn !== undefined) {
         resourceRequest.pageWidthIn = message.pageWidthIn;
@@ -134,13 +136,17 @@ export function handleWorkerResourceMessage(
         terminalResultSent: activeJob?.terminalResultSent === true,
         rejectAfterTerminalResult: true,
     });
-    if (!disposition.accepted) {
+    // An accepted disposition already requires `activeJob` to be the current
+    // worker's job; the second half of the test is what narrows the type.
+    if (!disposition.accepted || !activeJob) {
         log.debug(`[${scopedJobId}] Ignoring OCR resource ${message.type}: ${disposition.reason ?? '<unknown>'}`);
         sendResourceDenied(`OCR resource request denied because job ${message.jobId} is no longer active`);
         return;
     }
 
-    void ocrResourceGovernor.acquire(createOcrResourceRequest(scopedJobId, message)).then((lease) => {
+    void ocrResourceGovernor.acquire(
+        createOcrResourceRequest(scopedJobId, message, activeJob.registry.signal),
+    ).then((lease) => {
         const active = activeJobs.get(scopedJobId);
         const leaseDisposition = getOcrWorkerMessageDisposition({
             incomingJobId: message.jobId,

@@ -78,6 +78,7 @@ describe('ocr resource governor', () => {
             jobId: 'job-a',
             pageNumber: 1,
             requestedDpi: 300,
+            signal: new AbortController().signal,
         });
         ocrResourceGovernor.releaseJob('job-a');
         expect(mocks.brokerLeaseRelease).toHaveBeenCalledOnce();
@@ -94,6 +95,7 @@ describe('ocr resource governor', () => {
             jobId: 'job-uncertain',
             pageNumber: 1,
             requestedDpi: 300,
+            signal: new AbortController().signal,
         });
 
         ocrResourceGovernor.cancelPendingForJob('job-uncertain', 'worker termination is uncertain');
@@ -113,11 +115,13 @@ describe('ocr resource governor', () => {
             jobId: 'job-high',
             pageNumber: 1,
             requestedDpi: 600,
+            signal: new AbortController().signal,
         });
         const normalLease = await ocrResourceGovernor.acquire({
             jobId: 'job-normal',
             pageNumber: 1,
             requestedDpi: 300,
+            signal: new AbortController().signal,
         });
 
         expect(normalLease.effectiveDpi).toBe(300);
@@ -127,10 +131,12 @@ describe('ocr resource governor', () => {
 
     it('admits each page through the cross-feature resource broker', async () => {
         const ocrResourceGovernor = await loadOcrResourceGovernor();
+        const controller = new AbortController();
         const lease = await ocrResourceGovernor.acquire({
             jobId: 'job-brokered',
             pageNumber: 3,
             requestedDpi: 300,
+            signal: controller.signal,
         });
 
         expect(mocks.brokerAcquire).toHaveBeenCalledWith({
@@ -138,6 +144,7 @@ describe('ocr resource governor', () => {
             kind: 'ocr-page',
             priority: 'user',
             perOwnerLimit: 4,
+            signal: controller.signal,
             resources: {
                 cpuTokens: 1,
                 estimatedResidentBytes: 33_660_000,
@@ -157,6 +164,7 @@ describe('ocr resource governor', () => {
             jobId: 'job-low-tier',
             pageNumber: 1,
             requestedDpi: 600,
+            signal: new AbortController().signal,
         });
 
         expect(mocks.brokerAcquire).toHaveBeenCalledWith(expect.objectContaining({
@@ -174,12 +182,14 @@ describe('ocr resource governor', () => {
             jobId: 'job-rejected',
             pageNumber: 1,
             requestedDpi: 300,
+            signal: new AbortController().signal,
         })).rejects.toThrow('global memory pressure');
 
         const nextLease = await ocrResourceGovernor.acquire({
             jobId: 'job-after-rejection',
             pageNumber: 1,
             requestedDpi: 300,
+            signal: new AbortController().signal,
         });
         ocrResourceGovernor.release(nextLease.token);
     });
@@ -191,6 +201,7 @@ describe('ocr resource governor', () => {
             jobId: 'job-huge-page',
             pageNumber: 1,
             requestedDpi: 300,
+            signal: new AbortController().signal,
             pageWidthIn: 500,
             pageHeightIn: 500,
         })).rejects.toThrow('Choose a lower quality setting explicitly');

@@ -1434,6 +1434,11 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/features/ocr/main/jobManager');
+        // Stubbed out so the queue can only be drained by the job's abort signal.
+        // `cancelOwner` matches by scoped id, and the finding is that a worker
+        // restart or requeue under a new scope makes that match fail.
+        const {mainJobBroker} = await import('@electron/resources/jobBroker');
+        const cancelOwner = vi.spyOn(mainJobBroker, 'cancelOwner').mockImplementation(() => undefined);
 
         const firstContext = createContext(99);
         const firstResult = await startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-99');
@@ -1471,6 +1476,12 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         expect(getResourceAcquiredMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
 
         expect(handleOcrCancel(firstContext, requireRequestId('job-99'))).toEqual({ canceled: true });
+        try {
+            expect(mainJobBroker.getSnapshot().queued).toBe(0);
+        } finally {
+            cancelOwner.mockRestore();
+            mainJobBroker.cancelOwner('99:job-99', 'test cleanup');
+        }
         await vi.waitFor(() => {
             expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-2' })]);
         });
