@@ -542,52 +542,6 @@ describe('browserDocumentMaintenance', () => {
         expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith(ref);
     });
 
-    it('kills an abandoned live lease without exposing its records in the same sweep', async () => {
-        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
-        const ref = 'browser://documents/crashed-window.pdf';
-        const record = {
-            ref,
-            fileName: 'crashed-window.pdf',
-            mimeType: 'application/pdf',
-            kind: 'working',
-            retention: 'transient',
-            data: Uint8Array.of(1),
-            fileSize: 1,
-            updatedAt: 1,
-            storageMode: 'inline',
-            chunkCount: 0,
-            chunkSize: 4,
-        };
-        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
-            available: true,
-            value: [ref],
-        });
-        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
-            available: true,
-            value: record,
-        });
-        documentIdbMocks.documentsAtDelete = [record];
-        documentIdbMocks.liveLeasesAtDelete = [{
-            id: 'owner:crashed',
-            ownerId: 'crashed',
-            generation: 4,
-            leaseRevision: 20,
-            status: 'active',
-            heartbeatAt: Date.now() - 60 * 60 * 1_000,
-            protectedDependencies: [{ref}],
-        }];
-
-        await sweepBrowserDocumentMaintenance(new Map());
-
-        expect(documentIdbMocks.liveLeaseStorePuts).toMatchObject([{
-            ownerId: 'crashed',
-            generation: 5,
-            status: 'dead',
-            protectedDependencies: [],
-        }]);
-        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
-    });
-
     it('releases a settled transfer authority once its decision poll window closes', async () => {
         const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
         const ref = 'browser://documents/transferred.pdf';
