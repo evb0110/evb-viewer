@@ -2,8 +2,9 @@
 
 EVB Viewer turns raw scans and DjVu files into clean, searchable, annotatable
 PDFs: native scan cleanup, Tesseract OCR in 30 languages, annotation, and
-export. It runs offline on macOS, Windows, and Linux, it is free, and the
-source is MIT.
+export. It runs offline on macOS, Windows, and Linux, and the same workspace
+runs in a browser tab with nothing to install. It is free and the source is
+MIT.
 
 The document is also an AI workspace. An optional assistant, off by default,
 can operate the open document for you, and the app runs a local MCP server so
@@ -27,11 +28,16 @@ larger than a browser tab's memory need the installed app.
 
 ## Install
 
+One codebase, four targets. Each desktop build is native on both architectures
+of its platform, and the Windows installer is exercised against the packaged
+app in a virtual machine before a release goes out.
+
 | Platform | Download |
 | --- | --- |
 | macOS | [DMG](https://github.com/evb0110/evb-viewer/releases/latest) (Apple Silicon and Intel) |
 | Windows | [Installer](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
 | Linux | [AppImage or DEB](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
+| Browser | [web.evb-viewer.com](https://web.evb-viewer.com) (no install) |
 
 [evb-viewer.com](https://evb-viewer.com) offers the same builds and picks the
 right installer for the machine you are on, alongside the feature pages and the
