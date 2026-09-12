@@ -76,6 +76,32 @@ describe('electron config runtime mode', () => {
         expect(config.renderer.trustedOrigin).toBe('http://127.0.0.1:3235');
     });
 
+    it.each([
+        '127.0.0.1',
+        '127.1.2.3',
+        'localhost',
+        '::1',
+        '[::1]',
+    ])('accepts valid loopback host %j', async (host) => {
+        vi.stubEnv('EVB_SERVER_HOST', host);
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+
+        expect(config.server.host).toBe(host);
+    });
+
+    it.each([
+        '127.evil.example.com',
+        '127.0.0',
+        '128.0.0.1',
+    ])('rejects non-loopback host %j without unsafe opt-in', async (host) => {
+        vi.stubEnv('EVB_SERVER_HOST', host);
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+
+        expect(config.server.host).toBe('127.0.0.1');
+    });
+
     it('allows remote dev server hosts only behind an explicit unsafe opt-in', async () => {
         vi.stubEnv('EVB_SERVER_HOST', 'example.com');
         vi.stubEnv('EVB_ALLOW_UNSAFE_REMOTE_DEV_SERVER', '1');

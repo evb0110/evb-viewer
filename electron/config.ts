@@ -1,3 +1,4 @@
+import {isIP} from 'node:net';
 import {
     dirname,
     join,
@@ -106,11 +107,14 @@ function normalizeServerHost(raw: string | undefined, fallback: string) {
 
 function isLoopbackHost(host: string) {
     const normalized = host.toLowerCase();
-    return normalized === 'localhost'
-        || normalized === '127.0.0.1'
-        || normalized === '::1'
-        || normalized === '[::1]'
-        || normalized.startsWith('127.');
+    if (normalized === 'localhost') {
+        return true;
+    }
+
+    const unbracketedHost = normalized.replace(/^\[|\]$/gu, '');
+    const ipVersion = isIP(unbracketedHost);
+    return (ipVersion === 4 && unbracketedHost.startsWith('127.'))
+        || (ipVersion === 6 && unbracketedHost === '::1');
 }
 
 export const config = {
