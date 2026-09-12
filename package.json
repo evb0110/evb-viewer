@@ -144,6 +144,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.183",
     "@cfworker/json-schema": "4.1.1",
+    "@napi-rs/canvas": "1.0.8",
     "@neondatabase/serverless": "^1.1.0",
     "@sentry/browser": "10.71.0",
     "@sentry/core": "10.71.0",
@@ -157,7 +158,6 @@
     "es-toolkit": "^1.51.0",
     "fast-png": "^8.0.0",
     "h3": "1.15.11",
-    "@napi-rs/canvas": "0.1.100",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
     "utif": "^3.1.0",
