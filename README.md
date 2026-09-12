@@ -44,7 +44,7 @@ can search.
 
 ## The AI assistant and the MCP server
 
-An optional in-app assistant can operate the document for you. It can rebuild a
+The assistant works on the document you have open. It can rebuild a
 book's outline from its printed table of contents, apply page labels from the
 printed page numbers, find every mention of a term across a scanned volume, or
 report where the OCR text layer is thin.
