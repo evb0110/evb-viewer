@@ -1,0 +1,21 @@
+app/platform/browser-api/browserSaveTargets.ts
+  s_247a07a16a61fa::t_fcff614c26deb7 127-132
+tests/unit/app/platform/browserSaveTargets.test.ts
+  s_247a07a16a61fa::t_6bc5db48bf2688 21,67,97-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "44874576e0dab1622676845de9b6df991069cd46",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
