@@ -10,6 +10,7 @@ use std::io::Write;
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 const PASSTHROUGH: PassthroughLimits = PassthroughLimits {
     max_pixels: 1_000_000,
+    max_dimension: 1_000,
     max_icc_profile_bytes: 1024 * 1024,
 };
 const DECODE: DecodeLimits = DecodeLimits {
@@ -81,6 +82,24 @@ fn metadata_reader_preserves_metadata_without_retaining_idat_bytes() {
             .unwrap(),
         fixture("iccp-profile.bin")
     );
+}
+
+#[test]
+fn metadata_and_passthrough_reject_oversized_dimensions() {
+    let oversized = fixture("oversized-dimensions.png");
+    let limits = PassthroughLimits {
+        max_pixels: u64::MAX,
+        ..PASSTHROUGH
+    };
+
+    assert!(matches!(
+        read_png_metadata(oversized.as_slice(), limits),
+        Err(RasterError::TooLarge(_))
+    ));
+    assert!(matches!(
+        read_png_passthrough(oversized.as_slice(), limits),
+        Err(RasterError::TooLarge(_))
+    ));
 }
 
 #[test]

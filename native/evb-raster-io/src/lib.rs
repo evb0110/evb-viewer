@@ -9,6 +9,7 @@ const METERS_PER_INCH: f64 = 0.0254;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PassthroughLimits {
     pub max_pixels: u64,
+    pub max_dimension: u32,
     pub max_icc_profile_bytes: usize,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1252,9 +1253,11 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
         }
     };
     let (max_pixels, max_dimension) = match mode {
-        WalkMode::Metadata(limits) | WalkMode::Passthrough(limits) => (limits.max_pixels, None),
+        WalkMode::Metadata(limits) | WalkMode::Passthrough(limits) => {
+            (limits.max_pixels, limits.max_dimension)
+        }
         WalkMode::Dimensions(limits) | WalkMode::Decode(limits) => {
-            (limits.max_pixels, Some(limits.max_dimension))
+            (limits.max_pixels, limits.max_dimension)
         }
     };
     if width == 0 || height == 0 {
@@ -1265,12 +1268,10 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
             "PNG dimensions exceed pixel guardrails: {width}x{height}"
         )));
     }
-    if let Some(max_dimension) = max_dimension {
-        if width > max_dimension || height > max_dimension {
-            return Err(RasterError::too_large(format!(
-                "PNG dimensions exceed cleanup guardrails: {width}x{height}"
-            )));
-        }
+    if width > max_dimension || height > max_dimension {
+        return Err(RasterError::too_large(format!(
+            "PNG dimensions exceed cleanup guardrails: {width}x{height}"
+        )));
     }
     let legal_depth = match data[9] {
         0 => matches!(data[8], 1 | 2 | 4 | 8 | 16),
