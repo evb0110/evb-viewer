@@ -828,8 +828,8 @@ async function executeNativeRepairSave(
         reloadWaiter: null,
         completion: {
             markAnnotationStateSaved: false,
-            markBookmarksStateSaved: false,
-            markPageLabelsStateSaved: false,
+            markBookmarksStateSaved: effectiveProjection.mutations.bookmarks !== undefined,
+            markPageLabelsStateSaved: effectiveProjection.mutations.pageLabels !== undefined,
             allowAnnotationSaveStateRefresh: false,
             allowBookmarksSaveStateRefresh: false,
             allowPageLabelsSaveStateRefresh: false,
