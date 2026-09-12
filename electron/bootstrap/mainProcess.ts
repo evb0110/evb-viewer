@@ -477,8 +477,11 @@ const externalOpenManager = createExternalOpenManager({
             return true;
         }
 
-        allowOpenPaths(validPaths, window.webContents);
-        return sendToWindow(window, 'menu:openExternalPaths', documentRefs);
+        const dispatched = sendToWindow(window, 'menu:openExternalPaths', documentRefs);
+        if (dispatched) {
+            allowOpenPaths(validPaths, window.webContents);
+        }
+        return dispatched;
     },
 });
 macOpenFileRouter.attachExternalOpenManager(externalOpenManager);

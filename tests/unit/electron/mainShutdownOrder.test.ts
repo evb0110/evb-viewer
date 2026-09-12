@@ -7,6 +7,18 @@ import {
 } from 'vitest';
 
 describe('main shutdown ordering', () => {
+    it('grants external-open capabilities only after the renderer accepts the dispatch', () => {
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
+        const dispatchIndex = source.indexOf('dispatchOpenPaths: (paths) => {');
+        const grantIndex = source.indexOf('allowOpenPaths(validPaths, window.webContents);', dispatchIndex);
+        const sendIndex = source.indexOf('sendToWindow(window, \'menu:openExternalPaths\', documentRefs)', dispatchIndex);
+
+        expect(dispatchIndex).toBeGreaterThan(-1);
+        expect(grantIndex).toBeGreaterThan(dispatchIndex);
+        expect(sendIndex).toBeGreaterThan(dispatchIndex);
+        expect(grantIndex).toBeGreaterThan(sendIndex);
+    });
+
     it('requests renderer save flush before closing main operation admission', () => {
         const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const flushStepIndex = source.indexOf('label: \'renderer-save-flush\'');
