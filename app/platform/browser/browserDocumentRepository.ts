@@ -330,10 +330,14 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         const metadata = await readFileHandleMetadata(entry.saveHandle);
         const contentToken = await createBrowserFileContentWitness(metadata.file);
+        const openingWitness = entry.sourceBaseWitness ?? entry.contentToken;
+        const currentWitness = isBrowserStoredBytesWitness(openingWitness)
+            ? await createBrowserFileBytesWitness(metadata.file)
+            : contentToken;
         if (
             entry.fileSize === metadata.size
             && entry.fileLastModified === metadata.lastModified
-            && entry.contentToken === contentToken
+            && openingWitness === currentWitness
         ) {
             return ref;
         }
@@ -1229,6 +1233,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
                 entry.contentToken = await createBrowserFileContentWitness(file);
+                if (entry.kind === 'source' && entry.saveHandle && !entry.sourceBaseWitness) {
+                    entry.sourceBaseWitness = entry.contentToken;
+                }
                 await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             } else {
@@ -1239,6 +1246,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
                 entry.contentToken = await createBrowserFileContentWitness(file, bytes);
+                if (entry.kind === 'source' && entry.saveHandle && !entry.sourceBaseWitness) {
+                    entry.sourceBaseWitness = entry.contentToken;
+                }
                 await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             }

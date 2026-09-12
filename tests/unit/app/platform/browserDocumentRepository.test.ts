@@ -120,6 +120,47 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
+    it('reopens fresh bytes after a prior physical witness refresh', async () => {
+        let currentFile = new File([Uint8Array.of(37, 80, 68, 70)], 'witness-reopen.pdf', {
+            type: 'application/pdf',
+            lastModified: 100,
+        });
+        const handle = createFileSystemFileHandle({
+            name: 'witness-reopen.pdf',
+            getFile: vi.fn(async () => currentFile),
+        });
+        const store = new BrowserDocumentStore();
+        const originalRef = await store.registerFile(currentFile, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const dirtyRef = await store.cloneAsWorkingCopy(originalRef);
+        await store.writeForBootstrap(
+            dirtyRef,
+            Uint8Array.of(37, 80, 68, 70, 1),
+            'witness-reopen-test',
+        );
+
+        currentFile = new File([Uint8Array.of(37, 80, 68, 71)], 'witness-reopen.pdf', {
+            type: 'application/pdf',
+            lastModified: 200,
+        });
+        await store.getDocumentRevision(originalRef);
+
+        const reopenedRef = await store.refreshSourceVersionIfChanged(originalRef);
+
+        expect(reopenedRef).not.toBe(originalRef);
+        const reopenedEntry = await store.requireEntry(reopenedRef);
+        expect(reopenedEntry.fileSnapshot).toBe(currentFile);
+        expect(reopenedEntry.sourceBaseWitness).toBe(reopenedEntry.contentToken);
+        expect(await store.getContentSignature(reopenedRef)).toContain(`:${reopenedEntry.contentToken}:`);
+        await expect(store.read(reopenedRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 71));
+        await expect(store.readRange(reopenedRef, 2, 2)).resolves.toEqual(Uint8Array.of(68, 71));
+        await expect(store.read(originalRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70));
+        await expect(store.read(dirtyRef)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 1));
+    });
+
     it('rejects a materialized save when the physical source changed at equal size and mtime', async () => {
         const openingBytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
         let currentFile = new File([openingBytes], 'materialized-source.pdf', {
