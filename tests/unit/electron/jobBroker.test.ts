@@ -471,6 +471,24 @@ describe('JobBroker', () => {
         expect(next.release()).toBe(true);
     });
 
+    it('cancels queued owner work without dropping its active leases', async () => {
+        const broker = new JobBroker({
+            ...CAPACITY,
+            cpuTokens: 1,
+        });
+        const active = await broker.acquire(createRequest({ownerId: 'retained-owner'}));
+        const queued = broker.acquire(createRequest({ownerId: 'retained-owner'}));
+
+        broker.cancelPendingOwner('retained-owner', 'native cleanup is still pending');
+
+        await expect(queued).rejects.toThrow('native cleanup is still pending');
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+        });
+        expect(active.release()).toBe(true);
+    });
+
     it('reclaims expired active leases before dispatching queued work', async () => {
         let now = 0;
         const broker = new JobBroker({

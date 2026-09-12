@@ -169,18 +169,20 @@ export function createOcrJobWorkerLifecycleController(
     }
 
     /**
-     * A job quarantined because its native children are unproven keeps its
-     * `IOcrActiveJob` entry until the children are accounted for, which can be
-     * the rest of the process life. The brokered resources are not part of that
-     * wait: the worker has exited, so nothing is using them, and holding them
-     * starves every later OCR job.
+     * Worker admission ends at proven worker exit. OCR page leases stay with
+     * the quarantined job until its native children are proven dead, because
+     * those children can still own native capacity and output artifacts.
      */
-    function releaseBrokeredResources(activeJob: IOcrActiveJob) {
-        if (activeJob.brokeredResourcesReleased) {
+    function releaseWorkerAdmission(activeJob: IOcrActiveJob) {
+        if (activeJob.workerAdmissionReleased) {
             return;
         }
-        activeJob.brokeredResourcesReleased = true;
+        activeJob.workerAdmissionReleased = true;
         activeJob.workerAdmissionLease.release();
+    }
+
+    function releaseBrokeredResources(activeJob: IOcrActiveJob) {
+        releaseWorkerAdmission(activeJob);
         ocrResourceGovernor.releaseJob(activeJob.scopedJobId);
     }
 
@@ -611,7 +613,7 @@ export function createOcrJobWorkerLifecycleController(
             activeJob.workerExitProven = true;
             activeJob.workerExitCode = code;
         }
-        releaseBrokeredResources(activeJob);
+        releaseWorkerAdmission(activeJob);
         ocrResourceGovernor.cancelPendingForJob(
             scopedJobId,
             'OCR worker exit stopped pending page resource requests',
