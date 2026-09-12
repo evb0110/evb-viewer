@@ -28,8 +28,10 @@ import {
 // run; this window covers the API lag between a push and its run listing.
 export const EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS = 60_000;
 // Must cover the slowest blocking CI job's declared timeout (currently 60
-// minutes) plus runner queueing and the gates_ok aggregation tail.
-export const EXACT_SHA_CI_COMPLETION_TIMEOUT_MS = 75 * 60_000;
+// minutes) plus runner queueing and the gates_ok aggregation tail. Three of
+// the blocking jobs are macOS Electron end-to-end suites that start together
+// on push to main, so hosted macOS queueing is now on the critical path.
+export const EXACT_SHA_CI_COMPLETION_TIMEOUT_MS = 100 * 60_000;
 export const EXACT_SHA_CI_POLL_INTERVAL_MS = 30_000;
 
 // Exported for its own contract test: every caller in this module invokes
