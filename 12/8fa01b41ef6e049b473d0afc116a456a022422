@@ -1,0 +1,37 @@
+app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore.ts
+  s_4db4eb48b4e2d4::t_8414711ddae1f2 117-118
+  s_4db4eb48b4e2d4::t_2d64a970ecfc38 177
+  s_4db4eb48b4e2d4::t_8c30a9934f1cf6 390-392
+  s_4db4eb48b4e2d4::t_788fe885f60fc4 175
+  s_4db4eb48b4e2d4::t_8a1d8b39bde38e 749-750,752,754
+  s_4db4eb48b4e2d4::t_a17a7327a2f678 83,112,116,176,255,279,289,737-738,808-809,813,820,863
+  s_4db4eb48b4e2d4::t_be6d9feb5b769a 99-111,113-115,119,280-282,644,734-736,764,812,814-815
+  s_4db4eb48b4e2d4::t_d2c876e35e9129 292-294
+  s_4db4eb48b4e2d4::t_7df5ab947d49dd 416-418
+  s_4db4eb48b4e2d4::t_bfdd0ae25d667d 753
+  s_cb599b9b7b2d9e::t_679f40fb2255d0 751
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "128fa01b41ef6e049b473d0afc116a456a022422",
+  "prompts": {},
+  "sessions": {
+    "s_4db4eb48b4e2d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cf-ab35-7593-a1d2-08144353bc79",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cb599b9b7b2d9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097f7-bc56-77b0-81a6-123aea4e8a56",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
