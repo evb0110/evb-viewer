@@ -168,6 +168,22 @@ export function createOcrJobWorkerLifecycleController(
         nativeChildCleanupTimersByScopedJobId.delete(scopedJobId);
     }
 
+    /**
+     * A job quarantined because its native children are unproven keeps its
+     * `IOcrActiveJob` entry until the children are accounted for, which can be
+     * the rest of the process life. The brokered resources are not part of that
+     * wait: the worker has exited, so nothing is using them, and holding them
+     * starves every later OCR job.
+     */
+    function releaseBrokeredResources(activeJob: IOcrActiveJob) {
+        if (activeJob.brokeredResourcesReleased) {
+            return;
+        }
+        activeJob.brokeredResourcesReleased = true;
+        activeJob.workerAdmissionLease.release();
+        ocrResourceGovernor.releaseJob(activeJob.scopedJobId);
+    }
+
     function markNativeChildProtocolUnsafe(activeJob: IOcrActiveJob, reason: string) {
         if (activeJob.nativeChildProtocolUnsafe) {
             return;
@@ -440,7 +456,7 @@ export function createOcrJobWorkerLifecycleController(
         clearJobWatchdog(scopedJobId);
         clearWorkerCleanupTimer(scopedJobId);
         clearNativeChildCleanupTimer(scopedJobId);
-        ocrResourceGovernor.releaseJob(scopedJobId);
+        releaseBrokeredResources(activeJob);
         if (activeJob.discardPendingCompletionResult) {
             const result = activeJob.pendingCompletionResult;
             activeJob.pendingCompletionResult = null;
@@ -595,6 +611,7 @@ export function createOcrJobWorkerLifecycleController(
             activeJob.workerExitProven = true;
             activeJob.workerExitCode = code;
         }
+        releaseBrokeredResources(activeJob);
         ocrResourceGovernor.cancelPendingForJob(
             scopedJobId,
             'OCR worker exit stopped pending page resource requests',

@@ -20,6 +20,7 @@ export interface IOcrResourceRequest {
     requestedDpi: number;
     pageWidthIn?: number;
     pageHeightIn?: number;
+    signal: AbortSignal;
 }
 
 interface IOcrResourceLease {
@@ -112,6 +113,7 @@ class OcrResourceGovernor {
                 nativeProcesses: 1,
                 ioWeight: 1,
             },
+            signal: request.signal,
         });
         const lease = this.createLease(
             request.jobId,
