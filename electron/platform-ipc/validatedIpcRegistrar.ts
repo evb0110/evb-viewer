@@ -24,8 +24,8 @@ import {
 import {beginIpcInvokeCancellation} from '@electron/platform-ipc/ipcInvokeCancellation';
 import {runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
-const registeredInvokeChannels = new Set<string>();
-const registeredEventChannels = new Set<string>();
+const registeredInvokeChannels = new Map<string, symbol>();
+const registeredEventChannels = new Map<string, symbol>();
 
 class IpcArgumentValidationError extends Error {
     readonly code = 'IPC_INVALID_ARGUMENTS';
@@ -69,6 +69,11 @@ export interface IValidatedIpcMainRegistrar<
         ) => TMap[TChannel]['result'] | Promise<TMap[TChannel]['result']>,
     ) => void;}
 
+export interface IValidatedIpcChannelClaimRegistrar {
+    claim: (channel: string) => () => void;
+    claimExisting: (channel: string) => () => void;
+}
+
 export function createChannelSet<T extends Record<string, string>>(channels: T) {
     return new Set<string>(Object.values(channels));
 }
@@ -85,23 +90,63 @@ function assertAllowedChannelRegistration(
 
 function assertUniqueChannelRegistration(
     kind: 'invoke' | 'event',
-    registeredChannels: Set<string>,
+    registeredChannels: Map<string, symbol>,
     channel: string,
 ) {
     if (registeredChannels.has(channel)) {
         throw new Error(`Duplicate ${kind} IPC channel registration: ${channel}`);
     }
-    registeredChannels.add(channel);
+    const registration = Symbol(channel);
+    registeredChannels.set(channel, registration);
+    let released = false;
+    return () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        if (registeredChannels.get(channel) === registration) {
+            registeredChannels.delete(channel);
+        }
+    };
 }
 
 function assertKnownChannelRegistration(
     kind: 'invoke' | 'event',
-    registeredChannels: Set<string>,
+    registeredChannels: Map<string, symbol>,
     channel: string,
     allowedChannels?: ReadonlySet<string>,
 ) {
     assertAllowedChannelRegistration(kind, channel, allowedChannels);
-    assertUniqueChannelRegistration(kind, registeredChannels, channel);
+    return assertUniqueChannelRegistration(kind, registeredChannels, channel);
+}
+
+function createChannelClaimer(
+    kind: 'invoke' | 'event',
+    registeredChannels: Map<string, symbol>,
+    allowedChannels?: ReadonlySet<string>,
+): IValidatedIpcChannelClaimRegistrar {
+    const releases = new Map<string, () => void>();
+    const claim = (channel: string) => {
+        const release = assertKnownChannelRegistration(kind, registeredChannels, channel, allowedChannels);
+        const releaseClaim = () => {
+            if (releases.get(channel) === releaseClaim) {
+                releases.delete(channel);
+                release();
+            }
+        };
+        releases.set(channel, releaseClaim);
+        return releaseClaim;
+    };
+    return {
+        claim,
+        claimExisting: (channel) => {
+            const release = releases.get(channel);
+            if (!release) {
+                throw new Error(`IPC channel was not claimed by this registrar: ${channel}`);
+            }
+            return release;
+        },
+    };
 }
 
 function getPolicyChannels(policy: IIpcInvokeArgumentValidationPolicy | undefined) {
@@ -139,77 +184,87 @@ function assertArgumentValidationPolicyChannelsAreKnown(options: {
 export function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
     options?: IValidatedIpcMainRegistrarOptions,
-): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent>;
+): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar;
 export function createValidatedIpcMainRegistrar<
     TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
 >(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
     options?: IValidatedIpcMainRegistrarOptions<TMap>,
-): IValidatedIpcMainRegistrar<TMap, IpcMainInvokeEvent>;
+): IValidatedIpcMainRegistrar<TMap, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar;
 export function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
     options: IValidatedIpcMainRegistrarOptions | IValidatedIpcMainRegistrarOptions<Record<string, IIpcInvokeSpec>> = {},
-): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent> {
+): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar {
     assertArgumentValidationPolicyChannelsAreKnown(options);
-    return {handle: <TArgs extends unknown[], TResult>(
-        channel: string,
-        handler: (
-            event: IpcMainInvokeEvent,
-            ...args: TArgs
-        ) => TResult | Promise<TResult>,
-    ) => {
-        assertAllowedChannelRegistration('invoke', channel, options.allowedChannels);
-        const codec = options.codecs?.[channel] as IIpcCodec<IIpcInvokeSpec<TArgs, TResult>> | undefined;
-        const decode = codec?.decodeArgs;
-        const hasDecoder = typeof decode === 'function';
-        const isExactNoArgumentChannel = !hasDecoder
+    const channelClaimer = createChannelClaimer('invoke', registeredInvokeChannels, options.allowedChannels);
+    return {
+        claim: channelClaimer.claim,
+        claimExisting: channelClaimer.claimExisting,
+        handle: <TArgs extends unknown[], TResult>(
+            channel: string,
+            handler: (
+                event: IpcMainInvokeEvent,
+                ...args: TArgs
+            ) => TResult | Promise<TResult>,
+        ) => {
+            assertAllowedChannelRegistration('invoke', channel, options.allowedChannels);
+            const codec = options.codecs?.[channel] as IIpcCodec<IIpcInvokeSpec<TArgs, TResult>> | undefined;
+            const decode = codec?.decodeArgs;
+            const hasDecoder = typeof decode === 'function';
+            const isExactNoArgumentChannel = !hasDecoder
             && options.argumentValidation?.noArgumentChannels?.has(channel) === true;
-        if (!hasDecoder && !isExactNoArgumentChannel) {
-            throw new Error(`IPC invoke channel registered without an argument decoder or explicit no-arg allowlist: ${channel}`);
-        }
-        assertUniqueChannelRegistration('invoke', registeredInvokeChannels, channel);
-        registrar.handle(channel, async (event, ...args: unknown[]) => {
-            if (!isTrustedIpcInvokeSender(event, channel)) {
-                throw new Error('IPC sender is not trusted');
+            if (!hasDecoder && !isExactNoArgumentChannel) {
+                throw new Error(`IPC invoke channel registered without an argument decoder or explicit no-arg allowlist: ${channel}`);
             }
-            const requestId = extractIpcInvokeRequestId(args);
-            const cancellation = requestId === null
-                ? null
-                : beginIpcInvokeCancellation(event.sender, requestId);
+            const release = channelClaimer.claim(channel);
             try {
-                let decodedArgs: TArgs;
-                try {
-                    if (isExactNoArgumentChannel) {
-                        if (args.length > 0) {
-                            throw new Error('expected no arguments');
-                        }
-                        const noArgs: unknown[] = [];
-                        decodedArgs = noArgs as TArgs;
-                    } else if (decode) {
-                        decodedArgs = decode(args);
-                        const unexpectedArgs = args.slice(decodedArgs.length);
-                        if (unexpectedArgs.some(argument => argument !== undefined)) {
-                            throw new Error(`unexpected trailing arguments after position ${decodedArgs.length}`);
-                        }
-                    } else {
-                        throw new Error('argument decoder is unavailable');
+                registrar.handle(channel, async (event, ...args: unknown[]) => {
+                    if (!isTrustedIpcInvokeSender(event, channel)) {
+                        throw new Error('IPC sender is not trusted');
                     }
-                } catch (error) {
-                    throw new IpcArgumentValidationError(channel, getErrorMessage(error), error);
-                }
-                const invokeHandler = () => handler(event, ...decodedArgs);
-                // The signal reaches the handler through async context rather than
-                // its signature: every channel would otherwise have to thread a
-                // parameter it mostly ignores, and the operations that can act on a
-                // cancellation already register themselves with the lifecycle.
-                return cancellation === null
-                    ? await invokeHandler()
-                    : await runWithMainOperationCancellationSignal(cancellation.signal, invokeHandler);
-            } finally {
-                cancellation?.complete();
+                    const requestId = extractIpcInvokeRequestId(args);
+                    const cancellation = requestId === null
+                        ? null
+                        : beginIpcInvokeCancellation(event.sender, requestId);
+                    try {
+                        let decodedArgs: TArgs;
+                        try {
+                            if (isExactNoArgumentChannel) {
+                                if (args.length > 0) {
+                                    throw new Error('expected no arguments');
+                                }
+                                const noArgs: unknown[] = [];
+                                decodedArgs = noArgs as TArgs;
+                            } else if (decode) {
+                                decodedArgs = decode(args);
+                                const unexpectedArgs = args.slice(decodedArgs.length);
+                                if (unexpectedArgs.some(argument => argument !== undefined)) {
+                                    throw new Error(`unexpected trailing arguments after position ${decodedArgs.length}`);
+                                }
+                            } else {
+                                throw new Error('argument decoder is unavailable');
+                            }
+                        } catch (error) {
+                            throw new IpcArgumentValidationError(channel, getErrorMessage(error), error);
+                        }
+                        const invokeHandler = () => handler(event, ...decodedArgs);
+                        // The signal reaches the handler through async context rather than
+                        // its signature: every channel would otherwise have to thread a
+                        // parameter it mostly ignores, and the operations that can act on a
+                        // cancellation already register themselves with the lifecycle.
+                        return cancellation === null
+                            ? await invokeHandler()
+                            : await runWithMainOperationCancellationSignal(cancellation.signal, invokeHandler);
+                    } finally {
+                        cancellation?.complete();
+                    }
+                });
+            } catch (error) {
+                release();
+                throw error;
             }
-        });
-    }};
+        },
+    };
 }
 
 export function registerPlatformFeatureHandlers<
@@ -271,14 +326,24 @@ interface IValidatedIpcMainEventSource {on: (
 export function createValidatedIpcMainEventRegistrar(
     registrar: IValidatedIpcMainEventSource,
     options: {allowedChannels?: ReadonlySet<string>;} = {},
-): IValidatedIpcMainEventRegistrar {
-    return {on: (channel, handler) => {
-        assertKnownChannelRegistration('event', registeredEventChannels, channel, options.allowedChannels);
-        registrar.on(channel, (event, ...args: unknown[]) => {
-            if (!isTrustedWebContentsSender(event.sender, event.senderFrame, channel)) {
-                return;
+): IValidatedIpcMainEventRegistrar & IValidatedIpcChannelClaimRegistrar {
+    const channelClaimer = createChannelClaimer('event', registeredEventChannels, options.allowedChannels);
+    return {
+        on: (channel, handler) => {
+            const release = channelClaimer.claim(channel);
+            try {
+                registrar.on(channel, (event, ...args: unknown[]) => {
+                    if (!isTrustedWebContentsSender(event.sender, event.senderFrame, channel)) {
+                        return;
+                    }
+                    handler(event, ...args);
+                });
+            } catch (error) {
+                release();
+                throw error;
             }
-            handler(event, ...args);
-        });
-    }};
+        },
+        claim: channelClaimer.claim,
+        claimExisting: channelClaimer.claimExisting,
+    };
 }
