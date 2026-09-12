@@ -29,6 +29,7 @@ import {
 type TRegisteredEventHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
 
 const mocks = vi.hoisted(() => ({
+    access: vi.fn(async (_path: string) => undefined),
     attachSerializedPdfPersistencePort: vi.fn(),
     allowOpenPath: vi.fn(),
     createDocumentsService: vi.fn(() => ({onWorkingCopyBackingStatusChanged: vi.fn(() => () => {})})),
@@ -65,6 +66,7 @@ function createRegistrationHarness() {
 }
 
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
+vi.mock('node:fs/promises', () => ({access: (path: string) => mocks.access(path)}));
 vi.mock('electron', () => ({
     app: {isPackaged: false},
     BrowserWindow: {
@@ -83,6 +85,7 @@ vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorki
 describe('documents ipc adapter', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.access.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -329,13 +332,13 @@ describe('documents ipc adapter', () => {
                 {sender},
                 makeUuid(1),
             )).toBe(true);
-            expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
+            await expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
                 {sender},
                 {
                     filePath,
                     token: makeUuid(1),
                 },
-            )).toBe(true);
+            )).resolves.toBe(true);
 
             expect(mocks.allowOpenPath).toHaveBeenCalledWith(filePath, sender);
         } finally {
@@ -380,13 +383,13 @@ describe('documents ipc adapter', () => {
                 {sender},
                 makeUuid(tokenCount),
             )).toBe(false);
-            expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
+            await expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
                 {sender},
                 {
                     filePath: firstFilePath,
                     token: makeUuid(0),
                 },
-            )).toBe(true);
+            )).resolves.toBe(true);
 
             expect(mocks.allowOpenPath).toHaveBeenCalledWith(firstFilePath, sender);
         } finally {
@@ -423,7 +426,7 @@ describe('documents ipc adapter', () => {
                     makeUuid(61),
                 ],
             )).toBe(true);
-            expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch)?.(
+            await expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch)?.(
                 {sender},
                 [
                     {
@@ -435,7 +438,7 @@ describe('documents ipc adapter', () => {
                         token: makeUuid(61),
                     },
                 ],
-            )).toBe(true);
+            )).resolves.toBe(true);
 
             expect(mocks.allowOpenPath).toHaveBeenCalledWith(firstFilePath, sender);
             expect(mocks.allowOpenPath).toHaveBeenCalledWith(secondFilePath, sender);
@@ -472,13 +475,13 @@ describe('documents ipc adapter', () => {
 
             sender.emit('did-start-navigation', {}, 'https://example.test/', false, true);
 
-            expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
+            await expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
                 {sender},
                 {
                     filePath,
                     token: makeUuid(50),
                 },
-            )).toBe(false);
+            )).resolves.toBe(false);
             expect(mocks.allowOpenPath).not.toHaveBeenCalled();
             expect(removeListenerSpy).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
         } finally {
@@ -487,6 +490,39 @@ describe('documents ipc adapter', () => {
                 recursive: true,
             });
         }
+    });
+
+    it('checks renderer file-open paths asynchronously with a bounded timeout', async () => {
+        vi.useFakeTimers();
+        mocks.access.mockImplementation(() => new Promise<undefined>(() => undefined));
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const sender = new EventEmitter() as EventEmitter & {id: number;};
+        sender.id = 48;
+        const {registerDocumentsIpcAdapter} = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+        expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
+            {sender},
+            makeUuid(80),
+        )).toBe(true);
+        const allow = handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
+            {sender},
+            {
+                filePath: '/tmp/stalled-share.pdf',
+                token: makeUuid(80),
+            },
+        );
+
+        expect(allow).toBeInstanceOf(Promise);
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(allow).resolves.toBe(false);
+        expect(mocks.access).toHaveBeenCalledWith('/tmp/stalled-share.pdf');
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
     });
 
     it.each([

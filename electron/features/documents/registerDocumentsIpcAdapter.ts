@@ -3,7 +3,8 @@ import type {
     IpcMainInvokeEvent,
 } from 'electron';
 import { BrowserWindow } from 'electron';
-import { existsSync } from 'fs';
+import { access } from 'node:fs/promises';
+import { withTimeout } from 'es-toolkit/promise';
 import { isAbsolute } from 'path';
 import type {
     IIpcMainRegistrar,
@@ -69,6 +70,7 @@ type TDocumentsIpcArgs<TChannel extends TDocumentsIpcChannel> = IDocumentsInvoke
 
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
 const MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER = 128;
+const RENDERER_FILE_OPEN_PATH_CHECK_TIMEOUT_MS = 5_000;
 const RENDERER_FILE_OPEN_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const logger = createLogger('documents-ipc-adapter');
 const rendererFileOpenTokens = new Map<number, Map<string, IRendererFileOpenToken>>();
@@ -286,8 +288,16 @@ function parseRendererFileOpenBatchRequests(requestsPayload: unknown) {
     return requests;
 }
 
-function isValidRendererFileOpenPath(filePath: string) {
-    return existsSync(filePath) && isSupportedOpenPath(filePath);
+async function isValidRendererFileOpenPath(filePath: string) {
+    if (!isSupportedOpenPath(filePath)) {
+        return false;
+    }
+    try {
+        await withTimeout(() => access(filePath), RENDERER_FILE_OPEN_PATH_CHECK_TIMEOUT_MS);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function requireWorkingCopySourcePath(
@@ -702,7 +712,7 @@ export function registerDocumentsIpcAdapter(
         return registerRendererFileOpenTokens(event, [normalizedToken]);
     });
     register(DOCUMENTS_CHANNELS.registerRendererFileOpenTokens, registerRendererFileOpenTokens);
-    register(DOCUMENTS_CHANNELS.allowRendererFileOpen, (event: IpcMainInvokeEvent, request: unknown) => {
+    register(DOCUMENTS_CHANNELS.allowRendererFileOpen, async (event: IpcMainInvokeEvent, request: unknown) => {
         const senderId = getSenderId(event);
         const filePath = isRecord(request) ? request.filePath : '';
         const token = isRecord(request) ? request.token : '';
@@ -711,20 +721,20 @@ export function registerDocumentsIpcAdapter(
         }
 
         const normalizedPath = typeof filePath === 'string' ? filePath : '';
-        if (!normalizedPath || !normalizedPath.trim() || !isAbsolute(normalizedPath) || !isValidRendererFileOpenPath(normalizedPath)) {
+        if (!normalizedPath || !normalizedPath.trim() || !isAbsolute(normalizedPath) || !await isValidRendererFileOpenPath(normalizedPath)) {
             return false;
         }
 
         return allowOpenPath(normalizedPath, event.sender) !== null;
     });
-    register(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, (event: IpcMainInvokeEvent, requestsPayload: unknown) => {
+    register(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, async (event: IpcMainInvokeEvent, requestsPayload: unknown) => {
         const senderId = getSenderId(event);
         const requests = parseRendererFileOpenBatchRequests(requestsPayload);
-        if (
-            !requests
-            || requests.some(request => !hasRendererFileOpenToken(senderId, request.token))
-            || requests.some(request => !isValidRendererFileOpenPath(request.filePath))
-        ) {
+        if (!requests || requests.some(request => !hasRendererFileOpenToken(senderId, request.token))) {
+            return false;
+        }
+        const validPaths = await Promise.all(requests.map(request => isValidRendererFileOpenPath(request.filePath)));
+        if (validPaths.some(isValid => !isValid)) {
             return false;
         }
 
