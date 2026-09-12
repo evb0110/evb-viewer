@@ -9,6 +9,21 @@ use serde::Serialize;
 use std::ops::AddAssign;
 use std::path::PathBuf;
 
+fn serialize_output_paths<S>(paths: &Option<Vec<PathBuf>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    paths
+        .as_ref()
+        .map(|paths| {
+            paths
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>()
+        })
+        .serialize(serializer)
+}
+
 fn is_zero(value: &f64) -> bool {
     *value == 0.0
 }
@@ -152,7 +167,10 @@ pub struct Progress {
     pub total_pages: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page_number: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_output_paths"
+    )]
     pub output_paths: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub classification: Option<LayoutClassification>,
@@ -453,5 +471,40 @@ mod tests {
         .unwrap();
 
         assert_eq!(actual, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn page_complete_progress_serializes_non_utf8_output_paths_lossily() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = PathBuf::from(std::ffi::OsString::from_vec(b"page-\xff.png".to_vec()));
+        let progress = Progress {
+            stage: ProgressStage::PageComplete,
+            completed_pages: 1,
+            total_pages: 1,
+            page_number: Some(1),
+            output_paths: Some(vec![path]),
+            classification: None,
+            confidence: None,
+            cutter_x_px: None,
+            tier1_verdict: None,
+            reconciled: None,
+            cluster_agreement: None,
+            document_prior: None,
+            text_axis: None,
+            stage_timings: None,
+            recommended_output_mode: None,
+            recommended_output_mode_confidence: None,
+            recommended_output_mode_reason: None,
+            soft_alpha_foreground_recommendation: None,
+            output_mode_diagnostics: None,
+        };
+
+        let actual = serde_json::to_value(ProgressEnvelope::new(progress)).unwrap();
+        assert_eq!(
+            actual["progress"]["outputPaths"],
+            serde_json::json!(["page-�.png"])
+        );
     }
 }
