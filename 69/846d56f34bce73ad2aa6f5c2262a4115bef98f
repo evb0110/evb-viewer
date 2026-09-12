@@ -1,0 +1,102 @@
+electron/features/documents/documentsService.ts
+  s_3335228236d0bd::t_8aa6251b3658c3 50,143-146
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_3335228236d0bd::t_2396d0822b7b17 196-203,208-216
+  s_3335228236d0bd::t_c2faad64217b45 204-207
+  s_ae757872e5d914::t_c34933f2e7c03b 727
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_3335228236d0bd::t_6d99f475c9fb50 56
+  s_3335228236d0bd::t_63d03a4136a5f6 749-779
+  s_ae757872e5d914::t_4210640699c58e 57-59,780-782,1323
+electron/features/documents/contract.ts
+  s_3335228236d0bd::t_fb8d1b3a367112 46
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_3335228236d0bd::t_27b37557b7995e 213-214
+tests/unit/electron/helpers/createDocumentsServiceFixture.ts
+  s_3335228236d0bd::t_c1a500f2d8f681 52
+tests/unit/electron/nativePdfPreview.test.ts
+  s_3335228236d0bd::t_042c05e36cc4d3 11,16,19-20,23-25,41-42
+  s_3335228236d0bd::t_c2faad64217b45 17-18,21-22,26-40
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_3335228236d0bd::t_a2d8eb4e0e74ef 836-839
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_3335228236d0bd::t_c2faad64217b45 421-431,434-447
+  s_3335228236d0bd::t_042c05e36cc4d3 406-420,432-433,448-454
+electron/features/documents/createDocumentsService.ts
+  s_3335228236d0bd::t_a2d8eb4e0e74ef 35,265-266
+electron/preload/createElectronApi.ts
+  s_3335228236d0bd::t_a2d8eb4e0e74ef 555
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_3335228236d0bd::t_a2d8eb4e0e74ef 419-420
+app/platform/browser-api/createBrowserDocumentsCapability.ts
+  s_3335228236d0bd::t_9b2c7b76922f15 196
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_3335228236d0bd::t_8b0813cecc9f47 18-19,25-27,38-40,78-79,84-85,115-131,134,169-170
+  s_3335228236d0bd::t_721302ef555b64 159-163
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_3335228236d0bd::t_2396d0822b7b17 18,356-357,372-386,401-402
+  s_3335228236d0bd::t_c2faad64217b45 358-371,387-400
+  s_3335228236d0bd::t_dd2ed9dfe8e930 403-404
+tests/unit/app/modules/workspace-shell/composables/useMetadataSession.test.ts
+  s_3335228236d0bd::t_2396d0822b7b17 15,32
+app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations.ts
+  s_3335228236d0bd::t_e59dde184b8b65 202-206,562,607,766,808,838
+  s_3335228236d0bd::t_d7eb3dd0076cda 199
+  s_3335228236d0bd::t_ed53ba82a9b8ad 200-201
+  s_3335228236d0bd::t_3ff057502fc49f 198
+  s_ae757872e5d914::t_6f916634173e30 360,645,707
+app/modules/workspace-shell/composables/useMetadataSession.ts
+  s_3335228236d0bd::t_27b37557b7995e 13-16,21-22,37-38,58-66
+packages/contracts/electronApiDocuments.ts
+  s_3335228236d0bd::t_82f15b72679fb2 1209
+  s_3335228236d0bd::t_63d03a4136a5f6 969
+app/platform/generated/browserPlatformPathDescriptorsGenerated.ts
+  s_3335228236d0bd::t_f9550b25011aa5 62
+packages/contracts/documentsPlatformFeature.ts
+  s_3335228236d0bd::t_63d03a4136a5f6 69,449-451
+  s_81b206e0e83dfc::t_0f23f2a1f8a9f6 452
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_3335228236d0bd::t_dbc13885370436 9
+  s_3335228236d0bd::t_71eb4e8d972ce9 7-8,10,81,503-522
+  s_ae757872e5d914::t_5cdea4fb5a3036 523
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_3335228236d0bd::t_f9550b25011aa5 68,316
+electron/features/documents/main/nativePdfPreview.ts
+  s_3335228236d0bd::t_042c05e36cc4d3 590
+  s_3335228236d0bd::t_f7edb75c983dfe 591-683,688-690
+  s_3335228236d0bd::t_8db82ca488054d 23-26,47-51,55
+  s_3335228236d0bd::t_93ca6b5e2e78d4 46
+  s_3335228236d0bd::t_c2faad64217b45 684-687
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "69846d56f34bce73ad2aa6f5c2262a4115bef98f",
+  "prompts": {},
+  "sessions": {
+    "s_3335228236d0bd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097ea-c295-7a40-9a0c-41b19efef428",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_81b206e0e83dfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097e4-e7e1-79f3-98d1-9f1a07bcf1d2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
