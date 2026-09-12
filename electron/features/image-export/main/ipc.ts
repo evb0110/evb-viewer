@@ -380,11 +380,11 @@ export async function handlePdfExportImages(
             })
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                physicalReadPath => exportPdfPagesAsImages(physicalReadPath, normalizedPath, exportOptions),
-                {
-                    discard: discardExportedPaths,
-                    ownerWebContentsId: context.senderId,
-                },
+                (physicalReadPath, assertOriginalUnchanged) => exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
+                    ...exportOptions,
+                    beforePublish: assertOriginalUnchanged,
+                }),
+                {ownerWebContentsId: context.senderId},
             );
         if (isImageExportJobAborted(job)) {
             job.terminal.cancel(job.signal.reason);
@@ -456,11 +456,11 @@ export async function handlePdfExportMultiPageTiff(
             ? await exportDjvuAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions)
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                physicalReadPath => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, exportOptions),
-                {
-                    discard: discardExportedPaths,
-                    ownerWebContentsId: context.senderId,
-                },
+                (physicalReadPath, assertOriginalUnchanged) => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, {
+                    ...exportOptions,
+                    beforePublish: assertOriginalUnchanged,
+                }),
+                {ownerWebContentsId: context.senderId},
             );
         if (isImageExportJobAborted(job)) {
             job.terminal.cancel(job.signal.reason);

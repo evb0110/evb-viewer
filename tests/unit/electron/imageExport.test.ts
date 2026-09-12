@@ -1346,6 +1346,34 @@ describe('image export', () => {
         expect(await readFile(firstTargetPath, 'utf8')).toBe('concurrent-first');
     });
 
+    it('keeps an existing image target when source validation fails before promotion', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        const outputPath = join(tempDir, 'source-changed.png');
+        await writeFile(outputPath, 'original-output');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath, {beforePublish: async () => {
+            throw new Error('source changed during export');
+        }})).rejects.toThrow('source changed during export');
+
+        expect(await readFile(outputPath, 'utf8')).toBe('original-output');
+        expect(readdirSync(tempDir)).toEqual(['source-changed.png']);
+    });
+
+    it('keeps an existing TIFF target when source validation fails before promotion', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        const outputPath = join(tempDir, 'source-changed.tiff');
+        await writeFile(outputPath, 'original-output');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {beforePublish: async () => {
+            throw new Error('source changed during export');
+        }})).rejects.toThrow('source changed during export');
+
+        expect(await readFile(outputPath, 'utf8')).toBe('original-output');
+        expect(readdirSync(tempDir)).toEqual(['source-changed.tiff']);
+    });
+
     it('removes staged image outputs when export is canceled before promotion', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;

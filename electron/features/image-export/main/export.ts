@@ -95,6 +95,7 @@ interface IExportPdfOptions {
     cancelGroup?: string;
     pageNumbers?: number[];
     signal?: AbortSignal;
+    beforePublish?: () => Promise<void> | void;
     onProgress?: (progress: IImageExportProgressUpdate) => void;
     scratch?: {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;};
 }
@@ -1077,6 +1078,7 @@ export async function exportPdfPagesAsImages(
                 });
             }
             throwIfAborted(options.signal);
+            await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal);
         } catch (error) {
             await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
@@ -1321,6 +1323,7 @@ export async function exportPdfAsMultiPageTiff(
                 };
             });
             throwIfAborted(options.signal);
+            await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal);
             for (const outputPath of outputPaths) {
                 if (!existsSync(outputPath)) {
