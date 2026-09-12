@@ -110,18 +110,22 @@ function getQueueLogLevel(durationMs: number) {
     return durationMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
 }
 
+/**
+ * Waits for the mutations queued when the drain starts, not for the queue to
+ * empty. A mutation whose own completion enqueues the next one would otherwise
+ * keep the queue non-empty forever and the drain would never return. Callers
+ * that need to catch late arrivals drain a second time once the work that
+ * produces them has been stopped.
+ */
 export async function drainWorkingCopyMutations(workingCopyPath?: string) {
     if (workingCopyPath !== undefined) {
         const queueKey = getWorkingCopyQueueKey(workingCopyPath);
-        while (workingCopyMutationQueue.has(queueKey)) {
-            await workingCopyMutationQueue.get(queueKey)?.tail;
-        }
+        await workingCopyMutationQueue.get(queueKey)?.tail;
         return;
     }
 
-    while (workingCopyMutationQueue.size > 0) {
-        await Promise.allSettled([...workingCopyMutationQueue.values()].map(entry => entry.tail));
-    }
+    const tails = [...workingCopyMutationQueue.values()].map(entry => entry.tail);
+    await Promise.allSettled(tails);
 }
 
 export function enqueueWorkingCopyMutation<T>(

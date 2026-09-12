@@ -286,6 +286,44 @@ describe('workspace checkpoint store', () => {
         await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
     });
 
+    it('does not retain artifacts from superseded trailing saves', async () => {
+        const recoveryPayload = {
+            version: 1,
+            annotationMutationGeneration: 7,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        };
+        const recoveryCheckpoint = (capturedAt: number): IWorkspaceCheckpoint => ({
+            ...checkpoint,
+            capturedAt: requireEpochMs(capturedAt),
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: {
+                    artifactId: `capture-${capturedAt}`,
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: tab.workingCopyRef,
+                    workingByteRevision: `revision-${capturedAt}`,
+                    annotationMutationGeneration: capturedAt,
+                    payload: recoveryPayload,
+                },
+            })),
+        });
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+
+        await saveWorkspaceCheckpoint(recoveryCheckpoint(1), 11);
+        const second = saveWorkspaceCheckpoint(recoveryCheckpoint(2), 11);
+        const third = saveWorkspaceCheckpoint(recoveryCheckpoint(3), 11);
+        await flushPendingWorkspaceCheckpointSave();
+        await Promise.all([
+            second,
+            third,
+        ]);
+
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(1);
+    });
+
     it.each([
         [
             'missing',

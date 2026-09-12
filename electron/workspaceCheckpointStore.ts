@@ -105,11 +105,13 @@ interface IWorkspaceCheckpointSaveWaiter {
 
 interface IPendingWorkspaceCheckpointSave {
     stored: IStoredWorkspaceCheckpoint;
+    artifacts: IAnnotationRecoveryArtifact[];
     waiters: IWorkspaceCheckpointSaveWaiter[];
 }
 
 interface ITrailingWorkspaceCheckpointSave {
     stored: IStoredWorkspaceCheckpoint;
+    artifacts: IAnnotationRecoveryArtifact[];
     ownerWebContentsId: number;
     waiters: IWorkspaceCheckpointSaveWaiter[];
     timer: NodeJS.Timeout;
@@ -155,10 +157,11 @@ function getAnnotationRecoveryPath(artifactId: string) {
 }
 
 interface IAnnotationRecoveryArtifact {
-    version: 1;
     ref: IWorkspaceCheckpointAnnotationRecovery;
     payload: unknown;
 }
+
+interface IStoredAnnotationRecoveryArtifact extends IAnnotationRecoveryArtifact {version: 1;}
 
 async function writeAnnotationRecoveryArtifact(
     ref: IWorkspaceCheckpointAnnotationRecovery,
@@ -182,7 +185,7 @@ async function writeAnnotationRecoveryArtifact(
 
 async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotationRecovery) {
     const raw = await readFile(getAnnotationRecoveryPath(ref.artifactId), 'utf-8');
-    const artifact = JSON.parse(raw) as Partial<IAnnotationRecoveryArtifact>;
+    const artifact = JSON.parse(raw) as Partial<IStoredAnnotationRecoveryArtifact>;
     if (artifact.version !== 1 || !artifact.ref || artifact.payload === undefined
         || artifact.ref.artifactId !== ref.artifactId
         || artifact.ref.documentInstanceId !== ref.documentInstanceId
@@ -868,10 +871,7 @@ async function readStoredWorkspaceJournal(markLegacyMigration = true): Promise<I
 }
 
 function admitAnnotationRecovery(checkpoint: IWorkspaceCheckpoint) {
-    const artifacts: Array<{
-        ref: IWorkspaceCheckpointAnnotationRecovery;
-        payload: unknown
-    }> = [];
+    const artifacts: IAnnotationRecoveryArtifact[] = [];
     const admittedCheckpoint: IWorkspaceCheckpoint = {
         ...checkpoint,
         tabs: checkpoint.tabs.map((tab) => {
@@ -960,6 +960,12 @@ function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave)
         while (currentSave) {
             try {
                 const previous = lastDurableWorkspaceCheckpoints.get(currentSave.stored.ownerWebContentsId);
+                // The artifacts are written here rather than when the save was
+                // requested: a trailing save that is superseded before it commits
+                // never reaches this point, so its artifacts never reach the disk.
+                await Promise.all(currentSave.artifacts.map(artifact => (
+                    writeAnnotationRecoveryArtifact(artifact.ref, artifact.payload)
+                )));
                 await writeStoredWorkspaceCheckpoint(currentSave.stored);
                 const currentArtifactIds = new Set(
                     getAnnotationRecoveryRefs(currentSave.stored.checkpoint).map(ref => ref.artifactId),
@@ -969,6 +975,9 @@ function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave)
                     .map(ref => rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})));
                 settleCheckpointSave(currentSave);
             } catch (error) {
+                await Promise.all(currentSave.artifacts.map(artifact => (
+                    rm(getAnnotationRecoveryPath(artifact.ref.artifactId), {force: true})
+                )));
                 settleCheckpointSave(currentSave, error);
             }
             currentSave = pendingLatestCheckpointSaves.values().next().value ?? null;
@@ -986,7 +995,10 @@ function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave)
     });
 }
 
-function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
+function enqueueWorkspaceCheckpointSave(
+    stored: IStoredWorkspaceCheckpoint,
+    artifacts: IAnnotationRecoveryArtifact[],
+) {
     return new Promise<void>((resolve, reject) => {
         const waiter = {
             resolve,
@@ -995,6 +1007,7 @@ function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
         if (!checkpointWriteInFlight) {
             startCheckpointWriteDrain({
                 stored,
+                artifacts,
                 waiters: [waiter],
             });
             return;
@@ -1004,6 +1017,7 @@ function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
         if (pending) {
             pendingLatestCheckpointSaves.set(owner, {
                 stored,
+                artifacts,
                 waiters: [
                     ...pending.waiters,
                     waiter,
@@ -1013,6 +1027,7 @@ function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
         }
         pendingLatestCheckpointSaves.set(owner, {
             stored,
+            artifacts,
             waiters: [waiter],
         });
     });
@@ -1043,7 +1058,7 @@ async function commitTrailingCheckpointSave(pending: ITrailingWorkspaceCheckpoin
     lastCheckpointSaveStartedAtMs.set(pending.ownerWebContentsId, Date.now());
     try {
         if (!discardedCheckpointOwnerGenerations.has(pending.ownerWebContentsId)) {
-            await enqueueWorkspaceCheckpointSave(pending.stored);
+            await enqueueWorkspaceCheckpointSave(pending.stored, pending.artifacts);
         }
         for (const waiter of pending.waiters) {
             waiter.resolve();
@@ -1057,6 +1072,7 @@ async function commitTrailingCheckpointSave(pending: ITrailingWorkspaceCheckpoin
 
 function scheduleTrailingCheckpointSave(
     stored: IStoredWorkspaceCheckpoint,
+    artifacts: IAnnotationRecoveryArtifact[],
     ownerWebContentsId: number,
     delayMs: number,
 ) {
@@ -1068,6 +1084,7 @@ function scheduleTrailingCheckpointSave(
         const trailing = trailingCheckpointSaves.get(ownerWebContentsId);
         if (trailing) {
             trailing.stored = stored;
+            trailing.artifacts = artifacts;
             trailing.waiters.push(waiter);
             return;
         }
@@ -1079,6 +1096,7 @@ function scheduleTrailingCheckpointSave(
         timer.unref();
         trailingCheckpointSaves.set(ownerWebContentsId, {
             stored,
+            artifacts,
             ownerWebContentsId,
             waiters: [waiter],
             timer,
@@ -1127,60 +1145,45 @@ export async function saveWorkspaceCheckpoint(
     const durable = readDurableWorkspaceCheckpointForSave(ownerWebContentsId);
     const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
-    const admittedArtifactRefs = admittedAnnotationRecovery.artifacts.map(artifact => artifact.ref);
-    let published = false;
-    try {
-        if (admittedArtifactRefs.length > 0) {
-            await Promise.all(admittedAnnotationRecovery.artifacts.map(artifact => (
-                writeAnnotationRecoveryArtifact(artifact.ref, artifact.payload)
-            )));
-        }
-        const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
-        const canonicalCheckpoint = canonicalizeCheckpointSources(
-            checkpointWithArtifacts,
+    const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
+    const canonicalCheckpoint = canonicalizeCheckpointSources(
+        checkpointWithArtifacts,
+        ownerWebContentsId,
+        {rejectUnmappedWorkingCopy: true},
+    );
+    const sourceProvenance = buildSourceProvenance(
+        canonicalCheckpoint,
+        ownerWebContentsId,
+        sourceAuthorizationOwner,
+    );
+    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const stored: IStoredWorkspaceCheckpoint = {
+        version: 1,
+        ownerWebContentsId,
+        ...(claimedWorkspaceCheckpointOwnerWebContentsIds.get(ownerWebContentsId) === ownerWebContentsId
+            ? {claimedByWebContentsId: ownerWebContentsId}
+            : {}),
+        checkpoint: canonicalCheckpoint,
+        ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+        ...(workingCopies.length === 0 ? {} : {workingCopies}),
+        ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
+    };
+    await checkpointBarrierQueue;
+    if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
+        return;
+    }
+    const elapsedMs = Date.now() - (lastCheckpointSaveStartedAtMs.get(ownerWebContentsId) ?? 0);
+    if (!trailingCheckpointSaves.has(ownerWebContentsId) && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
+        lastCheckpointSaveStartedAtMs.set(ownerWebContentsId, Date.now());
+        await enqueueWorkspaceCheckpointSave(stored, admittedAnnotationRecovery.artifacts);
+    } else {
+        await scheduleTrailingCheckpointSave(
+            stored,
+            admittedAnnotationRecovery.artifacts,
             ownerWebContentsId,
-            {rejectUnmappedWorkingCopy: true},
+            Math.max(0, WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS - elapsedMs),
         );
-        const sourceProvenance = buildSourceProvenance(
-            canonicalCheckpoint,
-            ownerWebContentsId,
-            sourceAuthorizationOwner,
-        );
-        const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
-        const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
-        const stored: IStoredWorkspaceCheckpoint = {
-            version: 1,
-            ownerWebContentsId,
-            ...(claimedWorkspaceCheckpointOwnerWebContentsIds.get(ownerWebContentsId) === ownerWebContentsId
-                ? {claimedByWebContentsId: ownerWebContentsId}
-                : {}),
-            checkpoint: canonicalCheckpoint,
-            ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
-            ...(workingCopies.length === 0 ? {} : {workingCopies}),
-            ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
-        };
-        await checkpointBarrierQueue;
-        if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
-            return;
-        }
-        const elapsedMs = Date.now() - (lastCheckpointSaveStartedAtMs.get(ownerWebContentsId) ?? 0);
-        if (!trailingCheckpointSaves.has(ownerWebContentsId) && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
-            lastCheckpointSaveStartedAtMs.set(ownerWebContentsId, Date.now());
-            await enqueueWorkspaceCheckpointSave(stored);
-        } else {
-            await scheduleTrailingCheckpointSave(
-                stored,
-                ownerWebContentsId,
-                Math.max(0, WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS - elapsedMs),
-            );
-        }
-        published = true;
-    } finally {
-        if (!published && admittedArtifactRefs.length > 0) {
-            await Promise.all(admittedArtifactRefs.map(ref => (
-                rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})
-            )));
-        }
     }
 }
 
