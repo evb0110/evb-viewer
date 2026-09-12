@@ -282,8 +282,9 @@ function createState(options?: {
         ? '/tmp/document.pdf'
         : options.workingCopyPath);
     const fileName = ref(options?.fileName ?? 'document.pdf');
+    const totalPages = ref(options?.totalPages ?? 10);
     const state = scope.run(() => useWorkspacePrint({
-        totalPages: ref(options?.totalPages ?? 10),
+        totalPages,
         currentPage: ref(4),
         selectedPages: ref([
             3,
@@ -333,6 +334,7 @@ function createState(options?: {
         fileName,
         sourcePdf,
         workingCopyPath,
+        totalPages,
         scope,
         state,
     };
@@ -693,9 +695,133 @@ describe('useWorkspacePrint', () => {
 
         expect(getPrintableSourceData).not.toHaveBeenCalled();
         expect(state.isPreparingPrint.value).toBe(false);
+        const scheduledTimers = vi.mocked(window.setTimeout).mock.calls.length;
+        await state.handleQuickPrint();
+        expect(getQuickPrintPageMetrics).toHaveBeenCalledOnce();
+        expect(window.setTimeout).toHaveBeenCalledTimes(scheduledTimers);
+        expect(state.isPreparingPrint.value).toBe(false);
     });
 
-    it('invalidates print when the initiating document revision changes', async () => {
+    it.each([
+        'quick',
+        'dialog',
+    ] as const)('ignores a stale %s preparation rejection while a successor owns a native job', async (action) => {
+        const preparation = Promise.withResolvers<undefined>();
+        const preparationStarted = Promise.withResolvers<undefined>();
+        const nativeJob = Promise.withResolvers<{success: boolean}>();
+        const nativeJobStarted = Promise.withResolvers<undefined>();
+        let metricsCalls = 0;
+        let dataCalls = 0;
+        const {
+            scope, state, sourcePdf, workingCopyPath, fileName, totalPages,
+        } = createState({
+            sourcePdf: new Blob([Uint8Array.of(1)], {type: 'application/pdf'}),
+            getQuickPrintPageMetrics: async () => {
+                if (++metricsCalls === 1 && action === 'quick') {
+                    preparationStarted.resolve(undefined);
+                    await preparation.promise;
+                }
+                return [{
+                    width: 612,
+                    height: 792,
+                }];
+            },
+            getPrintableSourceData: async () => {
+                if (++dataCalls === 1 && action === 'dialog') {
+                    preparationStarted.resolve(undefined);
+                    await preparation.promise;
+                }
+                return Uint8Array.of(2);
+            },
+        });
+        shouldPrintPageMetricsDirectlyMock.mockReturnValue(true);
+        documentsCapabilityMock.printPdfData.mockImplementationOnce(() => {
+            nativeJobStarted.resolve(undefined);
+            return nativeJob.promise;
+        });
+
+        try {
+            const firstPrint = action === 'quick'
+                ? state.handleQuickPrint()
+                : state.handlePrintDialogSubmit({
+                    viewMode: 'single',
+                    orientation: 'auto',
+                });
+            await preparationStarted.promise;
+            sourcePdf.value = new Blob([Uint8Array.of(2)], {type: 'application/pdf'});
+            workingCopyPath.value = '/tmp/successor.pdf';
+            fileName.value = 'successor.pdf';
+            totalPages.value = 2;
+            const successorPrint = state.handleQuickPrint();
+            await nativeJobStarted.promise;
+            preparation.reject(new Error('Old document preparation failed'));
+            await firstPrint;
+
+            expect(state.isPreparingPrint.value).toBe(true);
+            expect(state.printDialogOpen.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+            expect(toastAddMock).not.toHaveBeenCalledWith(expect.objectContaining({color: 'error'}));
+            expect(documentsCapabilityMock.cancelPdfPrint).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledExactlyOnceWith(
+                Uint8Array.of(2), 'successor.pdf', {requestId: expect.any(String)},
+            );
+            nativeJob.resolve({success: true});
+            await successorPrint;
+            expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            nativeJob.resolve({success: true});
+            scope.stop();
+        }
+    });
+
+    it.each([
+        'close',
+        'cancel',
+        'dispose',
+    ] as const)('cancels pending quick-print metrics on %s without publishing a late error', async (action) => {
+        const metrics = Promise.withResolvers<null>();
+        const metricsStarted = Promise.withResolvers<undefined>();
+        const {
+            scope, state, sourcePdf, workingCopyPath, fileName, totalPages, getPrintableSourceData,
+        } = createState({
+            sourcePdf: new Blob([Uint8Array.of(1)], {type: 'application/pdf'}),
+            getQuickPrintPageMetrics: () => {
+                metricsStarted.resolve(undefined);
+                return metrics.promise;
+            },
+        });
+        try {
+            const print = state.handleQuickPrint();
+            await metricsStarted.promise;
+            await state.handleQuickPrint();
+            expect(state.isPreparingPrint.value).toBe(true);
+            if (action === 'close') {
+                sourcePdf.value = null;
+                workingCopyPath.value = null;
+                fileName.value = '';
+                totalPages.value = 0;
+            } else if (action === 'cancel') {
+                state.handlePrintDialogOpenChange(false);
+            } else {
+                scope.stop();
+            }
+            metrics.reject(new Error('Canceled document metrics failed'));
+            await print;
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(toastAddMock).not.toHaveBeenCalledWith(expect.objectContaining({color: 'error'}));
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it.each([
+        'replacement',
+        'in-place',
+    ] as const)('invalidates print when the initiating document revision changes by %s', async (change) => {
         const readiness = Promise.withResolvers<boolean>();
         const sourcePdf = {
             kind: 'path' as const,
@@ -720,16 +846,104 @@ describe('useWorkspacePrint', () => {
                 orientation: 'auto',
             });
             await flushMicrotasks(4);
-            currentSource.value = {
-                ...sourcePdf,
-                revision: requireDocumentRevisionToken('drt1:revision-b'),
-            };
+            if (change === 'replacement') {
+                currentSource.value = {
+                    ...sourcePdf,
+                    revision: requireDocumentRevisionToken('drt1:revision-b'),
+                };
+            } else if (currentSource.value && 'revision' in currentSource.value) {
+                currentSource.value.revision = requireDocumentRevisionToken('drt1:revision-b');
+            }
             readiness.resolve(true);
             await printPromise;
 
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
         } finally {
+            scope.stop();
+        }
+    });
+
+    it('ignores a replaced document driver handoff callback while the successor dialog is open', async () => {
+        const driverRun = Promise.withResolvers<undefined>();
+        const driverStarted = Promise.withResolvers<() => void>();
+        const {
+            scope, state, sourcePdf,
+        } = createState({
+            sourcePdf: new Blob([Uint8Array.of(1)], {type: 'application/pdf'}),
+            printDjvuSource: async (_payload, options) => {
+                driverStarted.resolve(() => options?.onNativePrintHandoffStart?.());
+                await driverRun.promise;
+            },
+        });
+        try {
+            const print = state.handleQuickPrint();
+            const handoff = await driverStarted.promise;
+            sourcePdf.value = new Blob([Uint8Array.of(2)], {type: 'application/pdf'});
+            state.handlePrint();
+            handoff();
+            expect(state.printDialogOpen.value).toBe(true);
+            driverRun.resolve(undefined);
+            await print;
+            expect(state.printDialogOpen.value).toBe(true);
+        } finally {
+            driverRun.resolve(undefined);
+            scope.stop();
+        }
+    });
+
+    it.each([
+        'data',
+        'path',
+    ] as const)('keeps successor preparation feedback when a stale native %s event arrives', async (kind) => {
+        const firstJob = Promise.withResolvers<{success: boolean}>();
+        const secondJob = Promise.withResolvers<{success: boolean}>();
+        const firstStarted = Promise.withResolvers<undefined>();
+        const secondStarted = Promise.withResolvers<undefined>();
+        const backend = kind === 'data' ? documentsCapabilityMock.printPdfData : documentsCapabilityMock.printPdfPath;
+        backend.mockImplementationOnce(() => {
+            firstStarted.resolve(undefined);
+            return firstJob.promise;
+        }).mockImplementationOnce(() => {
+            secondStarted.resolve(undefined);
+            return secondJob.promise;
+        });
+        shouldPrintPageMetricsDirectlyMock.mockReturnValue(true);
+        const {
+            scope, state, fileName,
+        } = createState({
+            sourcePdf: kind === 'path'
+                ? {
+                    kind: 'path',
+                    path: requireDocumentRef('/tmp/document.pdf'),
+                    size: 10,
+                }
+                : new Blob([Uint8Array.of(1)], {type: 'application/pdf'}),
+            getQuickPrintPageMetrics: async () => [{
+                width: 612,
+                height: 792,
+            }],
+        });
+        try {
+            const firstPrint = state.handleQuickPrint();
+            await firstStarted.promise;
+            const listener = documentsCapabilityMock.onNativePrintDialogOpened.mock.calls[0]![0];
+            const firstRequest = backend.mock.calls[0]![2];
+            fileName.value = 'successor.pdf';
+            const secondPrint = state.handleQuickPrint();
+            await secondStarted.promise;
+            const removedToasts = toastRemoveMock.mock.calls.length;
+            listener({requestId: firstRequest.requestId});
+            expect(toastRemoveMock).toHaveBeenCalledTimes(removedToasts);
+            expect(state.isPreparingPrint.value).toBe(true);
+            firstJob.resolve({success: true});
+            await firstPrint;
+            expect(state.isPreparingPrint.value).toBe(true);
+            secondJob.resolve({success: true});
+            await secondPrint;
+        } finally {
+            firstJob.resolve({success: true});
+            secondJob.resolve({success: true});
             scope.stop();
         }
     });

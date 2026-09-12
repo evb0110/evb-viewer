@@ -1,13 +1,20 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TPdfLib from 'pdf-lib';
+import type * as TAtomicReplace from '@electron/utils/atomicReplace';
 
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import {
+    basename,
+    join,
+} from 'path';
 import {
     existsSync,
     readdirSync,
 } from 'fs';
 import {
     mkdtemp,
+    mkdir,
     readFile,
     rm,
     writeFile,
@@ -236,6 +243,11 @@ const {
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const {
+    buildOutputPathWithSuffix,
+    buildMultiPageTiffOutputPaths,
+    resolveSuffixedOutputPathConflicts,
+} = await import('@electron/features/image-export/main/imageExportPathPlanning');
+const {
     combinePagesIntoMultiPageTiffLocal,
     estimateMultiPageTiffByteLength,
     splitTiffPageDescriptorsForClassicLimit,
@@ -287,7 +299,8 @@ describe('image export', () => {
     let tempDir = '';
 
     beforeEach(async () => {
-        tempDir = await mkdtemp(join(tmpdir(), 'image-export-test-'));
+        await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
+        tempDir = await mkdtemp(join(process.cwd(), '.devkit', 'image-export-test-'));
         mocks.runCommand.mockReset();
         mocks.stat.mockReset();
         mocks.rename.mockReset();
@@ -1119,6 +1132,279 @@ describe('image export', () => {
         expect(await readFile(firstExistingPath, 'utf8')).toBe('existing-page');
         expect(existsSync(firstOutputPath)).toBe(true);
         expect(existsSync(secondOutputPath)).toBe(true);
+    });
+
+    it.each([
+        'a'.repeat(247),
+        'a'.repeat(248),
+        'a'.repeat(251),
+        'a'.repeat(300),
+        '文'.repeat(83),
+        '😀'.repeat(63),
+        `${'a'.repeat(245)}-001`,
+    ])('preserves page and conflict suffixes across render chunks for %s', async (stem) => {
+        mocks.pdfPageCount = 7;
+        mocks.renderPageCount = 7;
+        let stagedIndex = 0;
+        mocks.makeSiblingTempPath.mockImplementation(() => join(tempDir, `.staged-${++stagedIndex}.tmp`));
+        const template = join(tempDir, `${stem}.png`);
+        const existingPaths = Array.from({length: 7}, (_, index) => buildOutputPathWithSuffix(
+            template,
+            `-${String(index + 1).padStart(3, '0')}`,
+        ));
+        await Promise.all(existingPaths.map(path => writeFile(path, 'existing image')));
+        const paths = await exportPdfPagesAsImages('/tmp/input.pdf', template);
+
+        expect(new Set(paths).size).toBe(7);
+        expect(mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdftoppm')).toHaveLength(2);
+        for (const [
+            index,
+            path,
+        ] of paths.entries()) {
+            expect(basename(path)).toMatch(new RegExp(`-${String(index + 1).padStart(3, '0')}-1\\.png$`, 'u'));
+            expect(Buffer.byteLength(basename(path), 'utf8')).toBeLessThanOrEqual(255);
+            expectSinglePixelPng(await readFile(path), [
+                index + 1,
+                0,
+                0,
+            ]);
+        }
+        for (const path of existingPaths) {
+            expect(await readFile(path, 'utf8')).toBe('existing image');
+        }
+    });
+
+    it('reserves duplicate planned targets and preserves page digits beyond 999', () => {
+        const path = join(tempDir, `${'文'.repeat(100)}.png`);
+        const paths = resolveSuffixedOutputPathConflicts([
+            {
+                path,
+                suffix: '-999',
+            },
+            {
+                path,
+                suffix: '-999',
+            },
+            {
+                path,
+                suffix: '-1000',
+            },
+            {
+                path,
+                suffix: '-1000',
+            },
+        ]);
+        expect(paths.map(target => basename(target).match(/(-[\d-]+)\.png$/u)?.[1])).toEqual([
+            '-999',
+            '-999-1',
+            '-1000',
+            '-1000-1',
+        ]);
+        expect(new Set(paths).size).toBe(4);
+        expect(paths.every(target => Buffer.byteLength(basename(target), 'utf8') <= 255)).toBe(true);
+        const tiffPaths = buildMultiPageTiffOutputPaths(join(tempDir, `${'a'.repeat(300)}.tif`), 2);
+        expect(tiffPaths.map(target => basename(target).slice(-13))).toEqual([
+            '-part-001.tif',
+            '-part-002.tif',
+        ]);
+        expect(tiffPaths.every(target => Buffer.byteLength(basename(target), 'utf8') === 255)).toBe(true);
+    });
+
+    it('rejects equivalent final targets before publishing any staged image', async () => {
+        const targetPath = join(tempDir, 'duplicate.png');
+        const firstStagedPath = join(tempDir, 'first.staged');
+        const secondStagedPath = join(tempDir, 'second.staged');
+        await writeFile(targetPath, 'original');
+        await writeFile(firstStagedPath, 'page one');
+        await writeFile(secondStagedPath, 'page two');
+
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: firstStagedPath,
+                targetPath,
+                targetExisted: true,
+            },
+            {
+                stagedPath: secondStagedPath,
+                targetPath: `${tempDir}/./duplicate.png`,
+                targetExisted: true,
+            },
+        ])).rejects.toThrow('Duplicate image export target');
+
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(await readFile(targetPath, 'utf8')).toBe('original');
+        expect(existsSync(firstStagedPath)).toBe(false);
+        expect(existsSync(secondStagedPath)).toBe(false);
+    });
+
+    it('overwrites the selected single image target at the component limit', async () => {
+        mocks.pdfPageCount = 1;
+        mocks.renderPageCount = 1;
+        let stagedIndex = 0;
+        mocks.makeSiblingTempPath.mockImplementation(() => join(tempDir, `.single-${++stagedIndex}.tmp`));
+        const target = join(tempDir, `${'a'.repeat(251)}.png`);
+        await writeFile(target, 'old image');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', target)).resolves.toEqual([target]);
+        expectSinglePixelPng(await readFile(target), [
+            1,
+            0,
+            0,
+        ]);
+        expect(readdirSync(tempDir)).toEqual([basename(target)]);
+    });
+
+    it('refuses to publish an incomplete set of planned page images', async () => {
+        const render = mocks.runCommand.getMockImplementation()!;
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
+            const result = await render(command, args, options);
+            if (command === '/mock/pdftoppm') {
+                await rm(`${args.at(-1)}-2.ppm`);
+            }
+            return result;
+        });
+        const target = join(tempDir, 'incomplete.png');
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', target)).rejects.toThrow('PDF image export did not render every planned page');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(readdirSync(tempDir)).toEqual([]);
+    });
+
+    it.each([
+        1,
+        2,
+    ])('restores a pre-existing image after cancellation during promotion %i', async (cancelAfterPage) => {
+        const targetPath = join(tempDir, 'existing.png');
+        const secondTargetPath = join(tempDir, 'second.png');
+        const firstStagedPath = join(tempDir, 'first.staged');
+        const secondStagedPath = join(tempDir, 'second.staged');
+        await writeFile(targetPath, 'original');
+        await writeFile(firstStagedPath, 'page one');
+        await writeFile(secondStagedPath, 'page two');
+        const abortController = new AbortController();
+        mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
+            await writeFile(target, await readFile(source));
+            await rm(source);
+            if (source === (cancelAfterPage === 1 ? firstStagedPath : secondStagedPath)) {
+                abortController.abort();
+            }
+        });
+
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: firstStagedPath,
+                targetPath,
+                targetExisted: true,
+            },
+            {
+                stagedPath: secondStagedPath,
+                targetPath: secondTargetPath,
+                targetExisted: false,
+            },
+        ], abortController.signal)).rejects.toThrow('The operation was aborted');
+        expect(await readFile(targetPath, 'utf8')).toBe('original');
+        expect(readdirSync(tempDir)).toEqual(['existing.png']);
+    });
+
+    it('renders a real PDF through the export service and decodes every long-name page output', async () => {
+        const {
+            PDFDocument, rgb,
+        } = await vi.importActual<typeof TPdfLib>('pdf-lib');
+        const nativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
+        const toolPaths = nativeTools.resolvePdfNativeToolPaths({
+            isPackaged: true,
+            nativeToolsBase: join(process.cwd(), 'resources'),
+            platformArch: `${process.platform}-${process.arch}`,
+        });
+        const fs = await vi.importActual<typeof FsPromises>('fs/promises');
+        const atomic = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
+        mocks.stat.mockImplementation(fs.stat);
+        mocks.rename.mockImplementation(fs.rename);
+        mocks.makeSiblingTempPath.mockImplementation(atomic.makeSiblingTempPath);
+        mocks.atomicReplace.mockImplementation(atomic.atomicReplace);
+        mocks.popplerDataDir = toolPaths.popplerDataDir;
+        mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
+        const run = promisify(execFile);
+        const commands: Record<string, string> = {
+            '/mock/qpdf': toolPaths.qpdf,
+            '/mock/pdfinfo': toolPaths.pdfinfo,
+            '/mock/pdftoppm': toolPaths.pdftoppm,
+        };
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {
+            env?: NodeJS.ProcessEnv;
+            signal?: AbortSignal;
+            onStdout?: (chunk: string) => void;
+        }) => {
+            const result = await run(commands[command]!, args, {
+                env: options?.env,
+                signal: options?.signal,
+            });
+            options?.onStdout?.(result.stdout);
+            return {
+                ...result,
+                exitCode: 0,
+            };
+        });
+        const pdf = await PDFDocument.create();
+        const colors = [
+            [
+                255,
+                0,
+                0,
+            ],
+            [
+                0,
+                255,
+                0,
+            ],
+            [
+                0,
+                0,
+                255,
+            ],
+        ] as const;
+        for (const [
+            index,
+            color,
+        ] of colors.entries()) {
+            const page = pdf.addPage([
+                72,
+                72,
+            ]);
+            page.drawRectangle({
+                x: 0,
+                y: 0,
+                width: 72,
+                height: 72,
+                color: rgb(color[0] / 255, color[1] / 255, color[2] / 255),
+            });
+            page.drawText(String(index + 1), {
+                x: 24,
+                y: 24,
+                size: 24,
+                color: rgb(1, 1, 1),
+            });
+        }
+        const sourcePath = join(tempDir, 'colored-pages.pdf');
+        const sourceBytes = await pdf.save();
+        await writeFile(sourcePath, sourceBytes);
+        const template = join(tempDir, `${'a'.repeat(251)}.png`);
+        const existingTarget = buildOutputPathWithSuffix(template, '-001');
+        await writeFile(existingTarget, 'existing image');
+        const paths = await exportPdfPagesAsImages(sourcePath, template);
+
+        expect(new Set(paths).size).toBe(3);
+        for (const [
+            index,
+            path,
+        ] of paths.entries()) {
+            const decoded = decodePng(await readFile(path));
+            expect(decoded.width).toBeGreaterThan(1);
+            expect(decoded.height).toBeGreaterThan(1);
+            expect(Array.from(decoded.data.slice(0, 3))).toEqual(colors[index]);
+            expect(Buffer.byteLength(basename(path), 'utf8')).toBeLessThanOrEqual(255);
+        }
+        expect(await readFile(sourcePath)).toEqual(Buffer.from(sourceBytes));
+        expect(await readFile(existingTarget, 'utf8')).toBe('existing image');
     });
 
     it('exports TIFF page images when the target extension is TIF', async () => {
