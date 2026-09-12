@@ -1,0 +1,25 @@
+native/evb-native-support/src/output.rs
+  s_c8043a02970c3c::t_97cabe51c30078 127
+  s_c8043a02970c3c::t_886c3143267d60 826-830,837-843,845-848
+  s_c8043a02970c3c::t_b9d495d008b0a9 844
+  s_c8043a02970c3c::t_c632e14b8e226c 299
+  s_c8043a02970c3c::t_c4af91159b4d68 128,202,294-298,300-329
+  s_c8043a02970c3c::t_34063b6e34bbec 831-833
+  s_c8043a02970c3c::t_9edcce2ef4191a 834-836
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5c7a7c77260af151ced7f316236f11d82e5f3813",
+  "prompts": {},
+  "sessions": {
+    "s_c8043a02970c3c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cd-a92c-7730-8252-3f04e3e89907",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
