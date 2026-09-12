@@ -665,6 +665,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         // Last, so lines emitted by every earlier shutdown step reach disk.
         {
             label: 'log-flush',
+            runsAfterDeadline: true,
             timeoutMs: 2_000,
             run: () => flushPendingLogWrites(),
         },

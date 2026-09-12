@@ -4,9 +4,10 @@ import { isTimeoutError } from '@contracts/isTimeoutError';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
-// Preservation is bounded by the timeout of each preservation step. The global
-// cap applies only after preservation has settled, so it can never make an exit,
-// update install, or recovery relaunch overtake renderer/checkpoint/write state.
+// Preservation is bounded by the timeout of each preservation step. The cleanup
+// deadline starts only after preservation has settled, so it can never make an
+// exit, update install, or recovery relaunch overtake renderer/checkpoint/write
+// state.
 const SHUTDOWN_CLEANUP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
 const SHUTDOWN_STEP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_CLEANUP_TIMEOUT_MS);
 const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntegerEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
@@ -21,6 +22,12 @@ interface IShutdownStep {
     label: string;
     run: () => Promise<void> | void;
     timeoutMs?: number;
+    /**
+     * Runs after the cleanup deadline instead of competing for it. Only the log
+     * flush qualifies: it is what makes every other step's timeout visible in
+     * the next session, so a slow cleanup must not be the reason it is skipped.
+     */
+    runsAfterDeadline?: boolean;
 }
 
 export interface IShutdownContext {
@@ -49,12 +56,14 @@ interface IShutdownPhaseOptions {
 
 interface IShutdownStepResult {failed: boolean;}
 
-async function runStep(logger: ILogger, step: IShutdownStep): Promise<IShutdownStepResult> {
-    const timeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS;
+async function runStep(
+    logger: ILogger,
+    step: IShutdownStep,
+    timeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS,
+): Promise<IShutdownStepResult> {
+    const stepPromise = Promise.resolve().then(() => step.run());
     try {
-        await withTimeout(async () => {
-            await step.run();
-        }, timeoutMs);
+        await withTimeout(() => stepPromise, timeoutMs);
         return {failed: false};
     } catch (error) {
         const timeout = isTimeoutError(error);
@@ -69,13 +78,34 @@ async function runStep(logger: ILogger, step: IShutdownStep): Promise<IShutdownS
             },
         );
         return {failed: true};
+    } finally {
+        // withTimeout cannot cancel the operation. Observe a late rejection so
+        // a timed-out cleanup step cannot become an unhandled rejection.
+        void stepPromise.catch(() => undefined);
     }
 }
 
-async function runBoundedSteps(logger: ILogger, steps: IShutdownStep[]) {
+/**
+ * Sharing a deadline is not enough on its own: letting each step take all the
+ * time left would let one stalled step spend the whole budget and leave the
+ * tail with nothing, which is the defect being fixed. The remaining time is
+ * divided by the steps still to run, so every step keeps a turn, and a step
+ * that finishes early hands its unused share to the ones after it.
+ */
+async function runBoundedSteps(logger: ILogger, steps: IShutdownStep[], deadlineAt?: number) {
     let failed = false;
-    for (const step of steps) {
-        const result = await runStep(logger, step);
+    for (const [
+        index,
+        step,
+    ] of steps.entries()) {
+        const stepTimeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS;
+        const timeoutMs = deadlineAt === undefined
+            ? stepTimeoutMs
+            : Math.max(0, Math.min(
+                stepTimeoutMs,
+                Math.floor((deadlineAt - Date.now()) / (steps.length - index)),
+            ));
+        const result = await runStep(logger, step, timeoutMs);
         failed ||= result.failed;
     }
     return {failed};
@@ -83,8 +113,9 @@ async function runBoundedSteps(logger: ILogger, steps: IShutdownStep[]) {
 
 /**
  * Defines the two production shutdown phases. Preservation is sequential and
- * bounded per step. Best-effort cleanup has both per-step bounds and a global
- * cap, but it cannot start until preservation has structurally completed.
+ * bounded per step. Best-effort cleanup has a shared deadline for its ordinary
+ * steps, but it cannot start until preservation has structurally completed. The
+ * final log flush runs after that deadline so timeout diagnostics reach disk.
  */
 export function createShutdownPhaseRunners(
     logger: ILogger,
@@ -114,13 +145,15 @@ export function createShutdownPhaseRunners(
                 );
             }
         },
-        runBestEffortCleanupSteps(context: IShutdownContext) {
-            return withTimeout(async () => {
-                await runBoundedSteps(
-                    logger,
-                    options.createBestEffortCleanupSteps(context),
-                );
-            }, SHUTDOWN_CLEANUP_TIMEOUT_MS);
+        async runBestEffortCleanupSteps(context: IShutdownContext) {
+            const steps = options.createBestEffortCleanupSteps(context);
+            const deadlineAt = Date.now() + SHUTDOWN_CLEANUP_TIMEOUT_MS;
+
+            try {
+                await runBoundedSteps(logger, steps.filter(step => !step.runsAfterDeadline), deadlineAt);
+            } finally {
+                await runBoundedSteps(logger, steps.filter(step => step.runsAfterDeadline));
+            }
         },
     };
 }
