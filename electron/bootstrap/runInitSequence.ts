@@ -104,6 +104,12 @@ export interface IRunInitSequenceOptions {
     markWindowTabTransferNotReady(windowId: number): void;
     markWindowTabTransferReady(windowId: number): void;
     markWindowTabTransferWindowClosed(windowId: number): void;
+    /**
+     * Runs once the single-instance lock is held. A launch that loses the lock
+     * exits before this point, so anything that consumes state left behind by
+     * the previous run belongs here rather than at module load.
+     */
+    onPrimaryInstanceReady(): void;
     maybePromptForDefaultViewer(): void;
     readyWindowIds: Set<number>;
     registerIpcHandlers(options: IRegisterIpcHandlersOptions): void;
@@ -210,6 +216,8 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
     } else {
         logger.info('Automation harness mode: bypassing single-instance lock to allow multiple sessions');
     }
+
+    options.onPrimaryInstanceReady();
 
     if (process.platform !== 'darwin' || allowMultipleAutomationSessions) {
         externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));

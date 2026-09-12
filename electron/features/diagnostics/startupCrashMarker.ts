@@ -82,6 +82,7 @@ export interface IStartupCrashMarkerReplayOptions {
 export interface IStartupCrashMarkerController {
     disarm(): void;
     isArmed(): boolean;
+    markPrimaryInstanceReady(): void;
     onLiveAdapterReady(options: IStartupCrashMarkerReplayOptions): void;
     captureLiveException(error: unknown): FailureReceipt | undefined;
 }
@@ -268,7 +269,8 @@ export function installStartupCrashMarker(
     let monitorInstalled = false;
     let markerWriteAttempted = false;
     let replayAttempted = false;
-    let pendingReplayMarker = takePersistedMarker();
+    let persistedMarkerLoaded = false;
+    let pendingReplayMarker: StartupCrashMarkerRecord | null = null;
     let liveAdapter: IStartupCrashMarkerReplayOptions | null = null;
     let liveOccurrenceAttempted = false;
     let liveReceipt: FailureReceipt | undefined;
@@ -366,7 +368,7 @@ export function installStartupCrashMarker(
         replayOptions: IStartupCrashMarkerReplayOptions,
     ): StartupCrashMarkerRecord | null => {
         disarm();
-        if (replayAttempted) {
+        if (!persistedMarkerLoaded || replayAttempted) {
             return null;
         }
         replayAttempted = true;
@@ -394,12 +396,33 @@ export function installStartupCrashMarker(
         return sentMarker;
     };
 
+    /**
+     * Reading the marker deletes it, so it must not be read by a launch that is
+     * about to exit as a duplicate: that launch would consume the marker written
+     * by the crash of the instance still running, and the crash would never be
+     * reported.
+     */
+    const markPrimaryInstanceReady = () => {
+        if (persistedMarkerLoaded) {
+            return;
+        }
+        persistedMarkerLoaded = true;
+        pendingReplayMarker = takePersistedMarker();
+        if (liveAdapter !== null) {
+            replayMarkerForReadyAdapter(liveAdapter);
+        }
+    };
+
     const controller: IStartupCrashMarkerController = {
         disarm,
         isArmed: () => armed,
+        markPrimaryInstanceReady,
         onLiveAdapterReady: (replayOptions) => {
             liveAdapter = replayOptions;
-            replayMarkerForReadyAdapter(replayOptions);
+            disarm();
+            if (persistedMarkerLoaded) {
+                replayMarkerForReadyAdapter(replayOptions);
+            }
         },
         captureLiveException: (error) => {
             if (liveReceipt !== undefined) {
