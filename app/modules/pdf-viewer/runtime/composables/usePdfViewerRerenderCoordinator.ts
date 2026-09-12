@@ -2,6 +2,7 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {TFitMode} from '@app/types/pdfContracts';
 import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
@@ -725,7 +726,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         syncHorizontalScrollAfterLayoutUpdate();
     });
 
-    watch(currentPage, async (next, previous) => {
+    watch(currentPage, (next, previous) => {
         const runId = ++currentPageFitRerenderRunId;
         const document = pdfDocument.value;
         if (
@@ -739,7 +740,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         ) {
             return;
         }
-        await runCurrentPageFitRerenderTransition(async () => {
+        runGuardedTask(() => runCurrentPageFitRerenderTransition(async () => {
             /**
              * Coalesce rapid paged toolbar navigation before rerendering fit modes.
              *
@@ -811,6 +812,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 stabilize: true,
                 resizeAnchor,
             });
+        }), {
+            category: 'user-visible-operation',
+            scope: 'pdf-viewer',
+            message: 'Failed to rerender the current page in fit-width mode',
         });
     });
 

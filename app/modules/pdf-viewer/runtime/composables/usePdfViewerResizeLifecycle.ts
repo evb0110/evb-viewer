@@ -94,7 +94,13 @@ interface IActiveResizeVisualSnapshotLease {
     pageContainer: HTMLElement;
     released: boolean;
     snapshot: IPdfResizeCanvasVisualSnapshot;
+    cancelRelease: () => void;
 }
+
+// The snapshot exists to hide a blank page while the resize re-renders. If
+// that never lands, showing the stale image forever is worse than showing the
+// real state, so the lease expires whether or not waitFor ever goes true.
+const PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS = 2_500;
 
 export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycleOptions) => {
     const {
@@ -436,6 +442,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 activeLease.lastCaptureAtMs = capturedAtMs;
                 continue;
             }
+            activeLease?.cancelRelease();
             activeLease?.snapshot.release();
             activeResizeVisualSnapshots.delete(page);
             const snapshot = preservePdfResizeCanvasVisualSnapshot(pageContainer);
@@ -457,8 +464,12 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 pageContainer,
                 released: false,
                 snapshot,
+                cancelRelease: () => {},
             };
             const release = () => {
+                if (lease.released) {
+                    return;
+                }
                 lease.released = true;
                 snapshot.release();
                 if (activeResizeVisualSnapshots.get(page) === lease) {
@@ -466,8 +477,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 }
             };
             activeResizeVisualSnapshots.set(page, lease);
-            schedulePdfResizeCanvasVisualSnapshotRelease(release, {
-                forceReleaseAfterMaxDelay: false,
+            lease.cancelRelease = schedulePdfResizeCanvasVisualSnapshotRelease(release, {
+                maxDelayMs: PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS,
                 minFrames: 2,
                 waitFor: () => (
                     !snapshot.isValid()
@@ -757,6 +768,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
 
     function cleanupResizeLifecycle() {
         activeResizeVisualSnapshots.forEach((lease) => {
+            lease.cancelRelease();
             lease.released = true;
             lease.snapshot.release();
         });
