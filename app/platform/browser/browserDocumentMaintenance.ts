@@ -44,6 +44,7 @@ import type {
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import { reclaimOrphanedBrowserDocumentLiveLeases } from '@app/platform/browser/browserDocumentLeaseStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
 const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
@@ -352,6 +353,9 @@ export async function sweepBrowserDocumentMaintenance(
     entries: Map<string, IBrowserDocumentEntry>,
     hooks: IBrowserDocumentMaintenanceHooks = {},
 ) {
+    // Retire the leases of owners that no longer exist before reading
+    // protection, so a crashed window cannot pin its records forever.
+    await reclaimOrphanedBrowserDocumentLiveLeases().catch(() => undefined);
     const recoveryLeasedRefs = await loadBrowserWorkspaceRecoveryLeasedRefs();
     const {
         available,
