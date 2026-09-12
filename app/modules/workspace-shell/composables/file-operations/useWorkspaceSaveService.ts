@@ -52,6 +52,7 @@ import type {
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import type {
     IPostSaveReloadWaiter,
+    ISaveCompletionPolicy,
     TWorkspaceSaveAbort,
     TWorkspaceSaveExecutionResult,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
@@ -275,6 +276,7 @@ async function validateWorkingCopy(
 async function executeWorkingCopySave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'serialized'}>,
     deps: IWorkspaceSaveDependencies,
+    completion: Partial<ISaveCompletionPolicy> = {},
 ): Promise<TWorkspaceSaveExecutionResult> {
     const reloadWaiter = createReloadWaiter(plan.body, deps);
     return withReloadWaiter(reloadWaiter, async () => {
@@ -301,7 +303,7 @@ async function executeWorkingCopySave(
                 'persist-save-working-copy',
                 () => deps.persistence.saveWorkingCopy(opts),
             );
-        return workingCopySaveResult(persisted, reloadWaiter);
+        return workingCopySaveResult(persisted, reloadWaiter, completion);
     });
 }
 
@@ -435,6 +437,9 @@ async function executeSerializedBytesSave(
             serializedChanges: true,
             reloadWaiter,
             completion: {
+                markAnnotationStateSaved: true,
+                markBookmarksStateSaved: true,
+                markPageLabelsStateSaved: true,
                 markShapeStateSaved: shapeStateWasPrimed,
                 preserveLivePdfjsSession: body.preserveLoadedSource && !reloadWaiter,
                 resetAnnotationStorage: true,
@@ -551,7 +556,7 @@ async function executeNativeMutationSave(
                 source: 'working-copy',
                 preserveLoadedSource: true,
             },
-        }, deps);
+        }, deps, {markAnnotationStateSaved: true});
         if (result.status === 'saved') {
             saveTransaction.commitAnnotationSave?.();
             return {
@@ -601,6 +606,9 @@ async function executeNativeMutationSave(
             serializedChanges: false,
             reloadWaiter: null,
             completion: {
+                markAnnotationStateSaved: false,
+                markBookmarksStateSaved: false,
+                markPageLabelsStateSaved: false,
                 allowAnnotationSaveStateRefresh: false,
                 allowBookmarksSaveStateRefresh: false,
                 allowPageLabelsSaveStateRefresh: false,
@@ -720,6 +728,20 @@ async function executeNativeMutationSave(
     }
     const preparedShapeState = preparedShapeStateSnapshot;
     preparedShapeStateSnapshot = null;
+    // A layer may be marked clean only if this save carried its edits. The
+    // projection is the record of what was actually written, so the same
+    // predicate decides both that and whether a token that moved during the
+    // write should be refreshed rather than treated as a new edit.
+    const annotationEditsWritten = projection.noteTextUpdates.length > 0
+        || (projection.noteGeometryUpdates?.length ?? 0) > 0
+        || projection.freeTextNotes.length > 0
+        || projection.freeTextEditors.length > 0
+        || (projection.textBoxes?.length ?? 0) > 0
+        || projection.annotationDeletes.length > 0
+        || projection.hasMarkupMutations
+        || projection.hasShapeMutations;
+    const bookmarkEditsWritten = projection.mutations.bookmarks !== undefined;
+    const pageLabelEditsWritten = projection.mutations.pageLabels !== undefined;
 
     return {
         status: 'saved',
@@ -728,16 +750,12 @@ async function executeNativeMutationSave(
         reloadWaiter: null,
         ...(preparedShapeState === null ? {} : {preparedShapeState}),
         completion: {
-            allowAnnotationSaveStateRefresh: projection.noteTextUpdates.length > 0
-                || (projection.noteGeometryUpdates?.length ?? 0) > 0
-                || projection.freeTextNotes.length > 0
-                || projection.freeTextEditors.length > 0
-                || (projection.textBoxes?.length ?? 0) > 0
-                || projection.annotationDeletes.length > 0
-                || projection.hasMarkupMutations
-                || projection.hasShapeMutations,
-            allowBookmarksSaveStateRefresh: projection.mutations.bookmarks !== undefined,
-            allowPageLabelsSaveStateRefresh: projection.mutations.pageLabels !== undefined,
+            markAnnotationStateSaved: annotationEditsWritten,
+            markBookmarksStateSaved: bookmarkEditsWritten,
+            markPageLabelsStateSaved: pageLabelEditsWritten,
+            allowAnnotationSaveStateRefresh: annotationEditsWritten,
+            allowBookmarksSaveStateRefresh: bookmarkEditsWritten,
+            allowPageLabelsSaveStateRefresh: pageLabelEditsWritten,
             markShapeStateSaved: canMarkShapeStateSaved,
             preserveLivePdfjsSession: !persisted.didSaveAs,
             resetAnnotationStorage: true,
@@ -815,6 +833,9 @@ async function executeNativeRepairSave(
         serializedChanges: true,
         reloadWaiter: null,
         completion: {
+            markAnnotationStateSaved: false,
+            markBookmarksStateSaved: false,
+            markPageLabelsStateSaved: false,
             allowAnnotationSaveStateRefresh: false,
             allowBookmarksSaveStateRefresh: false,
             allowPageLabelsSaveStateRefresh: false,
