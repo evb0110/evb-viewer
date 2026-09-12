@@ -1,0 +1,37 @@
+native/evb-raster-io/src/lib.rs
+  s_22009ebf127ec9::t_4e60b62b8c1334 1131
+  s_22009ebf127ec9::t_e9b61badc0d747 1044
+  s_22009ebf127ec9::t_7c3566198c54a9 1128-1130,1132-1133,1135-1147
+  s_22009ebf127ec9::t_915ac7ad6703d0 1079-1083
+  s_22009ebf127ec9::t_b4f42461722895 1122-1125,1134
+native/pdf-image-combine/src/image.rs
+  s_22009ebf127ec9::t_7652f9cac914d2 331
+  s_22009ebf127ec9::t_9d745bed5f388b 1199
+  s_22009ebf127ec9::t_4e60b62b8c1334 329-330,332
+  s_22009ebf127ec9::t_7bb0a14598bde1 1197,1354-1387
+  s_ae757872e5d914::t_37dcfef8c37921 1388-1389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aab93f1590b5240ffd4bafc6a1a8c715036a1dd4",
+  "prompts": {},
+  "sessions": {
+    "s_22009ebf127ec9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097e4-e6c2-77f0-8531-8451d55947f3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
