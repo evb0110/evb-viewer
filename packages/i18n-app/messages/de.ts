@@ -1624,7 +1624,10 @@ export default {
             'loadDescription': 'Versuchen Sie, den Arbeitsbereich erneut zu laden.',
             'loadDescriptionWithMessage': 'Versuchen Sie, den Arbeitsbereich erneut zu laden. ({message})',
         },
-        'settings': {'load': 'Einstellungen konnten nicht geladen werden'},
+        'settings': {
+            'load': 'Einstellungen konnten nicht geladen werden',
+            'recovered': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde, wenn möglich, als Wiederherstellungskopie behalten.',
+        },
         'runtime': {
             'title': 'Etwas ist schiefgelaufen',
             'description': 'Die App ist auf einen unerwarteten Fehler gestoßen und funktioniert möglicherweise erst nach einem Neuladen wieder korrekt.',

@@ -220,6 +220,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const pageOpsRemoveCropMethod = lazyAsync(pathDescriptors.pageOps.removeCrop.path);
     const pageOpsGetPageGeometryMethod = lazyAsync(pathDescriptors.pageOps.getPageGeometry.path);
     const settingsGetMethod = lazyAsync(pathDescriptors.settings.get.path);
+    const settingsGetRecoveryNoticeMethod = lazyAsync(pathDescriptors.settings.getRecoveryNotice.path);
     const settingsSaveMethod = lazyAsync(pathDescriptors.settings.save.path);
     const shellOpenExternalMethod = lazyAsync(pathDescriptors.shell.openExternal.path);
     const hostGetResourceProfileMethod = getResourceProfile;
@@ -256,6 +257,7 @@ export function createLazyBrowserPlatformApiGenerated({
         onDebugLog: settingsOnDebugLogMethod,
         rendererLog: settingsRendererLogMethod,
         get: settingsGetMethod,
+        getRecoveryNotice: settingsGetRecoveryNoticeMethod,
         save: settingsSaveMethod,
     },
     system: {

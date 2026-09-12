@@ -168,7 +168,7 @@ describe('settings single-flight loading', () => {
         expect(mocks.userInfo).not.toHaveBeenCalled();
     });
 
-    it('fails closed when an existing settings file cannot be read', async () => {
+    it('loads defaults but keeps the file when it cannot be read', async () => {
         const settingsPath = join(mocks.userDataPath, 'settings.json');
         const originalContent = JSON.stringify({
             theme: 'dark',
@@ -177,12 +177,16 @@ describe('settings single-flight loading', () => {
         await writeFile(settingsPath, originalContent);
         const readError = Object.assign(new Error('I/O failure'), {code: 'EIO'});
         mocks.readFile.mockRejectedValue(readError);
-        const {updateSettings} = await import('@electron/settings');
+        const {
+            consumeSettingsRecoveryNotice,
+            loadSettings,
+        } = await import('@electron/settings');
 
-        await expect(updateSettings(settings => ({
-            ...settings,
+        await expect(loadSettings()).resolves.toMatchObject({
+            version: 2,
             theme: 'light',
-        }))).rejects.toBe(readError);
+        });
         expect(readFileSync(settingsPath, 'utf-8')).toBe(originalContent);
+        expect(consumeSettingsRecoveryNotice()).toEqual({reason: 'unreadable'});
     });
 });

@@ -1635,7 +1635,10 @@ export default {
             'loadDescription': 'Essayez de recharger l’espace de travail.',
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',
         },
-        'settings': {'load': 'Impossible de charger les paramètres'},
+        'settings': {
+            'load': 'Impossible de charger les paramètres',
+            'recovered': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. Le fichier précédent a été conservé comme copie de récupération lorsque cela était possible.',
+        },
         'runtime': {
             'title': 'Une erreur est survenue',
             'description': 'L’application a rencontré une erreur inattendue et peut ne pas fonctionner correctement tant qu’elle n’est pas rechargée.',

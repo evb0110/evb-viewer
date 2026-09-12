@@ -5,6 +5,7 @@ import type {
 } from '@contracts/electronApiCommon';
 import {
     DEFAULT_SETTINGS,
+    decodeSettingsRecoveryNotice,
     isSettingsSaveKey,
     sanitizeSettings,
     type TSettingsSavePatch,
@@ -68,6 +69,18 @@ function decodeSettingsResult(value: unknown) {
 
 const settingsPatch = s.fromParser(decodeSettingsPatch, (): TSettingsSavePatch => ({theme: 'dark'}));
 const settingsResult = s.fromParser(decodeSettingsResult, () => DEFAULT_SETTINGS);
+function parseSettingsRecoveryNotice(value: unknown) {
+    const notice = decodeSettingsRecoveryNotice(value);
+    if (!notice) {
+        throw new Error('invalid settings recovery notice');
+    }
+    return notice;
+}
+
+const settingsRecoveryNotice = s.nullable(s.fromParser(
+    parseSettingsRecoveryNotice,
+    () => ({reason: 'corrupt' as const}),
+));
 const voidResult = s.declared<TVoidResult>()(s.undefined());
 
 export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
@@ -89,6 +102,20 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
                 context: 'none',
             },
             browser: {method: 'get'},
+            lazy: 'forwarded',
+        },
+        getRecoveryNotice: {
+            kind: 'async',
+            channel: 'settings:getRecoveryNotice',
+            ipc: {
+                args: s.tuple([]),
+                result: settingsRecoveryNotice,
+            },
+            main: {
+                method: 'getRecoveryNotice',
+                context: 'none',
+            },
+            browser: {method: 'getRecoveryNotice'},
             lazy: 'forwarded',
         },
         save: defineForwardedPlatformMethod({

@@ -13,16 +13,19 @@ describe('settings platform feature schemas', () => {
     it('preserves settings invoke channels without an event layer', () => {
         expect(channels).toEqual({
             get: 'settings:get',
+            getRecoveryNotice: 'settings:getRecoveryNotice',
             save: 'settings:save',
         });
         expect(SETTINGS_PLATFORM_FEATURE.eventChannels).toEqual({});
-        expect(SETTINGS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(2);
+        expect(SETTINGS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(3);
     });
 
     it('round-trips valid patches and complete settings results', () => {
         expect(codecs[channels.save]!.decodeArgs([{theme: 'dark'}])).toEqual([{theme: 'dark'}]);
         expect(codecs[channels.save]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.get]!.decodeResult(DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
+        expect(codecs[channels.getRecoveryNotice]!.decodeResult({reason: 'unsupported'})).toEqual({reason: 'unsupported'});
+        expect(codecs[channels.getRecoveryNotice]!.decodeResult(null)).toBeNull();
     });
 
     it('rejects malformed and normalized-away settings fields', () => {

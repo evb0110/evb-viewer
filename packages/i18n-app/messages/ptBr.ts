@@ -1635,7 +1635,10 @@ export default {
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
         },
-        'settings': {'load': 'Não foi possível carregar as configurações'},
+        'settings': {
+            'load': 'Não foi possível carregar as configurações',
+            'recovered': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi mantido como cópia de recuperação quando possível.',
+        },
         'runtime': {
             'title': 'Algo deu errado',
             'description': 'O aplicativo encontrou um erro inesperado e pode não funcionar corretamente até ser recarregado.',

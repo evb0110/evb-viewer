@@ -1624,7 +1624,10 @@ export default {
             'loadDescription': 'Try loading the workspace again.',
             'loadDescriptionWithMessage': 'Try loading the workspace again. ({message})',
         },
-        'settings': {'load': 'Failed to load settings'},
+        'settings': {
+            'load': 'Failed to load settings',
+            'recovered': 'Saved settings could not be used, so defaults were restored. The previous file was kept as a recovery copy when possible.',
+        },
         'runtime': {
             'title': 'Something went wrong',
             'description': 'The app hit an unexpected error and may not work correctly until it reloads.',
