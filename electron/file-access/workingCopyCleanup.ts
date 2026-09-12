@@ -138,6 +138,14 @@ function isRegisteredWorkingCopyDirectory(workDir: string) {
         ) === normalizedDirectory);
 }
 
+async function hasTwoTargetRecoveryEvidence(workDir: string) {
+    try {
+        return (await readdir(workDir)).some(entryName => entryName.endsWith('.evb-two-target-transition.json'));
+    } catch {
+        return true;
+    }
+}
+
 async function performCleanupStaleWorkingCopyDirectories(
     options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
 ): Promise<{
@@ -255,6 +263,9 @@ async function performCleanupStaleWorkingCopyDirectories(
                 continue;
             }
             if (retainedAtomicReplaceBackupDirectories.has(workDir)) {
+                continue;
+            }
+            if (await hasTwoTargetRecoveryEvidence(workDir)) {
                 continue;
             }
             if (staleWorkingCopyCleanupBlockedReason) {
