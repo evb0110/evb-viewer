@@ -56,6 +56,8 @@ const props = defineProps<{
     entity: ITextBoxEntity;
     selected: boolean;
     editing?: boolean;
+    recoveredDraftText?: string | null;
+    recoveredDraftRect?: IAnnotationMarkerRect | null;
     autoSizeDraft?: boolean;
     caretPoint?: {
         clientX: number;
@@ -81,6 +83,7 @@ const draftRect = ref<IAnnotationMarkerRect | null>(null);
 const inlineEdit = useTextBoxInlineEdit({
     entity: computed(() => props.entity),
     editing,
+    recoveredDraftText: computed(() => props.recoveredDraftText ?? null),
     caretPoint: computed(() => props.caretPoint ?? null),
     onCommit: (text, options) => {
         const rect = draftRectForContent();
@@ -101,7 +104,7 @@ const {
 } = inlineEdit;
 
 watch(editing, async (value) => {
-    draftRect.value = null;
+    draftRect.value = props.recoveredDraftRect ?? null;
     if (value) { await nextTick(); draftRectForContent(); }
 }, {immediate: true});
 onMounted(() => {

@@ -537,6 +537,30 @@ describe('canonical image placement', () => {
 
 
 describe('live canonical text box sidebar drafts', () => {
+    it('reattaches a recovered inline draft to the active editor surface', () => {
+        const source = mountAnnotationSession();
+        const surface = source.session.annotationEditorSurface;
+        const entity = surface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'Canonical'});
+        surface.beginTextEditing(entity.identity.id);
+        surface.setTextBoxDraftPending(entity.identity.id, 'Completed draft');
+
+        const recovery = source.session.captureCanonicalAnnotationRecovery();
+        const restored = mountAnnotationSession();
+        const restoredSurface = restored.session.annotationEditorSurface;
+        restored.session.restoreCanonicalAnnotationRecovery(recovery);
+
+        expect(restored.session.annotationApplication.value.store.get(entity.identity.id))
+            .toMatchObject({text: 'Canonical'});
+        expect(restoredSurface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(restoredSurface.editingId.value).toBe(entity.identity.id);
+        expect(restored.session.annotationCommentsCache.value[0]?.text).toBe('Completed draft');
+    });
+
     it('projects each input and restores canonical text on cancel without mutating history', () => {
         const {
             session,

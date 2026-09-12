@@ -421,6 +421,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
             projectCanonicalAnnotations();
         },
+        getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
         onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,
         resolveStampImage,
@@ -1174,15 +1175,18 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     text,
                 ]) => {
                     const entity = annotationApplication.value.store.get(asAnnotationId(annotationId));
-                    return entity?.kind === 'text-box'
-                        ? {
-                            annotationId: entity.identity.id,
-                            kind: 'text-box' as const,
-                            canonicalRevision: entity.revision,
-                            text,
-                            generation: textBoxDraftGenerations.get(annotationId) ?? 0,
-                        }
-                        : null;
+                    if (entity?.kind !== 'text-box') {
+                        return null;
+                    }
+                    const geometry = annotationEditorSurface.getTextBoxDraftRect(entity.identity.id);
+                    return {
+                        annotationId: entity.identity.id,
+                        kind: 'text-box' as const,
+                        canonicalRevision: entity.revision,
+                        text,
+                        ...(geometry ? {geometry} : {}),
+                        generation: textBoxDraftGenerations.get(annotationId) ?? 0,
+                    };
                 },
             ).filter((draft): draft is NonNullable<typeof draft> => draft !== null);
             return captureCanonicalAnnotationRecovery(
@@ -1200,6 +1204,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             recovery.drafts.filter(draft => draft.kind === 'text-box').forEach((draft) => {
                 textBoxDrafts.set(draft.annotationId, draft.text);
                 textBoxDraftGenerations.set(draft.annotationId, draft.generation);
+                annotationEditorSurface.restoreTextBoxDraftPending(draft.annotationId, draft.geometry);
             });
             projectCanonicalAnnotations();
             return recovery;

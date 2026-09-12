@@ -12,12 +12,39 @@ import {
 } from 'vue';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { requireEpochMs } from '@contracts/timestamps';
+import { asAnnotationId } from '@app/modules/pdf-viewer/public';
 import {
     createComment,
     createHarness,
 } from '@tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures';
 
 describe('useAnnotationNoteWindows', () => {
+    it('keeps a recovered note draft until its canonical comment projection arrives', async () => {
+        const {
+            deps,
+            windows,
+        } = createHarness();
+        const comment = deps.annotationComments.value[0]!;
+        deps.annotationComments.value = [];
+
+        windows.restoreAnnotationNoteDraft({
+            annotationId: asAnnotationId(comment.appAnnotationId!),
+            kind: 'note',
+            canonicalRevision: 0,
+            text: 'Recovered note',
+            generation: 4,
+        });
+
+        expect(windows.findAnnotationNoteWindow(comment.appAnnotationId!)).toBeNull();
+        deps.annotationComments.value = [comment];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow(comment.appAnnotationId!)).toMatchObject({
+            draftText: 'Recovered note',
+            dirty: true,
+        });
+    });
+
     it('captures only completed dirty note drafts with an independent generation', () => {
         const {windows} = createHarness();
 

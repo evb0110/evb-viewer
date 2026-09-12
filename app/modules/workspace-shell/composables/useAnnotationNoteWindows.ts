@@ -68,6 +68,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const disappearanceTimers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     let nextOrder = 0;
     const draftGenerations = new Map<AnnotationId, number>();
+    const pendingRestoredDrafts = new Map<AnnotationId, IAnnotationRecoveryDraft>();
     // Teardown fence. Once the owning scope stops, this composable owns no
     // timers, no runtime records, and no right to talk to the viewer again.
     let disposed = false;
@@ -430,6 +431,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         const comment = deps.annotationComments.value.find(candidate => commandId(candidate) === draft.annotationId);
         if (!comment) {
+            pendingRestoredDrafts.set(draft.annotationId, draft);
             return;
         }
         upsertAnnotationNoteWindow(comment);
@@ -660,6 +662,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 scheduleRemovalAfterProjectionGap(asAnnotationId(state.annotationId));
             }
         });
+        pendingRestoredDrafts.forEach((draft, id) => {
+            if (ids.has(id)) {
+                pendingRestoredDrafts.delete(id);
+                restoreAnnotationNoteDraft(draft);
+            }
+        });
     });
 
     // Idempotent, and safe after an explicit closeAllAnnotationNotes: the maps
@@ -673,6 +681,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         clearAllTimers();
         runtime.clear();
         states.value = [];
+        pendingRestoredDrafts.clear();
         stopAnnotationCommentsWatch();
     }
 
