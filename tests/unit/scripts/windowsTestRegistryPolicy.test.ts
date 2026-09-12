@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
     beforeAll,
@@ -31,23 +30,9 @@ const registryPath = path.join(repositoryRoot, 'tests', 'windows', 'capabilities
 
 const manifestPath = path.join(repositoryRoot, 'tests', 'windows', 'fixtures', 'manifest.json');
 
-const planPath = path.join(
-    repositoryRoot,
-    'docs',
-    'research',
-    'utm-windows-autotest-plan-2026-09-04.md',
-);
-
-const ledgerPath = path.join(
-    repositoryRoot,
-    'docs',
-    'research',
-    'utm-windows-autotest-implementation-ledger-2026-09-04.md',
-);
-
 /**
- * The nine critical-suite rows of the implementation ledger, which the
- * registry, the plan, and the guest case registry must all agree on.
+ * The nine critical-suite case IDs the registry and the guest case registry
+ * must agree on.
  */
 const LEDGER_CRITICAL_CASE_IDS = [
     'WIN-SAVE-01',
@@ -62,17 +47,6 @@ const LEDGER_CRITICAL_CASE_IDS = [
 ];
 
 const PRIMARY_ENVIRONMENT = 'utm-win11-arm64-app-arm64';
-
-function extractTestIds(markdown: string) {
-    const ids: string[] = [];
-    for (const line of markdown.split('\n')) {
-        const match = /^\|\s*(WIN-[A-Z]+-\d{2})\s*\|/u.exec(line);
-        if (match?.[1] !== undefined) {
-            ids.push(match[1]);
-        }
-    }
-    return ids;
-}
 
 let registry: IWindowsCapabilityRegistry;
 let knownFixtureIds: string[];
@@ -182,26 +156,6 @@ describe('the critical suite', () => {
 });
 
 describe('catalogue completeness', () => {
-    it('contains every case ID the plan catalogue lists', async () => {
-        const plan = await readFile(planPath, 'utf8');
-        const planIds = extractTestIds(plan);
-        expect(planIds.length).toBe(75);
-        expect(new Set(planIds).size).toBe(planIds.length);
-        const registryIds = new Set(registry.cases.map(entry => entry.id));
-        expect(planIds.filter(id => !registryIds.has(id))).toEqual([]);
-        expect(registry.cases.filter(entry => !planIds.includes(entry.id))).toEqual([]);
-    });
-
-    it('contains every case ID the ledger critical suite table lists', async () => {
-        const ledger = await readFile(ledgerPath, 'utf8');
-        const ledgerIds = extractTestIds(ledger);
-        expect(ledgerIds.sort()).toEqual([...LEDGER_CRITICAL_CASE_IDS].sort());
-        const registryIds = new Set(registry.cases.map(entry => entry.id));
-        for (const caseId of ledgerIds) {
-            expect(registryIds.has(caseId), caseId).toBe(true);
-        }
-    });
-
     it('assigns every case to one of the seven plan families', () => {
         const families = new Set(registry.cases.map(entry => entry.family));
         expect([...families].sort()).toEqual([

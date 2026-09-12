@@ -9,6 +9,7 @@ import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 const OCR_BENCHMARK_SCRIPT = 'scripts/devkit/ocr-profile-benchmark.py';
+const OCR_LANGUAGE_PAGE = 'docs/user/formats-and-languages.md';
 
 const OCR_LANGUAGE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     eng: 'English',
@@ -43,10 +44,10 @@ const OCR_LANGUAGE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     syr: 'Syriac',
 };
 
-function getReadmeOcrLanguageSection(readme: string) {
-    const match = /### OCR Languages\n\n([\s\S]*?)(?:\n### |\n## )/u.exec(readme);
+function getDocumentedOcrLanguageSection(page: string) {
+    const match = /### OCR Languages\n\n([\s\S]*?)(?:\n### |\n## |$)/u.exec(page);
     if (!match?.[1]) {
-        throw new Error('README OCR Languages section was not found');
+        throw new Error(`OCR Languages section was not found in ${OCR_LANGUAGE_PAGE}`);
     }
     return match[1];
 }
@@ -75,9 +76,9 @@ function getBenchmarkDefaultProfiles() {
 }
 
 describe('OCR documentation', () => {
-    it('keeps README OCR language list aligned with the registry', () => {
-        const readme = readFileSync(join(REPO_ROOT, 'README.md'), 'utf-8');
-        const section = getReadmeOcrLanguageSection(readme);
+    it('keeps the documented OCR language list aligned with the registry', () => {
+        const page = readFileSync(join(REPO_ROOT, OCR_LANGUAGE_PAGE), 'utf-8');
+        const section = getDocumentedOcrLanguageSection(page);
 
         for (const language of AVAILABLE_OCR_LANGUAGES) {
             expect(section).toContain(`- ${getDisplayName(language.code)}`);

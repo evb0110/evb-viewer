@@ -46,6 +46,20 @@ vi.mock('esbuild', () => ({default: {build: mocks.build}}));
 
 vi.mock('@scripts/release/stage-private-sourcemaps.mjs', () => ({stagePrivateSourcemaps: mocks.stagePrivateSourcemaps}));
 
+/**
+ * The build stages the canvas binary for the host it runs on, with only the
+ * architecture taken from the release env, so the expected target package has
+ * to follow the machine running the test rather than one pinned platform.
+ */
+const CANVAS_TARGET_PACKAGES: Readonly<Record<string, string>> = {
+    darwin: 'canvas-darwin-arm64',
+    linux: 'canvas-linux-arm64-gnu',
+    win32: 'canvas-win32-arm64-msvc',
+};
+
+const canvasTargetPackage = CANVAS_TARGET_PACKAGES[process.platform];
+const canvasBinaryName = `skia.${canvasTargetPackage?.replace('canvas-', '')}.node`;
+
 describe('Electron build script', () => {
     afterEach(() => {
         vi.unstubAllEnvs();
@@ -120,14 +134,14 @@ describe('Electron build script', () => {
             {recursive: true},
         );
         expect(mocks.cp).toHaveBeenCalledWith(
-            '/fixture/node_modules/@napi-rs/canvas-linux-arm64-gnu/skia.linux-arm64-gnu.node',
-            'dist-electron/runtime/@napi-rs/canvas/skia.linux-arm64-gnu.node',
+            `/fixture/node_modules/@napi-rs/${canvasTargetPackage}/${canvasBinaryName}`,
+            `dist-electron/runtime/@napi-rs/canvas/${canvasBinaryName}`,
         );
         expect(mocks.realpathSync).toHaveBeenCalledWith(
             '/fixture/node_modules/@napi-rs/canvas',
         );
         expect(mocks.realpathSync).toHaveBeenCalledWith(
-            '/fixture/node_modules/@napi-rs/canvas-linux-arm64-gnu',
+            `/fixture/node_modules/@napi-rs/${canvasTargetPackage}`,
         );
         expect(mocks.writeFile).toHaveBeenCalledWith(
             'dist-electron/package.json',
