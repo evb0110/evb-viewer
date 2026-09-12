@@ -38,16 +38,17 @@ import { te } from '@electron/te';
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import { getErrorMessage } from '@electron/utils/error';
-import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
+import {
+    copyFileAtomic, normalizeIpcWritePayload,
+} from '@electron/file-access/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
+import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
-import {
-    markWorkingCopySyncRequired,
-    markWorkingCopyContentChanged,
-} from '@electron/file-access/documentRevisionStore';
+import {markWorkingCopySyncRequired} from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 
 export type TShowSaveDialogWithExtension = (
@@ -80,10 +81,19 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
     return parsedToken;
 }
 
-function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
-    markWorkingCopySyncRequired(
+function markSaveAsWorkingCopySyncRequired(
+    workingPath: string,
+    targetPath: string,
+    senderId: number,
+    error: unknown,
+) {
+    return markWorkingCopySyncRequired(
         workingPath,
         `Target file was saved, but the working copy refresh failed: ${getErrorMessage(error)}`,
+        {
+            originalPath: targetPath,
+            ownerWebContentsId: senderId,
+        },
     );
 }
 
@@ -160,18 +170,40 @@ export async function savePdfAs(
             }
 
             await copyFileCopyOnWrite(sourcePath, tempPath);
-            const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
-            await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-save-as:${context.senderId}`});
-            replaced = true;
-            try {
-                await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
-                if (optimizedValidation || stagedOutput) {
-                    await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
-                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
-                }
-            } catch (syncError) {
-                markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
-            }
+            await optimizePdfForSaveAs(tempPath, options);
+            const transition = await transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath: normalizedWorkingPath,
+                originalPath: targetPath,
+                reason: 'save-sync',
+                senderId: context.senderId,
+                allowMissingOriginalWitness: true,
+                preservePublishedOriginalOnWorkingCopySyncFailure: true,
+                useDestinationWitnessForPublication: false,
+                captureOriginalWitness: () => capturePathSaveWitness(targetPath),
+                publishOriginal: async assertDestinationCurrent => {
+                    await commitPdfTempFile(
+                        tempPath,
+                        targetPath,
+                        {
+                            ownerId: `pdf-save-as:${context.senderId}`,
+                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        },
+                    );
+                },
+                afterOriginalPublish: () => setWorkingCopyOriginalPath(
+                    normalizedWorkingPath,
+                    targetPath,
+                    context.senderId,
+                ),
+                syncWorkingCopy: () => copyFileAtomic(targetPath, normalizedWorkingPath, {linkImmutableSource: true}),
+                onWorkingCopySyncFailure: syncError => markSaveAsWorkingCopySyncRequired(
+                    normalizedWorkingPath,
+                    targetPath,
+                    context.senderId,
+                    syncError,
+                ),
+            });
+            replaced = transition !== null;
         } finally {
             if (!replaced) {
                 await rm(tempPath, { force: true }).catch(() => undefined);
@@ -249,16 +281,42 @@ export async function savePdfDataAs(
             if (!existsSync(normalizedWorkingPath)) {
                 throw new Error(`File not found: ${normalizedWorkingPath}`);
             }
-            await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-data-save-as:${context.senderId}`});
-            replaced = true;
             let warning: IPdfSaveAsWarning | undefined;
-            try {
-                await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
-                await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
-                await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
-            } catch (syncError) {
-                markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
-                warning = createWorkingCopySyncWarning(getErrorMessage(syncError));
+            const transition = await transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath: normalizedWorkingPath,
+                originalPath: targetPath,
+                reason: 'save-sync',
+                senderId: context.senderId,
+                allowMissingOriginalWitness: true,
+                preservePublishedOriginalOnWorkingCopySyncFailure: true,
+                useDestinationWitnessForPublication: false,
+                captureOriginalWitness: () => capturePathSaveWitness(targetPath),
+                publishOriginal: async assertDestinationCurrent => {
+                    await commitPdfTempFile(
+                        tempPath,
+                        targetPath,
+                        {
+                            ownerId: `pdf-data-save-as:${context.senderId}`,
+                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        },
+                    );
+                },
+                afterOriginalPublish: () => setWorkingCopyOriginalPath(
+                    normalizedWorkingPath,
+                    targetPath,
+                    context.senderId,
+                ),
+                syncWorkingCopy: () => copyFileAtomic(targetPath, normalizedWorkingPath, {linkImmutableSource: true}),
+                onWorkingCopySyncFailure: syncError => markSaveAsWorkingCopySyncRequired(
+                    normalizedWorkingPath,
+                    targetPath,
+                    context.senderId,
+                    syncError,
+                ),
+            });
+            replaced = transition !== null;
+            if (transition && 'workingCopyRefreshed' in transition && !transition.workingCopyRefreshed) {
+                warning = createWorkingCopySyncWarning(transition.workingCopySyncError);
             }
             allowOpenPath(targetPath, context.sender);
             await addRecentFile(targetPath);

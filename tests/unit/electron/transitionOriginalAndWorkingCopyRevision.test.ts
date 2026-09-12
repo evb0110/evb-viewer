@@ -1,7 +1,9 @@
 import {
     appendFile,
     link,
+    mkdir,
     mkdtemp,
+    readdir,
     readFile,
     rename,
     rm,
@@ -10,9 +12,12 @@ import {
 } from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname, join,
+} from 'node:path';
 import {promisify} from 'node:util';
 import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
+import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
 import type * as WorkingCopyContentTransitionJournalModule from '@electron/file-access/workingCopyContentTransitionJournal';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
@@ -91,10 +96,20 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         });
     });
 
-    async function prepare(initialOriginal = 'old-original', initialWorking = 'old-working') {
+    async function prepare(
+        initialOriginal = 'old-original',
+        initialWorking = 'old-working',
+        workingDirectory = '',
+    ) {
         const originalPath = join(tempRoot, 'original.pdf');
-        const workingCopyPath = join(tempRoot, 'working.pdf');
+        const workingCopyBase = workingDirectory
+            ? (await import('@electron/utils/appTempDir')).getAppTempDir()
+            : tempRoot;
+        const workingCopyPath = join(workingCopyBase, workingDirectory, 'working.pdf');
         const stagedPath = join(tempRoot, 'staged.pdf');
+        if (workingDirectory) {
+            await mkdir(join(workingCopyBase, workingDirectory), {recursive: true});
+        }
         await Promise.all([
             writeFile(originalPath, initialOriginal),
             writeFile(workingCopyPath, initialWorking),
@@ -112,6 +127,157 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             workingCopyPath,
         };
     }
+
+    it('does not publish a Save As target when durable prepublication intent fails', async () => {
+        vi.doMock('@electron/file-access/documentFileWriteAtomic', async importOriginal => {
+            const actual = await importOriginal<typeof DocumentFileWriteAtomicModule>();
+            return {
+                ...actual,
+                writeFileAtomic: vi.fn(async (...args: Parameters<typeof actual.writeFileAtomic>) => {
+                    if (String(args[0]).endsWith('.evb-two-target-transition.json')) {
+                        throw new Error('prepublication intent write failed');
+                    }
+                    return actual.writeFileAtomic(...args);
+                }),
+            };
+        });
+        try {
+            const {
+                originalPath,
+                stagedPath,
+                workingCopyPath,
+            } = await prepare('old-target', 'old-working', 'pdf-work-save-as');
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath,
+                reason: 'save-sync',
+                senderId: 7,
+                allowMissingOriginalWitness: true,
+                preservePublishedOriginalOnWorkingCopySyncFailure: true,
+                useDestinationWitnessForPublication: false,
+                captureOriginalWitness: () => capturePathSaveWitness(originalPath),
+                publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+            })).rejects.toThrow('prepublication intent write failed');
+
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-target');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8'))
+                .rejects
+                .toMatchObject({code: 'ENOENT'});
+            expect((await readdir(tempRoot)).some(name => name.includes('.evb-transition-'))).toBe(false);
+        } finally {
+            vi.doUnmock('@electron/file-access/documentFileWriteAtomic');
+        }
+    });
+
+    it('keeps a durable Save As fence when final fence persistence fails and survives reload', async () => {
+        let transitionJournalWrites = 0;
+        let resyncWorkingDirectory = '';
+        vi.doMock('@electron/file-access/documentFileWriteAtomic', async importOriginal => {
+            const actual = await importOriginal<typeof DocumentFileWriteAtomicModule>();
+            return {
+                ...actual,
+                writeFileAtomic: vi.fn(async (...args: Parameters<typeof actual.writeFileAtomic>) => {
+                    if (String(args[0]).endsWith('.evb-two-target-transition.json')) {
+                        transitionJournalWrites += 1;
+                        if (transitionJournalWrites === 3) {
+                            throw new Error('final fence write failed');
+                        }
+                    }
+                    return actual.writeFileAtomic(...args);
+                }),
+            };
+        });
+        try {
+            const {
+                originalPath,
+                stagedPath,
+                workingCopyPath,
+            } = await prepare('old-target', 'old-working', 'pdf-work-save-as');
+            resyncWorkingDirectory = dirname(workingCopyPath);
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath,
+                reason: 'save-sync',
+                senderId: 7,
+                allowMissingOriginalWitness: true,
+                preservePublishedOriginalOnWorkingCopySyncFailure: true,
+                useDestinationWitnessForPublication: false,
+                captureOriginalWitness: () => capturePathSaveWitness(originalPath),
+                publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+                syncWorkingCopy: async () => {
+                    throw new Error('copy-back failed');
+                },
+                onWorkingCopySyncFailure: () => false,
+            })).resolves.toMatchObject({
+                targetWriteCommitted: true,
+                workingCopyRefreshed: false,
+            });
+
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8'))
+                .resolves
+                .toContain('original-committed');
+
+            vi.resetModules();
+            const {
+                assertWorkingCopyMutationAllowed,
+                getWorkingCopyRevision,
+                hasWorkingCopySyncRequired,
+            } = await import('@electron/file-access/documentRevisionStore');
+            expect(hasWorkingCopySyncRequired(workingCopyPath)).toBe(true);
+            expect(() => assertWorkingCopyMutationAllowed(workingCopyPath))
+                .toThrow('Working copy recovery is unresolved');
+            const {readWorkingCopyRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
+            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 1});
+            expect(() => assertWorkingCopyMutationAllowed(workingCopyPath)).toThrow('WORKING_COPY_SYNC_REQUIRED');
+            expect(readWorkingCopyRevisionJournalEntries(workingCopyPath)).toEqual([expect.objectContaining({
+                kind: 'working-copy-sync-required',
+                originalPath,
+                targetWriteCommitted: true,
+            })]);
+            await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8'))
+                .resolves
+                .toContain('original-committed');
+
+            const {handleResyncWorkingCopy} = await import('@electron/features/documents/main/workingCopySave');
+            const resyncResult = await handleResyncWorkingCopy({senderId: 7}, workingCopyPath);
+            expect(resyncResult).toMatchObject({
+                ok: true,
+                workingCopyRefreshed: true,
+            });
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
+            await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8'))
+                .rejects
+                .toMatchObject({code: 'ENOENT'});
+            expect(readWorkingCopyRevisionJournalEntries(workingCopyPath)).not.toEqual([expect.objectContaining({kind: 'working-copy-sync-required'})]);
+
+            vi.resetModules();
+            const {
+                assertWorkingCopyMutationAllowed: assertAfterResync, getWorkingCopyRevision: getAfterResync,
+            } =
+                await import('@electron/file-access/documentRevisionStore');
+            await expect(getAfterResync(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 2});
+            expect(() => assertAfterResync(workingCopyPath)).not.toThrow();
+        } finally {
+            if (resyncWorkingDirectory) {
+                await rm(resyncWorkingDirectory, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+            vi.doUnmock('@electron/file-access/documentFileWriteAtomic');
+        }
+    });
 
     it('links an immutable original into the working-copy path when reflinks are unavailable', async () => {
         const {

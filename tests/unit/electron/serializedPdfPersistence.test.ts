@@ -1,5 +1,6 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 import type * as TViMockOriginalModule2 from '@electron/file-access/isAllowedOriginalSavePath';
+import type * as TViMockOriginalModule3 from '@electron/file-access/documentFileWriteAtomic';
 
 import { EventEmitter } from 'node:events';
 import {
@@ -78,6 +79,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
+}));
+vi.mock('@electron/file-access/documentFileWriteAtomic', async importOriginal => ({
+    ...(await importOriginal<typeof TViMockOriginalModule3>()),
+    copyFileAtomic: (sourcePath: string, targetPath: string) => mocks.copyFileCopyOnWrite(sourcePath, targetPath),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
 vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
@@ -228,22 +233,48 @@ describe('serializedPdfPersistence', () => {
                 close: () => Promise<void>;
             } | null>;
             publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
+            afterOriginalPublish?: () => Promise<void>;
+            syncWorkingCopy?: () => Promise<void>;
             afterWorkingCopySync?: () => Promise<void>;
+            onWorkingCopySyncFailure?: (error: unknown) => Promise<boolean> | boolean;
+            preservePublishedOriginalOnWorkingCopySyncFailure?: boolean;
         }) => {
             const witness = await input.captureOriginalWitness?.() ?? null;
-            if (input.captureOriginalWitness && !witness) {
+            if (input.captureOriginalWitness && !witness && !input.preservePublishedOriginalOnWorkingCopySyncFailure) {
                 return null;
             }
-            const originalBefore = await readFile(input.originalPath);
-            const workingBefore = await readFile(input.workingCopyPath);
+            const originalBefore = existsSync(input.originalPath)
+                ? await readFile(input.originalPath)
+                : null;
+            const workingBefore = existsSync(input.workingCopyPath)
+                ? await readFile(input.workingCopyPath)
+                : null;
+            let published = false;
             try {
                 await input.publishOriginal(witness ? () => witness.assertCurrent() : undefined);
-                await mocks.copyFileCopyOnWrite(input.originalPath, input.workingCopyPath);
+                published = true;
+                await input.afterOriginalPublish?.();
+                if (input.syncWorkingCopy) {
+                    await input.syncWorkingCopy();
+                } else {
+                    await mocks.copyFileCopyOnWrite(input.originalPath, input.workingCopyPath);
+                }
                 await input.afterWorkingCopySync?.();
             } catch (error) {
+                if (published && input.preservePublishedOriginalOnWorkingCopySyncFailure) {
+                    await input.onWorkingCopySyncFailure?.(error);
+                    return {
+                        targetWriteCommitted: true,
+                        workingCopyRefreshed: false,
+                        workingCopySyncError: error instanceof Error ? error.message : String(error),
+                    };
+                }
+                const restoreOriginal = originalBefore === null
+                    ? unlink(input.originalPath).catch(() => undefined)
+                    : writeFile(input.originalPath, originalBefore);
                 await Promise.all([
-                    writeFile(input.originalPath, originalBefore),
-                    writeFile(input.workingCopyPath, workingBefore),
+                    restoreOriginal,
+                    ...(workingBefore === null ? [] : [writeFile(input.workingCopyPath, workingBefore)]),
                 ]);
                 throw error;
             } finally {
@@ -960,6 +991,10 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
             workingPath,
             expect.stringContaining('copy-back failed'),
+            expect.objectContaining({
+                originalPath: targetPath,
+                ownerWebContentsId: 42,
+            }),
         );
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
     });
