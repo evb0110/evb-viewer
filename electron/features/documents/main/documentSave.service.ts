@@ -8,8 +8,10 @@ import type {
     IDocumentMutationRevisionOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
+    IPdfSaveAsResult,
+    IPdfSaveAsWarning,
 } from '@contracts/electronApiDocuments';
-import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import { createWorkingCopySyncWarning } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -76,17 +78,6 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
     return parsedToken;
-}
-
-function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
-    const message = `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
-    return {
-        ...validation,
-        warnings: [
-            ...validation.warnings,
-            message,
-        ],
-    };
 }
 
 function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
@@ -202,10 +193,7 @@ export async function savePdfDataAs(
     options: IPdfSaveAsOptions | undefined,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
     serializedSaveOptions?: IPdfSerializedSaveOptions,
-): Promise<{
-    path: TDocumentRef | null;
-    validation: IPdfValidationResult | null;
-}> {
+): Promise<IPdfSaveAsResult> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
         return {
@@ -248,10 +236,7 @@ export async function savePdfDataAs(
         }
         const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
         const committedValidation = optimizedValidation ?? validation;
-        const resultRef: {current: {
-            path: TDocumentRef | null;
-            validation: IPdfValidationResult;
-        } | null;} = { current: null };
+        const resultRef: {current: IPdfSaveAsResult | null} = { current: null };
 
         await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
@@ -266,28 +251,28 @@ export async function savePdfDataAs(
             }
             await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-data-save-as:${context.senderId}`});
             replaced = true;
-            let resultValidation = committedValidation;
+            let warning: IPdfSaveAsWarning | undefined;
             try {
                 await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
                 await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
                 await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
             } catch (syncError) {
                 markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
-                resultValidation = withWorkingCopySyncWarning(committedValidation, syncError);
+                warning = createWorkingCopySyncWarning(getErrorMessage(syncError));
             }
             allowOpenPath(targetPath, context.sender);
             await addRecentFile(targetPath);
             updateRecentFilesMenu();
             resultRef.current = {
                 path: requireDocumentRef(targetPath),
-                validation: resultValidation,
+                validation: committedValidation,
+                ...(warning === undefined ? {} : {warning}),
             };
         });
 
-        const result = resultRef.current;
-        return {
-            path: result?.path ?? null,
-            validation: result?.validation ?? committedValidation,
+        return resultRef.current ?? {
+            path: null,
+            validation: committedValidation,
         };
     } finally {
         if (!replaced) {

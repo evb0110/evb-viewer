@@ -286,6 +286,93 @@ describe('workspace checkpoint store', () => {
         await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
     });
 
+    it.each([
+        [
+            'missing',
+            async (artifactPath: string) => {
+                await rm(artifactPath, {force: true});
+            },
+        ],
+        [
+            'malformed',
+            async (artifactPath: string) => {
+                await writeFile(artifactPath, '');
+            },
+        ],
+    ])('keeps other tabs recoverable when one annotation artifact is %s', async (_failure, corruptArtifact) => {
+        const secondWorkingCopyRef = '/tmp/evb-working/second-draft.pdf';
+        const firstPayload = {
+            version: 1,
+            annotationMutationGeneration: 7,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        };
+        const secondPayload = {
+            version: 1,
+            annotationMutationGeneration: 8,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        };
+        const recoveryCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            panes: [{
+                ...checkpoint.panes[0]!,
+                tabIds: [
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
+                ],
+            }],
+            tabs: [
+                {
+                    ...checkpoint.tabs[0]!,
+                    annotationRecovery: {
+                        artifactId: 'capture-tab-1',
+                        documentInstanceId: 'document-1',
+                        workingCopyRef: checkpoint.tabs[0]!.workingCopyRef,
+                        workingByteRevision: 'revision-1',
+                        annotationMutationGeneration: 7,
+                        payload: firstPayload,
+                    },
+                },
+                {
+                    ...checkpoint.tabs[0]!,
+                    tabId: requireTabId('tab-2'),
+                    fileName: 'second-draft.pdf',
+                    workingCopyRef: requireDocumentRef(secondWorkingCopyRef),
+                    annotationRecovery: {
+                        artifactId: 'capture-tab-2',
+                        documentInstanceId: 'document-2',
+                        workingCopyRef: requireDocumentRef(secondWorkingCopyRef),
+                        workingByteRevision: 'revision-2',
+                        annotationMutationGeneration: 8,
+                        payload: secondPayload,
+                    },
+                },
+            ],
+        };
+        state.owners.set(workingCopyRef, 11);
+        state.owners.set(secondWorkingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.originalPaths.set(secondWorkingCopyRef, '/documents/second-draft.pdf');
+
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')) as {checkpoint: IWorkspaceCheckpoint};
+        await corruptArtifact(join(
+            state.userDataPath,
+            'workspace-annotation-recovery',
+            `${stored.checkpoint.tabs[0]!.annotationRecovery!.artifactId}.json`,
+        ));
+
+        const claimed = await claimWorkspaceCheckpoint(22);
+        expect(claimed).not.toBeNull();
+        expect(claimed?.tabs[0]).not.toHaveProperty('annotationRecovery');
+        expect(claimed?.tabs[1]).toMatchObject({annotationRecovery: {payload: secondPayload}});
+        expect(state.owners.get(workingCopyRef)).toBe(22);
+        expect(state.owners.get(secondWorkingCopyRef)).toBe(22);
+    });
+
     it('restores a materialized working-copy witness after the process registry is cleared', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');

@@ -16,6 +16,8 @@ import {
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFatalRuntimeError } from '@app/composables/useFatalRuntimeError';
+import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
@@ -81,6 +83,8 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const route = useRoute();
+    const { t } = useTypedI18n();
+    const { setFatalRuntimeError } = useFatalRuntimeError();
     const {
         tabs,
         workspaceRefs,
@@ -604,7 +608,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
-            BrowserLogger.warn('tabs-shell', 'Startup externalOpen preparation failed before renderer ready', error);
+            const presentation = getOrCaptureRendererBootstrapFailure({
+                error,
+                key: 'workspace-startup',
+                message: 'Renderer startup preparation failed',
+                section: 'tabs-shell',
+                title: t('errors.runtime.title'),
+            });
+            setFatalRuntimeError('startup', presentation);
             dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
             traceRendererStartup('tabs shell dispatching app:rendererReady');

@@ -10,6 +10,7 @@ import {
 } from '@contracts/documentsPlatformFeature';
 import type {
     IDocumentsFileCapability,
+    IPdfCommittedSaveAsResult,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
@@ -168,10 +169,7 @@ interface IDocumentsDirectPersistenceInvokeMap {
             sessionId: TSessionId,
             stagedOutput: ITypedStagedArtifact,
         ];
-        result: {
-            path: TDocumentRef | null;
-            validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
-        };
+        result: IPdfCommittedSaveAsResult;
     };
     [DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf]: {
         args: [
