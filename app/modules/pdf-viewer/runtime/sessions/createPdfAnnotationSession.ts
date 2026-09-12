@@ -967,6 +967,22 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
+        writerParseAbortController?.abort();
+        const request = ++writerParseRequest;
+        const abortController = new AbortController();
+        writerParseAbortController = abortController;
+        // Both exits from this function settle through here so they cannot
+        // drift apart: a superseded parse must not unblock consumers, and the
+        // document may have swapped during any await above.
+        function settleProjection() {
+            if (writerParseAbortController !== abortController) {
+                return;
+            }
+            writerParseAbortController = null;
+            if (request === writerParseRequest && transition.isCurrent()) {
+                annotationProjectionReady.value = true;
+            }
+        }
         const parsePath = parseDocumentRef(options.workingCopyPath.value)
             ?? parseDocumentRef(options.originalPath.value)
             ?? (options.src.value instanceof Blob ? null : parseDocumentRef(options.src.value?.path ?? null));
@@ -986,13 +1002,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 && !isProvisionalRevisionFence
             )
         ) {
-            annotationProjectionReady.value = true;
+            settleProjection();
             return;
         }
-        writerParseAbortController?.abort();
-        const request = ++writerParseRequest;
-        const abortController = new AbortController();
-        writerParseAbortController = abortController;
         const targetStore = annotationApplication.value.store;
         const targetStoreMutationEpoch = targetStore.mutationEpoch;
         try {
@@ -1059,12 +1071,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
             }
         } finally {
-            if (writerParseAbortController === abortController) {
-                writerParseAbortController = null;
-                if (request === writerParseRequest && transition.isCurrent()) {
-                    annotationProjectionReady.value = true;
-                }
-            }
+            settleProjection();
         }
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
