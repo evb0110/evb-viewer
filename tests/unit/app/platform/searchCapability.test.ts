@@ -78,6 +78,7 @@ const browserSearchWorkerClientMock = vi.hoisted(() => ({
     createBrowserSearchWorkerPageStreamRequest: vi.fn(),
     cancelBrowserSearchWorkerRequest: vi.fn(async () => {}),
     BrowserSearchWorkerUnavailableError: class BrowserSearchWorkerUnavailableError extends Error {},
+    BrowserSearchWorkerTimeoutError: class BrowserSearchWorkerTimeoutError extends Error {},
 }));
 const pdfjsModule = vi.hoisted(() => ({
     version: '6.3.311',
@@ -122,6 +123,7 @@ vi.mock('@app/platform/browser-api/browserSearchWorkerClient', () => ({
             ) => unknown
         )(requestId),
     BrowserSearchWorkerUnavailableError: browserSearchWorkerClientMock.BrowserSearchWorkerUnavailableError,
+    BrowserSearchWorkerTimeoutError: browserSearchWorkerClientMock.BrowserSearchWorkerTimeoutError,
 }));
 vi.mock('@app/platform/browserDocumentStore', () => ({
     BROWSER_DOCUMENT_CHUNK_SIZE: 4 * 1024 * 1024,
@@ -293,6 +295,72 @@ describe('createBrowserSearchCapability', () => {
                 resetWorkerOnTimeout: true,
             }),
         );
+    });
+
+    it('turns a stalled regex worker into a typed bounded failure', async () => {
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 2,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        const timeoutError = new browserSearchWorkerClientMock.BrowserSearchWorkerTimeoutError(
+            'Browser search worker request timed out after 1250ms',
+        );
+        const stalledWorkerPromise = Promise.resolve().then(() => {
+            throw timeoutError;
+        });
+        void stalledWorkerPromise.catch(() => undefined);
+        let matchRequestCount = 0;
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => {
+            matchRequestCount += 1;
+            return matchRequestCount === 1
+                ? {
+                    requestId: 41,
+                    promise: Promise.resolve({
+                        matches: [{
+                            startOffset: 0,
+                            endOffset: 4,
+                        }],
+                        truncated: false,
+                    }),
+                }
+                : {
+                    requestId: 42,
+                    promise: stalledWorkerPromise,
+                };
+        });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const progress: unknown[] = [];
+        const stopProgress = capability.onProgress(value => progress.push(value));
+
+        await expect(capability.run('/tmp/regex-timeout.pdf', 'a+b', {
+            matchCase: true,
+            useRegex: true,
+            requestId: requireRequestId('regex-timeout'),
+        })).rejects.toMatchObject({
+            name: 'SearchRegexLimitError',
+            code: 'SEARCH_REGEX_LIMIT',
+        });
+        stopProgress();
+        expect(progress).toEqual(expect.arrayContaining([expect.objectContaining({processed: 1})]));
+        expect(progress.every(value => (
+            typeof value === 'object'
+            && value !== null
+            && !('results' in value)
+        ))).toBe(true);
     });
 
     it('does not run regex matching on the renderer when the worker is unavailable', async () => {

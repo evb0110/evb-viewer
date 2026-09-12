@@ -62,9 +62,11 @@ interface IWorkerSearchRequest {
     requestId: TRequestId;
     pdfPath: string;
     pageCount: number | undefined;
+    useRegex: boolean;
     registry: TSearchJobContext | null;
     queuedProgress: IPdfSearchProgress | null;
     cancellationFallbackTimeout: NodeJS.Timeout | null;
+    regexWatchdogTimeout: NodeJS.Timeout | null;
     resolve: (response: ISearchResponse) => void;
     reject: (error: Error) => void;
     settlement: Promise<ISearchResponse>;
@@ -194,6 +196,7 @@ function createWorkerSettlement(
     requestId: TRequestId,
     pdfPath: string,
     pageCount: number | undefined,
+    useRegex: boolean,
 ): IWorkerSearchRequest {
     let resolve!: (response: ISearchResponse) => void;
     let reject!: (error: Error) => void;
@@ -205,9 +208,11 @@ function createWorkerSettlement(
         requestId,
         pdfPath,
         pageCount,
+        useRegex,
         registry: null,
         queuedProgress: null,
         cancellationFallbackTimeout: null,
+        regexWatchdogTimeout: null,
         resolve,
         reject,
         settlement,
@@ -344,6 +349,7 @@ export class SearchWorkerService {
             requestId,
             payload.resolvedPdfPath,
             payload.pageCount,
+            payload.useRegex === true,
         );
         const handle = this.searchJobs.start({
             jobId: requestId,
@@ -558,7 +564,7 @@ export class SearchWorkerService {
     ) {
         request.registry = registry;
         if (request.queuedProgress) {
-            registry.publish(request.queuedProgress);
+            registry.publish(this.filterWorkerProgress(request, request.queuedProgress));
             request.queuedProgress = null;
         }
         const timeout = setTimeout(() => {
@@ -588,6 +594,45 @@ export class SearchWorkerService {
         }
     }
 
+    private startRegexWatchdog(request: IWorkerSearchRequest) {
+        if (!request.useRegex || request.regexWatchdogTimeout) {
+            return;
+        }
+        const regexWatchdogTimeout = setTimeout(() => {
+            this.failRegexRequestAfterDeadline(request);
+        }, SEARCH_REGEX_MAX_EXECUTION_MS);
+        regexWatchdogTimeout.unref();
+        request.regexWatchdogTimeout = regexWatchdogTimeout;
+    }
+
+    private failRegexRequestAfterDeadline(request: IWorkerSearchRequest) {
+        if (request.handle?.signal.aborted) {
+            return;
+        }
+        const error = new SearchIpcError(buildSearchErrorEnvelope(
+            'SEARCH_TIMEOUT',
+            `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
+            {retryable: true},
+        ));
+        if (request.registry && !request.registry.terminal.fail(error)) {
+            return;
+        }
+        const state = this.findRequestState(request);
+        if (state) {
+            this.postCancelMessage(state, request.requestId);
+            this.cleanupSenderState(state.senderId, {
+                cooperativeStop: false,
+                terminateWorker: true,
+                reason: `Search request ${request.requestId} exceeded its regex matching budget`,
+                rejectionError: error,
+                expectedState: state,
+                shutdownWorker: true,
+            });
+            return;
+        }
+        request.reject(error);
+    }
+
     private findRequestState(request: IWorkerSearchRequest) {
         for (const state of this.senderSearchStates.values()) {
             if (state.requests.get(request.requestId) === request) {
@@ -597,7 +642,24 @@ export class SearchWorkerService {
         return null;
     }
 
+    private filterWorkerProgress(request: IWorkerSearchRequest, progress: IPdfSearchProgress) {
+        if (request.useRegex && (
+            progress.results !== undefined
+            || progress.resultsStartIndex !== undefined
+            || progress.truncated !== undefined
+        )) {
+            progress = {
+                requestId: progress.requestId,
+                processed: progress.processed,
+                total: progress.total,
+                ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+            };
+        }
+        return progress;
+    }
+
     private publishWorkerProgress(request: IWorkerSearchRequest, progress: IPdfSearchProgress) {
+        progress = this.filterWorkerProgress(request, progress);
         if (request.registry) {
             request.registry.publish(progress);
         } else {
@@ -624,6 +686,13 @@ export class SearchWorkerService {
         if (request.cancellationFallbackTimeout) {
             clearTimeout(request.cancellationFallbackTimeout);
             request.cancellationFallbackTimeout = null;
+        }
+    }
+
+    private clearRegexWatchdogTimeout(request: IWorkerSearchRequest) {
+        if (request.regexWatchdogTimeout) {
+            clearTimeout(request.regexWatchdogTimeout);
+            request.regexWatchdogTimeout = null;
         }
     }
 
@@ -657,6 +726,7 @@ export class SearchWorkerService {
             return;
         }
         this.clearCancellationFallbackTimeout(request);
+        this.clearRegexWatchdogTimeout(request);
         state.requests.delete(request.requestId);
         if (state.activeRequestId === request.requestId) {
             state.activeRequestId = null;
@@ -879,6 +949,7 @@ export class SearchWorkerService {
         const error = options.rejectionError ?? new Error(reason);
         for (const request of state.requests.values()) {
             this.clearCancellationFallbackTimeout(request);
+            this.clearRegexWatchdogTimeout(request);
             request.registry?.terminal.fail(error);
             request.reject(error);
         }
@@ -928,6 +999,9 @@ export class SearchWorkerService {
                     pending => pending.resolve(capSearchResponse(message.response)),
                 );
                 return;
+            case 'matching-started':
+                this.startRegexWatchdog(request);
+                return;
             case 'cancelled':
                 this.settleWorkerRequest(state, message.requestId, pending => pending.resolve({
                     results: [],
@@ -940,7 +1014,7 @@ export class SearchWorkerService {
                     state,
                     message.requestId,
                     pending => pending.reject(new SearchIpcError(buildSearchErrorEnvelope(
-                        'SEARCH_WORKER_ERROR',
+                        message.errorCode === 'SEARCH_REGEX_LIMIT' ? 'SEARCH_TIMEOUT' : 'SEARCH_WORKER_ERROR',
                         message.error,
                         {retryable: true},
                     ))),

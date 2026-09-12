@@ -107,6 +107,13 @@ function emitWorkerComplete(workerIndex: number, requestId: string) {
     });
 }
 
+function emitWorkerMatchingStarted(workerIndex: number, requestId: string) {
+    workerMocks.instances[workerIndex]?.emit('message', {
+        type: 'matching-started',
+        requestId,
+    });
+}
+
 function emitWorkerCancelled(workerIndex: number, requestId: string) {
     workerMocks.instances[workerIndex]?.emit('message', {
         type: 'cancelled',
@@ -329,6 +336,124 @@ describe('SearchWorkerService', () => {
 
         emitWorkerComplete(0, 'regex-cold-start');
         await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+    });
+
+    it('fails a stalled regex match at its bounded admission deadline', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS = '500';
+        const service = await createSearchService();
+        const sender = createSender(42);
+        const searchPromise = dispatchSearch(service, sender, 'regex-stalled', {
+            senderId: 42,
+            useRegex: true,
+        });
+        const settled = vi.fn();
+        void searchPromise.then(settled, settled);
+        await Promise.resolve();
+
+        emitWorkerMatchingStarted(0, 'regex-stalled');
+        await vi.advanceTimersByTimeAsync(SEARCH_REGEX_MAX_EXECUTION_MS - 1);
+        expect(settled).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(searchPromise).rejects.toMatchObject({
+            code: 'SEARCH_TIMEOUT',
+            errorEnvelope: {
+                code: 'SEARCH_TIMEOUT',
+                message: `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
+                retryable: true,
+            },
+        });
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'cancel',
+            requestId: 'regex-stalled',
+        });
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'shutdown',
+            reason: 'Search request regex-stalled exceeded its regex matching budget',
+        });
+
+        const replacementSearch = dispatchSearch(service, sender, 'regex-replacement', {
+            senderId: 42,
+            useRegex: true,
+        });
+        expect(workerMocks.instances).toHaveLength(2);
+        emitWorkerComplete(1, 'regex-replacement');
+        await expect(replacementSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
+    });
+
+    it('does not publish regex progress results before the request completes', async () => {
+        const { SEARCH_PLATFORM_FEATURE } = await import('@contracts/searchPlatformFeature');
+        electronMocks.send.mockClear();
+        const service = await createSearchService();
+        const sender = createSender(42);
+        const searchPromise = dispatchSearch(service, sender, 'regex-buffered', {
+            senderId: 42,
+            useRegex: true,
+        });
+        emitWorkerMatchingStarted(0, 'regex-buffered');
+        workerMocks.instances[0]?.emit('message', {
+            type: 'progress',
+            requestId: 'regex-buffered',
+            processed: 1,
+            total: 2,
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 4,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: '',
+                    match: 'safe',
+                    after: '',
+                },
+            }],
+            resultsStartIndex: 0,
+            truncated: false,
+        });
+
+        await vi.waitFor(() => {
+            expect(electronMocks.send).toHaveBeenCalledWith(
+                SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
+                expect.objectContaining({
+                    requestId: 'regex-buffered',
+                    processed: 1,
+                    total: 2,
+                }),
+            );
+        });
+        expect(electronMocks.send).not.toHaveBeenCalledWith(
+            SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
+            expect.objectContaining({results: expect.anything()}),
+        );
+
+        emitWorkerComplete(0, 'regex-buffered');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+    });
+
+    it('maps a worker regex-limit error to the typed search timeout envelope', async () => {
+        const service = await createSearchService();
+        const searchPromise = dispatchSearch(service, createSender(42), 'regex-limit', {
+            senderId: 42,
+            useRegex: true,
+        });
+        workerMocks.instances[0]?.emit('message', {
+            type: 'error',
+            requestId: 'regex-limit',
+            error: 'Search failed: regex matching budget exceeded',
+            errorCode: 'SEARCH_REGEX_LIMIT',
+        });
+
+        await expect(searchPromise).rejects.toMatchObject({
+            code: 'SEARCH_TIMEOUT',
+            errorEnvelope: {
+                code: 'SEARCH_TIMEOUT',
+                retryable: true,
+            },
+        });
     });
 
     it('does not finish recoverable cleanup before worker and native daemon shutdown settle', async () => {

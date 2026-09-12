@@ -206,19 +206,26 @@ export function parseSearchWorkerOutboundMessage(
                 response,
             } : null;
         }
+        case 'matching-started':
+            return {
+                type: 'matching-started',
+                requestId,
+            };
         case 'cancelled':
             return {
                 type: 'cancelled',
                 requestId,
             };
         case 'error':
-            return typeof value.error === 'string'
-                ? {
-                    type: 'error',
-                    requestId,
-                    error: value.error,
-                }
-                : null;
+            if (typeof value.error !== 'string') {
+                return null;
+            }
+            return {
+                type: 'error',
+                requestId,
+                error: value.error,
+                ...(value.errorCode === 'SEARCH_REGEX_LIMIT' ? {errorCode: value.errorCode} : {}),
+            };
         default:
             return null;
     }
