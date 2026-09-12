@@ -1,0 +1,27 @@
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_742b14c5e79057::t_b846fde23dadb6 14-20,23,76,121-177,315-317,326
+  s_742b14c5e79057::t_909e5d6577b87c 13
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_742b14c5e79057::t_2ab5e79b82f7b9 12-19,292-349
+  s_742b14c5e79057::t_3b0ce7c6750f80 350-351
+electron/bootstrap/mainProcess.ts
+  s_742b14c5e79057::t_b846fde23dadb6 218
+docs/operations/sentry-runbook.md
+  s_742b14c5e79057::t_82741aa701e161 86,315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a69987e298b851ae353f4a04f4f4768294ecf390",
+  "prompts": {},
+  "sessions": {
+    "s_742b14c5e79057": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de306d32-da4c-4732-9417-8534ce583201",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
