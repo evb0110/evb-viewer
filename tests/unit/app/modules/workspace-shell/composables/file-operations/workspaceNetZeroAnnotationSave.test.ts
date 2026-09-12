@@ -37,6 +37,26 @@ describe('net-zero annotation save', () => {
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
     });
 
+    it('keeps dirty layers dirty when a serialized plan only publishes the working copy', async () => {
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            annotationDirty: ref(true),
+            hasAnnotationChanges: vi.fn(() => true),
+            bookmarksDirty: ref(true),
+            pageLabelsDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            hasManagedShapes: vi.fn(() => true),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(true);
+
+        expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
+        expectWorkspaceSaveNotMarked(deps);
+        expect(service.canSave.value).toBe(true);
+    });
+
     it('saves from an existing document operation lease without reacquiring it', async () => {
         const leaseKinds: TDocumentOperationKind[] = [];
         const runWithDocumentOperationLease = async <T>(

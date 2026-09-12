@@ -93,19 +93,22 @@ export function completeSuccessfulSaveState(
 ) {
     const annotationUnchanged = !deps.annotations.getSaveStateToken
         || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
-    if (annotationUnchanged || policy.allowAnnotationSaveStateRefresh === true) {
+    if (policy.markAnnotationStateSaved
+        && (annotationUnchanged || policy.allowAnnotationSaveStateRefresh === true)) {
         deps.annotations.markSaved();
     }
 
     const pageLabelsUnchanged = !deps.metadata.getPageLabelsSaveStateToken
         || Object.is(deps.metadata.getPageLabelsSaveStateToken(), baseline.pageLabels);
-    if (pageLabelsUnchanged || policy.allowPageLabelsSaveStateRefresh === true) {
+    if (policy.markPageLabelsStateSaved
+        && (pageLabelsUnchanged || policy.allowPageLabelsSaveStateRefresh === true)) {
         deps.metadata.markPageLabelsSaved();
     }
 
     const bookmarksUnchanged = !deps.metadata.getBookmarksSaveStateToken
         || Object.is(deps.metadata.getBookmarksSaveStateToken(), baseline.bookmarks);
-    if (bookmarksUnchanged || policy.allowBookmarksSaveStateRefresh === true) {
+    if (policy.markBookmarksStateSaved
+        && (bookmarksUnchanged || policy.allowBookmarksSaveStateRefresh === true)) {
         deps.metadata.markBookmarksSaved();
     }
 
