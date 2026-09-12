@@ -1,0 +1,23 @@
+native/jbig2-codec/src/lib.rs
+  s_c8043a02970c3c::t_f34d049c8eef95 78
+  s_c8043a02970c3c::t_c4af91159b4d68 25,66
+native/jbig2-codec/tests/decoder_abuse.rs
+  s_c8043a02970c3c::t_40a457fa0a346b 67,83
+  s_c8043a02970c3c::t_886c3143267d60 108-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c72437e7b1350f4af9da1391f59e1db39c552949",
+  "prompts": {},
+  "sessions": {
+    "s_c8043a02970c3c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cd-a92c-7730-8252-3f04e3e89907",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
