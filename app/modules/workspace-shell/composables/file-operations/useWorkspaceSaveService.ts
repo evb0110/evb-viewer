@@ -537,10 +537,7 @@ async function executeNativeMutationSave(
             plan,
             deps,
             plan.serializedFallback,
-            {
-                allowNativeMutationPlan: true,
-                planOnly: true,
-            },
+            {allowNativeMutationPlan: true},
         ),
     ) as TSingleWriterSaveTransaction;
     const nativePathBacked = requiresNativePathBackedSave(plan);
@@ -768,10 +765,7 @@ async function executeNativeRepairSave(
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
     const saveTransaction = await deps.pdf.runSaveTransaction(
-        buildSaveTransactionRequest(plan, deps, plan.serializedFallback, {
-            allowNativeMutationPlan: true,
-            planOnly: true,
-        }),
+        buildSaveTransactionRequest(plan, deps, plan.serializedFallback, {allowNativeMutationPlan: true}),
     ) as TSingleWriterSaveTransaction;
     const projection = saveTransaction.nativeMutationProjection;
     if (!projection) {
