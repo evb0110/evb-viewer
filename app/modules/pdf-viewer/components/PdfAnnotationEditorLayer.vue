@@ -62,6 +62,8 @@
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
                 :editing="editingId === entity.identity.id"
+                :recovered-draft-text="surface.getTextBoxDraftText(entity.identity.id)"
+                :recovered-draft-rect="surface.getTextBoxDraftRect(entity.identity.id)"
                 :caret-point="surface.textEditPoint.value"
                 :auto-size-draft="autoSizeTextBoxIds.has(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
@@ -643,6 +645,22 @@ function beginTextBoxEdit(annotationId: AnnotationId, point?: {
 }) {
     surface.beginTextEditing(annotationId, point);
 }
+
+// A recovered draft on an unsaved text box must be treated as a new box, or
+// the editor commits it against a canonical revision that was never written.
+// Synchronous flush so the flag is set before the editor reads it.
+watch(editingId, (annotationId) => {
+    if (annotationId === null) {
+        return;
+    }
+    const entity = currentTextBox(annotationId);
+    if (entity && entity.persistedRevision < 0 && surface.hasTextBoxDraftPending(annotationId)) {
+        newTextBoxIds.add(annotationId);
+    }
+}, {
+    immediate: true,
+    flush: 'sync',
+});
 
 function commitActiveTextBoxDraftForSave() {
     const annotationId = editingId.value;

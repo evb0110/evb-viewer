@@ -100,6 +100,50 @@ describe('useTextBoxInlineEdit', () => {
         expect(cancel).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
     });
+    it('retains the latest completed input while ignoring an IME composition update', async () => {
+        const editing = ref(true);
+        const scope = effectScope();
+        scopes.add(scope);
+        const editor = scope.run(() => useTextBoxInlineEdit({
+            entity: computed(() => entity.value),
+            editing,
+            onCommit: vi.fn(),
+            onCancel: vi.fn(),
+        }))!;
+        await Promise.resolve();
+        const element = {textContent: 'composition'} as HTMLElement;
+        editor.editorRef.value = element;
+        editor.handleInput({
+            currentTarget: element,
+            isComposing: true,
+        });
+        expect(editor.draftText.value).toBe('before');
+        editor.handleInput({
+            currentTarget: element,
+            isComposing: false,
+        });
+        expect(editor.draftText.value).toBe('composition');
+    });
+
+    it('initializes a restored editor from its pending draft without changing the entity', async () => {
+        const editing = ref(false);
+        const recoveredDraftText = ref<string | null>('restored text');
+        const scope = effectScope();
+        scopes.add(scope);
+        const editor = scope.run(() => useTextBoxInlineEdit({
+            entity: computed(() => entity.value),
+            editing,
+            recoveredDraftText,
+            onCommit: vi.fn(),
+            onCancel: vi.fn(),
+        }))!;
+        editing.value = true;
+        await Promise.resolve();
+
+        expect(editor.draftText.value).toBe('restored text');
+        expect(entity.value.text).toBe('before');
+    });
+
     it.each([
         'Escape',
         'Enter',
