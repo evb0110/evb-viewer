@@ -115,7 +115,9 @@ function qpdfObjectTable(value: unknown) {
     const table = [...qpdf].reverse().find(entry =>
         isRecord(entry) && Object.keys(entry).some(key => key.startsWith('obj:')),
     );
-    return isRecord(table) ? table : null;
+    // A narrowed query whose objects are all absent yields no obj entry at all,
+    // which is an empty answer rather than malformed output.
+    return isRecord(table) ? table : {};
 }
 
 function qpdfStreamDictionary(
@@ -129,18 +131,11 @@ function qpdfStreamDictionary(
     return object.stream.dict;
 }
 
-function resolveMrcMaskDecode(
-    objects: Record<string, unknown>,
-    foreground: IPdfImagesRow,
-): TPdfMrcMaskDecode | null {
-    const foregroundReference = `${String(foreground.objectNumber)} `
-        + `${String(foreground.generationNumber)} R`;
-    const foregroundDictionary = qpdfStreamDictionary(objects, foregroundReference);
-    const maskReference = foregroundDictionary?.['/SMask'];
-    if (typeof maskReference !== 'string') {
-        return null;
-    }
-    const maskDictionary = qpdfStreamDictionary(objects, maskReference);
+function pdfImagesRowReference(row: IPdfImagesRow) {
+    return `${String(row.objectNumber)} ${String(row.generationNumber)} R`;
+}
+
+function resolveMrcMaskDecode(maskDictionary: Record<string, unknown> | null) {
     if (
         maskDictionary?.['/Filter'] !== '/JBIG2Decode'
         || maskDictionary['/BitsPerComponent'] !== 1
@@ -170,53 +165,124 @@ function resolveMrcMaskDecode(
     return null;
 }
 
-async function inspectMrcObjectTable(input: {
+function qpdfObjectSelectors(references: readonly string[]) {
+    return references.flatMap((reference) => {
+        const parsed = /^(\d+) (\d+) R$/u.exec(reference);
+        return parsed === null ? [] : [`--json-object=${parsed[1]!},${parsed[2]!}`];
+    });
+}
+
+async function queryQpdfObjects(input: {
+    pdfPath: string;
+    qpdfBinary: string;
+    runCommand: TScanCleanupRunCommand;
+    commandOptions: IScanCleanupRunCommandOptions;
+    references: readonly string[];
+}) {
+    const selectors = qpdfObjectSelectors(input.references);
+    if (selectors.length === 0) {
+        return {};
+    }
+    const result = await input.runCommand(
+        input.qpdfBinary,
+        [
+            '--json',
+            '--json-stream-data=none',
+            '--json-key=qpdf',
+            ...selectors,
+            input.pdfPath,
+        ],
+        {
+            ...input.commandOptions,
+            commandLabel: `qpdf(MRC-mask-dictionaries,objects=${String(selectors.length)})`,
+            // A batch's worth of image dictionaries is kilobytes; this ceiling
+            // only exists so a pathological dictionary fails loudly instead of
+            // parsing truncated JSON as a syntax error.
+            maxStdoutBytes: 4_194_304,
+            rejectOnStdoutTruncation: true,
+        },
+    );
+    const objects = qpdfObjectTable(JSON.parse(result.stdout) as unknown);
+    if (objects === null) {
+        throw new Error('qpdf JSON contains no object table');
+    }
+    return objects;
+}
+
+// Polarity needs a handful of dictionary entries, so the two passes ask qpdf
+// for exactly the foreground objects of the batch and then for the masks they
+// point at. Dumping the whole object table instead made peak memory scale with
+// the document rather than with the number of masks, which could exhaust the
+// scan-cleanup worker's heap on a large book.
+function createMrcMaskDecodeLookup(input: {
     pdfPath: string;
     qpdfBinary: string;
     runCommand: TScanCleanupRunCommand;
     commandOptions: IScanCleanupRunCommandOptions;
     log: TScanCleanupLog;
 }) {
-    try {
-        const result = await input.runCommand(
-            input.qpdfBinary,
-            [
-                '--json',
-                '--json-stream-data=none',
-                '--json-key=qpdf',
-                input.pdfPath,
-            ],
-            {
-                ...input.commandOptions,
-                commandLabel: 'qpdf(MRC-mask-dictionaries)',
-                // The object table of a full book (hundreds of pages, thousands
-                // of objects) runs to many megabytes; the 256 KB default
-                // silently truncates it and disables compact reuse for the
-                // whole document. A table that still overruns this ceiling has
-                // to be reported rather than parsed: truncated JSON fails as a
-                // syntax error that says nothing about the real cause.
-                maxStdoutBytes: 268_435_456,
-                rejectOnStdoutTruncation: true,
-            },
-        );
-        const objects = qpdfObjectTable(JSON.parse(result.stdout) as unknown);
-        if (objects === null) {
-            throw new Error('qpdf JSON contains no object table');
+    const decodeByForeground = new Map<string, TPdfMrcMaskDecode | null>();
+    let unavailable = false;
+    let pending: Promise<unknown> = Promise.resolve();
+
+    const inspect = async (foregrounds: readonly IPdfImagesRow[]) => {
+        const references = [...new Set(
+            foregrounds
+                .map(pdfImagesRowReference)
+                .filter(reference => !decodeByForeground.has(reference)),
+        )];
+        if (unavailable || references.length === 0) {
+            return;
         }
-        return objects;
-    } catch (error) {
-        input.commandOptions.signal?.throwIfAborted();
-        if (isAbortError(error)) {
-            throw error;
+        try {
+            const foregroundObjects = await queryQpdfObjects({
+                ...input,
+                references,
+            });
+            const maskByForeground = new Map<string, string>();
+            for (const reference of references) {
+                const maskReference = qpdfStreamDictionary(foregroundObjects, reference)?.['/SMask'];
+                if (typeof maskReference === 'string') {
+                    maskByForeground.set(reference, maskReference);
+                }
+            }
+            const maskObjects = await queryQpdfObjects({
+                ...input,
+                references: [...new Set(maskByForeground.values())],
+            });
+            for (const reference of references) {
+                const maskReference = maskByForeground.get(reference);
+                decodeByForeground.set(
+                    reference,
+                    maskReference === undefined
+                        ? null
+                        : resolveMrcMaskDecode(qpdfStreamDictionary(maskObjects, maskReference)),
+                );
+            }
+        } catch (error) {
+            input.commandOptions.signal?.throwIfAborted();
+            if (isAbortError(error)) {
+                throw error;
+            }
+            unavailable = true;
+            input.log(
+                'warn',
+                `PDF MRC compact reuse skipped because source mask polarity could not be read: ${
+                    getErrorMessage(error)
+                }`,
+            );
         }
-        input.log(
-            'warn',
-            `PDF MRC compact reuse skipped because source mask polarity could not be read: ${
-                getErrorMessage(error)
-            }`,
-        );
-        return null;
-    }
+    };
+
+    return async (foregrounds: readonly IPdfImagesRow[]) => {
+        // One inspection at a time, so concurrent batches share a cache entry
+        // instead of racing two qpdf runs for the same objects.
+        const run = pending.catch(() => undefined).then(() => inspect(foregrounds));
+        pending = run.catch(() => undefined);
+        await run;
+        return (foreground: IPdfImagesRow) =>
+            decodeByForeground.get(pdfImagesRowReference(foreground)) ?? null;
+    };
 }
 
 interface IPdfMrcRowSelection {
@@ -369,7 +435,13 @@ export async function extractPdfMrcLayersBatch(input: {
         error: unknown;
         pages: number[]
     }> = [];
-    let mrcObjectsPromise: Promise<Record<string, unknown> | null> | null = null;
+    const lookupMrcMaskDecode = createMrcMaskDecodeLookup({
+        pdfPath: input.pdfPath,
+        qpdfBinary: input.qpdfBinary,
+        runCommand: input.runCommand,
+        commandOptions,
+        log: input.log,
+    });
     const completePages = (count: number) => {
         completedPages += count;
         input.onProgress?.(completedPages, input.targets.length);
@@ -432,19 +504,11 @@ export async function extractPdfMrcLayersBatch(input: {
                         completePages(targets.length);
                         return;
                     }
-                    mrcObjectsPromise ??= inspectMrcObjectTable({
-                        pdfPath: input.pdfPath,
-                        qpdfBinary: input.qpdfBinary,
-                        runCommand: input.runCommand,
-                        commandOptions,
-                        log: input.log,
-                    });
-                    const inspectedMrcObjects = await mrcObjectsPromise;
+                    const maskDecodeOf = await lookupMrcMaskDecode(
+                        selectedCandidates.map(candidate => candidate.selection.foreground),
+                    );
                     const selected = selectedCandidates.flatMap(candidate => {
-                        const foreground = candidate.selection.foreground;
-                        const selectionMaskDecode = inspectedMrcObjects === null
-                            ? null
-                            : resolveMrcMaskDecode(inspectedMrcObjects, foreground);
+                        const selectionMaskDecode = maskDecodeOf(candidate.selection.foreground);
                         return selectionMaskDecode === null
                             ? []
                             : [{
