@@ -48,6 +48,7 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
 
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
+    onWorkspaceCheckpointClaimed?: () => void | Promise<void>;
     claimPendingExternalOpenPaths?: (sender: WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: WebContents, failedPaths: TDocumentRef[]) => void;
 }
@@ -85,6 +86,7 @@ export interface IRunInitSequenceOptions {
         showStartupPlaceholder?: boolean;
         waitForInitialRendererReady?: boolean;
     }): Promise<BrowserWindow>;
+    createAdditionalWindow?: () => Promise<BrowserWindow>;
     devDockBadgeText: string;
     devDockIconPath: string;
     externalOpenManager: IExternalOpenManager;
@@ -291,6 +293,7 @@ function bootIpc(
         getMainWindow,
         getWindowFromWebContents,
         logStartupPhase,
+        logger,
         markWindowRendererReady,
         markWindowTabTransferReady,
         maybePromptForDefaultViewer,
@@ -298,7 +301,34 @@ function bootIpc(
         registerIpcHandlers,
     } = options;
     const rendererReadyFocusHandled = new WeakSet<WebContents>();
+    let recoveryWindowCreationRequested = false;
+    let recoveryWindowCreationInFlight: Promise<void> | null = null;
+    const scheduleWorkspaceRecoveryWindow = () => {
+        const createAdditionalWindow = options.createAdditionalWindow;
+        if (!createAdditionalWindow) {
+            return;
+        }
+        recoveryWindowCreationRequested = true;
+        if (recoveryWindowCreationInFlight) {
+            return;
+        }
+        recoveryWindowCreationInFlight = (async () => {
+            while (recoveryWindowCreationRequested) {
+                recoveryWindowCreationRequested = false;
+                await createAdditionalWindow();
+            }
+        })().catch((error: unknown) => {
+            logger.error(`Failed to create a workspace recovery window: ${getErrorMessage(error)}`, {
+                code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+                context: {},
+                cause: error,
+            });
+        }).finally(() => {
+            recoveryWindowCreationInFlight = null;
+        });
+    };
     registerIpcHandlers({
+        onWorkspaceCheckpointClaimed: scheduleWorkspaceRecoveryWindow,
         onRendererReady: (event) => {
             const window = getWindowFromWebContents(event.sender);
             if (!window) {

@@ -82,6 +82,7 @@ import {
 } from '@electron/features/diagnostics/startupCrashMarker';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
+    createAppWindow,
     createWindow,
     configureNativeWindowCloseHandshake,
     hasWindows,
@@ -836,6 +837,7 @@ void runInitSequence({
     broadcastUpdateStatus,
     cleanupStaleAppTempNamespaces,
     cleanupStaleWorkingCopyDirectories,
+    createAdditionalWindow: () => createAppWindow(),
     createWindow,
     devDockBadgeText: DEV_DOCK_BADGE_TEXT,
     devDockIconPath,

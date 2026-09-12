@@ -58,6 +58,10 @@ const state = vi.hoisted(() => ({
     userDataPath: '',
     owners: new Map<string, number>(),
     liveOwners: new Set<number>(),
+    webContentsById: new Map<number, {
+        id: number;
+        isDestroyed: () => boolean;
+    }>(),
     originalPaths: new Map<string, string>(),
     restoredOptions: new Map<string, unknown>(),
     recoveryClaims: new Set<string>(),
@@ -82,7 +86,10 @@ vi.mock('node:fs', async (importOriginal) => {
 vi.mock('electron', () => ({
     app: {getPath: () => state.userDataPath},
     webContents: {fromId: (id: number) => state.liveOwners.has(id)
-        ? {isDestroyed: () => false}
+        ? state.webContentsById.get(id) ?? {
+            id,
+            isDestroyed: () => false,
+        }
         : undefined},
 }));
 
@@ -201,6 +208,7 @@ describe('workspace checkpoint store', () => {
         state.backingEntries.clear();
         state.owners.clear();
         state.liveOwners.clear();
+        state.webContentsById.clear();
         state.originalPaths.clear();
         state.restoredOptions.clear();
         state.recoveryClaims.clear();
@@ -244,6 +252,46 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(22)).resolves.toBeNull();
         expect(state.owners.get(workingCopyRef)).toBe(11);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
+    });
+
+    it('does not treat a reused webContents id as the saved owner', async () => {
+        const ownerA = {
+            id: 11,
+            isDestroyed: () => false,
+        } as Electron.WebContents;
+        const ownerB = {
+            id: 11,
+            isDestroyed: () => false,
+        } as Electron.WebContents;
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, ownerA);
+
+        await saveWorkspaceCheckpoint(checkpoint, 11, ownerA);
+        const saved = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        state.webContentsById.set(11, ownerB);
+
+        await expect(claimWorkspaceCheckpoint(11, ownerB)).resolves.toEqual(checkpoint);
+        expect(saved.ownerRecoveryId).toEqual(expect.any(String));
+        const claimed = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const claimedRecord = claimed.records?.[0] ?? claimed;
+        expect(claimedRecord.ownerRecoveryId).toEqual(expect.any(String));
+        expect(claimedRecord.ownerRecoveryId).not.toBe(saved.ownerRecoveryId);
+        expect(state.owners.get(workingCopyRef)).toBe(11);
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(124),
+        }, 11, ownerB);
+        await flushPendingWorkspaceCheckpointSave();
+        const updated = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const updatedRecord = updated.records?.[0] ?? updated;
+        expect(updated.records ?? [updatedRecord]).toHaveLength(1);
+        expect(updatedRecord).toMatchObject({
+            ownerRecoveryId: claimedRecord.ownerRecoveryId,
+            checkpoint: {capturedAt: 124},
+        });
     });
 
     it('publishes annotation recovery as a fenced artifact and retires it after acknowledgement', async () => {

@@ -37,6 +37,7 @@ import {
     acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
     discardWorkspaceCheckpoint,
+    hasRecoverableWorkspaceCheckpoints,
     resumeWorkspaceCheckpoint,
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
@@ -44,6 +45,7 @@ import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
+    onWorkspaceCheckpointClaimed?: () => void | Promise<void>;
     claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
@@ -199,29 +201,41 @@ export function registerCoreIpcHandlers(
         }, checkpoint) => {
             await saveWorkspaceCheckpoint(checkpoint, senderId, sender);
         },
-        discardWorkspaceCheckpoint: async ({senderId}) => {
+        discardWorkspaceCheckpoint: async ({
+            sender,
+            senderId,
+        }) => {
             assertAutomationCheckpointReset();
-            return discardWorkspaceCheckpoint(senderId);
+            return discardWorkspaceCheckpoint(senderId, sender);
         },
-        resumeWorkspaceCheckpoint: ({senderId}, discardToken) => {
+        resumeWorkspaceCheckpoint: ({
+            sender,
+            senderId,
+        }, discardToken) => {
             assertAutomationCheckpointReset();
-            resumeWorkspaceCheckpoint(senderId, discardToken);
+            resumeWorkspaceCheckpoint(senderId, discardToken, sender);
         },
         claimWorkspaceCheckpoint: async ({
             sender,
             senderId,
         }) => {
-            const checkpoint = await claimWorkspaceCheckpoint(senderId);
+            const checkpoint = await claimWorkspaceCheckpoint(senderId, sender);
             if (checkpoint) {
                 allowOpenPaths(checkpoint.tabs.flatMap(tab => [
                     tab.sourceRef,
                     tab.workingCopyRef,
                 ].filter((path): path is TDocumentRef => path !== null)), sender);
+                if (await hasRecoverableWorkspaceCheckpoints(senderId, sender)) {
+                    await options.onWorkspaceCheckpointClaimed?.();
+                }
             }
             return checkpoint;
         },
-        acknowledgeWorkspaceCheckpoint: async ({senderId}) => {
-            await acknowledgeWorkspaceCheckpoint(senderId);
+        acknowledgeWorkspaceCheckpoint: async ({
+            sender,
+            senderId,
+        }) => {
+            await acknowledgeWorkspaceCheckpoint(senderId, sender);
         },
         requestWindowTabTransfer: async ({sender}, request) => {
             const sourceWindow = BrowserWindow.fromWebContents(sender);
