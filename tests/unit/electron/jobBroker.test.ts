@@ -6,6 +6,7 @@ import {
 import {
     JobBroker,
     type IJobBrokerRequest,
+    JOB_LEASE_MAX_HOLD_MS,
     MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
     MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
     MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
@@ -450,6 +451,54 @@ describe('JobBroker', () => {
         first.release();
         const sameOwnerLease = await sameOwner;
         sameOwnerLease.release();
+    });
+
+    it('drops the active leases of a cancelled owner and dispatches queued work', async () => {
+        const broker = new JobBroker({
+            ...CAPACITY,
+            cpuTokens: 1,
+        });
+        const first = await broker.acquire(createRequest({ownerId: 'closing-owner'}));
+        const queued = broker.acquire(createRequest({ownerId: 'next-owner'}));
+
+        broker.cancelOwner('closing-owner');
+        const next = await queued;
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 0,
+        });
+        expect(first.release()).toBe(false);
+        expect(next.release()).toBe(true);
+    });
+
+    it('reclaims expired active leases before dispatching queued work', async () => {
+        let now = 0;
+        const broker = new JobBroker({
+            ...CAPACITY,
+            cpuTokens: 1,
+        }, {now: () => now});
+        const stale = await broker.acquire(createRequest({ownerId: 'stale-owner'}));
+        let queuedGranted = false;
+        const queued = broker.acquire(createRequest({ownerId: 'next-owner'})).then((lease) => {
+            queuedGranted = true;
+            return lease;
+        });
+
+        await Promise.resolve();
+        expect(queuedGranted).toBe(false);
+        now = JOB_LEASE_MAX_HOLD_MS;
+        const dispatchTrigger = broker.acquire(createRequest({ownerId: 'dispatch-trigger'}));
+        const next = await queued;
+
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 1,
+            queued: 1,
+            used: next.resources,
+        });
+        expect(stale.release()).toBe(false);
+        expect(next.release()).toBe(true);
+        const triggerLease = await dispatchTrigger;
+        expect(triggerLease.release()).toBe(true);
     });
 
     it('enforces an admission-only owner cap without consuming nested-work resources', async () => {
