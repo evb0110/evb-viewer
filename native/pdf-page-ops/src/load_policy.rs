@@ -237,6 +237,22 @@ enum AdmissionKey {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AdmissionArrayKey {
+    Index,
+    W,
+}
+
+impl AdmissionArrayKey {
+    fn from_key(key: AdmissionKey) -> Option<Self> {
+        match key {
+            AdmissionKey::Index => Some(Self::Index),
+            AdmissionKey::W => Some(Self::W),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AdmissionDictionaryType {
     ObjectStream,
     PageTree,
@@ -246,7 +262,7 @@ enum AdmissionDictionaryType {
 #[derive(Clone, Copy, Debug)]
 struct AdmissionArray {
     depth: usize,
-    key: AdmissionKey,
+    key: AdmissionArrayKey,
     item_count: usize,
     range_total: u64,
     pending_range_start: u64,
@@ -584,13 +600,14 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                 array_depth = array_depth.saturating_add(1);
                 enforce_structural_nesting(dictionaries.len(), array_depth, policy)?;
                 if let Some(dictionary) = dictionaries.last_mut() {
-                    if matches!(
-                        dictionary.pending_key,
-                        Some(AdmissionKey::Index | AdmissionKey::W)
-                    ) {
+                    if let Some(key) = dictionary
+                        .pending_key
+                        .take()
+                        .and_then(AdmissionArrayKey::from_key)
+                    {
                         dictionary.array = Some(AdmissionArray {
                             depth: array_depth,
-                            key: dictionary.pending_key.take().unwrap(),
+                            key,
                             item_count: 0,
                             range_total: 0,
                             pending_range_start: 0,
@@ -608,15 +625,14 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                     {
                         let array = dictionary.array.take().unwrap();
                         match array.key {
-                            AdmissionKey::Index => {
+                            AdmissionArrayKey::Index => {
                                 dictionary.index_total = Some(array.range_total);
                                 dictionary.largest_index_end = Some(array.largest_range_end);
                             }
-                            AdmissionKey::W => {
+                            AdmissionArrayKey::W => {
                                 dictionary.width_count = Some(array.item_count);
                                 dictionary.largest_width = Some(array.largest_range_end);
                             }
-                            _ => unreachable!(),
                         }
                     }
                 }
@@ -642,7 +658,7 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                         .is_some_and(|array| array.depth == array_depth)
                     {
                         let array = dictionary.array.as_mut().unwrap();
-                        if array.key == AdmissionKey::Index {
+                        if array.key == AdmissionArrayKey::Index {
                             if array.item_count % 2 == 0 {
                                 array.pending_range_start = value;
                             } else {
@@ -1050,13 +1066,14 @@ fn parse_xref_dictionary(
             AdmissionToken::ArrayStart if dictionary_depth == 1 => {
                 array_depth = array_depth.saturating_add(1);
                 enforce_structural_nesting(dictionary_depth, array_depth, policy)?;
-                if matches!(
-                    dictionary.pending_key,
-                    Some(AdmissionKey::Index | AdmissionKey::W)
-                ) {
+                if let Some(key) = dictionary
+                    .pending_key
+                    .take()
+                    .and_then(AdmissionArrayKey::from_key)
+                {
                     dictionary.array = Some(AdmissionArray {
                         depth: array_depth,
-                        key: dictionary.pending_key.take().unwrap(),
+                        key,
                         item_count: 0,
                         range_total: 0,
                         pending_range_start: 0,
@@ -1071,20 +1088,19 @@ fn parse_xref_dictionary(
                 {
                     let array = dictionary.array.take().unwrap();
                     if array.item_count == 0
-                        || (array.key == AdmissionKey::Index && array.item_count % 2 != 0)
+                        || (array.key == AdmissionArrayKey::Index && array.item_count % 2 != 0)
                     {
                         return Err(xref_error("PDF cross-reference array is invalid"));
                     }
                     match array.key {
-                        AdmissionKey::Index => {
+                        AdmissionArrayKey::Index => {
                             dictionary.index_total = Some(array.range_total);
                             dictionary.largest_index_end = Some(array.largest_range_end);
                         }
-                        AdmissionKey::W => {
+                        AdmissionArrayKey::W => {
                             dictionary.width_count = Some(array.item_count);
                             dictionary.largest_width = Some(array.largest_range_end);
                         }
-                        _ => unreachable!(),
                     }
                 }
                 array_depth = array_depth.saturating_sub(1);
@@ -1106,7 +1122,7 @@ fn parse_xref_dictionary(
                     .is_some_and(|array| array.depth == array_depth)
                 {
                     let array = dictionary.array.as_mut().unwrap();
-                    if array.key == AdmissionKey::Index {
+                    if array.key == AdmissionArrayKey::Index {
                         if array.item_count % 2 == 0 {
                             array.pending_range_start = value;
                         } else {
