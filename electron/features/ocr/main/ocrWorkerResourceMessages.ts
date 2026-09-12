@@ -162,7 +162,15 @@ export function handleWorkerResourceMessage(
             token: lease.token,
             effectiveDpi: lease.effectiveDpi,
         };
-        worker.postMessage(response);
+        try {
+            worker.postMessage(response);
+        } catch (error) {
+            // The lease is held by the governor from `acquire` onwards, but the worker
+            // only learns its token from this message. A delivery failure leaves nobody
+            // able to release it, so the slot has to go back here.
+            ocrResourceGovernor.releaseForJob(lease.token, scopedJobId);
+            throw error;
+        }
     }).catch((error: unknown) => {
         const messageText = getErrorMessage(error);
         sendResourceDenied(messageText);

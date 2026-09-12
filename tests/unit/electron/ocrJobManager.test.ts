@@ -1503,4 +1503,77 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             expect(getResourceAcquiredMessages(secondWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
         });
     });
+
+    it('releases a granted OCR resource when the worker cannot receive the grant', async () => {
+        vi.stubEnv('OCR_GLOBAL_PAGE_SLOTS', '1');
+        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
+
+        const {handleOcrCreateSearchablePdfAsync} = await import('@electron/features/ocr/main/jobManager');
+
+        const firstContext = createContext(101);
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
+            firstContext,
+            'job-101',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-101',
+        });
+
+        const firstWorker = mocks.workerInstances[0];
+        expect(firstWorker).toBeDefined();
+        if (!firstWorker) {
+            throw new Error('Expected first OCR worker to be created');
+        }
+
+        firstWorker.postMessage.mockImplementation((message: unknown) => {
+            if (
+                typeof message === 'object'
+                && message !== null
+                && 'type' in message
+                && message.type === 'resource-acquired'
+            ) {
+                throw new Error('worker terminated before grant delivery');
+            }
+        });
+        firstWorker.emit('message', {
+            type: 'resource-acquire',
+            jobId: 'job-101',
+            requestId: 'page-1',
+            pageNumber: 1,
+            requestedDpi: 300,
+        });
+
+        await vi.waitFor(() => {
+            expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
+        });
+
+        const secondResult = await startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
+            createContext(102),
+            'job-102',
+        );
+        expect(secondResult).toMatchObject({
+            started: true,
+            jobId: 'job-102',
+        });
+
+        const secondWorker = mocks.workerInstances[1];
+        expect(secondWorker).toBeDefined();
+        if (!secondWorker) {
+            throw new Error('Expected second OCR worker to be created');
+        }
+
+        secondWorker.emit('message', {
+            type: 'resource-acquire',
+            jobId: 'job-102',
+            requestId: 'page-1',
+            pageNumber: 1,
+            requestedDpi: 300,
+        });
+
+        await vi.waitFor(() => {
+            expect(getResourceAcquiredMessages(secondWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
+        });
+    });
 });
