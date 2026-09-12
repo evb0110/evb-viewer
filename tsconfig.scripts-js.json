@@ -28,7 +28,7 @@
         "scripts/build-wasm-tool.mjs",
         "scripts/cargo-artifacts.mjs",
         "scripts/check-build-warnings.mjs",
-        "scripts/check-commit-attribution.mjs",
+        "scripts/check-publication-policy.mjs",
         "scripts/check-dev-environment.mjs",
         "scripts/check-drizzle-schema.mjs",
         "scripts/check-electron-builder-asar-unpack.mjs",
