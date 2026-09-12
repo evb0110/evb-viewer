@@ -238,6 +238,31 @@ describe('WASM freshness check', () => {
         }
     });
 
+    it('changes the source fingerprint when the rustc commit changes', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-fingerprint-'));
+        const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
+
+        try {
+            const firstFingerprint = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+                rustcCommitHash: 'commit-a',
+            });
+            const secondFingerprint = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+                rustcCommitHash: 'commit-b',
+            });
+
+            expect(secondFingerprint).not.toBe(firstFingerprint);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('ignores generated Nuxt type declarations under native sources', async () => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-fingerprint-'));
         const sourceRoot = path.join(tempRoot, 'native', 'scan-cleanup');
