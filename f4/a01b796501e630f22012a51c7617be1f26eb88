@@ -1,0 +1,19 @@
+native/Cargo.toml
+  s_3d53892d0b2b83::t_ba6132e83865bc 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f4a01b796501e630f22012a51c7617be1f26eb88",
+  "prompts": {},
+  "sessions": {
+    "s_3d53892d0b2b83": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0948f-e733-7a82-a9b9-082434f0c1cc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

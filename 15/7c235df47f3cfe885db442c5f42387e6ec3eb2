@@ -1,0 +1,52 @@
+electron/unhandledRejectionRecovery.ts
+  s_9d9f282a939f2d::t_1aada6b0efeace 7
+  s_9d9f282a939f2d::t_a2a273ae09dbc3 59-62
+  s_9d9f282a939f2d::t_de4cb85b909a95 68
+  s_9d9f282a939f2d::t_8c9804d31f5b29 27,31,35,39,43
+  s_9d9f282a939f2d::t_af0cfe5bdca6e3 8,18,47-58,63-67,69-88,90-93,109
+  s_9d9f282a939f2d::t_cccb861389dccf 24,97
+electron/features/ocr/main/ocrCatalogV4.ts
+  s_9d9f282a939f2d::t_de4cb85b909a95 147
+electron/features/djvu/main/pdfWorkerClient.ts
+  s_9d9f282a939f2d::t_de4cb85b909a95 29-30
+electron/features/djvu/main/djvuArtifactManifest.ts
+  s_9d9f282a939f2d::t_de4cb85b909a95 80-81
+tests/unit/electron/unhandledRejectionRecovery.test.ts
+  s_9d9f282a939f2d::t_af0cfe5bdca6e3 104,107
+  s_9d9f282a939f2d::t_7e548ae6e0ca20 23-34
+  s_9d9f282a939f2d::t_13e7ae3731a086 19
+  s_9d9f282a939f2d::t_7b90a5f5e9ce51 84
+electron/features/search/main/searchErrors.ts
+  s_9d9f282a939f2d::t_de4cb85b909a95 24
+electron/bootstrap/mainProcess.ts
+  s_9d9f282a939f2d::t_af0cfe5bdca6e3 704,708-711
+  s_247a07a16a61fa::t_0ba66b2b805154 702
+electron/features/ocr/contracts.ts
+  s_9d9f282a939f2d::t_de4cb85b909a95 176
+electron/features/agent/assistantService.ts
+  s_9d9f282a939f2d::t_de4cb85b909a95 110-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "157c235df47f3cfe885db442c5f42387e6ec3eb2",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9d9f282a939f2d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0948f-d4c3-75e3-9ce5-0f6990c22efc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

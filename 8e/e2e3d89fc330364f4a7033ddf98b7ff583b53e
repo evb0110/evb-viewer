@@ -1,0 +1,24 @@
+electron/features/ocr/worker/pdfAssembler.ts
+  s_98e9eb8abac348::t_7252c076dd2ccd 355-361,509-511,530-532
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_98e9eb8abac348::t_7413cffb96cfbc 564-565
+  s_98e9eb8abac348::t_a63d5889802b01 240-249,260-261,265-267,601-603
+  s_98e9eb8abac348::t_5d922c7121dfb8 528-563,566-567
+  s_98e9eb8abac348::t_2fb798ba864a7e 604
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8ee2e3d89fc330364f4a7033ddf98b7ff583b53e",
+  "prompts": {},
+  "sessions": {
+    "s_98e9eb8abac348": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09566-3aae-7d40-bd8a-d0104d8cab69",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,394 @@
+docs/architecture/adr/0003-notes-are-text-annotations.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-51
+app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 13
+docs/internal/navigation-zoom-audit-2026-08-22-implementation-ledger.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-426
+docs/internal/operations/sentry-runbook.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-346
+docs/internal/scan-cleanup/process/reviews/round4-sol-xhigh.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-211
+scripts/check-dev-environment.mjs
+  s_247a07a16a61fa::t_1d4d5c8776996f 304
+docs/internal/scan-cleanup/process/reviews/round2-sol-xhigh.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-175
+docs/internal/research/pdfjs-source-fork-build-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-70
+docs/internal/scan-cleanup-live-run-improvement-ledger-2026-08-07.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-465
+docs/internal/scan-cleanup/audit-2026-08-14/COMPLETENESS-CRITIC.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-125
+scripts/release/policy.mjs
+  s_247a07a16a61fa::t_1d4d5c8776996f 2
+scripts/stress/README.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 10,56,143
+CLAUDE.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-14
+docs/internal/agents/utm-windows-tests.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-142
+scripts/windows-test/host/hostConfig.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 236
+docs/internal/research/stress-test-automation-plan-2026-09-04.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-257
+docs/internal/operations/sentry-agent-check.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-173
+.coderabbit.yaml
+  s_247a07a16a61fa::t_1d4d5c8776996f 36,43,50,58,65,73
+docs/internal/README.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-9
+docs/internal/sentry-error-telemetry-ledger-2026-09-01.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-1370
+landing/app/locales/pt.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+README.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 3-141
+docs/internal/stress-operator-runbook.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-85
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 437
+docs/internal/agents/issue-tracker.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-45
+docs/internal/research/utm-windows-live-transport-2026-09-05.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-496
+docs/internal/scan-cleanup/weight-rule-restore-root-cause-2026-08-19.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-106
+docs/internal/agents/triage-labels.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-32
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 239,245,280
+docs/internal/agents/domain.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-51
+docs/internal/unclassified-main-error-migration-report-2026-09-03.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-24
+docs/architecture/adr/0001-sync-fs-metadata-in-packaged-critical-paths.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-45
+docs/architecture/pdf-viewer-architecture.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-135
+docs/internal/project6-325-binary-provenance-platform-inventory.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-352
+docs/architecture/adr/0004-assistant-is-optional-with-provider-adapters.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-135
+electron/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 2
+CONTRIBUTING.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 3-37,41-43,53,70,74-75,96-97
+docs/internal/reliability-readiness-audit-2026-08-19.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-629
+docs/internal/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-355
+docs/internal/benchmarks/stress/slow-b.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+docs/architecture/mcp.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-525
+docs/internal/scan-cleanup/audit-2026-08-15-verification.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-231
+docs/internal/scan-cleanup/process/reviews/round3-sol-xhigh.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-363
+docs/architecture/adr/0005-pdf-password-open-retry.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-32
+docs/internal/assistant-production-files.txt
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-113
+docs/internal/sentry-implementation-ledger-2026-09-01.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-2142
+docs/internal/research/pdfjs-dependency-cost-assessment-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-348
+docs/internal/unclassified-renderer-error-migration-report-2026-09-03.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-26
+docs/contributing/windows-tests/setup-and-repair.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-300
+docs/internal/project6-296-baseline-decision-2026-09-08.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-237
+docs/internal/reliability/issue-167-vps-interop-2026-09-06.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-178
+docs/internal/research/annotation-system-rework-2026-09-08.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-281
+docs/internal/research/github-actions-release-ci-timeout-2026-08-24.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-97
+docs/internal/scan-cleanup/audit-2026-08-22-implementation-ledger.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-1652
+docs/internal/scan-cleanup/weight-halo-strip-root-cause-2026-08-19.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-207
+docs/user/assistant.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-51
+docs/internal/research/windows-print-rotate-failure-ledger-2026-09-02.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-136
+docs/internal/scan-cleanup/process/reviews/README.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-25
+docs/internal/research/xlarge-document-path-architecture-2026-08-27.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-174
+docs/contributing/headless-vps-setup.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-96
+docs/internal/scan-cleanup/audit-2026-08-15-corrective.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-787
+docs/internal/scan-cleanup/audit-2026-08-15-vps-verdicts.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-621
+docs/internal/research/pdfjs-noview-editor-free-rendering-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-194
+packages/release-selection/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+tests/unit/scripts/publicationPolicy.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-1097
+docs/internal/operations/sentry-delivery-closure.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-47
+docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-122
+docs/internal/project6-317-rebase-integration-blocker.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-80
+docs/internal/research/chrome-trust-path-repair-handoff-2026-08-31.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-99
+landing/app/locales/nl.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+scripts/diagnostics/README.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 347
+scripts/lib/added-checks.mjs
+  s_247a07a16a61fa::t_1d4d5c8776996f 13-14
+docs/internal/benchmarks/stress/slow-c.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+docs/README.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-13
+docs/internal/research/stress-test-automation-implementation-ledger-2026-09-04.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-242
+tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 6
+packages/scan-cleanup/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+docs/internal/scan-cleanup/weight-oracle-verdict-2026-08-15.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-47
+tsconfig.base.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 15-39
+tsconfig.scripts-js.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 2,14-15,17-83
+docs/internal/benchmarks/stress/forced-low.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+landing/app/locales/es.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+docs/contributing/release-guardrails.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-140
+docs/internal/benchmarks/native-release-profile-2026-07-10.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-33
+docs/internal/research/utm-windows-autotest-plan-2026-09-04.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-671
+docs/internal/operations/sentry-nitro-legitimate-interests-assessment.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-124
+docs/internal/reliability/large-document-audit-ledger-2026-08-27.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-581
+tests/unit/scripts/releasePolicy.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 961,991,1102,1157,1257
+docs/internal/benchmarks/stress/slow-a.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+docs/internal/scan-cleanup/process/LEDGER-2026-08-14-process-v2.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-831
+scripts/release/shared.mjs
+  s_247a07a16a61fa::t_1d4d5c8776996f 650,741
+docs/internal/project6-306-workspace-driver-capability-inventory.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-417
+.gitignore
+  s_247a07a16a61fa::t_1d4d5c8776996f 23-26
+docs/internal/reliability/whole-repo-program-ledger-2026-08-21.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-213
+docs/architecture/css-load-bearing-classes.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-78
+scripts/test-ocr-quality-corpus.mjs
+  s_247a07a16a61fa::t_1d4d5c8776996f 99
+.husky/commit-msg
+  s_247a07a16a61fa::t_1d4d5c8776996f 1
+docs/internal/reliability/issue-123-linux-acceptance-2026-08-29.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-70
+docs/internal/operations/sentry-account-controls.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-143
+scripts/windows-test/host/doctor.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 249,432
+docs/internal/agents/scan-cleanup-oracles.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-14
+docs/internal/architecture-audit-2026-07-05.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-333
+docs/internal/scan-cleanup/audit-2026-08-22-verification-ledger.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-608
+docs/internal/architecture-audit-2026-07-03.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-149
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 642
+docs/internal/project6-331-dependency-placement-2026-09-08.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-147
+docs/internal/research/print-selection-filename-compatibility-2026-08-25.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-91
+.husky/pre-push
+  s_247a07a16a61fa::t_1f2ec90d634a2f 8
+docs/internal/scan-cleanup/process/reviews/round1-sol-xhigh.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-230
+packages/node-runtime/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+docs/internal/research/stale-revision-xlarge-search-2026-09-02.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-159
+docs/internal/agents/workspace-hygiene.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-94
+packages/pdf-core/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+landing/app/locales/ru.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+docs/contributing/local-gates.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-157
+tests/unit/electron/helpers/createRealWorkerProtocolHarness.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 60
+landing/app/locales/ptBr.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+docs/internal/research/cubic-local-review-removal-2026-08-26.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-29
+.husky/pre-commit
+  s_247a07a16a61fa::t_1d4d5c8776996f 1
+docs/internal/research/search-match-navigation-2026-09-05.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-220
+docs/internal/scan-cleanup/audit-2026-08-14/SYNTHESIS.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-170
+docs/internal/scan-cleanup/audit-2026-08-15-corrections.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-387
+packages/i18n-app/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+docs/internal/research/windows-v450-print-delete-repair-2026-09-04.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-150
+docs/internal/research/search-result-match-scroll-2026-09-02.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-72
+docs/internal/scan-cleanup/weight-canonical-routing-handoff-2026-08-16.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-267
+tests/unit/scripts/windows-test/changeSelector.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 95
+landing/app/locales/fr.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+docs/internal/research/rust-pdf-engine-rewrite-feasibility-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-586
+docs/architecture/design-charter.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-52
+docs/internal/research/rust-writer-decryption-lopdf-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-57
+docs/internal/research/pdf-engine-strategy-assessment-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-447
+docs/architecture/glossary.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-102
+docs/user/formats-and-languages.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-79
+AGENTS.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-101
+docs/internal/scan-cleanup/process/DEV-VALIDATION-APPROACH-2026-08-14.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-471
+docs/internal/project6-324-ci-workflow-consolidation-20260908.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-79
+docs/user/what-scans-work.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-64
+docs/contributing/windows-tests/image-migration-policy.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-66
+landing/app/locales/en.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+docs/internal/scan-cleanup/staged-analyze-window.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-125
+docs/internal/research/sentry-opt-out-diagnostics-2026-09-01.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-70
+docs/contributing/release-updater-canary.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+scripts/validation-gates.mjs
+  s_247a07a16a61fa::t_2b666ecaaf426c 35
+.github/workflows/ci.yml
+  s_247a07a16a61fa::t_1d4d5c8776996f 33-34,46,55,58,60,453,584
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 54
+docs/internal/research/stress-report-fixes-2026-09-05.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-144
+landing/app/locales/it.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+tsconfig.scripts.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 2
+ARCHITECTURE.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-146
+tests/unit/scripts/localArtifactPolicy.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 12,49-52,62-66,162-163,166,177
+docs/internal/research/utm-windows-autotest-implementation-ledger-2026-09-04.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-520
+docs/internal/scan-cleanup/audit-2026-08-16-resolution.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-115
+docs/internal/navigation-zoom-feature-audit-2026-08-22.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-430
+docs/internal/reliability/static-breaking-points-audit-2026-08-31.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-777
+tests/unit/electron/ocrDocs.test.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 88,91
+docs/contributing/development.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-264
+docs/contributing/web-build.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-64
+docs/contributing/vercel-deploy.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-66
+docs/internal/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-1822
+docs/user/mcp-clients.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-53
+scripts/stress/stressCliOptions.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 41
+tests/helpers/ocrWorkerPipelineHarness.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 35
+docs/internal/research/pdf-engine-architecture-assessment-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-216
+docs/contributing/releasing.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-79
+docs/internal/architecture-audit-2026-07-23.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-389
+docs/internal/pdf-annotations-feature-audit-2026-08-22.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-900
+docs/internal/project6-315-contract-alias-migration-2026-09-09.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-41
+docs/internal/benchmarks/stress/baseline.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+docs/internal/research/multi-gib-native-incremental-save-2026-08-26.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-197
+docs/internal/agents/electron-session-lifecycle.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-82
+docs/internal/agents/hidden-electron-automation.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-80
+docs/internal/scan-cleanup/nabuco-remediation-ledger-2026-08-24.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-725
+packages/contracts/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+docs/architecture/ocr.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-69
+docs/internal/scan-cleanup-feature-audit-2026-08-22.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-336
+docs/internal/benchmarks/stress/slow-a-gpu.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-17
+docs/internal/scan-cleanup/process/REMAINING-PROBLEMS-CLOSURE-2026-08-16.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-136
+landing/app/locales/de.ts
+  s_247a07a16a61fa::t_1d4d5c8776996f 4,29,32-35,149-151
+packages/i18n-core/tsconfig.json
+  s_247a07a16a61fa::t_1d4d5c8776996f 3
+scripts/check-publication-policy.mjs
+  s_247a07a16a61fa::t_0a51c9eeaee7c6 24,29-30,58,124,215,217,219,290,411
+  s_247a07a16a61fa::t_5fb86627fcd16c 481
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-23,33-46,48-55,57,59-65,68-82,87-95,97-106,108-121,123,125-126,131-162,164-182,184-211,213-214,216,218,220,222-262,264,266-275,277,279-286,288-289,291-309,311-327,329-338,340-345,347,349-370,372-389,391-394,396-402,405-408,410,412-413,419-424,427-433,435-448,450-451,453-465,467-480,482-487,492,495-538
+  s_247a07a16a61fa::t_c4eaa3f15a2931 26-28,66,83-86,127-130,221,265,276,278,339,346,414-418,425-426,449,488-491,493-494
+  s_247a07a16a61fa::t_6a79f6f06b20f8 403-404
+  s_247a07a16a61fa::t_3f0310aba6fc9a 25,31,212,371
+  s_247a07a16a61fa::t_f9915306a977d9 32,47,56,67,96,107,122,163,183,263,287,310,328,348,390,409,434,452,466
+  s_247a07a16a61fa::t_8749cc068a3b60 395
+scripts/lib/local-artifact-policy.mjs
+  s_247a07a16a61fa::t_1d4d5c8776996f 7,22-31,158-163,183-190
+docs/internal/research/large-pdf-native-incremental-save-2026-08-25.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-160
+docs/architecture/freetext-note-persistence.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-86
+docs/internal/reliability/issue-123-macos-acceptance-2026-08-30.md
+  s_247a07a16a61fa::t_1d4d5c8776996f 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "279ef27d859d606aa252053ba7429aea1fc0c5ae",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_f3a506267d5078::t_f6f6ad20b7f708 820
+  s_f3a506267d5078::t_46b6b0720d4971 819,821-835
+scripts/windows-test/host/runCoordinator.ts
+  s_f3a506267d5078::t_87b7988e228930 1013-1018
+  s_247a07a16a61fa::t_09b111a6364c9a 1002,1008-1010
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "800d1fefd8205399842f7fdfbbd3eba05bce1aef",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_f3a506267d5078": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09557-d3dd-7740-976f-04704033928a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

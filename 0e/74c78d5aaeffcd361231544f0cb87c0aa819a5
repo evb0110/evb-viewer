@@ -1,0 +1,46 @@
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_979ed09eeb004a::t_145127a5228b70 97,100-104,445,467,470-472,480-481,771
+tests/unit/app/modules/pdf-viewer/engine/pdfLayerVisualSnapshot.test.ts
+  s_979ed09eeb004a::t_c2b5e7f00dd556 36-76
+tests/unit/app/modules/pdf-viewer/usePdfViewerRerenderCoordinator.test.ts
+  s_39a5e2913b3529::t_19c8defa8f5de4 1563-1578,1580-1594
+  s_39a5e2913b3529::t_aa6ac44f6f734d 1579
+app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator.ts
+  s_39a5e2913b3529::t_1ccfdc791afe89 5,729,743,815-818
+app/modules/pdf-viewer/engine/pdf-visual-snapshot/schedulePdfVisualSnapshotRelease.ts
+  s_979ed09eeb004a::t_145127a5228b70 7-8,36,38,44-58,60-75,84,91-94,96,99,101-103,108
+  s_979ed09eeb004a::t_3b146b85d2765c 34
+  s_247a07a16a61fa::t_eea460ea3d440c 104-107,111-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0e74c78d5aaeffcd361231544f0cb87c0aa819a5",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_39a5e2913b3529": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09548-c620-7352-bfe8-c9cb3de180eb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_979ed09eeb004a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09544-c737-7651-b4ac-0eb23d9feed1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

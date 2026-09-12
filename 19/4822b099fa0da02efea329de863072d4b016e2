@@ -1,0 +1,37 @@
+tests/unit/electron/jobBroker.test.ts
+  s_51191787d85e62::t_17f15e8abbed45 474-491
+electron/features/ocr/main/jobManager.ts
+  s_51191787d85e62::t_fb667296765129 482
+electron/features/ocr/main/ocrResourceGovernor.ts
+  s_51191787d85e62::t_fb667296765129 152
+electron/resources/jobBroker.ts
+  s_51191787d85e62::t_fb667296765129 252,262-265
+tests/unit/electron/ocrResourceGovernor.test.ts
+  s_51191787d85e62::t_fb667296765129 41
+  s_51191787d85e62::t_17f15e8abbed45 30,105
+tests/unit/electron/ocrJobWorkerLifecycle.test.ts
+  s_51191787d85e62::t_fb667296765129 86
+  s_51191787d85e62::t_17f15e8abbed45 158,199,206,235
+electron/features/ocr/main/ocrJobWorkerLifecycle.ts
+  s_51191787d85e62::t_4f2c0806dd0c98 172-174
+  s_51191787d85e62::t_fb667296765129 176-177,180,182-185
+  s_51191787d85e62::t_c211214f78c250 616
+electron/features/ocr/main/jobManager.types.ts
+  s_51191787d85e62::t_fb667296765129 92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "194822b099fa0da02efea329de863072d4b016e2",
+  "prompts": {},
+  "sessions": {
+    "s_51191787d85e62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09566-2845-7d73-8587-fed83cd848f0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

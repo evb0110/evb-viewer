@@ -1,0 +1,41 @@
+packages/i18n-app/messages/ru.ts
+  s_1e392a0aad3629::t_39384cd5c550df 1546
+packages/i18n-app/messages/en.ts
+  s_1e392a0aad3629::t_39384cd5c550df 1506
+electron/updates.ts
+  s_1e392a0aad3629::t_39384cd5c550df 209
+  s_1e392a0aad3629::t_4527b695efb236 210
+  s_247a07a16a61fa::t_a1efe155d89492 192-193,197-198,205-208,211
+tests/unit/electron/updates.test.ts
+  s_1e392a0aad3629::t_446a817c2446bb 179,195,451-467,471,670,729,738,759,765
+  s_1e392a0aad3629::t_39384cd5c550df 468
+  s_1e392a0aad3629::t_c93ac5a438d560 136
+  s_1e392a0aad3629::t_4527b695efb236 183,199
+  s_1e392a0aad3629::t_2b42eb3a504dbf 469-470
+docs/user/formats-and-languages.md
+  s_247a07a16a61fa::t_5468a40b3ab66f 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a223680a9d4acb1ae825d7defca6ed620a12433e",
+  "prompts": {},
+  "sessions": {
+    "s_1e392a0aad3629": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09526-53f5-7920-8426-72c89f3399eb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

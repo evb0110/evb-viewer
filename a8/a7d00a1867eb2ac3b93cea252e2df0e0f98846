@@ -1,0 +1,21 @@
+packages/scan-cleanup/adapters/extractPdfMrcLayers.ts
+  s_247a07a16a61fa::t_0cacbbedb19c71 27-34,206,440,494,729,742
+tests/unit/electron/pdfMrcExtraction.test.ts
+  s_247a07a16a61fa::t_13cc6327b7afa6 178-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a8a7d00a1867eb2ac3b93cea252e2df0e0f98846",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

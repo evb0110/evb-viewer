@@ -1,0 +1,39 @@
+app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types.ts
+  s_247a07a16a61fa::t_edc9f0c38512f5 170
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_247a07a16a61fa::t_113ef274f81dc3 254
+app/modules/workspace-shell/composables/createPrintableSourceDataResolver.ts
+  s_247a07a16a61fa::t_dd240bd302bc4e 6-7,10-11,20-22,48,53-57,59-75
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_247a07a16a61fa::t_7cfacdd4a4107e 750,754-764,766
+app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy.ts
+  s_247a07a16a61fa::t_fd3cb3dd00bae5 52,225
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_247a07a16a61fa::t_bcbf813a89791b 26-27,332,350-354,357-374,377-379
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_247a07a16a61fa::t_775fe40239c809 166
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_247a07a16a61fa::t_0a88438c16a323 747-749
+tests/unit/app/modules/workspace-shell/composables/createPrintableSourceDataResolver.test.ts
+  s_247a07a16a61fa::t_cd9bc5a39908c7 2,13-14,18,31-65,73-76,78-79,111-113,134-147,155,161,218,502-504,561
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_247a07a16a61fa::t_4528d92493ac7d 33-58,137-138,194,197-198,202,209,224-230,253-254
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_247a07a16a61fa::t_e9e313e35e647e 427-428,434,437,451-452,461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64c1b91621389363f8a5a21c7748302d68a17b6a",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

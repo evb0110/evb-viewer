@@ -1,0 +1,39 @@
+tests/unit/app/modules/workspace-shell/composables/createPrintableSourceDataResolver.test.ts
+  s_dbce3b1bddbea7::t_51f56e84af7647 96-97,99-103,105-111,113-114
+  s_dbce3b1bddbea7::t_480ce299e2320f 98,104,112
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_dbce3b1bddbea7::t_3c17890243f4d5 426-428,430-439,441-445,447-458
+  s_dbce3b1bddbea7::t_8a4be53651dbff 404
+app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types.ts
+  s_dbce3b1bddbea7::t_3c17890243f4d5 171
+app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts
+  s_dbce3b1bddbea7::t_3c17890243f4d5 107,1112-1113
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_247a07a16a61fa::t_67730ad8ac9fb4 540,768
+app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy.ts
+  s_247a07a16a61fa::t_b569add1ce9058 194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "33e2586875955444165c30226ff5c4704f2c21d8",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_dbce3b1bddbea7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094d5-4dc6-7581-bea1-d52a674bb414",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

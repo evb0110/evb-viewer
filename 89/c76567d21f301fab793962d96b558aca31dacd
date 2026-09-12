@@ -1,0 +1,31 @@
+packages/i18n-app/messages/de.ts
+  s_247a07a16a61fa::t_7ee6c38ab1ecf2 1506
+packages/i18n-app/messages/es.ts
+  s_247a07a16a61fa::t_e1961fc7101bed 1506
+packages/i18n-app/messages/fr.ts
+  s_247a07a16a61fa::t_00460d94564f78 1517
+packages/i18n-app/messages/it.ts
+  s_247a07a16a61fa::t_b6ccd1ce4ecdc2 1506
+packages/i18n-app/messages/nl.ts
+  s_247a07a16a61fa::t_9e36c58c319318 1506
+packages/i18n-app/messages/pt.ts
+  s_247a07a16a61fa::t_658047730f1d88 1517
+packages/i18n-app/messages/ptBr.ts
+  s_247a07a16a61fa::t_8eeed20488d23c 1517
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "89c76567d21f301fab793962d96b558aca31dacd",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

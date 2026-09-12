@@ -1,0 +1,22 @@
+tests/unit/electron/mainJobRegistry.test.ts
+  s_3b8773a53c668f::t_85a228fc027b14 52-58
+electron/operation-lifecycle/createMainJobRegistry.ts
+  s_3b8773a53c668f::t_79865e8bf342ee 442-445
+  s_3b8773a53c668f::t_10d2e626ebbb6a 436-441
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "20ce5aa230bb684ce5901dc72e32fa47a7cb73a6",
+  "prompts": {},
+  "sessions": {
+    "s_3b8773a53c668f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09538-54a2-7803-942f-3f1347ab8ee4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

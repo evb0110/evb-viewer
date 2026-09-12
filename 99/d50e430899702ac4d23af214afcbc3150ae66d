@@ -1,0 +1,56 @@
+app/types/workspaceExpose.ts
+  s_489d21c444fb6a::t_aa77acbdc82242 264-265
+app/modules/workspace-shell/composables/useEditorPanesManager.ts
+  s_489d21c444fb6a::t_aea318ff3dc62b 19,166-179
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_489d21c444fb6a::t_7e10711889c39d 211,220
+  s_489d21c444fb6a::t_87c64ba4266f36 235-238
+  s_489d21c444fb6a::t_542d217a65969e 9,81,177,180,231
+  s_489d21c444fb6a::t_0b4e6c988e650e 169-176,183-210,212-219,221-230,232-234,239-247
+  s_489d21c444fb6a::t_70c960ba30e4e2 10,67-74,178-179,181-182
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_489d21c444fb6a::t_aa77acbdc82242 12,139,422,730
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_489d21c444fb6a::t_c20c00cc77adeb 122,125,127,131-132,134,140-141,143-144,146,148
+  s_489d21c444fb6a::t_6092665dc97764 89-111,113-119,150-151,153,228-230,238
+  s_247a07a16a61fa::t_2f94fc0ab0bbb2 120-121,231-237,239
+tests/unit/app/modules/workspace-shell/composables/useEditorPanesManager.test.ts
+  s_489d21c444fb6a::t_aea318ff3dc62b 15,442-448,472
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature.ts
+  s_489d21c444fb6a::t_c94cfbf15c4c25 70
+tests/unit/app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature.test.ts
+  s_489d21c444fb6a::t_c94cfbf15c4c25 16,177-183
+  s_247a07a16a61fa::t_6e4cc59c8ad30b 191
+app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.ts
+  s_247a07a16a61fa::t_b2e82caa0a4b4b 400-403
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_247a07a16a61fa::t_dbc649eef71127 28
+tests/unit/app/modules/workspace-shell/composables/workspaceExposeContract.test.ts
+  s_247a07a16a61fa::t_fc68db770e82d2 76
+tests/unit/app/modules/workspace-shell/workspaceTestFixtures.ts
+  s_247a07a16a61fa::t_d1d1762ffc8338 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "99d50e430899702ac4d23af214afcbc3150ae66d",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_489d21c444fb6a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09581-2e43-7201-8394-4a91c641c8ab",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

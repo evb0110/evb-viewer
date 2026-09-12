@@ -1,0 +1,43 @@
+.github/workflows/ci.yml
+  s_097971b99ad78b::t_c68fe547dfe9b5 33-34,46,58,60,584
+.husky/commit-msg
+  s_097971b99ad78b::t_8bd4c8c5164a4b 1
+.husky/pre-commit
+  s_097971b99ad78b::t_c51b73d3c643f1 1
+.husky/pre-push
+  s_097971b99ad78b::t_1447fdc784bae5 1
+CONTRIBUTING.md
+  s_097971b99ad78b::t_1b97da53af0f78 67-68
+docs/contributing/local-gates.md
+  s_097971b99ad78b::t_8f7f36b51c426a 40-41
+docs/contributing/release-guardrails.md
+  s_097971b99ad78b::t_910d395c876708 87
+scripts/check-publication-policy.mjs
+  s_097971b99ad78b::t_6b6093b2123c2a 352,360-361,429
+scripts/lib/added-checks.mjs
+  s_097971b99ad78b::t_e21de9d2f01766 13-14
+scripts/lib/local-artifact-policy.mjs
+  s_097971b99ad78b::t_fed841a928615e 7,185-188
+scripts/release/shared.mjs
+  s_097971b99ad78b::t_1b159e03d710a3 650,741
+tests/unit/scripts/publicationPolicy.test.ts
+  s_097971b99ad78b::t_9c8870a00c0cb3 33,50-51,205,210,216-218,317,322,326,518,538,550,556,629,639,881,970,977,991-994,1020
+tests/unit/scripts/releasePolicy.test.ts
+  s_097971b99ad78b::t_4110b6908a4a6a 961,991,1102,1157,1257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "12088ece596a4bc1a45f87e46d2af0bbd14bbb1b",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

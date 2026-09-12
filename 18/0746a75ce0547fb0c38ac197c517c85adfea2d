@@ -1,0 +1,23 @@
+tests/unit/electron/ocrDocs.test.ts
+  s_247a07a16a61fa::t_a799746ea5aaa4 12,47-48,50,79-81
+tests/unit/scripts/windowsTestRegistryPolicy.test.ts
+  s_247a07a16a61fa::t_8bada5fe630350 34-35
+tests/unit/scripts/buildElectron.test.ts
+  s_247a07a16a61fa::t_a7f1d3f232b768 49-62,137-138,144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "180746a75ce0547fb0c38ac197c517c85adfea2d",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

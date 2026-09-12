@@ -1,0 +1,53 @@
+tests/helpers/ocrWorkerPipelineHarness.ts
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 35
+packages/node-runtime/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+packages/i18n-app/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+packages/i18n-core/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+packages/contracts/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+packages/release-selection/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+tsconfig.base.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 15-39
+tests/unit/electron/helpers/createRealWorkerProtocolHarness.ts
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 60
+packages/scan-cleanup/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+tsconfig.scripts-js.json
+  s_6912a1a2f60612::t_33492e9283ebea 15
+  s_6912a1a2f60612::t_14cfbe751e65c5 50,64
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 2,14
+  s_6912a1a2f60612::t_bd92f92ea92d5a 27,51,78
+  s_6912a1a2f60612::t_671663dde16b77 17-26,28-49,52-63,65-77,79-84
+packages/pdf-core/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 3
+electron/tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 2
+tsconfig.scripts.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 2
+scripts/test-ocr-quality-corpus.mjs
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 99
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 239
+tsconfig.json
+  s_6912a1a2f60612::t_7d8e4dcf6409a0 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a8f783b50aca76428f0c442d3fa7efe17cd6967d",
+  "prompts": {},
+  "sessions": {
+    "s_6912a1a2f60612": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09475-bcee-7f33-bd73-b3bd61dc907a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

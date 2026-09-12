@@ -1,0 +1,78 @@
+electron/features/scan-cleanup/native/protocolCodec.ts
+  s_66c0a9d37655e2::t_742f5e37de3da6 15-25
+  s_247a07a16a61fa::t_d66b724dcac18a 26
+native/evb-native-support/src/bounded_io.rs
+  s_66c0a9d37655e2::t_d81904a6a137bc 144,295-307,310-312
+  s_66c0a9d37655e2::t_9bc7535bfc6226 4,14-33,39,117,123,130,313
+  s_66c0a9d37655e2::t_deaff4b4bdcd2b 114-116,308-309
+  s_247a07a16a61fa::t_b75bf3b6d5f626 34-38,40,95,118-122,135-136,152,205,314-319
+tests/unit/electron/scanCleanupNativeProtocolCodec.test.ts
+  s_66c0a9d37655e2::t_742f5e37de3da6 7-10,13-27
+  s_247a07a16a61fa::t_b44e588029c6f7 28-33
+native/scan-cleanup/src/engine/render_tests/mod.rs
+  s_66c0a9d37655e2::t_ef2f0780159533 21
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_66c0a9d37655e2::t_8b5f9040fc7a09 1306-1312,3648-3650,3655-3657
+  s_66c0a9d37655e2::t_29528a14e9ee45 1677,1697,2389,3661-3664
+  s_66c0a9d37655e2::t_cac28440f3bfc8 1305,3647,3654
+  s_66c0a9d37655e2::t_3be60da4105b6f 2218
+  s_66c0a9d37655e2::t_d81904a6a137bc 3660
+  s_66c0a9d37655e2::t_81afdf258b60f0 3658-3659
+native/evb-native-support/src/pdf_catalog.rs
+  s_66c0a9d37655e2::t_deaff4b4bdcd2b 1
+  s_66c0a9d37655e2::t_9bc7535bfc6226 69,75
+native/pdf-page-ops/src/types.rs
+  s_66c0a9d37655e2::t_9bc7535bfc6226 5,63,111,239,250
+native/pdf-page-ops/src/incremental_document.rs
+  s_66c0a9d37655e2::t_deaff4b4bdcd2b 1150
+  s_66c0a9d37655e2::t_9bc7535bfc6226 532-533,541-542,545,548-550,554
+  s_66c0a9d37655e2::t_d81904a6a137bc 1148-1149,1151-1157
+  s_66c0a9d37655e2::t_92cdd0fb233e89 528-529
+  s_247a07a16a61fa::t_c27fb6a2d3cede 2-4,16-24,530,551,553,574-575,678-684,1158-1169
+native/scan-cleanup/src/engine/render.rs
+  s_66c0a9d37655e2::t_fa28318bd15d60 554,2338,2377
+  s_66c0a9d37655e2::t_27d56863cb439b 1300-1312
+  s_66c0a9d37655e2::t_83c259ce511039 1286-1299,1313-1322,1326-1329
+  s_66c0a9d37655e2::t_deaff4b4bdcd2b 1323-1325
+  s_66c0a9d37655e2::t_482bf2449cc1ef 1874,1886,1908,2220,2245,2269,2294,2321
+  s_247a07a16a61fa::t_33d4fae3c764c6 2143
+electron/native-tools/runNativeCommand.ts
+  s_66c0a9d37655e2::t_f5ba5029aced4b 179-191
+  s_247a07a16a61fa::t_b8caa314542b34 192
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_66c0a9d37655e2::t_d924788a47c552 47-49,267-269,595,806,1031-1033,1167-1168
+  s_247a07a16a61fa::t_f3364c27006ac5 1169,2508
+native/scan-cleanup/src/domain/options.rs
+  s_66c0a9d37655e2::t_84a1a36974bad8 819,821-823,828-830,842,844,926-936,939
+  s_66c0a9d37655e2::t_deaff4b4bdcd2b 833-837
+  s_247a07a16a61fa::t_eeb3d44d9bdf1f 937-938
+tests/unit/electron/nativeRunCommand.test.ts
+  s_66c0a9d37655e2::t_d81904a6a137bc 262-267,269-277
+  s_66c0a9d37655e2::t_3a7c511220f17d 268
+native/scan-cleanup/src/domain/options_tests.rs
+  s_247a07a16a61fa::t_3422abbdb6049b 2-5,360-367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "da23e7bf752b5c45542232692f11fa6d51e678ee",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_66c0a9d37655e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094d5-3d1e-74c2-a738-401fd74246c5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

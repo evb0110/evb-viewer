@@ -1,0 +1,49 @@
+electron/features/search/tryRunPersistentNativeSearch.ts
+  s_bdf0d3222d3fa7::t_153f4eba4479c9 13
+  s_bdf0d3222d3fa7::t_60c5207bc2ab09 76,108
+  s_bdf0d3222d3fa7::t_0b8fac41d9f61e 377-379,382
+tests/unit/electron/imageExport.test.ts
+  s_bdf0d3222d3fa7::t_0430c4743323b4 77
+electron/features/agent/codexAppServerClient.ts
+  s_bdf0d3222d3fa7::t_e6fdf50d0ab042 90,378,388,393
+  s_bdf0d3222d3fa7::t_153f4eba4479c9 9
+electron/features/ocr/main/runOcr.ts
+  s_bdf0d3222d3fa7::t_153f4eba4479c9 5
+  s_bdf0d3222d3fa7::t_73a673b3b589af 75-76,152,156,178,187,190-193
+electron/native-tools/runNativeCommand.ts
+  s_bdf0d3222d3fa7::t_153f4eba4479c9 18
+  s_bdf0d3222d3fa7::t_fb4ce62148f9ab 223-224,228,231,235
+  s_247a07a16a61fa::t_d654be64fc991e 236-238,558-567
+electron/features/ocr/worker/tesseractRunner.ts
+  s_bdf0d3222d3fa7::t_5948c57de87c23 360,364-367
+  s_bdf0d3222d3fa7::t_d0a440d1189fc6 194
+  s_bdf0d3222d3fa7::t_153f4eba4479c9 19
+electron/native-tools/createTextChunkAccumulator.ts
+  s_247a07a16a61fa::t_50ceb076d3938f 1-14,16-19,21-40,43-63
+packages/scan-cleanup/adapters/extractPdfMrcLayers.ts
+  s_247a07a16a61fa::t_0e1e91bfdc3680 195-197,199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ee1bc924b509b524f182b3b4432fcbfd919f9a5",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bdf0d3222d3fa7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094b7-ef27-76a3-bbd4-8bff47de0140",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

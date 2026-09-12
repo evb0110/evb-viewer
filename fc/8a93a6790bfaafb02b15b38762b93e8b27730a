@@ -1,0 +1,62 @@
+app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts
+  s_b6fbf2f02d743a::t_0b412087d3beb7 71,434,666-670,684
+  s_b6fbf2f02d743a::t_91eee206b89e5c 665
+tests/unit/app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit.test.ts
+  s_b6fbf2f02d743a::t_33432387b9587c 116-119,121-124
+  s_b6fbf2f02d743a::t_990bcf12eaeb4a 103-115,120,125-146
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_b6fbf2f02d743a::t_3c9c5d3a8b68d2 1178-1189
+  s_b6fbf2f02d743a::t_42f005aca43ca4 424,1207
+app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue
+  s_b6fbf2f02d743a::t_def2be59d37fa7 59-60,86,107
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationDocumentIdentity.test.ts
+  s_b6fbf2f02d743a::t_0bd276248b498e 540,543-551,556,562-563
+  s_b6fbf2f02d743a::t_b49ca52f839199 541-542,552-555,559-561
+  s_b6fbf2f02d743a::t_33432387b9587c 557-558
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_b6fbf2f02d743a::t_c29d7af87e60f4 65-66,649-656
+  s_b6fbf2f02d743a::t_33432387b9587c 657-660
+  s_247a07a16a61fa::t_3b9b1d4a11ce21 661-664
+app/modules/pdf-viewer/annotations/domain/annotationRecovery.ts
+  s_b6fbf2f02d743a::t_67ce4b4c6ada87 26-27,34-37,155,167-172
+  s_247a07a16a61fa::t_3a19c15cad222b 174,182
+tests/unit/app/modules/pdf-viewer/annotations/annotationStorePublicApi.test.ts
+  s_b6fbf2f02d743a::t_32960640621197 227-252
+app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit.ts
+  s_b6fbf2f02d743a::t_8f9057bdf19083 14,98
+  s_b6fbf2f02d743a::t_42a299e20ff6cc 23,109
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindows.test.ts
+  s_b6fbf2f02d743a::t_a3abb450f64379 15,31
+  s_b6fbf2f02d743a::t_9ab2ec37581f3b 22-30,32-47
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_b6fbf2f02d743a::t_bcfd416b04aa89 674-685,687,690,698-701,706-720
+  s_b6fbf2f02d743a::t_0e1ea287d649a9 120,122,124-125,210,301
+  s_b6fbf2f02d743a::t_2292be647fbce3 686
+  s_b6fbf2f02d743a::t_02b766dc4ac5af 1166,1168,1170-1171
+  s_b6fbf2f02d743a::t_9fd823fe5d518f 688
+  s_b6fbf2f02d743a::t_ed9a70808eb58c 721
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fc8a93a6790bfaafb02b15b38762b93e8b27730a",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b6fbf2f02d743a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09566-4bac-79d1-a08b-44ed07fd1c5d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

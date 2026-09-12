@@ -1,0 +1,35 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.test.ts
+  s_31f9d0e83ced9f::t_00fb33c0ce5b56 8-11
+  s_31f9d0e83ced9f::t_a373a818f577a3 315-382,385
+  s_31f9d0e83ced9f::t_615b24a59369be 18-19,102-103,143-144,291-314,383-384
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_31f9d0e83ced9f::t_871e6b9685f792 1195
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_31f9d0e83ced9f::t_871e6b9685f792 2,184-198,300,327-332,336,342-346
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_247a07a16a61fa::t_9155f82cfd3b23 468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "098049f9faa29da522da03093e0b026c209881bb",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_31f9d0e83ced9f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09507-5c85-7cf1-8fe3-91c66c673f88",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

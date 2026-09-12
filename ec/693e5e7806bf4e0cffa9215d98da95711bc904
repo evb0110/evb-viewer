@@ -1,0 +1,25 @@
+app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery.ts
+  s_247a07a16a61fa::t_17d43e433133b5 110-133,432
+app/platform/browser/browserDocumentLeaseStore.ts
+  s_247a07a16a61fa::t_511f4537c14536 88-134
+app/platform/browser/browserDocumentMaintenance.ts
+  s_247a07a16a61fa::t_69c6c586d04abe 47,330-335,386,545,555,561
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_247a07a16a61fa::t_dd2eff7e3c2b5e 16-34,148,545-590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ec693e5e7806bf4e0cffa9215d98da95711bc904",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+native/scan-cleanup/tests/page_cli.rs
+  s_18d1788042f158::t_c6d8401b9ed2ca 366-383
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_18d1788042f158::t_33fe4695df35d8 63,723,830-838,912,916-920,922,1270-1286
+  s_247a07a16a61fa::t_5ffb1e61bc44b1 1287-1299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "722685d64528277b7a90914cc2cdea3b2fee12ec",
+  "prompts": {},
+  "sessions": {
+    "s_18d1788042f158": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09480-132d-7c43-8065-fe561a867496",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
