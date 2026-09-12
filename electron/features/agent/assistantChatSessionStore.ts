@@ -451,7 +451,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             messageId,
             delta,
         }, session);
-        persistence?.recordSessionSnapshot(keyForSession(session), session);
+        persistence?.recordAssistantDelta(keyForSession(session), session);
     }
 
     function recordSessionSnapshot(session: IAssistantChatSession) {
