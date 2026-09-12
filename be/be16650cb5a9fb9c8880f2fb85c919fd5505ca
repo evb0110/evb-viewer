@@ -1,0 +1,30 @@
+native/evb-native-support/src/bounded_io.rs
+  s_af0653c1035235::t_7eb277022e3144 78,80-81,83-85,92-93,95-96,99-104,106-109
+  s_af0653c1035235::t_2d9dfe0e66e5f4 251-257
+  s_af0653c1035235::t_addaa3c7a553a4 82,94,111-116
+  s_247a07a16a61fa::t_0de9cbc900f0eb 117-119,127,138,258-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bebe16650cb5a9fb9c8880f2fb85c919fd5505ca",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_af0653c1035235": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09472-4d16-7711-94cc-532702d80e83",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
