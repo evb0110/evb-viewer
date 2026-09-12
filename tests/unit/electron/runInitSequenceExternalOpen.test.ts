@@ -71,6 +71,7 @@ describe('runInitSequence external open IPC', () => {
         const allowOpenPaths = vi.fn();
         const focusMainWindow = vi.fn();
         const createWindow = vi.fn(async () => mainWindow as never);
+        const createAdditionalWindow = vi.fn(async () => otherWindow as never);
         const initializeResourceRuntime = vi.fn(async () => {});
         const initializeElectronTranslations = vi.fn(async () => {});
         const cleanupStaleWorkingCopyDirectories = vi.fn(async () => ({
@@ -102,6 +103,7 @@ describe('runInitSequence external open IPC', () => {
             attachHostEnvironmentToWindow: vi.fn(),
             broadcastUpdateStatus: vi.fn(),
             cleanupStaleWorkingCopyDirectories,
+            createAdditionalWindow,
             createWindow,
             devDockBadgeText: '',
             devDockIconPath: '',
@@ -157,6 +159,7 @@ describe('runInitSequence external open IPC', () => {
             allowOpenPaths,
             capturedHandlers,
             createWindow,
+            createAdditionalWindow,
             cleanupStaleWorkingCopyDirectories,
             externalOpenManager,
             focusMainWindow,
@@ -210,6 +213,14 @@ describe('runInitSequence external open IPC', () => {
         expect(harness.initializeElectronTranslations).toHaveBeenCalledOnce();
         expect(harness.initializeElectronTranslations.mock.invocationCallOrder[0])
             .toBeLessThan(harness.createWindow.mock.invocationCallOrder[0]!);
+    });
+
+    it('creates another window when recovery reports another owner', async () => {
+        const harness = await createHarness();
+
+        await harness.capturedHandlers.onWorkspaceCheckpointClaimed?.();
+
+        expect(harness.createAdditionalWindow).toHaveBeenCalledOnce();
     });
 
     it('notifies startup diagnostics only after acquiring the single-instance lock', async () => {
