@@ -816,6 +816,18 @@ impl ManifestV3 {
     /// it again.
     pub(crate) fn validate_for_execution(&self) -> Result<(), NativeError> {
         self.validate()?;
+        for path in self
+            .input_paths()
+            .into_iter()
+            .chain(self.destination_paths())
+        {
+            if !path.is_absolute() {
+                return Err(invalid(format!(
+                    "Manifest path must be absolute: {}",
+                    path.display()
+                )));
+            }
+        }
         if self.operation == Operation::Analyze && self.staged_input_window.is_none() {
             for page in &self.pages {
                 validate_required_regular_path(
@@ -1395,6 +1407,20 @@ mod tests {
             serde_json::from_str(&json.replace("\"pages\"", "\"stagedInputWindow\":2,\"pages\""))
                 .unwrap();
         staged.validate_for_execution().unwrap();
+    }
+
+    #[test]
+    fn execution_rejects_relative_manifest_paths() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].input_path = PathBuf::from("relative-input.png");
+
+        let error = manifest.validate_for_execution().unwrap_err();
+        assert!(error.message.contains("must be absolute"));
     }
 
     #[test]
