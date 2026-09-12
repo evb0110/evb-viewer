@@ -1,4 +1,5 @@
 import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 import type { IpcRenderer } from 'electron';
 import {
     afterEach,
@@ -214,8 +215,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('preserves the typed staged PDF receipt across the Save As preload boundary', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async () => '/tmp/saved.pdf'),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const stagedOutput = decodeTypedStagedArtifact(createStagedPdfArtifact().artifact);
         if (!stagedOutput) throw new Error('Invalid staged PDF fixture');
@@ -226,8 +228,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('rejects invalid working-copy passwords before invoking IPC', () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const oversizedPassword = 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1);
 
@@ -248,8 +251,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('validates and forwards native path print layout options', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async () => ({success: true})),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const options = {
             pageNumbers: [
@@ -281,8 +285,9 @@ describe('createDocumentsPreloadFileClient', () => {
             invoke: vi.fn(async (channel: string) => channel === DOCUMENTS_CHANNELS.pdfPrintCancel
                 ? {canceled: true}
                 : {success: true}),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const data = Uint8Array.of(1, 2, 3);
         const options = {requestId: requireRequestId('print-data-request-1')};
@@ -312,13 +317,14 @@ describe('createDocumentsPreloadFileClient', () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
             on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
                 listeners.set(channel, handler);
                 return undefined as never;
             }),
             removeListener: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send' | 'on' | 'removeListener'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const callback = vi.fn();
         const unsubscribe = client.onNativePrintDialogOpened?.(callback);
@@ -358,13 +364,14 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn((channel: string) => {
                 expect(channel).toBe(DOCUMENTS_CHANNELS.fileSavePdfDataPort);
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.savePdfDataAs(requireDocumentRef('/tmp/working.pdf'), new Uint8Array([
@@ -388,8 +395,9 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 return true;
             }),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
@@ -423,8 +431,9 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 return true;
             }),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
@@ -464,8 +473,9 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 return true;
             }),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
         const writePromise = client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(1, 2));
@@ -499,12 +509,13 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(() => {
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         port1.onPostMessage = (message) => {
             if (isChunkMessage(message)) {
                 queueMicrotask(() => {
@@ -558,8 +569,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('rejects structured save calls without revision options before invoking IPC', () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.saveFileStructured(requireDocumentRef('/tmp/working.pdf')))
@@ -580,8 +592,9 @@ describe('createDocumentsPreloadFileClient', () => {
                 expect(channel).toBe(DOCUMENTS_CHANNELS.parsePdfAnnotations);
                 return parsed;
             }),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.parsePdfAnnotations(requireDocumentRef('/tmp/working.pdf'), {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
@@ -589,14 +602,16 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.parsePdfAnnotations,
             requireDocumentRef('/tmp/working.pdf'),
             {expectedDocumentRevisionToken: revision},
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
     });
 
     it('rejects invalid optimize-as-copy options before invoking IPC', async () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.optimizePdfAsCopy?.(
@@ -610,8 +625,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('rejects invalid optimize-as-copy revision options before invoking IPC', async () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.optimizePdfAsCopy?.(
@@ -637,8 +653,9 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const chunks: Array<{
             offset: number;
@@ -686,8 +703,9 @@ describe('createDocumentsPreloadFileClient', () => {
         let result: unknown = {size: -1};
         const ipcRenderer = {
             invoke: vi.fn(async () => result),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         for (result of [
@@ -709,13 +727,14 @@ describe('createDocumentsPreloadFileClient', () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
             on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
                 listeners.set(channel, handler);
                 return undefined as never;
             }),
             removeListener: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send' | 'on' | 'removeListener'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const callback = vi.fn();
         const unsubscribe = client.onDocumentRevisionChanged(callback);
@@ -763,13 +782,14 @@ describe('createDocumentsPreloadFileClient', () => {
                 progress: 0.25,
                 state: 'materializing',
             })),
+            send: vi.fn(),
             postMessage: vi.fn(),
             on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
                 listeners.set(channel, handler);
                 return undefined as never;
             }),
             removeListener: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send' | 'on' | 'removeListener'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.getWorkingCopyBackingStatus?.(requireDocumentRef('/tmp/working.pdf'))).resolves.toEqual({
@@ -858,8 +878,9 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.getPdfOpeningGeometry?.(requireDocumentRef('/tmp/huge.pdf'))).resolves.toStrictEqual(openingGeometry);
@@ -877,10 +898,12 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfOpeningGeometry,
             '/tmp/huge.pdf',
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfNativePageSizes,
             '/tmp/huge.pdf',
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel,
@@ -894,14 +917,16 @@ describe('createDocumentsPreloadFileClient', () => {
                 targetWidthPx: 900,
                 previewRequestId: 'preview-2',
             },
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
     });
 
     it('rejects invalid native PDF preview requests before invoking IPC', () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.getPdfOpeningGeometry?.(invalidDocumentRef))
@@ -940,13 +965,14 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn((channel: string) => {
                 expect(channel).toBe(DOCUMENTS_CHANNELS.fileSavePdfDataPort);
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const chunkBytes = 8 * 1024 * 1024;
         const sourceBytes = new Uint8Array(chunkBytes + 3);
         sourceBytes[0] = 1;
@@ -1014,12 +1040,13 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(() => {
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const sourceBytes = new Uint8Array((8 * 1024 * 1024) + 1);
 
@@ -1082,10 +1109,11 @@ describe('createDocumentsPreloadFileClient', () => {
                     }
                     throw new Error(`Unexpected invoke: ${channel}`);
                 }),
+                send: vi.fn(),
                 postMessage: vi.fn(() => {
                     queueMicrotask(() => port1.emit({type: 'ready'}));
                 }),
-            } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+            } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
             let resolveChunk!: () => void;
             const chunkPosted = new Promise<void>(resolve => {
                 resolveChunk = resolve;
@@ -1154,10 +1182,11 @@ describe('createDocumentsPreloadFileClient', () => {
                     }
                     throw new Error(`Unexpected invoke: ${channel}`);
                 }),
+                send: vi.fn(),
                 postMessage: vi.fn(() => {
                     queueMicrotask(() => port1.emit({type: 'ready'}));
                 }),
-            } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+            } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
             let resolveNextStarted!: () => void;
             const nextStarted = new Promise<void>(resolve => {
                 resolveNextStarted = resolve;
@@ -1209,12 +1238,13 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(() => {
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         port1.onPostMessage = (message) => {
             if (isChunkMessage(message)) {
                 queueMicrotask(() => {
@@ -1298,12 +1328,13 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(() => {
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         port1.onPostMessage = (message) => {
             if (isChunkMessage(message)) {
                 queueMicrotask(() => {
@@ -1353,6 +1384,7 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
             'session-1',
             staged.artifact,
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
     });
 
@@ -1374,12 +1406,13 @@ describe('createDocumentsPreloadFileClient', () => {
                 }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
+            send: vi.fn(),
             postMessage: vi.fn(() => {
                 queueMicrotask(() => {
                     port1.emit({type: 'ready'});
                 });
             }),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         port1.onPostMessage = (message) => {
             if (isChunkMessage(message)) {
                 queueMicrotask(() => {
@@ -1430,8 +1463,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('rejects invalid native note text update requests before IPC', async () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.savePdfNoteTextUpdates!(requireDocumentRef('/tmp/working.pdf'), [], nativeModifiedAt))
@@ -1451,8 +1485,9 @@ describe('createDocumentsPreloadFileClient', () => {
                     warnings: [],
                 },
             })),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         const freeTextNotes = [{
@@ -1515,6 +1550,7 @@ describe('createDocumentsPreloadFileClient', () => {
             },
             nativeModifiedAt,
             revisionOptions,
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
     });
 
@@ -1529,8 +1565,9 @@ describe('createDocumentsPreloadFileClient', () => {
                     warnings: [],
                 },
             })),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.savePdfNativeMutations!(
@@ -1659,6 +1696,7 @@ describe('createDocumentsPreloadFileClient', () => {
             },
             'D:20260609133855+03\'00\'',
             revisionOptions,
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
     });
 
@@ -1680,8 +1718,9 @@ describe('createDocumentsPreloadFileClient', () => {
         }));
         const ipcRenderer = {
             invoke,
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const imageSource = createNativePlacedImage().source;
 
@@ -1711,6 +1750,7 @@ describe('createDocumentsPreloadFileClient', () => {
             })]},
             nativeModifiedAt,
             revisionOptions,
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
         const firstCall = invoke.mock.calls[0];
         expect(firstCall).toBeDefined();
@@ -1737,8 +1777,9 @@ describe('createDocumentsPreloadFileClient', () => {
         }));
         const ipcRenderer = {
             invoke,
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const cap = PDF_NATIVE_MUTATION_LIMITS;
         const imageSource = createNativePlacedImage().source;
@@ -1883,8 +1924,9 @@ describe('createDocumentsPreloadFileClient', () => {
     it('rejects shared native mutation limit violations before IPC', () => {
         const ipcRenderer = {
             invoke: vi.fn(),
+            send: vi.fn(),
             postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const modifiedAt = nativeModifiedAt;
         const tooManyCollectionItems = () => Array.from(

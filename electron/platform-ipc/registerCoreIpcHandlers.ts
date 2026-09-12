@@ -29,7 +29,9 @@ import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
     decodeDiagnosticsCanaryAction,
+    decodeIpcInvokeRequestId,
 } from '@electron/platform-ipc/coreContract';
+import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {
     acknowledgeWorkspaceCheckpoint,
@@ -49,6 +51,7 @@ export interface ICoreIpcHandlerOptions {
 
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_CHANNELS.rendererReady,
+    CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled,
     CORE_IPC_SEND_CHANNELS.rendererLog,
     CORE_IPC_SEND_CHANNELS.windowCloseResponse,
 ]);
@@ -173,6 +176,12 @@ export function registerCoreIpcHandlers(
     });
     eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
         options.onRendererReady?.(event);
+    });
+    eventRegistrar.on(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, (event, payload) => {
+        const requestId = decodeIpcInvokeRequestId(payload);
+        if (requestId !== null) {
+            cancelIpcInvoke(event.sender, requestId);
+        }
     });
 
     const bindings: TFeatureMainBindings<

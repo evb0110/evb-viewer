@@ -1,3 +1,4 @@
+import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 import {
     describe,
     expect,
@@ -44,15 +45,19 @@ describe('derived Search preload client', () => {
             useRegex: false,
         });
 
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(SEARCH_CHANNELS.run, {
-            pdfPath: '/tmp/work.pdf',
-            query: 'needle',
-            requestId: 'search-1',
-            pageCount: 12,
-            matchCase: true,
-            wholeWord: false,
-            useRegex: false,
-        });
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            SEARCH_CHANNELS.run,
+            {
+                pdfPath: '/tmp/work.pdf',
+                query: 'needle',
+                requestId: 'search-1',
+                pageCount: 12,
+                matchCase: true,
+                wholeWord: false,
+                useRegex: false,
+            },
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
+        );
     });
 
     it('rejects invalid preload search requests before invoking main', async () => {
