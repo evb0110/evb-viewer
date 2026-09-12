@@ -149,11 +149,12 @@ function createHarness() {
 
     const page = createPage();
     const release = vi.fn();
+    const documentSession = createDocumentFixture(page, release);
     const pageRenderState = createPdfPageRenderState();
     const onRenderedPageStateChanged = vi.fn();
     const rendererOptions: IUsePdfPageRendererOptions = {
         container: ref(root),
-        document: createDocumentFixture(page, release),
+        document: documentSession,
         viewport: createViewportFixture(),
         pageRenderState,
         outputScale: ref(1),
@@ -180,9 +181,11 @@ function createHarness() {
     };
     return {
         canvas,
+        document: documentSession,
         onRenderedPageStateChanged,
         pageContainer,
         pageRenderState,
+        page,
         release,
         renderer,
         renderResult,
@@ -396,6 +399,57 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
+        } finally {
+            harness.root.remove();
+        }
+    });
+
+    it('releases the page lease when viewport creation throws', async () => {
+        const harness = createHarness();
+        harness.page.getViewport = vi.fn(() => {
+            throw new Error('malformed page viewport');
+        });
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+            harness.pageRenderState.markCanvasOnly(requirePageNumber(1), 1, 11);
+            harness.pageRenderState.completeRender(requirePageNumber(1), 1, 11);
+
+            await expect(harness.renderer.renderLayerPromotions({
+                start: 1,
+                end: 1,
+            }, {
+                contentIntent: 'layers-only-promotion',
+                rasterDemandPages: [1],
+                prioritizeTextLayer: true,
+            })).rejects.toThrow('malformed page viewport');
+
+            expect(harness.release).toHaveBeenCalledOnce();
+        } finally {
+            harness.root.remove();
+        }
+    });
+
+    it('does not strand a page when lease acquisition rejects', async () => {
+        const harness = createHarness();
+        vi.mocked(harness.document.leasePage).mockRejectedValueOnce(new Error('stale document'));
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+            harness.pageRenderState.markCanvasOnly(requirePageNumber(1), 1, 11);
+            harness.pageRenderState.completeRender(requirePageNumber(1), 1, 11);
+
+            await expect(harness.renderer.renderLayerPromotions({
+                start: 1,
+                end: 1,
+            }, {
+                contentIntent: 'layers-only-promotion',
+                rasterDemandPages: [1],
+                prioritizeTextLayer: true,
+            })).rejects.toThrow('stale document');
+
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('canvas-only');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
         } finally {
             harness.root.remove();
         }
