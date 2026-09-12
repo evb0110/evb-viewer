@@ -1,0 +1,49 @@
+native/evb-raster-io/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 6-9
+native/scan-cleanup/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 8-10
+native/pdf-page-ops/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 4,6-9
+tests/unit/scripts/wasmFreshness.test.ts
+  s_ae757872e5d914::t_c0ee0a913c188f 241-265
+tests/unit/electron/scanCleanupSidecarProtocolFailure.test.ts
+  s_ae757872e5d914::t_c0ee0a913c188f 147-189
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_ae757872e5d914::t_c0ee0a913c188f 819-830,1404-1415
+  s_ae757872e5d914::t_113cc9f8512892 1416-1417
+packages/scan-cleanup/core/createScanCleanupSidecarProtocolHandler.ts
+  s_ae757872e5d914::t_c0ee0a913c188f 5-7,10,31-32,34-51,53-76,90-92,96
+native/jbig2-codec/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 8-10
+native/pdf-image-combine/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 4,6-9
+native/pdf-search/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 4,6-9
+native/pdf-page-ops/src/load_policy.rs
+  s_ae757872e5d914::t_c0ee0a913c188f 240-254,265,603-607,610,628,632,661,1069-1073,1076,1091,1096,1100,1125
+  s_ae757872e5d914::t_b8a061941871aa 239
+native/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 14-16
+native/evb-native-support/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 8-10
+native/scan-primitives/Cargo.toml
+  s_ae757872e5d914::t_c0ee0a913c188f 8-10
+scripts/wasm-fingerprint.mjs
+  s_ae757872e5d914::t_c0ee0a913c188f 2,10,13,45,151,153-159,179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51d950ce68f9d23b4e012765dfdc66777c4e617f",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
