@@ -10,6 +10,7 @@ import {
     AbortMultipartUploadCommand,
     CompleteMultipartUploadCommand,
     CreateMultipartUploadCommand,
+    DeleteObjectCommand,
     DeleteObjectsCommand,
     GetObjectCommand,
     HeadObjectCommand,
@@ -33,6 +34,7 @@ import {
     MIRROR_TRANSFER_TIMEOUTS,
     publishReleaseMirror,
     publishSupplementalMirrorAssets,
+    reconcileReleasePromotion,
     requireEnvironment,
     resolveMirrorPaths,
     versionParts,
@@ -1286,6 +1288,134 @@ describe('release mirror publisher', () => {
             client,
         })).rejects.toThrow('Refusing to move stable mirror backward from v2.1.0 to v2.0.0');
         expect(stableReadCount).toBe(2);
+    });
+
+    it('reconciles public, draft, and unresolved promotion outcomes without an unsafe rollback', async () => {
+        async function createFixture() {
+            const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-transaction-'));
+            await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
+            const stored = new Map<string, Buffer>([[
+                'evb-viewer/channels/stable.json',
+                Buffer.from(JSON.stringify({release: {tag: 'v1.0.0'}})),
+            ]]);
+            const etags = new Map<string, string>();
+            let nextEtag = 1;
+            for (const key of stored.keys()) {
+                etags.set(key, `"etag-${nextEtag++}"`);
+            }
+            const client = {send: vi.fn(async (command: unknown) => {
+                const key = command instanceof HeadObjectCommand
+                    || command instanceof GetObjectCommand
+                    || command instanceof PutObjectCommand
+                    || command instanceof DeleteObjectCommand
+                    ? command.input.Key!
+                    : '';
+                if (command instanceof HeadObjectCommand) {
+                    const bytes = stored.get(key);
+                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
+                }
+                if (command instanceof GetObjectCommand) {
+                    const bytes = stored.get(key);
+                    if (!bytes) {
+                        throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+                    }
+                    return {
+                        Body: objectBody(bytes),
+                        ETag: etags.get(key),
+                    };
+                }
+                if (command instanceof PutObjectCommand) {
+                    const existing = etags.get(key);
+                    if (command.input.IfNoneMatch === '*' && existing) {
+                        throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                    }
+                    if (command.input.IfMatch && command.input.IfMatch !== existing) {
+                        throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                    }
+                    stored.set(key, await commandBodyBytes(command.input.Body));
+                    const etag = `"etag-${nextEtag++}"`;
+                    etags.set(key, etag);
+                    return {ETag: etag};
+                }
+                if (command instanceof DeleteObjectCommand) {
+                    if (command.input.IfMatch && command.input.IfMatch !== etags.get(key)) {
+                        throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                    }
+                    stored.delete(key);
+                    etags.delete(key);
+                    return {};
+                }
+                if (command instanceof ListObjectsV2Command) {
+                    return {Contents: []};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            })};
+            return {
+                artifactDirectory,
+                client,
+                stored,
+            };
+        }
+
+        const publicFixture = await createFixture();
+        await publishReleaseMirror({
+            artifactDirectory: publicFixture.artifactDirectory,
+            environment,
+            releaseTag: 'v2.0.0',
+            durableTransaction: true,
+            client: publicFixture.client,
+        });
+        await expect(reconcileReleasePromotion({
+            environment,
+            releaseTag: 'v2.0.0',
+            githubState: {
+                tagName: 'v2.0.0',
+                isDraft: false,
+                assets: [{name: 'SHA256SUMS'}],
+            },
+            client: publicFixture.client,
+        })).resolves.toBe('public');
+        expect(JSON.parse(publicFixture.stored.get('evb-viewer/channels/stable.json')!.toString()).release.tag).toBe('v2.0.0');
+
+        const draftFixture = await createFixture();
+        await publishReleaseMirror({
+            artifactDirectory: draftFixture.artifactDirectory,
+            environment,
+            releaseTag: 'v2.0.0',
+            durableTransaction: true,
+            client: draftFixture.client,
+        });
+        await expect(reconcileReleasePromotion({
+            environment,
+            releaseTag: 'v2.0.0',
+            githubState: {
+                tagName: 'v2.0.0',
+                isDraft: true,
+                assets: [{name: 'SHA256SUMS'}],
+            },
+            client: draftFixture.client,
+        })).resolves.toBe('draft-restored');
+        expect(JSON.parse(draftFixture.stored.get('evb-viewer/channels/stable.json')!.toString()).release.tag).toBe('v1.0.0');
+
+        const unresolvedFixture = await createFixture();
+        await publishReleaseMirror({
+            artifactDirectory: unresolvedFixture.artifactDirectory,
+            environment,
+            releaseTag: 'v2.0.0',
+            durableTransaction: true,
+            client: unresolvedFixture.client,
+        });
+        await expect(reconcileReleasePromotion({
+            environment,
+            releaseTag: 'v2.0.0',
+            githubState: {
+                tagName: 'v2.0.0',
+                isDraft: true,
+                assets: [],
+            },
+            client: unresolvedFixture.client,
+        })).resolves.toBe('unresolved');
+        expect(JSON.parse(unresolvedFixture.stored.get('evb-viewer/channels/stable.json')!.toString()).release.tag).toBe('v2.0.0');
     });
 
     it('maps content types, compares release tags, and hashes files deterministically', async () => {
