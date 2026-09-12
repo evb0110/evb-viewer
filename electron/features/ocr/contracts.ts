@@ -173,6 +173,7 @@ export function* iterateOcrPageRanges(
 
 export class OcrPayloadValidationError extends Error {
     readonly code: TOcrErrorCode;
+    readonly subsystem = 'ocr';
 
     constructor(message: string, code: TOcrErrorCode = 'OCR_INVALID_PAYLOAD') {
         super(message);

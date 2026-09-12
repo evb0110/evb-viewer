@@ -9,6 +9,7 @@ import {
 
 interface ILocalArtifactPolicyModule {
     AGENT_INSTRUCTION_FILE_NAMES: string[];
+    PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES: string[];
     LOCAL_ONLY_DIRECTORY_NAMES: string[];
     ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES: string[];
     REQUIRED_GITIGNORE_PATTERNS: string[];
@@ -45,6 +46,10 @@ describe('local artifact policy', () => {
             '.codex',
             '.devkit',
         ]);
+        expect(policy.PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES).toEqual([
+            'AGENTS.md',
+            'CLAUDE.md',
+        ]);
         expect(policy.ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES).toEqual([
             'HANDOFF.md',
             'NOTES.md',
@@ -54,7 +59,11 @@ describe('local artifact policy', () => {
 
     it.each([
         [
-            'AGENTS.md',
+            'GEMINI.md',
+            'agent instruction file GEMINI.md',
+        ],
+        [
+            'docs/AGENTS.md',
             'agent instruction file AGENTS.md',
         ],
         [
@@ -150,9 +159,11 @@ describe('local artifact policy', () => {
     });
 
     it.each([
+        'AGENTS.md',
+        'CLAUDE.md',
         'electron/features/agent/agentSession.ts',
         'docs/agents-overview.md',
-        'docs/agents/overview.md',
+        'docs/internal/agents/overview.md',
         'packages/contracts/claudeAgentSdk.ts',
         'AGENTS.mdx',
         'agents.markdown',
@@ -163,7 +174,7 @@ describe('local artifact policy', () => {
         'docs/AGENTS.md.bak',
         'docs/devkit-notes.md',
         'docs/HANDOFF.md',
-        'docs/scan-cleanup/HANDOFF.md',
+        'docs/internal/scan-cleanup/HANDOFF.md',
         'docs/NOTES.md',
         'docs/TODO.md',
         'reports/../docs/HANDOFF.md',

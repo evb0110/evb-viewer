@@ -16,7 +16,20 @@ describe('unhandled rejection recovery', () => {
         const error = new Error('Tesseract worker failed');
         error.stack = 'Error\n at electron/features/ocr/main/jobManager.ts:10';
         expect(classifyUnhandledRejectionSubsystem(error)).toBe('ocr');
+        expect(classifyUnhandledRejectionSubsystem({code: 'OCR_INTERNAL_ERROR'})).toBe('ocr');
         expect(classifyUnhandledRejectionSubsystem(new Error('unrelated failure'))).toBe('unknown');
+    });
+
+    it('classifies tagged subsystem failures when the packaged stack has no source path', () => {
+        const error = Object.assign(new Error('native worker failed'), {
+            stack: 'Error\n at dist-electron/main-chunk-chunk-2AGSP3A7.js:10:20',
+            subsystem: 'ocr' as const,
+        });
+
+        expect(decideUnhandledRejection(error)).toEqual({
+            action: 'recover',
+            subsystem: 'ocr',
+        });
     });
 
     it('restarts a subsystem only after the rolling threshold', async () => {
@@ -68,7 +81,7 @@ describe('unhandled rejection recovery', () => {
         'Persistence commit canceled after durable write',
         'Persistence commit cancelled after durable write',
     ])('does not treat cancellation words in an unknown invariant failure as an abort: %s', (message) => {
-        expect(decideUnhandledRejection(new Error(message))).toEqual({action: 'fatal'});
+        expect(decideUnhandledRejection(new Error(message))).toEqual({action: 'report'});
     });
 
     it.each([
@@ -88,9 +101,9 @@ describe('unhandled rejection recovery', () => {
         });
     });
 
-    it('routes an unknown unhandled rejection into fatal shutdown instead of continuing', () => {
+    it('reports an unknown unhandled rejection instead of shutting down the app', () => {
         expect(
             decideUnhandledRejection(new Error('Unexpected persistence invariant failure')),
-        ).toEqual({action: 'fatal'});
+        ).toEqual({action: 'report'});
     });
 });

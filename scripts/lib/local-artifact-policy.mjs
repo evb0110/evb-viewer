@@ -4,7 +4,7 @@
 // and out of the web deploy source.
 //
 // The enforcing gates import this list directly: the staged, pre-push, and CI
-// history checks in `check-commit-attribution.mjs`, and the web deploy source
+// history checks in `check-publication-policy.mjs`, and the web deploy source
 // filter in `check-web-deploy-source.mjs`. `.gitignore` and `.vercelignore` are
 // static text that cannot import anything, so they restate the list and a unit
 // test asserts each one still mirrors what is declared here.
@@ -17,6 +17,16 @@ export const AGENT_INSTRUCTION_FILE_NAMES = [
     'AGENTS.md',
     'CLAUDE.md',
     'GEMINI.md',
+];
+
+// The two rule files at the repository root are published on purpose: the
+// README points readers at them so the workflow that writes most of this code
+// is auditable. The exception is anchored to the root. A nested `AGENTS.md`
+// is still a local scratch file for one directory and stays forbidden, and so
+// does every other name above.
+export const PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES = [
+    'AGENTS.md',
+    'CLAUDE.md',
 ];
 
 // A branch working handoff is useful while a change is in flight, but working
@@ -145,7 +155,12 @@ export function describeForbiddenArtifactPath(filePath) {
     }
     const instructionFileName = findAgentInstructionFileName(fileName);
     if (instructionFileName) {
-        return `agent instruction file ${instructionFileName} at ${filePath}`;
+        const publishedAtRoot = segments.length === 1
+            && PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(instructionFileName)
+            && fileName === instructionFileName;
+        if (!publishedAtRoot) {
+            return `agent instruction file ${instructionFileName} at ${filePath}`;
+        }
     }
 
     const directorySegments = segments.slice(0, -1);
@@ -165,7 +180,14 @@ export function describeForbiddenArtifactPath(filePath) {
 // directory and everything under it. Working-document entries use a glob plus
 // a docs exception because tracked evidence under `docs/` remains legal.
 export const REQUIRED_GITIGNORE_PATTERNS = [
-    ...AGENT_INSTRUCTION_FILE_NAMES,
+    ...AGENT_INSTRUCTION_FILE_NAMES.flatMap(name => (
+        PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(name)
+            ? [
+                `**/${name}`,
+                `!/${name}`,
+            ]
+            : [name]
+    )),
     ...LOCAL_ONLY_DIRECTORY_NAMES.map(name => `${name}/`),
 ];
 

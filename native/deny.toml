@@ -1,4 +1,8 @@
 [advisories]
+# Unmaintained crates default to `workspace`, which only inspects our own
+# direct dependencies; almost everything we pull in is transitive, so the
+# check was blind to the part of the tree we do not control.
+unmaintained = "all"
 yanked = "deny"
 
 [licenses]

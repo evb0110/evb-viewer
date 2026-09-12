@@ -1,6 +1,10 @@
 import type { ILogger } from '@electron/utils/createLogger';
 import { existsSync } from 'fs';
-import { extname } from 'path';
+import {
+    extname,
+    isAbsolute,
+    resolve,
+} from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
 import { getErrorMessage } from '@electron/utils/error';
@@ -24,6 +28,12 @@ const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
 const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
+// A batch that cannot be delivered has to stop retrying, but "no window yet"
+// also reports as undeliverable, so the ceiling has to outlast a cold start or
+// it would discard the file the user just double-clicked. Reuse the pipeline's
+// own patience budget rather than inventing a second one.
+const EXTERNAL_OPEN_MAX_DISPATCH_FAILURES
+    = Math.ceil(EXTERNAL_OPEN_MAX_BATCH_WAIT_MS / EXTERNAL_OPEN_RETRY_DISPATCH_MS);
 const EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS = 300;
 const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
     const parsed = Number.parseInt(process.env.EVB_EXTERNAL_OPEN_PENDING_MAX_PATHS ?? '256', 10);
@@ -86,6 +96,16 @@ function doesExternalOpenPathExist(filePath: string) {
     }
 }
 
+/**
+ * A command-line argument is relative to the shell's working directory, which
+ * is what `resolve` anchors to. Both platforms' rules must not be accepted at
+ * once: on Windows a leading `/` is drive-relative rather than absolute, so
+ * treating it as already-absolute would leave it unresolved.
+ */
+function normalizeExternalOpenPath(filePath: string) {
+    return isAbsolute(filePath) ? filePath : resolve(filePath);
+}
+
 export function createMacOpenFileRouter(options: { logger: ILogger; }) {
     const pendingPaths: string[] = [];
     let externalOpenManager: IExternalOpenManagerSink | null = null;
@@ -141,6 +161,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
     let pendingFlushRequested = false;
+    let dispatchFailureCount = 0;
     let startupEmptyClaimGraceTimer: ReturnType<typeof setTimeout> | null = null;
     let startupEmptyClaimGraceResolve: (() => void) | null = null;
     let startupEmptyClaimGracePromise: Promise<void> | null = null;
@@ -221,7 +242,8 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     function normalizeOpenRequestPaths(paths: string[]) {
         return uniq(paths
             .map(path => path.trim())
-            .filter(path => path.length > 0));
+            .filter(path => path.length > 0)
+            .map(normalizeExternalOpenPath));
     }
 
     function validateClaimedOpenPaths(paths: string[], source: string) {
@@ -509,6 +531,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         if (paths.length === 0) {
             pendingFlushRequested = false;
             clearRetryPendingFilesTimer();
+            dispatchFailureCount = 0;
             removePendingPaths(validation.normalizedPaths);
             return;
         }
@@ -517,12 +540,24 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         options.grantOpenPaths?.(paths);
         const dispatched = options.dispatchOpenPaths(paths);
         if (!dispatched) {
+            dispatchFailureCount += 1;
+            if (dispatchFailureCount >= EXTERNAL_OPEN_MAX_DISPATCH_FAILURES) {
+                pendingFlushRequested = false;
+                removePendingPaths(validation.normalizedPaths);
+                options.logger.warn(
+                    `External open dispatch failed ${dispatchFailureCount} times; dropping ${validation.normalizedPaths.length} queued path(s)`,
+                );
+                dispatchFailureCount = 0;
+                return;
+            }
+
             pendingFlushRequested = true;
             options.logger.warn('External open dispatch could not reach the renderer; keeping paths queued for retry');
             scheduleRetryPendingFiles();
             return;
         }
 
+        dispatchFailureCount = 0;
         removePendingPaths(validation.normalizedPaths);
         pendingFlushRequested = pendingExternalOpenPaths.length > 0;
         options.logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);

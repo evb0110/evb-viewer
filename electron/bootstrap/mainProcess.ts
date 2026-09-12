@@ -457,16 +457,23 @@ const externalOpenManager = createExternalOpenManager({
             return false;
         }
 
+        const validPaths: string[] = [];
         const documentRefs = [];
         for (const path of paths) {
             const documentRef = parseDocumentRef(path);
             if (documentRef === null) {
-                return false;
+                logger.warn(`Ignoring unparseable external open path during dispatch: ${path}`);
+                continue;
             }
+            validPaths.push(path);
             documentRefs.push(documentRef);
         }
 
-        allowOpenPaths(paths, window.webContents);
+        if (documentRefs.length === 0) {
+            return true;
+        }
+
+        allowOpenPaths(validPaths, window.webContents);
         return sendToWindow(window, 'menu:openExternalPaths', documentRefs);
     },
 });
@@ -699,14 +706,16 @@ process.on('unhandledRejection', (reason) => {
         return;
     }
     const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? getErrorMessage(reason) : getErrorMessage(reason)}`;
-    const receipt = logMainFailure(
+    logMainFailure(
         'MAIN_UNHANDLED_REJECTION',
-        {subsystem: decision.action === 'fatal' ? 'unknown' : decision.subsystem},
+        {subsystem: decision.action === 'recover' ? decision.subsystem : 'unknown'},
         rejectionMessage,
         reason,
     );
-    if (decision.action === 'fatal') {
-        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown', receipt);
+    // An unclassified rejection is logged and survived rather than treated as
+    // proof of corrupted state; only a subsystem whose recovery fails below is
+    // still fatal.
+    if (decision.action === 'report') {
         return;
     }
     const recoveryLoggerError = (message: string) => {

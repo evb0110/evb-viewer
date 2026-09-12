@@ -20,8 +20,10 @@ coverage/
 # These are developer convenience only: Git matches them case-sensitively, so a
 # stray `Claude.Md` is not ignored here. The pre-commit and pre-push checks are
 # the deterministic gate and reject every case variant at any depth.
-AGENTS.md
-CLAUDE.md
+**/AGENTS.md
+!/AGENTS.md
+**/CLAUDE.md
+!/CLAUDE.md
 GEMINI.md
 .agents/
 .claude/
