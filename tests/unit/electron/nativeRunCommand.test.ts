@@ -243,6 +243,45 @@ describe('runNativeCommand', () => {
         expect(log).toHaveBeenCalledWith('error', expect.stringContaining('cmd=/bin/tool --bad'));
     });
 
+    it.each([
+        'SIGKILL',
+        'SIGBUS',
+        'SIGSEGV',
+    ] as const)(
+        'classifies a signal-only %s exit with its typed signal instead of exit code -1',
+        async signal => {
+            const proc = new MockNativeProcess();
+            mocks.spawn.mockReturnValue(proc);
+            const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+            const resultPromise = runNativeCommand('/bin/tool', []);
+            const rejection: Promise<Error & {
+                closeSignal?: NodeJS.Signals | null;
+                exitCode?: number | null;
+                kind?: string;
+            }> = resultPromise.then(
+                () => {
+                    throw new Error('Expected command to reject');
+                },
+                error => error as Error & {
+                    closeSignal?: NodeJS.Signals | null;
+                    exitCode?: number | null;
+                    kind?: string;
+                },
+            );
+            proc.emit('close', null, signal);
+
+            const error = await rejection;
+            expect(error).toMatchObject({
+                closeSignal: signal,
+                exitCode: null,
+                kind: 'signal',
+            });
+            expect(error.message).toContain(`failed after signal ${signal}`);
+            expect(error.message).not.toContain('exit code -1');
+        },
+    );
+
     it('classifies native failures from a structured error code instead of message text', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
@@ -270,7 +309,7 @@ describe('runNativeCommand', () => {
         proc.emit('close', 2, null);
 
         await expect(resultPromise).rejects.toMatchObject({
-            name: 'Error',
+            name: 'NativeProcessError',
             message: expect.stringContaining('/bin/tool failed with exit code 2'),
         });
     });
