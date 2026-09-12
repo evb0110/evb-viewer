@@ -1,0 +1,181 @@
+.coderabbit.yaml
+  s_097971b99ad78b::t_32164b6ab1977d 36,43,50,58,65,73
+.github/workflows/ci.yml
+  s_097971b99ad78b::t_a88f0e7755bcd5 55,453
+.gitignore
+  s_097971b99ad78b::t_1cbfe5e3a18a03 23-26
+AGENTS.md
+  s_097971b99ad78b::t_ad443cc4363d76 1-101
+ARCHITECTURE.md
+  s_097971b99ad78b::t_d6f729edaf6e4e 1-146
+CLAUDE.md
+  s_097971b99ad78b::t_924341cd6d54af 1-14
+CONTRIBUTING.md
+  s_ab5519baaef2a4::t_6c064cf9687b43 3-4,6,8-17,19-30,34-36,46,63,89-90
+README.md
+  s_097971b99ad78b::t_2b97acea83ff81 3-116
+app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy.ts
+  s_097971b99ad78b::t_f5681784eb763e 13
+docs/README.md
+  s_097971b99ad78b::t_e044e85c067800 1-13
+docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md
+  s_097971b99ad78b::t_d01de36d183983 7-10,28
+docs/architecture/adr/0003-notes-are-text-annotations.md
+  s_097971b99ad78b::t_05641269b412f4 4,43
+docs/architecture/adr/0004-assistant-is-optional-with-provider-adapters.md
+  s_097971b99ad78b::t_d0299bd24e4831 100,109
+docs/architecture/design-charter.md
+  s_097971b99ad78b::t_3b30e502ec9428 12
+docs/architecture/pdf-viewer-architecture.md
+  s_097971b99ad78b::t_ce11c2941c4403 54,76,134
+docs/contributing/development.md
+  s_097971b99ad78b::t_0118422e4da51d 1-264
+docs/contributing/local-gates.md
+  s_097971b99ad78b::t_0a4a15fa0dd6e2 57,137
+docs/contributing/release-guardrails.md
+  s_097971b99ad78b::t_d7b8737ff0c86e 14,54,60
+docs/contributing/windows-tests/setup-and-repair.md
+  s_097971b99ad78b::t_2a1f9bf3b22727 265
+docs/internal/README.md
+  s_097971b99ad78b::t_e30617d63f8b1e 1-9
+docs/internal/agents/domain.md
+  s_097971b99ad78b::t_08a523cd755b77 7-9,19-20,31,34-35,37-38,43
+docs/internal/agents/utm-windows-tests.md
+  s_097971b99ad78b::t_2abd47b3b38770 138,141-142
+docs/internal/architecture-audit-2026-07-03.md
+  s_097971b99ad78b::t_42029e0ce251d0 48
+docs/internal/architecture-audit-2026-07-23.md
+  s_097971b99ad78b::t_769b01e163a188 193
+docs/internal/navigation-zoom-audit-2026-08-22-implementation-ledger.md
+  s_097971b99ad78b::t_21d3826b17ed81 5,275,335
+docs/internal/navigation-zoom-feature-audit-2026-08-22.md
+  s_097971b99ad78b::t_bb7b691a37b0ce 284
+docs/internal/operations/sentry-agent-check.md
+  s_097971b99ad78b::t_b6bd6a4fe26f96 25
+docs/internal/operations/sentry-delivery-closure.md
+  s_097971b99ad78b::t_33ea5dd53dc657 1-47
+docs/internal/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_097971b99ad78b::t_1abcda88af9faf 5,1259
+docs/internal/pdf-annotations-feature-audit-2026-08-22.md
+  s_097971b99ad78b::t_ff3d22b29c87ab 16,631
+docs/internal/project6-324-ci-workflow-consolidation-20260908.md
+  s_097971b99ad78b::t_c1922535235e1d 79
+docs/internal/project6-325-binary-provenance-platform-inventory.md
+  s_097971b99ad78b::t_ad1fa9c062491a 176,217
+docs/internal/project6-ticket333-registration-table-inventory-2026-09-07.md
+  s_097971b99ad78b::t_9acee453facf13 156
+docs/internal/reliability/large-document-audit-ledger-2026-08-27.md
+  s_097971b99ad78b::t_d1d74518caa5bb 96,296
+docs/internal/reliability/static-breaking-points-audit-2026-08-31.md
+  s_097971b99ad78b::t_8011d936240f93 56,60,608
+docs/internal/reliability/whole-repo-program-ledger-2026-08-21.md
+  s_097971b99ad78b::t_cc32588361a90d 88
+docs/internal/research/annotation-system-rework-2026-09-08.md
+  s_097971b99ad78b::t_2c17b94587b093 15-16
+docs/internal/research/pdf-engine-architecture-assessment-2026-08-30.md
+  s_097971b99ad78b::t_aca0156687b4d8 3
+docs/internal/research/pdf-engine-strategy-assessment-2026-08-30.md
+  s_097971b99ad78b::t_5b013c4efc789c 3,48,50,54,60-67,69-71,73,97,99,113,119,125,136-137,140,154,183,201,203,259,261,269,285,415-421,442-443,447
+docs/internal/research/pdfjs-dependency-cost-assessment-2026-08-30.md
+  s_097971b99ad78b::t_6b90c58bff2917 3,167,325-328
+docs/internal/research/pdfjs-source-fork-build-2026-08-30.md
+  s_097971b99ad78b::t_3597f3ad707d52 27,70
+docs/internal/research/rust-pdf-engine-rewrite-feasibility-2026-08-30.md
+  s_097971b99ad78b::t_a5bc48338f225f 3,134,561-562
+docs/internal/research/sentry-opt-out-diagnostics-2026-09-01.md
+  s_097971b99ad78b::t_b82d0ff9f08a33 17
+docs/internal/research/stale-revision-xlarge-search-2026-09-02.md
+  s_097971b99ad78b::t_e363b60b4bbf3c 22,34,38,40,42,44,58-64,68,72,74,82-87,93-99,159
+docs/internal/research/stress-test-automation-implementation-ledger-2026-09-04.md
+  s_097971b99ad78b::t_23bd2dc0f2f9b6 20,95
+docs/internal/research/stress-test-automation-plan-2026-09-04.md
+  s_097971b99ad78b::t_e00c1197a114b6 7,205
+docs/internal/research/utm-windows-autotest-plan-2026-09-04.md
+  s_097971b99ad78b::t_1686155e8183b6 104,324,404,426,430-435,443-455,457-461,543
+docs/internal/research/xlarge-document-path-architecture-2026-08-27.md
+  s_097971b99ad78b::t_a640d878097d7a 23
+docs/internal/scan-cleanup-feature-audit-2026-08-22.md
+  s_097971b99ad78b::t_7ea12e01792672 335
+docs/internal/scan-cleanup/audit-2026-08-14/COMPLETENESS-CRITIC.md
+  s_097971b99ad78b::t_7c597e07c87c9a 124
+docs/internal/scan-cleanup/audit-2026-08-15-corrections.md
+  s_097971b99ad78b::t_f58b6c34f0a632 305
+docs/internal/scan-cleanup/audit-2026-08-15-corrective.md
+  s_097971b99ad78b::t_2652983e6291e9 313,326,442,450,455,679,764,766
+docs/internal/scan-cleanup/audit-2026-08-22-implementation-ledger.md
+  s_097971b99ad78b::t_0839a9aa58041b 5
+docs/internal/scan-cleanup/audit-2026-08-22-verification-ledger.md
+  s_097971b99ad78b::t_5ba58b5a94a315 20,316
+docs/internal/scan-cleanup/process/DEV-VALIDATION-APPROACH-2026-08-14.md
+  s_097971b99ad78b::t_4f85879b167dc5 12,272,467
+docs/internal/scan-cleanup/process/LEDGER-2026-08-14-process-v2.md
+  s_097971b99ad78b::t_413911d2f9935a 7,494,823
+docs/internal/scan-cleanup/process/REMAINING-PROBLEMS-CLOSURE-2026-08-16.md
+  s_097971b99ad78b::t_fcc12cc7842561 44
+docs/internal/scan-cleanup/process/reviews/round4-sol-xhigh.md
+  s_097971b99ad78b::t_1955fb7952cdc7 49,209
+docs/internal/sentry-error-telemetry-ledger-2026-09-01.md
+  s_097971b99ad78b::t_ded8ffd5c0eb1e 94
+docs/internal/sentry-implementation-ledger-2026-09-01.md
+  s_097971b99ad78b::t_a18f277025976d 7-8,251,254,333,523,1165,1297,1726,1771
+docs/user/assistant.md
+  s_097971b99ad78b::t_66936d867e04b8 1-51
+docs/user/formats-and-languages.md
+  s_097971b99ad78b::t_83b43897a5069d 1-79
+docs/user/mcp-clients.md
+  s_097971b99ad78b::t_0c807573d37926 1-53
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_097971b99ad78b::t_458f3ac1340124 642
+scripts/check-dev-environment.mjs
+  s_097971b99ad78b::t_644966a303b040 304
+scripts/diagnostics/README.md
+  s_097971b99ad78b::t_c6672d871afc87 347
+scripts/lib/local-artifact-policy.mjs
+  s_097971b99ad78b::t_754d234c7d16e7 22-31,158-163,183-187
+scripts/release/policy.mjs
+  s_097971b99ad78b::t_4bc9c5179b685b 2
+scripts/stress/README.md
+  s_097971b99ad78b::t_5425f606c3190c 10,56,143
+scripts/stress/stressCliOptions.ts
+  s_097971b99ad78b::t_71dda5378c9a84 41
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_097971b99ad78b::t_b4d689aa3f5977 54
+scripts/windows-test/host/doctor.ts
+  s_097971b99ad78b::t_f5a1a5ab331d0b 249,432
+scripts/windows-test/host/hostConfig.ts
+  s_097971b99ad78b::t_69207e9617443c 236
+tests/unit/electron/ocrDocs.test.ts
+  s_097971b99ad78b::t_d79e14186f7ba2 88,91
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_097971b99ad78b::t_e894615dc9cce9 245,280
+tests/unit/scripts/localArtifactPolicy.test.ts
+  s_097971b99ad78b::t_031a876a46f4bd 12,49-52,62-66,162-163,166,177
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_097971b99ad78b::t_244e5dd4346efd 437
+tests/unit/scripts/windows-test/changeSelector.test.ts
+  s_097971b99ad78b::t_358bcd8132a2ee 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6709334200d73d0b6fd82e0633017fa99dc19e32",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ab5519baaef2a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09472-649b-79e3-8311-e74523d93157",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
