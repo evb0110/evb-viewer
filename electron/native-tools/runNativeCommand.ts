@@ -308,7 +308,7 @@ export async function runNativeCommand(
         prependCommandDirToPath = false,
         includeProcessEnv = true,
         windowsHide = true,
-        rejectOnStdoutTruncation = false,
+        rejectOnStdoutTruncation = true,
         onStdout,
         onStderr,
         onSpawn,
