@@ -92,10 +92,20 @@ let listenersRegistered = false;
 let progressBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProgressBroadcastAt = 0;
 const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
-type TUpdateInstallShutdownRequester = (install: () => void) => void;
-let requestUpdateInstallShutdown: TUpdateInstallShutdownRequester = (install) => {
-    install();
-};
+type TUpdateInstallShutdownRequester = (install: () => Promise<void>) => void;
+function runUpdateInstallImmediately(install: () => Promise<void>) {
+    // No coordinator is wired up, so nothing awaits the install; its failure has
+    // to be reported here or it becomes an unhandled rejection.
+    void install().catch(error => {
+        logger.error(`Update installation action failed: ${getErrorMessage(error)}`, {
+            code: 'MAIN_UPDATE_INSTALL_FAILED',
+            context: {},
+            cause: error,
+        });
+    });
+}
+
+let requestUpdateInstallShutdown: TUpdateInstallShutdownRequester = runUpdateInstallImmediately;
 function logUpdateCheckFailure(error: unknown, origin: TAppUpdateCheckOrigin) {
     const message = `Update check failed: ${getErrorMessage(error)}`;
     if (origin === 'auto' || isExpectedUpdateNetworkError(error)) {
@@ -110,9 +120,7 @@ function logUpdateCheckFailure(error: unknown, origin: TAppUpdateCheckOrigin) {
 }
 
 export function configureUpdateInstallShutdown(requester: TUpdateInstallShutdownRequester | null) {
-    requestUpdateInstallShutdown = requester ?? ((install) => {
-        install();
-    });
+    requestUpdateInstallShutdown = requester ?? runUpdateInstallImmediately;
 }
 
 function getCurrentVersion() {
@@ -1091,12 +1099,16 @@ export async function installDownloadedUpdate() {
     } catch (error) {
         logger.warn(`Failed to clear skipped update version before install: ${getErrorMessage(error)}`);
     }
-    try {
-        await markUpdateInstallPending(candidateVersion);
-    } catch (error) {
-        logger.warn(`Failed to write update health marker before install: ${getErrorMessage(error)}`);
-    }
-    requestUpdateInstallShutdown(() => {
+    // The marker is written here rather than before the quit request, because a
+    // quit that is held or superseded never reaches this callback. A marker left
+    // behind by an install that was never attempted reads on the next launch as
+    // a failed install, and three of those suppress the version for a week.
+    requestUpdateInstallShutdown(async () => {
+        try {
+            await markUpdateInstallPending(candidateVersion);
+        } catch (error) {
+            logger.warn(`Failed to write update health marker before install: ${getErrorMessage(error)}`);
+        }
         autoUpdater.quitAndInstall(false, true);
     });
     return { started: true };

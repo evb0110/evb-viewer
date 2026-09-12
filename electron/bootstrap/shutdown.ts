@@ -44,7 +44,7 @@ interface ICreateShutdownCoordinatorOptions {
 }
 
 interface IGracefulQuitOptions {
-    afterCleanup?: () => void;
+    afterCleanup?: () => void | Promise<void>;
     preserveRecoveryState?: boolean;
     reason?: 'graceful' | 'recovery-relaunch' | 'system-shutdown';
 }
@@ -162,7 +162,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
     let shutdownPromise: Promise<void> | null = null;
     let shutdownContext: IShutdownContext | null = null;
     let gracefulQuitForceTimer: NodeJS.Timeout | null = null;
-    let gracefulQuitAfterCleanup: (() => void) | null = null;
+    let gracefulQuitAfterCleanup: (() => void | Promise<void>) | null = null;
     let isGracefulQuitRequested = false;
     let isQuittingAfterCleanup = false;
     let isFatalShutdownInProgress = false;
@@ -267,7 +267,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                 context: {},
                 cause: error,
             });
-        }).then(() => {
+        }).then(async () => {
             clearGracefulQuitForceTimer();
             clearSystemShutdownForceTimer();
             if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
@@ -281,7 +281,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             gracefulQuitAfterCleanup = null;
             if (afterCleanup) {
                 try {
-                    afterCleanup();
+                    await afterCleanup();
                 } catch (error) {
                     options.logger.error(`Graceful quit post-cleanup action failed: ${getErrorMessage(error)}`, {
                         code: 'MAIN_SHUTDOWN_FAILED',
