@@ -80,7 +80,7 @@ interface IPendingDocumentUpdate {
     writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
-const pendingBrowserDocumentUpdates = new Map<string, {
+const pendingLegacyDocumentUpdates = new Map<string, {
     sourceSha256: string | null | undefined;
     legacyDocumentKey: string | null | undefined;
     patch: IScanCleanupDocumentPreferencePatch
@@ -95,6 +95,27 @@ function documentUpdateKey(request: IScanCleanupSettingsUpdateRequest) {
     return request.document === undefined
         ? null
         : `${request.document.sourceSha256.toLowerCase()}\0${request.document.legacyDocumentKey ?? ''}`;
+}
+
+function unresolvedDocumentUpdateKey(legacyDocumentKey: string | null | undefined) {
+    return `\0${legacyDocumentKey ?? ''}`;
+}
+
+function promoteUnresolvedDocumentUpdate(
+    sourceSha256: string | null | undefined,
+    legacyDocumentKey: string | null | undefined,
+) {
+    if (!desktopStore || !isScanCleanupSourceSha256(sourceSha256)) {
+        return;
+    }
+    const key = unresolvedDocumentUpdateKey(legacyDocumentKey);
+    const pending = pendingLegacyDocumentUpdates.get(key);
+    if (!pending) {
+        return;
+    }
+    pendingLegacyDocumentUpdates.delete(key);
+    void scheduleScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, pending.patch)
+        .catch(() => undefined);
 }
 const documentPersistenceEpochs = new Map<string, number>();
 const PERSISTENCE_RETRY_BASE_DELAY_MS = 1_000;
@@ -151,6 +172,9 @@ export function invalidateScanCleanupDocumentPersistence(
     sourceSha256: string | null | undefined,
     legacyDocumentKey: string | null | undefined,
 ) {
+    if (desktopStore && legacyDocumentKey !== undefined && legacyDocumentKey !== null) {
+        pendingLegacyDocumentUpdates.delete(unresolvedDocumentUpdateKey(legacyDocumentKey));
+    }
     for (const key of [
         documentPersistenceEpochKey('sha256', sourceSha256),
         documentPersistenceEpochKey('legacy', legacyDocumentKey),
@@ -228,7 +252,7 @@ function schedulePersistenceRetry() {
         persistenceRetryTimer !== null
         || (
             pendingDocumentUpdates.size === 0
-            && pendingBrowserDocumentUpdates.size === 0
+            && pendingLegacyDocumentUpdates.size === 0
             && pendingRemoteGlobalUpdate === null
             && pendingPreferences === null
         )
@@ -252,16 +276,22 @@ function schedulePersistenceRetry() {
         for (const [
             key,
             write,
-        ] of pendingBrowserDocumentUpdates) {
+        ] of pendingLegacyDocumentUpdates) {
+            if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) {
+                continue;
+            }
             void Promise.resolve()
                 .then(() => saveScanCleanupDocumentPreferencesInStore(
                     write.sourceSha256,
                     write.legacyDocumentKey,
                     write.patch,
                 ))
-                .then(() => pendingBrowserDocumentUpdates.delete(key), () => undefined);
+                .then(() => pendingLegacyDocumentUpdates.delete(key), () => undefined);
         }
         for (const pending of pendingDocumentUpdates.values()) {
+            if (pending.queued) {
+                continue;
+            }
             if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
                 const key = documentUpdateKey(pending.request);
                 if (key !== null) pendingDocumentUpdates.delete(key);
@@ -357,7 +387,9 @@ function queueRemoteUpdate(
         if (!committed) {
             return;
         }
-        persistenceRetryAttempt = 0;
+        if (pendingDocumentUpdates.size === 0 && pendingLegacyDocumentUpdates.size === 0) {
+            persistenceRetryAttempt = 0;
+        }
         if (isGlobalPreferencesWrite) {
             if (pendingRemoteGlobalUpdate === queuedRequest) {
                 pendingRemoteGlobalUpdate = null;
@@ -380,6 +412,9 @@ function queueRemoteUpdate(
             const pending = pendingDocumentUpdates.get(documentKey);
             if (pending?.request === queuedRequest && pending.version === documentVersion) {
                 pendingDocumentUpdates.delete(documentKey);
+            }
+            if (pendingDocumentUpdates.size === 0 && pendingLegacyDocumentUpdates.size === 0) {
+                persistenceRetryAttempt = 0;
             }
         }
     }, () => undefined);
@@ -606,6 +641,7 @@ export function loadScanCleanupDocumentSettings(
             outputMode: loadScanCleanupDocumentOutputMode(browserDocumentKey),
         };
     }
+    promoteUnresolvedDocumentUpdate(sourceSha256, legacyDocumentKey);
     return whenScanCleanupPreferencesReady().then(async () => {
         if (!isScanCleanupSourceSha256(sourceSha256)) {
             warnMissingDocumentSourceHash('load', legacyDocumentKey);
@@ -695,9 +731,11 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
     patch: IScanCleanupDocumentPreferencePatch,
 ) {
     if (!desktopStore || !isScanCleanupSourceSha256(sourceSha256)) {
-        const key = `${sourceSha256 ?? ''}\0${legacyDocumentKey ?? ''}`;
-        const previous = pendingBrowserDocumentUpdates.get(key);
-        pendingBrowserDocumentUpdates.set(key, {
+        const key = desktopStore
+            ? unresolvedDocumentUpdateKey(legacyDocumentKey)
+            : `${sourceSha256 ?? ''}\0${legacyDocumentKey ?? ''}`;
+        const previous = pendingLegacyDocumentUpdates.get(key);
+        pendingLegacyDocumentUpdates.set(key, {
             sourceSha256,
             legacyDocumentKey,
             patch: {
@@ -708,9 +746,12 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
         if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
         documentPersistenceTimer = setTimeout(() => {
             documentPersistenceTimer = null;
-            const writes = [...pendingBrowserDocumentUpdates.values()];
-            pendingBrowserDocumentUpdates.clear();
-            for (const write of writes) {
+            for (const [
+                key,
+                write,
+            ] of pendingLegacyDocumentUpdates) {
+                if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) continue;
+                pendingLegacyDocumentUpdates.delete(key);
                 void Promise.resolve(saveScanCleanupDocumentPreferencesInStore(
                     write.sourceSha256,
                     write.legacyDocumentKey,
@@ -720,6 +761,7 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
         }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
         return Promise.resolve();
     }
+    promoteUnresolvedDocumentUpdate(sourceSha256, legacyDocumentKey);
     const request: IScanCleanupSettingsUpdateRequest = {document: {
         sourceSha256: sourceSha256.toLowerCase(),
         ...(legacyDocumentKey === undefined ? {} : {legacyDocumentKey}),
@@ -763,15 +805,19 @@ export async function flushScanCleanupDocumentPreferencesStore() {
         clearTimeout(documentPersistenceTimer);
         documentPersistenceTimer = null;
     }
-    const writes = [...pendingBrowserDocumentUpdates.values()];
-    pendingBrowserDocumentUpdates.clear();
+    const writes = [...pendingLegacyDocumentUpdates.values()];
+    pendingLegacyDocumentUpdates.clear();
     let firstError: unknown = null;
     for (const write of writes) {
+        if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) {
+            pendingLegacyDocumentUpdates.set(unresolvedDocumentUpdateKey(write.legacyDocumentKey), write);
+            continue;
+        }
         try {
             await saveScanCleanupDocumentPreferencesInStore(write.sourceSha256, write.legacyDocumentKey, write.patch);
         } catch (error) {
             const key = `${write.sourceSha256 ?? ''}\0${write.legacyDocumentKey ?? ''}`;
-            pendingBrowserDocumentUpdates.set(key, write);
+            pendingLegacyDocumentUpdates.set(key, write);
             firstError ??= error;
         }
     }
@@ -814,7 +860,7 @@ export function resetScanCleanupPreferencesStore() {
     remoteSettingsFile = null;
     remoteWriteQueue = Promise.resolve();
     pendingDocumentUpdates.clear();
-    pendingBrowserDocumentUpdates.clear();
+    pendingLegacyDocumentUpdates.clear();
     pendingGlobalFields.clear();
     pendingRemoteGlobalUpdate = null;
     pendingRemoteGlobalWrite = null;
