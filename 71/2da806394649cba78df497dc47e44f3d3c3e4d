@@ -1,0 +1,19 @@
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_ae757872e5d914::t_ff30a009b580e3 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "712da806394649cba78df497dc47e44f3d3c3e4d",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
