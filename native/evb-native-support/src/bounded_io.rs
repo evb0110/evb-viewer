@@ -1,6 +1,7 @@
 use crate::{NativeError, NativeErrorCode};
 use serde::{de::DeserializeOwned, de::Error as _, de::SeqAccess, de::Visitor, Deserializer};
 use std::{
+    cell::Cell,
     fmt,
     fs::File,
     io::{BufReader, Read, Take},
@@ -9,6 +10,33 @@ use std::{
 };
 
 const TOO_LARGE_IO_SENTINEL: &str = "evb bounded reader exceeded admission ceiling";
+
+// serde's `Error::custom` can only carry a rendered string, so a visitor that
+// rejects input for exceeding an admission ceiling has no way to hand its error
+// code to the caller that will build the `NativeError`. Recovering the code by
+// matching on the rendered text is what this channel replaces: the message can
+// contain document or request content, which made a crafted payload able to
+// pick its own error code. The slot is cleared before a parse and taken after
+// it, so it only ever describes the parse that just failed.
+thread_local! {
+    static DESERIALIZATION_ERROR_CODE: Cell<Option<NativeErrorCode>> = const { Cell::new(None) };
+}
+
+pub fn record_deserialization_error(code: NativeErrorCode) {
+    DESERIALIZATION_ERROR_CODE.with(|slot| {
+        if slot.get().is_none() {
+            slot.set(Some(code));
+        }
+    });
+}
+
+pub fn take_deserialization_error() -> Option<NativeErrorCode> {
+    DESERIALIZATION_ERROR_CODE.with(|slot| slot.take())
+}
+
+pub fn clear_deserialization_error() {
+    DESERIALIZATION_ERROR_CODE.with(|slot| slot.set(None));
+}
 
 fn io_error(label: &str, error: std::io::Error) -> NativeError {
     NativeError::new(
@@ -64,6 +92,7 @@ pub fn deserialize_json_file_bounded<T: DeserializeOwned>(
     max_bytes: usize,
     label: &str,
 ) -> Result<T, NativeError> {
+    clear_deserialization_error();
     let file = File::open(path).map_err(|error| io_error(label, error))?;
     let length = file
         .metadata()
@@ -82,18 +111,29 @@ pub fn deserialize_json_file_bounded<T: DeserializeOwned>(
         T::deserialize(&mut deserializer).and_then(|value| deserializer.end().map(|_| value))
     };
     let ceiling_hit = reader.ceiling_hit;
-    result.map_err(|error| json_error(label, error, Some(max_bytes), ceiling_hit))
+    let deserialization_code = take_deserialization_error();
+    result.map_err(|error| {
+        json_error(
+            label,
+            error,
+            Some(max_bytes),
+            ceiling_hit,
+            deserialization_code,
+        )
+    })
 }
 
 pub fn deserialize_json_slice<T: DeserializeOwned>(
     bytes: &[u8],
     label: &str,
 ) -> Result<T, NativeError> {
+    clear_deserialization_error();
     let result = {
         let mut deserializer = serde_json::Deserializer::from_slice(bytes);
         T::deserialize(&mut deserializer).and_then(|value| deserializer.end().map(|_| value))
     };
-    result.map_err(|error| json_error(label, error, None, false))
+    let deserialization_code = take_deserialization_error();
+    result.map_err(|error| json_error(label, error, None, false, deserialization_code))
 }
 
 fn json_error(
@@ -101,6 +141,7 @@ fn json_error(
     error: serde_json::Error,
     max_bytes: Option<usize>,
     ceiling_hit: bool,
+    deserialization_code: Option<NativeErrorCode>,
 ) -> NativeError {
     let message = error.to_string();
     if ceiling_hit {
@@ -108,16 +149,7 @@ fn json_error(
             return too_large(label, max_bytes);
         }
     }
-    // Nested ceilings (bounded vectors, bookmark depth, markup geometry, manifest
-    // paths) are plain serde custom errors with no typed channel, so they still have
-    // to be recognised by text. A payload can carry the same words, but serde only
-    // ever renders untrusted input inside quotes, so a quote ahead of the phrase
-    // means the caller wrote it rather than a ceiling firing.
-    let ceiling_phrase = message.find("admission ceiling");
-    let code = match ceiling_phrase {
-        Some(index) if !message[..index].contains('"') => NativeErrorCode::TooLarge,
-        _ => NativeErrorCode::InvalidRequest,
-    };
+    let code = deserialization_code.unwrap_or(NativeErrorCode::InvalidRequest);
     NativeError::new(code, format!("Invalid {label}: {message}"))
 }
 
@@ -170,6 +202,7 @@ where
             let mut values = Vec::with_capacity(capacity);
             while let Some(value) = sequence.next_element()? {
                 if values.len() == MAX_ITEMS {
+                    record_deserialization_error(NativeErrorCode::TooLarge);
                     return Err(A::Error::custom(format!(
                         "array exceeds the {MAX_ITEMS}-item admission ceiling"
                     )));
@@ -256,6 +289,31 @@ mod tests {
             "test JSON",
         )
         .unwrap_err();
+
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest);
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct UserMessage {
+        #[serde(deserialize_with = "reject_with_user_message")]
+        #[serde(rename = "value")]
+        _value: String,
+    }
+
+    fn reject_with_user_message<'de, D>(deserializer: D) -> Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Err(D::Error::custom(format!(
+            "request value {value} mentions the admission ceiling"
+        )))
+    }
+
+    #[test]
+    fn json_slice_does_not_classify_custom_user_messages_as_too_large() {
+        let error = deserialize_json_slice::<UserMessage>(br#"{"value":"crafted"}"#, "test JSON")
+            .unwrap_err();
 
         assert_eq!(error.code, NativeErrorCode::InvalidRequest);
     }

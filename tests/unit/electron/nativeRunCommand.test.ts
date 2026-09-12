@@ -259,6 +259,22 @@ describe('runNativeCommand', () => {
         });
     });
 
+    it('does not classify an earlier third-party diagnostic as the native error envelope', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', []);
+        proc.stderr.emit('data', Buffer.from('{"code":"too-large","message":"diagnostic"}\n'));
+        proc.stderr.emit('data', Buffer.from('third-party failure\n'));
+        proc.emit('close', 2, null);
+
+        await expect(resultPromise).rejects.toMatchObject({
+            name: 'Error',
+            message: expect.stringContaining('/bin/tool failed with exit code 2'),
+        });
+    });
+
     it('rejects stdout truncation by default even for successful exits', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);

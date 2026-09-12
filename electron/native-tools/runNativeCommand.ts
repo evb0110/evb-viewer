@@ -176,18 +176,21 @@ class NativeToolError extends Error {
 }
 
 function parseNativeErrorEnvelope(stderr: string): NativeToolError | null {
-    const lines = stderr.trim().split(/\r?\n/u).reverse();
-    for (const line of lines) {
-        try {
-            const value: unknown = JSON.parse(line);
-            if (isNativeErrorEnvelope(value)) {
-                return new NativeToolError(value.code, value.message);
-            }
-        } catch {
-            // Native progress and third-party diagnostics are allowed alongside the final envelope.
-        }
+    const line = stderr.trim().split(/\r?\n/u).pop();
+    if (!line) {
+        return null;
     }
-    return null;
+    try {
+        const value: unknown = JSON.parse(line);
+        return isNativeErrorEnvelope(value)
+            ? new NativeToolError(value.code, value.message)
+            : null;
+    } catch {
+        // Only the last line is trusted: the tool writes its envelope last, and
+        // scanning earlier lines let document content that happens to be a valid
+        // envelope choose the error code.
+        return null;
+    }
 }
 
 function createCommandRunContext(command: string, args: string[], options: IRunCommandOptions): ICommandRunContext {

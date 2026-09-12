@@ -1,4 +1,7 @@
 use super::*;
+use evb_native_support::bounded_io::{
+    clear_deserialization_error, record_deserialization_error, take_deserialization_error,
+};
 use serde::de::{self, MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
 use std::{
@@ -10,6 +13,15 @@ use std::{
 
 const MAX_QPDF_STRUCTURE_BYTES: usize = 512 * 1024 * 1024;
 const MAX_QPDF_RETAINED_STRUCTURE_BYTES: usize = 256 * 1024 * 1024;
+/// A ceiling breach has to abort the parse rather than be collected and reported
+/// at the end: the reason for the ceiling is that reading the rest of the object
+/// table costs the memory being refused. serde carries only the rendered message
+/// out of a visitor, so the code travels beside it.
+fn resource_limit<E: de::Error>(message: impl Into<String>) -> E {
+    record_deserialization_error(NativeErrorCode::TooLarge);
+    E::custom(message.into())
+}
+
 const MAX_QPDF_OBJECT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_QPDF_OBJECT_ELEMENTS: usize = 1_000_000;
 const QPDF_ESTIMATED_BYTES_PER_VALUE: usize = 64;
@@ -513,15 +525,12 @@ where
             let mut trailer_seen = false;
             let mut retained_structure_cost = 0_usize;
             while let Some((key, raw_envelope)) = map.next_entry::<String, Box<RawValue>>()? {
-                let object_bytes =
-                    key.len()
-                        .checked_add(raw_envelope.get().len())
-                        .ok_or_else(|| {
-                            de::Error::custom("resource-limit: qpdf object size overflow")
-                        })?;
+                let Some(object_bytes) = key.len().checked_add(raw_envelope.get().len()) else {
+                    return Err(resource_limit("qpdf object size overflow"));
+                };
                 if object_bytes > MAX_QPDF_OBJECT_BYTES {
-                    return Err(de::Error::custom(format!(
-                        "resource-limit: qpdf object exceeds the {MAX_QPDF_OBJECT_BYTES}-byte resource limit"
+                    return Err(resource_limit(format!(
+                        "qpdf object exceeds the {MAX_QPDF_OBJECT_BYTES}-byte resource limit"
                     )));
                 }
                 let envelope: Value =
@@ -529,19 +538,20 @@ where
                 let Some(envelope_cost) =
                     qpdf_value_retained_cost(&envelope, MAX_QPDF_OBJECT_ELEMENTS)
                 else {
-                    return Err(de::Error::custom(format!(
-                        "resource-limit: qpdf object exceeds the {MAX_QPDF_OBJECT_ELEMENTS}-element resource limit"
+                    return Err(resource_limit(format!(
+                        "qpdf object exceeds the {MAX_QPDF_OBJECT_ELEMENTS}-element resource limit"
                     )));
                 };
-                retained_structure_cost = retained_structure_cost
+                let Some(next_cost) = retained_structure_cost
                     .checked_add(key.len())
                     .and_then(|cost| cost.checked_add(envelope_cost))
-                    .ok_or_else(|| {
-                        de::Error::custom("resource-limit: qpdf structural size overflow")
-                    })?;
+                else {
+                    return Err(resource_limit("qpdf structural size overflow"));
+                };
+                retained_structure_cost = next_cost;
                 if retained_structure_cost > MAX_QPDF_RETAINED_STRUCTURE_BYTES {
-                    return Err(de::Error::custom(format!(
-                        "resource-limit: retained qpdf structure exceeds the {MAX_QPDF_RETAINED_STRUCTURE_BYTES}-byte estimated memory limit"
+                    return Err(resource_limit(format!(
+                        "retained qpdf structure exceeds the {MAX_QPDF_RETAINED_STRUCTURE_BYTES}-byte estimated memory limit"
                     )));
                 }
                 if key == "trailer" {
@@ -561,8 +571,8 @@ where
                     continue;
                 }
                 if document.objects.len() == 1_000_000 {
-                    return Err(de::Error::custom(
-                        "resource-limit: qpdf structural output exceeds the 1000000-object resource limit",
+                    return Err(resource_limit(
+                        "qpdf structural output exceeds the 1000000-object resource limit",
                     ));
                 }
                 let object_id = parse_qpdf_object_key(&key, self.allow_legacy_encoding)
@@ -665,17 +675,13 @@ fn parse_qpdf_structure(
         ));
     }
     let mut deserializer = serde_json::Deserializer::from_reader(BufReader::new(file));
-    let root = QpdfRoot::deserialize(&mut deserializer).map_err(|error| {
-        if error.to_string().contains("resource-limit:") {
-            domain_error(
-                NativeErrorCode::TooLarge,
-                error.to_string().replace("resource-limit: ", ""),
-            )
-        } else {
-            Box::new(error)
-        }
-    })?;
-    deserializer.end()?;
+    clear_deserialization_error();
+    let root = QpdfRoot::deserialize(&mut deserializer)
+        .and_then(|root| deserializer.end().map(|_| root))
+        .map_err(|error| match take_deserialization_error() {
+            Some(code) => domain_error(code, error.to_string()),
+            None => Box::new(error) as Box<dyn Error>,
+        })?;
     let (mut document, unavailable_base_streams, max_id, pdf_version) = match root {
         QpdfRoot::V2(QpdfRootV2 {
             qpdf: (metadata, objects),
@@ -1137,6 +1143,28 @@ mod tests {
             Some(6 * QPDF_ESTIMATED_BYTES_PER_VALUE + 2)
         );
         assert_eq!(qpdf_value_retained_cost(&value, 5), None);
+    }
+
+    #[test]
+    fn qpdf_data_cannot_relabel_an_invalid_object_key_as_a_resource_limit() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("evb-qpdf-error-classification-{nonce}.json"));
+        fs::write(
+            &path,
+            br#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.7","maxobjectid":1},{"obj:resource-limit: crafted":{},"trailer":{"value":{"/Root":"1 0 R"}}}]}"#,
+        )
+        .unwrap();
+
+        let error = parse_qpdf_structure(&path, None).unwrap_err();
+        assert_ne!(
+            error.downcast_ref::<NativeError>().map(|error| error.code),
+            Some(NativeErrorCode::TooLarge),
+        );
+
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

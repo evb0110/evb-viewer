@@ -551,7 +551,7 @@ pub(crate) fn clean_detail_page_with_color(
     plan: &DetailRenderPlan,
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
-) -> Result<PageCleanupResult, String> {
+) -> Result<PageCleanupResult, AnalysisError> {
     let DetailRenderSources {
         source_crop,
         color_source_crop,
@@ -1283,6 +1283,50 @@ pub struct PageAnalysisResult {
     pub output_mode_recommendation: Option<OutputModeRecommendation>,
 }
 
+#[derive(Debug)]
+pub(crate) enum AnalysisError {
+    Invalid(String),
+    TooLarge(String),
+}
+
+impl std::fmt::Display for AnalysisError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(message) | Self::TooLarge(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl AnalysisError {
+    #[cfg(test)]
+    fn contains(&self, pattern: &str) -> bool {
+        self.to_string().contains(pattern)
+    }
+}
+
+impl From<&str> for AnalysisError {
+    fn from(message: &str) -> Self {
+        Self::Invalid(message.to_owned())
+    }
+}
+
+impl From<String> for AnalysisError {
+    fn from(message: String) -> Self {
+        Self::Invalid(message)
+    }
+}
+
+impl From<crate::domain::options::DerivedRasterError> for AnalysisError {
+    fn from(error: crate::domain::options::DerivedRasterError) -> Self {
+        match error {
+            crate::domain::options::DerivedRasterError::Invalid(message) => Self::Invalid(message),
+            crate::domain::options::DerivedRasterError::TooLarge(message) => {
+                Self::TooLarge(message)
+            }
+        }
+    }
+}
+
 struct PreparedPage<'a> {
     /// `None` when the rotated source and `normalized` are the same buffer.
     rotated_source: Option<Cow<'a, GrayImage>>,
@@ -1827,6 +1871,7 @@ pub fn analyze_page_with_color_and_document_prior(
         None,
         &mut timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) fn analyze_page_with_color_and_document_prior_cached(
@@ -1838,7 +1883,7 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
     plan_content: bool,
     cache: &PageCache,
     timings: &mut PageStageTimings,
-) -> Result<PageAnalysisResult, String> {
+) -> Result<PageAnalysisResult, AnalysisError> {
     analyze_page_with_color_and_document_prior_impl(
         source,
         color_source,
@@ -1860,7 +1905,7 @@ fn analyze_page_with_color_and_document_prior_impl(
     plan_content: bool,
     cache: Option<&PageCache>,
     timings: &mut PageStageTimings,
-) -> Result<PageAnalysisResult, String> {
+) -> Result<PageAnalysisResult, AnalysisError> {
     options.validate()?;
     if options.excluded {
         return Ok(PageAnalysisResult {
@@ -2095,7 +2140,7 @@ fn analyze_page_with_color_and_document_prior_impl(
             input_height: source.height(),
         })
     })
-    .collect::<Result<Vec<_>, String>>()?;
+    .collect::<Result<Vec<_>, AnalysisError>>()?;
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     Ok(PageAnalysisResult {
         outputs,
@@ -2172,6 +2217,7 @@ pub fn clean_page(
         PageRenderPolicy::COMPLETE,
         &mut timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 #[doc(hidden)]
@@ -2196,6 +2242,7 @@ pub fn clean_page_with_calibration_config(
         PageRenderPolicy::COMPLETE,
         &mut timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 pub fn clean_page_with_color(
@@ -2219,6 +2266,7 @@ pub fn clean_page_with_color(
         PageRenderPolicy::COMPLETE,
         &mut timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 pub fn clean_page_with_color_and_document_prior(
@@ -2243,6 +2291,7 @@ pub fn clean_page_with_color_and_document_prior(
         PageRenderPolicy::COMPLETE,
         &mut timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 /// Test/diagnostic entrypoint for proving that a fixed analysis plane owns all
@@ -2269,6 +2318,7 @@ pub fn clean_page_with_canonical_analysis(
         PageRenderPolicy::COMPLETE,
         &mut timings,
     )
+    .map_err(|error| error.to_string())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2285,7 +2335,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     create_mixed_layers: bool,
     recommend_output_mode: bool,
     timings: &mut PageStageTimings,
-) -> Result<PageCleanupResult, String> {
+) -> Result<PageCleanupResult, AnalysisError> {
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
@@ -2324,7 +2374,7 @@ fn clean_page_with_color_and_calibration_config(
     cache: Option<&PageCache>,
     render_policy: PageRenderPolicy,
     timings: &mut PageStageTimings,
-) -> Result<PageCleanupResult, String> {
+) -> Result<PageCleanupResult, AnalysisError> {
     options.validate()?;
     if options.excluded {
         return Ok(PageCleanupResult {
