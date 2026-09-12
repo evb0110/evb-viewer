@@ -1,0 +1,109 @@
+tests/unit/contracts/documentTextCatalog.test.ts
+  s_ab5519baaef2a4::t_dbae5fae5f489a 66,82
+electron/features/ocr/worker/indexWriterV4.ts
+  s_ab5519baaef2a4::t_e0ae8e17e9e41c 87,1225-1226
+  s_ab5519baaef2a4::t_809cf63f60deb2 1227
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_ab5519baaef2a4::t_62f5f9431eb198 185,207
+  s_ab5519baaef2a4::t_a4fcef7ac66fbc 36,62
+  s_ab5519baaef2a4::t_9d335afcdf62ec 375-393
+  s_ab5519baaef2a4::t_e1530b292d43e8 256
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_ab5519baaef2a4::t_fec7ab6ef5a8e2 27
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_ab5519baaef2a4::t_01012f0cb2e4d1 3,28,228,298,320,377-398,500,599-608,721,777-783,838,858
+  s_ab5519baaef2a4::t_d60a0023c5ecaa 773
+packages/i18n-app/messages/en.ts
+  s_ab5519baaef2a4::t_f7e77edfd3b86b 300-301
+packages/i18n-app/messages/de.ts
+  s_ab5519baaef2a4::t_ae2eb841fcf779 765-766
+electron/features/ocr/main/ocrCatalogRecovery.ts
+  s_ab5519baaef2a4::t_4c89a08a87d88a 9,102-107,120-125,139
+  s_ab5519baaef2a4::t_76dab8a26d458f 10-13,33-57,78,81-85
+  s_ab5519baaef2a4::t_8b5906de6b8f97 1-5,7-8,14-32,58-77,79-80,86-93,112-119,126-138
+  s_ab5519baaef2a4::t_0c9c8d1aa9ac37 6,94-101,108-111
+packages/i18n-app/messages/es.ts
+  s_ab5519baaef2a4::t_d58853bc756724 765-766
+packages/i18n-app/messages/it.ts
+  s_ab5519baaef2a4::t_1e655567b776f0 765-766
+packages/contracts/documentTextCatalog.ts
+  s_ab5519baaef2a4::t_1e39b9e842016c 256
+  s_ab5519baaef2a4::t_64381337054a24 60-61,332
+packages/i18n-app/messages/ptBr.ts
+  s_ab5519baaef2a4::t_a1aad71ef8db22 766-767
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_ab5519baaef2a4::t_967871d6797063 264
+  s_ab5519baaef2a4::t_40a1762c20d40e 130
+  s_ab5519baaef2a4::t_d60a0023c5ecaa 311
+  s_ab5519baaef2a4::t_8c9ac016920ea6 350
+packages/i18n-app/messages/nl.ts
+  s_ab5519baaef2a4::t_106e65695d65e8 765-766
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_ab5519baaef2a4::t_fe04a6ab2c6f11 2-9,20,122-129,157-177
+  s_ab5519baaef2a4::t_e47871e8735ba6 121,178-181
+  s_ab5519baaef2a4::t_3181d3d790cf5f 1
+  s_ab5519baaef2a4::t_65a1b8f7acb6ce 182-183
+packages/i18n-app/messages/ru.ts
+  s_ab5519baaef2a4::t_3020efdc04df22 302-303
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_ab5519baaef2a4::t_c2d813564c2775 33,122-142
+  s_097971b99ad78b::t_950bb7a710d44f 143-144
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_ab5519baaef2a4::t_d60a0023c5ecaa 760-776
+  s_ab5519baaef2a4::t_e129ea18caae39 79-95,413,505,549,568,583
+  s_ab5519baaef2a4::t_ff9366b9e62676 523
+electron/features/ocr/main/visitDocumentOcrCatalogPages.ts
+  s_ab5519baaef2a4::t_e64f41a4c0180e 180
+  s_ab5519baaef2a4::t_1a8ab6fe290e87 16,20-26,55-82,84,86,89-91,93,97,100-101,106
+  s_ab5519baaef2a4::t_76dab8a26d458f 83,85
+  s_247a07a16a61fa::t_6b3c5201e78065 87-88,92,94-96,98-99,102-105,200-202,205
+electron/features/ocr/main/documentTextCatalog.ts
+  s_ab5519baaef2a4::t_e64f41a4c0180e 601-603,606,671,760
+  s_ab5519baaef2a4::t_ddb30a488c42bb 50,67,69,427-439,442,462,478,480
+  s_ab5519baaef2a4::t_76dab8a26d458f 416
+  s_33a6131115d43d::t_eff66ec17f4d4f 419,488,527,761-762,765
+packages/i18n-app/messages/fr.ts
+  s_ab5519baaef2a4::t_e1530b292d43e8 766-767
+packages/i18n-app/messages/pt.ts
+  s_ab5519baaef2a4::t_cdcaf7276d27ea 766-767
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "343d816a8b34de261ecb2a6207122adb98754361",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_33a6131115d43d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0947f-fe2e-7c13-8347-1a7fbb157b48",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ab5519baaef2a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09472-649b-79e3-8311-e74523d93157",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
