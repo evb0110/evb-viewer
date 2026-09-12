@@ -1243,7 +1243,7 @@ describe('Electron E2E - native save and reopen', () => {
         expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
-    it('repairs a metadata-rich PDF with a dirty annotation and reopens the repaired result', async () => {
+    it('repairs captured bookmark, page-label and annotation edits and reopens the result', async () => {
         const pdfPath = await createOutlinePageLabelFixturePdf(`native-repair-annotation-${Date.now()}.pdf`);
         session = await startElectronE2ESession(`e2e-native-repair-annotation-${Date.now()}`, {
             clean: true,
@@ -1251,6 +1251,38 @@ describe('Electron E2E - native save and reopen', () => {
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
+
+        const bookmarkUpdate = await callWorkspaceCommand<IAgentActionResult>(session.page, 'runAgentAction', [
+            'bookmarks.update',
+            {
+                path: [0],
+                title: 'Repaired Parent',
+            },
+        ]);
+        expect(bookmarkUpdate).toMatchObject({
+            called: true,
+            value: {
+                ok: true,
+                dirty: true,
+            },
+        });
+        const pageLabelUpdate = await callWorkspaceCommand<IAgentActionResult>(session.page, 'runAgentAction', [
+            'page_labels.apply_range',
+            {
+                startPage: 1,
+                endPage: 2,
+                style: 'D',
+                prefix: 'custom-',
+                startNumber: 7,
+            },
+        ]);
+        expect(pageLabelUpdate).toMatchObject({
+            called: true,
+            value: {
+                ok: true,
+                dirty: true,
+            },
+        });
         await createCanonicalTextBoxWithPointer(session.page, 'Repair annotation survives', {
             x: 0.3,
             y: 0.35,
@@ -1262,15 +1294,21 @@ describe('Electron E2E - native save and reopen', () => {
             value: true,
         });
         expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(false);
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{dirtyState?: {hasPendingUnsavedChanges?: boolean}}>(
+                session!.page,
+                ['dirtyState'],
+            )
+        ).dirtyState?.hasPendingUnsavedChanges).toBe(false);
         expect(await readPdfTextAnnotationRecords(pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair annotation survives'})]));
         const repairedMetadata = await readPdfMetadataWithQpdf(pdfPath);
         expect(flattenQpdfOutlines(repairedMetadata.outlines).map(outline => outline.title)).toEqual([
-            'Parent',
+            'Repaired Parent',
             'Child',
             'Appendix',
         ]);
         expect(repairedMetadata.pagelabels.map(label => label.label?.['/P'])).toEqual(expect.arrayContaining([
-            'u:front-',
+            'u:custom-',
             'u:chapter-',
         ]));
 
@@ -1284,12 +1322,12 @@ describe('Electron E2E - native save and reopen', () => {
         expect(await readPdfTextAnnotationRecords(pdfPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Repair annotation survives'})]));
         const reopenedMetadata = await readPdfMetadataWithQpdf(pdfPath);
         expect(flattenQpdfOutlines(reopenedMetadata.outlines).map(outline => outline.title)).toEqual([
-            'Parent',
+            'Repaired Parent',
             'Child',
             'Appendix',
         ]);
         expect(reopenedMetadata.pagelabels.map(label => label.label?.['/P'])).toEqual(expect.arrayContaining([
-            'u:front-',
+            'u:custom-',
             'u:chapter-',
         ]));
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);

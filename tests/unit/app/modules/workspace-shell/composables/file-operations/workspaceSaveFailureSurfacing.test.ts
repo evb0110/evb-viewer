@@ -363,6 +363,13 @@ describe('workspace save failure surfacing', () => {
         });
         const {deps} = createDeps({
             annotationDirty: ref(true),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'D',
+                prefix: 'pending-',
+                startNumber: 1,
+            }]),
             bookmarksDirty: ref(true),
             bookmarkItems: ref([{
                 title: 'Pending bookmark',
@@ -381,6 +388,8 @@ describe('workspace save failure surfacing', () => {
         await expect(service.handleRepairSave()).resolves.toBe(true);
         expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
         expect(repairWorkingCopy).toHaveBeenCalledOnce();
+        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopyAs).not.toHaveBeenCalled();
     });
