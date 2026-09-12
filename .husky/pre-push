@@ -1,1 +1,1 @@
-node scripts/check-commit-attribution.mjs --pre-push "$1" "$2" || exit $?
+node scripts/check-publication-policy.mjs --pre-push "$1" "$2" || exit $?

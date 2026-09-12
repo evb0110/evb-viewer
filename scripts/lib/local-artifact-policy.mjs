@@ -4,7 +4,7 @@
 // and out of the web deploy source.
 //
 // The enforcing gates import this list directly: the staged, pre-push, and CI
-// history checks in `check-commit-attribution.mjs`, and the web deploy source
+// history checks in `check-publication-policy.mjs`, and the web deploy source
 // filter in `check-web-deploy-source.mjs`. `.gitignore` and `.vercelignore` are
 // static text that cannot import anything, so they restate the list and a unit
 // test asserts each one still mirrors what is declared here.
@@ -182,7 +182,10 @@ export function describeForbiddenArtifactPath(filePath) {
 export const REQUIRED_GITIGNORE_PATTERNS = [
     ...AGENT_INSTRUCTION_FILE_NAMES.flatMap(name => (
         PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(name)
-            ? [`**/${name}`, `!/${name}`]
+            ? [
+                `**/${name}`,
+                `!/${name}`,
+            ]
             : [name]
     )),
     ...LOCAL_ONLY_DIRECTORY_NAMES.map(name => `${name}/`),

@@ -84,7 +84,7 @@ Before submitting an AppX package, confirm that `Send privacy-sanitized error di
 
 ## Publication policy gate
 
-`scripts/check-commit-attribution.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter and the artifact-only flow run it before their push, and CI reruns it for pushes and pull requests. It rejects prohibited commit attribution and the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.
+`scripts/check-publication-policy.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter and the artifact-only flow run it before their push, and CI reruns it for pushes and pull requests. It rejects the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.
 
 In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a zero OID, and an unreachable SHA after a force history rewrite all take that wider path. This is intentional and fail-closed. The authorized public-history rewrite must remove agent instruction files and local-only directories from every public head and tag. After that rewrite has been validated and published, a full-history scan of a rewritten branch passes, and keeping it full prevents the purged content from re-entering public history through a later force push.
 

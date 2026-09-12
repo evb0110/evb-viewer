@@ -30,8 +30,8 @@ env:
   EVB_E2E_PRESERVE_ARTIFACTS: '1'
 
 jobs:
-  commit_attribution:
-    name: Commit Attribution Policy
+  publication_policy:
+    name: Publication Policy
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Reject prohibited attribution and local-only artifacts
+      - name: Reject local-only artifacts and unexplained checks
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -55,9 +55,9 @@ jobs:
         # the publication-policy runbook in docs/contributing/releasing.md.
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            node scripts/check-commit-attribution.mjs --pushed-range "$PR_BASE_SHA" "$PR_HEAD_SHA"
+            node scripts/check-publication-policy.mjs --pushed-range "$PR_BASE_SHA" "$PR_HEAD_SHA"
           else
-            node scripts/check-commit-attribution.mjs --pushed-range "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
+            node scripts/check-publication-policy.mjs --pushed-range "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
           fi
 
   pr_quality:
@@ -581,7 +581,7 @@ jobs:
     name: gates_ok
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     needs:
-      - commit_attribution
+      - publication_policy
       - pr_quality
       - pr_changed_areas
       - pr_electron_blocking_smoke

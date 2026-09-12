@@ -958,7 +958,7 @@ describe('release policy', () => {
 
     // Every release entry point runs with HUSKY=0, and the release commit carries
     // `[skip ci]`, so this scan — run as part of the same command before push — is
-    // the only publication gate: neither the pre-push hook nor the CI attribution
+    // the only publication gate: neither the pre-push hook nor the CI publication policy
     // job sees these pushes.
     describe('release publication gate', () => {
         const upstream = {
@@ -988,7 +988,7 @@ describe('release policy', () => {
                         command,
                     });
                     if (command === failingCommand) {
-                        throw new Error('prohibited attribution was found');
+                        throw new Error('a local-only artifact was found');
                     }
                     if (command === 'git' && args[0] === 'ls-remote') {
                         if (lsRemoteError != null) {
@@ -1099,7 +1099,7 @@ describe('release policy', () => {
                     command: 'tag',
                 }),
                 runCommand: recorder.runCommand,
-            })).rejects.toThrow('prohibited attribution was found');
+            })).rejects.toThrow('a local-only artifact was found');
 
             expect(recorder.calls.map(({command}) => command)).toEqual(['node']);
         });
@@ -1154,7 +1154,7 @@ describe('release policy', () => {
             // The scanned script has to be the real checker, resolved from the
             // module rather than from the caller's working directory.
             expect(PUBLICATION_POLICY_SCRIPT)
-                .toBe(resolve(process.cwd(), 'scripts/check-commit-attribution.mjs'));
+                .toBe(resolve(process.cwd(), 'scripts/check-publication-policy.mjs'));
             expect(existsSync(PUBLICATION_POLICY_SCRIPT)).toBe(true);
         });
 
@@ -1254,7 +1254,7 @@ describe('release policy', () => {
                 result,
             } = publish(publisher, 'node');
 
-            await expect(result).rejects.toThrow('prohibited attribution was found');
+            await expect(result).rejects.toThrow('a local-only artifact was found');
             expect(calls.some(({
                 args,
                 command,

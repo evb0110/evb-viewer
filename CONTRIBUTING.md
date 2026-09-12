@@ -64,8 +64,8 @@ check instead of tolerating it (see [Flaky checks](docs/contributing/local-gates
 
 Use one independent reviewer and one correction follow-up when review adds
 value. Optional suggestions do not reopen acceptance. An extra review needs a
-specific unresolved high-risk question. The pre-push hook checks commit
-attribution. Validation runs through the commands above and hosted CI.
+specific unresolved high-risk question. Validation runs through the commands
+above and hosted CI.
 
 For a change to native tool packaging or resource selection, the resource check
 can exercise that boundary:

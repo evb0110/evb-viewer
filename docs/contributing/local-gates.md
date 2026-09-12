@@ -37,8 +37,8 @@ Cover Windows atomic replacement on a real filesystem
 Adds-Checks: user asked for "a real Windows filesystem test for atomic save"
 ```
 
-`scripts/check-commit-attribution.mjs` enforces this in the commit-msg hook,
-the pre-push hook, and the CI attribution job. Deleting or editing a check
+`scripts/check-publication-policy.mjs` enforces this in the commit-msg hook,
+the pre-push hook, and the CI publication-policy job. Deleting or editing a check
 needs no trailer. Audit past additions with `git log --grep=Adds-Checks`.
 
 The same trailer covers flake tolerance. A test retry, a wall-clock sleep in a

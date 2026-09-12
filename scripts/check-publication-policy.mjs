@@ -21,28 +21,6 @@ const PUBLISHABLE_REF_PREFIXES = [
 // still batching a full-history scan into a handful of processes.
 const COMMIT_BATCH_SIZE = 400;
 
-// Each rule names a marker that generated commits actually carry — the no-reply
-// identity such commits are authored and co-authored under, and the footer
-// Claude Code writes. The rules are kept semantically distinct: the generated
-// co-author trailer is `Co-Authored-By: Claude <noreply@anthropic.com>`, which
-// the identity rule already covers wherever it appears, so a separate trailer
-// rule would only add a second label for the same text.
-//
-// `Claude` alone is an ordinary word and an ordinary given name, so
-// `Co-Authored-By: Claude Dupont <claude@example.com>` is a person and stays
-// legal. Markers no observed tool emits are deliberately absent: an invented
-// pattern only creates false positives on ordinary prose.
-export const FORBIDDEN_ATTRIBUTION_RULES = [
-    {
-        label: 'Anthropic no-reply identity',
-        pattern: /\bnoreply@anthropic\.com\b/iu,
-    },
-    {
-        label: 'Claude generated-by marker',
-        pattern: /\bgenerated\s+with\s+\[?claude\b/iu,
-    },
-];
-
 function runGit(arguments_, cwd = process.cwd(), input) {
     const result = spawnSync('git', arguments_, {
         cwd,
@@ -71,12 +49,6 @@ function batches(items) {
         result.push(items.slice(index, index + COMMIT_BATCH_SIZE));
     }
     return result;
-}
-
-export function findForbiddenAttribution(text) {
-    return FORBIDDEN_ATTRIBUTION_RULES
-        .filter(({pattern}) => pattern.test(text))
-        .map(({label}) => label);
 }
 
 export function parsePrePushUpdates(input) {
@@ -215,7 +187,6 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
     const rejectedRefs = [];
     const nestedTagRefs = [];
     const localOids = [];
-    const tagObjects = [];
 
     for (const update of updates) {
         if (update.localOid === ZERO_OID) {
@@ -237,11 +208,6 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
         if (tagObject.nested) {
             nestedTagRefs.push(update.remoteRef);
         }
-        tagObjects.push({
-            content: tagObject.content,
-            oid: tagObject.oid,
-            ref: update.remoteRef,
-        });
     }
 
     return {
@@ -251,7 +217,6 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
         ], cwd),
         nestedTagRefs,
         rejectedRefs,
-        tagObjects,
     };
 }
 
@@ -274,42 +239,6 @@ export function collectPushedRangeCommits(beforeOid, headOid, cwd = process.cwd(
         ], cwd) !== null;
 
     return listCommits(hasUsableBefore ? [`${beforeOid}..${headOid}`] : [headOid], cwd);
-}
-
-function readCommitAttribution(commits, cwd) {
-    // NUL cannot appear in an author name, e-mail, or commit message, so it is
-    // an unambiguous record separator for batched output.
-    return batches(commits).flatMap(batch => runGit([
-        'log',
-        '--no-walk=unsorted',
-        '--format=%x00%H%n%an%n%ae%n%cn%n%ce%n%B',
-        ...batch,
-    ], cwd)
-        .split('\0')
-        .filter(record => record.trim().length > 0)
-        .map((record) => {
-            const newlineIndex = record.indexOf('\n');
-            return {
-                commit: record.slice(0, newlineIndex),
-                text: record.slice(newlineIndex + 1),
-            };
-        }));
-}
-
-export function findCommitViolations(commits, cwd = process.cwd()) {
-    if (commits.length === 0) {
-        return [];
-    }
-    return readCommitAttribution(commits, cwd).flatMap(({
-        commit,
-        text,
-    }) => {
-        const matches = findForbiddenAttribution(text);
-        return matches.length > 0 ? [{
-            matches,
-            subject: commit,
-        }] : [];
-    });
 }
 
 /**
@@ -376,20 +305,6 @@ export function findHistoryArtifactViolations(commits, cwd = process.cwd()) {
     });
 }
 
-function findTagObjectViolations(tagObjects) {
-    return tagObjects.flatMap(({
-        content,
-        oid,
-        ref,
-    }) => {
-        const matches = findForbiddenAttribution(content);
-        return matches.length > 0 ? [{
-            matches,
-            subject: `${ref} (tag object ${oid})`,
-        }] : [];
-    });
-}
-
 function mergeViolations(violationGroups) {
     const matchesBySubject = new Map();
 
@@ -415,7 +330,6 @@ function mergeViolations(violationGroups) {
 export function findPushPolicyViolations(commits, cwd = process.cwd(), {
     nestedTagRefs = [],
     rejectedRefs = [],
-    tagObjects = [],
 } = {}) {
     return mergeViolations([
         rejectedRefs.map(ref => ({
@@ -426,10 +340,8 @@ export function findPushPolicyViolations(commits, cwd = process.cwd(), {
             matches: ['tag object points at another tag; this project publishes tags of commits only'],
             subject: ref,
         })),
-        findCommitViolations(commits, cwd),
         findHistoryArtifactViolations(commits, cwd),
         findAddedCheckViolations(commits, cwd),
-        findTagObjectViolations(tagObjects),
     ]);
 }
 
@@ -437,7 +349,7 @@ function rejectViolations(violations) {
     if (violations.length === 0) {
         return;
     }
-    console.error('Push blocked: prohibited attribution, local-only artifacts, unexplained new checks, or ref destinations were found.');
+    console.error('Push blocked: local-only artifacts, unexplained new checks, or ref destinations were found.');
     for (const {
         matches,
         subject,
@@ -445,8 +357,8 @@ function rejectViolations(violations) {
         console.error(`  ${subject}: ${matches.join(', ')}`);
     }
     console.error(
-        'Remove the attribution marker, identity, or local-only artifact from every listed object '
-        + '(rewriting the affected history, not only the tip), and retry.',
+        'Remove the local-only artifact from every listed object (rewriting the affected '
+        + 'history, not only the tip), and retry.',
     );
     process.exitCode = 1;
 }
@@ -514,7 +426,7 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
 
     if (modeCount !== 1) {
         throw new Error(
-            'Usage: check-commit-attribution.mjs (--message-file <path> | --staged '
+            'Usage: check-publication-policy.mjs (--message-file <path> | --staged '
             + '| --pushed-range <before> <head> | --pre-push <remote> [<url>])',
         );
     }
@@ -524,11 +436,6 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
             throw new Error('--message-file accepts one path');
         }
         const message = readFileSync(messageFiles[0], 'utf8');
-        const matches = findForbiddenAttribution(message);
-        if (matches.length > 0) {
-            console.error(`Commit blocked: prohibited Claude attribution was found (${matches.join(', ')}).`);
-            process.exitCode = 1;
-        }
         const added = readAddsChecksTrailer(message) === null ? findStagedAddedChecks(cwd) : [];
         if (added.length > 0) {
             console.error(`Commit blocked: ${describeMissingTrailer(added).join('\n  ')}`);

@@ -28,22 +28,11 @@ interface IPrePushWork {
     commits: string[];
     nestedTagRefs: string[];
     rejectedRefs: string[];
-    tagObjects: Array<{
-        content: string;
-        oid: string;
-        ref: string;
-    }>;
 }
 
-interface ICommitAttributionModule {
-    FORBIDDEN_ATTRIBUTION_RULES: Array<{
-        label: string;
-        pattern: RegExp;
-    }>;
+interface IPublicationPolicyModule {
     collectPrePushWork: (input: string, remoteTargets: string[], cwd?: string) => IPrePushWork;
     collectPushedRangeCommits: (beforeOid: string, headOid: string, cwd?: string) => string[];
-    findCommitViolations: (commits: string[], cwd?: string) => IViolation[];
-    findForbiddenAttribution: (text: string) => string[];
     findPushPolicyViolations: (
         commits: string[],
         cwd?: string,
@@ -58,8 +47,8 @@ interface ICommitAttributionModule {
 }
 
 const checker = await import(
-    pathToFileURL(path.resolve(process.cwd(), 'scripts/check-commit-attribution.mjs')).href
-) as ICommitAttributionModule;
+    pathToFileURL(path.resolve(process.cwd(), 'scripts/check-publication-policy.mjs')).href
+) as IPublicationPolicyModule;
 
 interface IAddedChecksModule {findAddedChecks: (
     entries: Array<{
@@ -213,94 +202,20 @@ function isWithinDirectory(directory: string, candidate: string) {
         || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-describe('commit attribution policy', () => {
-    // Each blocked marker reports exactly one label: the rules are semantically
-    // distinct, so the generated co-author trailer is reported once, by the
-    // identity rule that covers the address wherever it appears.
-    it.each([
-        [
-            'Co-Authored-By: Claude <noreply@anthropic.com>',
-            ['Anthropic no-reply identity'],
-        ],
-        [
-            'co-authored-by: claude <noreply@anthropic.com>',
-            ['Anthropic no-reply identity'],
-        ],
-        [
-            'Co-authored-by: Person <noreply@anthropic.com>',
-            ['Anthropic no-reply identity'],
-        ],
-        [
-            'Generated with Claude Code',
-            ['Claude generated-by marker'],
-        ],
-        [
-            'Generated with [Claude Code](https://example.test)',
-            ['Claude generated-by marker'],
-        ],
-    ])('blocks %s', (message, expectedLabels) => {
-        expect(checker.findForbiddenAttribution(message)).toEqual(expectedLabels);
-    });
-
-    it('reports both distinct markers when a message carries both', () => {
-        expect(checker.findForbiddenAttribution(
-            'Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n',
-        )).toEqual([
-            'Anthropic no-reply identity',
-            'Claude generated-by marker',
-        ]);
-    });
-
-    it('labels every rule distinctly so no marker is reported twice', () => {
-        const labels = checker.FORBIDDEN_ATTRIBUTION_RULES.map(({label}) => label);
-
-        expect(new Set(labels).size).toBe(labels.length);
-    });
-
-    // The rules must name markers generated commits actually carry, not the word
-    // "Claude": a contributor called Claude is a person, prose about the product
-    // is ordinary documentation, and a trailer no tool emits would only produce
-    // false positives.
-    it.each([
-        ['Co-Authored-By: Claude Dupont <claude.dupont@example.test>'],
-        ['Co-Authored-By: Claude <claude.dupont@example.test>'],
-        ['Co-Authored-By: Claudia Example <claudia@example.test>'],
-        ['Document how Claude integrations are configured'],
-        ['Add a Claude session viewer to the agent panel'],
-        ['Note that this release was generated with the release script'],
-    ])('allows %s', (message) => {
-        expect(checker.findForbiddenAttribution(message)).toEqual([]);
-    });
-
-    it('validates commit message files before a commit is created', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const directory = await mkdtemp(join(tmpdir(), 'evb-attribution-message-'));
-        try {
-            const messageFile = join(directory, 'COMMIT_EDITMSG');
-            await writeFile(messageFile, 'Generated with Claude Code\n');
-
-            expect(runMain([
-                '--message-file',
-                messageFile,
-            ])).toBe(1);
-        } finally {
-            await removeRepository(directory);
-        }
-    });
-
+describe('publication policy', () => {
     it('checks every commit in a range, not only the tip', async () => {
         const repository = await createRepository('evb-attribution-repo-');
         try {
             const base = await commit(repository, 'Clean base');
-            const prohibited = await commit(repository, 'Generated with Claude Code');
+            const middle = await commit(repository, 'Add harness notes', {'docs/AGENTS.md': '# local rules\n'});
             const head = await commit(repository, 'Clean tip');
 
             const commits = checker.collectPushedRangeCommits(base, head, repository);
 
             expect(commits).toHaveLength(2);
-            expect(checker.findCommitViolations(commits, repository)).toEqual([{
-                matches: ['Claude generated-by marker'],
-                subject: prohibited,
+            expect(checker.findPushPolicyViolations(commits, repository)).toEqual([{
+                matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
+                subject: middle,
             }]);
         } finally {
             await removeRepository(repository);
@@ -399,16 +314,16 @@ describe('commit attribution policy', () => {
             'commit-msg',
             '--message-file',
         ],
-    ])('wires the %s hook to the attribution check with %s', async (hook, mode) => {
+    ])('wires the %s hook to the publication check with %s', async (hook, mode) => {
         const script = await readFile(path.join(process.cwd(), '.husky', hook), 'utf8');
         const invocations = script
             .split(/\r?\n/u)
             .map(line => line.trim())
-            .filter(line => line.includes('check-commit-attribution.mjs'));
+            .filter(line => line.includes('check-publication-policy.mjs'));
 
         expect(invocations).toHaveLength(1);
         expect(invocations[0]).toMatch(
-            new RegExp(`^node scripts/check-commit-attribution\\.mjs ${mode}(\\s|$)`, 'u'),
+            new RegExp(`^node scripts/check-publication-policy\\.mjs ${mode}(\\s|$)`, 'u'),
         );
     });
 });
@@ -600,7 +515,7 @@ describe('forbidden artifact detection in history', () => {
                 side,
             ]);
             const merge = await commit(repository, 'Merge side work');
-            await writeFiles(repository, {'AGENTS.md': '# local rules\n'});
+            await writeFiles(repository, {'docs/AGENTS.md': '# local rules\n'});
             runGit(repository, [
                 'add',
                 '--all',
@@ -620,7 +535,7 @@ describe('forbidden artifact detection in history', () => {
                 side,
                 evilMerge,
             ], repository)).toEqual([{
-                matches: ['agent instruction file AGENTS.md at AGENTS.md'],
+                matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
                 subject: evilMerge,
             }]);
         } finally {
@@ -632,13 +547,13 @@ describe('forbidden artifact detection in history', () => {
         const repository = await createRepository('evb-artifact-purge-');
         try {
             await commit(repository, 'Legacy history with harness notes', {
-                'AGENTS.md': '# local rules\n',
+                'docs/AGENTS.md': '# local rules\n',
                 'app/index.ts': 'export const app = true;\n',
             });
             runGit(repository, [
                 'rm',
                 '--quiet',
-                'AGENTS.md',
+                'docs/AGENTS.md',
             ]);
             const purge = await commit(repository, 'Remove local harness notes');
 
@@ -711,7 +626,7 @@ describe('forbidden artifact detection in history', () => {
         const repository = await createRepository('evb-artifact-unborn-');
         try {
             await writeFiles(repository, {
-                'AGENTS.md': '# local rules\n',
+                'docs/AGENTS.md': '# local rules\n',
                 'app/index.ts': 'export const app = true;\n',
             });
             runGit(repository, [
@@ -721,7 +636,7 @@ describe('forbidden artifact detection in history', () => {
             ]);
 
             expect(checker.findStagedArtifactViolations(repository))
-                .toEqual(['agent instruction file AGENTS.md at AGENTS.md']);
+                .toEqual(['agent instruction file AGENTS.md at docs/AGENTS.md']);
             expect(runMain(['--staged'], repository)).toBe(1);
         } finally {
             await removeRepository(repository);
@@ -935,7 +850,6 @@ describe('pre-push publication scope', () => {
                 commits: [],
                 nestedTagRefs: [],
                 rejectedRefs: [],
-                tagObjects: [],
             });
             expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([]);
         } finally {
@@ -964,7 +878,7 @@ describe('pre-push publication scope', () => {
                 '--annotate',
                 'inner',
                 '-m',
-                'Inner tag\n\nGenerated with Claude Code',
+                'Inner tag',
             ]);
             runGit(workspace, [
                 'tag',
@@ -1020,7 +934,6 @@ describe('pre-push publication scope', () => {
                 workspace,
             );
 
-            expect(work.tagObjects).toEqual([]);
             expect(work.nestedTagRefs).toEqual([]);
             expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([]);
         } finally {
@@ -1054,14 +967,14 @@ describe('pre-push publication scope', () => {
                 'rev-parse',
                 'refs/tags/v1.0.0',
             ]);
-            const retagged = await commit(workspace, 'Add harness notes', {'AGENTS.md': '# local rules\n'});
+            const retagged = await commit(workspace, 'Add harness notes', {'docs/AGENTS.md': '# local rules\n'});
             runGit(workspace, [
                 'tag',
                 '--annotate',
                 '--force',
                 'v1.0.0',
                 '-m',
-                'Release 1.0.0\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+                'Release 1.0.0 rebuilt',
             ]);
             const movedTagOid = runGit(workspace, [
                 'rev-parse',
@@ -1075,16 +988,10 @@ describe('pre-push publication scope', () => {
             );
 
             expect(work.commits).toEqual([retagged]);
-            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([
-                {
-                    matches: ['agent instruction file AGENTS.md at AGENTS.md'],
-                    subject: retagged,
-                },
-                {
-                    matches: ['Anthropic no-reply identity'],
-                    subject: `refs/tags/v1.0.0 (tag object ${movedTagOid})`,
-                },
-            ]);
+            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([{
+                matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
+                subject: retagged,
+            }]);
         } finally {
             await removeRepository(remote);
             await removeRepository(workspace);
@@ -1110,7 +1017,7 @@ describe('pushed range resolution for CI', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = await createRepository('evb-pushed-range-rewrite-');
         try {
-            const root = await commit(repository, 'Rewritten root', {'AGENTS.md': '# local rules\n'});
+            const root = await commit(repository, 'Rewritten root', {'docs/AGENTS.md': '# local rules\n'});
             const head = await commit(repository, 'Rewritten tip', {'app/index.ts': 'export const app = true;\n'});
 
             expect(checker.collectPushedRangeCommits(beforeOid, head, repository)).toEqual([
