@@ -1,0 +1,31 @@
+electron/native-tools/runNativeCommand.ts
+  s_66a57ac78636a7::t_0fafcdbf1b96ee 311
+tests/unit/electron/nativeRunCommand.test.ts
+  s_66a57ac78636a7::t_40319ccb76846f 262,283-295,297-299
+  s_66a57ac78636a7::t_0fafcdbf1b96ee 296
+  s_14b8e20143fb82::t_4a1fdc247465ef 300-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "27fd9f9e35082a3b66a1c53405bf2d30b89b3d9f",
+  "prompts": {},
+  "sessions": {
+    "s_14b8e20143fb82": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094a1-41c4-7d93-941e-f87fd85ef497",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_66a57ac78636a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094a4-a4ef-7580-855e-939abea2b763",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
