@@ -189,6 +189,45 @@ describe('workingCopyMutationQueue telemetry', () => {
         }
     });
 
+    it('releases the path queue when mutation-start preparation exceeds its bound', async () => {
+        vi.useFakeTimers();
+        const {
+            enqueueWorkingCopyMutation,
+            onWorkingCopyMutationStarting,
+        } = await import('@electron/file-access/workingCopyMutationQueue');
+        let startingCalls = 0;
+        const operation = vi.fn(async () => undefined);
+        const unsubscribe = onWorkingCopyMutationStarting(() => {
+            startingCalls += 1;
+            return startingCalls === 1 ? new Promise<never>(() => undefined) : undefined;
+        });
+
+        try {
+            const first = enqueueWorkingCopyMutation('/tmp/MutationStartTimeout.pdf', operation, {kind: 'first-write'});
+            await Promise.resolve();
+            const second = enqueueWorkingCopyMutation('/tmp/MutationStartTimeout.pdf', operation, {kind: 'second-write'});
+            let settled = false;
+            void Promise.all([
+                first,
+                second,
+            ]).then(() => {
+                settled = true;
+            });
+
+            await vi.advanceTimersByTimeAsync(30_000);
+
+            expect(settled).toBe(true);
+            expect(operation).toHaveBeenCalledTimes(2);
+            expect(mocks.warn.mock.calls.some(([message]) => (
+                typeof message === 'string'
+                && message.includes('Mutation-start preparation timed out')
+            ))).toBe(true);
+        } finally {
+            unsubscribe();
+            vi.useRealTimers();
+        }
+    });
+
     it('rechecks cancellation after mutation-start preparation', async () => {
         const {cancelMainOperationsForOwner} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
         const {

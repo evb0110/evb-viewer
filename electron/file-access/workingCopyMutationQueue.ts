@@ -12,6 +12,7 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const log = createLogger('workingCopyMutationQueue');
+const WORKING_COPY_MUTATION_START_TIMEOUT_MS = 30_000;
 interface IWorkingCopyMutationQueueEntry {
     tail: Promise<void>;
     operationId: string;
@@ -74,6 +75,33 @@ function notifyWorkingCopyMutationStarting(workingCopyPath: string, signal: Abor
         }
     }
     return pending;
+}
+
+/**
+ * A listener that prepares for a mutation holds the path's queue while it works.
+ * One that never settles would hold it for the life of the process, so the wait
+ * is bounded. Expiry only logs: the preparation is advisory and the mutation is
+ * correct without it.
+ */
+async function awaitMutationStartPreparation(workingCopyPath: string, preparation: Promise<void>) {
+    let timeout: NodeJS.Timeout | undefined;
+    const expiry = new Promise<'timed-out'>((resolve) => {
+        timeout = setTimeout(() => resolve('timed-out'), WORKING_COPY_MUTATION_START_TIMEOUT_MS);
+        timeout.unref();
+    });
+    try {
+        const outcome = await Promise.race([
+            preparation.then(() => 'settled' as const),
+            expiry,
+        ]);
+        if (outcome === 'timed-out') {
+            log.warn(
+                `Mutation-start preparation timed out after ${WORKING_COPY_MUTATION_START_TIMEOUT_MS}ms for "${workingCopyPath}"`,
+            );
+        }
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
@@ -210,8 +238,11 @@ export function enqueueWorkingCopyMutation<T>(
             })}`);
             try {
                 const preparation = notifyWorkingCopyMutationStarting(workingCopyPath, mutationOperation.signal);
+                // Only yield when a listener actually asked to prepare: an
+                // unconditional await here would let a cancellation land between
+                // the queue admitting this mutation and the mutation starting.
                 if (preparation) {
-                    await preparation;
+                    await awaitMutationStartPreparation(workingCopyPath, preparation);
                 }
                 if (isMutationAborted()) {
                     throw mutationOperation.signal.reason instanceof Error
