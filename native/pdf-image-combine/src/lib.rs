@@ -292,10 +292,6 @@ impl Default for PdfBuildOptions {
     }
 }
 
-/// Upper bound on concurrent page encoders. The combiner shares the machine
-/// with the scan-cleanup sidecar's own pool, so the fan-out stays bounded
-/// instead of tracking the core count without a ceiling.
-pub const MAX_WORKER_THREADS: usize = 8;
 const JBIG2_SYMBOL_CHUNK_PAGES: usize = 50;
 
 #[must_use]
@@ -303,7 +299,7 @@ pub fn default_worker_threads() -> usize {
     std::thread::available_parallelism()
         .map(|parallelism| parallelism.get())
         .unwrap_or(1)
-        .clamp(1, MAX_WORKER_THREADS)
+        .clamp(1, evb_native_support::MAX_WORKER_THREADS)
 }
 
 pub fn write_pdf<'a, W, I, P>(
@@ -322,7 +318,9 @@ where
         return Err("At least one image input is required".into());
     }
 
-    let batch_size = options.worker_threads.max(1);
+    let batch_size = options
+        .worker_threads
+        .clamp(1, evb_native_support::MAX_WORKER_THREADS);
     let encoders = PageEncoders::new(batch_size)?;
     let output = OutputLimitWriter::new(
         output,

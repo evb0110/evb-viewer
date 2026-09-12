@@ -1,6 +1,7 @@
 //! Format-sniffing readers for cleanup raster inputs: PNG for browser-visible
 //! surfaces and raw PPM P6 for pipeline-internal Poppler handoffs.
-use super::{decode_limits, read_file_bounded, write_atomic_with, MAX_COMPRESSED_BYTES};
+use super::{decode_limits, write_atomic_with, MAX_COMPRESSED_BYTES};
+use evb_native_support::{bounded_io::read_file_bounded, NativeError, NativeErrorCode};
 use evb_raster_io::{
     decode_png, decode_png_gray, decode_ppm, decode_ppm_gray, read_png_dimensions,
     read_ppm_dimensions,
@@ -59,7 +60,8 @@ fn read_foreground_selection_with_limit(
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("jb2e"))
     {
-        let bytes = read_file_bounded(path, max_compressed_bytes).map_err(map_bounded_io_error)?;
+        let bytes = read_file_bounded(path, max_compressed_bytes, "raster input")
+            .map_err(map_bounded_io_error)?;
         let decoded = decode_pdf_generic_source(
             &bytes,
             DecodeLimits::new(max_pixels).with_max_dimension(max_dimension),
@@ -199,15 +201,11 @@ fn map_decoder_error(error: evb_raster_io::RasterError) -> RasterReadError {
     }
 }
 
-fn map_bounded_io_error(error: super::BoundedIoError) -> RasterReadError {
-    match error {
-        super::BoundedIoError::Canceled => {
-            RasterReadError::Invalid("input copy was canceled".to_string())
-        }
-        super::BoundedIoError::Io(error) => RasterReadError::Io(error),
-        super::BoundedIoError::TooLarge { limit } => {
-            RasterReadError::TooLarge(format!("input exceeds guardrails ({limit}-byte limit)"))
-        }
+fn map_bounded_io_error(error: NativeError) -> RasterReadError {
+    match error.code {
+        NativeErrorCode::TooLarge => RasterReadError::TooLarge(error.message),
+        NativeErrorCode::Io => RasterReadError::Io(std::io::Error::other(error.message)),
+        _ => RasterReadError::Invalid(error.message),
     }
 }
 
@@ -330,10 +328,23 @@ mod tests {
         let error = read_foreground_selection_with_limit(&path, 64, 64, 9).unwrap_err();
 
         assert!(
-            error.to_string().contains("9-byte limit"),
+            error.to_string().contains("9-byte"),
             "unexpected error: {error}"
         );
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn maps_shared_bounded_reader_errors_to_raster_categories() {
+        let error = map_bounded_io_error(NativeError::new(
+            NativeErrorCode::TooLarge,
+            "raster input exceeded its admission ceiling",
+        ));
+
+        assert!(matches!(
+            error,
+            RasterReadError::TooLarge(message) if message.contains("admission ceiling")
+        ));
     }
 
     #[test]

@@ -1,4 +1,5 @@
-use super::{read_file_bounded, write_atomic, MAX_COMPRESSED_BYTES};
+use super::{write_atomic, MAX_COMPRESSED_BYTES};
+use evb_native_support::bounded_io::read_file_bounded;
 use scan_primitives::{BinaryImage, GrayImage};
 use std::path::Path;
 
@@ -14,7 +15,8 @@ pub fn write_p4_bilevel_atomic(path: &Path, image: &BinaryImage) -> Result<(), S
 
 pub fn read_p4(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
     decode_p4(
-        &read_file_bounded(path, MAX_COMPRESSED_BYTES).map_err(|error| error.to_string())?,
+        &read_file_bounded(path, MAX_COMPRESSED_BYTES, "PBM input")
+            .map_err(|error| error.to_string())?,
         max_pixels,
         max_dimension,
     )

@@ -13,15 +13,14 @@ use evb_native_support::{
     generated_native_tool_protocols::PDF_IMAGE_COMBINE,
     output::{AtomicOutput, ValidatedInputFiles},
     pdf_catalog::deserialize_bounded_bookmark_items,
-    NativeError, NativeErrorCode,
+    NativeError, NativeErrorCode, MAX_WORKER_THREADS,
 };
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi,
     encode_netpbm_path_as_tiff_with_dpi, probe_netpbm_path, write_pdf, BookmarkEntry, FramePolicy,
     ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageLabelRange,
     PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
-    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
-    PDF_COMBINE_MAX_OUTPUT_BYTES,
+    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
 

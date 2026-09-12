@@ -12,6 +12,7 @@ export const NATIVE_ERROR_CODES = [
     'unsupported-filter',
     'invalid-request',
     'io',
+    'timeout',
     'panic',
     'native-failure',
 ] as const;
