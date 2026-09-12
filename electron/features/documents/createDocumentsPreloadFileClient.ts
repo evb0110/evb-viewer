@@ -105,7 +105,7 @@ type TDocumentsPreloadFileClient = Omit<
     | keyof IDocumentsRecentFilesCapability
     | keyof IDocumentsWindowCapability
 >;
-type TDocumentsFileIpcRenderer = Pick<IpcRenderer, 'invoke' | 'postMessage'>
+type TDocumentsFileIpcRenderer = Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>
     & Partial<Pick<IpcRenderer, 'on' | 'removeListener'>>;
 const PDF_PERSISTENCE_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
 const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;

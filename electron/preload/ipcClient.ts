@@ -13,7 +13,11 @@ import type {
     TFeatureCapability,
     TFeatureDirectBindings,
 } from '@contracts/platformFeature';
-import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
+import {createRequestId} from '@contracts/shared';
+import {
+    CORE_IPC_SEND_CHANNELS,
+    IPC_INVOKE_REQUEST_ID_FIELD,
+} from '@electron/platform-ipc/coreContract';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
     [TChannel in keyof TEventMap]: TEventMap[TChannel] extends undefined ? TChannel : never;
@@ -51,7 +55,7 @@ function logDecodedEventValidationFailure(
     }
 }
 
-class IpcInvokeTimeoutError extends Error {
+export class IpcInvokeTimeoutError extends Error {
     readonly channel: string;
     readonly timeoutMs: number;
 
@@ -79,16 +83,30 @@ class PlatformIpcInvokeError extends Error {
 }
 
 async function invokeWithChannelContext<TResult>(
-    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+    ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'>,
     channel: string,
     args: unknown[],
     options?: IIpcInvokerOptions,
 ) {
     let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
+    const timeoutMs = options?.invokeTimeoutMsByChannel?.[channel];
+    // Only a timed invoke can be abandoned, so only a timed invoke needs an id
+    // for the main process to cancel it by.
+    const timed = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? {
+            requestId: createRequestId('ipc-invoke'),
+            timeoutMs,
+        }
+        : null;
     try {
-        const invokePromise = ipcRenderer.invoke(channel, ...args) as Promise<TResult>;
-        const timeoutMs = options?.invokeTimeoutMsByChannel?.[channel];
-        if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        const invokeArgs = timed === null
+            ? args
+            : [
+                ...args,
+                {[IPC_INVOKE_REQUEST_ID_FIELD]: timed.requestId},
+            ];
+        const invokePromise = ipcRenderer.invoke(channel, ...invokeArgs) as Promise<TResult>;
+        if (timed === null) {
             return await invokePromise;
         }
 
@@ -96,12 +114,26 @@ async function invokeWithChannelContext<TResult>(
             invokePromise,
             new Promise<never>((_resolve, reject) => {
                 timeoutHandle = setTimeout(() => {
-                    reject(new IpcInvokeTimeoutError(channel, timeoutMs));
-                }, timeoutMs);
+                    // Giving up on the reply is not the same as stopping the work.
+                    // Without this the handler keeps running and keeps its leases,
+                    // and a user retry runs a second copy of it against the same
+                    // document.
+                    try {
+                        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, {[IPC_INVOKE_REQUEST_ID_FIELD]: timed.requestId});
+                    } catch {
+                        // Preserve the timeout identity if the renderer transport is already closing.
+                    }
+                    reject(new IpcInvokeTimeoutError(channel, timed.timeoutMs));
+                }, timed.timeoutMs);
                 timeoutHandle.unref?.();
             }),
         ]);
     } catch (error) {
+        // A timeout keeps its own identity. Wrapping it made every
+        // `instanceof IpcInvokeTimeoutError` upstream unreachable.
+        if (error instanceof IpcInvokeTimeoutError) {
+            throw error;
+        }
         throw new PlatformIpcInvokeError(channel, error);
     } finally {
         if (timeoutHandle) {
@@ -111,7 +143,7 @@ async function invokeWithChannelContext<TResult>(
 }
 
 export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
-    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+    ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'>,
     codecs: TIpcCodecMap<TMap>,
     options?: IIpcInvokerOptions<Extract<keyof TMap, string>>,
 ) {

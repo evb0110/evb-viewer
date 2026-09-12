@@ -1,11 +1,19 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import {
+    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import type { IIpcMainRegistrar } from '@contracts/ipcMain';
+import {requireRequestId} from '@contracts/shared';
+import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
+import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
+import {
+    registerMainOperation,
+    resetMainOperationLifecycleForTests,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const mocks = vi.hoisted(() => ({
     isTrustedIpcInvokeSender: vi.fn(() => true),
@@ -31,6 +39,10 @@ function createNativeRegistrar() {
 }
 
 describe('validated IPC registrar argument policy', () => {
+    afterEach(() => {
+        resetMainOperationLifecycleForTests();
+    });
+
     it('rejects invoke handlers without a decoder or explicit allowlist entry', async () => {
         const { createValidatedIpcMainRegistrar } = await import('@electron/platform-ipc/validatedIpcRegistrar');
         const native = createNativeRegistrar();
@@ -66,6 +78,46 @@ describe('validated IPC registrar argument policy', () => {
         await expect(handler?.({} as IpcMainInvokeEvent, 42))
             .rejects
             .toThrow('Invalid IPC arguments for test:decoded: value must be a string');
+    });
+
+    it('cancels operations registered by a timed invoke when its request is canceled', async () => {
+        const { createValidatedIpcMainRegistrar } = await import('@electron/platform-ipc/validatedIpcRegistrar');
+        const native = createNativeRegistrar();
+        const sender = {} as IpcMainInvokeEvent['sender'];
+        const registrar = createValidatedIpcMainRegistrar(native.registrar, {
+            allowedChannels: new Set(['test:timed']),
+            codecs: {'test:timed': {
+                decodeArgs: () => [],
+                decodeResult: String,
+            }},
+        });
+        const cancel = vi.fn();
+        let releaseHandler: (() => void) | undefined;
+        registrar.handle('test:timed', () => {
+            const operation = registerMainOperation({
+                kind: 'abortable-work',
+                ownerWebContentsId: 7,
+                cancel,
+            });
+            return new Promise<string>(resolve => {
+                releaseHandler = () => {
+                    operation.complete();
+                    resolve('ok');
+                };
+            });
+        });
+
+        const handler = native.handlers.get('test:timed');
+        const pending = handler?.(
+            {sender} as IpcMainInvokeEvent,
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: 'timed-request'},
+        );
+        expect(pending).toBeInstanceOf(Promise);
+
+        cancelIpcInvoke(sender, requireRequestId('timed-request'));
+        expect(cancel).toHaveBeenCalledWith('IPC invoke canceled');
+        releaseHandler?.();
+        await expect(pending).resolves.toBe('ok');
     });
 
     it('allows explicitly no-argument invoke handlers and rejects runtime arguments', async () => {
