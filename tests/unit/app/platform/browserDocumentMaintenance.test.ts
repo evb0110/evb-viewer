@@ -13,6 +13,25 @@ const documentIdbMocks = vi.hoisted(() => ({
     recoveryRecordsAtDelete: [] as Array<{snapshotRefs: string[]}>,
     documentsAtDelete: [] as unknown[],
     liveLeasesAtDelete: [] as unknown[],
+    liveLeaseStorePuts: [] as unknown[],
+    runObjectStoreTransaction: vi.fn(async (
+        _store: string,
+        _mode: string,
+        run: (store: unknown, setResult: (value: unknown) => void) => void,
+    ) => {
+        let result: unknown = null;
+        const request = {result: documentIdbMocks.liveLeasesAtDelete} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
+        run({
+            getAll: () => request,
+            put: (value: unknown) => { documentIdbMocks.liveLeaseStorePuts.push(value); },
+            delete: documentIdbMocks.transactionDeleteRecord,
+        }, value => { result = value; });
+        request.onsuccess?.();
+        return result;
+    }),
     transferAuthoritiesAtDelete: [] as unknown[],
     runObjectStoresTransaction: vi.fn(async (
         _stores: string[],
@@ -126,6 +145,7 @@ describe('browserDocumentMaintenance', () => {
         documentIdbMocks.recoveryRecordsAtDelete = [];
         documentIdbMocks.documentsAtDelete = [];
         documentIdbMocks.liveLeasesAtDelete = [];
+        documentIdbMocks.liveLeaseStorePuts = [];
         documentIdbMocks.transferAuthoritiesAtDelete = [];
         recentFilesStoreMocks.tryHasRecentFilesStorageSnapshot.mockReturnValue(false);
         recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(true);
@@ -520,6 +540,52 @@ describe('browserDocumentMaintenance', () => {
         await sweepBrowserDocumentMaintenance(new Map());
 
         expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith(ref);
+    });
+
+    it('kills an abandoned live lease without exposing its records in the same sweep', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/crashed-window.pdf';
+        const record = {
+            ref,
+            fileName: 'crashed-window.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.liveLeasesAtDelete = [{
+            id: 'owner:crashed',
+            ownerId: 'crashed',
+            generation: 4,
+            leaseRevision: 20,
+            status: 'active',
+            heartbeatAt: Date.now() - 60 * 60 * 1_000,
+            protectedDependencies: [{ref}],
+        }];
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.liveLeaseStorePuts).toMatchObject([{
+            ownerId: 'crashed',
+            generation: 5,
+            status: 'dead',
+            protectedDependencies: [],
+        }]);
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
     it('retains all chunk generations while an active lease has a ref-only dependency', async () => {

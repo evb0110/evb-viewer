@@ -44,6 +44,7 @@ import type {
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import { reclaimAbandonedBrowserDocumentLiveLeases } from '@app/platform/browser/browserDocumentLeaseStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
 const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
@@ -326,6 +327,12 @@ export async function sweepBrowserDocumentMaintenance(
     entries: Map<string, IBrowserDocumentEntry>,
     hooks: IBrowserDocumentMaintenanceHooks = {},
 ) {
+    // Mark the leases of owners that never released them dead before reading
+    // protection, so a crashed window cannot pin its records forever. Their
+    // refs stay protected for this pass: an old heartbeat is not proof of
+    // death, and a frozen owner re-acquires before the next sweep runs.
+    const justReclaimedRefs = new Set((await reclaimAbandonedBrowserDocumentLiveLeases()
+        .catch(() => [])).map(dependency => dependency.ref));
     const recoveryLeasedRefs = await loadBrowserWorkspaceRecoveryLeasedRefs();
     const {
         available,
@@ -376,6 +383,7 @@ export async function sweepBrowserDocumentMaintenance(
             nonWorkingDependentCounts,
         ))
         .filter(record => !recoveryLeasedRefs.has(record.ref))
+        .filter(record => !justReclaimedRefs.has(record.ref))
         .filter((record) => !pendingRefs.has(record.ref))
         .filter(record => !hasActivePendingChunkGeneration(record))
         .map(record => record.ref);
@@ -534,6 +542,7 @@ export async function sweepBrowserDocumentMaintenance(
                     ))
                     .filter(record => !leasedRefs.has(record.ref))
                     .filter(record => !liveLeaseProtection.leasedRefs.has(record.ref))
+                    .filter(record => !justReclaimedRefs.has(record.ref))
                     .filter(record => !transferProtection.leasedRefs.has(record.ref))
                     .filter(record => !transactionPendingChunkGenerationsByRef.has(record.ref))
                     .filter(record => !pendingRefs.has(record.ref))
@@ -543,11 +552,13 @@ export async function sweepBrowserDocumentMaintenance(
                     ...Array.from(transactionBrokenChunkRefs)
                         .filter(ref => !leasedRefs.has(ref))
                         .filter(ref => !liveLeaseProtection.leasedRefs.has(ref))
+                        .filter(ref => !justReclaimedRefs.has(ref))
                         .filter(ref => !transferProtection.leasedRefs.has(ref)),
                 ]);
                 finalRefs.forEach(ref => documentsStore.delete(ref));
                 for (const chunkKey of chunkKeys) {
                     if (pendingRefs.has(chunkKey.ref)) continue;
+                    if (justReclaimedRefs.has(chunkKey.ref)) continue;
                     if (liveLeaseProtectsChunk(
                         liveLeaseProtection,
                         chunkKey.ref,
