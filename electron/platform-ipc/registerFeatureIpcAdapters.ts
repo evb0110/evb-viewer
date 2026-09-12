@@ -83,6 +83,7 @@ function registerLazyValidatedFeature(
     const owners = lazyChannelOwners.get(ipcMain) ?? new Map<string, ILazyChannelOwner>();
     lazyChannelOwners.set(ipcMain, owners);
     const ownedOwners: ILazyChannelOwner[] = [];
+    const channelReleases: Array<() => void> = [];
     const rejectReleasedRequest: ILazyChannelOwner['dispatch'] = () => Promise.reject(
         new Error(`Lazy IPC feature ${registrationKey} is no longer active`),
     );
@@ -127,6 +128,7 @@ function registerLazyValidatedFeature(
                 existing.currentGeneration = generation;
                 existing.dispatch = dispatch;
                 ownedOwners.push(existing);
+                channelReleases.push(registrar.claim(channel));
                 continue;
             }
             const owner: ILazyChannelOwner = {
@@ -139,8 +141,12 @@ function registerLazyValidatedFeature(
             });
             owners.set(channel, owner);
             ownedOwners.push(owner);
+            channelReleases.push(registrar.claimExisting(channel));
         }
     } catch (error) {
+        for (const releaseChannel of channelReleases) {
+            releaseChannel();
+        }
         for (const owner of ownedOwners) {
             if (owner.currentGeneration === generation) {
                 owner.currentGeneration = null;
@@ -164,6 +170,9 @@ function registerLazyValidatedFeature(
             }
         },
         release: () => {
+            for (const releaseChannel of channelReleases) {
+                releaseChannel();
+            }
             for (const owner of ownedOwners) {
                 if (owner.currentGeneration === generation) {
                     owner.currentGeneration = null;

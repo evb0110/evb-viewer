@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-const CODESIGN_CHECK_TIMEOUT_MS = 5_000;
+const CODESIGN_CHECK_TIMEOUT_MS = 30_000;
 
 function runCodesign(args: string[]) {
     return new Promise<{
@@ -81,6 +81,9 @@ export async function checkMacCodeSignature() {
         '--verbose=2',
         appBundle,
     ]);
+    if (verification.code === null) {
+        return null;
+    }
     if (verification.code !== 0) {
         return false;
     }
@@ -90,6 +93,9 @@ export async function checkMacCodeSignature() {
         '--verbose=4',
         appBundle,
     ]);
+    if (details.code === null) {
+        return null;
+    }
     if (details.code !== 0) {
         return false;
     }

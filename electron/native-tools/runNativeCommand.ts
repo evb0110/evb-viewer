@@ -6,6 +6,7 @@ import {
     formatArgForLog,
     formatCommandFailureMessage,
     createAbortError,
+    NativeProcessError,
     type IProcessResult,
     type TProcessLog,
 } from '@electron/native-tools/processResult';
@@ -611,13 +612,15 @@ export async function runNativeCommand(
             if (getPendingTerminationError()) {
                 return;
             }
-            const exitCode = typeof code === 'number' ? code : -1;
+            const exitCode = typeof code === 'number' ? code : null;
             const outputSnapshot = output.snapshot();
-            if (!allowedExitCodes.includes(exitCode)) {
-                const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
-                if (structuredError) {
-                    finalizeReject(structuredError);
-                    return;
+            if (closeSignal || exitCode === null || !allowedExitCodes.includes(exitCode)) {
+                if (!closeSignal) {
+                    const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
+                    if (structuredError) {
+                        finalizeReject(structuredError);
+                        return;
+                    }
                 }
                 const failure = formatCommandFailureMessage(
                     context.displayName,
@@ -629,7 +632,12 @@ export async function runNativeCommand(
                     closeSignal,
                 );
                 log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
-                finalizeReject(new Error(failure.message));
+                finalizeReject(new NativeProcessError(
+                    closeSignal ? 'signal' : 'exit-code',
+                    exitCode,
+                    closeSignal,
+                    failure.message,
+                ));
                 return;
             }
             if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {
@@ -637,10 +645,6 @@ export async function runNativeCommand(
                 log?.('error', `${message}; cmd=${context.displayCommand}`);
                 finalizeReject(new Error(message));
                 return;
-            }
-
-            if (closeSignal) {
-                log?.('warn', `${context.displayName} exited after signal ${closeSignal}; cmd=${context.displayCommand}`);
             }
 
             finalizeResolve({

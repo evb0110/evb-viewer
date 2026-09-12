@@ -73,7 +73,7 @@ on:
         required: false
     outputs:
       artifact_ready:
-        description: Whether this target uploaded its verified artifact group.
+        description: Whether this target uploaded an artifact group after every required package journey passed.
         value: ${{ jobs.build.outputs.artifact_ready }}
 
 permissions:
@@ -641,14 +641,14 @@ jobs:
         if: ${{ always() }}
         shell: bash
         run: |
-          echo "artifact_ready=${{ steps.upload_artifacts.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+          echo "artifact_ready=${{ steps.upload_artifacts.outcome == 'success' && (runner.os != 'Windows' || steps.nsis_journey.outcome == 'success') }}" >> "$GITHUB_OUTPUT"
           {
             echo '## Installed Windows NSIS journey'
             echo
             echo "- Outcome: ${{ steps.nsis_journey.outcome }}"
-            if [ "${{ inputs.arch }}" = 'arm64' ]; then
-              echo '- ARM64 NSIS outcome is advisory; artifact readiness depends on the upload step.'
+            if [ "${{ runner.os }}" = 'Windows' ]; then
+              echo '- Windows NSIS outcome is required for artifact readiness on every architecture.'
             else
-              echo '- x64 NSIS outcome is blocking.'
+              echo '- Windows NSIS journey is not applicable to this target.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

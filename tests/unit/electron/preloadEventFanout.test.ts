@@ -188,6 +188,24 @@ describe('preload global event fan-out', () => {
         expect(ipcRenderer.removeListener).toHaveBeenCalledOnce();
     });
 
+    it('retries a failed DjVu subscription for a later consumer', async () => {
+        const {
+            ipcRenderer,
+            invoke,
+        } = createIpcRendererHarness();
+        invoke.mockRejectedValueOnce(new Error('lazy feature is reloading'));
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE);
+
+        client.onProgress(vi.fn());
+        await new Promise<void>(resolve => setImmediate(resolve));
+        client.onProgress(vi.fn());
+        await new Promise<void>(resolve => setImmediate(resolve));
+
+        expect(invoke).toHaveBeenCalledTimes(2);
+        expect(invoke).toHaveBeenNthCalledWith(1, DJVU_PLATFORM_FEATURE.invokeChannels.subscribeProgress);
+        expect(invoke).toHaveBeenNthCalledWith(2, DJVU_PLATFORM_FEATURE.invokeChannels.subscribeProgress);
+    });
+
     it('fans out validated DjVu text-search progress through one native listener', () => {
         const {
             ipcRenderer,

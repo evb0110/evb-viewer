@@ -1,4 +1,7 @@
-import type { IpcMainInvokeEvent } from 'electron';
+import type {
+    IpcMainEvent,
+    IpcMainInvokeEvent,
+} from 'electron';
 import {
     afterEach,
     describe,
@@ -148,5 +151,42 @@ describe('validated IPC registrar argument policy', () => {
             allowedChannels: new Set(['test:known']),
             argumentValidation: {noArgumentChannels: new Set(['test:typo'])},
         })).toThrow('IPC argument validation policy contains unknown invoke channel: test:typo');
+    });
+
+    it('releases invoke and event channel reservations when their registrars are disposed', async () => {
+        const {
+            createValidatedIpcMainEventRegistrar,
+            createValidatedIpcMainRegistrar,
+        } = await import('@electron/platform-ipc/validatedIpcRegistrar');
+        const invokeNative = createNativeRegistrar();
+        const invokeOptions = {
+            allowedChannels: new Set(['test:released-invoke']),
+            argumentValidation: {noArgumentChannels: new Set(['test:released-invoke'])},
+        };
+        const firstInvoke = createValidatedIpcMainRegistrar(invokeNative.registrar, invokeOptions);
+        const releaseInvoke = firstInvoke.claim('test:released-invoke');
+
+        expect(releaseInvoke).toBeTypeOf('function');
+        releaseInvoke();
+
+        const secondInvoke = createValidatedIpcMainRegistrar(invokeNative.registrar, invokeOptions);
+        expect(() => secondInvoke.handle('test:released-invoke', () => undefined)).not.toThrow();
+        expect(() => secondInvoke.handle('test:released-invoke', () => undefined))
+            .toThrow('Duplicate invoke IPC channel registration: test:released-invoke');
+
+        const events = new Map<string, (event: IpcMainEvent) => void>();
+        const registerEvent = vi.fn((channel: string, handler: (event: IpcMainEvent) => void) => {
+            events.set(channel, handler);
+        });
+        const eventSource = {on: registerEvent};
+        const eventOptions = {allowedChannels: new Set(['test:released-event'])};
+        const firstEvent = createValidatedIpcMainEventRegistrar(eventSource, eventOptions);
+        const releaseEvent = firstEvent.claim('test:released-event');
+
+        expect(releaseEvent).toBeTypeOf('function');
+        releaseEvent();
+
+        const secondEvent = createValidatedIpcMainEventRegistrar(eventSource, eventOptions);
+        expect(() => secondEvent.on('test:released-event', () => undefined)).not.toThrow();
     });
 });

@@ -24,12 +24,14 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
+import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnotation.vue';
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {useAnnotationCreationTools} from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
 import type {TAnnotationTool} from '@app/types/annotations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     asAnnotationId,
+    type IShapeEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
@@ -301,5 +303,67 @@ describe('annotation geometry rendering', () => {
         expect(visual).not.toBeNull();
         if (subtype === 'Squiggly') expect(visual.getAttribute('d')?.split('L').length).toBeGreaterThan(3);
         if (subtype === 'Underline' || subtype === 'StrikeOut') expect(Number(visual.getAttribute('y1'))).toBeCloseTo(subtype === 'Underline' ? 0.394 : 0.35);
+    });
+
+    it.each([
+        0,
+        0.42,
+        0.55,
+        1,
+    ])('keeps arrow visual alpha on the shared painted group at %s', opacity => {
+        const entity: IShapeEntity = {
+            kind: 'shape',
+            identity: {id: asAnnotationId(`arrow-${String(opacity)}`)},
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: 0,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            tool: 'arrow',
+            rect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.5,
+                height: 0.2,
+            },
+            points: [
+                {
+                    x: 0.2,
+                    y: 0.3,
+                },
+                {
+                    x: 0.7,
+                    y: 0.5,
+                },
+            ],
+            strokeColor: '#224466',
+            strokeWidth: 4,
+            fill: '#aaccee',
+            opacity,
+            lineEndStyle: 'closedArrow',
+        };
+        const host = document.createElement('div');
+        const app = createApp({render: () => h('svg', [h(PdfShapeAnnotation, {
+            entity,
+            selected: false,
+            pageSize: {
+                width: 612,
+                height: 792,
+            },
+        })])});
+        app.mount(host);
+        onTestFinished(() => app.unmount());
+
+        const root = host.querySelector<SVGGElement>('[data-annotation-kind="shape"]')!;
+        const visual = root.querySelector<SVGGElement>('[data-annotation-visual]')!;
+        const hit = root.querySelector<SVGGElement>('[data-annotation-hit-target]')!;
+        expect(root.style.getPropertyValue('--annotation-opacity')).toBe(String(opacity));
+        expect(visual.querySelector('line')).not.toBeNull();
+        expect(visual.querySelector('.pdf-annotation-editor-shape__arrowhead')).not.toBeNull();
+        expect(visual.style.opacity).toBe('');
+        expect(hit.style.opacity).toBe('');
+        expect(hit.querySelector('line')).not.toBeNull();
     });
 });
