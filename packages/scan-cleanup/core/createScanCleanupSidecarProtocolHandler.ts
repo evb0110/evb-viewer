@@ -2,9 +2,12 @@ import {
     createInterface,
     type Interface as TReadlineInterface,
 } from 'node:readline';
-import type {Readable} from 'node:stream';
+import {
+    Transform, type Readable,
+} from 'node:stream';
 
 const SCAN_CLEANUP_STDERR_LIMIT_BYTES = 64 * 1024;
+const SCAN_CLEANUP_PROTOCOL_MAX_LINE_BYTES = 4 * 1024 * 1024;
 
 export interface IScanCleanupSidecarProtocolHandlerOptions {
     stdout: Readable;
@@ -31,7 +34,30 @@ export function createScanCleanupSidecarProtocolHandler({
     errorOutput?.on('data', (chunk: string) => {
         stderr = `${stderr}${chunk}`.slice(-SCAN_CLEANUP_STDERR_LIMIT_BYTES);
     });
-    const lines = createInterface({input: stdout});
+    let pendingLineBytes = 0;
+    const boundedStdout = new Transform({transform(chunk: Buffer, _encoding, callback) {
+        let lineStart = 0;
+        for (let index = 0; index < chunk.length; index += 1) {
+            if (chunk[index] !== 0x0a) continue;
+            pendingLineBytes += index - lineStart + 1;
+            if (pendingLineBytes > SCAN_CLEANUP_PROTOCOL_MAX_LINE_BYTES) {
+                callback(new Error(
+                    `Scan cleanup NDJSON line exceeds ${String(SCAN_CLEANUP_PROTOCOL_MAX_LINE_BYTES)} bytes`,
+                ));
+                return;
+            }
+            pendingLineBytes = 0;
+            lineStart = index + 1;
+        }
+        pendingLineBytes += chunk.length - lineStart;
+        if (pendingLineBytes > SCAN_CLEANUP_PROTOCOL_MAX_LINE_BYTES) {
+            callback(new Error(
+                `Scan cleanup NDJSON line exceeds ${String(SCAN_CLEANUP_PROTOCOL_MAX_LINE_BYTES)} bytes`,
+            ));
+            return;
+        }
+        callback(null, chunk);
+    }});
     const failProtocol = (error: unknown, line: string) => {
         if (protocolError !== null) {
             return;
@@ -45,6 +71,9 @@ export function createScanCleanupSidecarProtocolHandler({
         onProtocolError(protocolError);
         log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
     };
+    const lines = createInterface({input: boundedStdout});
+    boundedStdout.on('error', error => failProtocol(error, '[line exceeds protocol limit]'));
+    stdout.pipe(boundedStdout);
     return {
         lines,
         get stderr() {
