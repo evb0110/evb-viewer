@@ -5,6 +5,7 @@ import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RELEASE_METADATA_BYTES = 16 * 1024;
 const RELEASE_COHORT_COOKIE_NAME = 'evb_release_cohort';
 const RELEASE_COHORT_COOKIE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 const RELEASE_COHORT_COOKIE_VALUE_PATTERN = /^[A-Za-z0-9._~-]{1,128}$/u;
@@ -19,6 +20,46 @@ interface IReleaseMetadataLogger {warn: (message: string) => void;}
 interface IResponseHeaders {
     get(name: string): string | null;
     getSetCookie?: () => string[];
+}
+
+async function readBoundedResponseBody(response: Response) {
+    const declaredLength = response.headers.get('content-length');
+    if (declaredLength !== null) {
+        const normalizedLength = declaredLength.trim();
+        const parsedLength = Number(normalizedLength);
+        if (!/^\d+$/u.test(normalizedLength) || !Number.isSafeInteger(parsedLength)) {
+            throw new Error('Metadata endpoint returned an invalid Content-Length');
+        }
+        if (parsedLength > MAX_RELEASE_METADATA_BYTES) {
+            throw new Error('Metadata endpoint exceeded the maximum allowed response size');
+        }
+    }
+
+    if (!response.body) {
+        throw new Error('Metadata endpoint returned an empty response body');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', {fatal: true});
+    let body = '';
+    let receivedBytes = 0;
+    for (;;) {
+        const {
+            done,
+            value,
+        } = await reader.read();
+        if (done) {
+            break;
+        }
+        receivedBytes += value.byteLength;
+        if (receivedBytes > MAX_RELEASE_METADATA_BYTES) {
+            await reader.cancel().catch(() => undefined);
+            throw new Error('Metadata endpoint exceeded the maximum allowed response size');
+        }
+        body += decoder.decode(value, {stream: true});
+    }
+    body += decoder.decode();
+    return body;
 }
 
 function isValidReleaseCohortCookieValue(value: string | undefined): value is string {
@@ -128,7 +169,7 @@ export async function fetchLatestReleaseMetadataVersion(
             throw new Error(`Metadata endpoint responded with ${response.status}`);
         }
 
-        const payload: unknown = await response.json();
+        const payload: unknown = JSON.parse(await readBoundedResponseBody(response));
         const latestTag = normalizeVersion(decodeLatestReleaseTag(payload));
         if (!latestTag) {
             throw new Error('Metadata endpoint did not return release.tag');
