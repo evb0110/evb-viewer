@@ -1503,7 +1503,7 @@ export default {
         'errorTitle': 'Update-Prüfung fehlgeschlagen',
         'errorDescription': 'Updates konnten nicht geprüft werden: {message}',
         'unsupportedTitle': 'Updates nicht verfügbar',
-        'unsupportedDescription': 'Updates sind nur in paketierten macOS/Windows-Builds verfügbar.',
+        'unsupportedDescription': 'Updates sind für diesen Build nicht verfügbar.',
         'installAction': 'Installieren und neu starten',
         'downloadAction': 'Herunterladen und installieren',
         'deferAction': 'Später',

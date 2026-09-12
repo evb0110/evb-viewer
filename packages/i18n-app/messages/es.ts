@@ -1503,7 +1503,7 @@ export default {
         'errorTitle': 'Error al comprobar actualizaciones',
         'errorDescription': 'No se pudieron comprobar las actualizaciones: {message}',
         'unsupportedTitle': 'Actualizaciones no disponibles',
-        'unsupportedDescription': 'Las actualizaciones solo están disponibles en compilaciones empaquetadas de macOS/Windows.',
+        'unsupportedDescription': 'Las actualizaciones no están disponibles para esta compilación.',
         'installAction': 'Instalar y reiniciar',
         'downloadAction': 'Descargar e instalar',
         'deferAction': 'Más tarde',

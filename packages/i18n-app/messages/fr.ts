@@ -1514,7 +1514,7 @@ export default {
         'errorTitle': 'Échec de la vérification des mises à jour',
         'errorDescription': 'Impossible de vérifier les mises à jour : {message}',
         'unsupportedTitle': 'Mises à jour indisponibles',
-        'unsupportedDescription': 'Les mises à jour sont disponibles uniquement dans les builds empaquetés macOS/Windows.',
+        'unsupportedDescription': 'Les mises à jour ne sont pas disponibles pour ce build.',
         'installAction': 'Installer et redémarrer',
         'downloadAction': 'Télécharger et installer',
         'deferAction': 'Plus tard',

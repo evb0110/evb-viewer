@@ -1503,7 +1503,7 @@ export default {
         'errorTitle': 'Controllo aggiornamenti non riuscito',
         'errorDescription': 'Impossibile controllare gli aggiornamenti: {message}',
         'unsupportedTitle': 'Aggiornamenti non disponibili',
-        'unsupportedDescription': 'Gli aggiornamenti sono disponibili solo nelle build pacchettizzate macOS/Windows.',
+        'unsupportedDescription': 'Gli aggiornamenti non sono disponibili per questa build.',
         'installAction': 'Installa e riavvia',
         'downloadAction': 'Scarica e installa',
         'deferAction': 'Più tardi',

@@ -1514,7 +1514,7 @@ export default {
         'errorTitle': 'Falha na verificação de atualizações',
         'errorDescription': 'Não foi possível verificar atualizações: {message}',
         'unsupportedTitle': 'Atualizações indisponíveis',
-        'unsupportedDescription': 'As atualizações só estão disponíveis em compilações empacotadas para macOS/Windows.',
+        'unsupportedDescription': 'As atualizações não estão disponíveis para esta compilação.',
         'installAction': 'Instalar e reiniciar',
         'downloadAction': 'Transferir e instalar',
         'deferAction': 'Mais tarde',

@@ -1503,7 +1503,7 @@ export default {
         'errorTitle': 'Controleren op updates mislukt',
         'errorDescription': 'Kan updates niet controleren: {message}',
         'unsupportedTitle': 'Updates niet beschikbaar',
-        'unsupportedDescription': 'Updates zijn alleen beschikbaar in verpakte macOS/Windows-builds.',
+        'unsupportedDescription': 'Updates zijn niet beschikbaar voor deze build.',
         'installAction': 'Installeren en herstarten',
         'downloadAction': 'Downloaden en installeren',
         'deferAction': 'Later',
