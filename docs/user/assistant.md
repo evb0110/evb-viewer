@@ -20,9 +20,18 @@ use it.
 ## Turning it on
 
 1. Open Settings and enable the assistant panel.
-2. Pick a provider. Codex signs in through your system browser with a ChatGPT
-   account; Claude uses the Claude Agent SDK and its own credentials.
+2. Pick a provider, and sign in. Neither provider uses a desktop app; both run a
+   command-line tool.
+   - **Codex** signs in through your system browser with a ChatGPT account. You
+     do not have to install anything: if no `codex` is on your `PATH`, the app
+     downloads a pinned release and verifies it against a checked-in checksum.
+   - **Claude** runs through the Claude Code CLI, so install Claude Code first
+     and sign in there. The app finds it on your `PATH`, or at
+     `CLAUDE_CODE_PATH` if you set one. A Claude subscription and an Anthropic
+     API key both work.
 3. Open the panel from the toolbar, and open a document.
+
+Usage is billed to whichever account you signed in with.
 
 Disabling the setting hides the panel and shuts down the embedded runtime.
 
