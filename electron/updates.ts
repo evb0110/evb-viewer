@@ -39,16 +39,6 @@ import { fetchLatestReleaseMetadataVersion } from '@electron/updates/fetchLatest
 const { autoUpdater } = electronUpdater;
 
 const logger = createLogger('updates');
-const UPDATER_SUPPORTED_PLATFORMS = new Set([
-    'darwin',
-    'win32',
-]);
-const UPDATER_SUPPORTED_ARCH_BY_PLATFORM: Partial<Record<NodeJS.Platform, ReadonlySet<string>>> = {
-    // Release metadata is published only for the signed mac arm64 and signed
-    // Windows x64 updater lanes. Other artifacts remain manual-install only.
-    darwin: new Set(['arm64']),
-    win32: new Set(['x64']),
-};
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
@@ -199,19 +189,26 @@ function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = g
     });
 }
 
+// Release metadata is published only for the signed mac arm64 updater lane.
+// Windows remains manual-install only until its signing credentials exist.
 function isUpdaterRuntimeSupported() {
-    const supportedArchs = UPDATER_SUPPORTED_ARCH_BY_PLATFORM[process.platform];
     return app.isPackaged
         && process.windowsStore !== true
-        && UPDATER_SUPPORTED_PLATFORMS.has(process.platform)
-        && Boolean(supportedArchs?.has(process.arch));
+        && process.platform === 'darwin'
+        && process.arch === 'arm64';
 }
 
 function getUnsupportedRuntimeMessage() {
     if (process.windowsStore === true) {
         return 'Updates for the Microsoft Store build are delivered by Microsoft Store.';
     }
-    return `Updates are available only in packaged macOS arm64 and Windows x64 builds. Current runtime: ${process.platform}-${process.arch}.`;
+    if (process.platform === 'win32') {
+        // A packaged Windows build is the right platform and the right arch;
+        // naming the runtime would suggest otherwise. Falling back to the
+        // localized message says only that this build cannot update itself.
+        return null;
+    }
+    return `Updates are available only in packaged macOS arm64 builds. Current runtime: ${process.platform}-${process.arch}.`;
 }
 
 async function ensureUpdaterSupported() {
@@ -264,9 +261,6 @@ async function writeSkippedVersion(version: string | null) {
 }
 
 function getUpdaterMetadataAssetName() {
-    if (process.platform === 'win32') {
-        return 'latest.yml';
-    }
     if (process.platform === 'darwin') {
         return 'latest-mac.yml';
     }
