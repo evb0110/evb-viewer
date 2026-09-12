@@ -1,0 +1,20 @@
+README.md
+  s_097971b99ad78b::t_417ec707edebc7 5-7,31-33
+  s_097971b99ad78b::t_c3ce8c6259200f 34,40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6bd02099250d7d1165a027bea4cc1e681aac0a07",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
