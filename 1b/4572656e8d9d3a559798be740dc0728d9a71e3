@@ -1,0 +1,37 @@
+electron/features/ocr/main/ocrJobWorkerLifecycle.ts
+  s_5883a24433f0f9::t_ee1fc3c4f95fe4 171-178,180-182,184
+  s_247a07a16a61fa::t_3df3ebf2bcb89e 179,183,185-186,459,614
+electron/features/ocr/main/jobManager.types.ts
+  s_5883a24433f0f9::t_ee1fc3c4f95fe4 92
+electron/features/ocr/main/jobManager.ts
+  s_5883a24433f0f9::t_ee1fc3c4f95fe4 482
+tests/unit/electron/ocrJobWorkerLifecycle.test.ts
+  s_5883a24433f0f9::t_a4713599fd1c9b 17,86,104,198-199
+  s_5883a24433f0f9::t_f431cd3f6a47fc 233
+  s_5883a24433f0f9::t_810c929c63f91a 158
+  s_247a07a16a61fa::t_a18649d3f4a6d1 105,127,154,200,234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1b4572656e8d9d3a559798be740dc0728d9a71e3",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5883a24433f0f9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0950a-e366-7502-b6d4-71f02be539ff",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
