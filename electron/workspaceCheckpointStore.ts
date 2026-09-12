@@ -1284,14 +1284,24 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 if (!ref) {
                     return tab;
                 }
-                const payload = await readAnnotationRecoveryArtifact(ref);
-                return {
-                    ...tab,
-                    annotationRecovery: {
-                        ...ref,
-                        payload,
-                    },
-                };
+                try {
+                    const payload = await readAnnotationRecoveryArtifact(ref);
+                    return {
+                        ...tab,
+                        annotationRecovery: {
+                            ...ref,
+                            payload,
+                        },
+                    };
+                } catch (error) {
+                    // Each tab's artifact stands alone, so one unreadable file drops the
+                    // annotations of its own tab and leaves every other tab recoverable.
+                    log.warn(`Annotation recovery artifact unavailable for ${ref.artifactId}: ${getErrorMessage(error)}`);
+                    const {
+                        annotationRecovery: _unavailable, ...tabWithoutAnnotationRecovery
+                    } = tab;
+                    return tabWithoutAnnotationRecovery;
+                }
             })),
         };
         const lazyWorkingCopies = new Map(
