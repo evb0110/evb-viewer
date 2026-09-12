@@ -1,0 +1,23 @@
+scripts/wasm-fingerprint.mjs
+  s_fe33e69ce8f5ec::t_45a6b0a33ffee8 45,151,153-159
+  s_fe33e69ce8f5ec::t_219a00f2a8a252 2,10,13
+  s_fe33e69ce8f5ec::t_ae717dc6ce1b0b 179
+tests/unit/scripts/wasmFreshness.test.ts
+  s_fe33e69ce8f5ec::t_45a6b0a33ffee8 241-265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "041b71597eedf4a738ea196b16adc2e608508b79",
+  "prompts": {},
+  "sessions": {
+    "s_fe33e69ce8f5ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cf-c6b6-7cd1-9aba-f0b556086fe2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
