@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import { tryOnScopeDispose } from '@vueuse/core';
 import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -180,6 +181,21 @@ export const useWorkspaceFileLifecycleController = (
         dismissBanner: djvuDismissBanner,
     } = useDjvu({openSurface: options.openSurface});
 
+    let djvuProjectionAbortController = new AbortController();
+
+    function cancelDjvuProjection() {
+        djvuProjectionAbortController.abort();
+    }
+
+    function getDjvuProjectionSignal() {
+        if (djvuProjectionAbortController.signal.aborted) {
+            djvuProjectionAbortController = new AbortController();
+        }
+        return djvuProjectionAbortController.signal;
+    }
+
+    tryOnScopeDispose(cancelDjvuProjection);
+
     const {
         recentFiles,
         loadRecentFiles,
@@ -281,7 +297,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileWithViewerLifecycle,
         openFileDirectWithViewerLifecycle,
         openFileDirectBatchWithViewerLifecycle,
-        closeFileWithViewerLifecycle,
+        closeFileWithViewerLifecycle: closeFileWithViewerLifecycleBase,
     } = createWorkspaceFileSwitch({
         workingCopyPath,
         viewerLifecycleHooks: createWorkspaceViewerLifecycleHooks({
@@ -308,17 +324,24 @@ export const useWorkspaceFileLifecycleController = (
         return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openFileDirectWithViewerLifecycle);
     }
 
-    function ensureDjvuPdfProjection(
-        reason: TPdfProjectionReason,
-        signal: AbortSignal,
-    ) {
-        return ensureDjvuPdfProjectionForAction(reason, openFileDirectWithViewerLifecycle, signal);
+    function ensureDjvuPdfProjection(reason: TPdfProjectionReason) {
+        return ensureDjvuPdfProjectionForAction(
+            reason,
+            openFileDirectWithViewerLifecycle,
+            getDjvuProjectionSignal(),
+        );
     }
 
     function handleDjvuCancel() {
+        cancelDjvuProjection();
         if (djvuSourcePath.value) {
             void cancelDjvuJobs();
         }
+    }
+
+    async function closeFileWithViewerLifecycle() {
+        cancelDjvuProjection();
+        await closeFileWithViewerLifecycleBase();
     }
 
     function initFromStorage() {
