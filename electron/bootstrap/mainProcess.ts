@@ -133,6 +133,7 @@ import {
     cancelAllMainOperations,
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import type { IMainOperationSnapshot } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
 import {
     cleanupStaleAppTempNamespaces,
@@ -506,6 +507,35 @@ function maybePromptForDefaultViewer() {
 }
 
 const workingCopyCleanupSkipPaths = new Set<string>();
+
+/**
+ * A critical write that did not reach its commit boundary leaves the only copy
+ * of the user's edits in its working copy, so the shutdown sweep must not
+ * delete it. Both the cancelled writes and the ones the drain gave up on need
+ * the same treatment; the caller supplies the wording for the log.
+ */
+function preserveCriticalWriteWorkingCopies(
+    operations: readonly IMainOperationSnapshot[],
+    description: string,
+) {
+    for (const operation of operations) {
+        if (operation.workingCopyPath) {
+            workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
+            logger.error(
+                `Skipping working-copy deletion for ${description} critical write path: ${operation.workingCopyPath}`,
+                {
+                    code: 'MAIN_SHUTDOWN_FAILED',
+                    context: {},
+                },
+            );
+        } else {
+            logger.error(`A ${description} critical write has no working-copy path; operation=${operation.id}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+            });
+        }
+    }
+}
 const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
     createPreservationSteps: context => {
         workingCopyCleanupSkipPaths.clear();
@@ -556,7 +586,11 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             {
                 label: 'main-operations-cancel',
                 run: () => {
-                    cancelAllMainOperations('app shutdown');
+                    const canceledCriticalWrites = cancelAllMainOperations('app shutdown');
+                    if (canceledCriticalWrites.length > 0) {
+                        context.preserveRecoveryState = true;
+                        preserveCriticalWriteWorkingCopies(canceledCriticalWrites, 'cancelled pre-commit');
+                    }
                 },
             },
             {
@@ -576,23 +610,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                             code: 'MAIN_SHUTDOWN_FAILED',
                             context: {},
                         });
-                        for (const operation of result.pending) {
-                            if (operation.workingCopyPath) {
-                                workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
-                                logger.error(
-                                    `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
-                                    {
-                                        code: 'MAIN_SHUTDOWN_FAILED',
-                                        context: {},
-                                    },
-                                );
-                            } else {
-                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`, {
-                                    code: 'MAIN_SHUTDOWN_FAILED',
-                                    context: {},
-                                });
-                            }
-                        }
+                        preserveCriticalWriteWorkingCopies(result.pending, 'pending');
                     }
                 },
             },

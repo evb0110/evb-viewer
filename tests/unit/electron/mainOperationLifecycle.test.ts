@@ -49,6 +49,28 @@ describe('mainOperationLifecycle', () => {
         })]);
     });
 
+    it('reports pre-commit critical writes aborted during shutdown cancel', () => {
+        const preCommit = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/pre-commit.pdf',
+        });
+        const committed = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/committed.pdf',
+        });
+        committed.markCommitStarted();
+
+        expect(cancelAllMainOperations('app shutdown')).toEqual([expect.objectContaining({
+            id: preCommit.id,
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/pre-commit.pdf',
+            commitStarted: false,
+            aborted: true,
+        })]);
+        expect(preCommit.signal.aborted).toBe(true);
+        expect(committed.signal.aborted).toBe(false);
+    });
+
     it('aborts every unfinished operation owned by a renderer when it disappears', () => {
         const ownedCancel = vi.fn();
         const owned = registerMainOperation({

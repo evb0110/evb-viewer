@@ -152,13 +152,18 @@ function requestOperationCancel(operation: IMainOperationRecord, reason: string)
     }
 }
 
-export function cancelAllMainOperations(reason: string): void {
+export function cancelAllMainOperations(reason: string): IMainOperationSnapshot[] {
+    const canceledCriticalWrites: IMainOperationSnapshot[] = [];
     for (const operation of operations.values()) {
         if (operation.kind === 'critical-write' && operation.commitStarted) {
             continue;
         }
         requestOperationCancel(operation, reason);
+        if (operation.kind === 'critical-write') {
+            canceledCriticalWrites.push(toMainOperationSnapshot(operation));
+        }
     }
+    return canceledCriticalWrites;
 }
 
 export function cancelMainOperationsForOwner(
