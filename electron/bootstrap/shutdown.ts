@@ -181,7 +181,9 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         if (context.retryablePreservationFailure === true && !isFatalShutdownInProgress) {
             isGracefulQuitRequested = false;
             shutdownPromise = null;
+            shutdownContext = null;
             options.logger.warn('Graceful quit was held for a retryable preservation failure');
+            return;
         }
 
         if (armForceExit) {
@@ -220,12 +222,13 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             gracefulQuitAfterCleanup = quitOptions.afterCleanup;
         }
         isGracefulQuitRequested = true;
-        shutdownPromise ??= startShutdown({
+        const cleanupPromise = shutdownPromise ?? startShutdown({
             preserveRecoveryState: quitOptions?.preserveRecoveryState === true,
             reason: quitOptions?.reason ?? 'graceful',
         }, true);
+        const cleanupContext = shutdownContext;
 
-        void shutdownPromise.catch((error: unknown) => {
+        void cleanupPromise.catch((error: unknown) => {
             options.logger.error(`Shutdown cleanup rejected unexpectedly: ${getErrorMessage(error)}`, {
                 code: 'MAIN_SHUTDOWN_FAILED',
                 context: {},
@@ -237,7 +240,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
                 return;
             }
-            if (shutdownContext?.retryablePreservationFailure === true) {
+            if (cleanupContext?.retryablePreservationFailure === true) {
                 return;
             }
             isQuittingAfterCleanup = true;

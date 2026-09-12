@@ -279,12 +279,13 @@ describe('shutdown coordinator', () => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
-        expect(cleanup).toHaveBeenCalledOnce();
+        expect(cleanup).not.toHaveBeenCalled();
 
         fixture.coordinator.requestGracefulQuit();
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
+        expect(cleanup).toHaveBeenCalledOnce();
         expect(fixture.app.exit).not.toHaveBeenCalled();
     });
 
