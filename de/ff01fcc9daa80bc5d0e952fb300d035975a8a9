@@ -1,0 +1,27 @@
+docs/internal/project6-324-ci-workflow-consolidation-20260908.md
+  s_247a07a16a61fa::t_fc37c1741e37d0 41,45
+scripts/release/wait-for-exact-sha-ci.mjs
+  s_247a07a16a61fa::t_fc37c1741e37d0 31-34
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_247a07a16a61fa::t_0d10669a8c94cb 77-92,236
+.github/workflows/ci.yml
+  s_247a07a16a61fa::t_0d10669a8c94cb 598-603,618,634-636,688-690,715-717,742-744
+tests/unit/scripts/waitForExactShaCi.test.ts
+  s_247a07a16a61fa::t_103a8f8119a3f3 326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "deff01fcc9daa80bc5d0e952fb300d035975a8a9",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
