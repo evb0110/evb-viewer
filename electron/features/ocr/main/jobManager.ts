@@ -258,7 +258,6 @@ const {
     publishProgress: publishOcrProgress,
     getJobWindow,
     onFinalizeActiveJob: (scopedJobId, job) => {
-        job?.workerAdmissionLease.release();
         releaseOcrDocumentJobReservation(scopedJobId, job?.documentJobKey);
     },
     removeResultFile: path => removeOcrResultArtifacts(path, log),
@@ -480,6 +479,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         nativeChildren: new Map(),
         nativeChildProtocolUnsafe: false,
         physicalFinalized: false,
+        brokeredResourcesReleased: false,
         discardPendingCompletionResult: false,
     };
     activeJobs.set(job.scopedJobId, activeJob);

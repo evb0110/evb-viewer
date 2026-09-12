@@ -14,6 +14,7 @@ import type { ILogger } from '@electron/utils/createLogger';
 import type { IOcrActiveJob } from '@electron/features/ocr/main/jobManager.types';
 import { createPendingResultFileStore } from '@electron/features/ocr/main/createPendingResultFileStore';
 import { createOcrJobWorkerLifecycleController } from '@electron/features/ocr/main/ocrJobWorkerLifecycle';
+import { ocrResourceGovernor } from '@electron/features/ocr/main/ocrResourceGovernor';
 
 function createWorker() {
     return coerce<Worker>({
@@ -82,6 +83,7 @@ function createFixture() {
         nativeChildren: new Map(),
         nativeChildProtocolUnsafe: false,
         physicalFinalized: false,
+        brokeredResourcesReleased: false,
         discardPendingCompletionResult: false,
     });
     const activeJobs = new Map<string, IOcrActiveJob>([[
@@ -99,9 +101,8 @@ function createFixture() {
         ttlMs: 60_000,
         removeResultFile: vi.fn(async () => true),
     });
-    const onFinalizeActiveJob = vi.fn((_scopedJobId: string, finalizedJob: IOcrActiveJob | null) => {
-        finalizedJob?.workerAdmissionLease.release();
-    });
+    const onFinalizeActiveJob = vi.fn();
+    const releaseJob = vi.spyOn(ocrResourceGovernor, 'releaseJob');
     const nativeChildCleanupTimers = new Map<string, NodeJS.Timeout>();
     cleanupTimerMaps.add(nativeChildCleanupTimers);
     const controller = createOcrJobWorkerLifecycleController({
@@ -123,6 +124,7 @@ function createFixture() {
         job,
         logger,
         onFinalizeActiveJob,
+        releaseJob,
         release,
         worker,
         nativeChildCleanupTimers,
@@ -149,10 +151,11 @@ describe('OCR worker lifecycle physical ownership', () => {
             timers.clear();
         }
         cleanupTimerMaps.clear();
+        vi.restoreAllMocks();
         vi.useRealTimers();
     });
 
-    it('retains admission after worker exit until delayed native-child cleanup proves exit', async () => {
+    it('releases brokered resources after worker exit until delayed native-child cleanup proves exit', async () => {
         const fixture = createFixture();
         let proveChildExit!: (proven: boolean) => void;
         const cleanup = vi.fn(() => new Promise<boolean>(resolve => {
@@ -192,7 +195,9 @@ describe('OCR worker lifecycle physical ownership', () => {
 
         expect(cleanup).toHaveBeenCalledTimes(1);
         expect(fixture.activeJobs.has(fixture.job.scopedJobId)).toBe(true);
-        expect(fixture.release).not.toHaveBeenCalled();
+        expect(fixture.release).toHaveBeenCalledTimes(1);
+        expect(fixture.releaseJob).toHaveBeenCalledWith(fixture.job.scopedJobId);
+        expect(fixture.onFinalizeActiveJob).not.toHaveBeenCalled();
 
         proveChildExit(true);
         await flushBarriers();
@@ -225,7 +230,8 @@ describe('OCR worker lifecycle physical ownership', () => {
         );
 
         expect(fixture.activeJobs.has(fixture.job.scopedJobId)).toBe(true);
-        expect(fixture.release).not.toHaveBeenCalled();
+        expect(fixture.release).toHaveBeenCalledTimes(1);
+        expect(fixture.releaseJob).toHaveBeenCalledWith(fixture.job.scopedJobId);
         expect(fixture.worker.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
             type: 'native-child-register-ack',
             accepted: false,

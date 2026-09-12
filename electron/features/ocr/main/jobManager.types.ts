@@ -89,6 +89,7 @@ export interface IOcrActiveJob extends IOcrQueuedJob {
     nativeChildren: Map<string, IOcrNativeChildRecord>;
     nativeChildProtocolUnsafe: boolean;
     physicalFinalized: boolean;
+    brokeredResourcesReleased: boolean;
     discardPendingCompletionResult: boolean;
 }
 
