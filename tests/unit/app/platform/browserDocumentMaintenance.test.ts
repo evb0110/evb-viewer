@@ -588,6 +588,81 @@ describe('browserDocumentMaintenance', () => {
         expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
+    it('releases a settled transfer authority once its decision poll window closes', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/transferred.pdf';
+        const record = {
+            ref,
+            fileName: 'transferred.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.transferAuthoritiesAtDelete = [{
+            id: 'transfer:settled',
+            state: 'committed',
+            decidedAt: Date.now() - 10 * 60 * 1_000,
+            backingRefs: [{ref}],
+        }];
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith('transfer:settled');
+        expect(documentIdbMocks.transactionDeleteRecord).toHaveBeenCalledWith(ref);
+    });
+
+    it('keeps protecting a transfer whose loser may still be polling for the decision', async () => {
+        const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/just-settled.pdf';
+        const record = {
+            ref,
+            fileName: 'just-settled.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: record,
+        });
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.transferAuthoritiesAtDelete = [{
+            id: 'transfer:fresh',
+            state: 'aborted',
+            decidedAt: Date.now(),
+            backingRefs: [{ref}],
+        }];
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.transactionDeleteRecord).not.toHaveBeenCalledWith(ref);
+    });
+
     it('retains all chunk generations while an active lease has a ref-only dependency', async () => {
         const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
         const ref = 'browser://documents/ingesting.pdf';

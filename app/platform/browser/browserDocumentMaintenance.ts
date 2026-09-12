@@ -211,16 +211,41 @@ function liveLeaseProtectsChunk(
         || protection.leasedGenerations.has(getChunkGenerationKey(ref, generation));
 }
 
-function readTransferAuthorityProtection(value: unknown): IBrowserLiveLeaseProtection | null {
+// A transfer that has reached a terminal decision no longer needs its backing
+// refs pinned, but the losing participant may still be polling for that
+// decision. Keep the record and its protection until the poll window has
+// closed, then drop both; otherwise every transfer a window ever performed
+// pins its documents for the lifetime of the origin.
+const SETTLED_TRANSFER_RETENTION_MS = 60 * 1_000;
+
+interface IBrowserTransferAuthorityProtection extends IBrowserLiveLeaseProtection {settledIds: Set<string>;}
+
+function readTransferAuthorityProtection(value: unknown): IBrowserTransferAuthorityProtection | null {
     if (!Array.isArray(value)) {
         return null;
     }
     const leasedRefs = new Set<string>();
     const allGenerationsRefs = new Set<string>();
     const leasedGenerations = new Set<string>();
+    const settledIds = new Set<string>();
+    const settledBefore = Date.now() - SETTLED_TRANSFER_RETENTION_MS;
     for (const authorityValue of value) {
         if (!authorityValue || typeof authorityValue !== 'object' || Array.isArray(authorityValue)) {
             return null;
+        }
+        const authority = authorityValue as {
+            id?: unknown;
+            state?: unknown;
+            decidedAt?: unknown;
+        };
+        if (
+            typeof authority.id === 'string'
+            && (authority.state === 'committed' || authority.state === 'aborted')
+            && typeof authority.decidedAt === 'number'
+            && authority.decidedAt <= settledBefore
+        ) {
+            settledIds.add(authority.id);
+            continue;
         }
         const backingRefs = (authorityValue as {backingRefs?: unknown}).backingRefs;
         if (!Array.isArray(backingRefs)) {
@@ -247,6 +272,7 @@ function readTransferAuthorityProtection(value: unknown): IBrowserLiveLeaseProte
         leasedRefs,
         allGenerationsRefs,
         leasedGenerations,
+        settledIds,
     };
 }
 
@@ -555,6 +581,7 @@ export async function sweepBrowserDocumentMaintenance(
                         .filter(ref => !justReclaimedRefs.has(ref))
                         .filter(ref => !transferProtection.leasedRefs.has(ref)),
                 ]);
+                transferProtection.settledIds.forEach(id => transferAuthorityStore.delete(id));
                 finalRefs.forEach(ref => documentsStore.delete(ref));
                 for (const chunkKey of chunkKeys) {
                     if (pendingRefs.has(chunkKey.ref)) continue;
