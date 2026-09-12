@@ -26,6 +26,8 @@ const DJVU_PDF_WORKER_RESOURCE_LIMITS = {
 };
 
 export class DjvuPdfWorkerStartupError extends Error {
+    readonly subsystem = 'djvu';
+
     constructor(message: string) {
         super(message);
         this.name = 'DjvuPdfWorkerStartupError';
