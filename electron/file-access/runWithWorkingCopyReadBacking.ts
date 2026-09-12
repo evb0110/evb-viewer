@@ -9,10 +9,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {WorkingCopyMaterializationError} from '@electron/file-access/workingCopyMaterialization';
 
-export interface IWorkingCopyReadBackingOptions<TResult> {
-    discard?: (result: TResult) => Promise<void> | void;
-    ownerWebContentsId?: number;
-}
+export interface IWorkingCopyReadBackingOptions {ownerWebContentsId?: number;}
 
 function throwBackingError(
     entry: IWorkingCopyOriginalEntry,
@@ -70,8 +67,8 @@ async function assertOriginalBackingCurrent(
  */
 export async function runWithWorkingCopyReadBacking<TResult>(
     logicalRef: string,
-    operation: (physicalReadPath: string) => Promise<TResult>,
-    options: IWorkingCopyReadBackingOptions<TResult> = {},
+    operation: (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<TResult>,
+    options: IWorkingCopyReadBackingOptions = {},
 ) {
     const entry = getWorkingCopyBackingEntry(logicalRef, options.ownerWebContentsId);
     if (!entry) {
@@ -87,7 +84,9 @@ export async function runWithWorkingCopyReadBacking<TResult>(
                 if (!existsSync(logicalRef)) {
                     throw new Error(`Working copy not found: ${logicalRef}`);
                 }
-                return operation(logicalRef);
+                // The working copy is the read source here, so there is no
+                // separate original whose mtime could drift underneath us.
+                return operation(logicalRef, () => Promise.resolve());
             }
             if (
                 currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
@@ -101,13 +100,14 @@ export async function runWithWorkingCopyReadBacking<TResult>(
                 );
             }
             await assertOriginalBackingCurrent(currentEntry, logicalRef);
-            const result = await operation(currentEntry.originalPath);
-            try {
-                await assertOriginalBackingCurrent(currentEntry, logicalRef);
-            } catch (error) {
-                await options.discard?.(result);
-                throw error;
-            }
+            const result = await operation(
+                currentEntry.originalPath,
+                () => assertOriginalBackingCurrent(currentEntry, logicalRef),
+            );
+            // Callers that publish something durable check freshness themselves
+            // at the moment of publication; this trailing check is for the ones
+            // whose result is only meaningful if the file held still throughout.
+            await assertOriginalBackingCurrent(currentEntry, logicalRef);
             return result;
         },
     );
