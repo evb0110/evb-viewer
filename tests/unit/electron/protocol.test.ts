@@ -135,6 +135,20 @@ describe('app protocol', () => {
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 
+    it('bounds the path-resolution cache and evicts the oldest request', async () => {
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+        const paths = Array.from({length: 4_097}, (_, index) => `evb-viewer://app/assets/cache-${index}.js`);
+
+        for (const path of paths) {
+            await handler(new Request(path));
+        }
+        await handler(new Request(paths[0]!));
+
+        expect(mocks.existsSync).toHaveBeenCalledTimes(4_098);
+    });
+
     it('validates the extensionless Electron fallback before caching it', async () => {
         const { setupAppProtocolHandler } = await import('@electron/protocol');
         setupAppProtocolHandler();
