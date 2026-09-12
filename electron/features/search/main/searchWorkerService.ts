@@ -570,20 +570,11 @@ export class SearchWorkerService {
             if (!registry.terminal.fail(error)) {
                 return;
             }
-            const state = this.findRequestState(request);
-            if (state) {
-                this.postCancelMessage(state, request.requestId);
-                this.cleanupSenderState(state.senderId, {
-                    cooperativeStop: false,
-                    terminateWorker: true,
-                    reason: `Search request ${request.requestId} timed out`,
-                    rejectionError: error,
-                    expectedState: state,
-                    shutdownWorker: true,
-                });
-            } else {
-                request.reject(error);
-            }
+            // Cancel the request, do not retire the worker. Its other
+            // requests are unaffected, and a worker that ignores the cancel
+            // is still retired by the cancellation-acknowledgement fallback.
+            this.requestWorkerCancellation(request, `Search request ${request.requestId} timed out`);
+            request.reject(error);
         }, SEARCH_REQUEST_TIMEOUT_MS);
         timeout.unref();
         try {
