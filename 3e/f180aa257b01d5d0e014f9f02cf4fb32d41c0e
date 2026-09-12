@@ -1,0 +1,21 @@
+app/platform/browser/browserDocumentMaintenance.ts
+  s_247a07a16a61fa::t_6030f264d19aeb 214-223,230-231,236-249,275,584
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_247a07a16a61fa::t_966846b838e34c 591-665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3ef180aa257b01d5d0e014f9f02cf4fb32d41c0e",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
