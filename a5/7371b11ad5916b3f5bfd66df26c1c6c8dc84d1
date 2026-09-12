@@ -1,0 +1,19 @@
+.husky/pre-push
+  s_097971b99ad78b::t_2bff315f6f1539 15-17,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a57371b11ad5916b3f5bfd66df26c1c6c8dc84d1",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
