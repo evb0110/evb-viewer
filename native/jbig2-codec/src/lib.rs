@@ -22,6 +22,7 @@ use std::{error::Error, fmt};
 
 /// Maximum decoded pixel count used by [`DecodeLimits::default`].
 pub const DEFAULT_MAX_PIXELS: u64 = 80_000_000;
+pub const DEFAULT_MAX_DIMENSION: u32 = 40_000;
 
 /// A borrowed MSB-first bilevel bitmap using the JBIG2 polarity: one is black.
 ///
@@ -62,9 +63,7 @@ pub struct DecodeLimits {
     pub max_pixels: u64,
     /// Ceiling on either bitmap side, enforced from decoded header values
     /// before any allocation sized from them. [`DecodeLimits::new`] leaves this
-    /// unconstrained so the pixel ceiling stays the sole limit for existing
-    /// callers; hostile-input callers narrow it with
-    /// [`DecodeLimits::with_max_dimension`].
+    /// set to [`DEFAULT_MAX_DIMENSION`] by [`DecodeLimits::new`].
     pub max_dimension: u32,
 }
 
@@ -76,7 +75,7 @@ impl DecodeLimits {
     pub const fn new(max_pixels: u64) -> Self {
         Self {
             max_pixels,
-            max_dimension: u32::MAX,
+            max_dimension: DEFAULT_MAX_DIMENSION,
         }
     }
 
