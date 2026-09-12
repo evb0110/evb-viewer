@@ -271,6 +271,7 @@ describe('browser document live lease acceptance in Chromium', () => {
             ]);
 
             await pageA.close();
+            await callEntry<{released: boolean}>(pageB, '__evbAwaitLeaseOwnerLockReleased');
 
             const afterOwnerDied = await callEntry<{
                 records: boolean[];
