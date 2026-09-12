@@ -1,0 +1,22 @@
+tests/unit/electron/preloadEventFanout.test.ts
+  s_9168ed8e467797::t_ddbeb697d9e223 191-199,201,203-208
+  s_9168ed8e467797::t_a9e93b0acb8c5f 200,202
+electron/preload/ipcClient.ts
+  s_9168ed8e467797::t_a643140b7b5eae 286,329-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "de3fc690a1fa1a11da91000999bf10fcae40adc8",
+  "prompts": {},
+  "sessions": {
+    "s_9168ed8e467797": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097d6-6dbf-7e42-9dd7-568e78855106",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
