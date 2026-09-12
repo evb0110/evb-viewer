@@ -928,7 +928,7 @@ describe('serializedPdfPersistence', () => {
         expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
     });
 
-    it('returns the committed streamed Save As path when working-copy copy-back fails', async () => {
+    it('returns a detached-document result when working-copy copy-back fails', async () => {
         const workingPath = join(tempRoot, 'save-as-copyback-working.pdf');
         const targetPath = join(tempRoot, 'save-as-copyback-target.pdf');
         writeFileSync(workingPath, 'old-working');
@@ -947,7 +947,11 @@ describe('serializedPdfPersistence', () => {
             validation: {
                 isValid: true,
                 errors: [],
-                warnings: [expect.stringContaining('copy-back failed')],
+                warnings: [],
+            },
+            warning: {
+                reason: 'working-copy-sync-required',
+                message: expect.stringContaining('The file was written, but this document is no longer connected to it: copy-back failed'),
             },
         });
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');

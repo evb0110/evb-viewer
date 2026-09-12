@@ -786,6 +786,32 @@ export interface IPdfNativeNoteTextSaveResult {
 
 export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
 
+export interface IPdfSaveAsResult {
+    readonly path: TDocumentRef | null;
+    readonly validation: IPdfValidationResult | null;
+    /**
+     * The target file was written but the working copy could not be rebound to
+     * it, so the open document no longer corresponds to the file the user just
+     * saved. Reported as its own member rather than a validation warning: the
+     * save did not fully succeed, and the caller has to keep the dirty state.
+     */
+    readonly warning?: IPdfSaveAsWarning;
+}
+
+export interface IPdfSaveAsWarning {
+    readonly reason: Extract<TDocumentSaveFailureReason, 'working-copy-sync-required'>;
+    readonly message: string;
+}
+
+export function createWorkingCopySyncWarning(detail: string): IPdfSaveAsWarning {
+    return {
+        reason: 'working-copy-sync-required',
+        message: `The file was written, but this document is no longer connected to it: ${detail}`,
+    };
+}
+
+export interface IPdfCommittedSaveAsResult extends IPdfSaveAsResult {readonly validation: IPdfValidationResult;}
+
 export type TDocumentSaveFailureReason =
     | 'user-canceled'
     | 'validation-failed'
@@ -1101,10 +1127,7 @@ export interface IDocumentsFileCapability {
         options?: IPdfSaveAsOptions,
         serializedSaveOptions?: IPdfSerializedSaveOptions,
         commitCallbacks?: IPdfSerializedCommitCallbacks,
-    ) => Promise<{
-        path: TDocumentRef | null;
-        validation: IPdfValidationResult | null;
-    }>;
+    ) => Promise<IPdfSaveAsResult>;
     validatePdfPath: (
         path: TDocumentRef,
         options?: IPdfPathValidationOptions,
