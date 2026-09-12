@@ -549,16 +549,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             )) {
                 continue;
             }
-            const lease = await options.document.leasePage(pageNumber);
-            const pageViewport = lease.page.getViewport({
-                scale: toValue(viewport.scale.effectiveScale),
-                rotation: resolvePdfPageViewportRotation(
-                    lease.page.rotate,
-                    toValue(options.viewRotation ?? (() => 0)),
-                ),
-            });
-            const userUnit = pageViewport.userUnit ?? 1;
+            let lease: Awaited<ReturnType<typeof options.document.leasePage>> | null = null;
             try {
+                lease = await options.document.leasePage(pageNumber);
+                const pageViewport = lease.page.getViewport({
+                    scale: toValue(viewport.scale.effectiveScale),
+                    rotation: resolvePdfPageViewportRotation(
+                        lease.page.rotate,
+                        toValue(options.viewRotation ?? (() => 0)),
+                    ),
+                });
+                const userUnit = pageViewport.userUnit ?? 1;
                 await trackLayerHydrationSettlement(
                     pageNumber,
                     hydrateCommittedLayers({
@@ -583,8 +584,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         renderOptions,
                     }, renderOptions.prioritizeTextLayer === true ? 'text-first' : 'annotations-first'),
                 );
+            } catch (error) {
+                // The slot is already 'hydrating' and nothing else moves it on:
+                // markLayersReady and isLayerPromotionEligible both refuse it, so
+                // the page would keep its canvas and never get its text or
+                // annotation layer for as long as the viewer stays open.
+                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                throw error;
             } finally {
-                lease.release();
+                lease?.release();
             }
         }
     }
