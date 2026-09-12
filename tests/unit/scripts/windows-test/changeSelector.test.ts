@@ -92,7 +92,7 @@ describe('matchesChangedAreaPattern', () => {
             'electron/main.ts',
         ],
         [
-            'docs/research/plan.md',
+            'docs/internal/research/plan.md',
             'electron/**',
         ],
         [

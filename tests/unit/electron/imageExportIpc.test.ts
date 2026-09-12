@@ -296,7 +296,10 @@ describe('image export IPC lifecycle', () => {
         expect(mocks.exportPdfPagesAsImages).toHaveBeenCalledWith(
             '/original/source.pdf',
             '/tmp/export.jpg',
-            expect.objectContaining({signal: expect.any(AbortSignal)}),
+            expect.objectContaining({
+                beforePublish: expect.any(Function),
+                signal: expect.any(AbortSignal),
+            }),
         );
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
     });
@@ -419,6 +422,7 @@ describe('image export IPC lifecycle', () => {
 
     it('returns every split multi-page TIFF output path', async () => {
         const sender = createSender();
+        mocks.backingState = 'lazy-original';
         mocks.showSaveDialog.mockResolvedValueOnce({
             canceled: false,
             filePath: '/tmp/export.tiff',
@@ -439,6 +443,42 @@ describe('image export IPC lifecycle', () => {
                 '/tmp/export-part-002.tiff',
             ],
         });
+        expect(mocks.exportPdfAsMultiPageTiff).toHaveBeenCalledWith(
+            '/original/source.pdf',
+            '/tmp/export.tiff',
+            expect.objectContaining({beforePublish: expect.any(Function)}),
+        );
+    });
+
+    it('does not delete image outputs when the source changes after export', async () => {
+        const sender = createSender();
+        mocks.backingState = 'lazy-original';
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockReset()
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 3n,
+                size: 1024n,
+            });
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.pdf',
+            [1],
+        )).rejects.toThrow('The original document changed while it was being read');
+
+        expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('replays active image-export progress when the renderer subscribes after progress starts', async () => {

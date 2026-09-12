@@ -1,5 +1,5 @@
 // Supplemental macOS Intel and Windows ARM64 channels attach to the GitHub
-// release after promotion, per the critical-path rule in docs/releasing.md. Their
+// release after promotion, per the critical-path rule in docs/contributing/releasing.md. Their
 // assets are therefore intentionally absent from the immutable SHA256SUMS
 // core set, and release verification must tolerate them on repair reruns.
 // With a release version the exemption is the exact expected asset name;
@@ -146,7 +146,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'tests/fixtures/electron/generated-text.pdf',
                 'tsconfig.base.json',
                 'tsconfig.json',
-                'tsconfig.workspace-paths.json',
                 'vitest.config.ts',
                 'vitest.shared.config.ts',
                 'package.json',
@@ -199,7 +198,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'tsconfig.json',
                 'tsconfig.scripts.json',
                 'tsconfig.scripts-js.json',
-                'tsconfig.workspace-paths.json',
             ],
         },
         electronSmoke: {
@@ -372,7 +370,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'vendor/**',
                 'tsconfig.json',
                 'tsconfig.base.json',
-                'tsconfig.workspace-paths.json',
             ]},
             build: {paths: [
                 'electron-builder.yml',

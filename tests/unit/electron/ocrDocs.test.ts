@@ -85,10 +85,10 @@ describe('OCR documentation', () => {
     });
 
     it('documents every profile the benchmark runs by default', () => {
-        const ocrNotes = readFileSync(join(REPO_ROOT, 'docs/ocr.md'), 'utf-8');
+        const ocrNotes = readFileSync(join(REPO_ROOT, 'docs/architecture/ocr.md'), 'utf-8');
 
         for (const profile of getBenchmarkDefaultProfiles()) {
-            expect(ocrNotes, `docs/ocr.md does not document the \`${profile}\` profile`)
+            expect(ocrNotes, `docs/architecture/ocr.md does not document the \`${profile}\` profile`)
                 .toContain(`\`${profile}\``);
         }
     });

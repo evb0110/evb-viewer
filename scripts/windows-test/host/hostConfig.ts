@@ -233,7 +233,7 @@ export function parseWindowsTestHostConfig(value: unknown, configFile: string): 
 export function describeMissingWindowsTestConfig(configFile: string) {
     return [
         `Windows test host config not found at ${configFile}.`,
-        'Follow docs/windows-tests/setup-and-repair.md to configure a separate lab image. --artifact supplies an installer only and cannot replace host setup.',
+        'Follow docs/contributing/windows-tests/setup-and-repair.md to configure a separate lab image. --artifact supplies an installer only and cannot replace host setup.',
     ].join(' ');
 }
 

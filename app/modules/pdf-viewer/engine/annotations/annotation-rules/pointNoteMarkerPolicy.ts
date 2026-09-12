@@ -10,7 +10,7 @@ import { isFiniteNumber } from '@contracts/runtimeGuards';
  * stay FreeText; only this point-sized anchor shape becomes an app note
  * marker.
  *
- * See `docs/freetext-note-persistence.md` for why the save pipeline rewrites
+ * See `docs/architecture/freetext-note-persistence.md` for why the save pipeline rewrites
  * app note rects down to this shape.
  */
 // fallow-ignore-next-line unused-export
