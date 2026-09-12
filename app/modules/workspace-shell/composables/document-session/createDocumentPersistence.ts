@@ -39,6 +39,7 @@ import {
     adoptStablePathBackedPersistedState,
     resolveStableLazyHistoryBaseline,
     hasNativePathBackedSource,
+    alignLoadedPathSourceLength,
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
@@ -191,6 +192,7 @@ export function createDocumentPersistence(
                     size: baseline.size,
                     revision: baseline.revision,
                 };
+                alignLoadedPathSourceLength(state, path, baseline.size, baseline.revision);
                 await deps.markCurrentHistoryEntryClean(null, {
                     lazyBaseline: baseline,
                     recordSnapshotChange: false,
