@@ -1302,11 +1302,14 @@ fn write_protocol_line(value: &impl Serialize) -> Result<(), Box<dyn Error>> {
 mod page_workflow {
     use super::*;
 
-    pub(crate) fn map_image_error(message: String) -> NativeError {
-        let code = if message.contains("guardrails") {
-            NativeErrorCode::TooLarge
-        } else {
-            NativeErrorCode::InvalidRequest
+    pub(crate) fn map_analysis_error(error: crate::pipeline::AnalysisError) -> NativeError {
+        let (code, message) = match error {
+            crate::pipeline::AnalysisError::Invalid(message) => {
+                (NativeErrorCode::InvalidRequest, message)
+            }
+            crate::pipeline::AnalysisError::TooLarge(message) => {
+                (NativeErrorCode::TooLarge, message)
+            }
         };
         NativeError::new(code, message)
     }
@@ -1671,7 +1674,7 @@ mod page_workflow {
                 &base_metadata,
                 &mut timings,
             )
-            .map_err(map_image_error)?
+            .map_err(map_analysis_error)?
         } else {
             clean_page_with_color_and_document_prior_cached(
                 input_gray,
@@ -1691,7 +1694,7 @@ mod page_workflow {
                 options.output_mode == OutputMode::Auto,
                 &mut timings,
             )
-            .map_err(map_image_error)?
+            .map_err(map_analysis_error)?
         };
         if final_render && result.classification == LayoutClassification::TwoPageSpread {
             // The matched-canvas planner must measure the same visible raster that
@@ -2212,7 +2215,7 @@ mod page_workflow {
             cache,
             &mut timings,
         )
-        .map_err(map_image_error)?;
+        .map_err(map_analysis_error)?;
         let page_metadata = PageResultMetadata {
             source_page_index: page.source_page_index,
             layout_classification: result.classification,
@@ -2383,7 +2386,7 @@ pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::page_workflow::decode_page_inputs;
-    use super::page_workflow::{map_image_error, write_gray_layer_background};
+    use super::page_workflow::{map_analysis_error, write_gray_layer_background};
     use super::planning_page;
     use super::{
         map_raster_error, parse_cli_args, ManifestV3, PlanningManifest, ScanCleanupCliInvocation,
@@ -3641,11 +3644,24 @@ mod tests {
     #[test]
     fn derived_geometry_guardrail_errors_are_too_large() {
         assert_eq!(
-            map_image_error("Derived raster 100x100 exceeds cleanup guardrails".into()).code,
+            map_analysis_error(crate::pipeline::AnalysisError::TooLarge(
+                "Derived raster 100x100 exceeds cleanup guardrails".into(),
+            ))
+            .code,
             NativeErrorCode::TooLarge,
         );
         assert_eq!(
-            map_image_error("Derived content geometry must be finite".into()).code,
+            map_analysis_error(crate::pipeline::AnalysisError::Invalid(
+                "Derived content geometry must be finite".into(),
+            ))
+            .code,
+            NativeErrorCode::InvalidRequest,
+        );
+        assert_eq!(
+            map_analysis_error(crate::pipeline::AnalysisError::Invalid(
+                "A request value mentions guardrails".into(),
+            ))
+            .code,
             NativeErrorCode::InvalidRequest,
         );
     }

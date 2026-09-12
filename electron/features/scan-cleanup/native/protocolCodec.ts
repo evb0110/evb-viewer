@@ -12,15 +12,17 @@ export function parseNativeScanCleanupStderr(stderr: string): {
     code: TNativeErrorCode;
     message: string
 } | null {
-    for (const line of stderr.trim().split(/\r?\n/u).reverse()) {
-        try {
-            const value: unknown = JSON.parse(line);
-            if (isNativeErrorEnvelope(value)) {
-                return value;
-            }
-        } catch {
-            // Deprecation notices and diagnostics may precede the final native envelope.
-        }
+    const line = stderr.trim().split(/\r?\n/u).pop();
+    if (!line) {
+        return null;
     }
-    return null;
+    try {
+        const value: unknown = JSON.parse(line);
+        return isNativeErrorEnvelope(value) ? value : null;
+    } catch {
+        // Only the last line is trusted: the sidecar writes its envelope last, and
+        // scanning earlier lines let document content that happens to be a valid
+        // envelope choose the error code.
+        return null;
+    }
 }

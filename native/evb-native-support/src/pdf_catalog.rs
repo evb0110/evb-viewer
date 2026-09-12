@@ -1,3 +1,4 @@
+use crate::{bounded_io::record_deserialization_error, NativeErrorCode};
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -65,11 +66,13 @@ impl<'de, 'a> DeserializeSeed<'de> for BookmarkSeed<'a> {
         D: Deserializer<'de>,
     {
         if self.depth >= MAX_BOOKMARK_DEPTH {
+            record_deserialization_error(NativeErrorCode::TooLarge);
             return Err(serde::de::Error::custom(format!(
                 "bookmark tree exceeds the {MAX_BOOKMARK_DEPTH}-level admission ceiling"
             )));
         }
         if self.budget.items >= MAX_BOOKMARK_ITEMS {
+            record_deserialization_error(NativeErrorCode::TooLarge);
             return Err(serde::de::Error::custom(format!(
                 "bookmark tree exceeds the {MAX_BOOKMARK_ITEMS}-item admission ceiling"
             )));
