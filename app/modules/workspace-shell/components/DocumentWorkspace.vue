@@ -1192,7 +1192,7 @@ const {
     isDjvuMode,
     currentPage,
     documentViewerRef,
-    ensureProjection: reason => ensureDjvuPdfProjection(reason, new AbortController().signal),
+    ensureProjection: ensureDjvuPdfProjection,
     saveAs: handleSaveAsDirect,
     exportDocx: handleExportDocxDirect,
     isExportingDocx,
