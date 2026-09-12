@@ -297,6 +297,8 @@ export default {
         'button': 'OCR',
         'dialogDescription': 'Configure optical character recognition and review its results.',
         'runTitle': 'Run OCR',
+        'catalogCorrupt': 'The OCR catalog was damaged. Rebuild OCR for this document.',
+        'rebuild': 'Rebuild OCR',
         'pages': 'Pages',
         'allPages': 'All pages ({total})',
         'currentPage': 'Current page ({page})',

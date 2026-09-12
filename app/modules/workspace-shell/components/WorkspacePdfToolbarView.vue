@@ -127,6 +127,7 @@
                 :current-page="snapshot.currentPage"
                 :total-pages="snapshot.totalPages"
                 :working-copy-path="ocrWorkingCopyPath"
+                :document-revision="ocrDocumentRevision"
                 :open="ocrPopupOpen"
                 :is-exporting-docx="ocrIsExportingDocx"
                 :external-error="ocrExternalError"
@@ -260,6 +261,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TFitMode,
     TPdfViewMode,
@@ -306,6 +308,7 @@ const {
     isDesktopRuntime,
     isFullscreen,
     ocrExternalError = null,
+    ocrDocumentRevision = null,
     ocrIsExportingDocx: ocrIsExportingDocxProp = undefined,
     ocrPdfDocument = null,
     ocrPopupOpen,
@@ -344,6 +347,7 @@ const {
     } | null | undefined;
     ocrPdfDocument?: IPdfDocument | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
+    ocrDocumentRevision?: TDocumentRevisionToken | null | undefined;
     ocrExternalError?: string | null | undefined;
     ocrIsExportingDocx?: boolean | undefined;
     ocrPopupOpen: boolean;

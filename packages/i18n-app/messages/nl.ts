@@ -762,6 +762,8 @@ export default {
         'button': 'OCR',
         'dialogDescription': 'Configureer optische tekenherkenning en bekijk de resultaten.',
         'runTitle': 'OCR uitvoeren',
+        'catalogCorrupt': 'De OCR-catalogus is beschadigd. Voer OCR opnieuw uit voor dit document.',
+        'rebuild': 'OCR opnieuw uitvoeren',
         'pages': 'Pagina\'s',
         'allPages': 'Alle pagina\'s ({total})',
         'currentPage': 'Huidige pagina ({page})',

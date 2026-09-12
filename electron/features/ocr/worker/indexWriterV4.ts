@@ -84,6 +84,7 @@ import {
     readJsonFile,
     resolveCatalogPath,
 } from '@electron/features/ocr/main/ocrCatalogV4';
+import {clearOcrCatalogRecoveryReceipt} from '@electron/features/ocr/main/ocrCatalogRecovery';
 import {assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent} from '@electron/file-access/documentRevisionSidecar';
 import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
 import {
@@ -1220,6 +1221,9 @@ async function publishOcrCatalogV4GenerationUnlocked(
             input.generation.generation,
             error,
         );
+    }
+    if (published) {
+        await clearOcrCatalogRecoveryReceipt(input.catalogRoot);
     }
     return {
         rootPath,

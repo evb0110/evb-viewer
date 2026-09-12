@@ -30,6 +30,7 @@ import {
     OcrCatalogCorruptError,
     openCatalog,
 } from '@electron/features/ocr/main/ocrCatalogV4';
+import {getOcrCatalogRecoveryReceiptPath} from '@electron/features/ocr/main/ocrCatalogRecovery';
 import {
     migrateOcrIndexV3ToV4,
     OcrCatalogCommittedDurabilityError,
@@ -116,6 +117,29 @@ describe('writeOcrIndexV4', () => {
             'shards',
             'shards.idx',
         ]);
+    });
+
+    it('clears a prior recovery receipt when a generation publishes', async () => {
+        const root = await createCatalogRoot();
+        await writeFile(getOcrCatalogRecoveryReceiptPath(root), JSON.stringify({
+            version: 1,
+            documentRevision: revision,
+            detectedAt: '2026-09-12T00:00:00.000Z',
+            reason: 'truncated shard index',
+            quarantinedPath: `${root}.2026-09-12T00-00-00-000Z.corrupt`,
+        }), 'utf8');
+
+        await writeOcrIndexV4({
+            catalogRoot: root,
+            sourcePdfPath: join(root, 'document.pdf'),
+            documentRevision: revision,
+            pageCount: 1,
+            pageBatches: batches([page(1)]),
+            assertRevisionCurrent: async () => {},
+        });
+
+        await expect(readFile(getOcrCatalogRecoveryReceiptPath(root), 'utf8'))
+            .rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('publishes a bounded generation and carries untouched shard references', async () => {

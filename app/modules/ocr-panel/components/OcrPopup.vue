@@ -76,6 +76,23 @@
                     <div
                         class="section"
                     >
+                        <div
+                            v-if="needsReOcr"
+                            class="catalog-recovery"
+                            role="alert"
+                            aria-live="polite"
+                        >
+                            <UIcon name="i-ph-warning-circle" class="size-4" />
+                            <span class="catalog-recovery-text">{{ t('ocr.catalogCorrupt') }}</span>
+                            <UButton
+                                color="primary"
+                                size="sm"
+                                icon="i-ph-arrow-counter-clockwise"
+                                :label="t('ocr.rebuild')"
+                                :disabled="!canRunOcr"
+                                @click="handleRebuildOcr"
+                            />
+                        </div>
                         <URadioGroup
                             v-model="settings.pageRange"
                             name="pageRange"
@@ -393,6 +410,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
@@ -484,6 +502,7 @@ interface IProps {
     currentPage: number;
     totalPages: number;
     workingCopyPath: TDocumentRef | null;
+    documentRevision: TDocumentRevisionToken | null;
     open: boolean;
     isExportingDocx?: boolean;
     externalError?: string | null;
@@ -501,6 +520,7 @@ const {
     pdfDocument,
     totalPages,
     workingCopyPath,
+    documentRevision,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -526,6 +546,7 @@ const {
     viewState,
     effectiveError,
     canRunOcr,
+    needsReOcr,
     showCustomRange,
     isCopyingLogs,
     copyLogsTooltip,
@@ -544,6 +565,7 @@ const {
     pageSegmentationModeSelectValue,
     handleCopyLogs,
     handleRunOcr,
+    handleRebuildOcr,
     handleCancel,
     handleExportDocx,
     handleCancelDocxExport,
@@ -558,6 +580,7 @@ const {
         currentPage: () => currentPage,
         totalPages: () => totalPages,
         workingCopyPath: () => workingCopyPath,
+        documentRevision: () => documentRevision,
         disabled: () => disabled,
         externalError: () => externalError,
     },
@@ -732,6 +755,23 @@ defineExpose<IOcrPopupAgentExpose>({
 
 .custom-input {
     width: 100%;
+}
+
+.catalog-recovery {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-3xl);
+    margin-bottom: var(--app-space-3xl);
+    padding: var(--app-space-lg);
+    border: 1px solid var(--ui-warning);
+    border-radius: var(--app-radius-md);
+    color: var(--ui-warning);
+}
+
+.catalog-recovery-text {
+    flex: 1;
+    color: var(--ui-text);
+    font-size: var(--app-text-size-kicker);
 }
 
 .supersession-acknowledgement {

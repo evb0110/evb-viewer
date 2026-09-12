@@ -1,5 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import {
@@ -24,6 +25,7 @@ import { useTypedI18n } from '@app/composables/useTypedI18n';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import { getOcrCapability } from '@app/utils/getOcrCapability';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 import {
@@ -223,6 +225,7 @@ export interface IOcrPopupPresenterContext {
     currentPage: MaybeRefOrGetter<number>;
     totalPages: MaybeRefOrGetter<number>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
+    documentRevision: MaybeRefOrGetter<TDocumentRevisionToken | null>;
     disabled: MaybeRefOrGetter<boolean>;
     externalError: MaybeRefOrGetter<string | null | undefined>;
 }
@@ -292,6 +295,7 @@ export const useOcrPopupPresenter = ({
     const showSuccessState = ref(false);
     const activeOcrSourcePath = ref<TDocumentRef | null>(null);
     const activeOcrSourcePage = ref<number | null>(null);
+    const needsReOcr = ref(false);
     const pendingAppliedOcrRequestId = ref<string | null>(null);
     const languageSearchQuery = ref('');
     const pickerGroupingSelection = ref<string[]>([...settings.value.selectedLanguages]);
@@ -313,6 +317,7 @@ export const useOcrPopupPresenter = ({
     const currentPage = computed(() => toValue(context.currentPage));
     const totalPages = computed(() => toValue(context.totalPages));
     const workingCopyPath = computed(() => toValue(context.workingCopyPath));
+    const documentRevision = computed(() => toValue(context.documentRevision));
     const pdfDocument = computed(() => toValue(context.pdfDocument));
     const disabled = computed(() => toValue(context.disabled));
     const externalError = computed(() => toValue(context.externalError));
@@ -369,6 +374,28 @@ export const useOcrPopupPresenter = ({
             || settings.value.replaceAllAcknowledged
         ),
     );
+
+    async function loadOcrCatalogStatus() {
+        const sourcePath = workingCopyPath.value;
+        const revision = documentRevision.value;
+        if (!sourcePath || !revision) {
+            needsReOcr.value = false;
+            return;
+        }
+        const capability = getOcrCapability();
+        if (typeof capability.resolveDocumentOcrAvailability !== 'function') {
+            needsReOcr.value = false;
+            return;
+        }
+        try {
+            const availability = await capability.resolveDocumentOcrAvailability(sourcePath, revision);
+            if (sourcePath === workingCopyPath.value && revision === documentRevision.value) {
+                needsReOcr.value = availability.needsReOcr === true;
+            }
+        } catch (error) {
+            BrowserLogger.warn('ocr', 'Failed to resolve OCR catalog recovery status', error);
+        }
+    }
     const showCustomRange = computed(() => settings.value.pageRange === 'custom');
     const progressStatusText = computed(() => {
         if (progress.value.phase === 'processing') {
@@ -470,6 +497,7 @@ export const useOcrPopupPresenter = ({
             hasWorkingCopy: Boolean(workingCopyPath.value),
             error: effectiveError.value,
             hasResults: hasResults.value,
+            needsReOcr: needsReOcr.value,
         };
     }
 
@@ -566,6 +594,16 @@ export const useOcrPopupPresenter = ({
         activeOcrSourcePage.value = currentPage.value;
         activeRunNeedsModelDownload.value = computeActiveRunNeedsModelDownload();
         void runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
+    }
+
+    function handleRebuildOcr() {
+        settings.value = {
+            ...settings.value,
+            pageRange: 'all',
+            customRange: '',
+        };
+        needsReOcr.value = false;
+        handleRunOcr();
     }
 
     async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
@@ -680,6 +718,7 @@ export const useOcrPopupPresenter = ({
         if (value) {
             pickerGroupingSelection.value = [...settings.value.selectedLanguages];
             void loadLanguages();
+            void loadOcrCatalogStatus();
             return;
         }
         if (progress.value.isRunning) {
@@ -731,7 +770,15 @@ export const useOcrPopupPresenter = ({
         if (progress.value.isRunning) {
             void cancelOcr();
         }
+        needsReOcr.value = false;
         resetCompletedOcrState();
+    });
+
+    watch(documentRevision, () => {
+        needsReOcr.value = false;
+        if (isOpen.value) {
+            void loadOcrCatalogStatus();
+        }
     });
 
     watch(pdfDocument, (nextDocument, previousDocument) => {
@@ -788,6 +835,7 @@ export const useOcrPopupPresenter = ({
         viewState,
         effectiveError,
         canRunOcr,
+        needsReOcr,
         showCustomRange,
         isCopyingLogs,
         copyLogsState,
@@ -807,6 +855,7 @@ export const useOcrPopupPresenter = ({
         pageSegmentationModeSelectValue,
         handleCopyLogs,
         handleRunOcr,
+        handleRebuildOcr,
         runOcrForAgent,
         handleCancel,
         cancelOcrForAgent,
