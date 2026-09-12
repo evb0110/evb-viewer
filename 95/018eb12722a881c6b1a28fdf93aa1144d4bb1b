@@ -1,0 +1,76 @@
+electron/bootstrap/runInitSequence.ts
+  s_74db2d8c79ae9f::t_ec35a48c73341a 51,296
+  s_74db2d8c79ae9f::t_09c2107c3d9ac6 89,304-306,309-317,319-329,331
+  s_74db2d8c79ae9f::t_4c76bf8cfcfa31 307-308,318
+electron/workspaceCheckpointStore.ts
+  s_74db2d8c79ae9f::t_ea20cc427bd423 1308-1311,1383,1386,1400
+  s_74db2d8c79ae9f::t_d010f886c46c0d 67,69,117,126-128,130-136,138,166-186,188-189,191
+  s_74db2d8c79ae9f::t_8f5b352fe2963d 790-791,800
+  s_74db2d8c79ae9f::t_00c4cb4638001e 1385,1627-1633
+  s_74db2d8c79ae9f::t_e1ee8e0d08f1e3 1032,1055,1062,1085,1118,1128,1130,1146,1155,1171
+  s_74db2d8c79ae9f::t_538e0b77ab632f 1645,1719
+  s_74db2d8c79ae9f::t_17a059b3c5d829 190,266-267,1326,1336-1337
+  s_74db2d8c79ae9f::t_d92d92b6111c1e 187,192
+  s_74db2d8c79ae9f::t_65aebc6951587d 1387
+  s_74db2d8c79ae9f::t_582a08d61e1e5b 1564,1580,1583-1586
+  s_74db2d8c79ae9f::t_3fe10ba1c02ca1 867-870,872-875
+  s_74db2d8c79ae9f::t_2d1108cb71c16c 856,880-881,911,913
+  s_74db2d8c79ae9f::t_6bfb62b4972c97 1210-1214,1222,1241,1256,1259-1261,1267
+  s_74db2d8c79ae9f::t_4df3894eadf7c1 256,259,263-265,268-269,425-428,433-436,440,442,505-510,512
+  s_74db2d8c79ae9f::t_6f3c5565c6e38c 1168
+  s_74db2d8c79ae9f::t_dfa71afda7f839 1238,1243-1244
+  s_74db2d8c79ae9f::t_a7a3f3636d6774 441,443-444,1361-1364,1571,1573
+  s_74db2d8c79ae9f::t_9c72097ea76fd9 1568,1594-1595,1634,1683-1687,1702-1707,1723-1724,1734,1736-1739
+  s_74db2d8c79ae9f::t_55e513012447cc 1209,1245-1248
+  s_74db2d8c79ae9f::t_99451a7cae185e 193,1274-1307,1312-1325,1327-1335,1338-1344,1346-1356,1375-1376,1379-1380,1384,1389-1397,1401,1592-1593,1681-1682,1699
+  s_74db2d8c79ae9f::t_c800a1058fa537 1345
+  s_74db2d8c79ae9f::t_f1b5bd12c2e6f3 1676
+  s_74db2d8c79ae9f::t_8e791690a30f4b 1688
+  s_74db2d8c79ae9f::t_fb2c4ab83f4a65 1692,1740-1741,1744
+  s_74db2d8c79ae9f::t_ee5df9172242e0 1357-1360,1365-1374
+  s_247a07a16a61fa::t_80f7577370b024 194,1381,1561,1563,1565,1569-1570,1577,1591,1624-1626,1642,1644,1646,1668,1673,1680,1700-1701,1716,1718,1720
+electron/bootstrap/mainProcess.ts
+  s_74db2d8c79ae9f::t_bb40c65f9a9e53 85,840
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_74db2d8c79ae9f::t_1d579cf90627f0 211
+  s_74db2d8c79ae9f::t_ec35a48c73341a 289-291
+  s_74db2d8c79ae9f::t_bb06930b12bc32 278-280,292
+  s_74db2d8c79ae9f::t_c60db56b44f7cc 277
+  s_74db2d8c79ae9f::t_a7a3f3636d6774 61-64,89-92,258-265
+  s_74db2d8c79ae9f::t_33ec688ec9c0ad 257,266-276,281,295-296
+  s_74db2d8c79ae9f::t_b34651addac20c 282-288,293-294
+tests/unit/electron/runInitSequenceExternalOpen.test.ts
+  s_74db2d8c79ae9f::t_4e8fc0725fbcec 74,106,162
+  s_74db2d8c79ae9f::t_fc5d30a511ab14 218-225
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_74db2d8c79ae9f::t_5c3ee5685a3dc3 445-463,465-512
+  s_74db2d8c79ae9f::t_41053725842ff6 464
+  s_247a07a16a61fa::t_b4bc833ff33164 513-520
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_74db2d8c79ae9f::t_49bc2f1928541f 40,48,209,216,222,228-230,238
+  s_74db2d8c79ae9f::t_a7a3f3636d6774 204-207,211-214,234-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "95018eb12722a881c6b1a28fdf93aa1144d4bb1b",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_74db2d8c79ae9f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09615-6496-7f03-ac53-b9e046510ea9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
