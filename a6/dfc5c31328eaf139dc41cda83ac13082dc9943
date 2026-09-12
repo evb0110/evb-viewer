@@ -1,0 +1,33 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_81b206e0e83dfc::t_4026ea44f353d8 698,701
+  s_81b206e0e83dfc::t_eddba9fdeae283 699-700,702
+  s_81b206e0e83dfc::t_b310b6a30d33b6 821-824,895-898,912-914,916-920,922-925
+  s_81b206e0e83dfc::t_637ae8a3c73d32 709-710,712,721,731,739,783,789,868,886,890
+  s_81b206e0e83dfc::t_10c5f695b69e13 285,287,703-704,711,713-720,722-723,728-730,732-738,740-745,750-774,782,787-788,790-818
+  s_81b206e0e83dfc::t_7ab4902bfb55ac 819,867,869,873-885,887-889,891-894,947-949
+  s_81b206e0e83dfc::t_92151fc38b6ff6 849-856
+  s_81b206e0e83dfc::t_7c32de6f08f9c9 705-708,724-727,746-749,777-781,784-786,870-872
+  s_81b206e0e83dfc::t_246f5173bbef5a 899-911,915,921,926-946
+  s_81b206e0e83dfc::t_f94e3623018e5a 337
+  s_81b206e0e83dfc::t_d261bfa7b9c320 820,866
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_81b206e0e83dfc::t_00c68262afeb10 316
+  s_81b206e0e83dfc::t_0ea8b177fe7535 359-365,367,373,540,1203
+  s_81b206e0e83dfc::t_491991a1fc9a96 307-309,320,374,809,999,1113-1115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a6dfc5c31328eaf139dc41cda83ac13082dc9943",
+  "prompts": {},
+  "sessions": {
+    "s_81b206e0e83dfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097e4-e7e1-79f3-98d1-9f1a07bcf1d2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
