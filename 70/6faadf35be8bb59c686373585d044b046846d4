@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_247a07a16a61fa::t_9d51df0297ec55 1105-1108,1123-1130,1132,1143,1227
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_247a07a16a61fa::t_57be3c086bfcbe 30,103-109,142-147,304,311,887,892,1027,1029,1168
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_247a07a16a61fa::t_122b32a0919979 153
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_247a07a16a61fa::t_a1900b29eba2b4 117,254,1259-1301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "706faadf35be8bb59c686373585d044b046846d4",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
