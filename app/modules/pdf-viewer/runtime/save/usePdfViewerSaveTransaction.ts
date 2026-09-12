@@ -251,7 +251,7 @@ export const usePdfViewerSaveTransaction = (
         }
         let request = {...initialRequest};
         if (
-            request.serializeResult === true
+            request.requiresManagedShapeBaseline === true
             || request.includeManagedShapes === true
             || request.rewriteShapeState === true
             || request.forceRewrite === true
@@ -405,9 +405,6 @@ export const usePdfViewerSaveTransaction = (
             await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
             return {
                 source: 'native-required-failure',
-                baseBytes: null,
-                serializedBytes: null,
-                serializedResult: null,
                 nativeMutationProjection: null,
                 nativeRequiredFailure: createNativeRequiredFailure(decision.nativeRejection),
                 verifiedUnchangedWorkingCopy: frontierPlan !== undefined
@@ -447,9 +444,6 @@ export const usePdfViewerSaveTransaction = (
         await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
         const result: IPdfViewerSaveTransactionResult = {
             source: 'native-mutation-projection',
-            baseBytes: null,
-            serializedBytes: null,
-            serializedResult: null,
             nativeMutationProjection,
             fallbackDecision: decision.fallback,
             annotationSavePlan,

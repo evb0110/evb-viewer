@@ -744,6 +744,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         pdfViewerRef,
         source: {getSourcePdfData},
+        workingCopyPath,
+        originalPath,
+        documentRevisionToken,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
 

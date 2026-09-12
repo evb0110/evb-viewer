@@ -73,7 +73,6 @@ import {
     getSaveMode,
     requiresNativePathBackedSave,
     type IWorkspaceSaveTarget,
-    type IWorkspaceSerializedSaveBody,
     type TWorkspaceSavePlan,
     type TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
@@ -335,128 +334,6 @@ async function executeNativeWorkingCopySave(
         );
         return workingCopySaveResult(persisted, reloadWaiter);
     });
-}
-
-async function executeSerializedBytesSave(
-    plan: TWorkspaceSavePlan,
-    body: IWorkspaceSerializedSaveBody,
-    deps: IWorkspaceSaveDependencies,
-    reloadWaiter: IPostSaveReloadWaiter | null,
-    createTransaction?: () => Promise<IPdfViewerSaveTransactionResult>,
-): Promise<TWorkspaceSaveExecutionResult> {
-    const saveTransaction = createTransaction
-        ? await createTransaction()
-        : await deps.pdf.runSaveTransaction(
-            buildSaveTransactionRequest(plan, deps, body, {allowNativeMutationPlan: false}),
-        );
-    if (requiresNativePathBackedSave(plan)) {
-        return notSavedBeforeWrite(
-            'native-save-required',
-            plan.target.expectedRevisionToken,
-            reloadWaiter,
-        );
-    }
-    const finalBytes = saveTransaction.serializedResult?.finalBytes
-        ?? saveTransaction.serializedBytes
-        ?? saveTransaction.baseBytes;
-    if (!finalBytes) {
-        return notSavedBeforeWrite('persist-rejected', plan.target.expectedRevisionToken, reloadWaiter);
-    }
-    if (!isTargetCurrent(plan, deps)) {
-        return notSavedBeforeWrite('document-changed', plan.target.expectedRevisionToken, reloadWaiter);
-    }
-
-    let preparedShapeStateSnapshot: unknown = null;
-    let preparedShapeState: unknown = null;
-    try {
-        // Priming establishes the persisted shape baseline from the bytes about
-        // to be written. When it cannot run — an oversized document, a parse
-        // failure, a replaced store — the file is still saved, but nothing here
-        // knows the shape layer reached disk. The shapes then stay dirty rather
-        // than being declared clean on the strength of a scan that never ran.
-        let shapeStateWasPrimed = true;
-        if (plan.dirtyState.shapes && deps.shapes.preparePersistedState) {
-            preparedShapeStateSnapshot = await deps.shapes.preparePersistedState(finalBytes) ?? null;
-            preparedShapeState = preparedShapeStateSnapshot;
-            shapeStateWasPrimed = preparedShapeStateSnapshot !== null;
-            if (!shapeStateWasPrimed) {
-                BrowserLogger.warn(
-                    'workspace',
-                    'Saved the PDF but could not confirm the managed shape baseline; shape edits stay unsaved',
-                    {path: plan.target.expectedWorkingPath},
-                );
-            }
-        }
-        const changedObjectRefs = saveTransaction.serializedResult?.changedObjectRefs;
-        const commitCallbacks: IPdfSerializedCommitCallbacks = {
-            ...(saveTransaction.verifyAnnotationSave
-                ? {verifyBytesBeforeCommit: saveTransaction.verifyAnnotationSave}
-                : {}),
-            ...(saveTransaction.verifyAnnotationSavePath
-                ? {verifyPathBeforeCommit: saveTransaction.verifyAnnotationSavePath}
-                : {}),
-            ...(saveTransaction.assertAnnotationSaveCurrent
-                ? {assertBeforeCommit: saveTransaction.assertAnnotationSaveCurrent}
-                : {}),
-        };
-        const persistOptions = {
-            saveMode: saveTransaction.serializedResult?.saveMode ?? getSaveMode(plan),
-            preserveLoadedSource: body.preserveLoadedSource,
-            expectedWorkingPath: plan.target.expectedWorkingPath,
-            expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
-            ...(changedObjectRefs?.length
-                ? {changedObjectRefs: [...changedObjectRefs]}
-                : {}),
-            ...(Object.keys(commitCallbacks).length
-                ? {commitCallbacks}
-                : {}),
-        };
-        const annotationMaterializationBaseline = body.preserveLoadedSource && !reloadWaiter
-            ? deps.annotations.getSaveStateToken?.()
-            : undefined;
-        const persisted = plan.request.kind === 'save-as'
-            ? await timedSavePhase(
-                'persist-save_as',
-                () => deps.persistence.saveAs(finalBytes, {
-                    ...persistOptions,
-                    optimizeLossless: plan.request.kind === 'save-as'
-                        && plan.request.optimizeLossless,
-                }),
-            )
-            : await timedSavePhase(
-                'persist-save',
-                () => deps.persistence.saveSerialized(finalBytes, persistOptions),
-            );
-        if (!persisted.success) {
-            return notSavedAfterWrite(abortReasonForPersistResult(persisted), reloadWaiter);
-        }
-        preparedShapeStateSnapshot = null;
-        return {
-            status: 'saved',
-            persisted,
-            serializedChanges: true,
-            reloadWaiter,
-            completion: {
-                markAnnotationStateSaved: true,
-                markBookmarksStateSaved: true,
-                markPageLabelsStateSaved: true,
-                markShapeStateSaved: shapeStateWasPrimed,
-                preserveLivePdfjsSession: body.preserveLoadedSource && !reloadWaiter,
-                resetAnnotationStorage: true,
-            },
-            ...(preparedShapeState === null ? {} : {preparedShapeState}),
-            ...(annotationMaterializationBaseline === undefined
-                ? {}
-                : {annotationMaterializationBaseline}),
-            ...(saveTransaction.commitAnnotationSave
-                ? {commitAnnotationSave: saveTransaction.commitAnnotationSave}
-                : {}),
-        };
-    } finally {
-        if (preparedShapeStateSnapshot) {
-            await deps.shapes.restorePreparedState?.(preparedShapeStateSnapshot);
-        }
-    }
 }
 
 async function persistNativeMutationProjection(
@@ -870,49 +747,23 @@ async function executeOptimizationSave(
     });
 }
 
-async function executeSavePlan(
+function executeSavePlan(
     plan: TWorkspaceSavePlan,
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
-    const reloadState: {current: IPostSaveReloadWaiter | null} = {current: null};
-    const getReloadWaiter = () => {
-        reloadState.current ??= createReloadWaiter(
-            plan.kind === 'native-mutation'
-                ? plan.serializedFallback
-                : plan.kind === 'serialized'
-                    ? plan.body
-                    : {
-                        source: 'working-copy',
-                        forceRewrite: false,
-                        includeManagedShapes: false,
-                        preserveLoadedSource: false,
-                        requiresLargeFileGuard: false,
-                    },
-            deps,
-        );
-        return reloadState.current;
-    };
-    try {
-        if (plan.kind === 'optimization') {
-            return await executeOptimizationSave(plan, deps);
-        }
-        if (plan.kind === 'native-working-copy') {
-            return await executeNativeWorkingCopySave(plan, deps);
-        }
-        if (plan.kind === 'native-mutation') {
-            return await executeNativeMutationSave(plan, deps);
-        }
-        if (plan.kind === 'native-repair') {
-            return await executeNativeRepairSave(plan, deps);
-        }
-        if (plan.body.source === 'working-copy') {
-            return await executeWorkingCopySave(plan, deps);
-        }
-        return await executeSerializedBytesSave(plan, plan.body, deps, getReloadWaiter());
-    } catch (error) {
-        reloadState.current?.cancel();
-        throw error;
+    if (plan.kind === 'optimization') {
+        return executeOptimizationSave(plan, deps);
     }
+    if (plan.kind === 'native-working-copy') {
+        return executeNativeWorkingCopySave(plan, deps);
+    }
+    if (plan.kind === 'native-mutation') {
+        return executeNativeMutationSave(plan, deps);
+    }
+    if (plan.kind === 'native-repair') {
+        return executeNativeRepairSave(plan, deps);
+    }
+    return executeWorkingCopySave(plan, deps);
 }
 
 async function completeWorkspaceSave(

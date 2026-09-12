@@ -161,9 +161,6 @@ function createHarness() {
         getAllShapes: vi.fn(() => []),
         runSaveTransaction: vi.fn(async () => ({
             source: 'writer-save' as const,
-            baseBytes: null,
-            serializedBytes: Uint8Array.of(9, 9),
-            serializedResult: null,
             nativeMutationProjection: null,
             fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
             annotationSavePlan: {

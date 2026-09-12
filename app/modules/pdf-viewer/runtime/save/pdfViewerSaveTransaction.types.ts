@@ -167,7 +167,7 @@ export interface IPdfViewerSaveTransactionRequest {
     forceWriterSave?: boolean;
     includeManagedShapes?: boolean;
     rewriteShapeState?: boolean;
-    serializeResult?: boolean;
+    requiresManagedShapeBaseline?: boolean;
     /** Persistence services validate the working-copy target outside this transaction. */
     workingPath?: TDocumentRef | null;
     markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;
@@ -178,18 +178,8 @@ export interface IPdfViewerSaveTransactionRequest {
     source?: IPdfViewerSaveTransactionSource;
 }
 
-export interface IPdfViewerSaveTransactionSerializedResult {
-    finalBytes: Uint8Array;
-    saveMode: TPdfSaveMode;
-    source: TPdfViewerSaveTransactionSource;
-    changedObjectRefs: readonly string[];
-}
-
 export interface IPdfViewerSaveTransactionResult {
     source: TPdfViewerSaveTransactionSource;
-    baseBytes: Uint8Array | null;
-    serializedBytes: Uint8Array | null;
-    serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
     nativeMutationProjection: INativePdfMutationProjection | null;
     nativeRequiredFailure?: IPdfViewerNativeRequiredFailure;
     /** A captured canonical frontier proves no PDF mutations remain after draft deletion or undo. */
@@ -201,13 +191,4 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
     commitAnnotationSave?(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
-}
-
-export function resolvePdfViewerSaveTransactionFinalBytes(
-    result: IPdfViewerSaveTransactionResult | null | undefined,
-) {
-    return result?.serializedResult?.finalBytes
-        ?? result?.serializedBytes
-        ?? result?.baseBytes
-        ?? null;
 }

@@ -74,9 +74,6 @@ describe('workspace save failure surfacing', () => {
             }),
             runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
                 source: 'serialized-rewrite' as const,
-                baseBytes: null,
-                serializedBytes: Uint8Array.of(1, 2, 3),
-                serializedResult: null,
                 nativeMutationProjection: null,
                 fallbackDecision: null,
                 annotationSavePlan: null,
@@ -120,9 +117,6 @@ describe('workspace save failure surfacing', () => {
             trySavePdfNativeMutations,
             runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
                 source: 'native' as const,
-                baseBytes: null,
-                serializedBytes: null,
-                serializedResult: null,
                 nativeMutationProjection: {
                     mutations: {},
                     placedImageGeometryUpdates,
@@ -173,9 +167,6 @@ describe('workspace save failure surfacing', () => {
             trySavePdfNativeMutations,
             runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
                 source: 'native' as const,
-                baseBytes: null,
-                serializedBytes: null,
-                serializedResult: null,
                 nativeMutationProjection: {
                     mutations: {updates: []},
                     noteTextUpdates: [],

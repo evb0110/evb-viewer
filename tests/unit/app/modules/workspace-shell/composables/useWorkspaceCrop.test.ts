@@ -50,9 +50,6 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         isCropSelecting: false,
         runSaveTransaction: vi.fn(async () => ({
             source: 'writer-save' as const,
-            baseBytes: null,
-            serializedBytes: null,
-            serializedResult: null,
             nativeMutationProjection: null,
             fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
             annotationSavePlan: {

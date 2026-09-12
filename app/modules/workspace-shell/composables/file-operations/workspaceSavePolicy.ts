@@ -49,7 +49,7 @@ export interface IWorkspaceSaveDirtyState {
     shapes: boolean;
 }
 export interface IWorkspaceSerializedSaveBody {
-    source: 'live-pdfjs' | 'working-copy';
+    source: 'working-copy';
     forceRewrite: boolean;
     includeManagedShapes: boolean;
     preserveLoadedSource: boolean;
@@ -222,6 +222,6 @@ export function buildSaveTransactionRequest(
         documentStructure,
         source: {getSourcePdfData: deps.pdf.getSourceData},
         workingPath: requiresNativePathBackedSave(plan) ? plan.target.expectedWorkingPath : null,
-        serializeResult: true,
+        requiresManagedShapeBaseline: true,
     };
 }
