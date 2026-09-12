@@ -75,41 +75,48 @@ pub fn deserialize_json_file_bounded<T: DeserializeOwned>(
     let mut reader = AdmissionReader {
         inner: BufReader::new(file).take((max_bytes as u64).saturating_add(1)),
         remaining: max_bytes,
+        ceiling_hit: false,
     };
-    let mut deserializer = serde_json::Deserializer::from_reader(&mut reader);
-    let value = T::deserialize(&mut deserializer)
-        .map_err(|error| json_error(label, error, Some(max_bytes)))?;
-    deserializer
-        .end()
-        .map_err(|error| json_error(label, error, Some(max_bytes)))?;
-    Ok(value)
+    let result = {
+        let mut deserializer = serde_json::Deserializer::from_reader(&mut reader);
+        T::deserialize(&mut deserializer).and_then(|value| deserializer.end().map(|_| value))
+    };
+    let ceiling_hit = reader.ceiling_hit;
+    result.map_err(|error| json_error(label, error, Some(max_bytes), ceiling_hit))
 }
 
 pub fn deserialize_json_slice<T: DeserializeOwned>(
     bytes: &[u8],
     label: &str,
 ) -> Result<T, NativeError> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    let value =
-        T::deserialize(&mut deserializer).map_err(|error| json_error(label, error, None))?;
-    deserializer
-        .end()
-        .map_err(|error| json_error(label, error, None))?;
-    Ok(value)
+    let result = {
+        let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+        T::deserialize(&mut deserializer).and_then(|value| deserializer.end().map(|_| value))
+    };
+    result.map_err(|error| json_error(label, error, None, false))
 }
 
-fn json_error(label: &str, error: serde_json::Error, max_bytes: Option<usize>) -> NativeError {
+fn json_error(
+    label: &str,
+    error: serde_json::Error,
+    max_bytes: Option<usize>,
+    ceiling_hit: bool,
+) -> NativeError {
     let message = error.to_string();
-    if message.contains(TOO_LARGE_IO_SENTINEL) {
-        return too_large(
-            label,
-            max_bytes.expect("streaming readers provide their byte ceiling"),
-        );
+    if ceiling_hit {
+        if let Some(max_bytes) = max_bytes {
+            return too_large(label, max_bytes);
+        }
     }
-    let code = if message.contains("admission ceiling") {
-        NativeErrorCode::TooLarge
-    } else {
-        NativeErrorCode::InvalidRequest
+    // Nested ceilings (bounded vectors, bookmark depth, markup geometry, manifest
+    // paths) are plain serde custom errors with no typed channel, so they still have
+    // to be recognised by text. A payload can carry the same words, but serde only
+    // ever renders untrusted input inside quotes, so a quote ahead of the phrase
+    // means the caller wrote it rather than a ceiling firing.
+    let ceiling_phrase = message.find("admission ceiling");
+    let code = match ceiling_phrase {
+        Some(index) if !message[..index].contains('"') => NativeErrorCode::TooLarge,
+        _ => NativeErrorCode::InvalidRequest,
     };
     NativeError::new(code, format!("Invalid {label}: {message}"))
 }
@@ -117,6 +124,7 @@ fn json_error(label: &str, error: serde_json::Error, max_bytes: Option<usize>) -
 struct AdmissionReader {
     inner: Take<BufReader<File>>,
     remaining: usize,
+    ceiling_hit: bool,
 }
 
 impl Read for AdmissionReader {
@@ -127,6 +135,7 @@ impl Read for AdmissionReader {
         let probe_len = self.remaining.saturating_add(1).min(buffer.len());
         let count = self.inner.read(&mut buffer[..probe_len])?;
         if count > self.remaining {
+            self.ceiling_hit = true;
             return Err(std::io::Error::other(TOO_LARGE_IO_SENTINEL));
         }
         self.remaining -= count;
@@ -238,5 +247,16 @@ mod tests {
             NativeErrorCode::InvalidRequest
         );
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn json_slice_treats_reader_sentinel_in_input_as_invalid_request() {
+        let error = deserialize_json_slice::<Envelope>(
+            br#"{"values":"evb bounded reader exceeded admission ceiling"}"#,
+            "test JSON",
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest);
     }
 }
