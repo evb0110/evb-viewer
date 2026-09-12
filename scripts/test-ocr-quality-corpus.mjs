@@ -96,7 +96,7 @@ async function loadProductionRunner() {
         outfile: bundlePath,
         platform: 'node',
         target: 'node22',
-        tsconfig: join(repositoryRoot, 'tsconfig.workspace-paths.json'),
+        tsconfig: join(repositoryRoot, 'tsconfig.base.json'),
     });
     return import(`${pathToFileURL(bundlePath).href}?run=${Date.now()}`);
 }

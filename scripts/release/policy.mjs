@@ -146,7 +146,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'tests/fixtures/electron/generated-text.pdf',
                 'tsconfig.base.json',
                 'tsconfig.json',
-                'tsconfig.workspace-paths.json',
                 'vitest.config.ts',
                 'vitest.shared.config.ts',
                 'package.json',
@@ -199,7 +198,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'tsconfig.json',
                 'tsconfig.scripts.json',
                 'tsconfig.scripts-js.json',
-                'tsconfig.workspace-paths.json',
             ],
         },
         electronSmoke: {
@@ -372,7 +370,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'vendor/**',
                 'tsconfig.json',
                 'tsconfig.base.json',
-                'tsconfig.workspace-paths.json',
             ]},
             build: {paths: [
                 'electron-builder.yml',
