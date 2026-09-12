@@ -65,8 +65,6 @@ interface IWorkerSearchRequest {
     registry: TSearchJobContext | null;
     queuedProgress: IPdfSearchProgress | null;
     cancellationFallbackTimeout: NodeJS.Timeout | null;
-    regexDeadlineAtMs: number | null;
-    regexWatchdogTimeout: NodeJS.Timeout | null;
     resolve: (response: ISearchResponse) => void;
     reject: (error: Error) => void;
     settlement: Promise<ISearchResponse>;
@@ -113,7 +111,7 @@ interface IDispatchSearchRequestPayload {
 function buildSearchWorkerRequest(
     payload: IDispatchSearchRequestPayload,
     requestId: TRequestId,
-    regexDeadlineAtMs: number | null,
+    regexBudgetMs: number | null,
 ): TSearchWorkerInboundMessage {
     return {
         type: 'search',
@@ -127,7 +125,7 @@ function buildSearchWorkerRequest(
             ...(payload.matchCase !== undefined ? { matchCase: payload.matchCase } : {}),
             ...(payload.wholeWord !== undefined ? { wholeWord: payload.wholeWord } : {}),
             ...(payload.useRegex !== undefined ? { useRegex: payload.useRegex } : {}),
-            ...(regexDeadlineAtMs === null ? {} : {regexDeadlineAtMs}),
+            ...(regexBudgetMs === null ? {} : {regexBudgetMs}),
         },
     };
 }
@@ -196,7 +194,6 @@ function createWorkerSettlement(
     requestId: TRequestId,
     pdfPath: string,
     pageCount: number | undefined,
-    regexDeadlineAtMs: number | null,
 ): IWorkerSearchRequest {
     let resolve!: (response: ISearchResponse) => void;
     let reject!: (error: Error) => void;
@@ -211,8 +208,6 @@ function createWorkerSettlement(
         registry: null,
         queuedProgress: null,
         cancellationFallbackTimeout: null,
-        regexDeadlineAtMs,
-        regexWatchdogTimeout: null,
         resolve,
         reject,
         settlement,
@@ -226,9 +221,8 @@ const MIN_SEARCH_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 10_000;
 const MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 1_000;
 /**
- * The regex matching deadline is measured from request admission. Worker
- * shutdown has its own longer bound because termination is cleanup, not part
- * of the documented matching budget.
+ * Termination is cleanup, not part of the documented matching budget, so
+ * shutdown gets its own bound beyond the request timeout.
  */
 const SEARCH_WORKER_FORCED_TERMINATION_RESERVE_MS = 1_000;
 const DEFAULT_SEARCH_CANCEL_ACK_TIMEOUT_MS = 5_000;
@@ -343,14 +337,13 @@ export class SearchWorkerService {
             }
         }
 
-        const regexDeadlineAtMs = payload.useRegex === true
-            ? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
+        const regexBudgetMs = payload.useRegex === true
+            ? SEARCH_REGEX_MAX_EXECUTION_MS
             : null;
         const request = createWorkerSettlement(
             requestId,
             payload.resolvedPdfPath,
             payload.pageCount,
-            regexDeadlineAtMs,
         );
         const handle = this.searchJobs.start({
             jobId: requestId,
@@ -387,7 +380,7 @@ export class SearchWorkerService {
             }
             this.markStateActivity(state);
             this.clearIdleCleanupTimer(state);
-            state.worker.postMessage(buildSearchWorkerRequest(payload, requestId, regexDeadlineAtMs));
+            state.worker.postMessage(buildSearchWorkerRequest(payload, requestId, regexBudgetMs));
         } catch (error) {
             request.reject(toSearchIpcError(error));
         }
@@ -568,13 +561,6 @@ export class SearchWorkerService {
             registry.publish(request.queuedProgress);
             request.queuedProgress = null;
         }
-        if (request.regexDeadlineAtMs !== null) {
-            const regexWatchdogTimeout = setTimeout(() => {
-                this.failRegexRequestAfterDeadline(request);
-            }, Math.max(0, request.regexDeadlineAtMs - Date.now()));
-            regexWatchdogTimeout.unref();
-            request.regexWatchdogTimeout = regexWatchdogTimeout;
-        }
         const timeout = setTimeout(() => {
             const error = new SearchIpcError(buildSearchErrorEnvelope(
                 'SEARCH_TIMEOUT',
@@ -604,35 +590,11 @@ export class SearchWorkerService {
             return await request.settlement;
         } finally {
             clearTimeout(timeout);
-            if (request.regexWatchdogTimeout) {
-                clearTimeout(request.regexWatchdogTimeout);
-                request.regexWatchdogTimeout = null;
-            }
             const state = this.findRequestState(request);
             if (state) {
                 this.removeWorkerRequest(state, request);
             }
         }
-    }
-
-    private failRegexRequestAfterDeadline(request: IWorkerSearchRequest) {
-        if (request.handle?.signal.aborted) {
-            return;
-        }
-        const error = new SearchIpcError(buildSearchErrorEnvelope(
-            'SEARCH_TIMEOUT',
-            `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
-            {retryable: true},
-        ));
-        if (request.registry && !request.registry.terminal.fail(error)) {
-            return;
-        }
-        const state = this.findRequestState(request);
-        if (state) {
-            this.requestWorkerCancellation(request, `Search request ${request.requestId} timed out`);
-            return;
-        }
-        request.reject(error);
     }
 
     private findRequestState(request: IWorkerSearchRequest) {
