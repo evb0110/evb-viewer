@@ -19,7 +19,9 @@ import {
     ref,
     shallowRef,
     type Ref,
+    type PropType,
 } from 'vue';
+import type {IFailureToastAction} from '@app/composables/useFailureToast';
 import type {
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
@@ -43,6 +45,8 @@ import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedC
 import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
+import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
@@ -70,6 +74,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
     return {
         settings: {
             alignmentItems: session.alignmentItems,
+            documentSettingsLoadFailure: session.documentSettingsLoadFailure ?? ref(null),
             dismissFirstRunGuidance: session.dismissFirstRunGuidance,
             handleThicknessInput: session.handleThicknessInput,
             layoutItems: session.layoutItems,
@@ -742,6 +747,22 @@ function mount(component: Parameters<typeof createApp>[0]) {
     document.body.append(host);
     const app = createApp(component);
     app.component('AppTooltip', TooltipStub);
+    app.component('AppFailureAlert', AppFailureAlert);
+    app.component('UAlert', defineComponent({
+        props: {
+            title: String,
+            description: String,
+            actions: {
+                type: Array as PropType<IFailureToastAction[]>,
+                default: () => [],
+            },
+        },
+        setup: props => () => h('div', [
+            props.title,
+            props.description,
+            ...props.actions.map(action => h('button', {onClick: action.onClick}, action.label)),
+        ]),
+    }));
     app.component('UBadge', BadgeStub);
     app.component('UButton', ButtonStub);
     app.component('UCheckbox', CheckboxStub);
@@ -1292,6 +1313,35 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(workspaceSessionOptions.value?.active?.()).toBe(true);
         expect(workspaceSessionOptions.value?.sourceSha256?.()).toBe(sourceSha256);
+    });
+
+    it('renders a failed settings load and routes Retry to the document settings owner', async () => {
+        const retry = vi.fn();
+        const failure = {
+            ...initializeRendererFailureReporter().captureForPresentation({
+                code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+                context: {},
+                local: {
+                    source: 'scan-cleanup',
+                    message: 'Settings read failed',
+                },
+            }),
+            title: 'Settings read failed',
+            actions: [{
+                label: 'Retry',
+                onClick: retry,
+            }],
+        };
+        workspaceSession.value = createWorkspaceEntrySession({documentSettingsLoadFailure: ref(failure)});
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: null,
+            totalPages: 3,
+        })));
+        expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain('Settings read failed');
+        Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="alert"] button'))
+            .find(button => button.textContent === 'Retry')?.click();
+        expect(retry).toHaveBeenCalledOnce();
+        expect(harness.host.querySelector('fieldset')?.disabled).toBe(false);
     });
 
     it('renders automatic, manual, and mixed auto-value states and emits reset only from the manual chip', async () => {
