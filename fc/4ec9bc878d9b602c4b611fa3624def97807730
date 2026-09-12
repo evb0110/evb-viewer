@@ -1,0 +1,31 @@
+electron/native-tools/runNativeCommand.ts
+  s_07d814e5ff12ed::t_456114ca3c2deb 9,617,635-640
+  s_07d814e5ff12ed::t_58b47a7d25afd4 615
+  s_07d814e5ff12ed::t_66001fed3fb48b 618-623
+tests/unit/electron/nativeRunCommand.test.ts
+  s_07d814e5ff12ed::t_901f989ce353a3 312
+  s_07d814e5ff12ed::t_e46582d9bbece9 256,259-261,273,284
+  s_07d814e5ff12ed::t_5b5c4337b9ac4e 246-250,253-255,257-258,262-272,274-281
+  s_07d814e5ff12ed::t_387129e3a23ceb 251-252,282-283
+electron/native-tools/processResult.ts
+  s_07d814e5ff12ed::t_014872b9fe3438 61
+  s_07d814e5ff12ed::t_5b5c4337b9ac4e 45
+  s_07d814e5ff12ed::t_a0c1b19c694da6 10-23
+  s_07d814e5ff12ed::t_a082e6c416312d 51-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fc4ec9bc878d9b602c4b611fa3624def97807730",
+  "prompts": {},
+  "sessions": {
+    "s_07d814e5ff12ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cd-9c30-7b53-9376-97fa86b79b8e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

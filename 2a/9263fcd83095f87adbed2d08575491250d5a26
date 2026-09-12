@@ -1,0 +1,22 @@
+electron/updates/fetchLatestReleaseMetadataVersion.ts
+  s_9168ed8e467797::t_fe0e1a994f9ef8 172
+  s_9168ed8e467797::t_0c54c2788a3184 8,25-27,31-42,44-46,51-64
+  s_9168ed8e467797::t_ddced4d1b04804 28-30
+  s_9168ed8e467797::t_ee0bb2918fcc4d 43,47-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a9263fcd83095f87adbed2d08575491250d5a26",
+  "prompts": {},
+  "sessions": {
+    "s_9168ed8e467797": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097d6-6dbf-7e42-9dd7-568e78855106",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

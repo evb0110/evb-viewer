@@ -1,0 +1,21 @@
+electron/updateHealthMarker.ts
+  s_9168ed8e467797::t_6a24581a335bf9 122
+tests/unit/electron/updateHealthMarker.test.ts
+  s_9168ed8e467797::t_ddbeb697d9e223 73-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5c7929f7411e86b344c86a3b7828ae3f2163fd25",
+  "prompts": {},
+  "sessions": {
+    "s_9168ed8e467797": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097d6-6dbf-7e42-9dd7-568e78855106",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
