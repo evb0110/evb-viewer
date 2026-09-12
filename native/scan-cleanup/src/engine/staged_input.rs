@@ -712,9 +712,12 @@ mod tests {
             3,
         );
         let producer_paths = fifo_paths.clone();
+        let (producer_signal, producer_receiver) = std::sync::mpsc::channel();
+        let producer_signaled = Mutex::new(producer_receiver);
         let producer = std::thread::spawn(move || {
             for (index, path) in producer_paths.iter().enumerate() {
                 fs::write(path, format!("page-{index}")).unwrap();
+                producer_signal.send(()).unwrap();
             }
         });
         let observed_lookahead = AtomicBool::new(false);
@@ -732,20 +735,25 @@ mod tests {
 
         let processed = run_stream_page_jobs(&batch, |(index, page)| {
             if index == 0 {
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                loop {
-                    let live = count_materializations();
-                    peak_materializations.fetch_max(live, Ordering::AcqRel);
-                    if live == batch.raster_window {
-                        observed_lookahead.store(true, Ordering::Release);
-                        break;
-                    }
-                    assert!(
-                        std::time::Instant::now() < deadline,
-                        "reader did not fill the promised raster window"
-                    );
-                    std::thread::yield_now();
-                }
+                producer_signaled
+                    .lock()
+                    .unwrap()
+                    .recv()
+                    .expect("producer did not publish page 0");
+                producer_signaled
+                    .lock()
+                    .unwrap()
+                    .recv()
+                    .expect("producer did not publish page 1");
+                producer_signaled
+                    .lock()
+                    .unwrap()
+                    .recv()
+                    .expect("producer did not publish page 2");
+                let live = count_materializations();
+                peak_materializations.fetch_max(live, Ordering::AcqRel);
+                assert_eq!(live, batch.raster_window);
+                observed_lookahead.store(true, Ordering::Release);
             }
             let live = count_materializations();
             peak_materializations.fetch_max(live, Ordering::AcqRel);
