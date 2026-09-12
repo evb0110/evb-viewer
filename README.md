@@ -1,8 +1,13 @@
 # EVB Viewer
 
 EVB Viewer turns raw scans and DjVu files into clean, searchable, annotatable
-PDFs. It runs offline on macOS, Windows, and Linux, it is free, and the source
-is MIT.
+PDFs: native scan cleanup, Tesseract OCR in 30 languages, annotation, and
+export. It runs offline on macOS, Windows, and Linux, it is free, and the
+source is MIT.
+
+The document is also an AI workspace. An optional assistant, off by default,
+can operate the open document for you, and the app runs a local MCP server so
+Claude Code, Cursor, or any other MCP client can drive it too.
 
 <!-- Replace with docs/media/hero-before-after.png (one scanned page, raw left,
      cleaned and OCR'd right) once that image exists. -->
@@ -28,7 +33,7 @@ can search.
 - **Open** PDF, DjVu, and image batches. Combine loose page images into one PDF.
 - **Clean** scanned pages: deskew, despeckle, binarize, crop, and split
   two-page spreads. This runs in a native Rust engine, not a filter chain.
-- **Recognize** text with Tesseract and `tessdata-best` models. English and
+- **OCR** the pages with Tesseract and `tessdata-best` models. English and
   Russian are bundled for offline use; 28 more languages download on demand,
   including Ancient Greek, Hebrew, Arabic, and Syriac.
 - **Export** a searchable PDF, or DOCX, PNG, JPG, and multi-page TIFF.
@@ -37,7 +42,7 @@ can search.
 - **Work at scale** across tabs, split panes, and multiple windows, with tab
   transfer between windows.
 
-## Ask an assistant
+## The AI assistant and the MCP server
 
 An optional in-app assistant can operate the document for you. It can rebuild a
 book's outline from its printed table of contents, apply page labels from the
