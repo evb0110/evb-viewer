@@ -217,4 +217,52 @@ describe('workingCopyMutationQueue telemetry', () => {
             unsubscribe();
         }
     });
+
+    it('does not extend a path drain with mutations admitted after it starts', async () => {
+        const {
+            drainWorkingCopyMutations,
+            enqueueWorkingCopyMutation,
+        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const firstBlocker = deferred<undefined>();
+        const secondBlocker = deferred<undefined>();
+        const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => firstBlocker.promise);
+        const drain = drainWorkingCopyMutations('/tmp/Book.pdf');
+        await Promise.resolve();
+
+        const second = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => secondBlocker.promise);
+        firstBlocker.resolve(undefined);
+        await first;
+
+        try {
+            await drain;
+        } finally {
+            secondBlocker.resolve(undefined);
+            await second;
+            await drainWorkingCopyMutations('/tmp/Book.pdf');
+        }
+    });
+
+    it('does not extend a global drain with mutations admitted after it starts', async () => {
+        const {
+            drainWorkingCopyMutations,
+            enqueueWorkingCopyMutation,
+        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const firstBlocker = deferred<undefined>();
+        const secondBlocker = deferred<undefined>();
+        const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => firstBlocker.promise);
+        const drain = drainWorkingCopyMutations();
+        await Promise.resolve();
+
+        const second = enqueueWorkingCopyMutation('/tmp/Other.pdf', () => secondBlocker.promise);
+        firstBlocker.resolve(undefined);
+        await first;
+
+        try {
+            await drain;
+        } finally {
+            secondBlocker.resolve(undefined);
+            await second;
+            await drainWorkingCopyMutations();
+        }
+    });
 });
