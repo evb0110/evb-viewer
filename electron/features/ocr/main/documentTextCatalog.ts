@@ -47,6 +47,7 @@ import type {IPageTextWithWordBoxes} from '@electron/features/search/public/text
 import {assertWorkingCopyRevisionSidecarCurrent} from '@electron/file-access/documentRevisionSidecar';
 import {
     OcrCatalogTooLargeError,
+    OcrCatalogCorruptError,
     openCatalog,
     type IOcrCatalogHandle,
 } from '@electron/features/ocr/main/ocrCatalogV4';
@@ -63,7 +64,9 @@ import {
     createOcrCatalogPage,
     digestCanonicalPage,
     loadLegacyOcrLanguages,
+    hasOcrCatalogRecovery,
     openCurrentOcrCatalog,
+    recoverOcrCatalogCorruption,
     visitDocumentOcrCatalogPages,
 } from '@electron/features/ocr/main/visitDocumentOcrCatalogPages';
 
@@ -410,8 +413,10 @@ export async function resolveDocumentOcrAvailability(
             mappedPageCount: 0,
             pageRanges: [],
             rangesComplete: true,
+            ...(await hasOcrCatalogRecovery(workingCopyPath, documentRevision) ? {needsReOcr: true} : {}),
         };
     }
+    let corruption: unknown = null;
     try {
         const availability = await resolveCatalogAvailability(catalog, options.signal);
         return {
@@ -419,8 +424,22 @@ export async function resolveDocumentOcrAvailability(
             pageCount: catalog.header.pageCount,
             ...availability,
         };
+    } catch (error) {
+        if (!(error instanceof OcrCatalogCorruptError)) {
+            throw error;
+        }
+        corruption = error;
+        return {
+            documentRevision,
+            pageCount: catalog.header.pageCount,
+            mappedPageCount: 0,
+            pageRanges: [],
+            rangesComplete: true,
+            needsReOcr: true,
+        };
     } finally {
         await closeOcrCatalog(catalog);
+        await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
     }
 }
 
@@ -440,6 +459,7 @@ export async function resolveDocumentOcrPage(
             page: null,
         };
     }
+    let corruption: unknown = null;
     try {
         const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         throwIfAborted(options.signal);
@@ -455,8 +475,9 @@ export async function resolveDocumentOcrPage(
                 ? null
                 : createOcrCatalogPage(pageNumber, page, languages),
         };
-    } catch {
+    } catch (error) {
         throwIfAborted(options.signal);
+        corruption = error;
         return {
             documentRevision,
             pageCount: catalog.header.pageCount,
@@ -464,6 +485,7 @@ export async function resolveDocumentOcrPage(
         };
     } finally {
         await closeOcrCatalog(catalog);
+        await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
     }
 }
 
@@ -502,6 +524,7 @@ async function visitDocumentTextCatalogPages(
     }
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
     const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
+    let corruption: unknown = null;
     try {
         const catalogPageCount = catalog?.header.pageCount;
         const resolvedPageCount = options.pageCount ?? catalogPageCount;
@@ -575,8 +598,12 @@ async function visitDocumentTextCatalogPages(
             lastPage,
             visitedPages,
         };
+    } catch (error) {
+        corruption = error;
+        throw error;
     } finally {
         await closeOcrCatalog(catalog);
+        await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
     }
 }
 
@@ -641,6 +668,7 @@ export async function resolveDocumentTextCatalogSnapshot(
     throwIfAborted(options.signal);
     const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
     const sourcePdfPath = options.sourcePdfPath ?? workingCopyPath;
+    let corruption: unknown = null;
     try {
         const catalogPageCount = catalog?.header.pageCount;
         if (catalogPageCount !== undefined && catalogPageCount > OCR_SCALAR_PAGE_LIMIT) {
@@ -729,7 +757,11 @@ export async function resolveDocumentTextCatalogSnapshot(
                 ]),
             )).digest('hex'),
         };
+    } catch (error) {
+        corruption = error;
+        throw error;
     } finally {
         await closeOcrCatalog(catalog);
+        await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
     }
 }

@@ -299,6 +299,8 @@ export default {
         'button': 'OCR',
         'dialogDescription': 'Настройте распознавание текста и просмотрите результаты.',
         'runTitle': 'Запустить OCR',
+        'catalogCorrupt': 'Каталог OCR повреждён. Перезапустите OCR для этого документа.',
+        'rebuild': 'Перестроить OCR',
         'pages': 'Страницы',
         'allPages': 'Все страницы ({total})',
         'currentPage': 'Текущая страница ({page})',

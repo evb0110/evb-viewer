@@ -762,6 +762,8 @@ export default {
         'button': 'OCR',
         'dialogDescription': 'Konfigurieren Sie die Texterkennung und überprüfen Sie die Ergebnisse.',
         'runTitle': 'OCR ausführen',
+        'catalogCorrupt': 'Der OCR-Katalog ist beschädigt. OCR für dieses Dokument neu erstellen.',
+        'rebuild': 'OCR neu erstellen',
         'pages': 'Seiten',
         'allPages': 'Alle Seiten ({total})',
         'currentPage': 'Aktuelle Seite ({page})',

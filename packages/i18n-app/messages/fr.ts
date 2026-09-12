@@ -763,6 +763,8 @@ export default {
         'button': 'OCR',
         'dialogDescription': 'Configurez la reconnaissance optique des caractères et consultez ses résultats.',
         'runTitle': 'Lancer l’OCR',
+        'catalogCorrupt': 'Le catalogue OCR est endommagé. Relancez l\'OCR pour ce document.',
+        'rebuild': 'Reconstruire l\'OCR',
         'pages': 'Pages',
         'allPages': 'Toutes les pages ({total})',
         'currentPage': 'Page actuelle ({page})',

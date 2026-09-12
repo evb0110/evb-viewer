@@ -13,9 +13,17 @@ import type {TOcrPageArtifact} from '@contracts/ocrIndex';
 import {assertWorkingCopyRevisionSidecarCurrent} from '@electron/file-access/documentRevisionSidecar';
 import {
     openCatalog,
+    OcrCatalogCorruptError,
     type IOcrCatalogHandle,
 } from '@electron/features/ocr/main/ocrCatalogV4';
 import {readOcrIndexV3ManifestMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
+import {createLogger} from '@electron/utils/createLogger';
+import {
+    hasOcrCatalogRecoveryReceipt,
+    quarantineOcrCatalog,
+} from '@electron/features/ocr/main/ocrCatalogRecovery';
+
+const log = createLogger('ocr-catalog-recovery');
 
 export interface IVisitDocumentOcrCatalogOptions {
     signal?: AbortSignal;
@@ -44,10 +52,58 @@ export async function openCurrentOcrCatalog(
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
 ): Promise<IOcrCatalogHandle | null> {
-    return openCatalog(
-        `${workingCopyPath}.ocr`,
-        {expectedDocumentRevision: documentRevision},
-    ).catch(() => null);
+    const catalogRoot = `${workingCopyPath}.ocr`;
+    try {
+        return await openCatalog(
+            catalogRoot,
+            {expectedDocumentRevision: documentRevision},
+        );
+    } catch (error) {
+        if (!(error instanceof OcrCatalogCorruptError)) {
+            throw error;
+        }
+        const receipt = await quarantineOcrCatalog(catalogRoot, documentRevision, error);
+        log.warn(`Quarantined corrupt OCR catalog for ${workingCopyPath}: ${JSON.stringify(receipt)}`);
+        return null;
+    }
+}
+
+/**
+ * Call this only once the catalog handle is closed: quarantine renames the
+ * catalog root, and Windows refuses to rename a directory that still has open
+ * handles inside it.
+ *
+ * A failed quarantine must not replace the corruption error the caller is
+ * already propagating, so it is logged rather than thrown.
+ */
+export async function recoverOcrCatalogCorruption(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    error: unknown,
+): Promise<boolean> {
+    if (!(error instanceof OcrCatalogCorruptError)) {
+        return false;
+    }
+    try {
+        const receipt = await quarantineOcrCatalog(
+            `${workingCopyPath}.ocr`,
+            documentRevision,
+            error,
+        );
+        log.warn(`Quarantined corrupt OCR catalog for ${workingCopyPath}: ${JSON.stringify(receipt)}`);
+        return true;
+    } catch (quarantineError) {
+        const detail = quarantineError instanceof Error ? quarantineError.message : String(quarantineError);
+        log.warn(`Failed to quarantine corrupt OCR catalog for ${workingCopyPath}: ${detail}`);
+        return false;
+    }
+}
+
+export async function hasOcrCatalogRecovery(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+): Promise<boolean> {
+    return hasOcrCatalogRecoveryReceipt(`${workingCopyPath}.ocr`, documentRevision);
 }
 
 export async function closeOcrCatalog(catalog: IOcrCatalogHandle | null) {
@@ -121,6 +177,7 @@ export async function visitDocumentOcrCatalogPages(
         };
     }
 
+    let corruption: unknown = null;
     try {
         const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         let visitedPages = 0;
@@ -140,7 +197,11 @@ export async function visitDocumentOcrCatalogPages(
             pageCount: catalog.header.pageCount,
             visitedPages,
         };
+    } catch (error) {
+        corruption = error;
+        throw error;
     } finally {
         await closeOcrCatalog(catalog);
+        await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
     }
 }

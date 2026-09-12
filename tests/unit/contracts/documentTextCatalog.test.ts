@@ -63,6 +63,7 @@ describe('document text catalog page-scoped decoders', () => {
                 },
             ],
             rangesComplete: true,
+            needsReOcr: true,
         })).toEqual({
             documentRevision: DOCUMENT_REVISION,
             pageCount: 1_000_001,
@@ -78,6 +79,7 @@ describe('document text catalog page-scoped decoders', () => {
                 },
             ],
             rangesComplete: true,
+            needsReOcr: true,
         });
     });
 
