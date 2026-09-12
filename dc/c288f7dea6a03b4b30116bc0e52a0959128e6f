@@ -1,0 +1,27 @@
+electron/bootstrap/shutdown.ts
+  s_ce9a877ed068d3::t_0843158258f923 367
+  s_ce9a877ed068d3::t_5bc8c20972e398 15-18,174,193-216,360,362-365
+  s_ce9a877ed068d3::t_5340dab666b19a 14
+tests/unit/electron/shutdownCoordinator.test.ts
+  s_ce9a877ed068d3::t_aa21b85c526664 478
+  s_ce9a877ed068d3::t_18ba40154739ce 468-470,472-477,479-480
+  s_ce9a877ed068d3::t_5019cca61ad419 471
+  s_ce9a877ed068d3::t_433565874208ea 154
+  s_ce9a877ed068d3::t_9fa50201d3cc6c 481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dcc288f7dea6a03b4b30116bc0e52a0959128e6f",
+  "prompts": {},
+  "sessions": {
+    "s_ce9a877ed068d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cc-ce47-7f03-bcdc-5ff0d0fa87dd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
