@@ -6,7 +6,7 @@ Security fixes are handled on the latest `main` branch and the latest published 
 
 ## Reporting A Vulnerability
 
-Please do not publish exploit details in a public issue. Use GitHub private vulnerability reporting for this repository when available. If private reporting is not available, open a minimal public issue asking for a private contact path and omit sensitive details until a private channel is established.
+Please do not publish exploit details in a public issue. Private vulnerability reporting is enabled on this repository: open a report from the [Security tab](https://github.com/evb0110/evb-viewer/security/advisories/new) and it stays private until a fix is published.
 
 Include:
 

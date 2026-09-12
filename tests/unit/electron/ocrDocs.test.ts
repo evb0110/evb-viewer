@@ -9,7 +9,6 @@ import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 const OCR_BENCHMARK_SCRIPT = 'scripts/devkit/ocr-profile-benchmark.py';
-const OCR_LANGUAGE_PAGE = 'docs/user/formats-and-languages.md';
 
 const OCR_LANGUAGE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     eng: 'English',
@@ -44,17 +43,19 @@ const OCR_LANGUAGE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     syr: 'Syriac',
 };
 
-function getDocumentedOcrLanguageSection(page: string) {
-    const match = /### OCR Languages\n\n([\s\S]*?)(?:\n### |\n## |$)/u.exec(page);
+const OCR_LANGUAGE_DOC = 'docs/user/formats-and-languages.md';
+
+function getOcrLanguageSection(doc: string) {
+    const match = /### OCR Languages\n\n([\s\S]*?)(?:\n### |\n## )/u.exec(doc);
     if (!match?.[1]) {
-        throw new Error(`OCR Languages section was not found in ${OCR_LANGUAGE_PAGE}`);
+        throw new Error(`OCR Languages section was not found in ${OCR_LANGUAGE_DOC}`);
     }
     return match[1];
 }
 
 function getDisplayName(code: string) {
     if (!(code in OCR_LANGUAGE_DISPLAY_NAMES)) {
-        throw new Error(`Missing README display-name expectation for OCR language ${code}`);
+        throw new Error(`Missing display-name expectation for OCR language ${code}`);
     }
     return OCR_LANGUAGE_DISPLAY_NAMES[code];
 }
@@ -76,9 +77,9 @@ function getBenchmarkDefaultProfiles() {
 }
 
 describe('OCR documentation', () => {
-    it('keeps the documented OCR language list aligned with the registry', () => {
-        const page = readFileSync(join(REPO_ROOT, OCR_LANGUAGE_PAGE), 'utf-8');
-        const section = getDocumentedOcrLanguageSection(page);
+    it('keeps the published OCR language list aligned with the registry', () => {
+        const doc = readFileSync(join(REPO_ROOT, OCR_LANGUAGE_DOC), 'utf-8');
+        const section = getOcrLanguageSection(doc);
 
         for (const language of AVAILABLE_OCR_LANGUAGES) {
             expect(section).toContain(`- ${getDisplayName(language.code)}`);

@@ -2,6 +2,8 @@
 
 Use GitHub issues for bug reports, reproducible crashes, packaging problems, and feature requests.
 
+The tracker is busy because it doubles as the project's own work queue, and issues with a bracketed code in the title are internal audit items. Yours will not get lost among them.
+
 Before opening an issue, please include:
 
 - EVB Viewer version or commit SHA.
