@@ -1,0 +1,34 @@
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b5e8c3115968a8::t_2ae9ce814b37f0 465-467
+scripts/release/publish-release-mirror.mjs
+  s_b5e8c3115968a8::t_d7224a6c3999d7 923-929,931-950
+  s_b5e8c3115968a8::t_22a145e04158fb 994
+  s_b5e8c3115968a8::t_849ab208121e76 1030
+  s_b5e8c3115968a8::t_361063de22e4e5 958-964,966-985
+  s_b5e8c3115968a8::t_f22d81acb8ab5e 845-870,881-887,889-897,899-910,912-922,951-957,986-993,995-1017,1019-1029,1031-1032,1037-1062
+  s_b5e8c3115968a8::t_960334f41dd67d 1353-1374,1400,1410
+  s_b5e8c3115968a8::t_29cafa2cfaf224 871-880,1033-1036
+  s_b5e8c3115968a8::t_dd043ef83f187d 20,70,72,90,169-179,192-205
+.github/workflows/publish-chain.yml
+  s_b5e8c3115968a8::t_5859bd20d3dad6 213-218,280-285
+  s_b5e8c3115968a8::t_c6873b7b9cc0c7 207-212,219-243,245,258,275,290,292,295-302,305-309
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_b5e8c3115968a8::t_f3994c9d41eb9a 13
+  s_b5e8c3115968a8::t_bfe971b8a0966b 37,1293-1298,1301-1323,1325-1355,1357-1373,1375-1393,1395-1413,1415-1418
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b66b135b052fc84914efd231d2b84844fd90af0d",
+  "prompts": {},
+  "sessions": {
+    "s_b5e8c3115968a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097fc-fb88-72f0-a9cd-ffbd91bb62e3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
