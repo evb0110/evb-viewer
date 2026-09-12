@@ -1,0 +1,33 @@
+electron/workspaceCheckpointStore.ts
+  s_87261b80801d58::t_84fa6b3d860faf 1298-1301
+  s_87261b80801d58::t_171d9660266dcb 1287-1297,1302-1304
+app/utils/getOrCaptureRendererBootstrapFailure.ts
+  s_87261b80801d58::t_238e3abe166454 7-8
+tests/unit/app/modules/workspace-shell/composables/useTabsShellBindings.test.ts
+  s_87261b80801d58::t_a7e6d392ab3146 45,92-94,233,551-552,558
+  s_87261b80801d58::t_84fa6b3d860faf 97-98
+  s_87261b80801d58::t_081009b1837e67 46,48-52,234-238,557,559-564
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_87261b80801d58::t_56677881e03b6e 365
+  s_87261b80801d58::t_84fa6b3d860faf 290-301,322-325,361
+  s_87261b80801d58::t_158b9efea8f73a 368-371
+  s_87261b80801d58::t_5bb7e9eeee3dd8 289,302-321,326-360,362-364,366-367,372-375
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_87261b80801d58::t_238e3abe166454 19-20,86-87,611-618
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2ddb929265ebcb10ec302440f3a19cb328940856",
+  "prompts": {},
+  "sessions": {
+    "s_87261b80801d58": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094f6-43fc-78b2-8f10-fa3bdb324f55",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
