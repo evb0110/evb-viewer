@@ -83,6 +83,7 @@ Weekly evidence template:
 | Review date | Releases checked | Open issues reviewed | GitHub issues created | Resolved issues deleted | Forbidden fields | Symbolication | Quota | Reviewer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-09-06 | `v0.1.453` production web and eight shipping desktop identities | Historical `v0.1.452` canary issues remain separate triage data; the new exact-release receipts are clean | 0 | 0; the historical queue was not changed by this deployment | None in the verified closed-schema canaries | Pass; 230/230 per desktop dist and 259/259 for production web | Account quota controls unchanged and pay-as-you-go remains disabled | Repository owner account |
+| 2026-09-12 | Desktop `v0.1.454` to `v0.1.456` and production web through `v0.1.453` | 17 desktop and about 100 web production issues; every desktop event since 2026-09-07 fell inside a release, supplemental-release, artifact-build, or publish-chain drill run window, so no user-originated event was found | 0 | 0; the read-only verification token cannot resolve or delete issues | None; user, IP, and message fields were empty and only closed-schema tags were present | Fail for desktop renderer frames: events carried no `debug_meta` and Sentry reported missing sources for `_nuxt` chunks because main built the Debug ID map only from its own process; main frames symbolicated. Fixed by reading packaged renderer chunk trailers in the desktop adapter | Unknown; the verification token cannot read organization usage | Repository owner account |
 
 ## Privacy incident response
 
@@ -311,7 +312,7 @@ four-week completion claim. Continue it under
 
 | Week | Enabled runtimes and releases | Volume within thresholds | Suppression correct | Quota healthy | Forbidden fields | Symbolication | Actionable outcomes | Remediation issue |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
+| 1 | Eight desktop identities on `v0.1.454` to `v0.1.456`; production web on `v0.1.453` | Yes; 112 desktop production events, all from release CI canaries, with no rate-alert bursts | Yes; no repeated user fault observed | Unknown; not readable with the verification token | None | Fail for desktop renderer frames, fixed 2026-09-12 in the desktop adapter and pending the next release for proof | Renderer Debug ID fix; release-CI canaries share production fingerprints with real faults and keep issues escalating, which needs a canary marker and an alert filter | None |
 | 2 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 3 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 4 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |

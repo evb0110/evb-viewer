@@ -215,6 +215,7 @@ function ensureMainDiagnosticsAdapter() {
                 platform: process.platform,
                 architecture: process.arch,
                 runtimeVersions: process.versions,
+                rendererStaticRoot: config.renderer.staticRoot,
             });
             mainFailureReporterForAdapter.setTransport(transport);
             notifyStartupCrashMarkerAdapterReady({
