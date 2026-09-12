@@ -6,7 +6,7 @@ import { app } from 'electron';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -87,8 +87,7 @@ export class CodexAppServerClient {
     private nextId = 1;
     private stdoutBuffer = '';
     private stdoutBufferBytes = 0;
-    private stderrBuffer = '';
-    private stderrTruncated = false;
+    private readonly stderrBuffer = createTextChunkAccumulator(APP_SERVER_MAX_STDERR_BYTES);
     private closed = false;
     private terminationRequested = false;
     private lifecycleCompleted = false;
@@ -376,9 +375,7 @@ export class CodexAppServerClient {
     }
 
     private handleStderr(chunk: string) {
-        const appended = appendTextChunkWithByteCap(this.stderrBuffer, Buffer.from(chunk), APP_SERVER_MAX_STDERR_BYTES);
-        this.stderrBuffer = appended.text;
-        this.stderrTruncated = this.stderrTruncated || appended.truncated;
+        this.stderrBuffer.append(Buffer.from(chunk));
         const lines = chunk.split(/\r?\n/u)
             .map(line => line.trim())
             .filter(Boolean);
@@ -388,12 +385,12 @@ export class CodexAppServerClient {
     }
 
     private getStderrDetail() {
-        const detail = this.stderrBuffer.trim();
+        const detail = this.stderrBuffer.text().trim();
         if (!detail) {
             return '';
         }
 
-        return this.stderrTruncated
+        return this.stderrBuffer.truncated
             ? `[stderr truncated to ${APP_SERVER_MAX_STDERR_BYTES} bytes]\n${detail}`
             : detail;
     }

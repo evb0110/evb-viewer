@@ -10,7 +10,7 @@ import {
     isNativeErrorEnvelope,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -73,8 +73,7 @@ class PersistentNativeSearchService {
     private idleTimer: ReturnType<typeof setTimeout> | null = null;
     private startingSearches = 0;
     private stopped = false;
-    private stderr = '';
-    private stderrTruncated = false;
+    private readonly stderr = createTextChunkAccumulator(SEARCH_SERVICE_MAX_STDERR_BYTES);
     private shutdownPromise: Promise<void> | null = null;
     private readonly exited: Promise<void>;
 
@@ -106,13 +105,7 @@ class PersistentNativeSearchService {
         this.child.stdin.on('error', error => this.stop(error));
         this.child.stderr.setEncoding('utf8');
         this.child.stderr.on('data', (chunk: string | Buffer) => {
-            const appended = appendTextChunkWithByteCap(
-                this.stderr,
-                Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
-                SEARCH_SERVICE_MAX_STDERR_BYTES,
-            );
-            this.stderr = appended.text;
-            this.stderrTruncated = this.stderrTruncated || appended.truncated;
+            this.stderr.append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         });
         this.armIdleTimer();
     }
@@ -381,11 +374,12 @@ class PersistentNativeSearchService {
         if (this.idleTimer) {
             clearTimeout(this.idleTimer);
         }
-        if (this.stderr.trim()) {
-            const truncationNote = this.stderrTruncated
+        const stderr = this.stderr.text().trim();
+        if (stderr) {
+            const truncationNote = this.stderr.truncated
                 ? `[native stderr truncated to ${SEARCH_SERVICE_MAX_STDERR_BYTES} bytes] `
                 : '';
-            error.message = `${error.message}; ${truncationNote}native stderr: ${this.stderr.trim()}`;
+            error.message = `${error.message}; ${truncationNote}native stderr: ${stderr}`;
         }
         this.rejectReady?.(error);
         this.clearReadyCallbacks();

@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { ensureTessdataLanguages } from '@electron/features/ocr/languageModels';
 import { getOcrPaths } from '@electron/features/ocr/main/paths';
 import { resolveTesseractLanguageConfig } from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { buildTesseractEnv } from '@electron/features/ocr/main/buildTesseractEnv';
 import { createTesseractFinalize } from '@electron/features/ocr/main/createTesseractFinalize';
@@ -72,10 +72,8 @@ export async function runOcr(
             ],
         });
 
-        let stdout = '';
-        let stderr = '';
-        let stdoutTruncated = false;
-        let stderrTruncated = false;
+        const stdout = createTextChunkAccumulator(TESSERACT_MAX_STDOUT_BYTES);
+        const stderr = createTextChunkAccumulator(TESSERACT_MAX_STDERR_BYTES);
         let timedOut = false;
         let aborted = false;
         let abortHandler: (() => void) | null = null;
@@ -151,15 +149,11 @@ export async function runOcr(
         }
 
         proc.stdout.on('data', (data: Buffer) => {
-            const appended = appendTextChunkWithByteCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
-            stdout = appended.text;
-            stdoutTruncated = stdoutTruncated || appended.truncated;
+            stdout.append(data);
         });
 
         proc.stderr.on('data', (data: Buffer) => {
-            const appended = appendTextChunkWithByteCap(stderr, data, TESSERACT_MAX_STDERR_BYTES);
-            stderr = appended.text;
-            stderrTruncated = stderrTruncated || appended.truncated;
+            stderr.append(data);
         });
 
         proc.on('close', (code) => {
@@ -181,7 +175,7 @@ export async function runOcr(
                 return;
             }
 
-            if (code === 0 && stdoutTruncated) {
+            if (code === 0 && stdout.truncated) {
                 finalize({
                     success: false,
                     text: '',
@@ -190,12 +184,13 @@ export async function runOcr(
             } else if (code === 0) {
                 finalize({
                     success: true,
-                    text: stdout.trim(),
+                    text: stdout.text().trim(),
                 });
             } else {
-                const stderrSummary = stderrTruncated
-                    ? `[stderr truncated to ${TESSERACT_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                    : stderr;
+                const stderrText = stderr.text();
+                const stderrSummary = stderr.truncated
+                    ? `[stderr truncated to ${TESSERACT_MAX_STDERR_BYTES} bytes]\n${stderrText}`
+                    : stderrText;
                 finalize({
                     success: false,
                     text: '',
