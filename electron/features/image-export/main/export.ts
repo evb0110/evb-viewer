@@ -61,6 +61,7 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     type TManagedScratchPrefix,
     usingManagedScratchScope,
@@ -77,6 +78,7 @@ import {
     buildOutputPathWithSuffix,
     buildMultiPageTiffOutputPaths,
     resolveOutputPathConflicts,
+    resolveSuffixedOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
 import {addPngPhysicalResolution} from '@electron/features/image-export/main/addPngPhysicalResolution';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
@@ -555,6 +557,14 @@ export async function promoteStagedFiles(
     let pendingBackupPath: string | null = null;
     let pendingReplacementAttempted = false;
     try {
+        const targetPaths = new Set(ledger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
+        for (const file of stagedFiles) {
+            const targetPath = normalizePathForLookup(file.targetPath);
+            if (targetPaths.has(targetPath)) {
+                throw new Error(`Duplicate image export target: ${file.targetPath}`);
+            }
+            targetPaths.add(targetPath);
+        }
         for (const stagedFile of stagedFiles) {
             throwIfAborted(signal);
             const targetExistsAtPromotion = existsSync(stagedFile.targetPath);
@@ -587,6 +597,7 @@ export async function promoteStagedFiles(
             pendingBackupPath = null;
             pendingReplacementAttempted = false;
         }
+        throwIfAborted(signal);
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
         if (pendingBackupPath && !pendingReplacementAttempted) {
@@ -1010,7 +1021,10 @@ export async function exportPdfPagesAsImages(
             renderDpi,
         } = await planExportRender(preparedSourcePdf, options);
         assertImageExportOutputPathBudget(pageCount);
-        const exportedPaths: string[] = [];
+        const exportedPaths = resolveSuffixedOutputPathConflicts(Array.from({length: pageCount}, (_, index) => ({
+            path: pageCount === 1 ? normalizedPath : join(outputDirectory, `${outputStem}${outputExtension}`),
+            suffix: pageCount === 1 ? '' : `-${String(index + 1).padStart(3, '0')}`,
+        })));
 
         const stagedFiles: Array<{
             stagedPath: string;
@@ -1042,21 +1056,10 @@ export async function exportPdfPagesAsImages(
                         options.cancelGroup,
                     );
                     for (const source of pageFiles) {
-                        const outputIndex = processedPages;
-                        const plannedPath = pageCount === 1
-                            ? normalizedPath
-                            : buildOutputPathWithSuffix(
-                                join(outputDirectory, `${outputStem}${outputExtension}`),
-                                `-${String(outputIndex + 1).padStart(3, '0')}`,
-                            );
-                        const targetPath = resolveOutputPathConflicts(
-                            [plannedPath],
-                            pageCount === 1,
-                        )[0];
+                        const targetPath = exportedPaths[processedPages];
                         if (!targetPath) {
                             throw new Error('Image export target path is missing');
                         }
-                        exportedPaths.push(targetPath);
                         const stagedPath = makeSiblingTempPath(targetPath);
 
                         throwIfAborted(options.signal);
@@ -1078,6 +1081,9 @@ export async function exportPdfPagesAsImages(
                 });
             }
             throwIfAborted(options.signal);
+            if (processedPages !== pageCount) {
+                throw new Error('PDF image export did not render every planned page');
+            }
             await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal);
         } catch (error) {

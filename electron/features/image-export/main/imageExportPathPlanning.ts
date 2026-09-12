@@ -6,6 +6,7 @@ import {
     join,
 } from 'path';
 import { range } from 'es-toolkit/math';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 
 const MAX_PATH_COMPONENT_BYTES = 255;
 
@@ -47,24 +48,36 @@ export function buildOutputPathWithSuffix(targetPath: string, suffix: string) {
     return join(outputDirectory, `${boundedStem}${suffixWithExtension}`);
 }
 
-function buildNonConflictingOutputPath(targetPath: string, reservedPaths: Set<string>) {
-    const boundedTargetPath = buildOutputPathWithSuffix(targetPath, '');
-    let candidatePath = boundedTargetPath;
-    let suffix = 1;
-    while (reservedPaths.has(candidatePath) || existsSync(candidatePath)) {
-        candidatePath = buildOutputPathWithSuffix(boundedTargetPath, `-${suffix}`);
-        suffix += 1;
+function buildNonConflictingOutputPath(targetPath: string, protectedSuffix: string, reservedPaths: Set<string>) {
+    let candidatePath = buildOutputPathWithSuffix(targetPath, protectedSuffix);
+    let conflictNumber = 1;
+    while (reservedPaths.has(normalizePathForLookup(candidatePath)) || existsSync(candidatePath)) {
+        candidatePath = buildOutputPathWithSuffix(targetPath, `${protectedSuffix}-${conflictNumber}`);
+        conflictNumber += 1;
     }
-    reservedPaths.add(candidatePath);
+    reservedPaths.add(normalizePathForLookup(candidatePath));
     return candidatePath;
 }
 
-export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
-    if (targetPaths.length === 1 && allowSingleOverwrite) {
-        return targetPaths.map(targetPath => buildOutputPathWithSuffix(targetPath, ''));
-    }
+interface IOutputPathTarget {
+    path: string;
+    suffix: string;
+}
+
+export function resolveSuffixedOutputPathConflicts(targets: IOutputPathTarget[], allowSingleOverwrite = true) {
     const reservedPaths = new Set<string>();
-    return targetPaths.map(targetPath => buildNonConflictingOutputPath(targetPath, reservedPaths));
+    return targets.map(({
+        path, suffix, 
+    }) => (targets.length === 1 && allowSingleOverwrite
+        ? buildOutputPathWithSuffix(path, suffix)
+        : buildNonConflictingOutputPath(path, suffix, reservedPaths)));
+}
+
+export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
+    return resolveSuffixedOutputPathConflicts(targetPaths.map(path => ({
+        path,
+        suffix: '',
+    })), allowSingleOverwrite);
 }
 
 export function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
