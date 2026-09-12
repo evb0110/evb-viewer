@@ -1383,12 +1383,14 @@ mod tests {
     /// is the one documented exception to it.
     #[test]
     fn only_a_staged_window_admits_an_analyze_input_that_is_not_on_disk_yet() {
-        let json = r#"{
-            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
-            "pages":[{"inputPath":"absent-page.png","sourcePageIndex":0,
-              "pageMetadataPath":"page.json","outputs":[],"options":{}}]
-        }"#;
-        let direct: ManifestV3 = serde_json::from_str(json).unwrap();
+        let root = std::env::temp_dir().join(format!("evb-absent-page-{}", std::process::id()));
+        let json = serde_json::json!({
+            "version": 3, "operation": "analyze", "renderMode": "preview", "canvasScope": "page",
+            "pages": [{"inputPath": root.join("absent-page.png"), "sourcePageIndex": 0,
+              "pageMetadataPath": root.join("page.json"), "outputs": [], "options": {}}]
+        })
+        .to_string();
+        let direct: ManifestV3 = serde_json::from_str(&json).unwrap();
         assert!(direct
             .validate_for_execution()
             .unwrap_err()

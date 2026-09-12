@@ -89,6 +89,7 @@ const {
     computeWasmSourceFingerprint: (artifact: IWasmFreshnessArtifact, options: {
         projectRoot: string;
         rustflags: string;
+        rustcCommitHash?: string;
     }) => Promise<string>;
     getWasmArtifactFingerprint: (wasmBytes: Uint8Array) => string | null;
     stampWasmArtifact: (wasmBytes: Uint8Array, fingerprint: string) => Buffer;
