@@ -24,7 +24,7 @@ export interface ISearchWorkerRequest {
     matchCase?: boolean;
     wholeWord?: boolean;
     useRegex?: boolean;
-    regexDeadlineAtMs?: number;
+    regexBudgetMs?: number;
 }
 
 interface ISearchWorkerInboundByType {

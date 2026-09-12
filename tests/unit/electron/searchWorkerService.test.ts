@@ -240,7 +240,7 @@ describe('SearchWorkerService', () => {
         });
     });
 
-    it('times out regex execution from admission, retires a stalled worker, and fences late results', async () => {
+    it('times out a stalled regex worker, retires it, and fences late results', async () => {
         vi.useFakeTimers();
         process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS = '500';
         process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
@@ -255,7 +255,8 @@ describe('SearchWorkerService', () => {
         void timedOutSearch.then(() => { timedOutSettled = true; }, () => { timedOutSettled = true; });
         await Promise.resolve();
 
-        await vi.advanceTimersByTimeAsync(SEARCH_REGEX_MAX_EXECUTION_MS - 1);
+        const {requestTimeoutMs} = service.getConfig();
+        await vi.advanceTimersByTimeAsync(requestTimeoutMs - 1);
         expect(timedOutSettled).toBe(false);
 
         await vi.advanceTimersByTimeAsync(1);
@@ -274,7 +275,7 @@ describe('SearchWorkerService', () => {
         await vi.advanceTimersByTimeAsync(500);
         expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
             type: 'shutdown',
-            reason: 'Search worker did not acknowledge cancellation for request regex-timeout',
+            reason: 'Search request regex-timeout timed out',
         });
         await vi.advanceTimersByTimeAsync(1_000);
         expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
@@ -289,6 +290,32 @@ describe('SearchWorkerService', () => {
         await expect(shutdownResult).resolves.toMatchObject({message: expect.stringContaining('Search worker shutdown failed')});
         workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
         workerMocks.instances[0]?.emit('exit', 0);
+    });
+
+    it('does not spend the regex matching budget before the worker starts', async () => {
+        vi.useFakeTimers();
+        const service = await createSearchService();
+        const sender = createSender(42);
+        const searchPromise = dispatchSearch(service, sender, 'regex-cold-start', {
+            senderId: 42,
+            useRegex: true,
+        });
+        let settled = false;
+        void searchPromise.then(() => { settled = true; }, () => { settled = true; });
+        await Promise.resolve();
+
+        await vi.advanceTimersByTimeAsync(SEARCH_REGEX_MAX_EXECUTION_MS + 1);
+        expect(settled).toBe(false);
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'search',
+            payload: expect.objectContaining({
+                useRegex: true,
+                regexBudgetMs: SEARCH_REGEX_MAX_EXECUTION_MS,
+            }),
+        });
+
+        emitWorkerComplete(0, 'regex-cold-start');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
     });
 
     it('does not finish recoverable cleanup before worker and native daemon shutdown settle', async () => {
