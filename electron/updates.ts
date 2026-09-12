@@ -224,15 +224,18 @@ async function ensureUpdaterSupported() {
 
     codeSignatureCheckPromise ??= checkMacCodeSignature()
         .then((valid) => {
-            codeSignatureValid = valid;
-            if (!valid) {
-                logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+            if (valid !== null) {
+                codeSignatureValid = valid;
             }
-            return valid;
+            if (valid === false) {
+                logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+            } else if (valid === null) {
+                logger.info('Unable to validate macOS code signature; will retry updater support check');
+            }
+            return valid === true;
         })
         .catch(() => {
-            codeSignatureValid = false;
-            logger.info('Unable to validate macOS code signature; updater disabled');
+            logger.info('Unable to validate macOS code signature; will retry updater support check');
             return false;
         })
         .finally(() => {
@@ -959,6 +962,9 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
         void ensureUpdaterSupported()
             .then((supported) => {
                 if (supported) {
+                    return;
+                }
+                if (codeSignatureValid === null) {
                     return;
                 }
                 if (pollTimer) {

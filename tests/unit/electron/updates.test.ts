@@ -70,6 +70,7 @@ const mocks = vi.hoisted(() => {
     autoUpdater.downloadUpdate = vi.fn();
     autoUpdater.quitAndInstall = vi.fn();
     autoUpdater.setFeedURL = vi.fn();
+    const checkMacCodeSignature = vi.fn(async () => true as boolean | null);
     const sessionCookies = {
         get: vi.fn(async (): Promise<Array<{value: string}>> => []),
         set: vi.fn(async () => undefined),
@@ -82,6 +83,7 @@ const mocks = vi.hoisted(() => {
         },
         CancellationToken: TestCancellationToken,
         autoUpdater,
+        checkMacCodeSignature,
         fetch: vi.fn(),
         session: {defaultSession: {cookies: sessionCookies}},
         loadSettings: vi.fn(async () => ({})),
@@ -133,7 +135,7 @@ vi.mock('@electron/updateHealthMarker', () => ({
     recordPendingUpdateStartup: mocks.recordPendingUpdateStartup,
     UPDATE_STARTUP_FAILURE_THRESHOLD: 3,
 }));
-vi.mock('@electron/updates/checkMacCodeSignature', () => ({checkMacCodeSignature: vi.fn(async () => true)}));
+vi.mock('@electron/updates/checkMacCodeSignature', () => ({checkMacCodeSignature: mocks.checkMacCodeSignature}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
@@ -210,6 +212,8 @@ describe('updates robustness', () => {
         mocks.autoUpdater.downloadUpdate.mockResolvedValue([]);
         mocks.autoUpdater.quitAndInstall.mockReset();
         mocks.autoUpdater.setFeedURL.mockReset();
+        mocks.checkMacCodeSignature.mockReset();
+        mocks.checkMacCodeSignature.mockResolvedValue(true);
         mocks.fetch.mockReset();
         mocks.session.defaultSession.cookies.get.mockReset();
         mocks.session.defaultSession.cookies.set.mockReset();
@@ -254,6 +258,25 @@ describe('updates robustness', () => {
             phase: 'idle',
             version: '1.0.0',
         });
+    });
+
+    it('retries updater support after a transient macOS signature-check result', async () => {
+        mocks.checkMacCodeSignature
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(true);
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.0.0'));
+
+        const updates = await loadUpdatesModule();
+
+        updates.initializeUpdates(() => {});
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledOnce();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledTimes(2);
+        expect(mocks.fetch).toHaveBeenCalledOnce();
     });
 
     it('redacts endpoint credentials and URL values from updater status messages', async () => {
