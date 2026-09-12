@@ -1,0 +1,41 @@
+app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport.ts
+  s_c9ab1f66ba440e::t_9c5d2fd7ac1b0c 96-97,103-104,110-111
+app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult.ts
+  s_c9ab1f66ba440e::t_9c5d2fd7ac1b0c 26-28,144,155-161,164
+  s_247a07a16a61fa::t_9bddd06911a1f8 15-21
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceNetZeroAnnotationSave.test.ts
+  s_c9ab1f66ba440e::t_ec4d1f0c3130c0 40-56,58-59
+  s_c9ab1f66ba440e::t_75a8f49c01482f 57
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_c9ab1f66ba440e::t_8974259dbf5ed7 55,279,306
+  s_c9ab1f66ba440e::t_4eb24f14bfa96c 743-744,753-758
+  s_c9ab1f66ba440e::t_b6c63ad29343ee 836-838
+  s_c9ab1f66ba440e::t_bfef94789e39b3 559
+  s_c9ab1f66ba440e::t_d54dd66f0f9bb2 609-611
+  s_c9ab1f66ba440e::t_1b1f17905cdaf0 440-442
+  s_247a07a16a61fa::t_f1a32adad28ece 731-742
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ddef17c163a0ba5ad8fb7a95d653327b868b8371",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c9ab1f66ba440e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094c3-3350-76d0-8753-866f1a0b1513",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
