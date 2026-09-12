@@ -1,0 +1,36 @@
+native/Cargo.toml
+  s_fe33e69ce8f5ec::t_219a00f2a8a252 14-16
+native/pdf-search/Cargo.toml
+  s_fe33e69ce8f5ec::t_658c1a5955a3b4 4
+  s_fe33e69ce8f5ec::t_219a00f2a8a252 6-9
+native/pdf-page-ops/Cargo.toml
+  s_fe33e69ce8f5ec::t_219a00f2a8a252 4,6-9
+native/jbig2-codec/Cargo.toml
+  s_fe33e69ce8f5ec::t_a9d2b7740be81f 8-10
+native/scan-cleanup/Cargo.toml
+  s_fe33e69ce8f5ec::t_a9d2b7740be81f 8-10
+native/scan-primitives/Cargo.toml
+  s_fe33e69ce8f5ec::t_a9d2b7740be81f 8-10
+native/pdf-image-combine/Cargo.toml
+  s_fe33e69ce8f5ec::t_219a00f2a8a252 4,6-9
+native/evb-native-support/Cargo.toml
+  s_fe33e69ce8f5ec::t_a9d2b7740be81f 8-10
+native/evb-raster-io/Cargo.toml
+  s_fe33e69ce8f5ec::t_219a00f2a8a252 6-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bfbef20866958aee6e2e55b236d29c6c2d6957cd",
+  "prompts": {},
+  "sessions": {
+    "s_fe33e69ce8f5ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cf-c6b6-7cd1-9aba-f0b556086fe2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

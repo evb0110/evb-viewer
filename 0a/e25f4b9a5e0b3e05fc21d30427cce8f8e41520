@@ -1,0 +1,20 @@
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_fe33e69ce8f5ec::t_07b4f1f69a4a52 819-823,825-830,1412-1423
+  s_fe33e69ce8f5ec::t_898a8f656b5f8b 824
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0ae25f4b9a5e0b3e05fc21d30427cce8f8e41520",
+  "prompts": {},
+  "sessions": {
+    "s_fe33e69ce8f5ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cf-c6b6-7cd1-9aba-f0b556086fe2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
