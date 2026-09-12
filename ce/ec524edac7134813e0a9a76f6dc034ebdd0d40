@@ -1,0 +1,39 @@
+electron/updates.ts
+  s_ce9a877ed068d3::t_7c6e5a3bac2d05 227-229
+  s_ce9a877ed068d3::t_5bc8c20972e398 230,232-233,235,238,967
+  s_385eab666b1da1::t_d2472cd9e2b3a6 968-969
+electron/updates/checkMacCodeSignature.ts
+  s_ce9a877ed068d3::t_561a6dfc7eecfc 4
+  s_ce9a877ed068d3::t_43e7fa8260533a 84-86,96-98
+tests/unit/electron/checkMacCodeSignature.test.ts
+  s_ce9a877ed068d3::t_18ba40154739ce 45,82-104
+  s_ce9a877ed068d3::t_285a21635d5bb2 105
+tests/unit/electron/updates.test.ts
+  s_ce9a877ed068d3::t_18ba40154739ce 73,86,138,215-216,263-270,273-275,278-279
+  s_ce9a877ed068d3::t_98f247a64afcbb 271-272,276-277
+  s_ce9a877ed068d3::t_b9631495c4d3cb 280-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ceec524edac7134813e0a9a76f6dc034ebdd0d40",
+  "prompts": {},
+  "sessions": {
+    "s_385eab666b1da1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cf-e122-7a63-ad69-6a73184c420c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ce9a877ed068d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cc-ce47-7f03-bcdc-5ff0d0fa87dd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
