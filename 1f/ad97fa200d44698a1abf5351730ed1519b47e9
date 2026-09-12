@@ -1,0 +1,23 @@
+app/platform/browser/browserDocumentLeaseStore.ts
+  s_247a07a16a61fa::t_c753d66ce73720 26-72,79-81,138-181
+app/platform/browser/browserDocumentMaintenance.ts
+  s_247a07a16a61fa::t_2520ad30f0e584 47,356-358
+tests/integration/browser/browserDocumentLiveLeaseAcceptance.test.ts
+  s_247a07a16a61fa::t_c5bd4986a9834a 247-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1fad97fa200d44698a1abf5351730ed1519b47e9",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
