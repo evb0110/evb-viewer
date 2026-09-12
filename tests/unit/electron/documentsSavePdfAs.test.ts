@@ -1,5 +1,4 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
-import type * as TViMockOriginalModule2 from '@electron/file-access/documentFileWriteAtomic';
 
 import {cast} from '@tests/helpers/cast';
 import {
@@ -44,7 +43,6 @@ const mocks = vi.hoisted(() => ({
     copyFileCopyOnWrite: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
-    transitionOriginalAndWorkingCopyRevision: vi.fn(),
 }));
 
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({resolveTypedStagedArtifact: (...args: unknown[]) => mocks.resolveTypedStagedArtifact(...args)}));
@@ -116,10 +114,6 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
-vi.mock('@electron/file-access/documentFileWriteAtomic', async importOriginal => ({
-    ...(await importOriginal<typeof TViMockOriginalModule2>()),
-    copyFileAtomic: (sourcePath: string, targetPath: string) => mocks.copyFileCopyOnWrite(sourcePath, targetPath),
-}));
 vi.mock('@electron/features/documents/public/pdfSaveAsOptimization', () => ({
     normalizePdfSaveAsOptions: (value: unknown) => (
         value
@@ -136,7 +130,6 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
 }));
-vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/file-access/documentMutationGuards', () => ({
     assertQueuedWorkingCopyMutationPreconditions: (workingPath: string, expectedRevision?: string | null) => {
@@ -149,21 +142,6 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
     normalizeExpectedDocumentRevisionToken: (options?: { expectedDocumentRevisionToken?: string | null; } | null) =>
         options?.expectedDocumentRevisionToken?.trim() ?? null,
 }));
-
-interface ITransitionTestInput {
-    workingCopyPath: string;
-    originalPath: string;
-    captureOriginalWitness?: () => Promise<{
-        assertCurrent: () => Promise<void>;
-        close: () => Promise<void>;
-    } | null>;
-    publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
-    afterOriginalPublish?: () => Promise<void>;
-    syncWorkingCopy?: () => Promise<void>;
-    afterWorkingCopySync?: () => Promise<void>;
-    onWorkingCopySyncFailure?: (error: unknown) => Promise<boolean> | boolean;
-    preservePublishedOriginalOnWorkingCopySyncFailure?: boolean;
-}
 
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
@@ -198,47 +176,6 @@ describe('handleSavePdfAs', () => {
         mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
         mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
-        });
-        mocks.transitionOriginalAndWorkingCopyRevision.mockImplementation(async (input: ITransitionTestInput) => {
-            const witness = await input.captureOriginalWitness?.() ?? null;
-            if (input.captureOriginalWitness && !witness) {
-                return null;
-            }
-            const originalBefore = existsSync(input.originalPath)
-                ? await readFile(input.originalPath)
-                : null;
-            const workingBefore = await readFile(input.workingCopyPath);
-            let published = false;
-            try {
-                await input.publishOriginal();
-                published = true;
-                await input.afterOriginalPublish?.();
-                if (input.syncWorkingCopy) {
-                    await input.syncWorkingCopy();
-                } else {
-                    await mocks.copyFileCopyOnWrite(input.originalPath, input.workingCopyPath);
-                }
-                await input.afterWorkingCopySync?.();
-            } catch (error) {
-                if (published && input.preservePublishedOriginalOnWorkingCopySyncFailure) {
-                    await input.onWorkingCopySyncFailure?.(error);
-                    return {
-                        targetWriteCommitted: true,
-                        workingCopyRefreshed: false,
-                        workingCopySyncError: error instanceof Error ? error.message : String(error),
-                    };
-                }
-                await writeFile(input.workingCopyPath, workingBefore);
-                if (originalBefore === null) {
-                    await unlink(input.originalPath).catch(() => undefined);
-                } else {
-                    await writeFile(input.originalPath, originalBefore);
-                }
-                throw error;
-            } finally {
-                await witness?.close();
-            }
-            return {token: requireDocumentRevisionToken('drt1:test:committed')};
         });
     });
 
@@ -394,7 +331,7 @@ describe('handleSavePdfAs', () => {
         expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(targetPath, workingPath);
         expect(mocks.atomicReplace.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[1]!);
-        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
     it('returns the committed target when optimized Save As copyback fails', async () => {
@@ -436,40 +373,9 @@ describe('handleSavePdfAs', () => {
         expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
             workingPath,
             expect.stringContaining('copy-back failed'),
-            expect.objectContaining({
-                originalPath: targetPath,
-                ownerWebContentsId: 42,
-            }),
         );
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, sender);
-    });
-
-    it('does not publish Save As when the durable prepublication intent cannot be recorded', async () => {
-        const workingPath = join(tempRoot, 'prepublication-fail-working.pdf');
-        const targetPath = join(tempRoot, 'prepublication-fail-saved.pdf');
-        writeFileSync(workingPath, 'working-pdf');
-        writeFileSync(targetPath, 'old-pdf');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
-        mocks.showSaveDialog.mockResolvedValue({
-            canceled: false,
-            filePath: targetPath,
-        });
-        mocks.transitionOriginalAndWorkingCopyRevision.mockRejectedValueOnce(new Error('intent write failed'));
-
-        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
-
-        await expect(handleSavePdfAs(
-            dialogContext,
-            workingPath,
-            { optimizeLossless: true },
-            revisionOptions,
-        )).rejects.toThrow('intent write failed');
-
-        expect(readFileSyncUtf8(targetPath)).toBe('old-pdf');
-        expect(readFileSyncUtf8(workingPath)).toBe('working-pdf');
-        expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalled();
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 
     it('returns the committed target when Save As remapping fails', async () => {
@@ -499,10 +405,6 @@ describe('handleSavePdfAs', () => {
         expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
             workingPath,
             expect.stringContaining('remap failed'),
-            expect.objectContaining({
-                originalPath: targetPath,
-                ownerWebContentsId: 42,
-            }),
         );
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, sender);

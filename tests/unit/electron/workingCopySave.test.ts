@@ -1,7 +1,6 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 import type * as TViMockOriginalModule2 from '@electron/file-access/isAllowedOriginalSavePath';
 import type * as TViMockOriginalModule3 from '@electron/pdf/nativeToolPaths';
-import type * as TViMockOriginalModule4 from '@electron/file-access/documentFileWriteAtomic';
 
 import {
     afterEach,
@@ -53,7 +52,6 @@ const mocks = vi.hoisted(() => ({
     optimizeLargePdfForOrdinarySave: vi.fn(),
     optimizePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
-    copyFileAtomic: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
     assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
@@ -102,10 +100,6 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({
         return 'cloned';
     },
     copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args),
-}));
-vi.mock('@electron/file-access/documentFileWriteAtomic', async importOriginal => ({
-    ...(await importOriginal<typeof TViMockOriginalModule4>()),
-    copyFileAtomic: (...args: [string, string]) => mocks.copyFileAtomic(...args),
 }));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_2) => ({
     ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
@@ -188,7 +182,6 @@ describe('workingCopySave', () => {
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.awaitWorkingCopyRevisionDurability.mockResolvedValue(undefined);
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
-        mocks.clearWorkingCopySyncRequired.mockReturnValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
             workingCopyPath: string,
@@ -214,9 +207,6 @@ describe('workingCopySave', () => {
             return revision;
         });
         mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
-            await writeFile(targetPath, await readFile(sourcePath));
-        });
-        mocks.copyFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
         });
     });
@@ -465,31 +455,7 @@ describe('workingCopySave', () => {
         expect(mocks.assertWorkingCopyResyncAllowed).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.clearWorkingCopySyncRequired).toHaveBeenCalledWith(workingPath);
-        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
-    });
-
-    it('keeps resync blocked when the target is replaced during copy-back', async () => {
-        const workingPath = join(tempRoot, 'resync-race-working.pdf');
-        const originalPath = join(tempRoot, 'resync-race-original.pdf');
-        const externalPath = join(tempRoot, 'resync-race-external.pdf');
-        writeFileSync(workingPath, 'stale-working');
-        writeFileSync(originalPath, 'original-before-race');
-        writeFileSync(externalPath, 'external-replacement');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.copyFileAtomic.mockImplementationOnce(async (sourcePath: string, targetPath: string) => {
-            await rename(externalPath, originalPath);
-            await writeFile(targetPath, await readFile(sourcePath));
-        });
-
-        const {handleResyncWorkingCopy} = await import('@electron/features/documents/main/workingCopySave');
-        await expect(handleResyncWorkingCopy(context, workingPath)).resolves.toMatchObject({
-            ok: false,
-            reason: 'write-failed',
-            externalWriteCommitted: false,
-        });
-        expect(readFileSyncUtf8(originalPath)).toBe('external-replacement');
-        expect(readFileSyncUtf8(workingPath)).toBe('stale-working');
-        expect(mocks.clearWorkingCopySyncRequired).not.toHaveBeenCalled();
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
     it('repairs through qpdf before atomically replacing the original and working copy', async () => {

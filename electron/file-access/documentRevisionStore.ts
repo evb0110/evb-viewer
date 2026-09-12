@@ -59,11 +59,7 @@ import {
     recoverWorkingCopyContentTransition,
     rollbackWorkingCopyContentTransition,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
-import {
-    hasTwoTargetTransitionEvidence,
-    invalidateTwoTargetTransitionEvidence,
-    recoverTwoTargetDocumentTransition,
-} from '@electron/file-access/recoverTwoTargetDocumentTransition';
+import {recoverTwoTargetDocumentTransition} from '@electron/file-access/recoverTwoTargetDocumentTransition';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {
     getPageIdentitySidecarPath,
@@ -437,20 +433,7 @@ export async function ensureWorkingCopyRevision(
     if (provisional) {
         return toRevisionInfo(provisional.sidecar);
     }
-    const pendingSaveAsSync = await recoverTwoTargetDocumentTransition(normalizedWorkingPath);
-    if (
-        pendingSaveAsSync
-        && typeof pendingSaveAsSync === 'object'
-        && pendingSaveAsSync.kind === 'save-as-working-copy-sync-required'
-    ) {
-        markWorkingCopySyncRequired(normalizedWorkingPath, pendingSaveAsSync.reason, {
-            originalPath: pendingSaveAsSync.originalPath,
-            ...(pendingSaveAsSync.ownerWebContentsId === undefined
-                ? {}
-                : {ownerWebContentsId: pendingSaveAsSync.ownerWebContentsId}),
-        });
-    }
-    invalidateTwoTargetTransitionEvidence(normalizedWorkingPath);
+    await recoverTwoTargetDocumentTransition(normalizedWorkingPath);
     await recoverWorkingCopyContentTransition(normalizedWorkingPath);
     await recoverPreparedOcrRevisionTransition(normalizedWorkingPath);
     hydrateWorkingCopySyncRequiredFromJournal(normalizedWorkingPath);
@@ -646,31 +629,17 @@ export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
             message: reason,
         });
     }
-    if (hasTwoTargetTransitionEvidence(workingCopyPath)) {
-        throw createWorkingCopySyncRequiredError({
-            documentRef: requireDocumentRef(workingCopyPath),
-            message: 'Working copy recovery is unresolved; resync is required before further edits',
-        });
-    }
 }
 
 export function hasWorkingCopySyncRequired(workingCopyPath: string) {
-    return hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath) !== undefined
-        || hasTwoTargetTransitionEvidence(workingCopyPath);
+    return hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath) !== undefined;
 }
 
 export function assertWorkingCopyResyncAllowed(workingCopyPath: string, senderId?: number) {
     assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
 }
 
-export function markWorkingCopySyncRequired(
-    workingCopyPath: string,
-    reason: string,
-    options: {
-        originalPath?: string;
-        ownerWebContentsId?: number;
-    } = {},
-) {
+export function markWorkingCopySyncRequired(workingCopyPath: string, reason: string) {
     const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
     const activeEntry = normalizedWorkingPath ? workingCopyMap.get(normalizedWorkingPath) : undefined;
     workingCopySyncRequired.set(
@@ -679,23 +648,17 @@ export function markWorkingCopySyncRequired(
     );
     workingCopySyncRequiredJournalReadFailures.delete(getRevisionQueueKey(workingCopyPath));
     if (!normalizedWorkingPath) {
-        return false;
+        return;
     }
-    // A caller that recovered the state from a journal knows the original it
-    // belonged to; the live map may no longer hold that tab.
-    const originalPath = options.originalPath ?? activeEntry?.originalPath;
-    const ownerWebContentsId = options.ownerWebContentsId ?? activeEntry?.ownerWebContentsId;
     try {
         writeWorkingCopySyncRequiredJournalEntry(normalizedWorkingPath, {
             reason,
-            ...(originalPath === undefined ? {} : {originalPath}),
-            ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
+            ...(activeEntry?.originalPath === undefined ? {} : {originalPath: activeEntry.originalPath}),
+            ...(activeEntry?.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: activeEntry.ownerWebContentsId}),
         });
     } catch (error) {
         log.debug(`Failed to persist working-copy sync-required journal entry: ${getErrorMessage(error)}`);
-        return false;
     }
-    return true;
 }
 
 export function clearWorkingCopySyncRequired(workingCopyPath: string) {
@@ -704,14 +667,10 @@ export function clearWorkingCopySyncRequired(workingCopyPath: string) {
         clearWorkingCopySyncRequiredJournalEntry(workingCopyPath);
     } catch (error) {
         log.debug(`Failed to clear working-copy sync-required journal entry: ${getErrorMessage(error)}`);
-        return false;
+        return;
     }
     workingCopySyncRequired.delete(queueKey);
     workingCopySyncRequiredJournalReadFailures.delete(queueKey);
-    // The caller clears the fence only after the two-target transition it
-    // belonged to has completed, so the journal is gone with it.
-    invalidateTwoTargetTransitionEvidence(workingCopyPath);
-    return true;
 }
 
 export function onWorkingCopyRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {

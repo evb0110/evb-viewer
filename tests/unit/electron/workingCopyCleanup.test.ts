@@ -84,7 +84,6 @@ const state = vi.hoisted(() => ({
     cancelMaterialization: vi.fn(),
     ensureMaterialized: vi.fn(),
     fenceRegistrations: [] as number[],
-    hasWorkingCopySyncRequired: vi.fn((_workingCopyPath: string) => false),
     logger: {
         debug: vi.fn(),
         error: vi.fn(),
@@ -222,7 +221,7 @@ vi.mock('@electron/file-access/workingCopyMutationQueue', () => ({drainWorkingCo
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     clearWorkingCopyRevisionInitializations: vi.fn(),
     forgetWorkingCopyRevisionInitialization: vi.fn(),
-    hasWorkingCopySyncRequired: (...args: [string]) => state.hasWorkingCopySyncRequired(...args),
+    hasWorkingCopySyncRequired: vi.fn(() => false),
 }));
 
 vi.mock('@electron/file-access/pageIdentityStore', () => ({
@@ -256,8 +255,6 @@ describe('working-copy cleanup materialization retirement', () => {
         state.cancelMaterialization.mockReset();
         state.ensureMaterialized.mockReset();
         state.fenceRegistrations.length = 0;
-        state.hasWorkingCopySyncRequired.mockReset();
-        state.hasWorkingCopySyncRequired.mockReturnValue(false);
         state.logger.debug.mockClear();
         state.logger.error.mockClear();
         state.logger.info.mockClear();
@@ -371,22 +368,6 @@ describe('working-copy cleanup materialization retirement', () => {
         ]);
         expect(existsSync(dirname(workingPath))).toBe(false);
         expect(existsSync(originalPath)).toBe(true);
-    });
-
-    it('retains a working copy with unresolved document transition evidence', async () => {
-        const originalPath = join(state.tempRoot, 'unresolved-original.pdf');
-        const workingPath = join(state.tempRoot, 'pdf-work-unresolved', 'working.pdf');
-        mkdirSync(dirname(workingPath), {recursive: true});
-        writeFileSync(originalPath, 'original');
-        writeFileSync(workingPath, 'stale-working');
-        registerWorkingCopy(workingPath, originalPath, 'eager');
-        state.hasWorkingCopySyncRequired.mockReturnValue(true);
-
-        await cleanupWorkingCopy(workingPath, 7);
-
-        expect(existsSync(dirname(workingPath))).toBe(true);
-        expect(state.ensureMaterialized).not.toHaveBeenCalled();
-        expect(state.fenceRegistrations).toEqual([]);
     });
 
     it('waits for an already-aborted shutdown flight when new demand admission is closed', async () => {

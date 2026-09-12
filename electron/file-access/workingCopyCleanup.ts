@@ -138,14 +138,6 @@ function isRegisteredWorkingCopyDirectory(workDir: string) {
         ) === normalizedDirectory);
 }
 
-async function hasTwoTargetRecoveryEvidence(workDir: string) {
-    try {
-        return (await readdir(workDir)).some(entryName => entryName.endsWith('.evb-two-target-transition.json'));
-    } catch {
-        return true;
-    }
-}
-
 async function performCleanupStaleWorkingCopyDirectories(
     options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
 ): Promise<{
@@ -265,9 +257,7 @@ async function performCleanupStaleWorkingCopyDirectories(
             if (retainedAtomicReplaceBackupDirectories.has(workDir)) {
                 continue;
             }
-            if (await hasTwoTargetRecoveryEvidence(workDir)) {
-                continue;
-            }
+
             if (staleWorkingCopyCleanupBlockedReason) {
                 return;
             }
@@ -722,12 +712,6 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
     if (hasWorkingCopyRecoveryClaim(normalizedPath)) {
         logger.warn(
             `Retained recovery working copy while its checkpoint adoption is unresolved "${normalizedPath}"`,
-        );
-        return;
-    }
-    if (hasWorkingCopySyncRequired(normalizedPath)) {
-        logger.warn(
-            `Retained working copy while its document transition is unresolved "${normalizedPath}"`,
         );
         return;
     }

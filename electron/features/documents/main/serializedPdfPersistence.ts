@@ -81,15 +81,13 @@ import {
 } from '@electron/file-access/workingCopyMutationQueue';
 import {
     markWorkingCopySyncRequired,
+    markWorkingCopyContentChanged,
     transitionWorkingCopyContentRevision,
 } from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import {
-    captureOriginalPathSaveWitness, capturePathSaveWitness,
-} from '@electron/file-access/originalPathSaveWitness';
+import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
-import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import {
     optimizeLargePdfForOrdinarySave,
@@ -725,57 +723,24 @@ async function commitSession(
             targetWriteCommitted = true;
             workingCopyRefreshed = true;
         } else if (session.mode === 'save_as') {
-            const transition = await transitionOriginalAndWorkingCopyRevision({
-                workingCopyPath: session.workingPath,
-                originalPath: session.targetPath,
-                reason: 'save-sync',
-                senderId: session.senderId,
-                allowMissingOriginalWitness: true,
-                preservePublishedOriginalOnWorkingCopySyncFailure: true,
-                useDestinationWitnessForPublication: false,
-                captureOriginalWitness: () => capturePathSaveWitness(session.targetPath),
-                publishOriginal: async assertDestinationCurrent => {
-                    await commitPdfTempFile(
-                        session.tempPath,
-                        session.targetPath,
-                        {
-                            signal: session.lifecycleOperation.signal,
-                            ownerId: `serialized-pdf:${session.id}`,
-                            receipt,
-                            ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                        },
-                    );
-                },
-                afterOriginalPublish: () => setWorkingCopyOriginalPath(
-                    session.workingPath,
-                    session.targetPath,
-                    session.senderId,
-                ),
-                syncWorkingCopy: () => copyFileAtomic(session.targetPath, session.workingPath, {linkImmutableSource: true}),
-                afterWorkingCopySync: async () => {
-                    if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
-                        throw new Error('Working copy registration changed before Save As refresh completed');
-                    }
-                },
-                onWorkingCopySyncFailure: syncError => markWorkingCopySyncRequired(
+            await commitPdfTempFile(session.tempPath, session.targetPath, {
+                signal: session.lifecycleOperation.signal,
+                ownerId: `serialized-pdf:${session.id}`,
+                receipt,
+                ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+            });
+            targetWriteCommitted = true;
+            try {
+                await setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
+                await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
+                workingCopyRefreshed = true;
+            } catch (syncError) {
+                markWorkingCopySyncRequired(
                     session.workingPath,
                     `Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
-                    {
-                        originalPath: session.targetPath,
-                        ownerWebContentsId: session.senderId,
-                    },
-                ),
-            });
-            if (!transition) {
-                conflictValidation = createOriginalChangedValidationResult();
-            } else if ('workingCopyRefreshed' in transition) {
-                targetWriteCommitted = transition.targetWriteCommitted;
-                workingCopyRefreshed = transition.workingCopyRefreshed;
-                workingCopySyncError = transition.workingCopySyncError;
-            } else {
-                targetWriteCommitted = true;
-                workingCopyRefreshed = true;
+                );
+                workingCopySyncError = getErrorMessage(syncError);
             }
             allowOpenPath(session.targetPath, session.sender);
             await addRecentFile(session.targetPath);

@@ -30,9 +30,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
-import {
-    copyFileAtomic, normalizeIpcWritePayload,
-} from '@electron/file-access/documentFileWriteAtomic';
+import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import {
     enqueueWorkingCopyMutation,
@@ -41,17 +39,14 @@ import {
 import {
     awaitWorkingCopyRevisionDurability,
     clearWorkingCopySyncRequired,
-    transitionWorkingCopyContentRevision,
+    markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     assertQueuedWorkingCopyMutationPreconditionsForResync,
 } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import {
-    captureOriginalPathSaveWitness, capturePathSaveWitness,
-} from '@electron/file-access/originalPathSaveWitness';
-import {completeTwoTargetDocumentTransition} from '@electron/file-access/recoverTwoTargetDocumentTransition';
+import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -405,30 +400,10 @@ export async function handleResyncWorkingCopy(
                 throw new WorkingCopyMissingError('Working copy path is not managed');
             }
             const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-            const witness = await capturePathSaveWitness(originalPath);
-            if (!witness) {
-                throw new Error('The Save As target is unavailable for resync');
-            }
-            try {
-                await transitionWorkingCopyContentRevision(
-                    normalizedWorkingPath,
-                    'save-sync',
-                    async () => {
-                        await witness.assertCurrent();
-                        await copyFileAtomic(originalPath, normalizedWorkingPath, {linkImmutableSource: true});
-                        await witness.assertCurrent({allowBackupMetadataChange: true});
-                    },
-                    senderId,
-                );
-                await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
-                await witness.assertCurrent({allowBackupMetadataChange: true});
-                await completeTwoTargetDocumentTransition(normalizedWorkingPath);
-                if (!clearWorkingCopySyncRequired(normalizedWorkingPath)) {
-                    throw new Error('Working-copy sync fence could not be cleared durably');
-                }
-            } finally {
-                await witness.close();
-            }
+            await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+            await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
+            clearWorkingCopySyncRequired(normalizedWorkingPath);
+            await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
         });
 
         return {
