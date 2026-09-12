@@ -1,0 +1,47 @@
+electron/features/image-export/main/export.ts
+  s_81b206e0e83dfc::t_97c8b7872a4080 64,1024-1027,1059
+  s_81b206e0e83dfc::t_491991a1fc9a96 560-567,1084-1086
+  s_81b206e0e83dfc::t_ffe9284172c85d 600
+  s_ae757872e5d914::t_ed43245a011240 81
+electron/features/image-export/main/imageExportPathPlanning.ts
+  s_81b206e0e83dfc::t_491991a1fc9a96 55,74
+  s_81b206e0e83dfc::t_7c32de6f08f9c9 63-66
+  s_81b206e0e83dfc::t_97c8b7872a4080 9,51-54,56,58,62,67,69-73,75
+  s_ae757872e5d914::t_87ad1a5e3dccab 76-80
+tests/unit/electron/imageExport.test.ts
+  s_81b206e0e83dfc::t_1185643e80fcfa 1287
+  s_81b206e0e83dfc::t_cfe4fe58bc769d 1272-1275
+  s_81b206e0e83dfc::t_62ddfaf57c031b 1240-1248,1254-1256,1276-1286,1288-1292,1303-1307,1408
+  s_81b206e0e83dfc::t_637ae8a3c73d32 2-3,1319
+  s_81b206e0e83dfc::t_8f4b8da3cf2abe 8-9
+  s_81b206e0e83dfc::t_b310b6a30d33b6 1249-1253,1293-1302
+  s_81b206e0e83dfc::t_dc58d4d8f5a2a1 1257-1271
+  s_81b206e0e83dfc::t_7c32de6f08f9c9 10,1160-1163,1166-1170,1180-1195,1198-1201,1206-1209,1222-1231,1309-1311,1337-1340,1342-1345,1348-1385,1396-1399
+  s_81b206e0e83dfc::t_eddba9fdeae283 5-6,1238-1239,1308,1312-1318,1320-1336,1341,1346-1347,1386-1395,1400-1407
+  s_81b206e0e83dfc::t_76fb0053605d4a 17,245-249,302-303,1137-1159,1164-1165,1171-1179,1196-1197,1202-1205,1210-1221,1232-1237
+  s_ae757872e5d914::t_d73281a1fea8db 7,1409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bb556510929d1aa163633ecfaf274451670d6b5e",
+  "prompts": {},
+  "sessions": {
+    "s_81b206e0e83dfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097e4-e7e1-79f3-98d1-9f1a07bcf1d2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
