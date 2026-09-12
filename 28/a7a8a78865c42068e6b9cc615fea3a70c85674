@@ -1,0 +1,99 @@
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_4db4eb48b4e2d4::t_12e6b84e780fca 100
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_4db4eb48b4e2d4::t_8a1d8b39bde38e 55
+  s_4db4eb48b4e2d4::t_8ee574a07abe7b 53,56-57,287
+  s_4db4eb48b4e2d4::t_52cef918f8bc6e 54
+  s_4db4eb48b4e2d4::t_028f7b3eac5627 184
+tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts
+  s_4db4eb48b4e2d4::t_c8d2796c753a76 781-818,820-821
+  s_4db4eb48b4e2d4::t_e8def160443d4b 319-325,453-460,467-474,542-545
+  s_4db4eb48b4e2d4::t_91f6289d3c8720 819
+  s_4db4eb48b4e2d4::t_014f068f3f70a1 326-327,349-352,359-360
+  s_4db4eb48b4e2d4::t_903098895041a3 233,235,260-263,283,310
+  s_4db4eb48b4e2d4::t_8a6e1ee6dfd1be 38,369-385
+  s_4db4eb48b4e2d4::t_338226f56cebed 502,504,506
+  s_4db4eb48b4e2d4::t_12e6b84e780fca 338
+  s_4db4eb48b4e2d4::t_1c981e8f7eef86 100-102,389-391,840-846
+  s_4db4eb48b4e2d4::t_b645d9b8880e4d 550-554
+  s_4db4eb48b4e2d4::t_db11af3d8afb74 142,386,388,392-408,511,625,822-839,847-856
+  s_4db4eb48b4e2d4::t_9c0f5e2b0084ec 409-442,444-448
+  s_4db4eb48b4e2d4::t_bacc9ef22ee314 361,546-549,555-580,582-624
+  s_4db4eb48b4e2d4::t_af1e02e9f9d35a 21,97-99,105-126,128-132,312-318,328-337,339-348,353,355-358,362-368
+  s_4db4eb48b4e2d4::t_6f1577b8f14e7e 354,443
+  s_4db4eb48b4e2d4::t_64b2235e0820c5 581
+  s_4db4eb48b4e2d4::t_3583c18076359a 284-287,305-308
+  s_4db4eb48b4e2d4::t_b549d17a78c0f4 461-466,475-501,503,505,507-510
+  s_4db4eb48b4e2d4::t_82199e21babefe 103-104,127
+  s_4db4eb48b4e2d4::t_8a1d8b39bde38e 5-6,24-25,46-57,71,74-77,216-232,234,236-238,257-259,265-267,270-271,274-279,281-282,289-304,309,311
+  s_4db4eb48b4e2d4::t_da0249ba85288c 31
+  s_4db4eb48b4e2d4::t_b4eed67db21e3a 133-141
+  s_ae757872e5d914::t_6d2d0790822a10 3-4,143,387,512,626,857
+app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings.ts
+  s_4db4eb48b4e2d4::t_8bdc265df30dd7 28,334,437,444,455
+  s_4db4eb48b4e2d4::t_bacc9ef22ee314 23
+  s_4db4eb48b4e2d4::t_4bd05d344b22ba 365
+  s_4db4eb48b4e2d4::t_9e04bc168a677d 340
+  s_4db4eb48b4e2d4::t_bbb1ef735f954e 391
+  s_4db4eb48b4e2d4::t_3adcbce67b301a 60-63,267,270-273,306-307,349-352,356-359,469-473,476-479,493-496
+  s_4db4eb48b4e2d4::t_788fe885f60fc4 507,524,533
+  s_4db4eb48b4e2d4::t_e2f531aec0a60a 412,427
+  s_4db4eb48b4e2d4::t_5c88f65845ea2e 145-146
+  s_4db4eb48b4e2d4::t_a3ad3c91befe1b 377
+  s_4db4eb48b4e2d4::t_6cb1bddb51b11b 348
+  s_4db4eb48b4e2d4::t_8ee574a07abe7b 41-42,132,434,461,465,467-468,475,480,546
+  s_4db4eb48b4e2d4::t_15fd470bdbcb51 27,406-411
+  s_4db4eb48b4e2d4::t_1abc1a64d558eb 417-426
+  s_4db4eb48b4e2d4::t_8a1d8b39bde38e 18
+  s_4db4eb48b4e2d4::t_953cb3a5071bcc 166
+  s_4db4eb48b4e2d4::t_7d18b5c7a5cbfd 43,464,466,474
+  s_4db4eb48b4e2d4::t_d9440141d6c541 486
+  s_4db4eb48b4e2d4::t_a930524dcf2599 354
+  s_4db4eb48b4e2d4::t_12e6b84e780fca 47,123,401,429
+  s_4db4eb48b4e2d4::t_52946fcc5efa19 405
+  s_4db4eb48b4e2d4::t_b00463b62205a6 19-22,400,402-404,428,430-433,435
+  s_4db4eb48b4e2d4::t_a0632e055c5862 2,4,30,40,53-59,64-69,134-138,147-148,305,308-309,353,355,360,362-364,366,385-390,395,413-416,438-440,488,497-505,508,518,525,530-531
+  s_ae757872e5d914::t_d1b2282c325bd7 70
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_4db4eb48b4e2d4::t_e8def160443d4b 325-330,342-348,378-383
+  s_4db4eb48b4e2d4::t_b6d8816ee5fa79 370,375
+  s_4db4eb48b4e2d4::t_b645d9b8880e4d 373-374
+  s_4db4eb48b4e2d4::t_028f7b3eac5627 26-27,316-317,319-324,331-338,357,359-361,363-366,368-369,376-377,384
+  s_4db4eb48b4e2d4::t_71d2e2be603c45 362
+  s_4db4eb48b4e2d4::t_014f068f3f70a1 339-341,349-350
+  s_4db4eb48b4e2d4::t_582a97fe459b5f 353
+  s_4db4eb48b4e2d4::t_8f0e43c12e9362 11,318,358
+  s_4db4eb48b4e2d4::t_c38ad2d2e26a15 367
+  s_4db4eb48b4e2d4::t_e5b48e57ee88ad 371-372
+  s_4db4eb48b4e2d4::t_fe05f87c68a8a7 351-352,354-356
+  s_4db4eb48b4e2d4::t_0df8730d7b50dd 385-386
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_4db4eb48b4e2d4::t_fe05f87c68a8a7 22,24,752-754,759,763
+  s_4db4eb48b4e2d4::t_e8def160443d4b 755-758,1324-1327
+  s_4db4eb48b4e2d4::t_742978b9bf7896 48-49,77,750-751,760-762,764-765,1318-1323,1328-1344
+  s_4db4eb48b4e2d4::t_e38c1550633563 1345-1346
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "28a7a8a78865c42068e6b9cc615fea3a70c85674",
+  "prompts": {},
+  "sessions": {
+    "s_4db4eb48b4e2d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cf-ab35-7593-a1d2-08144353bc79",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
