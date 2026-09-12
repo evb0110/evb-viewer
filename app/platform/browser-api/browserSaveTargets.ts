@@ -96,7 +96,6 @@ export async function saveWorkingBytesToSource(
                         saveTarget.saveKind,
                         pickedTarget.handle,
                     );
-                    await mutation.acknowledgePhysicalSourceCommit();
                 } else {
                     await assertBrowserPathWithinFullReadBudget(
                         workingCopyPath,
@@ -125,6 +124,12 @@ export async function saveWorkingBytesToSource(
                     );
                 }
 
+                // The base advances only here, once the physical file has been
+                // written and the target it was written to is the one the source
+                // record points at. Skipping it on the picker branch left the
+                // working copy describing the file it no longer saves to, so the
+                // next ordinary Save reported our own write as an external edit.
+                await mutation.acknowledgePhysicalSourceCommit();
                 await browserDocumentStore.touchRecentFile(sourceRef);
                 return true;
             },
