@@ -1125,7 +1125,14 @@ describe('search IPC worker resource limits', () => {
                     status: 'failed',
                     error: 'Search request timed out after 5000ms',
                 });
+                // A timeout cancels the offending request and leaves the worker
+                // serving the sender's other searches. Only a worker that never
+                // acknowledges the cancel is retired, by the acknowledgement
+                // fallback, which has not elapsed at this point.
                 expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+                    expect.objectContaining({type: 'cancel'}),
+                );
+                expect(mocks.workerRecords[0]?.postMessageCalls).not.toContainEqual(
                     expect.objectContaining({type: 'shutdown'}),
                 );
                 sender.send.mockClear();
