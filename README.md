@@ -15,14 +15,18 @@ Claude Code, Cursor, or any other MCP client can drive it too.
 
 ## Try it without installing
 
-[evb-viewer.com](https://evb-viewer.com) runs the same workspace in a browser
-tab. Open a local PDF, DjVu file, or image and you can read it, search it,
-annotate it, reorder, rotate, crop and extract pages, and export the result.
-The document is opened by the page itself and never uploaded; the page
-operations run the same Rust code as the desktop app, compiled to WebAssembly.
+[web.evb-viewer.com](https://web.evb-viewer.com) runs the same workspace in a
+browser tab, with no account and no install. Open a local PDF, DjVu file, or
+image and you can read it, search it, annotate it, reorder, rotate, crop and
+extract pages, and export the result. The document is opened by the page itself
+and never uploaded, and the page operations run the same Rust code as the
+desktop app, compiled to WebAssembly.
 
 The heavy work stays on the desktop. OCR, scan cleanup, the assistant, and jobs
 larger than a browser tab's memory need the installed app.
+
+The project site, with feature pages, a user guide, and the downloads, is
+[evb-viewer.com](https://evb-viewer.com).
 
 ## Install
 
@@ -122,6 +126,8 @@ for the hosted browser build is deliberately disabled.
 
 ## Docs
 
+- [Project site](https://evb-viewer.com) and the
+  [browser workspace](https://web.evb-viewer.com)
 - [Formats, runtimes, and languages](docs/user/formats-and-languages.md)
 - [Connecting an MCP client](docs/user/mcp-clients.md)
 - [Architecture](ARCHITECTURE.md) and [design principles](docs/architecture/design-principles.md)
