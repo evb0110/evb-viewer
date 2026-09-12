@@ -20,7 +20,7 @@ interface IShutdownCoordinator {
     isGracefulQuitInProgress(): boolean;
     isQuittingAfterCleanup(): boolean;
     isFatalShutdownInProgress(): boolean;
-    requestGracefulQuit(options?: { afterCleanup?: () => void }): void;
+    requestGracefulQuit(options?: { afterCleanup?: () => void | Promise<void> }): void;
 }
 
 interface IExternalOpenManager {

@@ -971,7 +971,14 @@ describe('updates robustness', () => {
         });
 
         const updates = await loadUpdatesModule();
-        const installAfterCleanup: Array<() => void> = [];
+        const installOrder: string[] = [];
+        mocks.markUpdateInstallPending.mockImplementationOnce(async () => {
+            installOrder.push('marker');
+        });
+        mocks.autoUpdater.quitAndInstall.mockImplementationOnce(() => {
+            installOrder.push('quit');
+        });
+        const installAfterCleanup: Array<() => void | Promise<void>> = [];
         updates.configureUpdateInstallShutdown((install) => {
             installAfterCleanup.push(install);
         });
@@ -982,7 +989,7 @@ describe('updates robustness', () => {
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
         expect(mocks.updateSettings).toHaveBeenCalled();
-        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
 
         const [install] = installAfterCleanup;
@@ -990,8 +997,13 @@ describe('updates robustness', () => {
         if (typeof install !== 'function') {
             throw new Error('Expected shutdown hook to receive the update installer');
         }
-        install();
+        await install();
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+        expect(installOrder).toEqual([
+            'marker',
+            'quit',
+        ]);
     });
 
     it('installs downloaded updates immediately when no shutdown hook is configured', async () => {
@@ -1127,7 +1139,7 @@ describe('updates robustness', () => {
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        const installAfterCleanup: Array<() => void> = [];
+        const installAfterCleanup: Array<() => void | Promise<void>> = [];
         updates.configureUpdateInstallShutdown((install) => {
             installAfterCleanup.push(install);
         });
@@ -1168,11 +1180,12 @@ describe('updates robustness', () => {
         await flushPromises();
         await flushPromises();
 
-        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
         expect(installAfterCleanup).toHaveLength(1);
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
 
-        installAfterCleanup[0]?.();
+        await installAfterCleanup[0]?.();
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
     });
 });
