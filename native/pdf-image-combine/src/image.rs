@@ -320,6 +320,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
         bytes.as_slice(),
         PassthroughLimits {
             max_pixels,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     )?;
@@ -338,6 +339,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
         bytes.as_slice(),
         PassthroughLimits {
             max_pixels,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     ) {
@@ -528,6 +530,7 @@ fn read_png_jpeg_page(
         bytes,
         PassthroughLimits {
             max_pixels,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     )?;

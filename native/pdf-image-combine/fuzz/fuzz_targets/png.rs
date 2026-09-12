@@ -6,6 +6,7 @@ fuzz_target!(|data: &[u8]| {
         data,
         PassthroughLimits {
             max_pixels: 80_000_000,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: 16 * 1024 * 1024,
         },
     );

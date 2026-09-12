@@ -956,14 +956,6 @@ pub(crate) fn normalized_path(path: &Path) -> PathBuf {
             _ => normalized.push(component.as_os_str()),
         }
     }
-    #[cfg(windows)]
-    {
-        // Windows paths are case-insensitive for the desktop filesystems we
-        // support. Canonical/inode checks in the adapter provide the stronger
-        // check for paths which already exist.
-        return PathBuf::from(normalized.to_string_lossy().to_lowercase());
-    }
-    #[cfg(not(windows))]
     normalized
 }
 
