@@ -1,0 +1,28 @@
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_945260b7a2a81f::t_4a838b11238424 308-312,356
+electron/workspaceCheckpointStore.ts
+  s_945260b7a2a81f::t_f7d1f98d526028 1472,1503,1532
+  s_945260b7a2a81f::t_b8caf171980e5c 1470-1471,1495-1496,1530-1531
+tests/unit/electron/workspaceCheckpointLatestOnly.test.ts
+  s_945260b7a2a81f::t_caa4a8d66ceb33 13,261-267,269-282
+  s_945260b7a2a81f::t_fb6f3f41723f83 289-291
+  s_945260b7a2a81f::t_8e79a321c4e040 301-307
+  s_945260b7a2a81f::t_e3de56a7ee61dd 260,268,283-288,292-300
+  s_945260b7a2a81f::t_cf5e73287cefb4 308-310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c3aea7cac1ee874763f01dbf57254f7c412d617",
+  "prompts": {},
+  "sessions": {
+    "s_945260b7a2a81f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09556-f1b2-76a2-9cc2-1541d3099b2c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
