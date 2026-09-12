@@ -1,0 +1,30 @@
+scripts/run-workspace-package-typecheck.mjs
+  s_edc126505c71ef::t_48c7de5ea9fde9 15-21
+  s_7c22a950dc3bb0::t_9b957b0be0bf61 130-131,135
+package.json
+  s_edc126505c71ef::t_ef5558851d24e7 47-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d728675feb0e12c6dd03db3a13fbfa0293b12140",
+  "prompts": {},
+  "sessions": {
+    "s_7c22a950dc3bb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09807-4dc4-7a43-a32d-d357ed107d4e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_edc126505c71ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097f7-4a76-7391-b61f-1a2f0462d94c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
