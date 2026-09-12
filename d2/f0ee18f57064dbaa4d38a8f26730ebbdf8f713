@@ -1,0 +1,21 @@
+package.json
+  s_247a07a16a61fa::t_5bb4b81066bb94 147
+pnpm-lock.yaml
+  s_247a07a16a61fa::t_1aca90d0baea14 110-111,10542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2f0ee18f57064dbaa4d38a8f26730ebbdf8f713",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
