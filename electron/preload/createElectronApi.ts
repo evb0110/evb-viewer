@@ -552,6 +552,7 @@ export function createElectronApi(
     };
     const documentFiles = {
         readFile: baseDocuments.readFile,
+        readPdfPageLabelRanges: baseDocuments.readPdfPageLabelRanges,
         statFile: baseDocuments.statFile,
         readFileRange: baseDocuments.readFileRange,
         readFileChunks: baseDocuments.readFileChunks,

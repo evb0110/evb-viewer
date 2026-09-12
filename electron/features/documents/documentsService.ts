@@ -47,6 +47,7 @@ import type {
     IWorkingCopyBackingStatus,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
@@ -139,6 +140,10 @@ export interface IDocumentsService {
     savePdfDialog: (context: IDocumentsDialogContext, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (context: IDocumentsDialogContext, workingPath: string) => Promise<string | null>;
     readFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<Uint8Array>;
+    readPdfPageLabelRanges: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+    ) => Promise<IPdfPageLabelRange[]>;
     statFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<{
         size: number;
         modifiedAt: number;

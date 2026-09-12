@@ -12,6 +12,7 @@ import {
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
 function createBookmark(title: string): IPdfBookmarkEntry {
     return {
         title,
@@ -28,6 +29,7 @@ function createSession() {
     return useMetadataSession({
         pdfDocument: shallowRef<IPdfDocument | null>(null),
         totalPages: ref(1),
+        workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
         markDirty: vi.fn(),
         fileHistoryMutationVersion: ref(0),
         fileHistorySessionVersion: ref(0),

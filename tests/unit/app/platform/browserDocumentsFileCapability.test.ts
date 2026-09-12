@@ -403,6 +403,55 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
     });
 
+    it('reads compact page-label ranges through the browser catalog worker', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'page-labels.pdf',
+            await createPdfBytes(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            bookmarks: [],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    style: 'r',
+                },
+                {
+                    pageIndex: 1,
+                    prefix: 'Appendix ',
+                    start: 3,
+                },
+            ],
+        });
+
+        await expect(capability.readPdfPageLabelRanges(workingRef)).resolves.toEqual([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: null,
+                prefix: 'Appendix ',
+                startNumber: 3,
+            },
+        ]);
+        expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
+            'readCatalog',
+            {data: expect.any(Uint8Array)},
+            {dedicated: true},
+        );
+    });
+
     it('rejects an oversized parse before reading the working copy', async () => {
         const {
             capability,

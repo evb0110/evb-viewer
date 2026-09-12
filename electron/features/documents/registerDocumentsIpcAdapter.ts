@@ -416,6 +416,8 @@ export function registerDocumentsIpcAdapter(
             service.cleanupOcrTemp(context, filePath).then(() => undefined),
         readFile: (context, filePath) =>
             service.readFile(context, filePath),
+        readPdfPageLabelRanges: (context, filePath) =>
+            service.readPdfPageLabelRanges(context, filePath),
         statFile: (context, filePath) =>
             service.statFile(context, filePath),
         readFileRange: (context, filePath, offset, length) =>
