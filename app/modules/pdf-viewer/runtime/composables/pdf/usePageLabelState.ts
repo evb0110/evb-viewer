@@ -15,11 +15,16 @@ import {
 } from '@app/utils/document-viewer/pageLabels';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 
 export const usePageLabelState = (deps: {
     pdfDocument: Ref<IPdfDocument | null>;
     totalPages: Ref<number>;
     markDirty: () => void;
+    workingCopyPath?: Ref<TDocumentRef | null>;
+    documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
+    readPageLabelRanges?: () => Promise<IPdfPageLabelRange[]>;
     onPageLabelsSynchronized?: () => void;
     onPageLabelsDirty?: () => void;
     onPageLabelsSaved?: () => void;
@@ -30,6 +35,9 @@ export const usePageLabelState = (deps: {
         onPageLabelsSynchronized,
         onPageLabelsDirty,
         onPageLabelsSaved,
+        workingCopyPath,
+        documentRevisionToken,
+        readPageLabelRanges,
     } = deps;
 
     const pageLabels = ref<string[] | null>(null);
@@ -67,10 +75,14 @@ export const usePageLabelState = (deps: {
 
     async function syncPageLabelsFromDocument(doc: IPdfDocument | null) {
         const syncGeneration = ++pageLabelSyncGeneration;
+        const sourcePath = workingCopyPath?.value ?? null;
+        const sourceRevision = documentRevisionToken?.value ?? null;
         const isCurrentSync = () => (
             !disposed
             && pageLabelSyncGeneration === syncGeneration
             && pdfDocument.value === doc
+            && (workingCopyPath === undefined || workingCopyPath.value === sourcePath)
+            && (documentRevisionToken === undefined || documentRevisionToken.value === sourceRevision)
         );
 
         if (!isCurrentSync()) {
@@ -100,8 +112,26 @@ export const usePageLabelState = (deps: {
         pageLabelsResolved.value = false;
         let resolvedThisSync = false;
 
+        const readCompactRanges = async () => {
+            if (!readPageLabelRanges || sourcePath === null) {
+                return null;
+            }
+            try {
+                const ranges = await readPageLabelRanges();
+                return isCurrentSync() ? ranges : null;
+            } catch (error) {
+                BrowserLogger.debug(
+                    'page-labels',
+                    'Failed to read compact page labels from PDF catalog',
+                    error,
+                );
+                return null;
+            }
+        };
+
         try {
             let labels: string[] | null = null;
+            let compactRanges: IPdfPageLabelRange[] | null = null;
             if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
                 try {
                     const raw = await doc.getPageLabels();
@@ -126,17 +156,18 @@ export const usePageLabelState = (deps: {
                     return;
                 }
             } else {
-                BrowserLogger.debug('page-labels', 'Skipped dense PDF.js page-label read', {pageCount: doc.numPages});
-                return;
+                compactRanges = await readCompactRanges();
+                if (compactRanges === null) {
+                    BrowserLogger.debug('page-labels', 'Skipped dense PDF.js page-label read', {pageCount: doc.numPages});
+                    return;
+                }
             }
 
             if (!isCurrentSync()) {
                 return;
             }
-            const nextRanges = derivePageLabelRangesFromLabels(
-                labels,
-                doc.numPages,
-            );
+            const nextRanges = compactRanges
+                ?? derivePageLabelRangesFromLabels(labels, doc.numPages);
             updatePageLabelModel(doc.numPages, nextRanges, labels);
             pageLabelsDirty.value = false;
             pageLabelRevision += 1;

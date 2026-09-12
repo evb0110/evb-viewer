@@ -32,6 +32,7 @@ import {
 import {
     handleCancelPdfNativePagePreview,
     handlePdfOpeningGeometry,
+    handlePdfPageLabelRanges,
     handlePdfNativePagePreview,
     handlePdfNativePageSizes,
 } from '@electron/features/documents/main/nativePdfPreview';
@@ -261,6 +262,8 @@ export function createDocumentsService(): IDocumentsService {
         savePdfDialog: (...args: TDocumentsServiceArgs<'savePdfDialog'>) => handleSavePdfDialog(...args),
         saveDocxAs: (...args: TDocumentsServiceArgs<'saveDocxAs'>) => handleSaveDocxAs(...args),
         readFile: (...args: TDocumentsServiceArgs<'readFile'>) => handleFileRead(...args),
+        readPdfPageLabelRanges: (...args: TDocumentsServiceArgs<'readPdfPageLabelRanges'>) =>
+            handlePdfPageLabelRanges(...args),
         statFile: (...args: TDocumentsServiceArgs<'statFile'>) => handleFileStat(...args),
         readFileRange: (...args: TDocumentsServiceArgs<'readFileRange'>) => handleFileReadRange(...args),
         createManagedTempFileHandle: (...args: TDocumentsServiceArgs<'createManagedTempFileHandle'>) =>

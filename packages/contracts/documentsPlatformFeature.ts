@@ -66,6 +66,7 @@ import {
     printPdfDataArgs,
     printPdfPathArgs,
     readFileArgs,
+    pdfPageLabelRangesResult,
     readFileRangeArgs,
     readTextFileArgs,
     recentFilesResult,
@@ -444,6 +445,10 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
     methods: {
         readFile: defineIpcMethod(
             'readFile', 'file:read', readFileArgs, bytesResult, 'readFile', 'sender',
+        ),
+        readPdfPageLabelRanges: defineIpcMethod(
+            'readPdfPageLabelRanges', 'pdf:pageLabels:read', pathArgs('path'),
+            pdfPageLabelRangesResult, 'readPdfPageLabelRanges', 'sender',
         ),
         statFile: defineIpcMethod(
             'statFile', 'file:stat', statFileArgs, fileStatResult, 'statFile', 'sender',

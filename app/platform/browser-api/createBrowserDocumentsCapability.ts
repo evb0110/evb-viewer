@@ -193,6 +193,7 @@ export function createBrowserDocumentsCapability(
     };
     const documentFiles = {
         readFile: fileCapability.readFile,
+        readPdfPageLabelRanges: fileCapability.readPdfPageLabelRanges,
         statFile: fileCapability.statFile,
         readFileRange: fileCapability.readFileRange,
         readFileChunks: fileCapability.readFileChunks,

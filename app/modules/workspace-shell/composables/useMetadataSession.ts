@@ -10,10 +10,16 @@ import {
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 
 interface IMetadataSessionOptions {
     pdfDocument: ShallowRef<IPdfDocument | null>;
     totalPages: Ref<number>;
+    workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     markDirty: () => void;
     fileHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
     fileHistorySessionVersion?: Readonly<Ref<number>> | undefined;
@@ -28,6 +34,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     const {
         pdfDocument,
         totalPages,
+        workingCopyPath,
+        documentRevisionToken,
         markDirty,
         setWorkspaceCommandSink,
     } = options;
@@ -47,6 +55,15 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         pdfDocument,
         totalPages,
         markDirty,
+        workingCopyPath,
+        ...(documentRevisionToken !== undefined ? {documentRevisionToken} : {}),
+        readPageLabelRanges: async (): Promise<IPdfPageLabelRange[]> => {
+            const path = workingCopyPath.value;
+            if (!path) {
+                throw new Error('Cannot read PDF page labels without a working copy');
+            }
+            return getDocumentFilesCapability().readPdfPageLabelRanges(path);
+        },
         onPageLabelsSynchronized: () => metadataHistory?.resetToCurrentState(),
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
         onPageLabelsSaved: () => metadataHistory?.markCurrentStateClean(),

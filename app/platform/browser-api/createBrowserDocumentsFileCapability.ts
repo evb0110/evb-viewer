@@ -4,6 +4,10 @@ import type {
     IPdfNativeMutationSet,
     IPdfNativeSaveResult,
 } from '@contracts/electronApiDocuments';
+import {
+    PDF_PAGE_LABEL_STYLE_VALUES,
+    type IPdfPageLabelRange,
+} from '@contracts/pdfPageLabels';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import {
@@ -74,6 +78,7 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
+import { isOneOf } from '@contracts/runtimeGuards';
 
 const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
@@ -494,6 +499,27 @@ export function createBrowserDocumentsFileCapability(
         },
         async readFile(path) {
             return browserDocumentStore.read(path);
+        },
+        async readPdfPageLabelRanges(path) {
+            await assertBrowserPathWithinFullReadBudget(
+                path,
+                'Reading PDF page labels',
+                `. ${browserUseNativeAppMessageProvider()}`,
+            );
+            const data = await browserDocumentStore.read(path);
+            const catalog = await runBrowserPageOpsWorkerRequest(
+                'readCatalog',
+                {data},
+                {dedicated: true},
+            );
+            return catalog.pageLabels.map((range): IPdfPageLabelRange => ({
+                startPage: range.pageIndex + 1,
+                style: range.style !== undefined && isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, range.style)
+                    ? range.style
+                    : null,
+                prefix: range.prefix ?? '',
+                startNumber: range.start && range.start > 0 ? range.start : 1,
+            }));
         },
         async applyPdfNativeMutationsToWorkingCopy(
             path,

@@ -20,6 +20,10 @@ import {
     type IPdfOpeningGeometry,
     type TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
+import {
+    PDF_PAGE_LABEL_STYLE_VALUES,
+    type IPdfPageLabelRange,
+} from '@contracts/pdfPageLabels';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
@@ -39,10 +43,16 @@ import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { createLogger } from '@electron/utils/createLogger';
 import { acquireNativePdfPreviewAdmission } from '@electron/features/documents/main/acquireNativePdfPreviewAdmission';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import { QPDF_TIMEOUT_MS } from '@electron/features/page-ops/publicNative';
+import {
+    isErrnoException,
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
+import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -574,6 +584,107 @@ export async function handlePdfNativePageSizes(
         mainOperation.signal.removeEventListener('abort', handleMainAbort);
         unregisterSenderCleanup();
         mainOperation.complete();
+    }
+}
+
+export function parseNativePdfPageLabelRanges(value: unknown): IPdfPageLabelRange[] {
+    if (!isRecord(value) || !Array.isArray(value.pageLabels)) {
+        throw new Error('Native PDF catalog read returned invalid page labels');
+    }
+    return value.pageLabels.map((rawRange, index) => {
+        if (!isRecord(rawRange)) {
+            throw new Error(`Native PDF catalog page label ${index} is invalid`);
+        }
+        const pageIndex = rawRange.pageIndex;
+        const start = rawRange.start;
+        const style = rawRange.style;
+        const prefix = rawRange.prefix;
+        if (
+            typeof pageIndex !== 'number'
+            || !Number.isSafeInteger(pageIndex)
+            || pageIndex < 0
+            || typeof start !== 'undefined' && (
+                typeof start !== 'number'
+                || !Number.isSafeInteger(start)
+                || start < 1
+            )
+            || typeof style !== 'undefined'
+                && !isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, style)
+            || typeof prefix !== 'undefined' && typeof prefix !== 'string'
+        ) {
+            throw new Error(`Native PDF catalog page label ${index} is invalid`);
+        }
+        return {
+            startPage: pageIndex + 1,
+            style: style ?? null,
+            prefix: prefix ?? '',
+            startNumber: start ?? 1,
+        };
+    });
+}
+
+export async function handlePdfPageLabelRanges(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+): Promise<IPdfPageLabelRange[]> {
+    const resolvedPath = await resolvePdfPath(context, filePath);
+    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) {
+        throw new Error('Native page operations are required to read PDF page labels');
+    }
+    const catalogDir = await mkdtemp(join(tmpdir(), 'pdf-page-labels-'));
+    const catalogPath = join(catalogDir, 'catalog.json');
+    const abortController = new AbortController();
+    let cancelGroup = '';
+    const cancelRead = (reason: string) => {
+        abortPreviewController(abortController, reason);
+        if (cancelGroup) {
+            cancelNativeCommandGroup(cancelGroup);
+        }
+    };
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cancel: cancelRead,
+    });
+    cancelGroup = `pdf-page-labels:${mainOperation.id}`;
+    const handleMainAbort = () => cancelRead('Native PDF page-label read canceled');
+    const unregisterSenderCleanup = registerNativePdfSenderCleanup(
+        context.sender,
+        cancelRead,
+        'Renderer navigation canceled native PDF page-label read',
+    );
+    mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
+
+    try {
+        const readCatalog = async (physicalPath: string) => {
+            await runNativeToolCommand(binaryPath, [
+                'read-catalog',
+                '--input',
+                physicalPath,
+                '--output',
+                catalogPath,
+            ], {
+                timeoutMs: QPDF_TIMEOUT_MS,
+                commandLabel: 'evb-pdf-page-ops(read-page-labels)',
+                signal: abortController.signal,
+                cancelGroup,
+            });
+            return parseNativePdfPageLabelRanges(JSON.parse(await readFile(catalogPath, 'utf8')));
+        };
+        return originalBackedRead
+            ? await originalBackedRead.read(readCatalog)
+            : await readCatalog(resolvedPath);
+    } finally {
+        mainOperation.signal.removeEventListener('abort', handleMainAbort);
+        unregisterSenderCleanup();
+        mainOperation.complete();
+        await rm(catalogDir, {
+            recursive: true,
+            force: true,
+        });
     }
 }
 

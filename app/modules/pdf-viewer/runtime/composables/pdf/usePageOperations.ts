@@ -195,6 +195,15 @@ export const usePageOperations = (deps: {
         };
     }
 
+    function ensurePageLabelsResolvedForMutation() {
+        return pageLabelsResolved?.value !== false;
+    }
+
+    async function ensurePageLabelsAndWorkingCopyFresh() {
+        return ensurePageLabelsResolvedForMutation()
+            && (await ensureWorkingCopyFreshForRead?.() ?? true);
+    }
+
     function runDeletePageOp(
         path: TDocumentRef,
         pages: TPageOpsPageSelection,
@@ -348,7 +357,7 @@ export const usePageOperations = (deps: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;
-        beforeRun?: () => Promise<boolean>;
+        beforeRun?: () => boolean | Promise<boolean>;
         shouldReload?: boolean;
         isSuccessful?: TPageOperationSuccess<TResult>;
         onSuccess?: (result: TResult) => Promise<void> | void;
@@ -550,6 +559,7 @@ export const usePageOperations = (deps: {
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
+            beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runDeletePageOp(path, toPageOpsSelection(pages), totalPages, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
@@ -594,6 +604,7 @@ export const usePageOperations = (deps: {
             operationName: 'deletePageRanges',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
+            beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runDeletePageRangesOp(
                 path,
                 [...ranges],
@@ -631,8 +642,8 @@ export const usePageOperations = (deps: {
         const outcome = await runOperationDetailed({
             operationName: 'extractPages',
             errorKey: 'errors.pageOps.extract',
+            beforeRun: ensurePageLabelsAndWorkingCopyFresh,
             run: (path) => getPageOpsCapability().extract(path, toPageOpsSelection(pages)),
-            ...(ensureWorkingCopyFreshForRead ? { beforeRun: ensureWorkingCopyFreshForRead } : {}),
             isSuccessful: result => result.success && !result.canceled,
             onSuccess: async (result) => {
                 if (result.destPath) {
@@ -693,6 +704,7 @@ export const usePageOperations = (deps: {
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
             shouldReload: true,
+            beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runInsertPageOp(path, totalPages, afterPage, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
@@ -751,6 +763,7 @@ export const usePageOperations = (deps: {
                 operationName: 'insertFile',
                 errorKey: 'errors.pageOps.insertFile',
                 shouldReload: true,
+                beforeRun: ensurePageLabelsResolvedForMutation,
                 run: (path) => runInsertFilePageOp(
                     path,
                     totalPages,
@@ -792,6 +805,7 @@ export const usePageOperations = (deps: {
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
+            beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runReorderPageOp(path, [...newOrder], capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
@@ -821,6 +835,7 @@ export const usePageOperations = (deps: {
             operationName: 'movePages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
+            beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runMovePageOp(path, move, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
