@@ -25,9 +25,6 @@ desktop app, compiled to WebAssembly.
 The heavy work stays on the desktop. OCR, scan cleanup, the assistant, and jobs
 larger than a browser tab's memory need the installed app.
 
-The project site, with feature pages, a user guide, and the downloads, is
-[evb-viewer.com](https://evb-viewer.com).
-
 ## Install
 
 | Platform | Download |
@@ -36,7 +33,9 @@ The project site, with feature pages, a user guide, and the downloads, is
 | Windows | [Installer](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
 | Linux | [AppImage or DEB](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
 
-Every release ships `SHA256SUMS` and build provenance files.
+[evb-viewer.com](https://evb-viewer.com) offers the same builds and picks the
+right installer for the machine you are on, alongside the feature pages and the
+user guide. Every release ships `SHA256SUMS` and build provenance files.
 
 ## What it does
 
