@@ -67,6 +67,7 @@ function buildTabSignature(
         paneId,
         tab.fileName,
         tab.originalPath,
+        tab.documentInstanceId ?? null,
         tab.isDirty,
         tab.isDjvu,
         workspace !== null,

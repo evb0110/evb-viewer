@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireTabId } from '@contracts/windowTabs';
@@ -62,12 +64,21 @@ describe('restoreWorkspaceCheckpoint', () => {
             getAutomationStateSnapshot: () => createWorkspaceAutomationStateSnapshot({
                 originalPath: requireDocumentRef('/documents/draft.pdf'),
                 workingCopyPath: requireDocumentRef('/tmp/working/draft.pdf'),
+                documentIdentity: {
+                    version: 1,
+                    token: requireDocumentRevisionToken('revision-1'),
+                    documentRef: requireDocumentRef('/tmp/working/draft.pdf'),
+                    authority: 'electron-working-copy',
+                    contentRevision: 1,
+                    mintedAt: requireEpochMs(123),
+                },
             }),
         });
         const tabs = ref<ITab[]>([{
             id: 'restored-tab',
             fileName: 'draft.pdf',
             originalPath: requireDocumentRef('/documents/draft.pdf'),
+            documentInstanceId: requireDocumentInstanceId('document-1'),
             isDirty: true,
             isDjvu: false,
         }]);
@@ -153,6 +164,85 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(workspace.setViewRotation).toHaveBeenCalledWith(90);
         expect(activateTab).toHaveBeenCalledWith('restored-tab');
         expect(workspace.restoreCanonicalAnnotationRecovery).toHaveBeenCalledWith({version: 1});
+    });
+
+    it('does not apply recovery when the reopened working copy revision changed', async () => {
+        const restoreCanonicalAnnotationRecovery = vi.fn();
+        const mismatchedSnapshot = {
+            ...createWorkspaceAutomationStateSnapshot({
+                originalPath: requireDocumentRef('/documents/draft.pdf'),
+                workingCopyPath: requireDocumentRef('/tmp/working/draft.pdf'),
+            }),
+            documentIdentity: {
+                version: 1 as const,
+                token: requireDocumentRevisionToken('revision-2'),
+                documentRef: requireDocumentRef('/tmp/working/draft.pdf'),
+                authority: 'electron-working-copy' as const,
+                contentRevision: 2,
+                mintedAt: requireEpochMs(123),
+            },
+        };
+        const workspace = createWorkspaceExposeFixture({
+            waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),
+            restoreCanonicalAnnotationRecovery,
+            getAutomationStateSnapshot: () => mismatchedSnapshot,
+        });
+        const sourcePath = requireDocumentRef('/documents/draft.pdf');
+        const workingCopyPath = requireDocumentRef('/tmp/working/draft.pdf');
+        const failedPaths = await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
+            layout: {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            },
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [{
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
+                fileName: 'draft.pdf',
+                sourceRef: sourcePath,
+                workingCopyRef: workingCopyPath,
+                isDirty: true,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+                annotationRecovery: {
+                    artifactId: 'recovery-1',
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: workingCopyPath,
+                    workingByteRevision: 'revision-1',
+                    annotationMutationGeneration: 4,
+                    payload: {version: 1},
+                },
+            }],
+        }, {
+            tabs: ref<ITab[]>([{
+                id: requireTabId('tab-1'),
+                fileName: 'draft.pdf',
+                originalPath: sourcePath,
+                documentInstanceId: requireDocumentInstanceId('document-1'),
+                isDirty: true,
+                isDjvu: false,
+            }]),
+            workspaceRefs: ref(new Map([[
+                requireTabId('tab-1'),
+                workspace,
+            ]])),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab: vi.fn().mockResolvedValue(true),
+            activateTab: vi.fn(),
+        });
+
+        expect(failedPaths).toEqual([sourcePath]);
+        expect(restoreCanonicalAnnotationRecovery).not.toHaveBeenCalled();
     });
 
     it('reopens a clean checkpoint through the source path to restore its process registration', async () => {

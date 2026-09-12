@@ -397,6 +397,10 @@ export function createDeferredWorkspaceExposeProxy(
             }
         },
         getAutomationStateSnapshot: () => deps.getMounted()?.getAutomationStateSnapshot() ?? {
+            // An unmounted workspace holds no bytes, so it can prove no
+            // revision identity. Callers that fence on identity must treat
+            // this as a mismatch rather than as an unrestricted document.
+            documentIdentity: null,
             annotationComments: [],
             annotationCommentsStatus: 'loading',
             annotationInventory: null,
