@@ -816,6 +816,23 @@ describe('windows test run coordinator', () => {
         expect(await exists(harness.layout.leaseFile)).toBe(true);
     });
 
+    it('retains the lease when a forced teardown has no stopped acknowledgement', async () => {
+        const harness = await createHarness({utmctl: createFakeUtmctl({cloneStatusSequence: Array.from({length: 8}, () => 'started')})});
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.failures).toContainEqual(expect.objectContaining({
+            outcome: 'infrastructure-failed',
+            phase: 'tearing-down',
+            reason: expect.stringContaining('did not acknowledge stopped status'),
+        }));
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+        expect(await exists(windowsTestRunLayout(harness.layout.runsDir, RUN_ID).summaryFile)).toBe(true);
+        expect(harness.utmctl.calls).toContain(`stop force ${CLONE_VM_ID}`);
+        expect(harness.utmctl.calls).not.toContain(`delete ${CLONE_VM_ID}`);
+    });
+
     it('retains a failed clone for inspection while the retention budget allows it', async () => {
         const harness = await createHarness({
             maxFailedClones: 2,
