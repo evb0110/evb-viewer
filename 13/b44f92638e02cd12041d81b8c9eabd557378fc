@@ -1,0 +1,27 @@
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_ce9a877ed068d3::t_5019cca61ad419 18-21,55-57
+  s_ce9a877ed068d3::t_2d346398b7c393 22,72,76-79,97,119,144,180,222,232-254
+  s_ce9a877ed068d3::t_ce97173d2682ff 54,255-256
+electron/bootstrap/mainProcess.ts
+  s_ce9a877ed068d3::t_5bc8c20972e398 36,565-567,569
+  s_ce9a877ed068d3::t_5340dab666b19a 37,568
+electron/bootstrap/requestShutdownSaveFlush.ts
+  s_ce9a877ed068d3::t_5bc8c20972e398 44-48,53
+  s_ce9a877ed068d3::t_9f8360a15a1e5a 136-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "13b44f92638e02cd12041d81b8c9eabd557378fc",
+  "prompts": {},
+  "sessions": {
+    "s_ce9a877ed068d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a097cc-ce47-7f03-bcdc-5ff0d0fa87dd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
