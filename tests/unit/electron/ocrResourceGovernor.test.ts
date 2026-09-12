@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     },
     brokerAcquire: vi.fn(),
     brokerCancelOwner: vi.fn(),
+    brokerCancelPendingOwner: vi.fn(),
     brokerLeaseRelease: vi.fn(),
 }));
 
@@ -37,6 +38,7 @@ vi.mock('@electron/resources/jobBroker', async (importOriginal) => ({
     mainJobBroker: {
         acquire: mocks.brokerAcquire,
         cancelOwner: mocks.brokerCancelOwner,
+        cancelPendingOwner: mocks.brokerCancelPendingOwner,
     },
 }));
 
@@ -100,7 +102,7 @@ describe('ocr resource governor', () => {
 
         ocrResourceGovernor.cancelPendingForJob('job-uncertain', 'worker termination is uncertain');
 
-        expect(mocks.brokerCancelOwner).toHaveBeenCalledWith(
+        expect(mocks.brokerCancelPendingOwner).toHaveBeenCalledWith(
             'job-uncertain',
             'worker termination is uncertain',
         );

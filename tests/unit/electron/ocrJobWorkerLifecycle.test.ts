@@ -83,7 +83,7 @@ function createFixture() {
         nativeChildren: new Map(),
         nativeChildProtocolUnsafe: false,
         physicalFinalized: false,
-        brokeredResourcesReleased: false,
+        workerAdmissionReleased: false,
         discardPendingCompletionResult: false,
     });
     const activeJobs = new Map<string, IOcrActiveJob>([[
@@ -155,7 +155,7 @@ describe('OCR worker lifecycle physical ownership', () => {
         vi.useRealTimers();
     });
 
-    it('releases brokered resources after worker exit until delayed native-child cleanup proves exit', async () => {
+    it('retains native resource leases until delayed native-child cleanup proves exit', async () => {
         const fixture = createFixture();
         let proveChildExit!: (proven: boolean) => void;
         const cleanup = vi.fn(() => new Promise<boolean>(resolve => {
@@ -196,13 +196,14 @@ describe('OCR worker lifecycle physical ownership', () => {
         expect(cleanup).toHaveBeenCalledTimes(1);
         expect(fixture.activeJobs.has(fixture.job.scopedJobId)).toBe(true);
         expect(fixture.release).toHaveBeenCalledTimes(1);
-        expect(fixture.releaseJob).toHaveBeenCalledWith(fixture.job.scopedJobId);
+        expect(fixture.releaseJob).not.toHaveBeenCalled();
         expect(fixture.onFinalizeActiveJob).not.toHaveBeenCalled();
 
         proveChildExit(true);
         await flushBarriers();
         expect(fixture.activeJobs.has(fixture.job.scopedJobId)).toBe(false);
         expect(fixture.release).toHaveBeenCalledTimes(1);
+        expect(fixture.releaseJob).toHaveBeenCalledWith(fixture.job.scopedJobId);
         expect(fixture.onFinalizeActiveJob).toHaveBeenCalledTimes(1);
 
         controller.markWorkerExit(fixture.job.scopedJobId, fixture.worker, 0);
@@ -231,7 +232,7 @@ describe('OCR worker lifecycle physical ownership', () => {
 
         expect(fixture.activeJobs.has(fixture.job.scopedJobId)).toBe(true);
         expect(fixture.release).toHaveBeenCalledTimes(1);
-        expect(fixture.releaseJob).toHaveBeenCalledWith(fixture.job.scopedJobId);
+        expect(fixture.releaseJob).not.toHaveBeenCalled();
         expect(fixture.worker.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
             type: 'native-child-register-ack',
             accepted: false,

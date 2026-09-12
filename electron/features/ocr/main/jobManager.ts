@@ -479,7 +479,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         nativeChildren: new Map(),
         nativeChildProtocolUnsafe: false,
         physicalFinalized: false,
-        brokeredResourcesReleased: false,
+        workerAdmissionReleased: false,
         discardPendingCompletionResult: false,
     };
     activeJobs.set(job.scopedJobId, activeJob);

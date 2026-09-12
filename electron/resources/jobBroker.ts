@@ -249,7 +249,7 @@ export class JobBroker {
         return true;
     }
 
-    cancelOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
+    cancelPendingOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
         for (let index = this.queue.length - 1; index >= 0; index -= 1) {
             const queued = this.queue[index];
             if (queued?.request.ownerId !== ownerId) {
@@ -259,6 +259,10 @@ export class JobBroker {
             queued.removeAbortListener();
             queued.reject(new Error(reason));
         }
+    }
+
+    cancelOwner(ownerId: string, reason = `Resource requests canceled for owner ${ownerId}`) {
+        this.cancelPendingOwner(ownerId, reason);
         // Cancelling an owner has to drop its granted leases too. The holder is
         // being torn down and will never call `release()`, so leaving the leases
         // active would hold the resources until the process exits.
