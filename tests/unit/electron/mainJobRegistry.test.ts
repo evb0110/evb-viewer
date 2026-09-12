@@ -49,6 +49,13 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         expect(snapshotMainOperations()).toHaveLength(1); cancelHook.resolve(undefined); await handle.settled;
         expect(snapshotMainOperations()).toEqual([]); await jobs.clearForTests();
     });
+    it('does not run a job when a start signal is already aborted', async () => {
+        const jobs = registry(); const actor = {sender: sender(13)}; const signal = new AbortController(); const run = vi.fn(async () => ({value: 'unexpected'}));
+        signal.abort(new Error('already canceled'));
+        const handle = jobs.start({jobId: 'pre-canceled', owner: actor, operation: {kind: 'abortable-work'}, initialProgress: initial('pre-canceled'), signals: [signal.signal], run});
+        await expect(handle.terminal).resolves.toMatchObject({status: 'canceled', error: {message: 'already canceled'}});
+        expect(run).not.toHaveBeenCalled(); await handle.settled; expect(snapshotMainOperations()).toEqual([]); await jobs.clearForTests();
+    });
     it('requires the complete owner tuple and multiplexes renderer listeners', async () => {
         const jobs = registry(); const ownerSender = sender(2); const runner = deferred<IResult>();
         const actor: IMainJobActor = {sender: ownerSender, ownerId: 'tab-a', documentInstanceId: 'document-a' as TDocumentInstanceId, documentRevision: 'revision-a'};

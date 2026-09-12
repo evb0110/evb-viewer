@@ -433,7 +433,16 @@ export function createMainJobRegistry<
                 fail: (cause, progress) => finish(record, 'failed', cause, progress),
             },
         };
-        void Promise.resolve().then(() => startOptions.run(context))
+        void Promise.resolve().then(() => {
+            // A job cancelled between registration and its first tick must not
+            // run: whoever cancelled it already released its resources and saw
+            // it as canceled. The catch below maps this to the same outcome as
+            // a cancellation that lands mid-run.
+            if (controller.signal.aborted) {
+                throw controller.signal.reason;
+            }
+            return startOptions.run(context);
+        })
             .then(result => finish(record, 'completed', result))
             .catch(error => finish(record, controller.signal.aborted ? 'canceled' : 'failed', error))
             .finally(async () => {
