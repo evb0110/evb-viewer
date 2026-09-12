@@ -192,8 +192,11 @@ async function inspectMrcObjectTable(input: {
                 // The object table of a full book (hundreds of pages, thousands
                 // of objects) runs to many megabytes; the 256 KB default
                 // silently truncates it and disables compact reuse for the
-                // whole document.
+                // whole document. A table that still overruns this ceiling has
+                // to be reported rather than parsed: truncated JSON fails as a
+                // syntax error that says nothing about the real cause.
                 maxStdoutBytes: 268_435_456,
+                rejectOnStdoutTruncation: true,
             },
         );
         const objects = qpdfObjectTable(JSON.parse(result.stdout) as unknown);

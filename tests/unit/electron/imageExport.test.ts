@@ -74,7 +74,7 @@ const mocks = vi.hoisted(() => ({
     }>,
 }));
 
-// Mirrors the production bounded stdout capture in appendTextChunkWithByteCap:
+// Mirrors the production bounded stdout capture in createTextChunkAccumulator:
 // every byte is delivered, but the retained buffer keeps only a bounded tail.
 const MOCK_NATIVE_MAX_STDOUT_BYTES = 262_144;
 

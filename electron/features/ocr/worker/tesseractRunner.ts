@@ -16,7 +16,7 @@ import {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
 import {createTesseractFinalize} from '@electron/features/ocr/main/createTesseractFinalize';
 import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -191,8 +191,7 @@ export async function runOcrFileBased(
                 : Promise.reject(new Error('Tesseract spawned without a valid process id'));
         void registrationPromise?.catch(() => undefined);
 
-        let stderr = '';
-        let stderrTruncated = false;
+        const stderr = createTextChunkAccumulator(FILE_BASED_OCR_MAX_STDERR_BYTES);
         let timedOut = false;
         let aborted = false;
         const handles = {
@@ -358,15 +357,14 @@ export async function runOcrFileBased(
         proc.stdout.resume();
 
         proc.stderr.on('data', (data: Buffer) => {
-            const appended = appendTextChunkWithByteCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
-            stderr = appended.text;
-            stderrTruncated = stderrTruncated || appended.truncated;
+            stderr.append(data);
         });
 
         proc.on('close', async (code, closeSignal) => {
-            const stderrSummary = stderrTruncated
-                ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                : stderr;
+            const stderrText = stderr.text();
+            const stderrSummary = stderr.truncated
+                ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderrText}`
+                : stderrText;
             const closeFailureMessage = getCloseFailureMessage(code, closeSignal, stderrSummary);
             if (closeFailureMessage) {
                 if (terminationPromise) {

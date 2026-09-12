@@ -15,7 +15,7 @@ import {
     prependDirectoryToPath,
 } from '@electron/native-tools/toolRegistry';
 import { getErrorMessage } from '@electron/utils/error';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -220,28 +220,22 @@ function createCommandRunContext(command: string, args: string[], options: IRunC
 }
 
 function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: number) {
-    let stdout = '';
-    let stderr = '';
-    let stdoutTruncated = false;
-    let stderrTruncated = false;
+    const stdout = createTextChunkAccumulator(maxStdoutBytes);
+    const stderr = createTextChunkAccumulator(maxStderrBytes);
 
     return {
         appendStdout(data: Buffer) {
-            const appended = appendTextChunkWithByteCap(stdout, data, maxStdoutBytes);
-            stdout = appended.text;
-            stdoutTruncated = stdoutTruncated || appended.truncated;
+            stdout.append(data);
         },
         appendStderr(data: Buffer) {
-            const appended = appendTextChunkWithByteCap(stderr, data, maxStderrBytes);
-            stderr = appended.text;
-            stderrTruncated = stderrTruncated || appended.truncated;
+            stderr.append(data);
         },
         snapshot() {
             return {
-                stdout,
-                stderr,
-                stdoutTruncated,
-                stderrTruncated,
+                stdout: stdout.text(),
+                stderr: stderr.text(),
+                stdoutTruncated: stdout.truncated,
+                stderrTruncated: stderr.truncated,
             };
         },
     };
@@ -541,7 +535,6 @@ export async function runNativeCommand(
             if (!text) {
                 return;
             }
-            output.appendStdout(Buffer.from(text, 'utf8'));
             try {
                 onStdout?.(text);
             } catch (error) {
@@ -554,7 +547,6 @@ export async function runNativeCommand(
             if (!text) {
                 return;
             }
-            output.appendStderr(Buffer.from(text, 'utf8'));
             try {
                 onStderr?.(text);
             } catch (error) {
@@ -563,8 +555,16 @@ export async function runNativeCommand(
                 ));
             }
         };
-        stdoutDataHandler = (data: Buffer) => appendDecodedStdout(stdoutDecoder.write(data));
-        stderrDataHandler = (data: Buffer) => appendDecodedStderr(stderrDecoder.write(data));
+        // The raw chunk goes to the capture and the decoder separately, rather
+        // than the capture re-encoding what the decoder just decoded.
+        stdoutDataHandler = (data: Buffer) => {
+            output.appendStdout(data);
+            appendDecodedStdout(stdoutDecoder.write(data));
+        };
+        stderrDataHandler = (data: Buffer) => {
+            output.appendStderr(data);
+            appendDecodedStderr(stderrDecoder.write(data));
+        };
         proc.stdout.on('data', stdoutDataHandler);
         proc.stderr.on('data', stderrDataHandler);
 
