@@ -149,6 +149,66 @@ describe('two-target document transition recovery', () => {
         await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
     });
 
+    it.each([
+        {
+            name: 'an unknown version',
+            journal: {
+                version: 99,
+                entries: [],
+            },
+        },
+        {
+            name: 'a malformed sync-required entry',
+            journal: {
+                version: 1,
+                mode: 'save-as',
+                state: 'sync-required',
+                originalBackupPath: null,
+                originalExistedBefore: true,
+                nextRevisionToken: requireDocumentRevisionToken('drt1:test:next'),
+                syncRequiredReason: '',
+            },
+        },
+        {
+            name: 'a save-as entry without its original existence witness',
+            journal: {
+                version: 1,
+                mode: 'save-as',
+                state: 'prepared',
+                originalBackupPath: null,
+                nextRevisionToken: requireDocumentRevisionToken('drt1:test:next'),
+            },
+        },
+        {
+            name: 'a save transition marked sync-required',
+            journal: {
+                version: 1,
+                mode: 'save',
+                state: 'sync-required',
+                originalBackupPath: 'original.backup.pdf',
+                nextRevisionToken: requireDocumentRevisionToken('drt1:test:next'),
+            },
+        },
+    ])('preserves evidence and fails closed for $name', async ({journal}) => {
+        root = await mkdtemp(join(tmpdir(), 'evb-two-target-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        const journalPath = `${workingCopyPath}.evb-two-target-transition.json`;
+        const journalWithPaths = {
+            ...journal,
+            workingCopyPath,
+            originalPath: join(root, 'original.pdf'),
+        };
+        const journalText = JSON.stringify(journalWithPaths);
+        await writeFile(journalPath, journalText);
+
+        await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_INVALID',
+            journalPath,
+        });
+        await expect(readFile(journalPath, 'utf8')).resolves.toBe(journalText);
+    });
+
     it.skipIf(process.platform === 'win32')('leaves a real external replacement in place after a crash', async () => {
         const {
             workingCopyPath,

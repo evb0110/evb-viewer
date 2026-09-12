@@ -53,6 +53,7 @@ import {
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
 import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/documentRevisionSidecar';
+import {readPendingSaveAsWorkingCopySync} from '@electron/file-access/recoverTwoTargetDocumentTransition';
 import {schedulePageIdentityStoreInitialization} from '@electron/file-access/pageIdentityStore';
 import {
     startBackgroundWorkingCopyMaterialization,
@@ -415,7 +416,8 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
     }
     let mapping = getWorkingCopyOriginalPath(normalizedWorkingPath, senderWebContentsId);
     if (!mapping) {
-        const pendingSync = readWorkingCopySyncRequiredJournalEntry(normalizedWorkingPath);
+        const pendingSync = readWorkingCopySyncRequiredJournalEntry(normalizedWorkingPath)
+            ?? await readPendingSaveAsWorkingCopySync(normalizedWorkingPath);
         if (
             pendingSync?.originalPath
             && (
