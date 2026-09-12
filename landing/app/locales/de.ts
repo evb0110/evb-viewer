@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Dokumentarbeitsbereich für Browser und Desktop. Öffne lokale PDFs, DjVu-Dateien und Bilder im Browser; installiere die Desktop-App für OCR mit durchsuchbaren PDFs, umfangreichere native Arbeitsabläufe, EVB Assistant über Codex und optionale lokale MCP-Unterstützung.',
+        description: 'Offline-Werkzeuge zum Bereinigen roher Scans und von DjVu-Dateien, für OCR, Annotationen und PDF-Export auf macOS, Windows und Linux. Kostenlos und unter der MIT-Lizenz.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -26,13 +26,13 @@ export default {
         seo: {
             title: 'EVB Viewer Web-App und Desktop-Downloads',
             ogTitle: 'EVB Viewer für Dokumentarbeit im Web und auf dem Desktop',
-            ogDescription: 'Nutze EVB Viewer im Browser für lokale PDF-, DjVu- und Bildarbeiten oder installiere die Desktop-App für OCR mit durchsuchbaren PDFs, umfangreichere native Arbeitsabläufe, EVB Assistant über Codex und optionale lokale MCP-Unterstützung.',
+            ogDescription: 'Verwandle rohe Scans und DjVu-Dateien mit Offline-Bereinigung, OCR, Annotationen und Export auf macOS, Windows und Linux in durchsuchbare, annotierbare PDFs. Kostenlos und unter der MIT-Lizenz.',
         },
         hero: {
-            badge: 'Browser-App + Desktop-Builds',
-            title: 'PDF, DjVu, Bilder',
-            subtitle: 'Öffne lokale PDFs, DjVu-Dateien und Bilder im Browser. Nutze Desktop-Builds für OCR mit durchsuchbaren PDFs und größere Zusammenführungen.',
-            aiNote: 'EVB Assistant integriert dein ChatGPT/OpenAI-Abonnement über Codex im Hintergrund. Technische Nutzer können außerdem einen lokalen MCP-Server bereitstellen.',
+            badge: 'Scan-Bereinigung, OCR und PDF-Export',
+            title: 'Rohe Scans in durchsuchbare PDFs verwandeln',
+            subtitle: 'EVB Viewer bereinigt rohe Scans und DjVu-Dateien, führt OCR aus und erstellt daraus durchsuchbare, annotierbare PDFs für Archivare, Bibliothekare, Historiker, Philologen und Menschen, die persönliche Scanbibliotheken pflegen. Es funktioniert offline auf macOS, Windows und Linux. Es ist kostenlos und steht unter der MIT-Lizenz.',
+            aiNote: 'EVB Assistant ist optional und standardmäßig deaktiviert. Wenn du ihn aktivierst, verwendet er dein eigenes Codex- oder Claude-Konto und kann einen lokalen MCP-Server bereitstellen; Scan-Bereinigung, OCR, Suche und Export verwenden ihn nie.',
             downloadFor: 'Für {platform} herunterladen',
             downloadForArch: 'Für {platform} ({arch}) herunterladen',
             downloadInstaller: '{installerLabel} herunterladen',
@@ -146,9 +146,9 @@ export default {
             ogDescription: 'Sieh, was EVB Viewer heute im Browser abdeckt und was die Desktop-App für OCR mit durchsuchbaren PDFs, native Betriebssystemintegration und größere Aufgaben ergänzt.',
         },
         hero: {
-            badge: 'Funktionsübersicht',
-            title: 'Ein gemeinsamer Dokumentarbeitsbereich mit der richtigen Laufzeit für die Aufgabe.',
-            subtitle: 'EVB Viewer öffnet lokale PDF-, DjVu- und Bilddateien im Browser. Die Desktop-App ergänzt OCR mit durchsuchbaren PDFs, native Betriebssystemintegration und mehr Raum für große Zusammenführungs- und Exportaufgaben.',
+            badge: 'Native Scan-Bereinigung und OCR',
+            title: 'Rohe Scans bereinigen, dann das PDF durchsuchen und annotieren',
+            subtitle: 'EVB Viewer funktioniert offline auf macOS, Windows und Linux. Die native Rust-Engine richtet Seiten gerade aus, entfernt kleine Flecken, binarisiert, beschneidet und teilt Doppelseiten. Die Tesseract-OCR mit tessdata-best-Modellen unterstützt 30 Sprachen. Der Ablauf ist für Archivare, Bibliothekare, Historiker, Philologen und Menschen gedacht, die persönliche Scanbibliotheken pflegen.',
         },
         capabilities: {
             heading: 'Kernfunktionen des Arbeitsbereichs',

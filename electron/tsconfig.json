@@ -1,5 +1,5 @@
 {
-    "extends": ["../tsconfig.base.json", "../tsconfig.workspace-paths.json"],
+    "extends": ["../tsconfig.base.json"],
     "compilerOptions": {
         "target": "ESNext",
         "module": "ESNext",

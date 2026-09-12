@@ -32,7 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { collectPrePushWork } from './check-commit-attribution.mjs';
+import { collectPrePushWork } from './check-publication-policy.mjs';
 import { getValidationImpactPolicy } from './release/policy.mjs';
 import { matchesChangedAreaPattern } from './ci/classify-changed-areas.mjs';
 import { withNodeHeap } from './typecheckNodeEnv.mjs';

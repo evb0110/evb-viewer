@@ -5,7 +5,7 @@ refs_file="$(mktemp -t evb-pre-push)"
 trap 'rm -f "$refs_file"' EXIT
 cat >"$refs_file"
 
-node scripts/check-commit-attribution.mjs --pre-push "$1" "${2-}" <"$refs_file"
+node scripts/check-publication-policy.mjs --pre-push "$1" "${2-}" <"$refs_file"
 
 if [ "${EVB_SKIP_PRE_PUSH_VERIFICATION:-}" = "1" ]; then
     echo '[pre-push] Affected typecheck skipped via EVB_SKIP_PRE_PUSH_VERIFICATION=1.' >&2

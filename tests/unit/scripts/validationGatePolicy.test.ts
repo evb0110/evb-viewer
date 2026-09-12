@@ -434,7 +434,7 @@ describe('validation gate policy', () => {
 
     it('does no work for documentation-only changes without lintable files', () => {
         const changes = {
-            files: ['docs/releasing.md'],
+            files: ['docs/contributing/releasing.md'],
             known: true,
             reason: 'explicit-files',
         };

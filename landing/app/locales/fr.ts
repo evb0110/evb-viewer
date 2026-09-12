@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Espace de travail documentaire pour navigateur et bureau. Ouvrez des PDF locaux, des fichiers DjVu et des images dans le navigateur ; installez l’application de bureau pour l’OCR de PDF recherchables, les flux natifs plus lourds, EVB Assistant via Codex et la prise en charge optionnelle d’un MCP local.',
+        description: 'Outils hors ligne pour nettoyer des scans bruts et des fichiers DjVu, effectuer l\'OCR, ajouter des annotations et exporter des PDF sur macOS, Windows et Linux. Gratuit et sous licence MIT.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -26,13 +26,13 @@ export default {
         seo: {
             title: 'Application web EVB Viewer et téléchargements bureau',
             ogTitle: 'EVB Viewer pour le travail documentaire web et bureau',
-            ogDescription: 'Utilisez EVB Viewer dans le navigateur pour travailler avec des PDF, DjVu et images locaux, ou installez l’application de bureau pour l’OCR de PDF recherchables, les flux natifs plus lourds, EVB Assistant via Codex et la prise en charge optionnelle d’un MCP local.',
+            ogDescription: 'Transformez des scans bruts et des fichiers DjVu en PDF recherchables et annotables grâce au nettoyage, à l\'OCR, à l\'annotation et à l\'export hors ligne sur macOS, Windows et Linux. Gratuit et sous licence MIT.',
         },
         hero: {
-            badge: 'Application navigateur + builds bureau',
-            title: 'PDF, DjVu, images',
-            subtitle: 'Ouvrez des PDF locaux, des fichiers DjVu et des images dans le navigateur. Utilisez les builds bureau pour l’OCR de PDF recherchables et les gros travaux de fusion.',
-            aiNote: 'EVB Assistant s’intègre à votre abonnement ChatGPT/OpenAI via Codex en arrière-plan. Les utilisateurs techniques peuvent aussi exposer un serveur MCP local.',
+            badge: 'Nettoyage des scans, OCR et export PDF',
+            title: 'Transformez des scans bruts en PDF recherchables',
+            subtitle: 'EVB Viewer nettoie les scans bruts et les fichiers DjVu, effectue l\'OCR et les transforme en PDF recherchables et annotables pour les archivistes, bibliothécaires, historiens, philologues et personnes qui entretiennent des bibliothèques personnelles de scans. Il fonctionne hors ligne sur macOS, Windows et Linux. Il est gratuit et sous licence MIT.',
+            aiNote: 'EVB Assistant est optionnel et désactivé par défaut. Si vous l\'activez, il utilise votre propre compte Codex ou Claude et peut exposer un serveur MCP local ; le nettoyage des scans, l\'OCR, la recherche et l\'export ne l\'utilisent jamais.',
             downloadFor: 'Télécharger pour {platform}',
             downloadForArch: 'Télécharger pour {platform} ({arch})',
             downloadInstaller: 'Télécharger {installerLabel}',
@@ -146,9 +146,9 @@ export default {
             ogDescription: 'Voyez ce qu’EVB Viewer couvre aujourd’hui dans le navigateur et ce que l’application de bureau ajoute pour l’OCR de PDF recherchables, l’intégration native au système et les gros travaux.',
         },
         hero: {
-            badge: 'Aperçu des fonctionnalités',
-            title: 'Un espace de travail documentaire partagé, avec le bon environnement pour chaque tâche.',
-            subtitle: 'EVB Viewer ouvre les fichiers PDF, DjVu et images locaux dans le navigateur. L’application de bureau ajoute l’OCR de PDF recherchables, l’intégration native au système et plus de marge pour les gros travaux de fusion/export.',
+            badge: 'Nettoyage natif des scans et OCR',
+            title: 'Nettoyez les scans bruts, puis recherchez et annotez le PDF',
+            subtitle: 'EVB Viewer fonctionne hors ligne sur macOS, Windows et Linux. Son moteur natif en Rust redresse les pages, supprime les petites taches, binarise, recadre et sépare les doubles pages. L\'OCR Tesseract avec les modèles tessdata-best prend en charge 30 langues. Ce processus s\'adresse aux archivistes, bibliothécaires, historiens, philologues et personnes qui entretiennent des bibliothèques personnelles de scans.',
         },
         capabilities: {
             heading: 'Capacités principales de l’espace de travail',
