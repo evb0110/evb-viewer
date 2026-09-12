@@ -1,0 +1,31 @@
+electron/resources/jobBroker.ts
+  s_55192cce6e8242::t_aba1018fd367eb 3,8-11,267,270,272,327-333
+  s_55192cce6e8242::t_e0542958b0b8f7 326
+  s_247a07a16a61fa::t_12cc8f7f7f6e07 12-13,16,80-83,262-266,268-269,271,273-278,294,309,334-343
+tests/unit/electron/jobBroker.test.ts
+  s_247a07a16a61fa::t_9c7e5557dc2c21 9,456-503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8fcd0e20e8bfd3622177d02cd49dbe1d4131bc25",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_55192cce6e8242": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09501-87ee-7501-834c-888b3c5ddb7a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
