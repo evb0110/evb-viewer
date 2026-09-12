@@ -1,0 +1,24 @@
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_b764e6b6dfdf9d::t_fcd00d4c90a70d 366-372,392
+  s_b764e6b6dfdf9d::t_6f170942ff7c4b 391
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_b764e6b6dfdf9d::t_0cb842f686c2d7 831-832
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_b764e6b6dfdf9d::t_6f170942ff7c4b 1246,1254-1285,1297-1302,1306,1311,1325,1330
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5c97e93c9518e0ccd02dc87685cf95db2f631fec",
+  "prompts": {},
+  "sessions": {
+    "s_b764e6b6dfdf9d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a095bb-d25d-7283-991c-cfa52c8a0d39",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
