@@ -496,10 +496,27 @@ fn native_failure(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::NativeFailure, message)
 }
 
-#[derive(Clone, Eq, PartialEq)]
-struct FileIdentity {
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct FileIdentity {
     volume: u64,
     index: u64,
+}
+
+pub fn existing_file_identity(path: &Path) -> io::Result<Option<FileIdentity>> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    file_identity(&file)
 }
 
 #[cfg(unix)]

@@ -1,7 +1,7 @@
 //! Stream and staged raster input coordination.
 use crate::io::{copy_bounded_cancelable, raster, BoundedIoError};
 use crate::protocol::manifest_v3::normalized_path;
-use evb_native_support::{NativeError, NativeErrorCode};
+use evb_native_support::{output::existing_file_identity, NativeError, NativeErrorCode};
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsString;
@@ -128,7 +128,12 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
     let mut input_files = HashSet::new();
     for path in &paths.input_paths {
         input_paths.insert(resolved_manifest_path(path));
-        if let Some(identity) = existing_file_identity(path) {
+        if let Some(identity) = existing_file_identity(path).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::Io,
+                format!("Unable to inspect input path {}: {error}", path.display()),
+            )
+        })? {
             input_files.insert(identity);
         }
     }
@@ -137,7 +142,14 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
     for path in &paths.destination_paths {
         let resolved = resolved_manifest_path(path);
         if input_paths.contains(&resolved)
-            || existing_file_identity(path).is_some_and(|identity| input_files.contains(&identity))
+            || existing_file_identity(path)
+                .map_err(|error| {
+                    NativeError::new(
+                        NativeErrorCode::Io,
+                        format!("Unable to inspect output path {}: {error}", path.display()),
+                    )
+                })?
+                .is_some_and(|identity| input_files.contains(&identity))
         {
             return Err(invalid(format!(
                 "Output destination aliases an input file: {}",
@@ -165,6 +177,12 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
         }
         if !destination_paths.insert(resolved)
             || existing_file_identity(path)
+                .map_err(|error| {
+                    NativeError::new(
+                        NativeErrorCode::Io,
+                        format!("Unable to inspect output path {}: {error}", path.display()),
+                    )
+                })?
                 .is_some_and(|identity| !destination_files.insert(identity))
         {
             return Err(invalid(format!(
@@ -202,33 +220,6 @@ fn resolved_manifest_path(path: &Path) -> PathBuf {
         };
         ancestor = parent;
     }
-}
-
-#[cfg(unix)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ExistingFileIdentity {
-    device: u64,
-    inode: u64,
-}
-
-#[cfg(unix)]
-fn existing_file_identity(path: &Path) -> Option<ExistingFileIdentity> {
-    use std::os::unix::fs::MetadataExt;
-    fs::metadata(path)
-        .ok()
-        .map(|metadata| ExistingFileIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        })
-}
-
-#[cfg(not(unix))]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ExistingFileIdentity;
-
-#[cfg(not(unix))]
-fn existing_file_identity(_path: &Path) -> Option<ExistingFileIdentity> {
-    None
 }
 
 pub(crate) fn stream_materialized_path(page: &StagedPageDescriptor, index: usize) -> PathBuf {
