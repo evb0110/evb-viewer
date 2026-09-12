@@ -73,6 +73,12 @@ and runs no service of its own. Cleanup, OCR, search, export, and annotation
 never use it, so the app is fully usable with the assistant switched off for
 good.
 
+Neither provider needs a desktop app. Codex needs nothing installed at all: if
+your machine has no `codex`, the app fetches a pinned release and checks it
+against a checked-in checksum. Claude runs through the Claude Code CLI, so
+install that and sign in there first. See
+[the assistant](docs/user/assistant.md) for the setup and what to ask it.
+
 The same capabilities are available to outside agents. With external MCP
 enabled, the running app exposes a local Model Context Protocol server with
 around 28 document tools, so Claude Code, Cursor, or any MCP client can read
@@ -134,7 +140,8 @@ for the hosted browser build is deliberately disabled.
 - [Project site](https://evb-viewer.com) and the
   [browser workspace](https://web.evb-viewer.com)
 - [Formats, runtimes, and languages](docs/user/formats-and-languages.md)
-- [Connecting an MCP client](docs/user/mcp-clients.md)
+- [The assistant](docs/user/assistant.md) and
+  [connecting an MCP client](docs/user/mcp-clients.md)
 - [Architecture](ARCHITECTURE.md) and [design principles](docs/architecture/design-principles.md)
 - [Development and checks](docs/contributing/development.md)
 - [Release process](docs/contributing/releasing.md)
