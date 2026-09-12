@@ -259,7 +259,7 @@ describe('runNativeCommand', () => {
         });
     });
 
-    it('rejects stdout truncation when requested even for successful exits', async () => {
+    it('rejects stdout truncation by default even for successful exits', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
@@ -267,7 +267,6 @@ describe('runNativeCommand', () => {
         const resultPromise = runNativeCommand('/bin/tool', [], {
             commandLabel: 'fixture-tool',
             maxStdoutBytes: 3,
-            rejectOnStdoutTruncation: true,
         });
         const rejection: Promise<Error> = resultPromise.then(
             () => {
@@ -279,6 +278,25 @@ describe('runNativeCommand', () => {
         proc.emit('close', 0, null);
 
         await expect(rejection).resolves.toMatchObject({message: 'fixture-tool stdout exceeded 3 bytes'});
+    });
+
+    it('allows stdout truncation when explicitly requested', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            maxStdoutBytes: 3,
+            rejectOnStdoutTruncation: false,
+        });
+        proc.stdout.emit('data', Buffer.from('abcdef'));
+        proc.emit('close', 0, null);
+
+        await expect(resultPromise).resolves.toEqual({
+            stdout: 'ef',
+            stderr: '',
+            exitCode: 0,
+        });
     });
 
     it('terminates and cleans up listeners on timeout', async () => {
