@@ -1467,10 +1467,12 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
         if (!stored) {
             throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
         }
+        // Keep the durable record until auxiliary recovery bytes retire. A
+        // failed cleanup must leave the claim discoverable for the next retry.
+        await removeAnnotationRecoveryArtifacts(stored.checkpoint);
         await writeStoredWorkspaceJournal(journal.records.filter(record => (
             record.ownerWebContentsId !== stored.ownerWebContentsId
         )));
-        await removeAnnotationRecoveryArtifacts(stored.checkpoint);
         releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
         claimedWorkspaceCheckpointOwnerWebContentsIds.delete(stored.ownerWebContentsId);
         lastDurableWorkspaceCheckpoints.delete(stored.ownerWebContentsId);
@@ -1490,13 +1492,15 @@ export function clearWorkspaceCheckpoint() {
             }
             throw error;
         }
-        await writeStoredWorkspaceJournal([]);
+        // Keep the durable records until auxiliary recovery bytes retire. A
+        // failed cleanup must leave every claim discoverable for the next retry.
         await Promise.all([
             ...checkpoints.map(checkpoint => removeAnnotationRecoveryArtifacts(checkpoint.checkpoint)),
             ...journal.records
                 .filter(record => !lastDurableWorkspaceCheckpoints.has(record.ownerWebContentsId))
                 .map(record => removeAnnotationRecoveryArtifacts(record.checkpoint)),
         ]);
+        await writeStoredWorkspaceJournal([]);
         for (const checkpoint of journal.records) {
             releaseRecoveryClaims(checkpoint.ownerWebContentsId, checkpoint.checkpoint);
         }
@@ -1523,10 +1527,12 @@ export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
             if (!stored) {
                 return;
             }
+            // Keep the durable record until auxiliary recovery bytes retire. A
+            // failed cleanup must leave the claim discoverable for the next retry.
+            await removeAnnotationRecoveryArtifacts(stored.checkpoint);
             await writeStoredWorkspaceJournal(journal.records.filter(record => (
                 record.ownerWebContentsId !== stored.ownerWebContentsId
             )));
-            await removeAnnotationRecoveryArtifacts(stored.checkpoint);
             releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
             lastDurableWorkspaceCheckpoints.delete(stored.ownerWebContentsId);
             claimedWorkspaceCheckpointOwnerWebContentsIds.delete(stored.ownerWebContentsId);
