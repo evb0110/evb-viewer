@@ -585,9 +585,14 @@ function toAdmissionSnapshot(admissionSnapshot: {
     };
 }
 
+// A dirty working copy holds edits that were never written to the original, so
+// transferring it without a matching witness would let the next save overwrite
+// a file that changed while EVB was stopped. A clean copy has nothing to lose,
+// so a checkpoint predating the witness may still transfer.
 function matchesStoredWorkingCopy(
     entry: NonNullable<ReturnType<typeof getWorkingCopyBackingEntry>>,
     stored: IStoredWorkingCopy,
+    {requireOriginalFileExpectation}: {requireOriginalFileExpectation: boolean},
 ) {
     return entry.originalPath === stored.originalPath
         && entry.registrationId === stored.registrationId
@@ -601,10 +606,11 @@ function matchesStoredWorkingCopy(
                 && entry.admissionSnapshot.size === BigInt(stored.admissionSnapshot.size)
             )
         )
-        && (
-            stored.originalFileExpectation === undefined
-            || JSON.stringify(entry.originalFileExpectation) === JSON.stringify(stored.originalFileExpectation)
-        )
+        && (!requireOriginalFileExpectation || (
+            stored.originalFileExpectation !== undefined
+            && entry.originalFileExpectation !== undefined
+            && JSON.stringify(entry.originalFileExpectation) === JSON.stringify(stored.originalFileExpectation)
+        ))
         && (
             stored.sourceBackingErrorCode === undefined
             || entry.sourceBackingErrorCode === stored.sourceBackingErrorCode
@@ -1326,10 +1332,15 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 const liveWorkingCopy = storedWorkingCopy
                     ? getWorkingCopyBackingEntry(tab.workingCopyRef, stored.ownerWebContentsId)
                     : null;
-                const transferred = (!storedWorkingCopy || (
-                    liveWorkingCopy !== null
-                    && matchesStoredWorkingCopy(liveWorkingCopy, storedWorkingCopy)
-                )) && claimWorkingCopyOwnership(
+                const canTransfer = storedWorkingCopy
+                    ? liveWorkingCopy !== null
+                        && matchesStoredWorkingCopy(
+                            liveWorkingCopy,
+                            storedWorkingCopy,
+                            {requireOriginalFileExpectation: tab.isDirty},
+                        )
+                    : !tab.isDirty;
+                const transferred = canTransfer && claimWorkingCopyOwnership(
                     tab.workingCopyRef,
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,

@@ -493,6 +493,51 @@ describe('workspace checkpoint store', () => {
         });
     });
 
+    it.each([
+        [
+            'checkpoint metadata is absent',
+            false,
+        ],
+        [
+            'checkpoint metadata has no witness',
+            true,
+        ],
+    ])('does not transfer a legacy dirty registration when $0', async (_description, hasWorkingCopyMetadata) => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.backingEntries.set(workingCopyRef, {
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:sampled-current-source',
+                mtimeMs: 999.5,
+                size: 12,
+            },
+            originalPath: '/documents/draft.pdf',
+            ownerWebContentsId: 11,
+            registrationId: 41,
+            role: 'current',
+        });
+        await writeFile(join(state.userDataPath, 'workspace-checkpoint.json'), JSON.stringify({
+            version: 1,
+            ownerWebContentsId: 11,
+            checkpoint,
+            ...(hasWorkingCopyMetadata ? {workingCopies: [{
+                backingState: 'materialized',
+                originalPath: '/documents/draft.pdf',
+                registrationId: 41,
+                role: 'current',
+                workingCopyRef,
+            }]} : {}),
+        }));
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toEqual(checkpoint);
+        expect(state.restoredOptions.get(workingCopyRef)).toMatchObject({deferOriginalFileExpectation: true});
+        if (hasWorkingCopyMetadata) {
+            expect(state.restoredOptions.get(workingCopyRef)).toMatchObject({backingState: 'materialized'});
+        }
+        expect(state.restoredOptions.get(workingCopyRef)).not.toHaveProperty('originalFileExpectation');
+    });
+
     it('persists the working-copy mapping as canonical source instead of a renderer temp-path hint', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/canonical-draft.pdf');

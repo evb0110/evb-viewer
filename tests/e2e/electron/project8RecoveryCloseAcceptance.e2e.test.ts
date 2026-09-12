@@ -42,6 +42,8 @@ interface IRecoveredSession {
     session: IElectronE2ESession;
 }
 
+interface ICreateRecoveredSessionOptions {replacementSourcePath?: string;}
+
 interface IRecoveryDirtyState {
     [key: string]: unknown;
     fileDirty?: boolean;
@@ -55,7 +57,10 @@ interface IRecoveryAutomationState {
 
 const RECOVERED_ANNOTATION_TEXT = 'Project 8 recovered annotation';
 
-async function createRecoveredSession(label: string): Promise<IRecoveredSession> {
+async function createRecoveredSession(
+    label: string,
+    options: ICreateRecoveredSessionOptions = {},
+): Promise<IRecoveredSession> {
     const pdfPath = await createMultiPageTextFixturePdf(`project8-close-${label}-${Date.now()}.pdf`, 2);
     const sessionName = `e2e-project8-close-${label}-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
@@ -94,6 +99,9 @@ async function createRecoveredSession(label: string): Promise<IRecoveredSession>
         preserveWorkspaceCheckpoint: true,
         crashElectronBeforeStop: true,
     });
+    if (options.replacementSourcePath) {
+        await rename(options.replacementSourcePath, pdfPath);
+    }
     session = await startElectronE2ESession(sessionName, {
         clean: false,
         extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
@@ -206,6 +214,26 @@ describe('Project 8 recovered close decisions', () => {
         session = recovered.session;
         await clickWindowDecision(session, 'Save changes', {waitForClose: true});
         await expect.poll(async () => (await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation, {timeout: 60_000}).toBe(90);
+    }, E2E_TIMEOUT_MS);
+
+    it('rejects Save after the source changes while EVB is stopped', async () => {
+        const replacementSourcePath = await createMultiPageTextFixturePdf(`project8-close-external-${Date.now()}.pdf`, 2);
+        const externalBytes = await readFile(replacementSourcePath);
+        const recovered = await createRecoveredSession('external-replacement', {replacementSourcePath});
+        session = recovered.session;
+        const recoveredWorkingBytes = await readFile(recovered.workingCopyPath);
+
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSave')).resolves.toEqual({
+            called: true,
+            value: false,
+        });
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
+        expect(state.dirtyState?.fileDirty).toBe(true);
+        await expect(readFile(recovered.pdfPath)).resolves.toEqual(externalBytes);
+        await expect(readFile(recovered.workingCopyPath)).resolves.toEqual(recoveredWorkingBytes);
+        expect((await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation).toBe(0);
+        expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);
     }, E2E_TIMEOUT_MS);
 
     it('Discard closes without committing recovered bytes', async () => {
