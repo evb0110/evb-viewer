@@ -45,6 +45,7 @@ interface ISearchWorkerOutboundByType {
         truncated?: boolean;
         canceled?: boolean;
     };
+    'matching-started': {requestId: TRequestId;};
     complete: {
         requestId: TRequestId;
         response: ISearchResponse;
@@ -53,6 +54,7 @@ interface ISearchWorkerOutboundByType {
     error: {
         requestId: TRequestId;
         error: string;
+        errorCode?: 'SEARCH_REGEX_LIMIT';
     };
 }
 

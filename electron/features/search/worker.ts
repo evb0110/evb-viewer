@@ -201,6 +201,10 @@ function throwIfRegexDeadlineExceeded(deadlineAtMs: number | null) {
 function startRegexMatching(context: ISearchRequestContext) {
     if (context.regexBudgetMs !== null && context.regexDeadlineAtMs === null) {
         context.regexDeadlineAtMs = Date.now() + context.regexBudgetMs;
+        postMessage({
+            type: 'matching-started',
+            requestId: context.requestId,
+        });
     }
 }
 
@@ -472,6 +476,7 @@ function postSearchError(
         type: 'error',
         requestId,
         error: `Search failed: ${errMsg}`,
+        ...(error instanceof SearchRegexLimitError ? {errorCode: 'SEARCH_REGEX_LIMIT' as const} : {}),
     });
 }
 
@@ -739,6 +744,10 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
         globalMatchIndex = pageResult.globalMatchIndex;
         truncated = pageResult.truncated;
         const resultDelta = results.slice(previousResultCount);
+        if (context.useRegex) {
+            sendProgress(context.requestId, processedCount, total);
+            return;
+        }
         if (resultDelta.length > 0 || (!wasTruncated && truncated)) {
             sendProgress(context.requestId, processedCount, total, true, {
                 results: resultDelta,
