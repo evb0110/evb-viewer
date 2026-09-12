@@ -246,7 +246,7 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
             false,
             `utmctl version failed for launcher ${dependencies.launcherPath}: ${detail}`,
             consentMissing
-                ? 'Grant this launcher Automation access to UTM in System Settings > Privacy & Security > Automation, then retry. If no UTM entry or consent prompt appears, check the launcher Apple Events entitlement and usage description; see docs/windows-tests/setup-and-repair.md.'
+                ? 'Grant this launcher Automation access to UTM in System Settings > Privacy & Security > Automation, then retry. If no UTM entry or consent prompt appears, check the launcher Apple Events entitlement and usage description; see docs/contributing/windows-tests/setup-and-repair.md.'
                 : 'Install UTM and confirm /Applications/UTM.app/Contents/MacOS/utmctl is executable.',
         ));
         return checks;
@@ -429,7 +429,7 @@ export async function runWindowsTestDoctor(
         manifest !== null && isQualifiedWindowsTestImage(manifest)
             ? 'The lab image has recorded guest setup and cold-reset qualification.'
             : 'The lab image needs recorded guest setup and cold-reset qualification.',
-        'Complete the image qualification in docs/windows-tests/setup-and-repair.md and record its evidence before running suites.',
+        'Complete the image qualification in docs/contributing/windows-tests/setup-and-repair.md and record its evidence before running suites.',
     ));
 
     for (const {

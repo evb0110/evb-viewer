@@ -301,7 +301,7 @@ console.log(executablePath);
         addCheck({
             detail: missingSystemTools.length === 0 ? 'apt native tools available' : `missing ${missingSystemTools.join(', ')}`,
             name: 'Linux native-tool bundling prerequisites',
-            remedy: 'Run bash scripts/setup-linux-dev-host.sh or install the packages listed in docs/headless-vps-setup.md.',
+            remedy: 'Run bash scripts/setup-linux-dev-host.sh or install the packages listed in docs/contributing/headless-vps-setup.md.',
             required: true,
             status: missingSystemTools.length === 0 ? 'ok' : 'missing',
         });

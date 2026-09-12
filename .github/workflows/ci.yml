@@ -52,7 +52,7 @@ jobs:
           PUSH_HEAD_SHA: ${{ github.sha }}
         # This widens to the pushed head's complete history when the before SHA is
         # absent or unreachable. That is the fail-closed force-push behavior; see
-        # the publication-policy runbook in docs/releasing.md.
+        # the publication-policy runbook in docs/contributing/releasing.md.
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
             node scripts/check-commit-attribution.mjs --pushed-range "$PR_BASE_SHA" "$PR_HEAD_SHA"
@@ -450,7 +450,7 @@ jobs:
     # (issue #109's root growth). It runs as a parallel sibling, blocking
     # through gates_ok, off the native lane's serial path. The 18-minute
     # real-corpus suite was moved to manual maintenance after two blocking days with
-    # zero catches (anti-accretion rule, docs/releasing.md).
+    # zero catches (anti-accretion rule, docs/contributing/releasing.md).
     name: Scan Cleanup Heavy Gates
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas

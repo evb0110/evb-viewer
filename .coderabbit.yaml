@@ -33,21 +33,21 @@ reviews:
         concurrency and stale-state hazards, document identity and revision
         safety, and observable user regressions. Avoid purely stylistic comments
         already covered by linting. Enforce the Design and UI sections of
-        docs/design-charter.md, especially single ownership of state and lifecycle,
+        docs/architecture/design-charter.md, especially single ownership of state and lifecycle,
         design tokens, and en/ru localization parity.
     - path: "electron/**"
       instructions: >-
         Prioritize IPC trust boundaries, sender and payload validation, process
         lifecycle cleanup, path and shell safety, least privilege, and behavior
         across macOS, Windows, and Linux. Enforce the Design section of
-        docs/design-charter.md, especially validation only at trust boundaries and
+        docs/architecture/design-charter.md, especially validation only at trust boundaries and
         reuse of shared contract schemas rather than a second representation.
     - path: "native/**"
       instructions: >-
         Prioritize memory and integer safety, ownership and cleanup, malformed
         input handling, deterministic output, and portable behavior across the
         supported build targets. Enforce the Design and Native and CI sections of
-        docs/design-charter.md, especially replacing a stage rather than appending
+        docs/architecture/design-charter.md, especially replacing a stage rather than appending
         another corrective one, and updating behavior-pinning integration tests
         under native/*/tests/ in the same commit as an intentional change.
     - path: "tests/**"
@@ -55,14 +55,14 @@ reviews:
         Check that tests assert externally meaningful behavior, cover the
         regression and its failure modes, avoid timing-dependent flakiness, and
         clean up global state, processes, files, mocks, and timers. Enforce the
-        Design section of docs/design-charter.md, especially shared harnesses over
+        Design section of docs/architecture/design-charter.md, especially shared harnesses over
         feature-local copies and at most one real-app proof per scenario.
     - path: "scripts/**"
       instructions: >-
         Prioritize fail-closed behavior, safe path handling, reproducibility,
         cleanup, cross-platform shell behavior, and preservation of release and
         verification invariants. Enforce the Design and Native and CI sections of
-        docs/design-charter.md, especially extending an existing verification
+        docs/architecture/design-charter.md, especially extending an existing verification
         mechanism instead of adding a parallel one, and keeping OCR language models
         in sync with the canonical registry per the OCR section.
     - path: ".github/workflows/**"
@@ -70,7 +70,7 @@ reviews:
         Prioritize least-privilege permissions, untrusted pull-request input,
         shell-injection resistance, artifact provenance, secret handling,
         reproducibility, and fail-closed release gates. Enforce the Native and CI
-        section of docs/design-charter.md, especially that CI-only steps (coverage
+        section of docs/architecture/design-charter.md, especially that CI-only steps (coverage
         ratchet, rust fmt/clippy, tripwires) stay wired and fail closed.
 
   auto_review:

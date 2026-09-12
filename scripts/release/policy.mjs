@@ -1,5 +1,5 @@
 // Supplemental macOS Intel and Windows ARM64 channels attach to the GitHub
-// release after promotion, per the critical-path rule in docs/releasing.md. Their
+// release after promotion, per the critical-path rule in docs/contributing/releasing.md. Their
 // assets are therefore intentionally absent from the immutable SHA256SUMS
 // core set, and release verification must tolerate them on repair reruns.
 // With a release version the exemption is the exact expected asset name;

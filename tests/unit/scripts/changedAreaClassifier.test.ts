@@ -242,7 +242,7 @@ describe('changed-area classifier', () => {
         }
 
         for (const file of [
-            'docs/releasing.md',
+            'docs/contributing/releasing.md',
             'electron/main.ts',
             'landing/app/pages/index.vue',
             'native/pdf-search/src/main.rs',
@@ -277,7 +277,7 @@ describe('changed-area classifier', () => {
         }
 
         for (const file of [
-            'docs/releasing.md',
+            'docs/contributing/releasing.md',
             'electron/updater.ts',
             'landing/app/pages/index.vue',
             'native/pdf-search/src/main.rs',
