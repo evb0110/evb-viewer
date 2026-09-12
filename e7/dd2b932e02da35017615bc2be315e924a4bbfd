@@ -1,0 +1,36 @@
+tests/unit/electron/shutdownCoordinator.test.ts
+  s_9a5965909ed83a::t_dbf5d02feae000 255
+  s_9a5965909ed83a::t_c29a644be6f90f 210-218,220-254,256-265,267-275
+  s_9a5965909ed83a::t_31a69b6c6e5c9c 219
+  s_9a5965909ed83a::t_ee3ed19f607f3d 266
+  s_247a07a16a61fa::t_b2cf3c5e0e15a9 276
+electron/bootstrap/shutdown.ts
+  s_9a5965909ed83a::t_52ac5292a2966b 7-10,25-30,59-64,66,81-84,88-95,97-107
+  s_247a07a16a61fa::t_de5d43151d8488 108,116-118,148-156
+electron/bootstrap/mainProcess.ts
+  s_247a07a16a61fa::t_1beea916d5ee4c 668
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e7dd2b932e02da35017615bc2be315e924a4bbfd",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9a5965909ed83a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094b7-df69-7963-b631-e457ed58d5df",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
