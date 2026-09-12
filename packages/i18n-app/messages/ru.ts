@@ -1543,7 +1543,7 @@ export default {
         'errorTitle': 'Не удалось выполнить обновление',
         'errorDescription': 'Не удалось завершить обновление: {message}',
         'unsupportedTitle': 'Обновления недоступны',
-        'unsupportedDescription': 'Обновления доступны только в пакетных сборках macOS/Windows.',
+        'unsupportedDescription': 'Обновления недоступны для этой сборки.',
         'installAction': 'Установить и перезапустить',
         'downloadAction': 'Скачать и установить',
         'deferAction': 'Позже',

@@ -1503,7 +1503,7 @@ export default {
         'errorTitle': 'Update failed',
         'errorDescription': 'Unable to complete the update: {message}',
         'unsupportedTitle': 'Updates unavailable',
-        'unsupportedDescription': 'Updates are available only in packaged macOS/Windows builds.',
+        'unsupportedDescription': 'Updates are not available for this build.',
         'installAction': 'Install and Restart',
         'downloadAction': 'Download and Install',
         'deferAction': 'Later',
