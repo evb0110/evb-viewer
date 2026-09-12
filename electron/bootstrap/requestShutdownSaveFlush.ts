@@ -41,10 +41,16 @@ interface IShutdownSaveWindow {
     };
 }
 
+type TIsTrustedShutdownSaveSender = (
+    sender: Electron.WebContents,
+    senderFrame: Electron.WebFrameMain | null | undefined,
+) => boolean;
+
 export async function requestShutdownSaveFlush(options: {
     getWindows: () => IShutdownSaveWindow[];
     logger: ILogger;
     timeoutMs: number;
+    isTrustedSender: TIsTrustedShutdownSaveSender;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }): Promise<IShutdownSaveFlushSummary> {
     const windows = options.getWindows()
@@ -127,6 +133,9 @@ export async function requestShutdownSaveFlush(options: {
             event: Electron.IpcMainEvent,
             rawPayload: unknown,
         ) => {
+            if (!options.isTrustedSender(event.sender, event.senderFrame)) {
+                return;
+            }
             if (!pendingBySenderId.has(event.sender.id)) {
                 return;
             }
