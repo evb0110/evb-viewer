@@ -1,5 +1,6 @@
 import {
     tryOnMounted,
+    tryOnScopeDispose,
     useEventListener,
     useMutationObserver,
     useRafFn,
@@ -9,6 +10,11 @@ import { runDetached } from '@app/utils/asyncGuard';
 
 const MAX_COLLAPSE_TIER = 5;
 const OVERFLOW_TOLERANCE_PX = 0.5;
+// A readout that shrinks may leave room for a collapsed group, but testing that
+// remounts the group. The retry waits until the text has been still for longer
+// than a few frames, so an eased animation whose readout rounds to the same
+// value for a frame or two does not trigger the remount mid-animation.
+const TEXT_SETTLE_MS = 250;
 const NON_LAYOUT_ATTRIBUTE_NAMES = new Set([
     'aria-disabled',
     'aria-label',
@@ -28,6 +34,9 @@ export const useToolbarOverflow = () => {
     let suppressMutationEvents = false;
     let rafPending = false;
     let hasPendingLayoutMutation = true;
+    let hasPendingTextMutation = false;
+    let isExpansionRetryDue = false;
+    let expansionRetryTimer: ReturnType<typeof setTimeout> | null = null;
     let descendantCache = new WeakMap<HTMLElement, HTMLElement[]>();
     let lastStableState: {
         tier: number
@@ -51,6 +60,24 @@ export const useToolbarOverflow = () => {
         return descendants;
     }
 
+    function cancelExpansionRetry() {
+        if (expansionRetryTimer === null) {
+            return;
+        }
+
+        clearTimeout(expansionRetryTimer);
+        expansionRetryTimer = null;
+    }
+
+    function scheduleExpansionRetry() {
+        cancelExpansionRetry();
+        expansionRetryTimer = setTimeout(() => {
+            expansionRetryTimer = null;
+            isExpansionRetryDue = true;
+            scheduleRecalculation();
+        }, TEXT_SETTLE_MS);
+    }
+
     function setCollapseTier(tier: number) {
         if (collapseTier.value === tier) {
             return;
@@ -58,6 +85,26 @@ export const useToolbarOverflow = () => {
 
         collapseTier.value = tier;
         invalidateDescendantCache();
+    }
+
+    // A readout such as the zoom percentage is rendered as an element whose
+    // only child is text, and Vue patches it by replacing that text node, so
+    // the mutation arrives as a child-list change rather than character data.
+    // Either way the element set is unchanged and the descendant cache holds.
+    function isTextOnlyMutation(mutation: MutationRecord) {
+        if (mutation.type === 'characterData') {
+            return true;
+        }
+
+        if (mutation.type !== 'childList') {
+            return false;
+        }
+
+        const nodes = [
+            ...mutation.addedNodes,
+            ...mutation.removedNodes,
+        ];
+        return nodes.length > 0 && nodes.every(node => node.nodeType === Node.TEXT_NODE);
     }
 
     function isElementOverflowing(el: HTMLElement) {
@@ -109,21 +156,46 @@ export const useToolbarOverflow = () => {
         }
 
         try {
-            // Nothing that can change the layout has happened since the last settled
-            // pass, so skip the descendant rect scan entirely.
+            const hasStructuralChange = hasPendingLayoutMutation;
+            const hasTextChange = hasPendingTextMutation;
+            const isExpansionRetry = isExpansionRetryDue && !hasStructuralChange && !hasTextChange;
+            hasPendingLayoutMutation = false;
+            hasPendingTextMutation = false;
+            isExpansionRetryDue = false;
+
+            let startTier = 0;
             if (
                 lastStableState
-                && !hasPendingLayoutMutation
+                && !hasStructuralChange
+                && !isExpansionRetry
                 && collapseTier.value === lastStableState.tier
                 && toolbar.clientWidth === lastStableState.clientWidth
-                && toolbar.scrollWidth === lastStableState.scrollWidth
             ) {
-                return;
+                // Nothing that can change the layout has happened since the last
+                // settled pass, so skip the descendant rect scan entirely.
+                if (!hasTextChange && toolbar.scrollWidth === lastStableState.scrollWidth) {
+                    return;
+                }
+
+                // Only readout text changed. Testing the tiers below the current
+                // one would remount their groups, which costs more than a frame
+                // while a fit-scale preview rewrites the zoom readout on every
+                // frame. Measure the current tier in place instead: escalate if
+                // the text no longer fits, and retry expanding once the text has
+                // settled.
+                if (!isOverflowing(toolbar)) {
+                    lastStableState.scrollWidth = toolbar.scrollWidth;
+                    if (collapseTier.value > 0) {
+                        scheduleExpansionRetry();
+                    }
+                    return;
+                }
+
+                startTier = collapseTier.value;
             }
 
-            hasPendingLayoutMutation = false;
-
-            for (let tier = 0; tier <= MAX_COLLAPSE_TIER; tier += 1) {
+            cancelExpansionRetry();
+            for (let tier = startTier; tier <= MAX_COLLAPSE_TIER; tier += 1) {
                 setCollapseTier(tier);
                 await waitForLayout();
 
@@ -209,29 +281,30 @@ export const useToolbarOverflow = () => {
         scheduleRecalculation();
     });
 
-    function shouldRecalculateForMutations(mutations: MutationRecord[]) {
-        return mutations.some((mutation) => {
-            if (mutation.type !== 'attributes') {
-                return true;
-            }
+    function shouldRecalculateForMutation(mutation: MutationRecord) {
+        if (mutation.type !== 'attributes') {
+            return true;
+        }
 
-            const attributeName = mutation.attributeName;
-            return !attributeName || !NON_LAYOUT_ATTRIBUTE_NAMES.has(attributeName);
-        });
+        const attributeName = mutation.attributeName;
+        return !attributeName || !NON_LAYOUT_ATTRIBUTE_NAMES.has(attributeName);
     }
 
     useMutationObserver(toolbarRef, (mutations) => {
-        if (mutations.some(mutation => mutation.type === 'childList')) {
+        const layoutMutations = mutations.filter(shouldRecalculateForMutation);
+        const hasStructuralMutation = layoutMutations.some(mutation => !isTextOnlyMutation(mutation));
+        if (hasStructuralMutation) {
             invalidateDescendantCache();
         }
-        if (!shouldRecalculateForMutations(mutations)) {
+        if (layoutMutations.length === 0 || suppressMutationEvents) {
             return;
         }
 
-        if (suppressMutationEvents) {
-            return;
+        if (hasStructuralMutation) {
+            hasPendingLayoutMutation = true;
+        } else {
+            hasPendingTextMutation = true;
         }
-        hasPendingLayoutMutation = true;
         scheduleRecalculation();
     }, {
         subtree: true,
@@ -262,6 +335,8 @@ export const useToolbarOverflow = () => {
             message: 'Failed to recalculate toolbar after fonts loaded',
         });
     });
+
+    tryOnScopeDispose(cancelExpansionRetry);
 
     const hasOverflowItems = computed(() => collapseTier.value > 0);
 

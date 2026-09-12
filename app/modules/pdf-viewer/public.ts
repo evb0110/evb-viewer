@@ -45,7 +45,6 @@ export type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
-export { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';
 export { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 export { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
@@ -64,5 +63,6 @@ export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolve
 export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public/openGeometry';
 export {isPathPdfSource} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+export type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 export { createPdfSourceDataReader } from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader';

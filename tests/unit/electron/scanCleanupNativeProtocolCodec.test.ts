@@ -4,9 +4,33 @@ import {
     it,
 } from 'vitest';
 import {readFileSync} from 'fs';
-import {decodeNativeScanCleanupEnvelope} from '@electron/features/scan-cleanup/native/protocolCodec';
+import {
+    decodeNativeScanCleanupEnvelope,
+    parseNativeScanCleanupStderr,
+} from '@electron/features/scan-cleanup/native/protocolCodec';
 
 describe('scan-cleanup native protocol codec', () => {
+    it('does not classify an earlier diagnostic as the native error envelope', () => {
+        expect(parseNativeScanCleanupStderr([
+            JSON.stringify({
+                code: 'too-large',
+                message: 'diagnostic',
+            }),
+            'third-party failure',
+        ].join('\n'))).toBeNull();
+
+        expect(parseNativeScanCleanupStderr([
+            'third-party diagnostic',
+            JSON.stringify({
+                code: 'invalid-request',
+                message: 'native failure',
+            }),
+        ].join('\n'))).toEqual({
+            code: 'invalid-request',
+            message: 'native failure',
+        });
+    });
+
     it('decodes incremental analysis progress with an optional provisional classification', () => {
         const golden = readFileSync(
             'native/scan-cleanup/tests/fixtures/protocol/analysis-progress-v3.json',

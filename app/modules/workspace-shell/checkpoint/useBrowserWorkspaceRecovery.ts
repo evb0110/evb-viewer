@@ -107,14 +107,30 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
             if (outcome.saved) {
                 generation = outcome.generation;
-                if (liveLeaseGeneration !== null) {
-                    const liveLease = await saveBrowserDocumentLiveLease(
-                        ownerId,
-                        liveLeaseGeneration,
-                        'active',
-                        liveLeaseDependencies,
-                    );
-                    liveLeaseGeneration = liveLease.generation;
+                if (liveLeaseGeneration !== null || liveLeaseDependencies.length > 0) {
+                    try {
+                        // A null generation means the lease was reclaimed or
+                        // never published. Re-acquiring is what keeps a
+                        // quiescent window protected, since nothing else
+                        // publishes a lease until the next recovery save.
+                        const liveLease = liveLeaseGeneration === null
+                            ? await createBrowserDocumentLiveLease(ownerId, liveLeaseDependencies)
+                            : await saveBrowserDocumentLiveLease(
+                                ownerId,
+                                liveLeaseGeneration,
+                                'active',
+                                liveLeaseDependencies,
+                            );
+                        liveLeaseGeneration = liveLease.generation;
+                    } catch (error) {
+                        // Maintenance reclaims the lease of an owner that looks
+                        // abandoned. Forget the generation so the next attempt
+                        // re-acquires; keeping the stale one would fail every
+                        // future write and leave this window's documents
+                        // unprotected without ever saying so.
+                        liveLeaseGeneration = null;
+                        BrowserLogger.warn('workspace-recovery', 'Browser document live lease was reclaimed; re-acquiring', error);
+                    }
                 }
             } else if (activeOwnerId === ownerId && generation === expectedGeneration) {
                 fenced = true;
@@ -413,6 +429,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     : await saveBrowserDocumentLiveLease(ownerId, liveLeaseGeneration, 'active', liveDependencies);
                 liveLeaseGeneration = liveLease.generation;
             } catch (error) {
+                liveLeaseGeneration = null;
                 BrowserLogger.warn('workspace-recovery', 'Failed to publish browser document live lease', error);
             }
             scheduleHeartbeat();

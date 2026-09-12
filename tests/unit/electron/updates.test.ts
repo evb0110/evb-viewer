@@ -133,6 +133,7 @@ vi.mock('@electron/updateHealthMarker', () => ({
     recordPendingUpdateStartup: mocks.recordPendingUpdateStartup,
     UPDATE_STARTUP_FAILURE_THRESHOLD: 3,
 }));
+vi.mock('@electron/updates/checkMacCodeSignature', () => ({checkMacCodeSignature: vi.fn(async () => true)}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
@@ -175,11 +176,11 @@ async function loadUpdatesModule() {
 beforeAll(() => {
     Object.defineProperty(process, 'platform', {
         configurable: true,
-        value: 'win32',
+        value: 'darwin',
     });
     Object.defineProperty(process, 'arch', {
         configurable: true,
-        value: 'x64',
+        value: 'arm64',
     });
     Object.defineProperty(process, 'windowsStore', {
         configurable: true,
@@ -191,11 +192,11 @@ describe('updates robustness', () => {
     beforeEach(() => {
         Object.defineProperty(process, 'platform', {
             configurable: true,
-            value: 'win32',
+            value: 'darwin',
         });
         Object.defineProperty(process, 'arch', {
             configurable: true,
-            value: 'x64',
+            value: 'arm64',
         });
         Object.defineProperty(process, 'windowsStore', {
             configurable: true,
@@ -447,6 +448,27 @@ describe('updates robustness', () => {
         });
     });
 
+    it('reports Windows builds as unsupported instead of checking for updates', async () => {
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({...status}));
+
+        await updates.triggerManualUpdateCheck();
+
+        expect(mocks.fetch).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'unsupported',
+            message: null,
+        });
+    });
+
     it('cancels and drains an active updater download during shutdown', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         let finishDownload: (() => void) | null = null;
@@ -645,7 +667,7 @@ describe('updates robustness', () => {
             if (init?.method === 'HEAD' && url.startsWith('https://github.com/')) {
                 throw new Error('github blocked');
             }
-            if (init?.method === 'HEAD' && url === 'https://mirror.example.test/releases/v1.1.0/latest.yml') {
+            if (init?.method === 'HEAD' && url === 'https://mirror.example.test/releases/v1.1.0/latest-mac.yml') {
                 return createEmptyResponse(200);
             }
             throw new Error(`Unexpected request: ${url}`);
@@ -704,7 +726,7 @@ describe('updates robustness', () => {
 
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
         expect(mocks.logger.info).toHaveBeenCalledWith(
-            'Keeping cached downloaded update 1.1.0; newer release 1.2.0 has no latest.yml updater feed',
+            'Keeping cached downloaded update 1.1.0; newer release 1.2.0 has no latest-mac.yml updater feed',
         );
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
@@ -713,7 +735,7 @@ describe('updates robustness', () => {
         });
     });
 
-    it('skips the updater feed when the latest Windows release has no latest.yml', async () => {
+    it('skips the updater feed when the latest macOS release has no latest-mac.yml', async () => {
         mocks.app.getVersion.mockReturnValue('1.0.0');
         mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
             if (init?.method === 'HEAD') {
@@ -734,13 +756,13 @@ describe('updates robustness', () => {
 
         expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
         expect(mocks.logger.info).toHaveBeenCalledWith(
-            'Release 1.1.0 has no latest.yml updater feed; skipping in-app updater check',
+            'Release 1.1.0 has no latest-mac.yml updater feed; skipping in-app updater check',
         );
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
             phase: 'error',
             version: '1.1.0',
-            message: 'Update 1.1.0 is available, but its latest.yml feed is not published. Download the release manually.',
+            message: 'Update 1.1.0 is available, but its latest-mac.yml feed is not published. Download the release manually.',
         });
     });
 
@@ -971,7 +993,14 @@ describe('updates robustness', () => {
         });
 
         const updates = await loadUpdatesModule();
-        const installAfterCleanup: Array<() => void> = [];
+        const installOrder: string[] = [];
+        mocks.markUpdateInstallPending.mockImplementationOnce(async () => {
+            installOrder.push('marker');
+        });
+        mocks.autoUpdater.quitAndInstall.mockImplementationOnce(() => {
+            installOrder.push('quit');
+        });
+        const installAfterCleanup: Array<() => void | Promise<void>> = [];
         updates.configureUpdateInstallShutdown((install) => {
             installAfterCleanup.push(install);
         });
@@ -982,7 +1011,7 @@ describe('updates robustness', () => {
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
         expect(mocks.updateSettings).toHaveBeenCalled();
-        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
 
         const [install] = installAfterCleanup;
@@ -990,8 +1019,13 @@ describe('updates robustness', () => {
         if (typeof install !== 'function') {
             throw new Error('Expected shutdown hook to receive the update installer');
         }
-        install();
+        await install();
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+        expect(installOrder).toEqual([
+            'marker',
+            'quit',
+        ]);
     });
 
     it('installs downloaded updates immediately when no shutdown hook is configured', async () => {
@@ -1127,7 +1161,7 @@ describe('updates robustness', () => {
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        const installAfterCleanup: Array<() => void> = [];
+        const installAfterCleanup: Array<() => void | Promise<void>> = [];
         updates.configureUpdateInstallShutdown((install) => {
             installAfterCleanup.push(install);
         });
@@ -1168,11 +1202,12 @@ describe('updates robustness', () => {
         await flushPromises();
         await flushPromises();
 
-        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
         expect(installAfterCleanup).toHaveLength(1);
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
 
-        installAfterCleanup[0]?.();
+        await installAfterCleanup[0]?.();
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
     });
 });

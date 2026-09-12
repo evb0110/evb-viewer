@@ -17,6 +17,8 @@ import type {
     IPdfNativeNoteChanges,
     IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
+    IPdfSaveAsResult,
+    IPdfCommittedSaveAsResult,
     IPdfNativePagePreview,
     IPdfNativePagePreviewOptions,
     TPdfNativePageSizes,
@@ -126,10 +128,7 @@ export interface IDocumentsService {
         data: Uint8Array,
         options?: IPdfSaveAsOptions,
         serializedSaveOptions?: IPdfSerializedSaveOptions,
-    ) => Promise<{
-        path: string | null;
-        validation: IPdfValidationResult | null;
-    }>;
+    ) => Promise<IPdfSaveAsResult>;
     beginSavePdfDataAs: (
         context: IDocumentsDialogContext,
         workingPath: string,
@@ -362,10 +361,7 @@ export interface IDocumentsService {
         context: IDocumentsSenderIdContext,
         sessionId: string,
         stagedOutput: ITypedStagedArtifact,
-    ) => Promise<{
-        path: string | null;
-        validation: IPdfValidationResult;
-    }>;
+    ) => Promise<IPdfCommittedSaveAsResult>;
     cancelStagedSerializedPdf: (
         context: IDocumentsSenderIdContext,
         sessionId: string,

@@ -13,6 +13,7 @@ export function createWorkspaceAutomationStateSnapshot(
     overrides: Partial<IWorkspaceAutomationStateSnapshot> = {},
 ): IWorkspaceAutomationStateSnapshot {
     return {
+        documentIdentity: null,
         annotationComments: [],
         annotationCommentsStatus: 'ready',
         annotationInventory: null,

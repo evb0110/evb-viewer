@@ -43,11 +43,27 @@ export const CORE_IPC_EVENT_CHANNELS = {
 } as const;
 
 export const CORE_IPC_SEND_CHANNELS = {
+    ipcInvokeCanceled: 'ipc:invokeCanceled',
     rendererDiagnostic: 'renderer:diagnostic',
     rendererLog: 'renderer:log',
     shutdownSaveFlushResult: 'shutdown:saveFlushResult',
     windowCloseResponse: 'window:closeResponse',
 } as const;
+
+/**
+ * `ipcRenderer.invoke` carries no metadata beside the handler's own arguments,
+ * so a timed invoke appends its request id as a trailing argument under this
+ * field. `createValidatedIpcMainRegistrar` strips it before the channel's own
+ * decoder runs, and the renderer names the same id on `ipc:invokeCanceled`.
+ */
+export const IPC_INVOKE_REQUEST_ID_FIELD = '__evbIpcInvokeRequestId';
+
+export function decodeIpcInvokeRequestId(value: unknown): TRequestId | null {
+    if (!isRecord(value) || Object.keys(value).length !== 1) {
+        return null;
+    }
+    return parseRequestId(value[IPC_INVOKE_REQUEST_ID_FIELD]);
+}
 
 export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';
 export type {IDiagnosticsStartupPolicy} from '@contracts/diagnostics/diagnosticsCapability';

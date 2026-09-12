@@ -114,6 +114,7 @@ function createMarker(overrides: Partial<StartupCrashMarkerRecord> = {}): Startu
 function install(
     options: Partial<IStartupCrashMarkerOptions> = {},
     initialContent?: string,
+    markPrimaryInstanceReady = true,
 ) {
     const process = createProcess();
     const fileSystem = createFileSystem(initialContent);
@@ -128,6 +129,9 @@ function install(
         process: process.processSource,
         ...options,
     });
+    if (markPrimaryInstanceReady) {
+        controller.markPrimaryInstanceReady();
+    }
     return {
         ...process,
         ...fileSystem,
@@ -238,14 +242,14 @@ describe('startup crash marker', () => {
         expect(setup.controller.isArmed()).toBe(false);
     });
 
-    it('takes a valid marker off disk during install and replays the in-memory copy once', () => {
+    it('keeps a valid marker on disk until the process is the primary instance', () => {
         const marker = createMarker();
-        const setup = install({}, JSON.stringify(marker));
+        const setup = install({}, JSON.stringify(marker), false);
         const send = vi.fn();
 
-        expect(setup.readFileSync).toHaveBeenCalledOnce();
-        expect(setup.unlinkSync).toHaveBeenCalledOnce();
-        expect(setup.getContent()).toBeUndefined();
+        expect(setup.readFileSync).not.toHaveBeenCalled();
+        expect(setup.unlinkSync).not.toHaveBeenCalled();
+        expect(setup.getContent()).toBe(JSON.stringify(marker));
 
         expect(notifyStartupCrashMarkerAdapterReady({
             preference: 'granted',
@@ -253,12 +257,12 @@ describe('startup crash marker', () => {
             dist: DIST,
             send,
         })).toBe(true);
-        setup.controller.onLiveAdapterReady({
-            preference: 'granted',
-            release: RELEASE,
-            dist: DIST,
-            send,
-        });
+        expect(send).not.toHaveBeenCalled();
+
+        setup.controller.markPrimaryInstanceReady();
+        expect(setup.readFileSync).toHaveBeenCalledOnce();
+        expect(setup.unlinkSync).toHaveBeenCalledOnce();
+        expect(setup.getContent()).toBeUndefined();
 
         expect(setup.controller.isArmed()).toBe(false);
         expect(setup.off).toHaveBeenCalledTimes(1);

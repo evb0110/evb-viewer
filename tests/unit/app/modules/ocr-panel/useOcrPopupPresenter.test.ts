@@ -33,6 +33,7 @@ const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
 const getDebugLogsMock = vi.hoisted(() => vi.fn());
 const browserLoggerWarnMock = vi.hoisted(() => vi.fn());
+const getOcrCapabilityMock = vi.hoisted(() => vi.fn());
 const timeoutStartMock = vi.hoisted(() => vi.fn());
 const timeoutStopMock = vi.hoisted(() => vi.fn());
 const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => {
@@ -58,6 +59,7 @@ vi.mock('@vueuse/core', () => ({
     }),
 }));
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({getDebugLogs: getDebugLogsMock})}));
+vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: getOcrCapabilityMock}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
 const { useOcrPopupPresenter } = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
@@ -180,6 +182,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const currentPage = ref(3);
     const totalPages = ref(12);
     const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
+    const documentRevision = ref(requireDocumentRevisionToken('drt1:ocr-presenter-test'));
     const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
     const disabled = ref(false);
     const externalError = ref<string | null | undefined>(null);
@@ -201,6 +204,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
             currentPage,
             totalPages,
             workingCopyPath,
+            documentRevision,
             disabled,
             externalError,
         },
@@ -249,6 +253,7 @@ describe('useOcrPopupPresenter', () => {
             message: 'trace line',
             timestamp: '2026-06-28T00:00:00.000Z',
         }]);
+        getOcrCapabilityMock.mockReturnValue({resolveDocumentOcrAvailability: vi.fn().mockResolvedValue({needsReOcr: false})});
     });
 
     afterEach(() => {
@@ -362,6 +367,25 @@ describe('useOcrPopupPresenter', () => {
         try {
             harness.presenter.handleCancelDocxExport();
             expect(harness.events.onCancelDocxExport).toHaveBeenCalledOnce();
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('offers a full OCR rebuild when the catalog was quarantined', async () => {
+        const resolveDocumentOcrAvailability = vi.fn().mockResolvedValue({needsReOcr: true});
+        getOcrCapabilityMock.mockReturnValue({resolveDocumentOcrAvailability});
+        const harness = createPresenterHarness();
+
+        try {
+            harness.isOpen.value = true;
+            await vi.waitFor(() => expect(harness.presenter.needsReOcr.value).toBe(true));
+
+            harness.presenter.handleRebuildOcr();
+
+            expect(harness.presenter.needsReOcr.value).toBe(false);
+            expect(harness.ocr.settings.value.pageRange).toBe('all');
+            expect(harness.ocr.runOcr).toHaveBeenCalledWith(3, 12, '/tmp/source.pdf');
         } finally {
             stopHarness(harness.scope);
         }

@@ -9,6 +9,14 @@ import {
     createTransport,
     type Transport,
 } from '@sentry/core';
+import {
+    mkdtempSync,
+    mkdirSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {requireDiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
 import {
     createSentryNodeDiagnosticsTransport,
@@ -279,6 +287,66 @@ describe('Sentry Node diagnostics adapter', () => {
         expect(serialized).toContain('"debug_meta":{"images":[{"type":"sourcemap","code_file":"dist-electron/main.js","debug_id":"12345678-1234-5678-9abc-123456789abc"}]}');
         expect(serialized).not.toContain('electron/private.ts');
         expect(serialized).not.toContain('/Applications/');
+    });
+
+    it('reads renderer chunk Debug IDs from the packaged static root', async () => {
+        const staticRoot = mkdtempSync(join(tmpdir(), 'evb-sentry-static-'));
+        mkdirSync(join(staticRoot, '_nuxt'));
+        writeFileSync(
+            join(staticRoot, '_nuxt', 'J6PDf5cZ.js'),
+            'export{};\n//# sourceMappingURL=J6PDf5cZ.js.map\n//# debugId=9e0bfb94-c767-5157-a0ee-36646f10a0c7\n',
+        );
+        writeFileSync(join(staticRoot, '_nuxt', 'plain.js'), 'export{};\n');
+        try {
+            const rendererRecord = requireDiagnosticRecord({
+                ...RECORD,
+                code: 'RENDERER_STARTUP_WARMUP_FAILED',
+                severity: 'error',
+                runtime: 'electron-renderer',
+                operation: 'renderer-error',
+                frames: [
+                    {
+                        module: '_nuxt/J6PDf5cZ.js',
+                        function: 'V',
+                        line: 3,
+                        column: 4_287,
+                    },
+                    {
+                        module: '_nuxt/plain.js',
+                        line: 1,
+                    },
+                ],
+            });
+            const envelopes: unknown[] = [];
+            const adapter = createSentryNodeDiagnosticsTransport({
+                dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
+                identity: {
+                    target: 'desktop',
+                    release: 'evb-viewer-desktop@0.1.449',
+                    dist: 'macos-arm64',
+                    environment: 'test',
+                },
+                appVersion: '0.1.449',
+                makeTransport: () => ({
+                    send: (envelope: unknown) => {
+                        envelopes.push(envelope);
+                        return Promise.resolve({statusCode: 200});
+                    },
+                    flush: () => Promise.resolve(true),
+                } as Transport),
+                rendererStaticRoot: staticRoot,
+            });
+
+            await expect(adapter.send?.(rendererRecord)).resolves.toBe(true);
+            const serialized = JSON.stringify(envelopes[0]);
+            expect(serialized).toContain('"debug_meta":{"images":[{"type":"sourcemap","code_file":"_nuxt/J6PDf5cZ.js","debug_id":"9e0bfb94-c767-5157-a0ee-36646f10a0c7"}]}');
+            expect(serialized).not.toContain(staticRoot);
+        } finally {
+            rmSync(staticRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('fails closed for non-EU, secret-bearing, and malformed DSNs', () => {

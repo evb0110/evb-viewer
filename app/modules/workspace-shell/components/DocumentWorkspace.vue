@@ -24,6 +24,7 @@
                 :navigation-command="navigationCommand"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
+                :ocr-document-revision="documentRevisionToken"
                 :ocr-external-error="docxExportError"
                 :ocr-is-exporting-docx="isExportingDocx"
                 :ocr-popup-open="ocrPopupOpen"
@@ -97,10 +98,12 @@
             :show-sidebar="toolbarShowSidebarForDisplay"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :sidebar-content-width="sidebarWidth"
-            :is-resizing-sidebar="isResizingSidebar"
+            :is-resizing-sidebar="isPointerResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
             @resize-start="startSidebarResize"
             @container-resize="setSidebarContainerWidth"
+            @slide-start="isSlidingSidebar = true"
+            @slide-end="isSlidingSidebar = false"
         >
             <template #sidebar>
                 <PdfSidebar
@@ -109,11 +112,12 @@
                     v-model:search-query="searchQuery"
                     :submitted-search-query="submittedSearchQuery"
                     :search-options="searchOptions"
-                    :is-open="showSidebar"
+                    :is-open="isSidebarPresented"
                     :is-active="isDocumentSidebarActive"
-                    :is-resizing="isResizingSidebar"
+                    :is-resizing="isPointerResizingSidebar"
                     :pdf-document="pdfDocument"
                     :raster-scheduler="pdfRasterScheduler"
+                    :page-geometry="thumbnailPageGeometry"
                     :current-page="currentPage"
                     :total-pages="totalPages"
                     :page-labels="toolbarPageLabels"
@@ -185,7 +189,7 @@
                     :is-active="isDocumentSidebarActive"
                     :source="documentSourceSidebar.source.value"
                     :current-page="toolbarCurrentPage"
-                    :is-resizing="isActiveViewerLayoutResizing || (isRenderActive && !isActive)"
+                    :is-resizing="isSourceSidebarResizing"
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
                     @go-to-page="handleSourceSidebarGoToPage"
@@ -433,7 +437,10 @@ import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspac
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import type {
+    IPdfThumbnailPageGeometry,
+    IScrollToPageOptions,
+} from '@app/modules/pdf-viewer/public';
 import {
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
@@ -702,10 +709,23 @@ const {
     sidebarWidth,
     sidebarWrapperStyle,
     isResizingSidebar,
+    isPointerResizingSidebar,
+    isSlidingSidebar,
     startSidebarResize,
     setSidebarContainerWidth,
     cleanupSidebarResizeListeners,
 } = viewerShell;
+const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
+    const viewer = pdfViewerRef.value;
+    if (!viewer?.pageMetrics || !viewer.ensurePageMetricsInRange) {
+        return null;
+    }
+    return {
+        ensureRange: viewer.ensurePageMetricsInRange,
+        metrics: toRaw(viewer.pageMetrics),
+        version: viewer.pageMetricsVersion ?? 0,
+    };
+});
 const toolbarTotalPages = computed(() => (
     openingPreviewReady.value ? openingPreviewPageCount.value : totalPages.value
 ));
@@ -725,6 +745,17 @@ const isActiveViewerLayoutResizing = computed(() => (
 const isDocumentSidebarActive = computed(() => (
     surfaceMode.value === 'reader'
     && (isActive || isRenderActive || isActiveViewerLayoutResizing.value)
+));
+// The panel stays painted through the closing slide so the wrapper covers real
+// content instead of an empty strip; the opening slide reveals it the same way.
+const isSidebarPresented = computed(() => showSidebar.value || isSlidingSidebar.value);
+// The sidebar panels keep their width through the slide. Only a pointer drag or
+// a host-level layout change can reflow them.
+const isSourceSidebarResizing = computed(() => (
+    isPointerResizingSidebar.value
+    || isExternalWorkspaceLayoutResizingRef.value
+    || isTabTransitionBusy
+    || (isRenderActive && !isActive)
 ));
 // Keep the PDF feature pack mounted so its document session and page source stay
 // durable for scan cleanup. Its reader presentation is separate and can be
@@ -1161,7 +1192,7 @@ const {
     isDjvuMode,
     currentPage,
     documentViewerRef,
-    ensureProjection: reason => ensureDjvuPdfProjection(reason, new AbortController().signal),
+    ensureProjection: ensureDjvuPdfProjection,
     saveAs: handleSaveAsDirect,
     exportDocx: handleExportDocxDirect,
     isExportingDocx,

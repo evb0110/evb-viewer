@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Espaço de trabalho de documentos para navegador e desktop. Abra PDFs, ficheiros DjVu e imagens locais no navegador; instale a aplicação desktop para OCR de PDF pesquisável, fluxos de trabalho nativos mais pesados, EVB Assistant via Codex e suporte MCP local opcional.',
+        description: 'Ferramentas offline para limpar digitalizações brutas e ficheiros DjVu, fazer OCR, adicionar anotações e exportar PDFs no macOS, Windows e Linux. Gratuito e com licença MIT.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -26,13 +26,13 @@ export default {
         seo: {
             title: 'Aplicação web EVB Viewer e transferências desktop',
             ogTitle: 'EVB Viewer para trabalho com documentos na web e no desktop',
-            ogDescription: 'Use o EVB Viewer no navegador para trabalhar com PDFs, DjVu e imagens locais, ou instale a aplicação desktop para OCR de PDF pesquisável, fluxos de trabalho nativos mais pesados, EVB Assistant via Codex e suporte MCP local opcional.',
+            ogDescription: 'Converta digitalizações brutas e ficheiros DjVu em PDFs pesquisáveis e anotáveis com limpeza, OCR, anotações e exportação offline no macOS, Windows e Linux. Gratuito e com licença MIT.',
         },
         hero: {
-            badge: 'Aplicação no navegador + builds desktop',
-            title: 'PDF, DjVu, imagens',
-            subtitle: 'Abra PDFs, ficheiros DjVu e imagens locais no navegador. Use as builds desktop para OCR de PDF pesquisável e trabalhos maiores de junção.',
-            aiNote: 'O EVB Assistant integra-se com a sua subscrição ChatGPT/OpenAI através do Codex nos bastidores. Utilizadores técnicos também podem expor um servidor MCP local.',
+            badge: 'Limpeza de digitalizações, OCR e exportação para PDF',
+            title: 'Transforme digitalizações brutas em PDFs pesquisáveis',
+            subtitle: 'O EVB Viewer limpa digitalizações brutas e ficheiros DjVu, faz OCR e transforma-os em PDFs pesquisáveis e anotáveis para arquivistas, bibliotecários, historiadores, filólogos e pessoas que mantêm bibliotecas pessoais de digitalizações. Funciona offline no macOS, Windows e Linux. É gratuito e tem licença MIT.',
+            aiNote: 'O EVB Assistant é opcional e vem desativado por predefinição. Se o ativar, usa a sua própria conta Codex ou Claude e pode expor um servidor MCP local; a limpeza das digitalizações, o OCR, a pesquisa e a exportação nunca o usam.',
             downloadFor: 'Transferir para {platform}',
             downloadForArch: 'Transferir para {platform} ({arch})',
             downloadInstaller: 'Transferir {installerLabel}',
@@ -146,9 +146,9 @@ export default {
             ogDescription: 'Veja o que o EVB Viewer cobre hoje no navegador e o que a aplicação desktop adiciona para OCR de PDF pesquisável, integração nativa com o sistema operativo e trabalhos maiores.',
         },
         hero: {
-            badge: 'Visão geral das funcionalidades',
-            title: 'Um espaço de trabalho de documentos partilhado, com o ambiente certo para cada tarefa.',
-            subtitle: 'O EVB Viewer abre ficheiros PDF, DjVu e imagens locais no navegador. A aplicação desktop adiciona OCR de PDF pesquisável, integração nativa com o sistema operativo e mais espaço para grandes trabalhos de junção/exportação.',
+            badge: 'Limpeza nativa de digitalizações e OCR',
+            title: 'Limpe digitalizações brutas, depois pesquise e anote o PDF',
+            subtitle: 'O EVB Viewer funciona offline no macOS, Windows e Linux. O seu motor nativo em Rust endireita páginas, remove pequenas manchas, binariza, recorta e divide páginas duplas. O OCR do Tesseract com modelos tessdata-best suporta 30 idiomas. Destina-se a arquivistas, bibliotecários, historiadores, filólogos e pessoas que mantêm bibliotecas pessoais de digitalizações.',
         },
         capabilities: {
             heading: 'Capacidades principais do espaço de trabalho',

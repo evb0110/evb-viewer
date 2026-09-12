@@ -89,9 +89,6 @@ describe('main shutdown ordering', () => {
 
         const rejectionHandler = source.slice(rejectionHandlerIndex, exceptionHandlerIndex);
         expect(rejectionHandler).toMatch(/decideUnhandledRejection\s*\(\s*reason\s*\)/u);
-        expect(rejectionHandler).toMatch(
-            /requestFatalShutdown\s*\(\s*['"]Unhandled promise rejection requires fatal shutdown['"]/u,
-        );
         expect(rejectionHandler).toMatch(/'MAIN_UNHANDLED_REJECTION'/u);
         const recoveryFactoryIndex = source.indexOf('createUnhandledRejectionRecovery(');
         expect(recoveryFactoryIndex).toBeGreaterThan(-1);

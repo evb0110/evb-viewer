@@ -10,16 +10,22 @@
 // it, and each one made CI slower and less trustworthy in the past. Fix the
 // flake or delete the check; tolerating it needs the user's words too.
 //
-// The commit-msg hook, the pre-push hook, and the CI attribution job all run
-// this through `check-commit-attribution.mjs`.
+// The commit-msg hook, the pre-push hook, and the CI publication-policy job all run
+// this through `check-publication-policy.mjs`.
 
 import {spawnSync} from 'node:child_process';
+
+/** @typedef {{file: RegExp, label: string, pattern: RegExp}} IAddedCheckLinePattern */
+/** @typedef {{label: string, pattern: RegExp}} IAddedCheckFilePattern */
+/** @typedef {{path: string, status: string}} INameStatusEntry */
+/** @typedef {(path: string) => string[]} TReadAddedLines */
 
 export const ADDS_CHECKS_TRAILER = 'Adds-Checks';
 
 const TRAILER_PATTERN = /^Adds-Checks:[ \t]*(\S.*)$/imu;
 
 // Files whose creation is itself a new check.
+/** @type {IAddedCheckFilePattern[]} */
 const ADDED_CHECK_FILE_PATTERNS = [
     {
         label: 'new test file',
@@ -49,6 +55,7 @@ const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/u;
 
 // Lines that make a check tolerate its own failures instead of catching a
 // defect. Matched only on added lines, so removing one never needs a trailer.
+/** @type {IAddedCheckLinePattern[]} */
 const FLAKE_TOLERANCE_LINE_PATTERNS = [
     {
         file: TEST_FILE_PATTERN,
@@ -100,6 +107,7 @@ const FLAKE_TOLERANCE_LINE_PATTERNS = [
 ];
 
 // Lines whose addition to an existing file registers a new check.
+/** @type {IAddedCheckLinePattern[]} */
 const ADDED_CHECK_LINE_PATTERNS = [
     {
         file: WORKFLOW_PATTERN,
@@ -134,16 +142,14 @@ const ADDED_CHECK_LINE_PATTERNS = [
     ...FLAKE_TOLERANCE_LINE_PATTERNS,
 ];
 
+/** @param {string} message @returns {string | null} */
 export function readAddsChecksTrailer(message) {
-    return TRAILER_PATTERN.exec(message)?.[1].trim() ?? null;
+    return TRAILER_PATTERN.exec(message)?.[1]?.trim() ?? null;
 }
 
-/**
- * @param {{status: string, path: string}[]} entries `git diff --name-status` rows
- * @param {(path: string) => string} readAddedLines returns the `+` lines of a
- *   unified diff for one path, without the leading `+`
- */
+/** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @returns {string[]} */
 export function findAddedChecks(entries, readAddedLines) {
+    /** @type {string[]} */
     const found = [];
     for (const {
         path,
@@ -174,6 +180,7 @@ export function findAddedChecks(entries, readAddedLines) {
     return found;
 }
 
+/** @param {string[]} added @returns {string[]} */
 export function describeMissingTrailer(added) {
     return [
         `commit adds checks or flake tolerance without an \`${ADDS_CHECKS_TRAILER}:\` trailer: ${added.join('; ')}`,
@@ -183,21 +190,35 @@ export function describeMissingTrailer(added) {
     ];
 }
 
+/** @param {string} output @returns {INameStatusEntry[]} */
 function parseNameStatus(output) {
     const fields = output.split('\0').filter(Boolean);
+    /** @type {INameStatusEntry[]} */
     const entries = [];
     for (let index = 0; index < fields.length; index += 2) {
-        const status = fields[index][0];
+        const statusField = fields[index];
+        const path = fields[index + 1];
+        if (statusField === undefined || path === undefined) {
+            throw new Error('Malformed git name-status output');
+        }
+        const status = statusField[0];
+        if (status === undefined) {
+            throw new Error('Malformed git name-status output');
+        }
         // Renames and copies carry two paths; the destination is the new file.
         if (status === 'R' || status === 'C') {
+            const destination = fields[index + 2];
+            if (destination === undefined) {
+                throw new Error('Malformed git name-status output');
+            }
             entries.push({
-                path: fields[index + 2],
+                path: destination,
                 status: 'A',
             });
             index += 1;
         } else {
             entries.push({
-                path: fields[index + 1],
+                path,
                 status,
             });
         }
@@ -205,6 +226,7 @@ function parseNameStatus(output) {
     return entries;
 }
 
+/** @param {string} diff @returns {string[]} */
 function addedLinesOf(diff) {
     return diff
         .split('\n')
@@ -212,6 +234,7 @@ function addedLinesOf(diff) {
         .map(line => line.slice(1));
 }
 
+/** @param {string[]} arguments_ @param {string} cwd @returns {string | null} */
 function git(arguments_, cwd) {
     const result = spawnSync('git', arguments_, {
         cwd,
@@ -221,6 +244,7 @@ function git(arguments_, cwd) {
     return result.status === 0 ? result.stdout : null;
 }
 
+/** @param {string} cwd @returns {string[]} */
 export function findStagedAddedChecks(cwd) {
     const names = git([
         'diff',
@@ -241,6 +265,7 @@ export function findStagedAddedChecks(cwd) {
     ], cwd) ?? ''));
 }
 
+/** @param {string} commit @param {string} cwd @returns {string[]} */
 export function findCommitAddedChecks(commit, cwd) {
     const names = git([
         'diff-tree',
@@ -267,6 +292,7 @@ export function findCommitAddedChecks(commit, cwd) {
     ], cwd) ?? ''));
 }
 
+/** @param {string[]} commits @param {string} cwd @returns {{matches: string[], subject: string}[]} */
 export function findAddedCheckViolations(commits, cwd) {
     return commits.flatMap((commit) => {
         const parents = git([

@@ -82,7 +82,8 @@ function getWorkerFailureReceipt(error: unknown) {
 
 function isExpectedWorkerTermination(error: Error) {
     return getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED'
-        || error instanceof SearchRegexLimitError;
+        || error instanceof SearchRegexLimitError
+        || error instanceof BrowserSearchWorkerTimeoutError;
 }
 
 function reportWorkerFailure(error: Error) {

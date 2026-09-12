@@ -74,9 +74,22 @@ function workflowNeeds(job: IWorkflowJob) {
     return Array.isArray(job.needs) ? job.needs : [job.needs];
 }
 
-function runsForPullRequestOrPush(condition: string | undefined) {
-    return condition?.includes('github.event_name == \'pull_request\'') === true
-        && condition.includes('github.event_name == \'push\'');
+/**
+ * Two shapes qualify as a required gate. Most jobs run for both pull requests
+ * and pushes. The Electron end-to-end suites run only on push to main, because
+ * a macOS runner per pull request costs more than the signal is worth there;
+ * gates_ok accepts their pull-request skip through ELECTRON_E2E_REQUIRED.
+ */
+function runsAsRequiredGate(condition: string | undefined) {
+    if (condition === undefined) {
+        return false;
+    }
+    const runsOnPush = condition.includes('github.event_name == \'push\'');
+    if (!runsOnPush) {
+        return false;
+    }
+    return condition.includes('github.event_name == \'pull_request\'')
+        || condition.includes('github.ref == \'refs/heads/main\'');
 }
 
 function runShell(script: string, env: Record<string, string>, shell = '/bin/sh') {
@@ -220,7 +233,7 @@ describe('CI topology policy', () => {
                 job,
             ]) => jobName !== 'gates_ok'
                 && job['continue-on-error'] !== true
-                && runsForPullRequestOrPush(job.if))
+                && runsAsRequiredGate(job.if))
             .map(([jobName]) => jobName);
 
         expect(new Set(needs)).toEqual(new Set(requiredJobs));

@@ -42,7 +42,14 @@ const mocks = vi.hoisted(() => ({
     waitForDesktopPlatformBridge: vi.fn(async () => true),
     claimPendingExternalOpenPaths: vi.fn(async (): Promise<string[]> => []),
     acknowledgePendingExternalOpenPaths: vi.fn(async () => {}),
+    workspaceCheckpointClaimEnabled: false,
+    claimWorkspaceCheckpoint: vi.fn(async () => null),
     notifyRendererReady: vi.fn(),
+    getOrCaptureRendererBootstrapFailure: vi.fn((options: {error: unknown}) => ({
+        failure: {error: options.error},
+        title: 'Startup failure',
+    })),
+    setFatalRuntimeError: vi.fn(),
     getWorkspaceViewerChunkTargetsForPaths: vi.fn(() => [
         'chassis',
         'pdfjs',
@@ -82,8 +89,13 @@ vi.mock('@app/modules/workspace-shell/host/warmupDesktopViewerChunks', () => ({
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
     claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
     acknowledgePendingExternalOpenPaths: mocks.acknowledgePendingExternalOpenPaths,
+    ...(mocks.workspaceCheckpointClaimEnabled
+        ? {claimWorkspaceCheckpoint: mocks.claimWorkspaceCheckpoint}
+        : {}),
     notifyRendererReady: mocks.notifyRendererReady,
 })}));
+vi.mock('@app/utils/getOrCaptureRendererBootstrapFailure', () => ({getOrCaptureRendererBootstrapFailure: mocks.getOrCaptureRendererBootstrapFailure}));
+vi.mock('@app/composables/useFatalRuntimeError', () => ({useFatalRuntimeError: () => ({setFatalRuntimeError: mocks.setFatalRuntimeError})}));
 
 function createOptions() {
     const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
@@ -218,6 +230,12 @@ describe('useTabsShellBindings', () => {
         mocks.waitForDesktopPlatformBridge.mockResolvedValue(true);
         mocks.claimPendingExternalOpenPaths.mockResolvedValue([]);
         mocks.acknowledgePendingExternalOpenPaths.mockResolvedValue(undefined);
+        mocks.workspaceCheckpointClaimEnabled = false;
+        mocks.claimWorkspaceCheckpoint.mockResolvedValue(null);
+        mocks.getOrCaptureRendererBootstrapFailure.mockImplementation((options: {error: unknown}) => ({
+            failure: {error: options.error},
+            title: 'Startup failure',
+        }));
         mocks.acknowledgePendingExternalOpenPaths.mockImplementation(async () => {
             mocks.lifecycleOrder.push('acknowledge');
         });
@@ -530,11 +548,20 @@ describe('useTabsShellBindings', () => {
 
     it('notifies and schedules once when startup preparation fails', async () => {
         const options = createOptions();
-        mocks.claimPendingExternalOpenPaths.mockRejectedValueOnce(new Error('claim failed'));
+        mocks.workspaceCheckpointClaimEnabled = true;
+        mocks.claimWorkspaceCheckpoint.mockRejectedValueOnce(new Error('checkpoint claim failed'));
 
         const unmount = await mountBindingsClient(options);
         await flushMountedStartupClaim();
 
+        expect(mocks.getOrCaptureRendererBootstrapFailure).toHaveBeenCalledWith(expect.objectContaining({
+            error: expect.objectContaining({message: 'checkpoint claim failed'}),
+            key: 'workspace-startup',
+        }));
+        expect(mocks.setFatalRuntimeError).toHaveBeenCalledWith(
+            'startup',
+            expect.objectContaining({title: 'Startup failure'}),
+        );
         expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
         expect(mocks.scheduleDesktopViewerWarmup).toHaveBeenCalledOnce();
         expect(mocks.lifecycleOrder).toEqual([

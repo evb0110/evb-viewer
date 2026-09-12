@@ -6,15 +6,27 @@ import type {
 } from '@app/types/annotations';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
 import type {
     TPageMoveOperation,
     TPageSelection,
 } from '@contracts/pageNumbers';
 
+/**
+ * The viewer's document session owns page geometry. The rail reads it here
+ * and asks for the pages it lays out instead of measuring pages itself.
+ */
+export interface IPdfThumbnailPageGeometry {
+    ensureRange: (startPage: number, endPage: number) => Promise<boolean>;
+    metrics: readonly IPdfPageMetric[];
+    version: number;
+}
+
 export interface IPdfThumbnailsProps {
     pdfDocument: IPdfDocument | null;
     rasterScheduler: IPdfPageRasterScheduler | null;
+    pageGeometry?: IPdfThumbnailPageGeometry | null | undefined;
     currentPage: number;
     totalPages: number;
     pageLabels?: TDocumentPageLabelLookup | undefined;

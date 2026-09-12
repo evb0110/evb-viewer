@@ -6,6 +6,13 @@ import type {
     BrowserWindow,
     MessageBoxOptions,
 } from 'electron';
+import {
+    open, readFile, rename, writeFile,
+} from 'node:fs/promises';
+import {homedir} from 'node:os';
+import {
+    dirname, join,
+} from 'node:path';
 import type {
     IAgentMcpIntegrationStatus,
     IAgentMcpIntegrationUpdateResult,
@@ -34,6 +41,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import {createIsoTimestamp} from '@contracts/timestamps';
 
 const logger = createLogger('agent-codex-mcp');
+const MCP_TOKEN_PLACEHOLDER = '__EVB_MCP_TOKEN_PLACEHOLDER__';
 
 interface ICodexServerConfig {
     enabled?: unknown;
@@ -137,6 +145,58 @@ function parseCodexServerConfig(stdout: string): ICodexServerConfig | null {
     }
 }
 
+function redactMcpToken(value: string, token: string) {
+    return token.length > 0
+        ? value.split(token).join('<redacted>')
+        : value;
+}
+
+function getCodexConfigPath() {
+    // An empty CODEX_HOME is the same as an unset one; joining on it would
+    // resolve the config relative to the working directory.
+    const configuredHome = process.env.CODEX_HOME?.trim();
+    const codexHome = configuredHome === '' ? undefined : configuredHome;
+    return join(codexHome ?? join(homedir(), '.codex'), 'config.toml');
+}
+
+async function syncDirectory(path: string) {
+    const directory = await open(path, 'r');
+    try {
+        await directory.sync();
+    } finally {
+        await directory.close();
+    }
+}
+
+/**
+ * `codex mcp add` writes the token straight into argv, where any other user on
+ * the machine can read it out of the process table. Registration therefore
+ * passes a placeholder and the real token is substituted here, after the CLI
+ * has finished rewriting the config.
+ *
+ * This is the user's global Codex config, so a half-written file would cost
+ * them every unrelated server they have registered: stage the new contents
+ * beside it and rename over the original instead of truncating in place.
+ */
+async function persistCodexMcpToken(token: string) {
+    const configPath = getCodexConfigPath();
+    const config = await readFile(configPath, 'utf8');
+    const placeholder = `EVB_MCP_TOKEN = ${JSON.stringify(MCP_TOKEN_PLACEHOLDER)}`;
+    const occurrences = config.split(placeholder).length - 1;
+    if (occurrences !== 1) {
+        throw new Error('Codex MCP registration did not produce exactly one token placeholder.');
+    }
+    const replacement = `EVB_MCP_TOKEN = ${JSON.stringify(token)}`;
+    const configDirectory = dirname(configPath);
+    const stagingPath = `${configPath}.evb-${process.pid}.tmp`;
+    await writeFile(stagingPath, config.replace(placeholder, replacement), {
+        encoding: 'utf8',
+        mode: 0o600,
+    });
+    await rename(stagingPath, configPath);
+    await syncDirectory(configDirectory);
+}
+
 async function getCodexRegistrationState(codexPath: string) {
     const descriptor = getLocalMcpServerDescriptor();
     const {
@@ -188,6 +248,7 @@ async function registerCodexMcp(codexPath: string) {
     const {
         descriptor,
         launchConfig,
+        token,
     } = await getLocalMcpCodexRegistrationTransport();
     await removeCodexRegistration(codexPath);
     const result = await runCodexCli(codexPath, [
@@ -199,13 +260,24 @@ async function registerCodexMcp(codexPath: string) {
         '--env',
         `EVB_MCP_URL=${launchConfig.env.EVB_MCP_URL ?? '<missing>'}`,
         '--env',
-        `EVB_MCP_TOKEN=${launchConfig.env.EVB_MCP_TOKEN ?? '<missing>'}`,
+        `EVB_MCP_TOKEN=${MCP_TOKEN_PLACEHOLDER}`,
         '--',
         launchConfig.command,
         ...launchConfig.args,
     ]);
     if (!result.ok) {
-        throw new Error(result.stderr.trim() || result.stdout.trim() || 'Codex MCP registration failed.');
+        const stderr = redactMcpToken(result.stderr, token).trim();
+        const stdout = redactMcpToken(result.stdout, token).trim();
+        throw new Error(stderr || stdout || 'Codex MCP registration failed.');
+    }
+    try {
+        await persistCodexMcpToken(token);
+    } catch (error) {
+        // The registration on disk still carries the placeholder, so leaving it
+        // would give the assistant a server that authenticates with a literal
+        // sentinel. Drop it and let the caller see the original failure.
+        await removeCodexRegistration(codexPath).catch(() => undefined);
+        throw error;
     }
 }
 

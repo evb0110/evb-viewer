@@ -10,9 +10,17 @@ import {
     type Transport,
 } from '@sentry/core';
 import {request as requestHttps} from 'node:https';
-import {appendFileSync} from 'node:fs';
+import {
+    appendFileSync,
+    closeSync,
+    fstatSync,
+    openSync,
+    readdirSync,
+    readSync,
+} from 'node:fs';
 import {
     isAbsolute,
+    join,
     relative,
     resolve,
 } from 'node:path';
@@ -65,6 +73,7 @@ export interface ISentryNodeAdapterOptions {
     makeTransport?: TSentryTransportFactory;
     audit?: (entry: ISentryNodeAuditEntry) => void;
     resolveFilenameDebugIds?: () => Readonly<Record<string, string>>;
+    rendererStaticRoot?: string;
 }
 
 export type TSentryNodeRuntimeOptions = Omit<
@@ -107,6 +116,63 @@ function requireEuDsn(value: string) {
         throw new Error('Desktop diagnostics require a valid EU Sentry DSN');
     }
     return dsn;
+}
+
+const RENDERER_CHUNK_TRAILER_BYTES = 256;
+const RENDERER_CHUNK_DEBUG_ID_PATTERN = /\/\/# debugId=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\s*$/iu;
+
+function readChunkTrailer(path: string) {
+    const descriptor = openSync(path, 'r');
+    try {
+        const size = fstatSync(descriptor).size;
+        const length = Math.min(size, RENDERER_CHUNK_TRAILER_BYTES);
+        const buffer = Buffer.alloc(length);
+        readSync(descriptor, buffer, 0, length, size - length);
+        return buffer.toString('utf8');
+    } finally {
+        closeSync(descriptor);
+    }
+}
+
+/**
+ * Renderer chunks run in another process, so the SDK's in-process Debug ID
+ * registry never sees them. Their injected `//# debugId=` trailers are read
+ * from the packaged bundle instead and keyed the way renderer frames name them.
+ */
+function readRendererChunkDebugIds(staticRoot: string): Record<string, string> {
+    const debugIds: Record<string, string> = {};
+    let chunkNames: string[];
+    try {
+        chunkNames = readdirSync(join(staticRoot, '_nuxt'));
+    } catch {
+        return debugIds;
+    }
+    for (const chunkName of chunkNames) {
+        if (!chunkName.endsWith('.js')) {
+            continue;
+        }
+        try {
+            const debugId = RENDERER_CHUNK_DEBUG_ID_PATTERN.exec(readChunkTrailer(join(staticRoot, '_nuxt', chunkName)))?.[1];
+            if (debugId !== undefined) {
+                debugIds[`_nuxt/${chunkName}`] = debugId;
+            }
+        } catch {
+            // A chunk that cannot be read simply stays unsymbolicated.
+        }
+    }
+    return debugIds;
+}
+
+function createDefaultFilenameDebugIdResolver(rendererStaticRoot: string | undefined) {
+    const stackParser = createStackParser(nodeStackLineParser());
+    let rendererDebugIds: Record<string, string> | null = null;
+    return () => {
+        rendererDebugIds ??= rendererStaticRoot === undefined ? {} : readRendererChunkDebugIds(rendererStaticRoot);
+        return {
+            ...getFilenameToDebugIdMap(stackParser),
+            ...rendererDebugIds,
+        };
+    };
 }
 
 function buildRuntimeContext(options: ISentryNodeAdapterOptions) {
@@ -246,6 +312,9 @@ export function createSentryNodeDiagnosticsTransport(
         recordDroppedEvent: () => undefined,
     });
 
+    const resolveFilenameDebugIds = options.resolveFilenameDebugIds
+        ?? createDefaultFilenameDebugIdResolver(options.rendererStaticRoot);
+
     return Object.freeze({
         isReady: true,
         send: (value: DiagnosticRecord, inheritedSuppressedCount = 0) => {
@@ -254,8 +323,7 @@ export function createSentryNodeDiagnosticsTransport(
             if (record === null || suppressedCount === null) {
                 return false;
             }
-            const filenameToDebugId = options.resolveFilenameDebugIds?.()
-                ?? getFilenameToDebugIdMap(createStackParser(nodeStackLineParser()));
+            const filenameToDebugId = resolveFilenameDebugIds();
             const event: Event = buildSentryClosedEvent(
                 record,
                 suppressedCount,

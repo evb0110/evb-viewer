@@ -50,6 +50,10 @@ type TSettingsSaveManagedKey = 'agentMcpEnabled' | 'skippedUpdateVersion';
 export type TSettingsSaveKey = Exclude<keyof ISettingsData, TSettingsSaveManagedKey>;
 export type TSettingsSavePatch = Partial<Pick<ISettingsData, TSettingsSaveKey>>;
 
+export type TSettingsRecoveryReason = 'corrupt' | 'unsupported' | 'unreadable';
+
+export interface ISettingsRecoveryNotice { reason: TSettingsRecoveryReason; }
+
 export const SETTINGS_SAVE_KEYS = [
     'version',
     'authorName',
@@ -112,6 +116,14 @@ export class UnsupportedSettingsSchemaError extends Error {
         this.name = 'UnsupportedSettingsSchemaError';
         this.version = version;
     }
+}
+
+export function decodeSettingsRecoveryNotice(value: unknown): ISettingsRecoveryNotice | null {
+    if (!isRecord(value)
+        || (value.reason !== 'corrupt' && value.reason !== 'unsupported' && value.reason !== 'unreadable')) {
+        return null;
+    }
+    return {reason: value.reason};
 }
 
 export function assertSupportedSettingsSchema(raw: unknown): asserts raw is unknown {

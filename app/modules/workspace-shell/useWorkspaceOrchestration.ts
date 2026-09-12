@@ -465,12 +465,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         save: {
             save: pageSaveHandleSave,
             saveAs: pageSaveOrchestration.handleSaveAs,
-            saveAsDjvuProjection: () => (
-                fileLifecycle.ensureDjvuPdfProjection(
-                    'save-as-pdf',
-                    new AbortController().signal,
-                )
-            ),
+            saveAsDjvuProjection: () => fileLifecycle.ensureDjvuPdfProjection('save-as-pdf'),
         },
         ...(deps.pendingDocumentPath === undefined
             ? {}
@@ -749,6 +744,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         pdfViewerRef,
         source: {getSourcePdfData},
+        workingCopyPath,
+        originalPath,
+        documentRevisionToken,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
 

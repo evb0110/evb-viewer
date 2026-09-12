@@ -7,7 +7,7 @@ existing automation session. Operator scenarios hand a task card to a model
 that drives the app through screenshots or through semantic tools, so the
 harness exercises the interaction patterns a scripted step never produces.
 
-Design and status live in `docs/research/stress-test-automation-plan-2026-09-04.md`
+Design and status live in `docs/internal/research/stress-test-automation-plan-2026-09-04.md`
 and the matching implementation ledger.
 
 ## Commands
@@ -53,7 +53,7 @@ Direct computer-use actions cannot be replayed by `stress:replay`.
 The optional `--operator pixel` and `--operator semantic` modes explicitly use
 the paid Anthropic API and require `ANTHROPIC_API_KEY`. Use them only when that
 separate API workflow is intended. A missing key fails before Electron starts.
-See [the operator instructions](../../docs/stress-operator-runbook.md) for the
+See [the operator instructions](../../docs/internal/stress-operator-runbook.md) for the
 complete no-key campaign.
 
 ## Host profiles
@@ -140,7 +140,7 @@ but do not fail the scenario: `step-slow`, `leaked-working-copy`,
 
 ## Baselines
 
-`docs/benchmarks/stress/<profile>.json` keeps the last twenty accepted
+`docs/internal/benchmarks/stress/<profile>.json` keeps the last twenty accepted
 durations per scenario and step kind; p50 and p95 are computed from that
 history, so one slow run does not become the new floor. A step regresses only
 when it is both 25 percent and 150 ms slower than the baseline p95, so jitter

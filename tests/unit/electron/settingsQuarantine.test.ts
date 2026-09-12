@@ -62,7 +62,7 @@ describe('settings corruption quarantine', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt settings'));
     });
 
-    it('preserves a valid settings file from a future schema without quarantining it', async () => {
+    it('quarantines a valid settings file from a future schema and loads defaults', async () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-future-schema-'));
         const settingsPath = join(mocks.userDataPath, 'settings.json');
         const futureContent = JSON.stringify({
@@ -71,14 +71,23 @@ describe('settings corruption quarantine', () => {
             futureSetting: true,
         });
         writeFileSync(settingsPath, futureContent);
-        const {loadSettings} = await import('@electron/settings');
+        const {
+            consumeSettingsRecoveryNotice,
+            loadSettings,
+        } = await import('@electron/settings');
 
-        await expect(loadSettings()).rejects.toMatchObject({
-            code: 'unsupported-settings-schema',
-            version: 99,
+        await expect(loadSettings()).resolves.toMatchObject({
+            version: 2,
+            theme: 'light',
         });
-        expect(readFileSync(settingsPath, 'utf-8')).toBe(futureContent);
-        expect(readdirSync(mocks.userDataPath)).toEqual(['settings.json']);
+        expect(readFileSync(settingsPath, 'utf-8')).not.toBe(futureContent);
+        expect(readdirSync(mocks.userDataPath)).toEqual(expect.arrayContaining([
+            'settings.json',
+            expect.stringMatching(/^settings\.json\.\d+\.corrupt$/u),
+        ]));
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined unsupported settings'));
+        expect(consumeSettingsRecoveryNotice()).toEqual({reason: 'unsupported'});
+        expect(consumeSettingsRecoveryNotice()).toBeNull();
     });
 
     it('keeps the diagnostics preference through Electron settings persistence', async () => {

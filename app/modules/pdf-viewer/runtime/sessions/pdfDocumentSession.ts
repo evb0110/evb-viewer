@@ -27,6 +27,7 @@ import {
     createDocumentTransitionChannel,
     type IDocumentTransition,
 } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
 import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
 import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
@@ -99,6 +100,13 @@ export interface IPdfDocumentTransition extends IDocumentTransition<IPdfDocument
     readonly phase: TPdfDocumentPhase;
     readonly plan: IPdfDocumentLoadPlan;
     readonly reason: string;
+    /**
+     * The same document rewritten in place, as a page operation or a save
+     * does, rather than a different document opened. The old presentation is
+     * still a truthful picture of the new bytes for everything but the edit,
+     * so it can stay on screen until the replacement is ready to paint.
+     */
+    readonly isSameDocumentRewrite: boolean;
 }
 
 /**
@@ -129,6 +137,12 @@ export interface ICreatePdfDocumentSessionOptions {
     emitLoading?: ((loading: boolean) => void) | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
     emitRasterScheduler?: ((scheduler: IPdfPageRasterScheduler | null) => void) | undefined;
+}
+
+function isRewriteOfSameDocument(previous: TPdfSource | null, next: TPdfSource) {
+    return isPathPdfSource(previous)
+        && isPathPdfSource(next)
+        && previous.path === next.path;
 }
 
 const IDLE_PLAN: IPdfDocumentLoadPlan = {
@@ -287,12 +301,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         phase: TPdfDocumentPhase,
         reason: string,
         fence = captureFence(),
+        isSameDocumentRewrite = false,
     ) {
         return transitions.publish({
             phase,
             fence,
             plan: activePlan,
             reason,
+            isSameDocumentRewrite,
         });
     }
 
@@ -868,12 +884,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         };
     }
 
-    async function invalidate(reason: string) {
+    async function invalidate(reason: string, isSameDocumentRewrite = false) {
         scheduledLoadToken += 1;
         const wasActive = isLoadFromSourceActive;
         documentLoadToken += 1;
         isLoadFromSourceActive = false;
-        await emitTransition('invalidated', reason);
+        await emitTransition('invalidated', reason, captureFence(), isSameDocumentRewrite);
         if (wasActive) {
             resolveLoadSettle();
         }
@@ -1008,9 +1024,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         });
     }
 
-    function scheduleSourceReplacement(isReload: boolean) {
+    function scheduleSourceReplacement(isReload: boolean, isSameDocumentRewrite = false) {
         sourceLoader.cancelPendingOpen();
-        const invalidation = invalidate('source-replaced');
+        const invalidation = invalidate('source-replaced', isSameDocumentRewrite);
         const activeScheduledLoadToken = scheduledLoadToken;
         runGuardedTask(async () => {
             await invalidation;
@@ -1149,7 +1165,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             invalidateAndCleanup('source-cleared');
             return;
         }
-        scheduleSourceReplacement(Boolean(oldSrc));
+        scheduleSourceReplacement(Boolean(oldSrc), isRewriteOfSameDocument(oldSrc, newSrc));
     });
 
     watch(() => options.isActive?.value ?? true, (active) => {

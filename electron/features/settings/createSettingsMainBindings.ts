@@ -8,6 +8,7 @@ import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import type { ISettingsData } from '@contracts/shared';
 import { updateRecentFilesMenu } from '@electron/menu';
 import {
+    consumeSettingsRecoveryNotice,
     loadSettings,
     recordMainDiagnosticsConsentIntent,
     updateSettings,
@@ -164,6 +165,7 @@ export function createSettingsMainBindings(shutdownAssistant: () => Promise<void
             }
             return settings;
         },
+        getRecoveryNotice: () => Promise.resolve(consumeSettingsRecoveryNotice()),
         save: (context, settings) => queueSettingsSave(context.senderId, settings, shutdownAssistant),
     } satisfies TFeatureMainBindings<typeof SETTINGS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 }

@@ -2,6 +2,7 @@ import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
     IPdfNativeStagedCommitOptions,
     IPdfSaveAsOptions,
+    IPdfSaveAsWarning,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
@@ -132,6 +133,21 @@ export function decodeNullablePdfValidation(value: unknown): IPdfValidationResul
     return value === null ? null : decodePdfValidation(value);
 }
 
+export function decodeSaveAsWarning(value: unknown): IPdfSaveAsWarning | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)
+        || value.reason !== 'working-copy-sync-required'
+        || typeof value.message !== 'string') {
+        throw new Error('invalid PDF save-as warning');
+    }
+    return {
+        reason: value.reason,
+        message: value.message,
+    };
+}
+
 export function decodePdfPathValidationResult(value: unknown) {
     if (!isRecord(value) || (value.path !== null && typeof value.path !== 'string')) {
         throw new Error('invalid PDF persistence result');
@@ -140,8 +156,10 @@ export function decodePdfPathValidationResult(value: unknown) {
     if (value.path !== null && path === null) {
         throw new Error('invalid PDF persistence path');
     }
+    const warning = decodeSaveAsWarning(value.warning);
     return {
         path,
         validation: decodeNullablePdfValidation(value.validation),
+        ...(warning === undefined ? {} : {warning}),
     };
 }

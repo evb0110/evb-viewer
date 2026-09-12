@@ -2,6 +2,7 @@ use super::*;
 pub(crate) use evb_native_support::pdf_catalog::{
     deserialize_bounded_bookmark_items, BookmarkEntry, PageLabelRange,
 };
+use evb_native_support::{bounded_io::record_deserialization_error, NativeErrorCode};
 use serde::Serialize;
 
 fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -59,6 +60,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for BoundedShapeStrokeSeed {
                 let mut points = Vec::with_capacity(capacity);
                 while let Some(point) = sequence.next_element::<ShapePoint>()? {
                     if points.len() == self.remaining_points {
+                        record_deserialization_error(NativeErrorCode::TooLarge);
                         return Err(serde::de::Error::custom(format!(
                             "shape strokes exceed the {MAX_SHAPE_MUTATION_POINTS}-point admission ceiling"
                         )));
@@ -106,6 +108,7 @@ impl<'de> serde::de::Visitor<'de> for ShapeStrokesVisitor {
         }
 
         if sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
+            record_deserialization_error(NativeErrorCode::TooLarge);
             return Err(serde::de::Error::custom(format!(
                 "array exceeds the {MAX_SHAPE_MUTATION_STROKES}-item admission ceiling"
             )));
@@ -233,6 +236,7 @@ where
             let mut geometry_count = 0usize;
             while let Some(hint) = sequence.next_element::<MarkupSubtypeHint>()? {
                 if hints.len() == MAX_MARKUP_SUBTYPE_HINTS {
+                    record_deserialization_error(NativeErrorCode::TooLarge);
                     return Err(serde::de::Error::custom(format!(
                         "array exceeds the {MAX_MARKUP_SUBTYPE_HINTS}-item admission ceiling"
                     )));
@@ -243,6 +247,7 @@ where
                         serde::de::Error::custom("text-markup geometry item count overflowed")
                     })?;
                 if geometry_count > MAX_MARKUP_GEOMETRY_ITEMS {
+                    record_deserialization_error(NativeErrorCode::TooLarge);
                     return Err(serde::de::Error::custom(format!(
                         "text-markup geometry exceeds the {MAX_MARKUP_GEOMETRY_ITEMS}-item admission ceiling"
                     )));

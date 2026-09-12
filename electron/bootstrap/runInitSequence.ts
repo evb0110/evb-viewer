@@ -20,7 +20,7 @@ interface IShutdownCoordinator {
     isGracefulQuitInProgress(): boolean;
     isQuittingAfterCleanup(): boolean;
     isFatalShutdownInProgress(): boolean;
-    requestGracefulQuit(options?: { afterCleanup?: () => void }): void;
+    requestGracefulQuit(options?: { afterCleanup?: () => void | Promise<void> }): void;
 }
 
 interface IExternalOpenManager {
@@ -48,6 +48,7 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
 
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
+    onWorkspaceCheckpointClaimed?: () => void | Promise<void>;
     claimPendingExternalOpenPaths?: (sender: WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: WebContents, failedPaths: TDocumentRef[]) => void;
 }
@@ -85,6 +86,7 @@ export interface IRunInitSequenceOptions {
         showStartupPlaceholder?: boolean;
         waitForInitialRendererReady?: boolean;
     }): Promise<BrowserWindow>;
+    createAdditionalWindow?: () => Promise<BrowserWindow>;
     devDockBadgeText: string;
     devDockIconPath: string;
     externalOpenManager: IExternalOpenManager;
@@ -104,6 +106,12 @@ export interface IRunInitSequenceOptions {
     markWindowTabTransferNotReady(windowId: number): void;
     markWindowTabTransferReady(windowId: number): void;
     markWindowTabTransferWindowClosed(windowId: number): void;
+    /**
+     * Runs once the single-instance lock is held. A launch that loses the lock
+     * exits before this point, so anything that consumes state left behind by
+     * the previous run belongs here rather than at module load.
+     */
+    onPrimaryInstanceReady(): void;
     maybePromptForDefaultViewer(): void;
     readyWindowIds: Set<number>;
     registerIpcHandlers(options: IRegisterIpcHandlersOptions): void;
@@ -211,6 +219,8 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
         logger.info('Automation harness mode: bypassing single-instance lock to allow multiple sessions');
     }
 
+    options.onPrimaryInstanceReady();
+
     if (process.platform !== 'darwin' || allowMultipleAutomationSessions) {
         externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));
     }
@@ -283,6 +293,7 @@ function bootIpc(
         getMainWindow,
         getWindowFromWebContents,
         logStartupPhase,
+        logger,
         markWindowRendererReady,
         markWindowTabTransferReady,
         maybePromptForDefaultViewer,
@@ -290,7 +301,34 @@ function bootIpc(
         registerIpcHandlers,
     } = options;
     const rendererReadyFocusHandled = new WeakSet<WebContents>();
+    let recoveryWindowCreationRequested = false;
+    let recoveryWindowCreationInFlight: Promise<void> | null = null;
+    const scheduleWorkspaceRecoveryWindow = () => {
+        const createAdditionalWindow = options.createAdditionalWindow;
+        if (!createAdditionalWindow) {
+            return;
+        }
+        recoveryWindowCreationRequested = true;
+        if (recoveryWindowCreationInFlight) {
+            return;
+        }
+        recoveryWindowCreationInFlight = (async () => {
+            while (recoveryWindowCreationRequested) {
+                recoveryWindowCreationRequested = false;
+                await createAdditionalWindow();
+            }
+        })().catch((error: unknown) => {
+            logger.error(`Failed to create a workspace recovery window: ${getErrorMessage(error)}`, {
+                code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+                context: {},
+                cause: error,
+            });
+        }).finally(() => {
+            recoveryWindowCreationInFlight = null;
+        });
+    };
     registerIpcHandlers({
+        onWorkspaceCheckpointClaimed: scheduleWorkspaceRecoveryWindow,
         onRendererReady: (event) => {
             const window = getWindowFromWebContents(event.sender);
             if (!window) {

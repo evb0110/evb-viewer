@@ -112,6 +112,8 @@ export interface IPdfViewerLoadExpose {
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     getPageMetricsSnapshot?: () => IPdfPageMetric[];
+    pageMetrics?: readonly IPdfPageMetric[];
+    pageMetricsVersion?: number;
 }
 
 export interface IPdfViewerRegionCaptureExpose {

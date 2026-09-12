@@ -7,7 +7,11 @@ import {
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
-import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
+import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
+import {
+    IpcInvokeTimeoutError,
+    createCodecIpcInvoker,
+} from '@electron/preload/ipcClient';
 
 interface ITestInvokeMap {
     'native:slow': {
@@ -38,29 +42,34 @@ describe('createCodecIpcInvoker timeout policy', () => {
 
     it('rejects configured channels with channel-scoped timeout context', async () => {
         vi.useFakeTimers();
-        const ipcRenderer: Pick<IpcRenderer, 'invoke'> = {invoke: vi.fn(() => new Promise(() => {}))};
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'> = {
+            invoke: vi.fn(() => new Promise(() => {})),
+            send: vi.fn(),
+        };
         const invoke = createCodecIpcInvoker<ITestInvokeMap>(ipcRenderer, codecs, {invokeTimeoutMsByChannel: {'native:slow': 250}});
 
         const pending = invoke('native:slow', 'payload');
-        const assertion = expect(pending).rejects.toMatchObject({
-            name: 'PlatformIpcInvokeError',
-            channel: 'native:slow',
-            message: 'IPC invoke timed out after 250ms for native:slow',
-            cause: {
-                name: 'IpcInvokeTimeoutError',
-                channel: 'native:slow',
-                timeoutMs: 250,
-            },
-        });
+        const assertion = expect(pending).rejects.toBeInstanceOf(IpcInvokeTimeoutError);
         await vi.advanceTimersByTimeAsync(250);
 
         await assertion;
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith('native:slow', 'payload');
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            'native:slow',
+            'payload',
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
+        );
+        expect(ipcRenderer.send).toHaveBeenCalledWith(
+            'ipc:invokeCanceled',
+            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
+        );
     });
 
     it('leaves unconfigured channels without a renderer-side timeout', async () => {
         vi.useFakeTimers();
-        const ipcRenderer: Pick<IpcRenderer, 'invoke'> = {invoke: vi.fn(() => new Promise(() => {}))};
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'> = {
+            invoke: vi.fn(() => new Promise(() => {})),
+            send: vi.fn(),
+        };
         const invoke = createCodecIpcInvoker<ITestInvokeMap>(ipcRenderer, codecs);
         const rejected = vi.fn();
 

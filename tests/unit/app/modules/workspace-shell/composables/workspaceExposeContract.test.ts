@@ -73,6 +73,7 @@ function createWorkspaceCandidateWithout(missingMethodName: TWorkspaceExposeMeth
 
 function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
     return {
+        documentIdentity: ref(null),
         handleSave: vi.fn(async () => true),
         handleRepairSave: vi.fn(async () => true),
         handleOptimizePdfForInteraction: vi.fn(async () => true),

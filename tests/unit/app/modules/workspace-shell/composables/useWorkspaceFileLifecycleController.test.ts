@@ -5,13 +5,18 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    effectScope,
+    ref,
+} from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
     openDjvuFile: vi.fn(),
     openFileDirect: vi.fn(),
+    ensurePdfProjectionForAction: vi.fn(),
+    cancelActiveJobs: vi.fn(),
     cleanupDjvuTemp: vi.fn(),
     closeFile: vi.fn(),
     exitDjvuMode: vi.fn(),
@@ -94,8 +99,8 @@ vi.mock('@app/composables/useDjvu', () => ({useDjvu: () => ({
     openDjvuFile: mocks.openDjvuFile,
     invalidatePendingDjvuOpen: vi.fn(),
     convertToPdf: mocks.convertToPdf,
-    ensurePdfProjectionForAction: vi.fn(),
-    cancelActiveJobs: vi.fn(),
+    ensurePdfProjectionForAction: mocks.ensurePdfProjectionForAction,
+    cancelActiveJobs: mocks.cancelActiveJobs,
     cleanupDjvuTemp: mocks.cleanupDjvuTemp,
     captureDjvuActivation: () => state.activeDjvuActivation,
     exitDjvuMode: mocks.exitDjvuMode,
@@ -135,6 +140,8 @@ describe('useWorkspaceFileLifecycleController', () => {
         state.pendingDjvu.value = null;
         state.workingCopyPath.value = null;
         mocks.cleanupDjvuTemp.mockResolvedValue(true);
+        mocks.ensurePdfProjectionForAction.mockResolvedValue(true);
+        mocks.cancelActiveJobs.mockResolvedValue(false);
         mocks.exitDjvuMode.mockImplementation((expected) => {
             if (state.activeDjvuActivation?.generation !== expected.generation) {
                 return false;
@@ -280,5 +287,100 @@ describe('useWorkspaceFileLifecycleController', () => {
         expect(state.activeDjvuActivation).toEqual(newerActivation);
         expect(state.djvuSourcePath.value).toBe(path);
         expect(state.isDjvuMode.value).toBe(true);
+    });
+
+    it('aborts an active projection when the user cancels DjVu work', async () => {
+        const projection = createDeferred();
+        let projectionSignal: AbortSignal | undefined;
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (
+            _reason,
+            _openConvertedPdf,
+            signal: AbortSignal,
+        ) => {
+            projectionSignal = signal;
+            await projection.promise;
+        });
+        state.djvuSourcePath.value = '/docs/scan.djvu';
+        state.isDjvuMode.value = true;
+
+        const controller = useWorkspaceFileLifecycleController();
+        const ensurePromise = controller.ensureDjvuPdfProjection('edit');
+        await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));
+
+        controller.handleDjvuCancel();
+
+        expect(projectionSignal?.aborted).toBe(true);
+        expect(mocks.cancelActiveJobs).toHaveBeenCalledOnce();
+
+        projection.resolve();
+        await expect(ensurePromise).resolves.toBeUndefined();
+
+        let replacementSignal: AbortSignal | undefined;
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (
+            _reason,
+            _openConvertedPdf,
+            signal: AbortSignal,
+        ) => {
+            replacementSignal = signal;
+        });
+        await expect(controller.ensureDjvuPdfProjection('ocr')).resolves.toBeUndefined();
+        expect(replacementSignal).not.toBe(projectionSignal);
+        expect(replacementSignal?.aborted).toBe(false);
+    });
+
+    it('aborts an active projection before closing the document', async () => {
+        const projection = createDeferred();
+        let projectionSignal: AbortSignal | undefined;
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (
+            _reason,
+            _openConvertedPdf,
+            signal: AbortSignal,
+        ) => {
+            projectionSignal = signal;
+            await projection.promise;
+        });
+        state.djvuSourcePath.value = '/docs/scan.djvu';
+        state.isDjvuMode.value = true;
+
+        const controller = useWorkspaceFileLifecycleController();
+        const ensurePromise = controller.ensureDjvuPdfProjection('save-as-pdf');
+        await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));
+
+        const closePromise = controller.closeFileWithViewerLifecycle();
+
+        expect(projectionSignal?.aborted).toBe(true);
+        projection.resolve();
+        await expect(ensurePromise).resolves.toBeUndefined();
+        await closePromise;
+        expect(mocks.closeFile).toHaveBeenCalledOnce();
+    });
+
+    it('aborts an active projection when the workspace scope is disposed', async () => {
+        const projection = createDeferred();
+        let projectionSignal: AbortSignal | undefined;
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (
+            _reason,
+            _openConvertedPdf,
+            signal: AbortSignal,
+        ) => {
+            projectionSignal = signal;
+            await projection.promise;
+        });
+        state.djvuSourcePath.value = '/docs/scan.djvu';
+        state.isDjvuMode.value = true;
+
+        const scope = effectScope();
+        let ensurePromise: Promise<unknown> | undefined;
+        scope.run(() => {
+            const controller = useWorkspaceFileLifecycleController();
+            ensurePromise = controller.ensureDjvuPdfProjection('edit');
+        });
+        await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));
+
+        scope.stop();
+
+        expect(projectionSignal?.aborted).toBe(true);
+        projection.resolve();
+        await expect(ensurePromise).resolves.toBeUndefined();
     });
 });

@@ -8,7 +8,6 @@ import { groupBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
-import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfRasterDemand,
     IPdfRasterDemandPolicy,
@@ -16,14 +15,12 @@ import type {
     IPdfPageRasterScheduler,
     TPdfRasterLane,
 } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     buildThumbnailRenderTransform,
     isThumbnailRasterWidthReady,
     resolveThumbnailRasterWidth,
-    roundMetric,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
 import {
     resolvePdfThumbnailItemChromeHeight,
@@ -34,7 +31,6 @@ import {
     createHiddenAnnotationIdsSignature,
     getEditedTextMarkupThumbnailComments,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
-import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
 import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
@@ -280,58 +276,8 @@ export const usePdfThumbnailRenderRuntime = (
         );
     }
 
-    function updateThumbnailAspectRatioForPage(
-        pageNumber: number,
-        viewportWidth: number,
-        viewportHeightValue: number,
-        reason: string,
-    ) {
-        if (
-            pageNumber < 1
-            || pageNumber > source.totalPages.value
-            || viewportWidth <= 0
-            || viewportHeightValue <= 0
-        ) {
-            return false;
-        }
-        const nextAspectRatio = viewportHeightValue / viewportWidth;
-        const previousAspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? null;
-        if (
-            !Number.isFinite(nextAspectRatio)
-            || nextAspectRatio <= 0
-            || (
-                previousAspectRatio !== null
-                && Math.abs(previousAspectRatio - nextAspectRatio) < 0.001
-            )
-        ) {
-            return false;
-        }
-        layout.updateThumbnailAspectRatio(pageNumber, nextAspectRatio);
-        BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
-            currentPage: source.currentPage.value,
-            itemHeight: roundMetric(resolveThumbnailItemHeightFromAspect(
-                nextAspectRatio,
-                layout.thumbnailRenderWidth.value,
-            )),
-            nextAspectRatio: roundMetric(nextAspectRatio),
-            page: pageNumber,
-            previousAspectRatio: previousAspectRatio === null
-                ? null
-                : roundMetric(previousAspectRatio),
-            reason,
-            totalPages: source.totalPages.value,
-        });
-        return true;
-    }
-
-    function resolveThumbnailRenderMetrics(page: IPdfPage, pageNumber: number) {
+    function resolveThumbnailRenderMetrics(page: IPdfPage) {
         const viewport = page.getViewport({scale: 1});
-        updateThumbnailAspectRatioForPage(
-            pageNumber,
-            viewport.width,
-            viewport.height,
-            'render-viewport',
-        );
         const scale = layout.thumbnailRenderWidth.value / viewport.width;
         const scaledViewport = page.getViewport({scale});
         const outputScale = resolveThumbnailOutputScale();
@@ -388,7 +334,7 @@ export const usePdfThumbnailRenderRuntime = (
             } else {
                 clearThumbnailCanvas(demand.pageNumber, canvas, renderKey);
             }
-            const metrics = resolveThumbnailRenderMetrics(page, demand.pageNumber);
+            const metrics = resolveThumbnailRenderMetrics(page);
             const renderCanvas = preserveBitmap
                 ? document.createElement('canvas')
                 : canvas;
@@ -491,7 +437,7 @@ export const usePdfThumbnailRenderRuntime = (
 
     function estimateThumbnailPixels(pageNumber: number) {
         const width = Math.max(1, layout.thumbnailRenderWidth.value);
-        const aspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? 1.3;
+        const aspectRatio = layout.getThumbnailAspectRatio(pageNumber);
         const outputScale = resolveThumbnailOutputScale();
         return Math.max(1, Math.ceil(width * outputScale))
             * Math.max(1, Math.ceil(width * aspectRatio * outputScale));
@@ -582,54 +528,6 @@ export const usePdfThumbnailRenderRuntime = (
     );
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
-    async function preloadThumbnailAspectRatio(
-        pdfDocument: IPdfDocument,
-        generation: number,
-    ) {
-        const pageNumber = clamp(
-            source.currentPage.value || 1,
-            1,
-            Math.max(1, source.totalPages.value),
-        );
-        try {
-            const pageLease = await leasePdfDocumentPage(
-                pdfDocument,
-                pageNumber,
-                'transient-background',
-            );
-            try {
-                if (
-                    generation !== documentRenderEpoch.value
-                    || pdfDocument !== activeDocument
-                ) {
-                    return;
-                }
-                const viewport = pageLease.page.getViewport({scale: 1});
-                updateThumbnailAspectRatioForPage(
-                    pageNumber,
-                    viewport.width,
-                    viewport.height,
-                    'preload-viewport',
-                );
-                void effects.refreshVisibleThumbnailPane('preload-viewport');
-            } finally {
-                pageLease.release();
-            }
-        } catch (error) {
-            if (pdfDocument !== activeDocument) {
-                return;
-            }
-            BrowserLogger.diagnostic(
-                PDF_THUMBNAIL_LOG_SECTION,
-                'Failed to preload thumbnail aspect ratio',
-                {
-                    error,
-                    page: pageNumber,
-                },
-            );
-        }
-    }
-
     function clearRenderedState(clearLayout = true) {
         renderedCanvases.clear();
         pageRenderEpochs.clear();
@@ -650,7 +548,7 @@ export const usePdfThumbnailRenderRuntime = (
             layout.thumbnailRenderWidth.value = resolveThumbnailRasterWidth(
                 layout.thumbnailLayoutWidth.value,
             );
-            layout.clearThumbnailAspectRatios();
+            layout.resetThumbnailLayout();
         }
         effects.resetMeasurementState();
     }
@@ -662,9 +560,6 @@ export const usePdfThumbnailRenderRuntime = (
                 pageNumber,
                 (pageRenderEpochs.get(pageNumber) ?? 0) + 1,
             );
-            if (layout.thumbnailAspectRatios.value.has(pageNumber)) {
-                layout.updateThumbnailAspectRatio(pageNumber, null);
-            }
             const canvas = dom.getCanvas(pageNumber);
             if (canvas) {
                 canvas.dataset.thumbnailPreservedBitmap = 'true';
@@ -722,19 +617,6 @@ export const usePdfThumbnailRenderRuntime = (
                 }
             }
             void nextTick(() => {
-                const pageNumber = clamp(
-                    source.currentPage.value || 1,
-                    1,
-                    Math.max(1, source.totalPages.value),
-                );
-                const aspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? null;
-                if (!aspectRatio || aspectRatio <= 0) {
-                    void preloadThumbnailAspectRatio(
-                        document,
-                        documentRenderEpoch.value,
-                    );
-                    return;
-                }
                 void effects.refreshVisibleThumbnailPane('document-ready');
             });
         },

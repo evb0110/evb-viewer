@@ -252,6 +252,15 @@ export default defineNuxtConfig({
         '@nuxtjs/i18n',
     ],
 
+    // Every font this app renders is bundled and declared with an explicit
+    // @font-face in app/assets/css. @nuxt/ui pulls in @nuxt/fonts, whose
+    // remote providers would otherwise probe api.fontshare.com and Google
+    // during the build, putting a third-party host on the build's critical
+    // path. 'local' disables every other provider.
+    fonts: {
+        provider: 'local',
+    },
+
     components: [
         {
             path: '~/components',

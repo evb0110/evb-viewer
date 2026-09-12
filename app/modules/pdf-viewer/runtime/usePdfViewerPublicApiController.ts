@@ -28,6 +28,8 @@ type TPdfViewerPublicApiRefBackedKeys =
     | 'hasShapes'
     | 'isCapturingRegion'
     | 'isCropSelecting'
+    | 'pageMetrics'
+    | 'pageMetricsVersion'
     | 'selectedAnnotations'
     | 'selectedTextBox'
     | 'selectedShapeId';
@@ -178,6 +180,8 @@ export const usePdfViewerPublicApiController = (
         applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
+        pageMetrics: documentSession.pageMetrics,
+        pageMetricsVersion: documentSession.pageMetricsVersion,
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
         commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,

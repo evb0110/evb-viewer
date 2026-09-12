@@ -215,26 +215,12 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 scheduleActivePaneRefresh: () => {},
             },
             layout: {
-                clearThumbnailAspectRatios: () => {},
+                getThumbnailAspectRatio: () => 1.4,
+                resetThumbnailLayout: () => {},
                 resolveViewportAnchorPage: () => 1,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
-                thumbnailAspectRatios: ref(new Map([
-                    [
-                        1,
-                        1.4,
-                    ],
-                    [
-                        2,
-                        1.4,
-                    ],
-                    [
-                        3,
-                        1.4,
-                    ],
-                ])),
                 thumbnailLayoutWidth: ref(128),
                 thumbnailRenderWidth: ref(128),
-                updateThumbnailAspectRatio: () => {},
                 viewportPages: computed(() => MOUNTED_PAGES),
                 virtualPages: computed(() => MOUNTED_PAGES),
             },

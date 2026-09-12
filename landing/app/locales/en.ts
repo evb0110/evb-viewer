@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Document workspace for browser and desktop. Open local PDFs, DjVu files, and images in the browser; install the desktop app for searchable-PDF OCR, heavier native workflows, EVB Assistant via Codex, and optional local MCP support.',
+        description: 'Offline tools to clean raw scans and DjVu files, run OCR, add annotations, and export PDFs on macOS, Windows, and Linux. Free and MIT licensed.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -26,13 +26,13 @@ export default {
         seo: {
             title: 'EVB Viewer web app and desktop downloads',
             ogTitle: 'EVB Viewer for web and desktop document work',
-            ogDescription: 'Use EVB Viewer in the browser for local PDF, DjVu, and image work, or install the desktop app for searchable-PDF OCR, heavier native workflows, EVB Assistant via Codex, and optional local MCP support.',
+            ogDescription: 'Turn raw scans and DjVu files into searchable, annotatable PDFs with offline cleanup, OCR, annotation, and export on macOS, Windows, and Linux. Free and MIT licensed.',
         },
         hero: {
-            badge: 'Browser app + desktop builds',
-            title: 'PDF, DjVu, images',
-            subtitle: 'Open local PDFs, DjVu files, and images in the browser. Use desktop builds for searchable-PDF OCR and larger merge jobs.',
-            aiNote: 'EVB Assistant integrates with your ChatGPT/OpenAI subscription through Codex under the hood. Technical users can also expose a local MCP server.',
+            badge: 'Scan cleanup, OCR, and PDF export',
+            title: 'Turn raw scans into searchable PDFs',
+            subtitle: 'EVB Viewer cleans raw scans and DjVu files, runs OCR, and turns them into searchable, annotatable PDFs for archivists, librarians, historians, philologists, and people maintaining personal scan libraries. It works offline on macOS, Windows, and Linux. It is free and MIT licensed.',
+            aiNote: 'EVB Assistant is optional and off by default. If enabled, it uses your own Codex or Claude account and can expose a local MCP server, while scan cleanup, OCR, search, and export never use it.',
             downloadFor: 'Download for {platform}',
             downloadForArch: 'Download for {platform} ({arch})',
             downloadInstaller: 'Download {installerLabel}',
@@ -146,9 +146,9 @@ export default {
             ogDescription: 'See what EVB Viewer covers in the browser today and what the desktop app adds for searchable-PDF OCR, native OS integration, and larger jobs.',
         },
         hero: {
-            badge: 'Feature overview',
-            title: 'A shared document workspace, with the right runtime for the job.',
-            subtitle: 'EVB Viewer opens local PDF, DjVu, and image files in the browser. The desktop app adds searchable-PDF OCR, native OS integration, and more room for large merge/export jobs.',
+            badge: 'Native scan cleanup and OCR',
+            title: 'Clean raw scans, then search and annotate the PDF',
+            subtitle: 'EVB Viewer works offline on macOS, Windows, and Linux. Its native Rust engine deskews, despeckles, binarizes, crops, and splits two-page spreads. Tesseract OCR with tessdata-best models supports 30 languages. It is for archivists, librarians, historians, philologists, and people maintaining personal scan libraries.',
         },
         capabilities: {
             heading: 'Core workspace capabilities',

@@ -299,7 +299,7 @@ async function prepareNativeNoteMutation(options: {
     const sourceBytes = (await stat(options.tempPath)).size;
     const identityBindings: Array<NonNullable<IPdfNativeNoteTextSaveResult['identityBindings']>[number]> = [];
     await measureNativeNotePhase(options.phaseTimings, 'native-command', () =>
-        withLargePdfMutationAdmission(sourceBytes, options.mutationOperation.signal, async () => {
+        withLargePdfMutationAdmission(sourceBytes, options.mutationOperation.signal, async signal => {
             for (const [
                 chunkIndex,
                 chunk,
@@ -352,7 +352,7 @@ async function prepareNativeNoteMutation(options: {
                 ], {
                     timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
                     commandLabel: options.command.commandLabel,
-                    signal: options.mutationOperation.signal,
+                    signal,
                     cancelGroup: options.mutationOperation.cancelGroup,
                 });
                 await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>

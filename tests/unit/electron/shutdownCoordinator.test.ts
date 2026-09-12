@@ -207,6 +207,73 @@ describe('shutdown coordinator', () => {
         expect(logger.error).not.toHaveBeenCalled();
     });
 
+    it('gives tail cleanup steps their remaining turn and flushes logs after the cleanup deadline', async () => {
+        vi.useFakeTimers();
+        const logger = createLogger();
+        const started: string[] = [];
+        const phases = createShutdownPhaseRunners(logger, {
+            createPreservationSteps: () => [],
+            createBestEffortCleanupSteps: () => [
+                {
+                    label: 'slow-first-step',
+                    timeoutMs: 15_000,
+                    run: () => {
+                        started.push('slow-first-step');
+                        return new Promise<void>(() => undefined);
+                    },
+                },
+                {
+                    label: 'slow-second-step',
+                    timeoutMs: 10_000,
+                    run: () => {
+                        started.push('slow-second-step');
+                        return new Promise<void>(() => undefined);
+                    },
+                },
+                {
+                    label: 'working-copies',
+                    run: () => {
+                        started.push('working-copies');
+                    },
+                },
+                {
+                    label: 'log-flush',
+                    runsAfterDeadline: true,
+                    timeoutMs: 2_000,
+                    run: () => {
+                        started.push('log-flush');
+                    },
+                },
+            ],
+        });
+
+        const cleanup = phases.runBestEffortCleanupSteps({
+            preserveRecoveryState: false,
+            reason: 'graceful',
+        });
+
+        await vi.advanceTimersByTimeAsync(20_000);
+        await vi.runOnlyPendingTimersAsync();
+        await cleanup;
+
+        expect(started).toEqual([
+            'slow-first-step',
+            'slow-second-step',
+            'working-copies',
+            'log-flush',
+        ]);
+        expect(logger.error).toHaveBeenNthCalledWith(
+            1,
+            'Shutdown step timed out (slow-first-step, 6666ms)',
+            expect.objectContaining({code: 'MAIN_SHUTDOWN_FAILED'}),
+        );
+        expect(logger.error).toHaveBeenNthCalledWith(
+            2,
+            'Shutdown step timed out (slow-second-step, 6667ms)',
+            expect.objectContaining({code: 'MAIN_SHUTDOWN_FAILED'}),
+        );
+    });
+
     it('retains all recovery state when a preservation step fails', async () => {
         const logger = createLogger();
         const clearCheckpoint = vi.fn();
@@ -279,12 +346,13 @@ describe('shutdown coordinator', () => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
-        expect(cleanup).toHaveBeenCalledOnce();
+        expect(cleanup).not.toHaveBeenCalled();
 
         fixture.coordinator.requestGracefulQuit();
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
+        expect(cleanup).toHaveBeenCalledOnce();
         expect(fixture.app.exit).not.toHaveBeenCalled();
     });
 

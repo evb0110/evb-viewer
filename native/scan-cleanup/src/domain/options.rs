@@ -816,26 +816,32 @@ impl CleanupOptions {
         &self,
         width: f64,
         height: f64,
-    ) -> Result<(usize, usize), String> {
+    ) -> Result<(usize, usize), DerivedRasterError> {
         if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
-            return Err("Derived raster geometry must be positive and finite".into());
+            return Err(DerivedRasterError::Invalid(
+                "Derived raster geometry must be positive and finite".into(),
+            ));
         }
         let width = width.ceil();
         let height = height.ceil();
         if width > usize::MAX as f64 || height > usize::MAX as f64 {
-            return Err("Derived raster dimensions exceed cleanup guardrails".into());
+            return Err(DerivedRasterError::TooLarge(
+                "Derived raster dimensions exceed cleanup guardrails".into(),
+            ));
         }
         let (width, height) = (width as usize, height as usize);
-        let pixels = (width as u64)
-            .checked_mul(height as u64)
-            .ok_or_else(|| "Derived raster pixel product exceeds cleanup guardrails".to_owned())?;
+        let pixels = (width as u64).checked_mul(height as u64).ok_or_else(|| {
+            DerivedRasterError::TooLarge(
+                "Derived raster pixel product exceeds cleanup guardrails".to_owned(),
+            )
+        })?;
         if width > self.max_dimension as usize
             || height > self.max_dimension as usize
             || pixels > self.max_pixels
         {
-            return Err(format!(
+            return Err(DerivedRasterError::TooLarge(format!(
                 "Derived raster {width}x{height} exceeds cleanup guardrails"
-            ));
+            )));
         }
         Ok((width, height))
     }
@@ -914,6 +920,20 @@ impl CleanupOptions {
                     normalized.height * analysis_height as f64,
                 ))
             })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum DerivedRasterError {
+    Invalid(String),
+    TooLarge(String),
+}
+
+impl std::fmt::Display for DerivedRasterError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(message) | Self::TooLarge(message) => formatter.write_str(message),
+        }
     }
 }
 

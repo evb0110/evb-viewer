@@ -30,8 +30,8 @@ env:
   EVB_E2E_PRESERVE_ARTIFACTS: '1'
 
 jobs:
-  commit_attribution:
-    name: Commit Attribution Policy
+  publication_policy:
+    name: Publication Policy
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Reject prohibited attribution and local-only artifacts
+      - name: Reject local-only artifacts and unexplained checks
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -52,12 +52,12 @@ jobs:
           PUSH_HEAD_SHA: ${{ github.sha }}
         # This widens to the pushed head's complete history when the before SHA is
         # absent or unreachable. That is the fail-closed force-push behavior; see
-        # the publication-policy runbook in docs/releasing.md.
+        # the publication-policy runbook in docs/contributing/releasing.md.
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            node scripts/check-commit-attribution.mjs --pushed-range "$PR_BASE_SHA" "$PR_HEAD_SHA"
+            node scripts/check-publication-policy.mjs --pushed-range "$PR_BASE_SHA" "$PR_HEAD_SHA"
           else
-            node scripts/check-commit-attribution.mjs --pushed-range "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
+            node scripts/check-publication-policy.mjs --pushed-range "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
           fi
 
   pr_quality:
@@ -450,7 +450,7 @@ jobs:
     # (issue #109's root growth). It runs as a parallel sibling, blocking
     # through gates_ok, off the native lane's serial path. The 18-minute
     # real-corpus suite was moved to manual maintenance after two blocking days with
-    # zero catches (anti-accretion rule, docs/releasing.md).
+    # zero catches (anti-accretion rule, docs/contributing/releasing.md).
     name: Scan Cleanup Heavy Gates
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
@@ -581,7 +581,7 @@ jobs:
     name: gates_ok
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     needs:
-      - commit_attribution
+      - publication_policy
       - pr_quality
       - pr_changed_areas
       - pr_electron_blocking_smoke
@@ -595,6 +595,12 @@ jobs:
       - pr_rust_tests_arm64
       - pr_scan_cleanup_oracles
       - pr_landing_quality
+      # Required on push to main, skipped on pull requests: these are the only
+      # jobs proving an Electron journey ran on the platform that ships signed.
+      # Large PDF stays manual until #552 turns that lane green.
+      - push_electron_e2e_regression
+      - push_electron_e2e_save_pipeline
+      - push_electron_e2e_rapid_navigation
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -609,6 +615,7 @@ jobs:
           NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
           SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}
           LANDING_CHANGED: ${{ needs.pr_changed_areas.outputs.landing }}
+          ELECTRON_E2E_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
@@ -624,6 +631,9 @@ jobs:
             ['pr_rust_tests_arm64', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_scan_cleanup_oracles', process.env.SCAN_CLEANUP_EXPORT_CHANGED],
             ['pr_landing_quality', process.env.LANDING_CHANGED],
+            ['push_electron_e2e_regression', process.env.ELECTRON_E2E_REQUIRED],
+            ['push_electron_e2e_save_pipeline', process.env.ELECTRON_E2E_REQUIRED],
+            ['push_electron_e2e_rapid_navigation', process.env.ELECTRON_E2E_REQUIRED],
           ]);
           const rejected = [];
 
@@ -675,9 +685,9 @@ jobs:
             cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
           done
 
-  nightly_electron_e2e_regression:
-    name: Manual Electron E2E Regression
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  push_electron_e2e_regression:
+    name: Electron E2E Regression
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -702,9 +712,9 @@ jobs:
         with:
           artifact-name: electron-regression-${{ github.run_attempt }}
 
-  nightly_electron_e2e_save_pipeline:
-    name: Manual Electron E2E Save Pipeline
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  push_electron_e2e_save_pipeline:
+    name: Electron E2E Save Pipeline
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -729,9 +739,9 @@ jobs:
         with:
           artifact-name: electron-save-pipeline-${{ github.run_attempt }}
 
-  nightly_electron_e2e_rapid_navigation:
-    name: Manual Electron E2E Rapid Navigation
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  push_electron_e2e_rapid_navigation:
+    name: Electron E2E Rapid Navigation
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: macos-14
     timeout-minutes: 45
 

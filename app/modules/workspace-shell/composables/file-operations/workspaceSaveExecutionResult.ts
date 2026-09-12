@@ -12,10 +12,20 @@ export interface IPostSaveReloadWaiter {
     cancel: () => void;
 }
 
+/**
+ * What a completed save is allowed to mark clean. Every flag defaults to false
+ * at each construction site rather than being optional, so a new save path has
+ * to state which layers it actually wrote. A layer marked clean without its
+ * edits having been written loses them: the tab stops looking dirty and the
+ * close guard stops asking.
+ */
 export interface ISaveCompletionPolicy {
     allowAnnotationSaveStateRefresh?: boolean;
     allowBookmarksSaveStateRefresh?: boolean;
     allowPageLabelsSaveStateRefresh?: boolean;
+    markAnnotationStateSaved: boolean;
+    markBookmarksStateSaved: boolean;
+    markPageLabelsStateSaved: boolean;
     markShapeStateSaved: boolean;
     preserveLivePdfjsSession: boolean;
     resetAnnotationStorage: boolean;
@@ -131,6 +141,7 @@ export function abortReasonForPersistResult(persisted: IPdfPersistResult): TWork
 export function workingCopySaveResult(
     persisted: IPdfPersistResult,
     reloadWaiter: IPostSaveReloadWaiter | null,
+    completion: Partial<ISaveCompletionPolicy> = {},
 ): TWorkspaceSaveExecutionResult {
     if (!persisted.success) {
         return notSavedAfterWrite(abortReasonForPersistResult(persisted), reloadWaiter);
@@ -141,9 +152,16 @@ export function workingCopySaveResult(
         serializedChanges: false,
         reloadWaiter,
         completion: {
-            markShapeStateSaved: true,
+            allowAnnotationSaveStateRefresh: false,
+            allowBookmarksSaveStateRefresh: false,
+            allowPageLabelsSaveStateRefresh: false,
+            markAnnotationStateSaved: false,
+            markBookmarksStateSaved: false,
+            markPageLabelsStateSaved: false,
+            markShapeStateSaved: false,
             preserveLivePdfjsSession: false,
             resetAnnotationStorage: false,
+            ...completion,
         },
     };
 }

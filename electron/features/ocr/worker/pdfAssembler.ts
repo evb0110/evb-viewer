@@ -352,6 +352,13 @@ function filterOwnedOcrResourceNames(names: Set<string>) {
     return new Set([...names].filter(name => name.replace(/^\//u, '').startsWith('EvbOcr')));
 }
 
+function addProvenResourceNames(target: Set<string>, scan: IResourceReferenceScan) {
+    if (!scan.complete) {
+        return;
+    }
+    scan.names.forEach(name => target.add(name));
+}
+
 function hasKeptFormXObject(resources: PDFDict, removedXObjectNames: Set<string>) {
     const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME);
     if (!xObject) {
@@ -499,9 +506,9 @@ function removePreviousOcrLayer(page: PDFPage) {
             sanitizedText,
         } = removeSupportedHiddenTextObjects(streamText);
         if (removedText.length > 0) {
-            scanResourceReferences(removedText, 'Tf').names.forEach(name => removedFontNames.add(name));
-            scanResourceReferences(removedText, 'Do').names.forEach(name => removedXObjectNames.add(name));
-            scanResourceReferences(removedText, 'gs').names.forEach(name => removedExtGStateNames.add(name));
+            addProvenResourceNames(removedFontNames, scanResourceReferences(removedText, 'Tf'));
+            addProvenResourceNames(removedXObjectNames, scanResourceReferences(removedText, 'Do'));
+            addProvenResourceNames(removedExtGStateNames, scanResourceReferences(removedText, 'gs'));
             if (sanitizedText.trim().length === 0) {
                 contents.remove(index);
                 if (contentRef instanceof PDFRef) {
@@ -520,9 +527,9 @@ function removePreviousOcrLayer(page: PDFPage) {
 
         const strippedText = streamText.replace(TESSERACT_HIDDEN_TEXT_OBJECT_RE, '');
         if (isTextOnlyOcrStream(streamText, strippedText)) {
-            scanResourceReferences(streamText, 'Tf').names.forEach(name => removedFontNames.add(name));
-            scanResourceReferences(streamText, 'Do').names.forEach(name => removedXObjectNames.add(name));
-            scanResourceReferences(streamText, 'gs').names.forEach(name => removedExtGStateNames.add(name));
+            addProvenResourceNames(removedFontNames, scanResourceReferences(streamText, 'Tf'));
+            addProvenResourceNames(removedXObjectNames, scanResourceReferences(streamText, 'Do'));
+            addProvenResourceNames(removedExtGStateNames, scanResourceReferences(streamText, 'gs'));
             contents.remove(index);
             if (contentRef instanceof PDFRef) {
                 context.delete(contentRef);

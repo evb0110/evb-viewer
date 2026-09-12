@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -9,9 +10,12 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
+    INativePdfMutationProjection,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/public';
@@ -24,6 +28,41 @@ import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { TEST_PDF_SAVE_BYTE_ROUTE_DECISION } from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 const PRINT_FRONTIER_REVISION = requireDocumentRevisionToken('print-frontier-revision');
+const WORKING_COPY_REF = requireDocumentRef('browser://documents/print-working');
+const ORIGINAL_REF = requireDocumentRef('browser://documents/print-original');
+const DOCUMENT_REVISION = requireDocumentRevisionToken('print-document-revision');
+
+// The print transaction returns a mutation projection, never bytes. Staging it
+// as a clone is what turns the live frontier into printable bytes, so the tests
+// stand in for the stage-and-read pair and key the bytes off the clone ref.
+const mocks = vi.hoisted(() => ({
+    consumeNativePdfMutationProjection: vi.fn(),
+    readDocumentBytes: vi.fn(),
+}));
+
+vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({
+    consumeNativePdfMutationProjection: mocks.consumeNativePdfMutationProjection,
+    NativePdfSaveRequiredError: class NativePdfSaveRequiredError extends Error {},
+}));
+
+vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
+
+const clonedBytesByRef = new Map<TDocumentRef, Uint8Array>();
+const cloneRefsByProjection: TDocumentRef[] = [];
+let nextCloneIndex = 0;
+
+const PRINT_PROJECTION: INativePdfMutationProjection = {
+    canonicalAnnotationProgram: [],
+    mutations: {updates: []},
+    noteTextUpdates: [],
+    freeTextNotes: [],
+    freeTextEditors: [],
+    annotationDeletes: [],
+    hasMetadataMutations: false,
+    hasShapeMutations: false,
+    hasMarkupMutations: false,
+    phase: 'persist-native-pdf-mutations',
+};
 
 interface IPrintTestViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
@@ -31,17 +70,13 @@ function createTransactionResult(
     finalBytes: Uint8Array,
     callbacks: Partial<IPdfViewerSaveTransactionResult> = {},
 ): IPdfViewerSaveTransactionResult {
+    nextCloneIndex += 1;
+    const cloneRef = requireDocumentRef(`browser://documents/print-clone-${String(nextCloneIndex)}`);
+    clonedBytesByRef.set(cloneRef, finalBytes);
+    cloneRefsByProjection.push(cloneRef);
     return {
-        source: 'serialized-rewrite',
-        baseBytes: null,
-        serializedBytes: null,
-        serializedResult: {
-            finalBytes,
-            saveMode: 'rewrite',
-            source: 'serialized-rewrite',
-            changedObjectRefs: [],
-        },
-        nativeMutationProjection: null,
+        source: 'native-mutation-projection',
+        nativeMutationProjection: PRINT_PROJECTION,
         fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
         annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,
         ...callbacks,
@@ -73,6 +108,9 @@ function createResolverHarness(options: {
         hasPendingUnsavedChanges,
         pdfData,
         pdfViewerRef,
+        workingCopyPath: shallowRef(WORKING_COPY_REF),
+        originalPath: shallowRef(ORIGINAL_REF),
+        documentRevisionToken: shallowRef(DOCUMENT_REVISION),
         source: {
             getSourcePdfData,
             serializePdfForSave,
@@ -93,6 +131,37 @@ function createResolverHarness(options: {
 }
 
 describe('createPrintableSourceDataResolver', () => {
+    beforeEach(() => {
+        clonedBytesByRef.clear();
+        cloneRefsByProjection.length = 0;
+        nextCloneIndex = 0;
+        mocks.consumeNativePdfMutationProjection.mockReset();
+        mocks.readDocumentBytes.mockReset();
+        mocks.consumeNativePdfMutationProjection.mockImplementation(
+            async () => cloneRefsByProjection.shift() ?? null,
+        );
+        mocks.readDocumentBytes.mockImplementation(
+            async (ref: TDocumentRef) => clonedBytesByRef.get(ref) ?? null,
+        );
+    });
+
+    it('does not expose loaded source bytes as serialized output without a writer', async () => {
+        const sourceBytes = Uint8Array.of(1, 2, 3);
+        const getSourcePdfData = vi.fn(async () => sourceBytes);
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({});
+
+        const result = await runSaveTransaction({
+            mode: 'snapshot',
+            requiresManagedShapeBaseline: true,
+            source: {getSourcePdfData},
+        });
+
+        expect(result.source).toBe('native-required-failure');
+        expect(result.nativeRequiredFailure?.code).toBe('native-save-required');
+        expect(result.nativeMutationProjection).toBeNull();
+        expect(getSourcePdfData).not.toHaveBeenCalled();
+    });
+
     it('prints loaded bytes without a transaction or a lease when the document is clean', async () => {
         const leaseKinds: TDocumentOperationKind[] = [];
         const runSaveTransaction = vi.fn(async () => createTransactionResult(Uint8Array.of(1)));
@@ -146,7 +215,7 @@ describe('createPrintableSourceDataResolver', () => {
         expect(runSaveTransaction).toHaveBeenCalledWith({
             mode: 'print',
             forceWriterSave: true,
-            serializeResult: true,
+            requiresManagedShapeBaseline: true,
             includeManagedShapes: true,
             rewriteShapeState: true,
             source: {
@@ -430,6 +499,9 @@ describe('createPrintableSourceDataResolver', () => {
             )),
             pdfData: shallowRef(null),
             pdfViewerRef: shallowRef<IPrintTestViewer | null>({runSaveTransaction: runTransaction}),
+            workingCopyPath: shallowRef(WORKING_COPY_REF),
+            originalPath: shallowRef(ORIGINAL_REF),
+            documentRevisionToken: shallowRef(DOCUMENT_REVISION),
             source: {
                 getSourcePdfData: async () => documentBytes.value,
                 serializePdfForSave: async (bytes: Uint8Array) => bytes,
@@ -486,7 +558,7 @@ describe('createPrintableSourceDataResolver', () => {
         expect(runTransaction.mock.calls[1]?.[0]).toMatchObject({
             mode: 'print',
             forceWriterSave: true,
-            serializeResult: true,
+            requiresManagedShapeBaseline: true,
         });
         // The print owns a post-acknowledgement frontier of its own.
         const printTransaction = await runTransaction.mock.results[1]?.value;

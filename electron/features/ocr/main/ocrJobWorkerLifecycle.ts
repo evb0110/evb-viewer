@@ -168,6 +168,24 @@ export function createOcrJobWorkerLifecycleController(
         nativeChildCleanupTimersByScopedJobId.delete(scopedJobId);
     }
 
+    /**
+     * Worker admission ends at proven worker exit. OCR page leases stay with
+     * the quarantined job until its native children are proven dead, because
+     * those children can still own native capacity and output artifacts.
+     */
+    function releaseWorkerAdmission(activeJob: IOcrActiveJob) {
+        if (activeJob.workerAdmissionReleased) {
+            return;
+        }
+        activeJob.workerAdmissionReleased = true;
+        activeJob.workerAdmissionLease.release();
+    }
+
+    function releaseBrokeredResources(activeJob: IOcrActiveJob) {
+        releaseWorkerAdmission(activeJob);
+        ocrResourceGovernor.releaseJob(activeJob.scopedJobId);
+    }
+
     function markNativeChildProtocolUnsafe(activeJob: IOcrActiveJob, reason: string) {
         if (activeJob.nativeChildProtocolUnsafe) {
             return;
@@ -440,7 +458,7 @@ export function createOcrJobWorkerLifecycleController(
         clearJobWatchdog(scopedJobId);
         clearWorkerCleanupTimer(scopedJobId);
         clearNativeChildCleanupTimer(scopedJobId);
-        ocrResourceGovernor.releaseJob(scopedJobId);
+        releaseBrokeredResources(activeJob);
         if (activeJob.discardPendingCompletionResult) {
             const result = activeJob.pendingCompletionResult;
             activeJob.pendingCompletionResult = null;
@@ -595,6 +613,7 @@ export function createOcrJobWorkerLifecycleController(
             activeJob.workerExitProven = true;
             activeJob.workerExitCode = code;
         }
+        releaseWorkerAdmission(activeJob);
         ocrResourceGovernor.cancelPendingForJob(
             scopedJobId,
             'OCR worker exit stopped pending page resource requests',

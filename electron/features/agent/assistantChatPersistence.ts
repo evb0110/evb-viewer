@@ -191,7 +191,14 @@ export interface IAssistantChatPersistenceOptions {
 
 interface IPendingAssistantChatSnapshot {
     ready: boolean;
-    record: TPersistedAssistantChatRecord;
+    /**
+     * The record actually handed to the write, kept so a completing write can
+     * tell whether the pending entry is still the one it started from. Null
+     * until the snapshot is taken, which for a streamed delta is deferred to
+     * the moment the debounce fires rather than paid once per delta.
+     */
+    written: TPersistedAssistantChatRecord | null;
+    takeSnapshot: () => TPersistedAssistantChatRecord;
     timer: ReturnType<typeof setTimeout> | null;
     failure: AssistantChatPersistenceError | undefined;
 }
@@ -721,12 +728,19 @@ export class AssistantChatPersistence {
 
     // fallow-ignore-next-line unused-class-member
     recordSessionSnapshot(key: string, session: IAssistantChatPersistenceSession): void {
-        this.setPendingSnapshot(key, createSnapshotRecord(key, session), false);
+        const record = createSnapshotRecord(key, session);
+        this.setPendingSnapshot(key, () => record, false);
+    }
+
+    // fallow-ignore-next-line unused-class-member
+    recordAssistantDelta(key: string, session: IAssistantChatPersistenceSession): void {
+        this.setPendingSnapshot(key, () => createSnapshotRecord(key, session), false);
     }
 
     // fallow-ignore-next-line unused-class-member
     recordTurnBoundary(key: string, session: IAssistantChatPersistenceSession): void {
-        this.setPendingSnapshot(key, createSnapshotRecord(key, session), true);
+        const record = createSnapshotRecord(key, session);
+        this.setPendingSnapshot(key, () => record, true);
     }
 
     // fallow-ignore-next-line unused-class-member
@@ -795,18 +809,24 @@ export class AssistantChatPersistence {
         return next;
     }
 
-    private setPendingSnapshot(key: string, record: TPersistedAssistantChatRecord, durable: boolean) {
+    private setPendingSnapshot(
+        key: string,
+        takeSnapshot: () => TPersistedAssistantChatRecord,
+        durable: boolean,
+    ) {
         const existing = this.pendingSnapshots.get(key);
         if (existing?.timer) {
             clearTimeout(existing.timer);
         }
         const pending = existing ?? {
             ready: false,
-            record,
+            written: null,
+            takeSnapshot,
             timer: null,
             failure: undefined,
         };
-        pending.record = record;
+        pending.written = null;
+        pending.takeSnapshot = takeSnapshot;
         pending.timer = null;
         pending.failure = undefined;
         if (durable || pending.ready) {
@@ -847,7 +867,8 @@ export class AssistantChatPersistence {
             return;
         }
         this.activeSnapshotCounts.set(key, activeCount + 1);
-        const record = pending.record;
+        const record = pending.takeSnapshot();
+        pending.written = record;
         const activeWrite = this.enqueue(key, async () => {
             const storageRecord = await this.appendRecord(key, record);
             await this.runMaintenance(async () => {
@@ -859,14 +880,14 @@ export class AssistantChatPersistence {
         });
         void activeWrite.catch((error: unknown) => {
             const current = this.pendingSnapshots.get(key);
-            if (current?.record === record) {
+            if (current?.written === record) {
                 current.failure = this.toPersistenceError(key, error);
                 current.ready = true;
             }
         });
         void activeWrite.then(() => {
             const current = this.pendingSnapshots.get(key);
-            if (current?.record === record) {
+            if (current?.written === record) {
                 this.pendingSnapshots.delete(key);
             }
         }, () => undefined).finally(() => {

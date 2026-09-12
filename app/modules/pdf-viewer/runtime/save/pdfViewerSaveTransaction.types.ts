@@ -167,9 +167,8 @@ export interface IPdfViewerSaveTransactionRequest {
     forceWriterSave?: boolean;
     includeManagedShapes?: boolean;
     rewriteShapeState?: boolean;
-    planOnly?: boolean;
-    serializeResult?: boolean;
-    /** An absolute working path makes renderer byte fallback unsafe. */
+    requiresManagedShapeBaseline?: boolean;
+    /** Persistence services validate the working-copy target outside this transaction. */
     workingPath?: TDocumentRef | null;
     markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;
     markupSubtypeHints?: IMarkupSubtypeHint[] | undefined;
@@ -179,18 +178,8 @@ export interface IPdfViewerSaveTransactionRequest {
     source?: IPdfViewerSaveTransactionSource;
 }
 
-export interface IPdfViewerSaveTransactionSerializedResult {
-    finalBytes: Uint8Array;
-    saveMode: TPdfSaveMode;
-    source: TPdfViewerSaveTransactionSource;
-    changedObjectRefs: readonly string[];
-}
-
 export interface IPdfViewerSaveTransactionResult {
     source: TPdfViewerSaveTransactionSource;
-    baseBytes: Uint8Array | null;
-    serializedBytes: Uint8Array | null;
-    serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
     nativeMutationProjection: INativePdfMutationProjection | null;
     nativeRequiredFailure?: IPdfViewerNativeRequiredFailure;
     /** A captured canonical frontier proves no PDF mutations remain after draft deletion or undo. */
@@ -202,19 +191,4 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
     commitAnnotationSave?(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
-    /**
-     * Executes the exact classifier-owned fallback captured by a plan-only
-     * transaction. It retains the same annotation frontier and serialization
-     * plan; callers must never start another transaction after native decline.
-     */
-    executeFallback?(): Promise<IPdfViewerSaveTransactionResult>;
-}
-
-export function resolvePdfViewerSaveTransactionFinalBytes(
-    result: IPdfViewerSaveTransactionResult | null | undefined,
-) {
-    return result?.serializedResult?.finalBytes
-        ?? result?.serializedBytes
-        ?? result?.baseBytes
-        ?? null;
 }

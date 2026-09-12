@@ -150,6 +150,7 @@ function createTransition(
 ): IPdfDocumentTransition {
     return {
         phase,
+        isSameDocumentRewrite: false,
         fence: {
             loadToken: 7,
             documentVersion: 9,

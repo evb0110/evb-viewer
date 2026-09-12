@@ -10,6 +10,7 @@ import {
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
 
 function deferred() {
     let resolve: () => void = () => {};
@@ -253,6 +254,57 @@ describe('workspace checkpoint latest-only writer', () => {
 
         await discardWorkspaceCheckpoint(20);
 
+        expect(mocks.persisted).toBeNull();
+    });
+
+    it('keeps a checkpoint durable when recovery artifact retirement fails', async () => {
+        const recoveryCheckpoint: IWorkspaceCheckpoint = {
+            ...createCheckpoint(1),
+            tabs: [{
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
+                fileName: 'draft.pdf',
+                sourceRef: null,
+                workingCopyRef: null,
+                isDirty: false,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+                annotationRecovery: {
+                    artifactId: 'capture-tab-1',
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: null,
+                    workingByteRevision: 'revision-1',
+                    annotationMutationGeneration: 1,
+                },
+            }],
+        };
+        mocks.persisted = JSON.stringify({
+            ownerWebContentsId: 10,
+            checkpoint: recoveryCheckpoint,
+            version: 1,
+        });
+        mocks.remove.mockImplementation(async (path: string) => {
+            if (path.includes('/workspace-annotation-recovery/')) {
+                throw new Error('recovery artifact retirement failed');
+            }
+            if (path === '/profile/workspace-checkpoint.json') {
+                mocks.persisted = null;
+                return;
+            }
+        });
+        const {discardWorkspaceCheckpoint} = await import('@electron/workspaceCheckpointStore');
+
+        await expect(discardWorkspaceCheckpoint(10)).rejects.toThrow('recovery artifact retirement failed');
+        expect(mocks.persisted).not.toBeNull();
+
+        mocks.remove.mockImplementation(async (path: string) => {
+            if (path === '/profile/workspace-checkpoint.json') {
+                mocks.persisted = null;
+            }
+        });
+        await expect(discardWorkspaceCheckpoint(10)).resolves.toBeTruthy();
         expect(mocks.persisted).toBeNull();
     });
 

@@ -16,6 +16,7 @@ import {
     parseTabId,
     type TTabId,
 } from '@contracts/windowTabs';
+import {parseDocumentInstanceId} from '@contracts/documentInstanceId';
 import {
     removeLeafNode,
     replaceLeafWithSplit,
@@ -162,16 +163,20 @@ export const useEditorPanesManager = () => {
     }
 
     function restoreWorkspaceCheckpointGraph(checkpoint: IWorkspaceCheckpoint) {
-        tabs.value = checkpoint.tabs.map(tab => ({
-            id: tab.tabId,
-            fileName: tab.fileName,
-            originalPath: tab.sourceRef,
-            isDirty: tab.isDirty,
-            isDjvu: tab.isDjvu,
-            ...(tab.isDirty && tab.workingCopyRef
-                ? {recoveryWorkingCopyPath: tab.workingCopyRef}
-                : {}),
-        }));
+        tabs.value = checkpoint.tabs.map((tab) => {
+            const documentInstanceId = parseDocumentInstanceId(tab.annotationRecovery?.documentInstanceId);
+            return {
+                id: tab.tabId,
+                fileName: tab.fileName,
+                originalPath: tab.sourceRef,
+                isDirty: tab.isDirty,
+                isDjvu: tab.isDjvu,
+                ...(documentInstanceId === null ? {} : {documentInstanceId}),
+                ...(tab.isDirty && tab.workingCopyRef
+                    ? {recoveryWorkingCopyPath: tab.workingCopyRef}
+                    : {}),
+            };
+        });
         panes.value = checkpoint.panes.map(pane => ({
             paneId: pane.paneId,
             tabIds: [...pane.tabIds],

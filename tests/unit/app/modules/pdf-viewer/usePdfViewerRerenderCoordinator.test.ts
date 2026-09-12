@@ -1560,6 +1560,38 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
+    it('contains fit-width current-page rerender failures in the watcher', async () => {
+        vi.useFakeTimers();
+        const renderError = new Error('current-page replacement render failed');
+        const reRenderAllVisiblePages = vi.fn(async () => {
+            throw renderError;
+        });
+        const currentPage = ref(1);
+        const unhandledRejections: unknown[] = [];
+        const onUnhandledRejection = (reason: unknown) => {
+            unhandledRejections.push(reason);
+        };
+        process.on('unhandledRejection', onUnhandledRejection);
+
+        try {
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                zoomMode: computed(() => 'fit-width' as const),
+                reRenderAllVisiblePages,
+            }));
+
+            currentPage.value = 2;
+            await flushCurrentPageFitRerender();
+            await Promise.resolve();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalled();
+            expect(unhandledRejections).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandledRejection);
+            vi.useRealTimers();
+        }
+    });
+
     it('clamps horizontal scroll after fit-width rerenders', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncHorizontalScrollForZoomMode = vi.fn(() => true);

@@ -114,6 +114,7 @@ function createDocumentFixture(pageCount = 100) {
             };
         },
         registerDisposable: vi.fn(),
+        preserveNextReloadVisibleContent: vi.fn(),
         async emit(transition: IPdfDocumentTransition) {
             for (const subscriber of [...subscribers]) {
                 await subscriber(transition);
@@ -250,6 +251,7 @@ function transition(
 ): IPdfDocumentTransition {
     return {
         phase,
+        isSameDocumentRewrite: false,
         fence: {
             loadToken: 2,
             documentVersion: 2,
@@ -1250,6 +1252,49 @@ describe('PdfViewportSession behavior', () => {
             await expect(intent).resolves.toMatchObject({outcome: 'cancelled'});
         } finally {
             metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
+    it('holds the last picture when a page operation rewrites the open document', async () => {
+        const fixture = createViewportFixture({pageCount: 10});
+        try {
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+
+            await fixture.documentSession.emit({
+                ...transition('invalidated', {
+                    isReload: true,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }),
+                isSameDocumentRewrite: true,
+            });
+
+            expect(fixture.documentSession.preserveNextReloadVisibleContent)
+                .toHaveBeenCalledWith(true);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('does not hold the last picture when a different document replaces it', async () => {
+        const fixture = createViewportFixture({pageCount: 10});
+        try {
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+
+            await fixture.documentSession.emit(transition('invalidated', {
+                isReload: true,
+                isSelectiveReload: false,
+                pagesToInvalidate: null,
+                preserveVisibleContent: false,
+                preservePageStructure: false,
+            }));
+
+            expect(fixture.documentSession.preserveNextReloadVisibleContent)
+                .not.toHaveBeenCalled();
+        } finally {
             fixture.app.unmount();
         }
     });

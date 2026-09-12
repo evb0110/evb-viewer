@@ -244,6 +244,58 @@ describe('browser document live lease acceptance in Chromium', () => {
         }
     }, 120_000);
 
+    it('releases the records of a window that closed without releasing its lease', async () => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext();
+        const pageA = await context.newPage();
+        const pageB = await context.newPage();
+        try {
+            await Promise.all([
+                installEntry(pageA),
+                installEntry(pageB),
+            ]);
+            const setup = await callEntry<{refs: {
+                inlineSource: string;
+                chunkedSource: string;
+                generatedWorking: string;
+            };}>(pageA, '__evbSetupLiveLeaseAcceptance');
+            const whileOwnerLives = await callEntry<{records: boolean[]}>(
+                pageB,
+                '__evbInitializeAndSweepLiveLeaseAcceptance',
+                JSON.stringify(setup.refs),
+            );
+            expect(whileOwnerLives.records).toEqual([
+                true,
+                true,
+                true,
+            ]);
+
+            await pageA.close();
+            await callEntry<{released: boolean}>(pageB, '__evbAwaitLeaseOwnerLockReleased');
+
+            const afterOwnerDied = await callEntry<{
+                records: boolean[];
+                chunkKeyCounts: number[];
+            }>(pageB, '__evbInitializeAndSweepLiveLeaseAcceptance');
+            expect(afterOwnerDied.records).toEqual([
+                false,
+                false,
+                false,
+            ]);
+            // The chunks outlive the records here on purpose: what still holds
+            // them is the staged-generation grace window, a separate timer that
+            // the confirmed-release case above skips by advancing the clock.
+            expect(afterOwnerDied.chunkKeyCounts).toEqual([
+                0,
+                2,
+                1,
+            ]);
+        } finally {
+            await context.close();
+            await browser.close();
+        }
+    });
+
     it('commits a real two-page transfer durably before accepting the target', async () => {
         const browser = await chromium.launch({headless: true});
         const context = await browser.newContext();

@@ -21,9 +21,10 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
         || (value.wholeWord !== undefined && typeof value.wholeWord !== 'boolean')
         || (value.useRegex !== undefined && typeof value.useRegex !== 'boolean')
         || (value.warmup !== undefined && typeof value.warmup !== 'boolean')
-        || (value.regexDeadlineAtMs !== undefined && (
-            typeof value.regexDeadlineAtMs !== 'number'
-            || !Number.isFinite(value.regexDeadlineAtMs)
+        || (value.regexBudgetMs !== undefined && (
+            typeof value.regexBudgetMs !== 'number'
+            || !Number.isFinite(value.regexBudgetMs)
+            || value.regexBudgetMs < 0
         ))
     ) {
         return null;
@@ -39,7 +40,7 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
             requestId,
             documentRevision,
             ...(warmup === undefined ? {} : {warmup}),
-            ...(value.regexDeadlineAtMs === undefined ? {} : {regexDeadlineAtMs: value.regexDeadlineAtMs}),
+            ...(value.regexBudgetMs === undefined ? {} : {regexBudgetMs: value.regexBudgetMs}),
         };
     } catch {
         return null;

@@ -12,6 +12,7 @@ import type {
 } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireTabId } from '@contracts/windowTabs';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
@@ -438,6 +439,13 @@ describe('useEditorPanesManager', () => {
                     currentPage: 2,
                     zoom: 1.25,
                     zoomMode: 'custom',
+                    annotationRecovery: {
+                        artifactId: 'recovery-b',
+                        documentInstanceId: 'document-b',
+                        workingCopyRef: null,
+                        workingByteRevision: 'revision-b',
+                        annotationMutationGeneration: 1,
+                    },
                 },
             ],
         });
@@ -461,6 +469,7 @@ describe('useEditorPanesManager', () => {
         expect(manager.getTabById('tab-b')).toMatchObject({
             fileName: 'b.pdf',
             originalPath: '/documents/b.pdf',
+            documentInstanceId: requireDocumentInstanceId('document-b'),
             isDirty: true,
         });
         expect(manager.layout.value).toMatchObject({

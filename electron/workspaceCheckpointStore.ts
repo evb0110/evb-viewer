@@ -64,7 +64,9 @@ interface IStoredLazyWorkingCopy {
 
 interface IStoredWorkspaceCheckpoint {
     version: 1;
+    ownerRecoveryId: string;
     ownerWebContentsId: number;
+    claimedByRecoveryId?: string;
     claimedByWebContentsId?: number;
     checkpoint: IWorkspaceCheckpoint;
     lazyWorkingCopies?: IStoredLazyWorkingCopy[];
@@ -105,11 +107,14 @@ interface IWorkspaceCheckpointSaveWaiter {
 
 interface IPendingWorkspaceCheckpointSave {
     stored: IStoredWorkspaceCheckpoint;
+    artifacts: IAnnotationRecoveryArtifact[];
     waiters: IWorkspaceCheckpointSaveWaiter[];
 }
 
 interface ITrailingWorkspaceCheckpointSave {
     stored: IStoredWorkspaceCheckpoint;
+    artifacts: IAnnotationRecoveryArtifact[];
+    ownerRecoveryId: string;
     ownerWebContentsId: number;
     waiters: IWorkspaceCheckpointSaveWaiter[];
     timer: NodeJS.Timeout;
@@ -118,15 +123,19 @@ interface ITrailingWorkspaceCheckpointSave {
 const WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS = 500;
 
 let checkpointWriteInFlight: Promise<void> | null = null;
-const pendingLatestCheckpointSaves = new Map<number, IPendingWorkspaceCheckpointSave>();
-const trailingCheckpointSaves = new Map<number, ITrailingWorkspaceCheckpointSave>();
-const lastCheckpointSaveStartedAtMs = new Map<number, number>();
+const pendingLatestCheckpointSaves = new Map<string, IPendingWorkspaceCheckpointSave>();
+const trailingCheckpointSaves = new Map<string, ITrailingWorkspaceCheckpointSave>();
+const lastCheckpointSaveStartedAtMs = new Map<string, number>();
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
-const claimedWorkspaceCheckpointOwnerWebContentsIds = new Map<number, number>();
-const lastDurableWorkspaceCheckpoints = new Map<number, IStoredWorkspaceCheckpoint>();
-const recoveryClaimGenerationsByOwner = new Map<number, Map<string, number>>();
+const recoveryOwnerIdsByWebContents = new WeakMap<WebContents, string>();
+const claimedWorkspaceCheckpointOwners = new Map<string, {
+    claimantRecoveryId: string;
+    claimantWebContentsId: number;
+}>();
+const lastDurableWorkspaceCheckpoints = new Map<string, IStoredWorkspaceCheckpoint>();
+const recoveryClaimGenerationsByOwner = new Map<string, Map<string, number>>();
 let shouldMigrateLegacyWorkspaceJournal = false;
-const discardedCheckpointOwnerGenerations = new Map<number, string>();
+const discardedCheckpointOwnerGenerations = new Map<string, string>();
 let nextDiscardedCheckpointOwnerGeneration = 1;
 
 class WorkspaceCheckpointReadError extends Error {
@@ -154,11 +163,41 @@ function getAnnotationRecoveryPath(artifactId: string) {
     return join(getAnnotationRecoveryDirectory(), `${artifactId}.json`);
 }
 
+function getLegacyRecoveryOwnerId(ownerWebContentsId: number) {
+    return `legacy:webContents:${ownerWebContentsId}`;
+}
+
+function isRecoveryOwnerId(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0;
+}
+
+function getWorkspaceRecoveryOwnerId(
+    ownerWebContentsId: number,
+    owner?: number | WebContents,
+) {
+    if (owner !== undefined && typeof owner !== 'number') {
+        const knownId = recoveryOwnerIdsByWebContents.get(owner);
+        if (knownId) {
+            return knownId;
+        }
+        const recoveryId = randomUUID();
+        recoveryOwnerIdsByWebContents.set(owner, recoveryId);
+        return recoveryId;
+    }
+    return getLegacyRecoveryOwnerId(ownerWebContentsId);
+}
+
+function getKnownWorkspaceRecoveryOwnerId(owner: WebContents, fallbackWebContentsId?: number) {
+    return recoveryOwnerIdsByWebContents.get(owner)
+        ?? (fallbackWebContentsId === undefined ? undefined : getLegacyRecoveryOwnerId(fallbackWebContentsId));
+}
+
 interface IAnnotationRecoveryArtifact {
-    version: 1;
     ref: IWorkspaceCheckpointAnnotationRecovery;
     payload: unknown;
 }
+
+interface IStoredAnnotationRecoveryArtifact extends IAnnotationRecoveryArtifact {version: 1;}
 
 async function writeAnnotationRecoveryArtifact(
     ref: IWorkspaceCheckpointAnnotationRecovery,
@@ -182,7 +221,7 @@ async function writeAnnotationRecoveryArtifact(
 
 async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotationRecovery) {
     const raw = await readFile(getAnnotationRecoveryPath(ref.artifactId), 'utf-8');
-    const artifact = JSON.parse(raw) as Partial<IAnnotationRecoveryArtifact>;
+    const artifact = JSON.parse(raw) as Partial<IStoredAnnotationRecoveryArtifact>;
     if (artifact.version !== 1 || !artifact.ref || artifact.payload === undefined
         || artifact.ref.artifactId !== ref.artifactId
         || artifact.ref.documentInstanceId !== ref.documentInstanceId
@@ -214,15 +253,20 @@ function releaseDestroyedWorkspaceClaims() {
     for (const [
         recordOwner,
         claimant,
-    ] of claimedWorkspaceCheckpointOwnerWebContentsIds) {
+    ] of claimedWorkspaceCheckpointOwners) {
         let liveClaimant: WebContents | undefined;
         try {
-            liveClaimant = webContents.fromId(claimant);
+            liveClaimant = webContents.fromId(claimant.claimantWebContentsId);
         } catch {
             liveClaimant = undefined;
         }
-        if (liveClaimant?.isDestroyed() === true || liveClaimant === undefined) {
-            claimedWorkspaceCheckpointOwnerWebContentsIds.delete(recordOwner);
+        if (
+            liveClaimant?.isDestroyed() === true
+            || liveClaimant === undefined
+            || getKnownWorkspaceRecoveryOwnerId(liveClaimant, claimant.claimantWebContentsId)
+                !== claimant.claimantRecoveryId
+        ) {
+            claimedWorkspaceCheckpointOwners.delete(recordOwner);
         }
     }
 }
@@ -379,12 +423,25 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
         || value.version !== 1
         || !Number.isSafeInteger(value.ownerWebContentsId)
         || (
+            value.ownerRecoveryId !== undefined
+            && !isRecoveryOwnerId(value.ownerRecoveryId)
+        )
+        || (
             value.claimedByWebContentsId !== undefined
             && !Number.isSafeInteger(value.claimedByWebContentsId)
+        )
+        || (
+            value.claimedByRecoveryId !== undefined
+            && !isRecoveryOwnerId(value.claimedByRecoveryId)
         )
     ) {
         return null;
     }
+    const ownerWebContentsId = value.ownerWebContentsId as number;
+    const ownerRecoveryId = value.ownerRecoveryId ?? getLegacyRecoveryOwnerId(ownerWebContentsId);
+    const claimedByWebContentsId = value.claimedByWebContentsId as number | undefined;
+    const claimedByRecoveryId = value.claimedByRecoveryId
+        ?? (claimedByWebContentsId === undefined ? undefined : getLegacyRecoveryOwnerId(claimedByWebContentsId));
     const checkpoint = decodeWorkspaceCheckpoint(value.checkpoint);
     if (!checkpoint) {
         return null;
@@ -445,10 +502,14 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
     }
     return {
         version: 1,
-        ownerWebContentsId: value.ownerWebContentsId as number,
-        ...(value.claimedByWebContentsId === undefined
+        ownerRecoveryId,
+        ownerWebContentsId,
+        ...(claimedByRecoveryId === undefined
             ? {}
-            : {claimedByWebContentsId: value.claimedByWebContentsId as number}),
+            : {claimedByRecoveryId}),
+        ...(claimedByWebContentsId === undefined
+            ? {}
+            : {claimedByWebContentsId}),
         checkpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
         ...(workingCopies.length === 0 ? {} : {workingCopies}),
@@ -582,9 +643,14 @@ function toAdmissionSnapshot(admissionSnapshot: {
     };
 }
 
+// A dirty working copy holds edits that were never written to the original, so
+// transferring it without a matching witness would let the next save overwrite
+// a file that changed while EVB was stopped. A clean copy has nothing to lose,
+// so a checkpoint predating the witness may still transfer.
 function matchesStoredWorkingCopy(
     entry: NonNullable<ReturnType<typeof getWorkingCopyBackingEntry>>,
     stored: IStoredWorkingCopy,
+    {requireOriginalFileExpectation}: {requireOriginalFileExpectation: boolean},
 ) {
     return entry.originalPath === stored.originalPath
         && entry.registrationId === stored.registrationId
@@ -598,10 +664,11 @@ function matchesStoredWorkingCopy(
                 && entry.admissionSnapshot.size === BigInt(stored.admissionSnapshot.size)
             )
         )
-        && (
-            stored.originalFileExpectation === undefined
-            || JSON.stringify(entry.originalFileExpectation) === JSON.stringify(stored.originalFileExpectation)
-        )
+        && (!requireOriginalFileExpectation || (
+            stored.originalFileExpectation !== undefined
+            && entry.originalFileExpectation !== undefined
+            && JSON.stringify(entry.originalFileExpectation) === JSON.stringify(stored.originalFileExpectation)
+        ))
         && (
             stored.sourceBackingErrorCode === undefined
             || entry.sourceBackingErrorCode === stored.sourceBackingErrorCode
@@ -720,8 +787,8 @@ function assertDurableSourceProvenance(
     }
 }
 
-function releaseRecoveryClaims(ownerWebContentsId: number, checkpoint: IWorkspaceCheckpoint | null) {
-    const generations = recoveryClaimGenerationsByOwner.get(ownerWebContentsId);
+function releaseRecoveryClaims(ownerRecoveryId: string, checkpoint: IWorkspaceCheckpoint | null) {
+    const generations = recoveryClaimGenerationsByOwner.get(ownerRecoveryId);
     for (const tab of checkpoint?.tabs ?? []) {
         if (tab.workingCopyRef) {
             const generation = generations?.get(tab.workingCopyRef);
@@ -730,7 +797,7 @@ function releaseRecoveryClaims(ownerWebContentsId: number, checkpoint: IWorkspac
             }
         }
     }
-    recoveryClaimGenerationsByOwner.delete(ownerWebContentsId);
+    recoveryClaimGenerationsByOwner.delete(ownerRecoveryId);
 }
 
 async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
@@ -786,7 +853,7 @@ async function writeStoredWorkspaceJournal(records: IStoredWorkspaceCheckpoint[]
         shouldMigrateLegacyWorkspaceJournal = false;
         lastDurableWorkspaceCheckpoints.clear();
         for (const record of records) {
-            lastDurableWorkspaceCheckpoints.set(record.ownerWebContentsId, record);
+            lastDurableWorkspaceCheckpoints.set(record.ownerRecoveryId, record);
         }
     } catch (error) {
         // A failed write or replace must not leave the sibling .tmp behind, or
@@ -797,15 +864,21 @@ async function writeStoredWorkspaceJournal(records: IStoredWorkspaceCheckpoint[]
     }
 }
 
-async function writeStoredWorkspaceCheckpoint(stored: IStoredWorkspaceCheckpoint) {
+async function writeStoredWorkspaceCheckpoint(
+    stored: IStoredWorkspaceCheckpoint,
+    replacedOwnerRecoveryId?: string,
+) {
     const journal = await readStoredWorkspaceJournal(false);
-    const records = journal.records.filter(record => record.ownerWebContentsId !== stored.ownerWebContentsId);
+    const records = journal.records.filter(record => (
+        record.ownerRecoveryId !== stored.ownerRecoveryId
+        && record.ownerRecoveryId !== replacedOwnerRecoveryId
+    ));
     records.push(stored);
     await writeStoredWorkspaceJournal(records);
 }
 
-function readDurableWorkspaceCheckpointForSave(ownerWebContentsId: number) {
-    const cached = lastDurableWorkspaceCheckpoints.get(ownerWebContentsId);
+function readDurableWorkspaceCheckpointForSave(ownerRecoveryId: string) {
+    const cached = lastDurableWorkspaceCheckpoints.get(ownerRecoveryId);
     if (cached) {
         return cached;
     }
@@ -835,9 +908,9 @@ function readDurableWorkspaceCheckpointForSave(ownerWebContentsId: number) {
     shouldMigrateLegacyWorkspaceJournal = !(isRecord(parsed) && parsed.version === 2);
     lastDurableWorkspaceCheckpoints.clear();
     for (const record of journal.records) {
-        lastDurableWorkspaceCheckpoints.set(record.ownerWebContentsId, record);
+        lastDurableWorkspaceCheckpoints.set(record.ownerRecoveryId, record);
     }
-    return lastDurableWorkspaceCheckpoints.get(ownerWebContentsId) ?? null;
+    return lastDurableWorkspaceCheckpoints.get(ownerRecoveryId) ?? null;
 }
 
 async function readStoredWorkspaceJournal(markLegacyMigration = true): Promise<IStoredWorkspaceJournal> {
@@ -868,10 +941,7 @@ async function readStoredWorkspaceJournal(markLegacyMigration = true): Promise<I
 }
 
 function admitAnnotationRecovery(checkpoint: IWorkspaceCheckpoint) {
-    const artifacts: Array<{
-        ref: IWorkspaceCheckpointAnnotationRecovery;
-        payload: unknown
-    }> = [];
+    const artifacts: IAnnotationRecoveryArtifact[] = [];
     const admittedCheckpoint: IWorkspaceCheckpoint = {
         ...checkpoint,
         tabs: checkpoint.tabs.map((tab) => {
@@ -959,7 +1029,13 @@ function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave)
         let currentSave: IPendingWorkspaceCheckpointSave | null = initialSave;
         while (currentSave) {
             try {
-                const previous = lastDurableWorkspaceCheckpoints.get(currentSave.stored.ownerWebContentsId);
+                const previous = lastDurableWorkspaceCheckpoints.get(currentSave.stored.ownerRecoveryId);
+                // The artifacts are written here rather than when the save was
+                // requested: a trailing save that is superseded before it commits
+                // never reaches this point, so its artifacts never reach the disk.
+                await Promise.all(currentSave.artifacts.map(artifact => (
+                    writeAnnotationRecoveryArtifact(artifact.ref, artifact.payload)
+                )));
                 await writeStoredWorkspaceCheckpoint(currentSave.stored);
                 const currentArtifactIds = new Set(
                     getAnnotationRecoveryRefs(currentSave.stored.checkpoint).map(ref => ref.artifactId),
@@ -969,24 +1045,30 @@ function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave)
                     .map(ref => rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})));
                 settleCheckpointSave(currentSave);
             } catch (error) {
+                await Promise.all(currentSave.artifacts.map(artifact => (
+                    rm(getAnnotationRecoveryPath(artifact.ref.artifactId), {force: true})
+                )));
                 settleCheckpointSave(currentSave, error);
             }
             currentSave = pendingLatestCheckpointSaves.values().next().value ?? null;
             if (currentSave) {
-                pendingLatestCheckpointSaves.delete(currentSave.stored.ownerWebContentsId);
+                pendingLatestCheckpointSaves.delete(currentSave.stored.ownerRecoveryId);
             }
         }
     })().finally(() => {
         checkpointWriteInFlight = null;
         if (pendingLatestCheckpointSaves.size > 0) {
             const nextSave = pendingLatestCheckpointSaves.values().next().value as IPendingWorkspaceCheckpointSave;
-            pendingLatestCheckpointSaves.delete(nextSave.stored.ownerWebContentsId);
+            pendingLatestCheckpointSaves.delete(nextSave.stored.ownerRecoveryId);
             startCheckpointWriteDrain(nextSave);
         }
     });
 }
 
-function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
+function enqueueWorkspaceCheckpointSave(
+    stored: IStoredWorkspaceCheckpoint,
+    artifacts: IAnnotationRecoveryArtifact[],
+) {
     return new Promise<void>((resolve, reject) => {
         const waiter = {
             resolve,
@@ -995,15 +1077,17 @@ function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
         if (!checkpointWriteInFlight) {
             startCheckpointWriteDrain({
                 stored,
+                artifacts,
                 waiters: [waiter],
             });
             return;
         }
-        const owner = stored.ownerWebContentsId;
+        const owner = stored.ownerRecoveryId;
         const pending = pendingLatestCheckpointSaves.get(owner);
         if (pending) {
             pendingLatestCheckpointSaves.set(owner, {
                 stored,
+                artifacts,
                 waiters: [
                     ...pending.waiters,
                     waiter,
@@ -1013,6 +1097,7 @@ function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
         }
         pendingLatestCheckpointSaves.set(owner, {
             stored,
+            artifacts,
             waiters: [waiter],
         });
     });
@@ -1030,7 +1115,7 @@ function takeTrailingCheckpointSave() {
         return null;
     }
     for (const save of pending) {
-        trailingCheckpointSaves.delete(save.ownerWebContentsId);
+        trailingCheckpointSaves.delete(save.ownerRecoveryId);
         clearTimeout(save.timer);
     }
     return pending;
@@ -1040,10 +1125,10 @@ function takeTrailingCheckpointSave() {
 // queued clear or claim land between taking the trailing save and writing it,
 // and the write would resurrect the checkpoint the barrier just removed.
 async function commitTrailingCheckpointSave(pending: ITrailingWorkspaceCheckpointSave) {
-    lastCheckpointSaveStartedAtMs.set(pending.ownerWebContentsId, Date.now());
+    lastCheckpointSaveStartedAtMs.set(pending.ownerRecoveryId, Date.now());
     try {
-        if (!discardedCheckpointOwnerGenerations.has(pending.ownerWebContentsId)) {
-            await enqueueWorkspaceCheckpointSave(pending.stored);
+        if (!discardedCheckpointOwnerGenerations.has(pending.ownerRecoveryId)) {
+            await enqueueWorkspaceCheckpointSave(pending.stored, pending.artifacts);
         }
         for (const waiter of pending.waiters) {
             waiter.resolve();
@@ -1057,6 +1142,8 @@ async function commitTrailingCheckpointSave(pending: ITrailingWorkspaceCheckpoin
 
 function scheduleTrailingCheckpointSave(
     stored: IStoredWorkspaceCheckpoint,
+    artifacts: IAnnotationRecoveryArtifact[],
+    ownerRecoveryId: string,
     ownerWebContentsId: number,
     delayMs: number,
 ) {
@@ -1065,9 +1152,10 @@ function scheduleTrailingCheckpointSave(
             resolve,
             reject,
         };
-        const trailing = trailingCheckpointSaves.get(ownerWebContentsId);
+        const trailing = trailingCheckpointSaves.get(ownerRecoveryId);
         if (trailing) {
             trailing.stored = stored;
+            trailing.artifacts = artifacts;
             trailing.waiters.push(waiter);
             return;
         }
@@ -1077,8 +1165,10 @@ function scheduleTrailingCheckpointSave(
             void enqueueWorkspaceCheckpointBarrier(async () => {});
         }, delayMs);
         timer.unref();
-        trailingCheckpointSaves.set(ownerWebContentsId, {
+        trailingCheckpointSaves.set(ownerRecoveryId, {
             stored,
+            artifacts,
+            ownerRecoveryId,
             ownerWebContentsId,
             waiters: [waiter],
             timer,
@@ -1116,7 +1206,12 @@ export async function saveWorkspaceCheckpoint(
     ownerWebContentsId: number,
     sourceAuthorizationOwner?: number | WebContents,
 ) {
-    if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
+    const ownerRecoveryId = getWorkspaceRecoveryOwnerId(ownerWebContentsId, sourceAuthorizationOwner);
+    const checkpointRecordRecoveryId = getClaimedWorkspaceRecordRecoveryId(
+        ownerRecoveryId,
+        ownerWebContentsId,
+    );
+    if (discardedCheckpointOwnerGenerations.has(checkpointRecordRecoveryId)) {
         return;
     }
     for (const tab of checkpoint.tabs) {
@@ -1124,133 +1219,186 @@ export async function saveWorkspaceCheckpoint(
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
     }
-    const durable = readDurableWorkspaceCheckpointForSave(ownerWebContentsId);
+    const durable = readDurableWorkspaceCheckpointForSave(checkpointRecordRecoveryId);
     const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
-    const admittedArtifactRefs = admittedAnnotationRecovery.artifacts.map(artifact => artifact.ref);
-    let published = false;
-    try {
-        if (admittedArtifactRefs.length > 0) {
-            await Promise.all(admittedAnnotationRecovery.artifacts.map(artifact => (
-                writeAnnotationRecoveryArtifact(artifact.ref, artifact.payload)
-            )));
-        }
-        const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
-        const canonicalCheckpoint = canonicalizeCheckpointSources(
-            checkpointWithArtifacts,
+    const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
+    const canonicalCheckpoint = canonicalizeCheckpointSources(
+        checkpointWithArtifacts,
+        ownerWebContentsId,
+        {rejectUnmappedWorkingCopy: true},
+    );
+    const sourceProvenance = buildSourceProvenance(
+        canonicalCheckpoint,
+        ownerWebContentsId,
+        sourceAuthorizationOwner,
+    );
+    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const claimedOwner = claimedWorkspaceCheckpointOwners.get(checkpointRecordRecoveryId);
+    const stored: IStoredWorkspaceCheckpoint = {
+        version: 1,
+        ownerRecoveryId: checkpointRecordRecoveryId,
+        ownerWebContentsId,
+        ...(claimedOwner?.claimantRecoveryId === ownerRecoveryId
+            && claimedOwner.claimantWebContentsId === ownerWebContentsId
+            ? {
+                claimedByRecoveryId: ownerRecoveryId,
+                claimedByWebContentsId: ownerWebContentsId,
+            }
+            : {}),
+        checkpoint: canonicalCheckpoint,
+        ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+        ...(workingCopies.length === 0 ? {} : {workingCopies}),
+        ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
+    };
+    await checkpointBarrierQueue;
+    if (discardedCheckpointOwnerGenerations.has(checkpointRecordRecoveryId)) {
+        return;
+    }
+    const elapsedMs = Date.now() - (lastCheckpointSaveStartedAtMs.get(checkpointRecordRecoveryId) ?? 0);
+    if (!trailingCheckpointSaves.has(checkpointRecordRecoveryId) && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
+        lastCheckpointSaveStartedAtMs.set(checkpointRecordRecoveryId, Date.now());
+        await enqueueWorkspaceCheckpointSave(stored, admittedAnnotationRecovery.artifacts);
+    } else {
+        await scheduleTrailingCheckpointSave(
+            stored,
+            admittedAnnotationRecovery.artifacts,
+            checkpointRecordRecoveryId,
             ownerWebContentsId,
-            {rejectUnmappedWorkingCopy: true},
+            Math.max(0, WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS - elapsedMs),
         );
-        const sourceProvenance = buildSourceProvenance(
-            canonicalCheckpoint,
-            ownerWebContentsId,
-            sourceAuthorizationOwner,
-        );
-        const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
-        const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
-        const stored: IStoredWorkspaceCheckpoint = {
-            version: 1,
-            ownerWebContentsId,
-            ...(claimedWorkspaceCheckpointOwnerWebContentsIds.get(ownerWebContentsId) === ownerWebContentsId
-                ? {claimedByWebContentsId: ownerWebContentsId}
-                : {}),
-            checkpoint: canonicalCheckpoint,
-            ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
-            ...(workingCopies.length === 0 ? {} : {workingCopies}),
-            ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
-        };
-        await checkpointBarrierQueue;
-        if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
-            return;
-        }
-        const elapsedMs = Date.now() - (lastCheckpointSaveStartedAtMs.get(ownerWebContentsId) ?? 0);
-        if (!trailingCheckpointSaves.has(ownerWebContentsId) && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
-            lastCheckpointSaveStartedAtMs.set(ownerWebContentsId, Date.now());
-            await enqueueWorkspaceCheckpointSave(stored);
-        } else {
-            await scheduleTrailingCheckpointSave(
-                stored,
-                ownerWebContentsId,
-                Math.max(0, WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS - elapsedMs),
-            );
-        }
-        published = true;
-    } finally {
-        if (!published && admittedArtifactRefs.length > 0) {
-            await Promise.all(admittedArtifactRefs.map(ref => (
-                rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})
-            )));
-        }
     }
 }
 
-export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
+async function readWorkspaceJournalForRecovery() {
+    let raw: string;
+    try {
+        raw = await readFile(getStoragePath(), 'utf-8');
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return null;
+        }
+        const checkpointPath = getStoragePath();
+        blockStaleWorkingCopyDirectoryCleanup(
+            `workspace checkpoint read failed at ${checkpointPath}`,
+        );
+        log.error(`Failed to read workspace checkpoint: ${getErrorMessage(error)}`, {
+            code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
+            context: {},
+            cause: error,
+        });
+        throw new WorkspaceCheckpointReadError(checkpointPath, error);
+    }
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (error) {
+        await quarantineCorruptWorkspaceCheckpoint(
+            `parse failure: ${getErrorMessage(error)}`,
+        );
+        return null;
+    }
+    const journal = decodeStoredJournal(parsed);
+    if (!journal) {
+        await quarantineCorruptWorkspaceCheckpoint('schema decode returned no checkpoint');
+        return null;
+    }
+    return {journal};
+}
+
+function getWebContentsById(id: number) {
+    try {
+        return webContents.fromId(id);
+    } catch {
+        return undefined;
+    }
+}
+
+function isLiveWorkspaceOwner(stored: IStoredWorkspaceCheckpoint) {
+    const owner = getWebContentsById(stored.ownerWebContentsId);
+    return owner !== undefined
+        && !owner.isDestroyed()
+        && getKnownWorkspaceRecoveryOwnerId(owner, stored.ownerWebContentsId) === stored.ownerRecoveryId;
+}
+
+function isLiveWorkspaceClaimant(stored: IStoredWorkspaceCheckpoint) {
+    if (stored.claimedByWebContentsId === undefined) {
+        return false;
+    }
+    const claimant = getWebContentsById(stored.claimedByWebContentsId);
+    return claimant !== undefined
+        && !claimant.isDestroyed()
+        && getKnownWorkspaceRecoveryOwnerId(claimant, stored.claimedByWebContentsId)
+            === stored.claimedByRecoveryId;
+}
+
+function isClaimableWorkspaceCheckpoint(
+    stored: IStoredWorkspaceCheckpoint,
+    newOwnerRecoveryId: string,
+) {
+    const inMemoryClaim = claimedWorkspaceCheckpointOwners.get(stored.ownerRecoveryId);
+    if (inMemoryClaim) {
+        return false;
+    }
+    if (
+        stored.claimedByRecoveryId !== undefined
+        && isLiveWorkspaceClaimant(stored)
+    ) {
+        return false;
+    }
+    return stored.ownerRecoveryId === newOwnerRecoveryId || !isLiveWorkspaceOwner(stored);
+}
+
+function getClaimedWorkspaceRecordRecoveryId(
+    claimantRecoveryId: string,
+    claimantWebContentsId: number,
+) {
+    for (const [
+        recordRecoveryId,
+        claimant,
+    ] of claimedWorkspaceCheckpointOwners) {
+        if (
+            claimant.claimantRecoveryId === claimantRecoveryId
+            && claimant.claimantWebContentsId === claimantWebContentsId
+        ) {
+            return recordRecoveryId;
+        }
+    }
+    return claimantRecoveryId;
+}
+
+export async function hasRecoverableWorkspaceCheckpoints(
+    newOwnerWebContentsId: number,
+    newOwner?: number | WebContents,
+) {
+    const newOwnerRecoveryId = getWorkspaceRecoveryOwnerId(newOwnerWebContentsId, newOwner);
     return enqueueWorkspaceCheckpointBarrier(async () => {
         releaseDestroyedWorkspaceClaims();
-        let raw: string;
-        try {
-            raw = await readFile(getStoragePath(), 'utf-8');
-        } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') {
-                // No checkpoint has been written yet: the normal clean-startup case.
-                return null;
-            }
-            // A permission or transient I/O failure is not corruption. Keep the
-            // evidence and stop stale cleanup before surfacing a typed failure.
-            const checkpointPath = getStoragePath();
-            blockStaleWorkingCopyDirectoryCleanup(
-                `workspace checkpoint read failed at ${checkpointPath}`,
-            );
-            log.error(`Failed to read workspace checkpoint: ${getErrorMessage(error)}`, {
-                code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
-                context: {},
-                cause: error,
-            });
-            throw new WorkspaceCheckpointReadError(checkpointPath, error);
+        const recovery = await readWorkspaceJournalForRecovery();
+        if (!recovery) {
+            return false;
         }
+        return recovery.journal.records.some(record => (
+            isClaimableWorkspaceCheckpoint(record, newOwnerRecoveryId)
+        ));
+    });
+}
 
-        let journal: IStoredWorkspaceJournal | null = null;
-        try {
-            journal = decodeStoredJournal(JSON.parse(raw));
-        } catch (error) {
-            await quarantineCorruptWorkspaceCheckpoint(
-                `parse failure: ${getErrorMessage(error)}`,
-            );
+export async function claimWorkspaceCheckpoint(
+    newOwnerWebContentsId: number,
+    newOwner?: number | WebContents,
+) {
+    const newOwnerRecoveryId = getWorkspaceRecoveryOwnerId(newOwnerWebContentsId, newOwner);
+    return enqueueWorkspaceCheckpointBarrier(async () => {
+        releaseDestroyedWorkspaceClaims();
+        const recovery = await readWorkspaceJournalForRecovery();
+        if (!recovery) {
             return null;
         }
-        if (!journal) {
-            await quarantineCorruptWorkspaceCheckpoint('schema decode returned no checkpoint');
-            return null;
-        }
-        const stored = journal.records.filter((candidate) => {
-            const claimant = claimedWorkspaceCheckpointOwnerWebContentsIds.get(candidate.ownerWebContentsId);
-            if (claimant !== undefined && claimant !== newOwnerWebContentsId) {
-                return false;
-            }
-            if (
-                candidate.claimedByWebContentsId !== undefined
-                && candidate.claimedByWebContentsId !== newOwnerWebContentsId
-            ) {
-                let persistedClaimant: WebContents | undefined;
-                try {
-                    persistedClaimant = webContents.fromId(candidate.claimedByWebContentsId);
-                } catch {
-                    persistedClaimant = undefined;
-                }
-                if (persistedClaimant && !persistedClaimant.isDestroyed()) {
-                    return false;
-                }
-            }
-            let savedOwner: WebContents | undefined;
-            try {
-                savedOwner = webContents.fromId(candidate.ownerWebContentsId);
-            } catch {
-                // Focused store tests do not need an Electron webContents registry.
-                savedOwner = undefined;
-            }
-            return candidate.ownerWebContentsId === newOwnerWebContentsId
-                || savedOwner?.isDestroyed() === true
-                || savedOwner === undefined;
+        const stored = recovery.journal.records.filter((candidate) => {
+            return isClaimableWorkspaceCheckpoint(candidate, newOwnerRecoveryId);
         }).reduce<IStoredWorkspaceCheckpoint | null>((newest, candidate) => (
             newest === null || candidate.checkpoint.capturedAt > newest.checkpoint.capturedAt
                 ? candidate
@@ -1284,14 +1432,24 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 if (!ref) {
                     return tab;
                 }
-                const payload = await readAnnotationRecoveryArtifact(ref);
-                return {
-                    ...tab,
-                    annotationRecovery: {
-                        ...ref,
-                        payload,
-                    },
-                };
+                try {
+                    const payload = await readAnnotationRecoveryArtifact(ref);
+                    return {
+                        ...tab,
+                        annotationRecovery: {
+                            ...ref,
+                            payload,
+                        },
+                    };
+                } catch (error) {
+                    // Each tab's artifact stands alone, so one unreadable file drops the
+                    // annotations of its own tab and leaves every other tab recoverable.
+                    log.warn(`Annotation recovery artifact unavailable for ${ref.artifactId}: ${getErrorMessage(error)}`);
+                    const {
+                        annotationRecovery: _unavailable, ...tabWithoutAnnotationRecovery
+                    } = tab;
+                    return tabWithoutAnnotationRecovery;
+                }
             })),
         };
         const lazyWorkingCopies = new Map(
@@ -1313,10 +1471,15 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 const liveWorkingCopy = storedWorkingCopy
                     ? getWorkingCopyBackingEntry(tab.workingCopyRef, stored.ownerWebContentsId)
                     : null;
-                const transferred = (!storedWorkingCopy || (
-                    liveWorkingCopy !== null
-                    && matchesStoredWorkingCopy(liveWorkingCopy, storedWorkingCopy)
-                )) && claimWorkingCopyOwnership(
+                const canTransfer = storedWorkingCopy
+                    ? liveWorkingCopy !== null
+                        && matchesStoredWorkingCopy(
+                            liveWorkingCopy,
+                            storedWorkingCopy,
+                            {requireOriginalFileExpectation: tab.isDirty},
+                        )
+                    : !tab.isDirty;
+                const transferred = canTransfer && claimWorkingCopyOwnership(
                     tab.workingCopyRef,
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
@@ -1395,30 +1558,41 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
         // explicitly acknowledges success. The owner marker is persisted so a
         // main-process restart can distinguish an in-progress restore from an
         // old, untouched checkpoint without deleting recovery evidence early.
-        const claimedStored = {
+        const claimedStored: IStoredWorkspaceCheckpoint = {
             ...stored,
+            ownerRecoveryId: newOwnerRecoveryId,
+            ownerWebContentsId: newOwnerWebContentsId,
+            claimedByRecoveryId: newOwnerRecoveryId,
             claimedByWebContentsId: newOwnerWebContentsId,
             checkpoint: canonicalCheckpoint,
+            ...(stored.sourceProvenance ? {sourceProvenance: stored.sourceProvenance.map(provenance => ({
+                ...provenance,
+                ownerWebContentsId: newOwnerWebContentsId,
+            }))} : {}),
         };
-        await writeStoredWorkspaceCheckpoint(claimedStored);
+        await writeStoredWorkspaceCheckpoint(claimedStored, stored.ownerRecoveryId);
         for (const tab of canonicalCheckpoint.tabs) {
             if (tab.workingCopyRef) {
                 const generation = claimWorkingCopyRecovery(tab.workingCopyRef);
-                const generations = recoveryClaimGenerationsByOwner.get(stored.ownerWebContentsId)
+                const generations = recoveryClaimGenerationsByOwner.get(claimedStored.ownerRecoveryId)
                     ?? new Map<string, number>();
                 generations.set(tab.workingCopyRef, generation);
-                recoveryClaimGenerationsByOwner.set(stored.ownerWebContentsId, generations);
+                recoveryClaimGenerationsByOwner.set(claimedStored.ownerRecoveryId, generations);
             }
         }
-        claimedWorkspaceCheckpointOwnerWebContentsIds.set(
-            stored.ownerWebContentsId,
-            newOwnerWebContentsId,
-        );
+        claimedWorkspaceCheckpointOwners.set(claimedStored.ownerRecoveryId, {
+            claimantRecoveryId: newOwnerRecoveryId,
+            claimantWebContentsId: newOwnerWebContentsId,
+        });
         return checkpointWithAnnotationRecovery;
     });
 }
 
-export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
+export function acknowledgeWorkspaceCheckpoint(
+    ownerWebContentsId: number,
+    owner?: number | WebContents,
+) {
+    const ownerRecoveryId = getWorkspaceRecoveryOwnerId(ownerWebContentsId, owner);
     return enqueueWorkspaceCheckpointBarrier(async () => {
         const storagePath = getStoragePath();
         let raw: string;
@@ -1447,20 +1621,29 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
             );
             throw new WorkspaceCheckpointReadError(storagePath, decodeError);
         }
-        const stored = journal.records.find(record => (
-            record.claimedByWebContentsId === ownerWebContentsId
-            || claimedWorkspaceCheckpointOwnerWebContentsIds.get(record.ownerWebContentsId) === ownerWebContentsId
-        ));
+        const stored = journal.records.find(record => {
+            if (
+                record.claimedByRecoveryId === ownerRecoveryId
+                && record.claimedByWebContentsId === ownerWebContentsId
+            ) {
+                return true;
+            }
+            const claim = claimedWorkspaceCheckpointOwners.get(record.ownerRecoveryId);
+            return claim?.claimantRecoveryId === ownerRecoveryId
+                && claim.claimantWebContentsId === ownerWebContentsId;
+        });
         if (!stored) {
             throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
         }
-        await writeStoredWorkspaceJournal(journal.records.filter(record => (
-            record.ownerWebContentsId !== stored.ownerWebContentsId
-        )));
+        // Keep the durable record until auxiliary recovery bytes retire. A
+        // failed cleanup must leave the claim discoverable for the next retry.
         await removeAnnotationRecoveryArtifacts(stored.checkpoint);
-        releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
-        claimedWorkspaceCheckpointOwnerWebContentsIds.delete(stored.ownerWebContentsId);
-        lastDurableWorkspaceCheckpoints.delete(stored.ownerWebContentsId);
+        await writeStoredWorkspaceJournal(journal.records.filter(record => (
+            record.ownerRecoveryId !== stored.ownerRecoveryId
+        )));
+        releaseRecoveryClaims(stored.ownerRecoveryId, stored.checkpoint);
+        claimedWorkspaceCheckpointOwners.delete(stored.ownerRecoveryId);
+        lastDurableWorkspaceCheckpoints.delete(stored.ownerRecoveryId);
         return true;
     });
 }
@@ -1477,50 +1660,68 @@ export function clearWorkspaceCheckpoint() {
             }
             throw error;
         }
-        await writeStoredWorkspaceJournal([]);
+        // Keep the durable records until auxiliary recovery bytes retire. A
+        // failed cleanup must leave every claim discoverable for the next retry.
         await Promise.all([
             ...checkpoints.map(checkpoint => removeAnnotationRecoveryArtifacts(checkpoint.checkpoint)),
             ...journal.records
-                .filter(record => !lastDurableWorkspaceCheckpoints.has(record.ownerWebContentsId))
+                .filter(record => !lastDurableWorkspaceCheckpoints.has(record.ownerRecoveryId))
                 .map(record => removeAnnotationRecoveryArtifacts(record.checkpoint)),
         ]);
+        await writeStoredWorkspaceJournal([]);
         for (const checkpoint of journal.records) {
-            releaseRecoveryClaims(checkpoint.ownerWebContentsId, checkpoint.checkpoint);
+            releaseRecoveryClaims(checkpoint.ownerRecoveryId, checkpoint.checkpoint);
         }
         lastDurableWorkspaceCheckpoints.clear();
-        claimedWorkspaceCheckpointOwnerWebContentsIds.clear();
+        claimedWorkspaceCheckpointOwners.clear();
     });
 }
 
-export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
+export async function discardWorkspaceCheckpoint(
+    ownerWebContentsId: number,
+    owner?: number | WebContents,
+) {
+    const ownerRecoveryId = getWorkspaceRecoveryOwnerId(ownerWebContentsId, owner);
+    const checkpointRecordRecoveryId = getClaimedWorkspaceRecordRecoveryId(
+        ownerRecoveryId,
+        ownerWebContentsId,
+    );
     const generation = String(nextDiscardedCheckpointOwnerGeneration);
     nextDiscardedCheckpointOwnerGeneration += 1;
     discardedCheckpointOwnerGenerations.set(
-        ownerWebContentsId,
+        checkpointRecordRecoveryId,
         generation,
     );
     try {
         await enqueueWorkspaceCheckpointBarrier(async () => {
             const journal = await readStoredWorkspaceJournal();
             const stored = journal.records.find(record => (
-                record.ownerWebContentsId === ownerWebContentsId
-                || record.claimedByWebContentsId === ownerWebContentsId
-                || claimedWorkspaceCheckpointOwnerWebContentsIds.get(record.ownerWebContentsId) === ownerWebContentsId
+                record.ownerRecoveryId === ownerRecoveryId
+                || (
+                    record.claimedByRecoveryId === ownerRecoveryId
+                    && record.claimedByWebContentsId === ownerWebContentsId
+                )
+                || (
+                    claimedWorkspaceCheckpointOwners.get(record.ownerRecoveryId)?.claimantRecoveryId === ownerRecoveryId
+                    && claimedWorkspaceCheckpointOwners.get(record.ownerRecoveryId)?.claimantWebContentsId === ownerWebContentsId
+                )
             ));
             if (!stored) {
                 return;
             }
-            await writeStoredWorkspaceJournal(journal.records.filter(record => (
-                record.ownerWebContentsId !== stored.ownerWebContentsId
-            )));
+            // Keep the durable record until auxiliary recovery bytes retire. A
+            // failed cleanup must leave the claim discoverable for the next retry.
             await removeAnnotationRecoveryArtifacts(stored.checkpoint);
-            releaseRecoveryClaims(stored.ownerWebContentsId, stored.checkpoint);
-            lastDurableWorkspaceCheckpoints.delete(stored.ownerWebContentsId);
-            claimedWorkspaceCheckpointOwnerWebContentsIds.delete(stored.ownerWebContentsId);
+            await writeStoredWorkspaceJournal(journal.records.filter(record => (
+                record.ownerRecoveryId !== stored.ownerRecoveryId
+            )));
+            releaseRecoveryClaims(stored.ownerRecoveryId, stored.checkpoint);
+            lastDurableWorkspaceCheckpoints.delete(stored.ownerRecoveryId);
+            claimedWorkspaceCheckpointOwners.delete(stored.ownerRecoveryId);
         });
     } catch (error) {
-        if (discardedCheckpointOwnerGenerations.get(ownerWebContentsId) === generation) {
-            discardedCheckpointOwnerGenerations.delete(ownerWebContentsId);
+        if (discardedCheckpointOwnerGenerations.get(checkpointRecordRecoveryId) === generation) {
+            discardedCheckpointOwnerGenerations.delete(checkpointRecordRecoveryId);
         }
         throw error;
     }
@@ -1530,9 +1731,15 @@ export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
 export function resumeWorkspaceCheckpoint(
     ownerWebContentsId: number,
     discardToken: string,
+    owner?: number | WebContents,
 ) {
-    if (discardedCheckpointOwnerGenerations.get(ownerWebContentsId) !== discardToken) {
+    const ownerRecoveryId = getWorkspaceRecoveryOwnerId(ownerWebContentsId, owner);
+    const checkpointRecordRecoveryId = getClaimedWorkspaceRecordRecoveryId(
+        ownerRecoveryId,
+        ownerWebContentsId,
+    );
+    if (discardedCheckpointOwnerGenerations.get(checkpointRecordRecoveryId) !== discardToken) {
         throw new Error('Workspace checkpoint discard token is stale or invalid');
     }
-    discardedCheckpointOwnerGenerations.delete(ownerWebContentsId);
+    discardedCheckpointOwnerGenerations.delete(checkpointRecordRecoveryId);
 }

@@ -40,6 +40,7 @@ function createResizeLifecycle(
         settlePreviewFitScale?: (commit?: boolean) => boolean;
         isLoading?: Ref<boolean>;
         isResizing?: Ref<boolean>;
+        currentPage?: Ref<number>;
         pdfDocument?: Ref<unknown | null>;
         pendingNavigationAnchorPage?: Readonly<Ref<number | null>>;
         transactionController?: TResizeLifecycleOptions['transactionController'];
@@ -66,7 +67,7 @@ function createResizeLifecycle(
         isActive,
         isResizing,
         pdfDocument: options?.pdfDocument ?? ref({}),
-        currentPage: ref(4),
+        currentPage: options?.currentPage ?? ref(4),
         pendingNavigationAnchorPage: options?.pendingNavigationAnchorPage,
         visibleRange: ref({
             start: 4,
@@ -621,7 +622,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
     });
 
-    it('keeps the drag-start anchor during preview changes and performs exactly one settle render', async () => {
+    it('previews the drag-start anchor on every drag frame and commits it once at settle', async () => {
         vi.useFakeTimers();
         const semanticAnchor = {
             affinity: 'center' as const,
@@ -653,9 +654,9 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             page: 4,
             preview: true,
         });
-        expect(submitResizeIntent).toHaveBeenCalledTimes(2);
-        expect(submitResizeIntent).toHaveBeenNthCalledWith(1, semanticAnchor);
-        expect(submitResizeIntent).toHaveBeenNthCalledWith(2, semanticAnchor);
+        // Drag frames only correct the preview geometry. The authority intent
+        // hydrates geometry and commits a position, which is settle work.
+        expect(submitResizeIntent).not.toHaveBeenCalled();
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(1, semanticAnchor);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(2, semanticAnchor);
@@ -666,8 +667,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         await vi.advanceTimersByTimeAsync(25);
         await Promise.resolve();
 
-        expect(submitResizeIntent).toHaveBeenCalledTimes(3);
-        expect(submitResizeIntent).toHaveBeenNthCalledWith(3, semanticAnchor);
+        expect(submitResizeIntent).toHaveBeenCalledExactlyOnceWith(semanticAnchor);
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(6);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(6, semanticAnchor);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
@@ -690,6 +690,60 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         await vi.advanceTimersByTimeAsync(400);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+    });
+
+    it('follows a page the authority commits during the drag instead of replaying the start anchor', async () => {
+        vi.useFakeTimers();
+        const currentPage = ref(1);
+        const isResizing = ref(false);
+        const captureViewportAnchor = vi.fn(() => ({
+            affinity: 'center' as const,
+            page: currentPage.value,
+            pageXFraction: 0.5,
+            pageYFraction: 0.1,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        }));
+        const {
+            applyResizeAnchorPreview,
+            scheduleResizeAwareRerender,
+            submitResizeIntent,
+        } = createResizeLifecycle(ref(true), {
+            captureViewportAnchor,
+            currentPage,
+            isResizing,
+            numPages: 1_200,
+        });
+
+        isResizing.value = true;
+        resizeObserverMock.callback?.();
+        await nextTick();
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(
+            expect.objectContaining({page: 1}),
+        );
+
+        // The navigation to page 500 commits mid-slide: the authority has
+        // already scrolled there when it publishes the page.
+        currentPage.value = 500;
+        resizeObserverMock.callback?.();
+        await nextTick();
+
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(
+            expect.objectContaining({page: 500}),
+        );
+
+        isResizing.value = false;
+        resizeObserverMock.callback?.();
+        await vi.advanceTimersByTimeAsync(25);
+        await Promise.resolve();
+
+        expect(submitResizeIntent).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({page: 500}),
+        );
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
+            're-render visible pages after resize settle',
+            expect.objectContaining({resizeAnchor: expect.objectContaining({page: 500})}),
+        );
     });
 
     it('retires a drag transition that settles while a Recent document is still loading', async () => {
@@ -737,6 +791,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             viewportYFraction: 0.5,
         };
         const {
+            applyResizeAnchorPreview,
             lifecycle,
             submitResizeIntent,
         } = createResizeLifecycle(ref(true), {
@@ -752,8 +807,8 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         await nextTick();
         await Promise.resolve();
 
-        expect(submitResizeIntent).toHaveBeenCalledOnce();
-        expect(submitResizeIntent).toHaveBeenCalledWith(semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(semanticAnchor);
+        expect(submitResizeIntent).not.toHaveBeenCalled();
 
         lifecycle.cleanupResizeLifecycle();
     });

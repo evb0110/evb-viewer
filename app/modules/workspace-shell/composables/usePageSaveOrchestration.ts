@@ -15,7 +15,6 @@ import {
     createPdfSourceDataReader,
     resolvePdfReloadPage,
     createPdfReloadWaiter,
-    resolvePdfViewerSaveTransactionFinalBytes,
     type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
@@ -24,6 +23,8 @@ import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
+import { readDocumentBytes } from '@app/utils/documentBytes';
+import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 import type { INativePdfSaveTransactionOptions } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 
@@ -328,7 +329,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             includeManagedShapes: shapeStateDirty,
             rewriteShapeState: shapeStateDirty,
             forceRewrite: pageLabelsDirty.value || bookmarksDirty.value || shapeStateDirty,
-            serializeResult: true,
+            requiresManagedShapeBaseline: true,
             dirtyState: {
                 annotationDirty: annotationDirty.value,
                 hasAnnotationChanges: hasAnnotationChanges(),
@@ -346,19 +347,36 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             },
             source: {getSourcePdfData},
         });
-        const bytes = resolvePdfViewerSaveTransactionFinalBytes(result);
-        if (!bytes || !ownsCapturedDocument()) {
+        if (
+            !result.nativeMutationProjection
+            || capturedDocumentRevisionToken === null
+            || !ownsCapturedDocument()
+        ) {
             return null;
         }
-        await result.assertAnnotationSaveCurrent?.();
-        await result.verifyAnnotationSave?.(bytes);
-        if (!ownsCapturedDocument()) {
+        // The transaction hands back a projection, never bytes. Staging it as a
+        // clone is the only way to read what the dirty document would serialize
+        // to, and the clone is transient, so the maintenance sweep reclaims it
+        // once the caller has copied the bytes into its durable checkpoint.
+        const snapshotRef = await consumeNativePdfMutationProjection({
+            workingPath: capturedWorkingCopyPath,
+            expectedDocumentRevisionToken: capturedDocumentRevisionToken,
+            projection: result.nativeMutationProjection,
+            operation: 'clone',
+            originalPath: originalPath.value,
+            ...(result.verifyAnnotationSavePath
+                ? {verifyPathBeforeExpose: result.verifyAnnotationSavePath}
+                : {}),
+            ...(result.assertAnnotationSaveCurrent
+                ? {assertBeforeExpose: result.assertAnnotationSaveCurrent}
+                : {}),
+        });
+        if (!snapshotRef || !ownsCapturedDocument()) {
             return null;
         }
-        // This is intentionally a detached byte snapshot. Do not call the
-        // transaction's commit callback: recovery must never acknowledge the
-        // live dirty frontier or change the active working-copy source.
-        return bytes.slice();
+        // Do not call the transaction's commit callback: recovery must never
+        // acknowledge the live dirty frontier or change the active working copy.
+        return readDocumentBytes(snapshotRef);
     }
 
     function createRecoverySnapshotBytes() {

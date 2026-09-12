@@ -431,6 +431,20 @@ async function waitForDirtyTransferCommit() {
     return dirtyTransferObservation;
 }
 
+// Closing a page releases its lease lock, but the browser does that on its own
+// schedule and a sweep issued straight after close can still observe the lock.
+// Queuing an exclusive request behind the dying holder waits for exactly that
+// release and nothing else, so the sweep that follows sees a settled state.
+async function awaitLeaseOwnerLockReleased() {
+    await navigator.locks.request(
+        `evb-viewer:browser-lease-owner:${OWNER_ID}`,
+        {mode: 'exclusive'},
+        () => undefined,
+    );
+    return {released: true};
+}
+
+Reflect.set(globalThis, '__evbAwaitLeaseOwnerLockReleased', awaitLeaseOwnerLockReleased);
 Reflect.set(globalThis, '__evbSetupLiveLeaseAcceptance', setupLiveLeaseAcceptance);
 Reflect.set(globalThis, '__evbAgeLiveLeaseAcceptance', () => setLeaseHeartbeat(1));
 Reflect.set(globalThis, '__evbSuspendLiveLeaseAcceptance', suspendLiveLeaseAcceptance);

@@ -424,21 +424,17 @@ describe('useWorkspaceSplitPayload', () => {
         expect(mocks.createWorkingCopyFromPath).not.toHaveBeenCalled();
     });
 
-    it('serializes dirty split snapshots inside the viewer canonical save transaction', async () => {
-        const serializedBytes = Uint8Array.of(7, 8, 9);
-        const serializePdfForSave = vi.fn(async () => serializedBytes);
+    it('splits from the loaded bytes when a dirty transaction projects no native mutation', async () => {
+        const loadedBytes = Uint8Array.of(7, 8, 9);
         const runSaveTransaction = vi.fn(async (request) => {
             expect(request).toMatchObject({
                 mode: 'snapshot',
                 forceWriterSave: false,
                 saveFlowMode: 'save',
-                serializeResult: true,
+                requiresManagedShapeBaseline: true,
             });
             return {
-                source: 'serialized-rewrite' as const,
-                baseBytes: Uint8Array.of(1),
-                serializedBytes,
-                serializedResult: null,
+                source: 'native-required-failure' as const,
                 nativeMutationProjection: null,
                 fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
                 annotationSavePlan: {
@@ -452,8 +448,8 @@ describe('useWorkspaceSplitPayload', () => {
         const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
             hasPendingTabChanges: ref(true),
             pdfViewerRef: ref({runSaveTransaction}),
-            serializePdfForSave,
-            pdfSrc: ref(new Blob([serializedBytes])),
+            pdfData: ref(loadedBytes),
+            pdfSrc: ref(new Blob([loadedBytes])),
             workingCopyPath: ref(null),
         }));
 
@@ -462,7 +458,7 @@ describe('useWorkspaceSplitPayload', () => {
         expect(runSaveTransaction).toHaveBeenCalledTimes(1);
         expect(mocks.createWorkingCopyFromData).toHaveBeenCalledWith(
             'sample.pdf',
-            serializedBytes,
+            loadedBytes,
             '/tmp/original.pdf',
         );
     });
@@ -496,9 +492,6 @@ describe('useWorkspaceSplitPayload', () => {
             expect(request.source).toBeUndefined();
             return {
                 source: 'native-mutation-projection' as const,
-                baseBytes: null,
-                serializedBytes: null,
-                serializedResult: null,
                 nativeMutationProjection: nativeProjection,
                 fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
                 annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,

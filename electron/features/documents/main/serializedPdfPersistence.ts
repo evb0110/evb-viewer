@@ -29,6 +29,7 @@ import type {
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
+import { createWorkingCopySyncWarning } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -162,6 +163,7 @@ interface ISerializedPdfPersistenceCommitResult {
     validation: IPdfValidationResult;
     targetWriteCommitted: boolean;
     workingCopyRefreshed: boolean;
+    workingCopySyncError: string | null;
 }
 
 interface ISerializedPdfPersistenceStageResult {
@@ -220,17 +222,6 @@ function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
         ackTimeoutMs: SERIALIZED_PDF_ACK_TIMEOUT_MS,
         progressTimeoutMs: SERIALIZED_PDF_PROGRESS_TIMEOUT_MS,
         resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
-    };
-}
-
-function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
-    const message = `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
-    return {
-        ...validation,
-        warnings: [
-            ...validation.warnings,
-            message,
-        ],
     };
 }
 
@@ -660,9 +651,9 @@ async function commitSession(
     }
     const committedValidation = session.stagedValidation;
     let conflictValidation = null as IPdfValidationResult | null;
-    let syncWarningValidation = null as IPdfValidationResult | null;
     let targetWriteCommitted = false;
     let workingCopyRefreshed = false;
+    let workingCopySyncError: string | null = null;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(
             session.workingPath,
@@ -749,7 +740,7 @@ async function commitSession(
                     session.workingPath,
                     `Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
                 );
-                syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
+                workingCopySyncError = getErrorMessage(syncError);
             }
             allowOpenPath(session.targetPath, session.sender);
             await addRecentFile(session.targetPath);
@@ -795,9 +786,10 @@ async function commitSession(
     }, {ownerWebContentsId: session.senderId});
 
     return {
-        validation: conflictValidation ?? syncWarningValidation ?? committedValidation,
+        validation: conflictValidation ?? committedValidation,
         targetWriteCommitted,
         workingCopyRefreshed,
+        workingCopySyncError,
     };
 }
 
@@ -857,6 +849,7 @@ export async function commitStagedSerializedPdf(
             return {
                 path,
                 validation: result.validation,
+                ...(result.workingCopySyncError === null ? {} : {warning: createWorkingCopySyncWarning(result.workingCopySyncError)}),
             };
         } catch (error) {
             await cleanupSession(session);

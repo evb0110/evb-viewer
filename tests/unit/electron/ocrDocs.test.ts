@@ -43,17 +43,19 @@ const OCR_LANGUAGE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     syr: 'Syriac',
 };
 
-function getReadmeOcrLanguageSection(readme: string) {
-    const match = /### OCR Languages\n\n([\s\S]*?)(?:\n### |\n## )/u.exec(readme);
+const OCR_LANGUAGE_DOC = 'docs/user/formats-and-languages.md';
+
+function getOcrLanguageSection(doc: string) {
+    const match = /### OCR Languages\n\n([\s\S]*?)(?:\n### |\n## )/u.exec(doc);
     if (!match?.[1]) {
-        throw new Error('README OCR Languages section was not found');
+        throw new Error(`OCR Languages section was not found in ${OCR_LANGUAGE_DOC}`);
     }
     return match[1];
 }
 
 function getDisplayName(code: string) {
     if (!(code in OCR_LANGUAGE_DISPLAY_NAMES)) {
-        throw new Error(`Missing README display-name expectation for OCR language ${code}`);
+        throw new Error(`Missing display-name expectation for OCR language ${code}`);
     }
     return OCR_LANGUAGE_DISPLAY_NAMES[code];
 }
@@ -75,9 +77,9 @@ function getBenchmarkDefaultProfiles() {
 }
 
 describe('OCR documentation', () => {
-    it('keeps README OCR language list aligned with the registry', () => {
-        const readme = readFileSync(join(REPO_ROOT, 'README.md'), 'utf-8');
-        const section = getReadmeOcrLanguageSection(readme);
+    it('keeps the published OCR language list aligned with the registry', () => {
+        const doc = readFileSync(join(REPO_ROOT, OCR_LANGUAGE_DOC), 'utf-8');
+        const section = getOcrLanguageSection(doc);
 
         for (const language of AVAILABLE_OCR_LANGUAGES) {
             expect(section).toContain(`- ${getDisplayName(language.code)}`);
@@ -85,10 +87,10 @@ describe('OCR documentation', () => {
     });
 
     it('documents every profile the benchmark runs by default', () => {
-        const ocrNotes = readFileSync(join(REPO_ROOT, 'docs/ocr.md'), 'utf-8');
+        const ocrNotes = readFileSync(join(REPO_ROOT, 'docs/architecture/ocr.md'), 'utf-8');
 
         for (const profile of getBenchmarkDefaultProfiles()) {
-            expect(ocrNotes, `docs/ocr.md does not document the \`${profile}\` profile`)
+            expect(ocrNotes, `docs/architecture/ocr.md does not document the \`${profile}\` profile`)
                 .toContain(`\`${profile}\``);
         }
     });

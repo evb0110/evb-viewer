@@ -94,7 +94,13 @@ interface IActiveResizeVisualSnapshotLease {
     pageContainer: HTMLElement;
     released: boolean;
     snapshot: IPdfResizeCanvasVisualSnapshot;
+    cancelRelease: () => void;
 }
+
+// The snapshot exists to hide a blank page while the resize re-renders. If
+// that never lands, showing the stale image forever is worse than showing the
+// real state, so the lease expires whether or not waitFor ever goes true.
+const PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS = 2_500;
 
 export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycleOptions) => {
     const {
@@ -436,6 +442,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 activeLease.lastCaptureAtMs = capturedAtMs;
                 continue;
             }
+            activeLease?.cancelRelease();
             activeLease?.snapshot.release();
             activeResizeVisualSnapshots.delete(page);
             const snapshot = preservePdfResizeCanvasVisualSnapshot(pageContainer);
@@ -457,8 +464,12 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 pageContainer,
                 released: false,
                 snapshot,
+                cancelRelease: () => {},
             };
             const release = () => {
+                if (lease.released) {
+                    return;
+                }
                 lease.released = true;
                 snapshot.release();
                 if (activeResizeVisualSnapshots.get(page) === lease) {
@@ -466,8 +477,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 }
             };
             activeResizeVisualSnapshots.set(page, lease);
-            schedulePdfResizeCanvasVisualSnapshotRelease(release, {
-                forceReleaseAfterMaxDelay: false,
+            lease.cancelRelease = schedulePdfResizeCanvasVisualSnapshotRelease(release, {
+                maxDelayMs: PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS,
                 minFrames: 2,
                 waitFor: () => (
                     !snapshot.isValid()
@@ -514,14 +525,14 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             });
             if (dragResizeAnchor && (updated || viewportGeometryChanged)) {
                 // Preview scale updates replace the virtual page geometry
-                // immediately. Reapply the drag-start semantic anchor through
-                // the viewport authority in the same resize cycle so the old
-                // pixel scroll offset is never interpreted as a different page.
-                // The final resize transaction still owns the sole rerender.
-                restoreResizeAnchorAfterLayout(
-                    dragResizeAnchor,
-                    PDF_RERENDER_SOURCE.ResizeObserver,
-                );
+                // immediately. Reapply the drag-start semantic anchor against
+                // the new page track in the same resize cycle so the old pixel
+                // scroll offset is never interpreted as a different page. This
+                // is a preview-only correction, like the later packets of a
+                // resize burst: the authority intent, with its geometry
+                // hydration and position commit, runs once at settle instead
+                // of on every animated frame.
+                void reapplyResizeAnchorPreviewAfterLayout(dragResizeAnchor);
             }
             return;
         }
@@ -640,6 +651,27 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         },
     );
 
+    // A navigation that commits while the sidebar or window is still
+    // animating moves the viewport authority to another page. The drag anchor
+    // was captured for the page the drag started on, so replaying it would
+    // drag the viewport back there while the authority keeps reporting the new
+    // page. The authority owns where the viewport is; the anchor only keeps
+    // that place stable across per-frame geometry changes, so re-derive it
+    // from the committed position. The authority applies its scroll before it
+    // publishes the page, so the capture below reads the new position.
+    watch(currentPage, (page) => {
+        if (!dragResizeAnchor || dragResizeAnchor.page === page) {
+            return;
+        }
+        dragResizeAnchor = {
+            ...buildResizeAnchorContext({
+                preferredAnchorPage: page,
+                trustPreferredAnchorPage: true,
+            }),
+            transitionToken: dragResizeAnchor.transitionToken,
+        };
+    }, {flush: 'sync'});
+
     watch(isResizing, async (value, previous) => {
         const runId = ++dragSettleRunId;
         if (value) {
@@ -736,6 +768,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
 
     function cleanupResizeLifecycle() {
         activeResizeVisualSnapshots.forEach((lease) => {
+            lease.cancelRelease();
             lease.released = true;
             lease.snapshot.release();
         });

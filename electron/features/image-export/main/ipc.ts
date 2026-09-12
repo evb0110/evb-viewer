@@ -6,14 +6,12 @@ import {
     type WebContents,
 } from 'electron';
 import {existsSync} from 'fs';
-import { rm } from 'fs/promises';
 import { extname } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {
-    assertImageExportOutputPathBudget,
     IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME,
     ImageExportOutputBudgetError,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
@@ -137,10 +135,6 @@ async function validateDjvuWorkingPath(path: unknown, senderWebContentsId: numbe
         throw new Error('Working file must be a DjVu document');
     }
     return resolvedPath;
-}
-
-async function discardExportedPaths(paths: string[]) {
-    await Promise.all(paths.map(path => rm(path, {force: true}).catch(() => undefined)));
 }
 
 function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
@@ -380,11 +374,11 @@ export async function handlePdfExportImages(
             })
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                physicalReadPath => exportPdfPagesAsImages(physicalReadPath, normalizedPath, exportOptions),
-                {
-                    discard: discardExportedPaths,
-                    ownerWebContentsId: context.senderId,
-                },
+                (physicalReadPath, assertOriginalUnchanged) => exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
+                    ...exportOptions,
+                    beforePublish: assertOriginalUnchanged,
+                }),
+                {ownerWebContentsId: context.senderId},
             );
         if (isImageExportJobAborted(job)) {
             job.terminal.cancel(job.signal.reason);
@@ -392,12 +386,6 @@ export async function handlePdfExportImages(
                 success: false,
                 canceled: true,
             };
-        }
-        try {
-            assertImageExportOutputPathBudget(outputPaths);
-        } catch (error) {
-            await discardExportedPaths(outputPaths);
-            throw error;
         }
         const exportResult = {
             success: true,
@@ -456,11 +444,11 @@ export async function handlePdfExportMultiPageTiff(
             ? await exportDjvuAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions)
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                physicalReadPath => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, exportOptions),
-                {
-                    discard: discardExportedPaths,
-                    ownerWebContentsId: context.senderId,
-                },
+                (physicalReadPath, assertOriginalUnchanged) => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, {
+                    ...exportOptions,
+                    beforePublish: assertOriginalUnchanged,
+                }),
+                {ownerWebContentsId: context.senderId},
             );
         if (isImageExportJobAborted(job)) {
             job.terminal.cancel(job.signal.reason);
@@ -468,12 +456,6 @@ export async function handlePdfExportMultiPageTiff(
                 success: false,
                 canceled: true,
             };
-        }
-        try {
-            assertImageExportOutputPathBudget(outputPaths);
-        } catch (error) {
-            await discardExportedPaths(outputPaths);
-            throw error;
         }
 
         const outputPath = outputPaths[0];

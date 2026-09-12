@@ -38,7 +38,7 @@ export const STRESS_CLI_USAGE = `Usage: pnpm run stress -- [options]
   --operator external|pixel|semantic (default external; pixel/semantic use the paid API)
   --thinking                enable adaptive thinking for the operator model
   --out <dir>               run directory (default .devkit/stress/runs/<run-id>)
-  --update-baseline         write docs/benchmarks/stress/<profile>.json when every scenario passed
+  --update-baseline         write docs/internal/benchmarks/stress/<profile>.json when every scenario passed
   --fixtures-only           generate fixtures and exit
   --calibrate-only          launch once, run the calibration probe, and exit
   --max-run-cost <usd>      override the whole-run operator spend cap

@@ -18,6 +18,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     assignSaveTarget: vi.fn(),
     touchRecentFile: vi.fn(),
     replaceWithHandleBackedDocument: vi.fn(),
+    acknowledgePhysicalSourceCommit: vi.fn(),
 }));
 
 const filePickerMock = vi.hoisted(() => ({
@@ -63,7 +64,7 @@ describe('browserSaveTargets', () => {
         ) => operation({
             writeSource: browserDocumentStoreMock.write,
             assertPhysicalSourceBaseCurrent: vi.fn(),
-            acknowledgePhysicalSourceCommit: vi.fn(),
+            acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
         }));
         browserDocumentStoreMock.write.mockResolvedValue(true);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
@@ -91,6 +92,34 @@ describe('browserSaveTargets', () => {
                 workingCopyRefreshed: true,
                 validation: null,
             });
+    });
+
+    it('advances the source base after a picker save so the next save is not seen as an external edit', async () => {
+        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
+            canceled: false,
+            fileName: 'saved.pdf',
+            handle: {kind: 'file'},
+        });
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
+
+        expect(browserDocumentStoreMock.acknowledgePhysicalSourceCommit).toHaveBeenCalledTimes(1);
+        expect(browserDocumentStoreMock.assignSaveTarget)
+            .toHaveBeenCalledBefore(browserDocumentStoreMock.acknowledgePhysicalSourceCommit);
+    });
+
+    it('leaves the source base untouched when the picker is canceled', async () => {
+        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
+            canceled: true,
+            fileName: 'saved.pdf',
+            handle: null,
+        });
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
+
+        expect(browserDocumentStoreMock.acknowledgePhysicalSourceCommit).not.toHaveBeenCalled();
     });
 
     it('returns user-canceled when the picker is canceled', async () => {

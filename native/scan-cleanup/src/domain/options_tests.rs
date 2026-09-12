@@ -1,7 +1,8 @@
 use super::{
-    CleanupOptions, DespeckleLevel, ManualContentBoxes, ManualZones, MarginsMm, NormalizedRect,
-    NormalizedSplit, NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode,
-    PageAlignment, PictureZoneLayer, PlacementAnchor, PlacementAnchors, PlacementOverrides,
+    CleanupOptions, DerivedRasterError, DespeckleLevel, ManualContentBoxes, ManualZones, MarginsMm,
+    NormalizedRect, NormalizedSplit, NormalizedZonePoint, NormalizedZonePolygon,
+    OrthogonalRotation, OutputMode, PageAlignment, PictureZoneLayer, PlacementAnchor,
+    PlacementAnchors, PlacementOverrides,
 };
 use crate::domain::geometry::PageHalf;
 use scan_primitives::Rect;
@@ -356,14 +357,14 @@ fn normalized_render_crop_is_optional_bounded_and_resolves_outward() {
 #[test]
 fn derived_raster_geometry_distinguishes_non_finite_from_guardrail_violations() {
     let options = CleanupOptions::default();
-    assert!(options
-        .validate_derived_raster_dimensions(f64::INFINITY, 100.0)
-        .unwrap_err()
-        .contains("finite"));
-    assert!(options
-        .validate_derived_raster_dimensions(options.max_dimension as f64 + 1.0, 100.0)
-        .unwrap_err()
-        .contains("guardrails"));
+    assert!(matches!(
+        options.validate_derived_raster_dimensions(f64::INFINITY, 100.0),
+        Err(DerivedRasterError::Invalid(_)),
+    ));
+    assert!(matches!(
+        options.validate_derived_raster_dimensions(options.max_dimension as f64 + 1.0, 100.0),
+        Err(DerivedRasterError::TooLarge(_)),
+    ));
 }
 
 #[test]

@@ -51,7 +51,7 @@ export async function runWindowsTestPrepareCli(
                 : {verifyStandaloneUtmctlSignature: dependencies.verifyStandaloneUtmctlSignature}),
         };
         const result = await prepareWindowsTestHost(preparationOptions);
-        process.stdout.write(`${JSON.stringify(result, null, 4)}\nPrepared runner files only. Follow docs/windows-tests/setup-and-repair.md for the lab image, then run windows:test:doctor.\n`);
+        process.stdout.write(`${JSON.stringify(result, null, 4)}\nPrepared runner files only. Follow docs/contributing/windows-tests/setup-and-repair.md for the lab image, then run windows:test:doctor.\n`);
         return 0;
     } catch (error) {
         process.stderr.write(`${getErrorMessage(error)}\n`);

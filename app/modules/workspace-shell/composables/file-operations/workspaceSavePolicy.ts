@@ -49,7 +49,7 @@ export interface IWorkspaceSaveDirtyState {
     shapes: boolean;
 }
 export interface IWorkspaceSerializedSaveBody {
-    source: 'live-pdfjs' | 'working-copy';
+    source: 'working-copy';
     forceRewrite: boolean;
     includeManagedShapes: boolean;
     preserveLoadedSource: boolean;
@@ -191,10 +191,7 @@ export function buildSaveTransactionRequest(
     plan: TWorkspaceSavePlan,
     deps: IWorkspaceSaveTransactionDependencies,
     body: IWorkspaceSerializedSaveBody,
-    options: {
-        allowNativeMutationPlan: boolean;
-        planOnly?: boolean
-    },
+    options: {allowNativeMutationPlan: boolean;},
 ): IPdfViewerSaveTransactionRequest {
     const documentStructure: IPdfViewerSaveTransactionDocumentStructure = {
         pageLabelsDirty: plan.dirtyState.pageLabels,
@@ -216,7 +213,6 @@ export function buildSaveTransactionRequest(
         includeManagedShapes: body.includeManagedShapes,
         rewriteShapeState: plan.dirtyState.shapes,
         forceRewrite: body.forceRewrite,
-        ...(options.planOnly === undefined ? {} : {planOnly: options.planOnly}),
         dirtyState: {
             annotationDirty: plan.dirtyState.annotationDirty,
             hasAnnotationChanges: plan.dirtyState.annotationChanges,
@@ -226,6 +222,6 @@ export function buildSaveTransactionRequest(
         documentStructure,
         source: {getSourcePdfData: deps.pdf.getSourceData},
         workingPath: requiresNativePathBackedSave(plan) ? plan.target.expectedWorkingPath : null,
-        serializeResult: true,
+        requiresManagedShapeBaseline: true,
     };
 }
