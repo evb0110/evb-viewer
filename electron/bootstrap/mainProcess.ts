@@ -457,16 +457,23 @@ const externalOpenManager = createExternalOpenManager({
             return false;
         }
 
+        const validPaths: string[] = [];
         const documentRefs = [];
         for (const path of paths) {
             const documentRef = parseDocumentRef(path);
             if (documentRef === null) {
-                return false;
+                logger.warn(`Ignoring unparseable external open path during dispatch: ${path}`);
+                continue;
             }
+            validPaths.push(path);
             documentRefs.push(documentRef);
         }
 
-        allowOpenPaths(paths, window.webContents);
+        if (documentRefs.length === 0) {
+            return true;
+        }
+
+        allowOpenPaths(validPaths, window.webContents);
         return sendToWindow(window, 'menu:openExternalPaths', documentRefs);
     },
 });

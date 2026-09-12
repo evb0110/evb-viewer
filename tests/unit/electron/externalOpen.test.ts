@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { resolve } from 'path';
 import {
     createExternalOpenManager,
     createMacOpenFileRouter,
@@ -194,13 +195,24 @@ describe('createExternalOpenManager', () => {
         });
 
         harness.manager.markBootstrapReady();
-        harness.manager.queueOpenRequestFromArgs(['C:\\Users\\test\\Desktop\\book.pdf']);
+        const absolutePath = resolve('/Users/test/Desktop/book.pdf');
+        harness.manager.queueOpenRequestFromArgs([absolutePath]);
 
         expect(grantOpenPaths).toHaveBeenCalledTimes(1);
-        expect(grantOpenPaths).toHaveBeenCalledWith(['C:\\Users\\test\\Desktop\\book.pdf']);
+        expect(grantOpenPaths).toHaveBeenCalledWith([absolutePath]);
         expect(dispatchOpenPaths).toHaveBeenCalledTimes(1);
-        expect(dispatchOpenPaths).toHaveBeenCalledWith(['C:\\Users\\test\\Desktop\\book.pdf']);
+        expect(dispatchOpenPaths).toHaveBeenCalledWith([absolutePath]);
         expect(grantOpenPaths.mock.invocationCallOrder[0]).toBeLessThan(dispatchOpenPaths.mock.invocationCallOrder[0]!);
+    });
+
+    it('resolves relative command-line paths before dispatch', () => {
+        const harness = createManagerHarness();
+        const relativePath = 'landing/public/evb-viewer-og.png';
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequestFromArgs([relativePath]);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([resolve(relativePath)]);
     });
 
     it('dispatches a later singleton after 100 ms', async () => {
@@ -445,5 +457,25 @@ describe('createExternalOpenManager', () => {
         expect(harness.logger.warn).toHaveBeenCalledWith(
             'External open dispatch could not reach the renderer; keeping paths queued for retry',
         );
+    });
+
+    it('drops a batch once the retry budget is spent', async () => {
+        vi.useFakeTimers();
+        const dispatchOpenPaths = vi.fn(() => false);
+        const harness = createManagerHarness({ dispatchOpenPaths });
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/undeliverable.pdf']);
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(dispatchOpenPaths).toHaveBeenCalledTimes(10);
+        expect(harness.logger.warn).toHaveBeenCalledWith(
+            'External open dispatch failed 10 times; dropping 1 queued path(s)',
+        );
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(dispatchOpenPaths).toHaveBeenCalledTimes(10);
     });
 });
