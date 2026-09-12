@@ -146,12 +146,13 @@ function createMetadataResponse(version: string, setCookie?: string) {
     if (setCookie) {
         headers.set('set-cookie', setCookie);
     }
+    const body = JSON.stringify({release: {tag: version}});
     return {
         headers,
         ok: true,
         status: 200,
+        body: {getReader: () => new Response(body).body!.getReader()},
         json: async () => ({release: {tag: version}}),
-        text: async () => `version: ${version}\n`,
     };
 }
 
@@ -1125,7 +1126,7 @@ describe('updates robustness', () => {
         );
     });
 
-    it('does not block installation when the diagnostic health marker cannot be written', async () => {
+    it('aborts installation when the diagnostic health marker cannot be written', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.markUpdateInstallPending.mockRejectedValueOnce(new Error('disk is read-only'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
@@ -1141,10 +1142,33 @@ describe('updates robustness', () => {
         await flushPromises();
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            'Failed to write update health marker before install: disk is read-only',
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            'Update installation aborted: failed to write update health marker: disk is read-only',
+            {
+                code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+                context: {},
+                cause: expect.any(Error),
+            },
         );
-        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    });
+
+    it('rejects oversized release metadata before reading its body', async () => {
+        vi.resetModules();
+        const metadata = await import('@electron/updates/fetchLatestReleaseMetadataVersion');
+        const response = new Response('{"release":{"tag":"1.1.0"}}', {headers: {'content-length': String(16 * 1024 + 1)}});
+        mocks.fetch.mockResolvedValue(response);
+
+        await expect(metadata.fetchLatestReleaseMetadataVersion(
+            'https://updates.example.test/latest',
+            mocks.logger,
+        )).rejects.toThrow('maximum allowed response size');
+
+        mocks.fetch.mockResolvedValue(new Response(new Uint8Array(16 * 1024 + 1)));
+        await expect(metadata.fetchLatestReleaseMetadataVersion(
+            'https://updates.example.test/latest',
+            mocks.logger,
+        )).rejects.toThrow('maximum allowed response size');
     });
 
     it('throttles download progress and installs after the approved download completes', async () => {
