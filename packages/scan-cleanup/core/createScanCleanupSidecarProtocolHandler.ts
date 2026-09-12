@@ -28,11 +28,27 @@ export function createScanCleanupSidecarProtocolHandler({
     onProtocolError,
     log,
 }: IScanCleanupSidecarProtocolHandlerOptions): IScanCleanupSidecarProtocolHandler {
-    let stderr = '';
+    const stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
     let protocolError: Error | null = null;
-    errorOutput?.setEncoding('utf8');
-    errorOutput?.on('data', (chunk: string) => {
-        stderr = `${stderr}${chunk}`.slice(-SCAN_CLEANUP_STDERR_LIMIT_BYTES);
+    errorOutput?.on('data', (chunk: Buffer) => {
+        if (chunk.length === 0) {
+            return;
+        }
+        stderrChunks.push(chunk);
+        stderrBytes += chunk.length;
+        while (stderrBytes > SCAN_CLEANUP_STDERR_LIMIT_BYTES) {
+            const first = stderrChunks[0];
+            if (first === undefined) break;
+            const excess = stderrBytes - SCAN_CLEANUP_STDERR_LIMIT_BYTES;
+            if (first.length <= excess) {
+                stderrChunks.shift();
+                stderrBytes -= first.length;
+            } else {
+                stderrChunks[0] = first.subarray(excess);
+                stderrBytes -= excess;
+            }
+        }
     });
     let pendingLineBytes = 0;
     const boundedStdout = new Transform({transform(chunk: Buffer, _encoding, callback) {
@@ -77,7 +93,7 @@ export function createScanCleanupSidecarProtocolHandler({
     return {
         lines,
         get stderr() {
-            return stderr;
+            return Buffer.concat(stderrChunks).toString('utf8');
         },
         failProtocol,
     };
