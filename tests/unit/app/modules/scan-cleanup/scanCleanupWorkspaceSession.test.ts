@@ -8,6 +8,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -22,6 +23,8 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
+import * as platform from '@app/utils/platform';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupCapability,
@@ -308,6 +311,77 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     afterEach(() => {
         capability.value = null;
+    });
+
+    it('admits cleanup only after pending settings merge and sends the merged options', async () => {
+        const desktop = vi.spyOn(platform, 'isDesktopPlatformActive').mockReturnValue(true);
+        onTestFinished(() => desktop.mockRestore());
+        const harness = capabilityHarness();
+        const stored = createDefaultScanCleanupSettingsFile();
+        const sourceSha256 = 'a'.repeat(64);
+        stored.settings.pageAlignment = 'center';
+        stored.documentOverrides[sourceSha256] = {
+            outputMode: 'grayscale',
+            marginsMm: {
+                leftMm: 11,
+                topMm: 12,
+                rightMm: 13,
+                bottomMm: 14,
+            },
+            lastUsedAtMs: Date.now(),
+        };
+        let resolveRead!: (value: typeof stored) => void;
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: requireJobId('coherent-settings'),
+            outputPdfPath: '/managed/coherent-settings.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: requireJobId('coherent-settings'),
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        });
+        capability.value = {
+            ...harness.value,
+            getSettings: vi.fn(() => new Promise<typeof stored>(resolve => { resolveRead = resolve; })),
+            updateSettings: vi.fn(async () => stored),
+        };
+        vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(request.pageNumber, 'single-uncut-page'));
+        const mounted = mountSession('coherent-settings', {sourceSha256: () => sourceSha256});
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.setMarginsLinked(false);
+        mounted.session.settings.updateMargin('topMm', 18);
+        mounted.session.settings.values.outputMode = 'color';
+        mounted.session.settings.values.pageAlignment = 'center';
+        await nextTick();
+        expect(mounted.session.run.canRun.value).toBe(false);
+        await mounted.session.run.run();
+        expect(harness.value.start).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce());
+        resolveRead(stored);
+        await vi.waitFor(() => expect(mounted.session.settings.documentSettingsReady.value).toBe(true));
+        const completedRun = mounted.session.run.run();
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledTimes(2));
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await completedRun;
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({options: expect.objectContaining({
+            outputMode: 'color',
+            marginsMm: {
+                leftMm: 11,
+                topMm: 18,
+                rightMm: 13,
+                bottomMm: 14,
+            },
+        })}));
     });
 
     it('accumulates settled pages across the reading and detecting stages of one job', async () => {

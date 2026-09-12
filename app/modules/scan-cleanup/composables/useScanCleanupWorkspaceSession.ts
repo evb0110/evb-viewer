@@ -97,6 +97,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         : `${sourceSha256.value ?? legacyDocumentKey.value}\u0000${documentRevision.value}`);
 
     const settings = useScanCleanupDocumentSettings({
+        documentRevision,
         documentLifecycleKey: lifecycleDocumentKey,
         sourceSha256,
         legacyDocumentKey,
