@@ -1107,7 +1107,20 @@ export async function installDownloadedUpdate() {
         try {
             await markUpdateInstallPending(candidateVersion);
         } catch (error) {
-            logger.warn(`Failed to write update health marker before install: ${getErrorMessage(error)}`);
+            const message = `Update installation aborted: failed to write update health marker: ${getErrorMessage(error)}`;
+            logger.error(message, {
+                code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+                context: {},
+                cause: error,
+            });
+            updateStatus({
+                phase: 'error',
+                origin: 'manual',
+                version: candidateVersion,
+                percent: null,
+                message,
+            });
+            return;
         }
         autoUpdater.quitAndInstall(false, true);
     });
