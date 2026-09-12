@@ -236,7 +236,7 @@ describe('changed-area classifier', () => {
             'tests/helpers/pdfAnnotationCommentsListHarness.ts',
             'tests/setup.ts',
             'tests/setupApp.ts',
-            'tsconfig.workspace-paths.json',
+            'tsconfig.base.json',
         ]) {
             expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(true);
         }

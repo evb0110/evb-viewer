@@ -3,6 +3,6 @@
         "incremental": true,
         "tsBuildInfoFile": "./.devkit/cache/typecheck/nuxt.tsbuildinfo"
     },
-    "extends": ["./.nuxt/tsconfig.json", "./tsconfig.base.json", "./tsconfig.workspace-paths.json"],
+    "extends": ["./.nuxt/tsconfig.json", "./tsconfig.base.json"],
     "files": ["types/vendor/utif.d.ts"]
 }
