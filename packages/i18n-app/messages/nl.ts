@@ -1622,7 +1622,10 @@ export default {
             'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
         },
-        'settings': {'load': 'Instellingen konden niet worden geladen'},
+        'settings': {
+            'load': 'Instellingen konden niet worden geladen',
+            'recovered': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is indien mogelijk als herstelkopie bewaard.',
+        },
         'runtime': {
             'title': 'Er is iets misgegaan',
             'description': 'De app kreeg een onverwachte fout en werkt mogelijk pas weer goed nadat deze opnieuw is geladen.',

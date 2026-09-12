@@ -1622,7 +1622,10 @@ export default {
             'loadDescription': 'Prova a caricare di nuovo l’area di lavoro.',
             'loadDescriptionWithMessage': 'Prova a caricare di nuovo l’area di lavoro. ({message})',
         },
-        'settings': {'load': 'Impossibile caricare le impostazioni'},
+        'settings': {
+            'load': 'Impossibile caricare le impostazioni',
+            'recovered': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato conservato come copia di recupero quando possibile.',
+        },
         'runtime': {
             'title': 'Qualcosa è andato storto',
             'description': 'L’app ha riscontrato un errore imprevisto e potrebbe non funzionare correttamente finché non viene ricaricata.',

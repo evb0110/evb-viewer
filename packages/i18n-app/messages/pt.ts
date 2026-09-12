@@ -1633,7 +1633,10 @@ export default {
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
         },
-        'settings': {'load': 'Não foi possível carregar as definições'},
+        'settings': {
+            'load': 'Não foi possível carregar as definições',
+            'recovered': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi guardado como cópia de recuperação quando possível.',
+        },
         'runtime': {
             'title': 'Algo correu mal',
             'description': 'A aplicação encontrou um erro inesperado e pode não funcionar corretamente até ser recarregada.',

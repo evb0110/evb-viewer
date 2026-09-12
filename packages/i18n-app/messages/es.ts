@@ -1622,7 +1622,10 @@ export default {
             'loadDescription': 'Intenta cargar el espacio de trabajo de nuevo.',
             'loadDescriptionWithMessage': 'Intenta cargar el espacio de trabajo de nuevo. ({message})',
         },
-        'settings': {'load': 'No se pudieron cargar los ajustes'},
+        'settings': {
+            'load': 'No se pudieron cargar los ajustes',
+            'recovered': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se conservó como copia de recuperación cuando fue posible.',
+        },
         'runtime': {
             'title': 'Algo salió mal',
             'description': 'La aplicación encontró un error inesperado y puede que no funcione correctamente hasta que se recargue.',

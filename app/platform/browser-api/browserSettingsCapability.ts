@@ -280,6 +280,9 @@ export const browserSettingsCapability: ISettingsCapability = {
             return sanitizeSettings(settingsState);
         });
     },
+    getRecoveryNotice() {
+        return Promise.resolve(null);
+    },
     save(settings) {
         const hasDiagnosticsPreference = Object.hasOwn(settings, 'clientDiagnosticsPreference');
         const previousDiagnosticsPreference = diagnosticsPreferenceOverride
