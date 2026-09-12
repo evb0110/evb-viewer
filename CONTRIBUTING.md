@@ -33,8 +33,14 @@ already on it.
 Small, obvious fixes are the exception: a typo, a broken link, or a one-line
 correction can go straight to a pull request.
 
-Issues labelled `good first issue` are ones I have left for someone else on
-purpose, and they are the easiest place to start.
+When something is self-contained enough to hand over, I label it
+`good first issue`. That label is often empty, so an empty list means nothing
+fits right now, not that help is unwelcome. Say in an issue that you would like
+something to work on and I will find one.
+
+Most of the open issues are my own work queue rather than an invitation. The
+ones with a bracketed code in the title, like `[SCAUD-84]`, come out of internal
+audits and are written for whoever picks them up next, usually me.
 
 ## Development
 
