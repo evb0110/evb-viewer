@@ -18,16 +18,23 @@ useful things you can send are usually not code.
 
 ## Code changes
 
-Open an issue before writing code, and we will agree on the shape first. The
-architecture is still moving in places, and I would rather not have you spend
-an evening on a patch I then have to redesign. Once an approach is agreed, a
-pull request is welcome.
+Open an issue first, whatever the size of the change. That is the part I most
+want from you: the problem, the document that triggered it, and what you
+expected instead. Deciding whether a change is worth making, and what shape it
+should take, is most of the work.
+
+If we agree it is worth making, I will usually write it myself. This is a
+one-person design with invariants that are faster for me to satisfy than to
+explain, and the architecture still moves under them, so a patch written
+against last month's shape costs you an evening and costs me a redesign. Tell
+me in the issue if you want to implement it, and I will say whether I am
+already on it.
 
 Small, obvious fixes are the exception: a typo, a broken link, or a one-line
 correction can go straight to a pull request.
 
-Issues labelled `good first issue` are real and scoped, and they are the
-easiest place to start.
+Issues labelled `good first issue` are ones I have left for someone else on
+purpose, and they are the easiest place to start.
 
 ## Development
 
