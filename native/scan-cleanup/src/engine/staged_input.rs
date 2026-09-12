@@ -1,11 +1,11 @@
 //! Stream and staged raster input coordination.
 use crate::io::{copy_bounded_cancelable, raster, BoundedIoError};
+use crate::protocol::manifest_v3::normalized_path;
 use evb_native_support::{NativeError, NativeErrorCode};
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
-use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -51,32 +51,6 @@ pub(crate) struct StagedLeaseDescriptor {
     pub(crate) page_number: usize,
     pub(crate) total_pages: usize,
     pub(crate) enabled: bool,
-}
-
-fn normalized_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if matches!(
-                    normalized.components().next_back(),
-                    Some(Component::Normal(_))
-                ) {
-                    normalized.pop();
-                } else if !normalized.has_root() {
-                    normalized.push(component.as_os_str());
-                }
-            }
-            _ => normalized.push(component.as_os_str()),
-        }
-    }
-    #[cfg(windows)]
-    {
-        return PathBuf::from(normalized.to_string_lossy().to_lowercase());
-    }
-    #[cfg(not(windows))]
-    normalized
 }
 
 pub(crate) fn invalid(message: impl Into<String>) -> NativeError {
