@@ -5,6 +5,7 @@ export {
 } from '@electron/features/ocr/main/jobManager';
 export {
     claimPendingOcrResultForDocument,
+    discardPendingOcrResultsForDocument,
     findPendingOcrResultFileForPath,
     releasePendingOcrResultClaim,
 } from '@electron/features/ocr/main/createPendingResultFileStore';

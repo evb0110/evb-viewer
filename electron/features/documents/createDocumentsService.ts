@@ -74,6 +74,7 @@ import {
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
+import { discardPendingOcrResultsForDocument } from '@electron/features/ocr/public/index';
 import {
     handleFileSaveStructured,
     handleOptimizePdfForInteraction,
@@ -387,12 +388,15 @@ export function createDocumentsService(): IDocumentsService {
             commitStagedSerializedPdf(...args),
         cancelStagedSerializedPdf: (...args: TDocumentsServiceArgs<'cancelStagedSerializedPdf'>) =>
             cancelStagedSerializedPdf(...args),
-        cleanupFile: (...args: TDocumentsServiceArgs<'cleanupFile'>) => {
+        cleanupFile: async (...args: TDocumentsServiceArgs<'cleanupFile'>) => {
             const [
                 context,
                 workingPath,
             ] = args;
-            return cleanupWorkingCopy(workingPath, context.senderId);
+            const deleted = await cleanupWorkingCopy(workingPath, context.senderId);
+            if (deleted) {
+                await discardPendingOcrResultsForDocument(requireDocumentRef(workingPath));
+            }
         },
         cleanupOcrTemp: (...args: TDocumentsServiceArgs<'cleanupOcrTemp'>) => handleCleanupOcrTemp(...args),
         setWindowTitle: (...args: TDocumentsServiceArgs<'setWindowTitle'>) => handleSetWindowTitle(...args),
