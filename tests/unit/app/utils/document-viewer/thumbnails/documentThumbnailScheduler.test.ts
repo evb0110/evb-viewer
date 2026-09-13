@@ -98,6 +98,27 @@ function cappedLeaseRender(widthPx: number, cap: number, release = vi.fn()) {
 }
 
 describe('createDocumentThumbnailScheduler', () => {
+    it('selects queued work without sorting the demand list', async () => {
+        const sort = vi.spyOn(Array.prototype, 'sort');
+        const scheduler = createDocumentThumbnailScheduler({
+            maxConcurrency: 1,
+            onStateChange: vi.fn(),
+            prepareSurface: vi.fn(async () => undefined),
+            render: vi.fn(async () => lease(128)),
+        });
+
+        scheduler.reconcile([
+            demand(3, 128, 2),
+            demand(1, 128, 0),
+            demand(2, 128, 1),
+        ]);
+        await scheduler.whenIdle();
+
+        expect(sort).not.toHaveBeenCalled();
+        scheduler.dispose();
+        sort.mockRestore();
+    });
+
     it('schedules navigation before nearby work and respects the concurrency limit', async () => {
         const pending: Array<IDeferred<IDocumentSurfaceLease>> = [];
         const started: number[] = [];

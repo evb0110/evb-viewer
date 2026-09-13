@@ -223,6 +223,22 @@ describe('PDF annotation parse main session', () => {
         expect(existsSync(sidecarPath)).toBe(false);
     });
 
+    it('starts the stale-artifact sweep only while a session exists', async () => {
+        const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+        const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+        const session = await beginPdfAnnotationParse(
+            context,
+            '/logical/working.pdf',
+            {expectedDocumentRevisionToken: revisionToken},
+        );
+
+        expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+        await releasePdfAnnotationParse(context, session.sessionId);
+        expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+        setIntervalSpy.mockRestore();
+        clearIntervalSpy.mockRestore();
+    });
+
     it('returns editable entities and inert foreign records from the one-shot capability', async () => {
         await expect(parsePdfAnnotations(
             context,

@@ -131,11 +131,22 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
     }
 
     function nextQueuedDemand() {
-        return [...queued.values()].sort((left, right) => (
-            left.rank - right.rank
-            || left.distance - right.distance
-            || left.pageNumber - right.pageNumber
-        ))[0] ?? null;
+        let next: IDocumentThumbnailDemand | null = null;
+        for (const demand of queued.values()) {
+            if (
+                !next
+                || demand.rank < next.rank
+                || (demand.rank === next.rank && demand.distance < next.distance)
+                || (
+                    demand.rank === next.rank
+                    && demand.distance === next.distance
+                    && demand.pageNumber < next.pageNumber
+                )
+            ) {
+                next = demand;
+            }
+        }
+        return next;
     }
 
     function handleInvalidation(entry: ICommittedEntry) {

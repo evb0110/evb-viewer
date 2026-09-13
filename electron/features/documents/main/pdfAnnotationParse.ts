@@ -95,6 +95,7 @@ function requireDocumentRef(value: unknown): TDocumentRef {
 }
 
 const sessions = new Map<string, IParseSessionState>();
+let parseTtlTimer: ReturnType<typeof setInterval> | null = null;
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
@@ -182,7 +183,14 @@ function cleanupWhenOperationSettles(session: IParseSessionState) {
 function cleanupSession(session: IParseSessionState) {
     return cleanupPdfSidecarSession(sessions, session, (error: unknown) => {
         logger.warn(`Failed to remove PDF annotation parse sidecar: ${String(error)}`);
-    });
+    }).finally(clearParseTtlTimerIfIdle);
+}
+
+function clearParseTtlTimerIfIdle() {
+    if (sessions.size === 0 && parseTtlTimer) {
+        clearInterval(parseTtlTimer);
+        parseTtlTimer = null;
+    }
 }
 
 function buildParseCommandArgs(inputPath: string, outputPath: string, qpdfPath: string) {
@@ -275,6 +283,7 @@ export async function beginPdfAnnotationParse(
             'Renderer navigation canceled PDF annotation parsing',
         ),
     });
+    ensureParseTtlTimer();
     const {abortController} = session;
     const {sidecarPath} = session;
     const handleMainAbort = () => cancel('PDF annotation parsing canceled');
@@ -477,15 +486,17 @@ export async function sweepStalePdfAnnotationParseArtifacts(
     });
 }
 
-const parseTtlTimer = setInterval(() => {
-    const cutoff = Date.now() - PARSE_DEFAULT_TTL_MS;
-    expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
-        session.released = true;
-        cancelPdfSidecarSession(session, 'PDF annotation parse session expired');
-        cleanupWhenOperationSettles(session);
-    });
-    void sweepStalePdfAnnotationParseArtifacts().catch((error: unknown) => {
-        logger.debug(`PDF annotation parse TTL sweep failed: ${String(error)}`);
-    });
-}, 30_000);
-parseTtlTimer.unref?.();
+function ensureParseTtlTimer() {
+    parseTtlTimer ??= setInterval(() => {
+        const cutoff = Date.now() - PARSE_DEFAULT_TTL_MS;
+        expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
+            session.released = true;
+            cancelPdfSidecarSession(session, 'PDF annotation parse session expired');
+            cleanupWhenOperationSettles(session);
+        });
+        void sweepStalePdfAnnotationParseArtifacts().catch((error: unknown) => {
+            logger.debug(`PDF annotation parse TTL sweep failed: ${String(error)}`);
+        });
+    }, 30_000);
+    parseTtlTimer.unref?.();
+}
