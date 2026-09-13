@@ -25,8 +25,11 @@ export interface IOcrRunLifecycle {
     cancelActiveRun: () => TRequestId | null;
     clearRunIfActive: (runToken: symbol) => boolean;
     beginCancelingRequest: (requestId: TRequestId) => void;
+    markCancelOutcome: (requestId: TRequestId, outcome: 'confirmed' | 'unconfirmed') => boolean;
     finishCancelingRequest: (requestId: TRequestId) => boolean;
     getCancelingRequestId: () => TRequestId | null;
+    isCancelOutcomeKnown: (requestId: TRequestId) => boolean;
+    shouldApplyLateResult: (requestId: TRequestId) => boolean;
     shouldHandleLateCanceledResult: (requestId: TRequestId) => boolean;
 }
 
@@ -35,6 +38,7 @@ export function createOcrRunLifecycle(): IOcrRunLifecycle {
     let activeRunToken: symbol | null = null;
     let activeRequestId: TRequestId | null = null;
     let cancelingRequestId: TRequestId | null = null;
+    let cancelOutcome: 'pending' | 'confirmed' | 'unconfirmed' = 'pending';
 
     const isRunActive = (runToken: symbol, runGeneration: number) =>
         activeRunToken === runToken && runGeneration === cancelGeneration;
@@ -82,6 +86,14 @@ export function createOcrRunLifecycle(): IOcrRunLifecycle {
         beginCancelingRequest: (requestId) => {
             cancelingRequestId = requestId;
             activeRequestId = requestId;
+            cancelOutcome = 'pending';
+        },
+        markCancelOutcome: (requestId, outcome) => {
+            if (cancelingRequestId !== requestId) {
+                return false;
+            }
+            cancelOutcome = outcome;
+            return true;
         },
         finishCancelingRequest: (requestId) => {
             if (cancelingRequestId !== requestId) {
@@ -89,9 +101,16 @@ export function createOcrRunLifecycle(): IOcrRunLifecycle {
             }
             cancelingRequestId = null;
             activeRequestId = null;
+            cancelOutcome = 'pending';
             return true;
         },
         getCancelingRequestId: () => cancelingRequestId,
+        isCancelOutcomeKnown: requestId => (
+            cancelingRequestId === requestId && cancelOutcome !== 'pending'
+        ),
+        shouldApplyLateResult: requestId => (
+            cancelingRequestId === requestId && cancelOutcome === 'unconfirmed'
+        ),
         shouldHandleLateCanceledResult: requestId => cancelingRequestId === requestId,
     };
 }

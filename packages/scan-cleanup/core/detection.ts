@@ -1790,6 +1790,14 @@ export async function runScanCleanupDetection<TDocument>(
         const pageSizeStore = await resolveDetectionPageSizeStore(retention, document, signal);
         let resultStore: IScanCleanupDetectionResultStore | null = null;
         let resultStoreTransferred = false;
+        let pageSizeStoreCloseAttempted = false;
+        const closePageSizeStore = async () => {
+            if (pageSizeStoreCloseAttempted) {
+                return;
+            }
+            pageSizeStoreCloseAttempted = true;
+            await pageSizeStore.close();
+        };
         try {
             resultStore = await createFileBackedScanCleanupDetectionResultStore({
                 fileSystem,
@@ -1811,16 +1819,34 @@ export async function runScanCleanupDetection<TDocument>(
                 totalPages,
                 scratch,
             );
+            await closePageSizeStore();
             resultStoreTransferred = true;
             return outcome;
         } finally {
-            await pageSizeStore.close();
             if (!resultStoreTransferred && resultStore !== null) {
-                await resultStore.close();
+                await resultStore.close().catch(error => {
+                    log(
+                        'warn',
+                        `Could not close unreturned scan-cleanup result store: ${getErrorMessage(error)}`,
+                    );
+                });
+            }
+            if (!pageSizeStoreCloseAttempted) {
+                await closePageSizeStore().catch(error => {
+                    log(
+                        'warn',
+                        `Could not close scan-cleanup page-size store: ${getErrorMessage(error)}`,
+                    );
+                });
             }
         }
     } finally {
-        await retention.release(document);
+        await retention.release(document).catch(error => {
+            log(
+                'warn',
+                `Could not release scan-cleanup document: ${getErrorMessage(error)}`,
+            );
+        });
         if (scratchDir !== null) {
             await preserveScanCleanupJsonEvidence(scratchDir, log, fileSystem).catch(error => {
                 log(
@@ -1831,6 +1857,11 @@ export async function runScanCleanupDetection<TDocument>(
             await fileSystem.rm(scratchDir, {
                 recursive: true,
                 force: true,
+            }).catch(error => {
+                log(
+                    'warn',
+                    `Could not remove scan-cleanup detection scratch directory: ${getErrorMessage(error)}`,
+                );
             });
         }
     }
