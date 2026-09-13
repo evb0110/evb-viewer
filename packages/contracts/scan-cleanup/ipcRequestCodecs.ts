@@ -46,6 +46,7 @@ import {
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
     SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE,
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
 } from '@contracts/scan-cleanup/inputLimits';
 import type {
@@ -548,6 +549,7 @@ function decodeManualZones(
         throw new Error('too many scan-cleanup manual zones on one page');
     }
     consumeScanCleanupZones(budget, zoneCount, 'manual zones');
+    let pageVertexCount = 0;
     const decodePolygon = (polygon: unknown, label: string) => {
         if (
             !isRecord(polygon)
@@ -557,6 +559,11 @@ function decodeManualZones(
         ) {
             throw new Error(`invalid scan-cleanup ${label}`);
         }
+        const nextPageVertexCount = pageVertexCount + polygon.points.length;
+        if (nextPageVertexCount > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) {
+            throw new Error('too many scan-cleanup manual-zone vertices on one page');
+        }
+        pageVertexCount = nextPageVertexCount;
         consumeScanCleanupVertices(budget, polygon.points.length, 'manual-zone vertices');
         const decoded = {
             points: polygon.points.map((point, index) => {
