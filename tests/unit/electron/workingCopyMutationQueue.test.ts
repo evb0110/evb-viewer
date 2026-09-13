@@ -189,6 +189,45 @@ describe('workingCopyMutationQueue telemetry', () => {
         }
     });
 
+    it('does not fail a mutation when starting listeners throw or reject', async () => {
+        const {
+            enqueueWorkingCopyMutation,
+            onWorkingCopyMutationStarting,
+        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const operation = vi.fn(async () => undefined);
+        const unsubscribeFirst = onWorkingCopyMutationStarting(() => {
+            throw new Error('first listener failed');
+        });
+        const unsubscribeSecond = onWorkingCopyMutationStarting(() => Promise.reject(new Error('second listener failed')));
+
+        try {
+            await expect(enqueueWorkingCopyMutation('/tmp/Book.pdf', operation)).resolves.toBeUndefined();
+            expect(operation).toHaveBeenCalledOnce();
+        } finally {
+            unsubscribeFirst();
+            unsubscribeSecond();
+        }
+    });
+
+    it('bounds the stack captured for mutation origins', async () => {
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const nativeCaptureStackTrace = Error.captureStackTrace.bind(Error);
+        const observedLimits: number[] = [];
+        const captureStackTrace = vi.spyOn(Error, 'captureStackTrace').mockImplementation((error, constructor) => {
+            observedLimits.push(Error.stackTraceLimit);
+            nativeCaptureStackTrace(error, constructor);
+        });
+
+        try {
+            await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined);
+        } finally {
+            captureStackTrace.mockRestore();
+        }
+
+        expect(observedLimits).toHaveLength(1);
+        expect(observedLimits[0]).toBeLessThanOrEqual(8);
+    });
+
     it('releases the path queue when mutation-start preparation exceeds its bound', async () => {
         vi.useFakeTimers();
         const {
