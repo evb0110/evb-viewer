@@ -96,6 +96,49 @@ pub(crate) fn run(input: Input<'_>) -> Output {
             mixed_layers,
         };
     }
+    compose_hard_mixed(HardCompositionInput {
+        gray,
+        color,
+        binary,
+        picture_mask,
+        chroma_picture_mask,
+        removed_edge_bands,
+        dpi,
+        preserve_confirmed_photo_tones,
+        create_layers,
+        create_composite,
+        protected_picture_mask: &protected_picture_mask,
+    })
+}
+
+struct HardCompositionInput<'a> {
+    gray: &'a GrayImage,
+    color: Option<&'a RgbImage>,
+    binary: &'a BinaryImage,
+    picture_mask: &'a BinaryImage,
+    chroma_picture_mask: Option<&'a BinaryImage>,
+    removed_edge_bands: Option<&'a BinaryImage>,
+    dpi: f64,
+    preserve_confirmed_photo_tones: bool,
+    create_layers: bool,
+    create_composite: bool,
+    protected_picture_mask: &'a BinaryImage,
+}
+
+fn compose_hard_mixed(input: HardCompositionInput<'_>) -> Output {
+    let HardCompositionInput {
+        gray,
+        color,
+        binary,
+        picture_mask,
+        chroma_picture_mask,
+        removed_edge_bands,
+        dpi,
+        preserve_confirmed_photo_tones,
+        create_layers,
+        create_composite,
+        protected_picture_mask,
+    } = input;
     // The final stencil and the calibrated picture mask are both rebuilt from
     // the cleaned raster. Start the background at neutral white so no
     // producer-authored composite or unclassified scanner tone can travel
@@ -237,7 +280,7 @@ pub(crate) fn run(input: Input<'_>) -> Output {
                 &mut background,
                 color_background.as_mut(),
                 binary,
-                &protected_picture_mask,
+                protected_picture_mask,
                 dpi,
             );
             return MixedLayers {
@@ -279,7 +322,7 @@ pub(crate) fn run(input: Input<'_>) -> Output {
             &mut background,
             color_background.as_mut(),
             binary,
-            &protected_picture_mask,
+            protected_picture_mask,
             dpi,
         );
         MixedLayers {

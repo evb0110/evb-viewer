@@ -1,24 +1,10 @@
 use super::*;
 use crate::background::normalize_illumination;
 
-pub(crate) fn analyze_page_with_document_prior_cached(
-    source: &GrayImage,
-    options: &CleanupOptions,
-    document_prior: Option<DocumentPrior>,
-    cache: &PageCache,
-    timings: &mut PageStageTimings,
-) -> Result<PageAnalysisResult, String> {
-    super::analyze_page_with_color_and_document_prior_cached(
-        source,
-        None,
-        options,
-        document_prior,
-        true,
-        true,
-        cache,
-        timings,
-    )
-    .map_err(|error| error.to_string())
+impl AnalysisError {
+    fn contains(&self, pattern: &str) -> bool {
+        self.to_string().contains(pattern)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
