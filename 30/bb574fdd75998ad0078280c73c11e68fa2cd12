@@ -1,0 +1,23 @@
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_247a07a16a61fa::t_3bcf4393d2f839 19,171,247-249
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_247a07a16a61fa::t_a0a9b0b7a33007 552
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_247a07a16a61fa::t_8c21f8d633d504 140,236,287,338,353-409,472,519,574
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "30bb574fdd75998ad0078280c73c11e68fa2cd12",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
