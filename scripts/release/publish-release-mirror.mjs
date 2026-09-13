@@ -174,7 +174,6 @@ export async function publishReleaseMirror({
                 releaseTag,
                 manifest,
                 previousChannel,
-                uploadRetryDelayMs,
             )
             : null;
         let stableChannelMutationAttempted = false;
@@ -842,8 +841,8 @@ async function putImmutableJson(client, bucket, key, body, cacheControl, retryDe
     })), size, sha256, retryDelayMs);
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @param {string} manifest @param {IStableChannel | null} previousChannel @param {number} retryDelayMs @returns {Promise<{key: string, etag: string, transaction: IReleaseTransaction}>} */
-async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseTag, manifest, previousChannel, retryDelayMs) {
+/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @param {string} manifest @param {IStableChannel | null} previousChannel @returns {Promise<{key: string, releasePrefix: string, etag: string, transaction: IReleaseTransaction}>} */
+async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseTag, manifest, previousChannel) {
     const key = transactionKey(releasePrefix, releaseTag);
     const artifactIdentity = createHash('sha256').update(manifest).digest('hex');
     const existing = await readReleaseTransaction(client, bucket, releasePrefix, releaseTag);
@@ -881,15 +880,15 @@ async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseT
     if (!response.ETag) {
         throw new Error('Release transaction object response has no ETag');
     }
-    void retryDelayMs;
     return {
         key,
+        releasePrefix,
         etag: response.ETag,
         transaction,
     };
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @returns {Promise<{key: string, etag: string, transaction: IReleaseTransaction} | null>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @returns {Promise<{key: string, releasePrefix: string, etag: string, transaction: IReleaseTransaction} | null>} */
 async function readReleaseTransaction(client, bucket, releasePrefix, releaseTag) {
     const key = transactionKey(releasePrefix, releaseTag);
     try {
@@ -907,6 +906,7 @@ async function readReleaseTransaction(client, bucket, releasePrefix, releaseTag)
         }
         return {
             key,
+            releasePrefix,
             etag: response.ETag,
             transaction,
         };
@@ -918,7 +918,7 @@ async function readReleaseTransaction(client, bucket, releasePrefix, releaseTag)
     }
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {{key: string, etag: string, transaction: IReleaseTransaction}} current @param {IStableChannel} activatedChannel @returns {Promise<void>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {{key: string, releasePrefix: string, etag: string, transaction: IReleaseTransaction}} current @param {IStableChannel} activatedChannel @returns {Promise<void>} */
 async function updateReleaseTransaction(client, bucket, current, activatedChannel) {
     let response;
     try {
@@ -940,7 +940,7 @@ async function updateReleaseTransaction(client, bucket, current, activatedChanne
         const concurrent = await readReleaseTransaction(
             client,
             bucket,
-            current.key.replace(/transactions\/[^/]+\.json$/u, 'releases/'),
+            current.releasePrefix,
             current.transaction.releaseTag,
         );
         if (concurrent?.transaction.activatedChannel?.sha256 !== activatedChannel.sha256) {
@@ -953,7 +953,7 @@ async function updateReleaseTransaction(client, bucket, current, activatedChanne
     }
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {{key: string, etag: string, transaction: IReleaseTransaction}} current @returns {Promise<void>} */
+/** @param {TMirrorClient} client @param {string} bucket @param {{key: string, releasePrefix: string, etag: string, transaction: IReleaseTransaction}} current @returns {Promise<void>} */
 async function markReleaseTransactionPublic(client, bucket, current) {
     let response;
     try {
@@ -975,7 +975,7 @@ async function markReleaseTransactionPublic(client, bucket, current) {
         const concurrent = await readReleaseTransaction(
             client,
             bucket,
-            current.key.replace(/transactions\/[^/]+\.json$/u, 'releases/'),
+            current.releasePrefix,
             current.transaction.releaseTag,
         );
         if (concurrent?.transaction.promotion === 'public') {
@@ -991,7 +991,7 @@ async function markReleaseTransactionPublic(client, bucket, current) {
 /** @param {unknown} value @param {string} releaseTag @returns {'public' | 'draft' | 'unresolved'} */
 function parseGithubReleaseState(value, releaseTag) {
     if (typeof value !== 'object' || value === null) {
-        return 'public';
+        return 'unresolved';
     }
     const state = /** @type {{tagName?: unknown, isDraft?: unknown, assets?: unknown}} */ (value);
     if (state.tagName !== releaseTag || typeof state.isDraft !== 'boolean' || !Array.isArray(state.assets)) {
