@@ -303,7 +303,15 @@ export async function updateSettings(
                     }
                 } else if (hasExplicitGrantIntent) {
                     await writeSettingsAtomically(storagePath, next);
-                    diagnosticsDeniedOverride = null;
+                    if (consentIntentRevision !== diagnosticsConsentRevision) {
+                        next = sanitizeSettings({
+                            ...next,
+                            clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
+                        });
+                        await writeSettingsAtomically(storagePath, next);
+                    } else {
+                        diagnosticsDeniedOverride = null;
+                    }
                     setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
                 } else {
                     setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
