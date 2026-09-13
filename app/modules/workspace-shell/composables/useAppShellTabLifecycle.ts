@@ -12,6 +12,7 @@ import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-s
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
+import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
     IWorkspaceRestoreTrackerLike,
@@ -37,7 +38,7 @@ interface IUseAppShellTabLifecycleOptions {
     activateTab: (paneId: string, tabId: string) => void;
     closeTab: (paneId: string, tabId: string) => void;
     closePane: (paneId: string) => void;
-    requestDirtyTabCloseConfirmation: (tabId: string) => Promise<boolean>;
+    requestDirtyTabCloseConfirmation: (tabId: string) => Promise<TDirtyCloseDecision>;
 }
 
 interface ICloseHandoffTarget {
@@ -444,8 +445,11 @@ export const useAppShellTabLifecycle = (
             return true;
         }
 
-        const confirmed = await requestDirtyTabCloseConfirmation(tabId);
-        return confirmed ? false : null;
+        const decision = await requestDirtyTabCloseConfirmation(tabId);
+        if (decision === 'cancel') {
+            return null;
+        }
+        return decision === 'save';
     }
 
     function workspaceHasCloseableDocument(tabId: string, workspace: IWorkspaceExpose | undefined) {

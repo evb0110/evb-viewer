@@ -108,8 +108,6 @@ export async function requestShutdownSaveFlush(options: {
                 timedOutWindowIds,
             });
         }, options.timeoutMs);
-        timeout.unref();
-
         const cleanup = () => {
             clearTimeout(timeout);
             ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, handleResponse);

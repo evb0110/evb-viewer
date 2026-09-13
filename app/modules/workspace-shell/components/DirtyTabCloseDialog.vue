@@ -24,25 +24,17 @@
                 variant="outline"
                 @click="close"
             />
-            <template v-if="mode === 'window'">
-                <UButton
-                    :label="t('tabs.discardChanges')"
-                    color="error"
-                    :disabled="isResolving"
-                    @click="handleDiscard"
-                />
-                <UButton
-                    :label="t('status.saveChanges')"
-                    color="primary"
-                    :disabled="isResolving"
-                    @click="handleSave"
-                />
-            </template>
             <UButton
-                v-else
-                :label="t('tabs.closeTab')"
+                :label="t('tabs.discardChanges')"
                 color="error"
-                @click="handleConfirm"
+                :disabled="isResolving"
+                @click="handleDiscard"
+            />
+            <UButton
+                :label="t('status.saveChanges')"
+                color="primary"
+                :disabled="isResolving"
+                @click="handleSave"
             />
         </template>
     </UModal>
@@ -63,7 +55,6 @@ const {
 
 const emit = defineEmits<{
     'update:open': [open: boolean];
-    confirm: [];
     discard: [];
     save: [];
 }>();
@@ -85,10 +76,6 @@ watch(() => open, (isOpen) => {
 
 function handleOpenUpdate(open: boolean) {
     emit('update:open', open);
-}
-
-function handleConfirm() {
-    emit('confirm');
 }
 
 function handleDiscard() {

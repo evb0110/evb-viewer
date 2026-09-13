@@ -126,7 +126,6 @@
             :mode="dirtyTabCloseDialogMode"
             :target-name="dirtyTabCloseTargetName"
             @update:open="dirtyTabCloseDialogOpen = $event"
-            @confirm="confirmDirtyTabClose"
             @discard="resolveDirtyTabCloseDialog('discard')"
             @save="resolveDirtyTabCloseDialog('save')"
         />
@@ -367,7 +366,6 @@ const {
     dirtyTabCloseDialogOpen,
     dirtyTabCloseDialogMode,
     dirtyTabCloseTargetName,
-    confirmDirtyTabClose,
     requestDirtyTabCloseConfirmation,
     requestDirtyWindowCloseConfirmation,
     resolveDirtyTabCloseDialog,

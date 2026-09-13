@@ -13,6 +13,7 @@ import {
     readdirSync,
 } from 'fs';
 import {
+    copyFile,
     mkdtemp,
     mkdir,
     readFile,
@@ -52,6 +53,7 @@ const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
     rename: vi.fn(),
     atomicReplace: vi.fn(),
+    copyFileAtomic: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     createManagedScratchTempDir: vi.fn(async (_prefix: string) => ''),
     managedScratchDirs: [] as IManagedScratchDir[],
@@ -231,6 +233,7 @@ vi.mock('@electron/utils/managedScratchTemp', () => ({
         }
     },
 }));
+vi.mock('@electron/file-access/documentFileWriteAtomic', () => ({copyFileAtomic: mocks.copyFileAtomic}));
 
 const {
     createPageRanges,
@@ -305,6 +308,10 @@ describe('image export', () => {
         mocks.stat.mockReset();
         mocks.rename.mockReset();
         mocks.atomicReplace.mockReset();
+        mocks.copyFileAtomic.mockReset();
+        mocks.copyFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await copyFile(sourcePath, targetPath);
+        });
         mocks.makeSiblingTempPath.mockReset();
         mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         mocks.managedScratchDirs.length = 0;
@@ -1303,6 +1310,28 @@ describe('image export', () => {
         ], abortController.signal)).rejects.toThrow('The operation was aborted');
         expect(await readFile(targetPath, 'utf8')).toBe('original');
         expect(readdirSync(tempDir)).toEqual(['existing.png']);
+    });
+
+    it('uses a durable atomic copy for rollback backups', async () => {
+        const targetPath = join(tempDir, 'durable-backup.png');
+        const stagedPath = join(tempDir, 'durable-backup.staged');
+        const ledger = createStagedFilePublicationLedger();
+        await writeFile(targetPath, 'original');
+        await writeFile(stagedPath, 'replacement');
+
+        await promoteStagedFiles([{
+            stagedPath,
+            targetPath,
+            targetExisted: true,
+        }], undefined, ledger);
+
+        expect(mocks.copyFileAtomic).toHaveBeenCalledWith(
+            targetPath,
+            `${targetPath}.tmp`,
+            {durable: true},
+        );
+        await rollbackStagedFilePublications(ledger);
+        expect(await readFile(targetPath, 'utf8')).toBe('original');
     });
 
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {

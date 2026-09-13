@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe('useDirtyTabCloseDialog', () => {
-    it('resolves confirmation with true when confirmed', async () => {
+    it('resolves a tab close with the discard decision when confirmed', async () => {
         const tabs = ref<ITab[]>([{
             id: 'tab-1',
             fileName: 'a.pdf',
@@ -66,8 +66,8 @@ describe('useDirtyTabCloseDialog', () => {
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
         expect(dialog.dirtyTabCloseTargetName.value).toBe('a.pdf');
 
-        dialog.confirmDirtyTabClose();
-        await expect(confirmationPromise).resolves.toBe(true);
+        dialog.resolveDirtyTabCloseDialog('discard');
+        await expect(confirmationPromise).resolves.toBe('discard');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
@@ -91,13 +91,13 @@ describe('useDirtyTabCloseDialog', () => {
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
-    it('falls back to new-tab label and resolves false on external close', async () => {
+    it('falls back to new-tab label and resolves cancel on external close', async () => {
         const tabs = ref([]);
         const dialog = useDirtyTabCloseDialog({tabs});
 
         const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('missing-tab');
         expect(dialog.dirtyTabCloseTargetName.value).toBe('tabs.newTab');
-        await expect(confirmationPromise).resolves.toBe(false);
+        await expect(confirmationPromise).resolves.toBe('cancel');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
@@ -113,7 +113,7 @@ describe('useDirtyTabCloseDialog', () => {
         const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('tab-1');
         scope.stop();
 
-        await expect(confirmationPromise).resolves.toBe(false);
+        await expect(confirmationPromise).resolves.toBe('cancel');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
@@ -140,7 +140,7 @@ describe('useDirtyTabCloseDialog', () => {
 
         expect(dialog.dirtyTabCloseTargetName.value).not.toBe('tabs.newTab');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
-        await expect(confirmation).resolves.toBe(false);
+        await expect(confirmation).resolves.toBe('cancel');
         expect(tabs.value.find(tab => tab.id === other.id)?.isDirty).toBe(true);
     });
 
@@ -160,7 +160,17 @@ describe('useDirtyTabCloseDialog', () => {
         await nextTick();
 
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
-        await expect(confirmation).resolves.toBe(false);
+        await expect(confirmation).resolves.toBe('cancel');
         expect(other.isDirty).toBe(true);
+    });
+
+    it('passes the save decision through the tab close path', async () => {
+        const target = createTab('target', 'Zaliznyak.pdf', 'generation-1');
+        const {dialog} = createHarness([target]);
+
+        const confirmation = dialog.requestDirtyTabCloseConfirmation(target.id);
+        dialog.resolveDirtyTabCloseDialog('save');
+
+        await expect(confirmation).resolves.toBe('save');
     });
 });
