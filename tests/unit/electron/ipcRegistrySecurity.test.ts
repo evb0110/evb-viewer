@@ -103,7 +103,7 @@ const mocks = vi.hoisted(() => {
         registeredWindowsById: new Map<number, unknown>(),
         browserWindowFromWebContents: vi.fn(),
         getWindowByIdFromRegistry: vi.fn(),
-        loadSettings: vi.fn(async () => ({theme: 'system'})),
+        loadSettings: vi.fn(async () => ({theme: 'dark'})),
         updateSettings: vi.fn(),
         setElectronLocale: vi.fn(async () => {}),
         updateRecentFilesMenu: vi.fn(),
@@ -592,7 +592,7 @@ describe('IPC registry sender trust', () => {
         const handler = await getSettingsHandler();
 
         await expect(handler(createEvent('http://127.0.0.1:41001/electron/settings')))
-            .resolves.toMatchObject({theme: 'system'});
+            .resolves.toMatchObject({theme: 'dark'});
 
         expect(mocks.loadSettings).toHaveBeenCalledOnce();
     });
