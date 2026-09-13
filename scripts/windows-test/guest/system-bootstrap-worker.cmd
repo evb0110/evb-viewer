@@ -94,6 +94,10 @@ if exist "%EVB_STATE%\register-worker-logon.stderr.log" type "%EVB_STATE%\regist
   reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName
   reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName
   reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonCount
+  reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonSID
+  reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v ForceAutoLogon
+  reg.exe query "HKLM\SECURITY\Policy\Secrets\DefaultPassword" >nul 2>&1 && echo DefaultPasswordSecret present || echo DefaultPasswordSecret absent
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$w=Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction SilentlyContinue; $d=Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device' -ErrorAction SilentlyContinue; $u=Get-LocalUser -Name $env:USERNAME -ErrorAction SilentlyContinue; $os=Get-CimInstance Win32_OperatingSystem; [ordered]@{DefaultPasswordExists=$null -ne $w.DefaultPassword; DevicePasswordLessBuildVersion=[string]$d.DevicePasswordLessBuildVersion; CurrentAccountPrincipalSource=if($u){[string]$u.PrincipalSource}else{'unknown'}; CurrentAccountPasswordRequired=if($u){[bool]$u.PasswordRequired}else{$null}; LastBootUpTime=[DateTime]$os.LastBootUpTime} | ConvertTo-Json -Compress"
 )
 call :record boot-diagnostic 0
 if "%EVB_FAILURE%"=="1" exit /b 1

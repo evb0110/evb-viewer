@@ -226,6 +226,10 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('schtasks.exe /query /tn "EVB Windows Test Worker" /v /fo list');
         expect(bootstrap).toContain('DefaultUserName');
         expect(bootstrap).not.toContain('/v DefaultPassword');
+        expect(bootstrap).toContain('/v AutoLogonSID');
+        expect(bootstrap).toContain('/v ForceAutoLogon');
+        expect(bootstrap).toContain('DefaultPasswordSecret present');
+        expect(bootstrap).toContain('CurrentAccountPrincipalSource');
         expect(bootstrap).not.toContain('schtasks.exe /create /sc onlogon');
         expect(bootstrap).toContain('system-bootstrap.marker');
         expect(bootstrap).toContain('node-executable-missing');
