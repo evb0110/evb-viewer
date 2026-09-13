@@ -76,8 +76,11 @@ async function runtimeArchiveTransport(url: string, env: NodeJS.ProcessEnv) {
 function archiveMembers(archivePath: string) {
     const output = execFileSync('tar', [
         '-tzf',
-        archivePath,
-    ], {encoding: 'utf8'});
+        path.basename(archivePath),
+    ], {
+        cwd: path.dirname(archivePath),
+        encoding: 'utf8',
+    });
     return validateRuntimeBinaryArchivePaths(output.split(/\r?\n/u).filter(Boolean));
 }
 
@@ -96,14 +99,16 @@ async function stageArchive(
     const destination = path.join(projectRoot, 'resources', resourceRoot);
     await mkdir(extractionRoot, {recursive: true});
     try {
+        // Relative paths keep Git Bash's GNU tar from reading a Windows drive letter as a remote host.
         execFileSync('tar', [
             '-xzf',
-            archivePath,
-            '-C',
-            extractionRoot,
+            path.relative(extractionRoot, archivePath),
             '--no-same-owner',
             '--no-same-permissions',
-        ], {stdio: 'inherit'});
+        ], {
+            cwd: extractionRoot,
+            stdio: 'inherit',
+        });
         await mkdir(path.dirname(destination), {recursive: true});
         await rm(destination, {
             force: true,
@@ -134,10 +139,6 @@ export async function fetchRuntimeBinaries({
     validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST);
     const target = parseNativeResourcePlatformArch(targetTag);
     const entries = RUNTIME_BINARY_MANIFEST.entries.filter(entry => entry.target.platformArch === target.platformArch);
-    if (entries.length === 0) {
-        return null;
-    }
-
     console.log(`Fetching verified runtime archives for ${target.platformArch}.`);
     for (const entry of entries) {
         const result = await fetchVerifiedRuntimeArchive({
@@ -160,6 +161,10 @@ export async function fetchRuntimeBinaries({
         });
         await stageArchive(projectRoot, result.archivePath, dataEntry.resourceRoot);
         console.log(`  ${dataEntry.resourceRoot}: verified ${dataEntry.archiveSha256}`);
+    }
+
+    if (entries.length === 0) {
+        return null;
     }
 
     return {
