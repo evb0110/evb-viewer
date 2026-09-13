@@ -1,0 +1,73 @@
+app/modules/workspace-shell/composables/useDjvuProjectionActions.ts
+  s_1f5857c6c42e58::t_64015ca97b8e0c 10,39-53,73
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_1f5857c6c42e58::t_68990358b63b48 302,532
+  s_1f5857c6c42e58::t_93366afb96297b 300-301,303,504-508,530-531
+  s_a2e5fa29b18c71::t_24aa5c91e1a1e9 533
+tests/unit/app/modules/workspace-shell/composables/useDjvuProjectionActions.test.ts
+  s_1f5857c6c42e58::t_64015ca97b8e0c 57-86
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_1f5857c6c42e58::t_325ab72e36f42e 847,849
+  s_1f5857c6c42e58::t_68990358b63b48 848
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_1f5857c6c42e58::t_d10a8d3f139617 220-221,223,247-248,250
+  s_1f5857c6c42e58::t_6df1530b714dad 256-270
+  s_1f5857c6c42e58::t_68990358b63b48 222,249
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_1f5857c6c42e58::t_df3c179b3d9a88 33-35,132,915-918,968-969
+  s_c2b7952c790c46::t_484b7d36bac419 32
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.test.ts
+  s_1f5857c6c42e58::t_5b3e34a09245a7 66-69
+app/modules/workspace-shell/composables/useWorkspaceInteractionControls.ts
+  s_1f5857c6c42e58::t_b60fad6ba51618 294
+scripts/architecture/boundary-check.mjs
+  s_1f5857c6c42e58::t_9a0fd527b4680f 400-403
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_1f5857c6c42e58::t_64015ca97b8e0c 1197
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_1f5857c6c42e58::t_5b3e34a09245a7 825-828
+  s_1f5857c6c42e58::t_e7360684d12a19 24,248,286-288,303,823-824,829-850
+  s_19bce63e13a0b8::t_f26826a73a61be 851-853
+app/modules/workspace-shell/composables/usePageFileOperations.ts
+  s_1f5857c6c42e58::t_efaa2368befffa 17,232,333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "92b4a75f5db31d40ee8f391412e15cf603800ef3",
+  "prompts": {},
+  "sessions": {
+    "s_19bce63e13a0b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-dd12-7962-b989-fef053cd2488",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_1f5857c6c42e58": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e0ca-7031-a8cc-d6bd239e76f1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a2e5fa29b18c71": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-d7fd-75b0-9a62-8cdbd476eb92",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
