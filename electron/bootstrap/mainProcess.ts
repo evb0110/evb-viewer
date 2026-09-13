@@ -548,14 +548,10 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         return [
             {
                 label: 'assistant-history-preservation',
-                run: async () => {
-                    try {
-                        await preserveAssistantStateForShutdownIfLoaded();
-                    } catch (error) {
-                        context.retryablePreservationFailure = true;
-                        throw error;
-                    }
+                onFailure: () => {
+                    context.retryablePreservationFailure = true;
                 },
+                run: () => preserveAssistantStateForShutdownIfLoaded(),
             },
             {
                 label: 'renderer-save-flush',
