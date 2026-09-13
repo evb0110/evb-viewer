@@ -227,7 +227,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return runId === activeRunId
             && document !== null
             && pdfDocument.value === document
-            && !isLoading.value;
+            && !isLoading.value
+            && !zoomOrchestrationDisposed;
     }
 
     function isFitWidthZoomModeActive() {
@@ -626,7 +627,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
     }
 
-    watch(fitMode, async (mode) => {
+    const stopFitModeWatch = watch(fitMode, async (mode) => {
         if (zoomMode && zoomMode.value !== (mode === 'height' ? 'fit-height' : 'fit-width')) {
             return;
         }
@@ -682,7 +683,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         })
         : null;
 
-    watch([
+    const stopViewModeWatch = watch([
         viewMode,
         viewRotation,
     ], async ([
@@ -726,7 +727,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         syncHorizontalScrollAfterLayoutUpdate();
     });
 
-    watch(currentPage, (next, previous) => {
+    const stopCurrentPageWatch = watch(currentPage, (next, previous) => {
         const runId = ++currentPageFitRerenderRunId;
         const document = pdfDocument.value;
         if (
@@ -819,7 +820,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         });
     });
 
-    watch(
+    const stopContinuousScrollWatch = watch(
         () => continuousScroll.value,
         async (next, previous) => {
             const runId = ++continuousScrollRunId;
@@ -864,8 +865,16 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
     function cleanupZoomOrchestration() {
         zoomOrchestrationDisposed = true;
-        stopZoomModeWatch?.();
-        stopZoomWatch();
+        for (const stop of [
+            stopFitModeWatch,
+            stopZoomModeWatch,
+            stopViewModeWatch,
+            stopCurrentPageWatch,
+            stopContinuousScrollWatch,
+            stopZoomWatch,
+        ]) {
+            stop?.();
+        }
         cancelPendingZoomOrchestration();
     }
 

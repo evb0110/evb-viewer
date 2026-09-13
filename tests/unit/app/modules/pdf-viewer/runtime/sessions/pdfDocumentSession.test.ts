@@ -12,6 +12,8 @@ import {
     nextTick,
     ref,
     shallowRef,
+    effectScope,
+    isReactive,
 } from 'vue';
 import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -126,6 +128,50 @@ describe('PdfDocumentSession range loading', () => {
 
         documentState.cleanup();
         expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
+    });
+
+    it('disposes with its effect scope when created without a component', async () => {
+        const documentDestroy = vi.fn();
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
+                destroy: documentDestroy,
+            }),
+            destroy: vi.fn(),
+        });
+        const scope = effectScope();
+        let documentState: ReturnType<typeof createPdfDocumentSession> | undefined;
+        try {
+            scope.run(() => {
+                documentState = createPdfDocumentSession();
+            });
+
+            if (!documentState) {
+                throw new Error('Failed to create PDF document session');
+            }
+            await documentState.loadPdf(new Blob(['pdf'], {type: 'application/pdf'}));
+            scope.stop();
+            await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
+        } finally {
+            scope.stop();
+            await documentState?.dispose();
+        }
+    });
+
+    it('keeps page metrics and metric entries non-reactive', async () => {
+        const documentState = createPdfDocumentSession();
+
+        await expect(documentState.loadPdf(new Blob(['pdf'], {type: 'application/pdf'}))).resolves.not.toBeNull();
+
+        expect(isReactive(documentState.pageMetrics.value)).toBe(false);
+        expect(isReactive(documentState.pageMetrics.value[0])).toBe(false);
     });
 
     it('replaces a provisional trusted baseline with authoritative PDF.js geometry', async () => {
