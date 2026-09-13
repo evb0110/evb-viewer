@@ -1,0 +1,50 @@
+native/scan-cleanup/src/engine/render_tests/mod.rs
+  s_19bce63e13a0b8::t_55a9bb7e7ce164 4-7
+native/scan-cleanup/src/cache.rs
+  s_19bce63e13a0b8::t_0538dec7c61f22 338-355
+  s_19bce63e13a0b8::t_733242c77a42e5 324
+  s_1f5857c6c42e58::t_96b79ca919b41a 322-323,325,356-357
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_19bce63e13a0b8::t_170a68495732c1 800-820,823-851,853,876-879,887-889,1043,1046-1049,1051-1063,1065-1132,1134-1138,1140-1167,1170-1184,1197-1198
+  s_19bce63e13a0b8::t_2a5fa669ad920e 884,956
+  s_19bce63e13a0b8::t_71b58c5dc42ca9 1192,1194,1196,1199,2388-2558,2595-2695,2697,2699-2713,2716-2717,2721,2726-2819
+  s_19bce63e13a0b8::t_cd6710d382a566 1168-1169
+  s_19bce63e13a0b8::t_9ae4f2203008a8 821-822,875
+  s_19bce63e13a0b8::t_3cc9281e80a294 6-538
+  s_19bce63e13a0b8::t_a937d201170a83 1011
+  s_19bce63e13a0b8::t_96bb538c969bd1 857,895-896,900,1064,1133,1139,1193
+  s_1f5857c6c42e58::t_0355c3434e1a53 852,1185-1191,1195,1200,2820
+native/scan-cleanup/src/engine/render.rs
+  s_19bce63e13a0b8::t_3cc9281e80a294 555-557,559-560,1684,1689-1690,1902,1909
+native/scan-cleanup/src/engine/render/document_analysis.rs
+  s_19bce63e13a0b8::t_3cc9281e80a294 7-293
+  s_19bce63e13a0b8::t_1c4d424bc41f44 1008-1029,1105-1130,1132-1149
+  s_19bce63e13a0b8::t_e0d8281789a4bb 1131
+native/scan-cleanup/src/engine/render/final_composition.rs
+  s_19bce63e13a0b8::t_2be44870650677 99-141
+  s_19bce63e13a0b8::t_a81959ef7b1e39 283,325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1451f52cf5c8ea89d4442c204e3192bc6439ddc7",
+  "prompts": {},
+  "sessions": {
+    "s_19bce63e13a0b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-dd12-7962-b989-fef053cd2488",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_1f5857c6c42e58": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e0ca-7031-a8cc-d6bd239e76f1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
