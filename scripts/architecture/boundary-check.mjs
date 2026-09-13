@@ -399,7 +399,13 @@ const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check
 /** @type {readonly string[]} */
 const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze([
     'app/modules/workspace-shell/viewers',
+    'app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot.ts',
+    'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue',
+    'app/modules/workspace-shell/components/DocumentViewerChassis.vue',
+    'app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue',
+    'app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts',
     'app/modules/workspace-shell/composables/usePageFileOperations.ts',
+    'app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts',
 ]);
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */

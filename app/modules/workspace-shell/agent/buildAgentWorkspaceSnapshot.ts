@@ -103,16 +103,18 @@ function inferDocumentKind(
 ): TAgentDocumentKind {
     const path = getTabPath(tab);
     const name = tab.fileName ?? path ?? '';
+    const hasDjvuDriver = Boolean(toolbarSnapshot?.viewerCapabilities.conversionBanner);
+    const hasPdfDriver = Boolean(toolbarSnapshot?.viewerCapabilities.pdfDocument);
 
-    if (!name && !toolbarSnapshot?.hasPdf && !toolbarSnapshot?.isDjvuMode) {
+    if (!name && !toolbarSnapshot?.hasPdf && !toolbarSnapshot?.isDjvuMode && !hasPdfDriver && !hasDjvuDriver) {
         return 'empty';
     }
 
-    if (tab.isDjvu || toolbarSnapshot?.isDjvuMode) {
+    if (tab.isDjvu || toolbarSnapshot?.isDjvuMode || hasDjvuDriver) {
         return 'djvu';
     }
 
-    if (toolbarSnapshot?.hasPdf) {
+    if (toolbarSnapshot?.hasPdf || hasPdfDriver) {
         return 'pdf';
     }
 
@@ -123,30 +125,20 @@ function buildDocumentReadiness(
     kind: TAgentDocumentKind,
     toolbarSnapshot: IWorkspaceToolbarSnapshot | null,
 ): IAgentDocumentReadiness {
-    if (kind === 'empty') {
-        return {
-            status: 'empty',
-            reasons: ['No document is open in this tab.'],
-            recommendations: [],
-        };
-    }
+    const readinessBuilder = DOCUMENT_READINESS_BUILDERS[kind];
+    return readinessBuilder(toolbarSnapshot);
+}
 
-    if (kind === 'djvu' || kind === 'image') {
-        return {
-            status: 'needs-preparation',
-            reasons: ['Agents work best against a PDF document model with stable pages and text extraction.'],
-            recommendations: [{
-                id: 'convert_to_pdf',
-                title: 'Convert to PDF',
-                reason: kind === 'djvu'
-                    ? 'DjVu documents should be converted to PDF before deeper agent analysis.'
-                    : 'Image documents should be converted to PDF before deeper agent analysis.',
-                toolName: 'page_ops.convert_to_pdf',
-            }],
-        };
-    }
-
-    if (kind === 'pdf') {
+const DOCUMENT_READINESS_BUILDERS: Record<
+    TAgentDocumentKind,
+    (toolbarSnapshot: IWorkspaceToolbarSnapshot | null) => IAgentDocumentReadiness
+> = {
+    empty: () => ({
+        status: 'empty',
+        reasons: ['No document is open in this tab.'],
+        recommendations: [],
+    }),
+    pdf: toolbarSnapshot => {
         const pageCount = Math.max(0, Math.floor(toolbarSnapshot?.totalPages ?? 0));
         return {
             status: 'unknown',
@@ -157,14 +149,33 @@ function buildDocumentReadiness(
             },
             recommendations: [],
         };
-    }
-
-    return {
+    },
+    djvu: () => ({
+        status: 'needs-preparation',
+        reasons: ['Agents work best against a PDF document model with stable pages and text extraction.'],
+        recommendations: [{
+            id: 'convert_to_pdf',
+            title: 'Convert to PDF',
+            reason: 'DjVu documents should be converted to PDF before deeper agent analysis.',
+            toolName: 'page_ops.convert_to_pdf',
+        }],
+    }),
+    image: () => ({
+        status: 'needs-preparation',
+        reasons: ['Agents work best against a PDF document model with stable pages and text extraction.'],
+        recommendations: [{
+            id: 'convert_to_pdf',
+            title: 'Convert to PDF',
+            reason: 'Image documents should be converted to PDF before deeper agent analysis.',
+            toolName: 'page_ops.convert_to_pdf',
+        }],
+    }),
+    unknown: () => ({
         status: 'unknown',
         reasons: ['The document type is not known to the agent bridge.'],
         recommendations: [],
-    };
-}
+    }),
+};
 
 function buildAgentTabSnapshot(
     tab: ITab,

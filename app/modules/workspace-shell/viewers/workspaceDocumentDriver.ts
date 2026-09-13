@@ -742,6 +742,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         if (driver.id === 'pdfjs') {
             return {
                 sourceKind: 'pdf',
+                rendererKind: 'pdfjs',
                 src: options.pdfOpeningSrc.value ?? options.pdfSrc.value,
                 reloadSrc: options.pdfReloadSrc.value,
                 rasterDisplayProfile: options.pdfRasterDisplayProfile.value,

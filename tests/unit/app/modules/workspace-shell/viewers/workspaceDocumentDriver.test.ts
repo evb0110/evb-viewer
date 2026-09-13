@@ -427,7 +427,7 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.binding.activeViewerComponent.value)
             .toMatchObject({name: getWorkspaceViewerAdapter('pdf').component.name});
         expect(harness.binding.activeViewerProps.value).toMatchObject({sourceKind: 'pdf'});
-        expect(harness.binding.activeViewerProps.value).not.toHaveProperty('rendererKind');
+        expect(harness.binding.activeViewerProps.value).toMatchObject({rendererKind: 'pdfjs'});
 
         harness.activeDocumentDriver.value = harness.createDriver('djvu');
         expect(harness.binding.activeViewerComponent.value)
