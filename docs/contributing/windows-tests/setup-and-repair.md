@@ -150,6 +150,15 @@ Copying does not remove personal files, credentials, or inherited settings.
    choose a personal-account autologon. If automatic sign-in for the isolated
    lab account is not configured, runs after a reset are assisted and the
    ledger's M0a gate stays open.
+
+   If a copied image has only an administrator account, use the retained
+   `scripts/windows-test/guest/powershell/ensure-standard-test-user.ps1` helper
+   from an elevated guest-agent command or an elevated PowerShell opened by the
+   native-input route. Pipe a disposable password to its standard input. The
+   helper prints only the account name and `standard=true`, removes the account
+   from Administrators, and adds it to Users. Sign out and sign in as that
+   account before registering or starting the worker. The worker's administrator
+   token refusal remains enabled.
 7. Keep the baseline device layout stable. The lab booted with Intel HD Audio,
    stalled in firmware after removing that device, and booted again after
    restoring it. Endpoint mute reported success but the user still heard
@@ -261,6 +270,15 @@ worker publishes a fresh heartbeat. If the marker becomes readable but the
 heartbeat does not, report guestAgentAvailable=true and workerReady=false and
 repair the worker separately.
 
+When the agent is available, stop using native typing for file transfer and
+diagnosis. Run `utmctl file push` for the prepared worker and
+`ensure-standard-test-user.ps1`, then run the registration and start commands
+with `utmctl exec`. Pull `state/startup-validation.json`,
+`state/worker-logon.json`, and `state/heartbeat.json` with `utmctl file pull`.
+The first file records account, desktop, marker, and policy failures. A
+heartbeat is the only evidence that the worker is ready. A successful task
+registration or a delivered input event does not count.
+
 Successful evidence consists of the redacted provisioning output, fresh
 screenshots for each input step, the guest marker read, a fresh heartbeat with
 the Windows build and architecture, and the normal run evidence under
@@ -275,13 +293,17 @@ The recovery command was run against one owned clone. UTM accepted scan-code
 and keystroke events addressed by exact clone identity. Guest evidence reported
 guestAgentAvailable=true and workerReady=false. The clone therefore had QEMU
 guest-agent transport, but its interactive worker did not publish a heartbeat.
-The Windows build was 26200 and the architecture was ARM64. Attempts to start
-the prepared worker and its scheduled task did not produce a heartbeat. The
-WIN-SAVE measurements were not run.
+The Windows build was 26200 and the architecture was ARM64. The guest-side
+`startup-validation.json` identified the cause: the scheduled task had an
+administrator token, which the worker rejects. The recovery helper was added
+to create or repair a standard account, but the live attempt then rebooted into
+a state where the agent stopped responding before a fresh logon could be
+verified. The WIN-SAVE measurements were not run.
 
 Screen Recording was unavailable on the coordinator. Both per-window and
 full-display capture failed, so there is no screenshot proof for the input
-steps. Treat this as an open host-permission gap. The clone was stopped and
+steps. Treat this as an open host-permission gap. Screen Recording is not
+needed for the guest-agent path. The clone was stopped and
 deleted after the attempt, free space was rechecked, and the original Windows
 VM remained stopped. This result qualifies the native input transport only; it
 does not qualify the worker, candidate app, cold reset, or any Windows save

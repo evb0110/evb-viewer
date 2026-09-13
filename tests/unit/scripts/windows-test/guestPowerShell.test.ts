@@ -177,6 +177,13 @@ describe('guest PowerShell script files', () => {
         expect(source).toContain('no credentials');
     });
 
+    it('keeps standard-account recovery input-only and outside the administrator group', () => {
+        const source = sources.get('ensure-standard-test-user.ps1') ?? '';
+        expect(source).toContain('[Console]::In.ReadLine()');
+        expect(source).toContain('Remove-LocalGroupMember -Group Administrators');
+        expect(source).toContain('Add-LocalGroupMember -Group Users');
+    });
+
     it('registers a hidden PowerShell startup action with the worker paths and account', () => {
         const source = sources.get('register-worker-logon-task.ps1') ?? '';
         expect(source).toContain('\'start-worker-logon.ps1\'');

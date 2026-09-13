@@ -41,6 +41,14 @@ bundle paths, and passwords out of output. A successful recovery needs a guest
 marker read and a fresh worker heartbeat, plus screenshot evidence when visual
 input verification is required. Delete the lab clone after the campaign and
 confirm the personal Windows VM remains stopped.
+Once the marker pull proves that the guest agent is available, use its file push,
+file pull, and exec operations for the worker bundle, the standard-account
+repair helper, task registration, startup, and diagnosis. Read
+`state/startup-validation.json`, `state/worker-logon.json`, and
+`state/heartbeat.json` from the guest. The worker requires a standard
+interactive account. `scripts/windows-test/guest/powershell/ensure-standard-test-user.ps1`
+repairs a copied image with an administrator-only account without weakening
+that worker check. A task registration or sent input is not a heartbeat.
 Running the executable inside `UTM.app` registers each CLI process as a foreground
 application on this Mac and produces a recurring second UTM Dock icon. A symlink
 resolves back into the app bundle. Preparation must copy the signed executable
