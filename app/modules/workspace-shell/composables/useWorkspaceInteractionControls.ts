@@ -15,6 +15,8 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { IWorkspaceDocumentDriver } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { TWorkspaceViewerDocumentType } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { ISettingsData } from '@contracts/shared';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -70,6 +72,9 @@ interface IWorkspaceInteractionControlsOptions {
     workingCopyPath: Ref<TDocumentRef | null>;
     isDjvuMode: Ref<boolean>;
     viewerCapabilities: ComputedRef<Readonly<IWorkspaceViewerCapabilities> | undefined>;
+    getDocumentDriverForType?: (
+        documentType: TWorkspaceViewerDocumentType,
+    ) => Pick<IWorkspaceDocumentDriver, 'capabilities'> | null;
     djvuSourcePath: Ref<TDocumentRef | null>;
     currentPage: Ref<number>;
     navigationPage: Ref<number>;
@@ -120,6 +125,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         workingCopyPath,
         isDjvuMode,
         viewerCapabilities,
+        getDocumentDriverForType,
         djvuSourcePath,
         currentPage,
         totalPages,
@@ -285,6 +291,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         loadPdfFromPath,
         documentRevisionToken,
         ...(getNativeSaveTransactionOptions !== undefined ? {getNativeSaveTransactionOptions} : {}),
+        getDocumentDriverForType,
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 

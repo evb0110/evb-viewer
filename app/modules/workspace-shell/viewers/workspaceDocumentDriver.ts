@@ -40,10 +40,14 @@ import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-import type {TDocumentImageExportSourceKind} from '@contracts/electronApiDocuments';
+import type {
+    TDocumentImageExportSourceKind,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
+    getWorkspaceViewerAdapterForDocumentType,
     resolveWorkspaceViewerViewMode,
     resolveWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -68,6 +72,22 @@ import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 export type TWorkspaceDocumentDriverId = 'pdfjs' | 'native-pdf' | 'djvu';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
+
+export function isWorkspaceDocumentOpenResult<T extends TWorkspaceViewerDocumentType>(
+    result: TOpenFileResult,
+    documentType: T,
+): result is Extract<TOpenFileResult, {kind: T}> {
+    return result.kind === documentType
+        && getWorkspaceViewerAdapterForDocumentType(documentType).documentTypes.includes(documentType);
+}
+
+export function isWorkspaceDocumentType(
+    documentType: string,
+    expectedDocumentType: TWorkspaceViewerDocumentType,
+) {
+    return documentType === expectedDocumentType
+        && getWorkspaceViewerAdapterForDocumentType(expectedDocumentType).documentTypes.includes(expectedDocumentType);
+}
 
 /**
  * Handler for the viewer's annotation-inventory event.
@@ -568,9 +588,12 @@ export const useWorkspaceDocumentDriver = (
     };
     const driverList = [
         drivers.djvu,
-        drivers.nativePdf,
         drivers.pdfjs,
+        drivers.nativePdf,
     ] as const;
+    const getDocumentDriverForType = (documentType: TWorkspaceViewerDocumentType) => (
+        driverList.find(driver => driver.operations.open.acceptsDocumentType(documentType)) ?? null
+    );
     const activeDocumentDriver = computed(() => {
         const adapter = resolveWorkspaceViewerAdapter({
             djvuSourcePath: options.djvuSourcePath.value
@@ -600,6 +623,7 @@ export const useWorkspaceDocumentDriver = (
     return {
         activeDocumentDriver,
         mountedDocumentDriver: computed(() => activeDocumentDriver.value ?? drivers.pdfjs),
+        getDocumentDriverForType,
         createLifecycleHooks: (context: IWorkspaceViewerLifecycleContext) => driverList.flatMap((driver) => {
             const hooks = driver.lifecycle.createHooks(context);
             return hooks ? [hooks] : [];

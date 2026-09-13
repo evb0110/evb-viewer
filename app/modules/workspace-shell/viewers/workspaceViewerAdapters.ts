@@ -155,18 +155,16 @@ const DEFAULT_VIEWER_ADAPTER_ID_BY_DOCUMENT_TYPE: Record<TWorkspaceViewerDocumen
     djvu: 'djvu',
 };
 
+export function getWorkspaceViewerAdapterForDocumentType(
+    documentType: TWorkspaceViewerDocumentType,
+): IWorkspaceViewerAdapter {
+    return getWorkspaceViewerAdapter(DEFAULT_VIEWER_ADAPTER_ID_BY_DOCUMENT_TYPE[documentType]);
+}
+
 export function getWorkspaceViewerCapabilitiesForDocumentType(
     documentType: TWorkspaceViewerDocumentType,
 ): IWorkspaceViewerCapabilities {
-    return getWorkspaceViewerAdapter(DEFAULT_VIEWER_ADAPTER_ID_BY_DOCUMENT_TYPE[documentType]).capabilities;
-}
-
-export function createWorkspaceViewerLifecycleHooks(
-    context: IWorkspaceViewerLifecycleContext,
-): IWorkspaceViewerLifecycleHooks[] {
-    return WORKSPACE_VIEWER_ADAPTERS.flatMap(adapter => (
-        adapter.createLifecycleHooks ? [adapter.createLifecycleHooks(context)] : []
-    ));
+    return getWorkspaceViewerAdapterForDocumentType(documentType).capabilities;
 }
 
 export function hasWorkspaceViewerDocumentCapabilities(

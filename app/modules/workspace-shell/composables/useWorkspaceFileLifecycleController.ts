@@ -8,8 +8,10 @@ import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile'
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { createWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import type {
+    IWorkspaceViewerLifecycleContext,
+    IWorkspaceViewerLifecycleHooks,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/documentSession';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
@@ -20,13 +22,16 @@ import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/comp
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
+    createViewerLifecycleHooks?: (
+        context: IWorkspaceViewerLifecycleContext,
+    ) => IWorkspaceViewerLifecycleHooks[];
     openSurface?: IDocumentOpenSurfaceSession | undefined;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
 function createWorkspaceFileSwitch(deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
-    viewerLifecycleHooks: IWorkspaceViewerLifecycleHooks[];
+    getViewerLifecycleHooks: () => IWorkspaceViewerLifecycleHooks[];
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
@@ -50,7 +55,7 @@ function createWorkspaceFileSwitch(deps: {
     ) {
         const generation = ++lifecycleGeneration;
         const previousWorkingCopyPath = deps.workingCopyPath.value;
-        for (const hooks of deps.viewerLifecycleHooks) {
+        for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeOpen?.();
         }
         const preparedOutcome = await openDocument();
@@ -61,7 +66,7 @@ function createWorkspaceFileSwitch(deps: {
         if (generation !== lifecycleGeneration) {
             return markOutcomeStale(outcome);
         }
-        for (const hooks of deps.viewerLifecycleHooks) {
+        for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
             if (generation !== lifecycleGeneration) {
                 return markOutcomeStale(outcome);
@@ -72,7 +77,7 @@ function createWorkspaceFileSwitch(deps: {
 
     async function closeFileWithViewerLifecycle() {
         const generation = ++lifecycleGeneration;
-        for (const hooks of deps.viewerLifecycleHooks) {
+        for (const hooks of deps.getViewerLifecycleHooks()) {
             await hooks.beforeClose?.();
         }
         if (generation === lifecycleGeneration) {
@@ -203,6 +208,15 @@ export const useWorkspaceFileLifecycleController = (
         clearRecentFiles,
     } = useRecentFiles();
 
+    const lifecycleContext: IWorkspaceViewerLifecycleContext = {
+        cleanupDjvuTemp,
+        captureDjvuActivation,
+        exitDjvuMode,
+        invalidatePendingDjvuOpen,
+        isDjvuMode,
+        workingCopyPath,
+    };
+
     async function commitPendingDjvuOpen(outcome: TDocumentOpenOutcome) {
         BrowserLogger.info('djvu-open-transaction', 'Finalize requested', {
             status: outcome.status,
@@ -300,14 +314,7 @@ export const useWorkspaceFileLifecycleController = (
         closeFileWithViewerLifecycle: closeFileWithViewerLifecycleBase,
     } = createWorkspaceFileSwitch({
         workingCopyPath,
-        viewerLifecycleHooks: createWorkspaceViewerLifecycleHooks({
-            cleanupDjvuTemp,
-            captureDjvuActivation,
-            exitDjvuMode,
-            invalidatePendingDjvuOpen,
-            isDjvuMode,
-            workingCopyPath,
-        }),
+        getViewerLifecycleHooks: () => options.createViewerLifecycleHooks?.(lifecycleContext) ?? [],
         pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,

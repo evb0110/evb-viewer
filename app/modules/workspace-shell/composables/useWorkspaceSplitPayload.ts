@@ -23,9 +23,11 @@ import {
     resolveDocumentRefBackend,
 } from '@app/utils/documentRef';
 import {
-    getWorkspaceViewerAdapter,
+    getWorkspaceViewerCapabilitiesForDocumentType,
     resolveWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type { IWorkspaceDocumentDriver } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { TWorkspaceViewerDocumentType } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -57,6 +59,9 @@ interface IUseWorkspaceSplitPayloadOptions {
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     getNativeSaveTransactionOptions?: () => INativePdfSaveTransactionOptions;
+    getDocumentDriverForType?: (
+        documentType: TWorkspaceViewerDocumentType,
+    ) => Pick<IWorkspaceDocumentDriver, 'capabilities'> | null;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -64,19 +69,29 @@ interface IUseWorkspaceSplitPayloadOptions {
 }
 
 type TPdfSnapshotSplitPayload = Extract<TSplitPayload, { kind: 'pdfSnapshot' }>;
-const PDF_VIEWER_ADAPTER = getWorkspaceViewerAdapter('pdf');
-const DJVU_VIEWER_ADAPTER = getWorkspaceViewerAdapter('djvu');
 
-function isDjvuSplitPayload(payload: TSplitPayload): payload is Extract<TSplitPayload, {kind: 'djvu'}> {
-    return DJVU_VIEWER_ADAPTER.capabilities.sidebar
-        && DJVU_VIEWER_ADAPTER.documentTypes.includes('djvu')
-        && payload.kind === 'djvu';
+function getDocumentDriverCapabilities(
+    options: IUseWorkspaceSplitPayloadOptions,
+    documentType: TWorkspaceViewerDocumentType,
+) {
+    return options.getDocumentDriverForType?.(documentType)?.capabilities
+        ?? getWorkspaceViewerCapabilitiesForDocumentType(documentType);
 }
 
-function isPdfSplitPayload(payload: TSplitPayload): payload is TPdfSnapshotSplitPayload {
-    return PDF_VIEWER_ADAPTER.capabilities.pdfDocument
-        && PDF_VIEWER_ADAPTER.documentTypes.includes('pdf')
-        && payload.kind === 'pdfSnapshot';
+function isDjvuSplitPayload(
+    payload: TSplitPayload,
+    options: IUseWorkspaceSplitPayloadOptions,
+): payload is Extract<TSplitPayload, {kind: 'djvu'}> {
+    return getDocumentDriverCapabilities(options, 'djvu').sidebar
+        && 'sourcePath' in payload;
+}
+
+function isPdfSplitPayload(
+    payload: TSplitPayload,
+    options: IUseWorkspaceSplitPayloadOptions,
+): payload is TPdfSnapshotSplitPayload {
+    return getDocumentDriverCapabilities(options, 'pdf').pdfDocument
+        && 'snapshotPath' in payload;
 }
 
 function normalizeSplitPayloadPage(page: number | undefined) {
@@ -327,7 +342,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             shouldUseNativePdf: false,
         });
         // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
-        if (activeViewerAdapter === DJVU_VIEWER_ADAPTER && activeViewerAdapter.capabilities.sidebar && options.djvuSourcePath.value) {
+        if (activeViewerAdapter?.documentTypes.includes('djvu') && activeViewerAdapter.capabilities.sidebar && options.djvuSourcePath.value) {
             const normalizedCurrentPage = normalizeSplitPayloadPage(
                 options.documentViewerRef.value?.getCurrentPage?.() ?? options.currentPage.value,
             ) ?? 1;
@@ -353,7 +368,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return {status: 'cancelled'};
         }
 
-        if (isDjvuSplitPayload(payload) && DJVU_VIEWER_ADAPTER.capabilities.sidebar) {
+        if (isDjvuSplitPayload(payload, options)) {
             const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
             if (pageToRestore) {
                 options.currentPage.value = pageToRestore;
@@ -380,7 +395,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return outcome;
         }
 
-        if (!isPdfSplitPayload(payload) || !PDF_VIEWER_ADAPTER.capabilities.pdfDocument) {
+        if (!isPdfSplitPayload(payload, options)) {
             return {status: 'cancelled'};
         }
         const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);

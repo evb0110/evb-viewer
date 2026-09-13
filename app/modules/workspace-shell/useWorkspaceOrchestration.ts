@@ -51,6 +51,10 @@ import type {
     IDocumentPageSource,
     IDocumentSourceCapabilities,
 } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IWorkspaceViewerLifecycleContext,
+    IWorkspaceViewerLifecycleHooks,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
@@ -117,8 +121,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     // Every workspace failure that reaches the user goes through this one
     // surface, so save, annotation, and open failures share one toast path.
     const failureSurface = useWorkspaceFailureSurface();
+    let createViewerLifecycleHooks: (
+        context: IWorkspaceViewerLifecycleContext,
+    ) => IWorkspaceViewerLifecycleHooks[] = () => [];
     const fileLifecycle = useWorkspaceFileLifecycleController({
         analyticsDocumentScope: deps.analyticsDocumentScope,
+        createViewerLifecycleHooks: context => createViewerLifecycleHooks(context),
         openSurface: deps.openSurface,
         failureSurface,
     });
@@ -474,6 +482,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             ? {}
             : {pendingDocumentSize: deps.pendingDocumentSize}),
     });
+    createViewerLifecycleHooks = documentDriver.createLifecycleHooks;
     watch(documentDriver.activeDocumentDriver, (driver) => {
         if (driver?.view.defaultSourceCapabilities) {
             deps.sourceCapabilities.value = driver.view.defaultSourceCapabilities;
@@ -889,6 +898,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         isDjvuMode,
         viewerCapabilities: computed(() => documentDriver.activeDocumentDriver.value?.capabilities),
+        getDocumentDriverForType: documentDriver.getDocumentDriverForType,
         djvuSourcePath,
         currentPage,
         navigationPage,

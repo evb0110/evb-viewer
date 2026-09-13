@@ -4,7 +4,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
-import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {isWorkspaceDocumentOpenResult} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 type TPdfPasswordFailureResult = Extract<
@@ -14,11 +14,11 @@ type TPdfPasswordFailureResult = Extract<
 type TOpenMethod = 'picker' | 'preselected' | 'direct' | 'batch';
 
 export function isDjvuOpenResult(result: TOpenFileResult): result is Extract<TOpenFileResult, {kind: 'djvu'}> {
-    return getWorkspaceViewerAdapter('djvu').documentTypes.some(documentType => documentType === result.kind);
+    return isWorkspaceDocumentOpenResult(result, 'djvu');
 }
 
 export function isPdfOpenResult(result: TOpenFileResult): result is Extract<TOpenFileResult, {kind: 'pdf'}> {
-    return getWorkspaceViewerAdapter('pdf').documentTypes.some(documentType => documentType === result.kind);
+    return isWorkspaceDocumentOpenResult(result, 'pdf');
 }
 
 interface IOpenPdfAfterPasswordPromptDeps {
