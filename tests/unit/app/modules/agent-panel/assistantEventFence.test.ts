@@ -7,7 +7,7 @@ import type {
     IAgentAssistantChatScope,
     IAgentAssistantEvent,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
 import { shouldAcceptAssistantEvent } from '@app/modules/agent-panel/utils/assistantEventFence';
 
 function createScope(key: string, revision: string): IAgentAssistantChatScope {

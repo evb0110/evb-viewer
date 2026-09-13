@@ -13,7 +13,7 @@ import {
     ref,
 } from 'vue';
 import { ZOOM } from '@app/constants/pdfLayout';
-import { resolveDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { resolveDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 vi.mock('@app/utils/browserLogger', () => {
     return { BrowserLogger: {

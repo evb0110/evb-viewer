@@ -1,5 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/public';
 
 type TDocumentSessionSourceKind = 'pdf' | 'djvu' | null;
 
@@ -27,6 +27,11 @@ const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     text: false,
 };
 
+const SOURCE_CAPABILITIES_BY_KIND: Record<Exclude<TDocumentSessionSourceKind, null>, IDocumentSourceCapabilities> = {
+    pdf: EMPTY_SOURCE_CAPABILITIES,
+    djvu: DJVU_SOURCE_CAPABILITIES,
+};
+
 /** Source identity owned by the document session rather than a format mode flag. */
 export const useDocumentSourceSession = () => {
     const sourceKind = ref<TDocumentSessionSourceKind>(null);
@@ -35,7 +40,7 @@ export const useDocumentSourceSession = () => {
     const sourceGeneration = ref(0);
     let activeActivation: IDocumentSourceActivation | null = null;
     const capabilities = computed<IDocumentSourceCapabilities>(() => (
-        sourceKind.value === 'djvu' ? DJVU_SOURCE_CAPABILITIES : EMPTY_SOURCE_CAPABILITIES
+        sourceKind.value === null ? EMPTY_SOURCE_CAPABILITIES : SOURCE_CAPABILITIES_BY_KIND[sourceKind.value]
     ));
 
     function activateDocumentSource(
@@ -85,7 +90,7 @@ export const useDocumentSourceSession = () => {
         projectionRef,
         sourceGeneration,
         capabilities,
-        isDjvuSource: computed(() => sourceKind.value === 'djvu'),
+        isDjvuSource: computed(() => capabilities.value === DJVU_SOURCE_CAPABILITIES),
         activateDocumentSource,
         captureDocumentSourceActivation,
         clearDocumentSource,

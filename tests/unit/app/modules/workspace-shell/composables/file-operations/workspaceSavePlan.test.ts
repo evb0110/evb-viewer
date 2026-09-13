@@ -1,16 +1,54 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
-    createWorkspaceSavePlan,
-    type IWorkspaceSaveDirtyState,
-    type TWorkspaceSaveRequest,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
+    computed, ref,
+} from 'vue';
+import {createWorkspaceSavePlan} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import type {
+    IWorkspaceSaveDependencies,
+    IWorkspaceSaveDirtyState,
+    TWorkspaceSaveRequest,
+} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import type {IPdfViewerSaveTransactionResult} from '@app/modules/pdf-viewer/public';
+import {
+    createDeps,
+    useWorkspaceSaveServiceForTest,
+} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
+import {cast} from '@tests/helpers/cast';
+
+const recoveryMocks = vi.hoisted(() => ({
+    consumeNativePdfMutationProjection: vi.fn(),
+    readDocumentBytes: vi.fn(),
+}));
+
+vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({
+    consumeNativePdfMutationProjection: recoveryMocks.consumeNativePdfMutationProjection,
+    NativePdfSaveRequiredError: class NativePdfSaveRequiredError extends Error {},
+}));
+vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: recoveryMocks.readDocumentBytes}));
+
+const RECOVERY_CLONE_REF = requireDocumentRef('browser://documents/recovery-clone.pdf');
+const RECOVERY_PROJECTION = cast<never>({
+    canonicalAnnotationProgram: [],
+    mutations: {updates: []},
+    noteTextUpdates: [],
+    freeTextNotes: [],
+    freeTextEditors: [],
+    annotationDeletes: [],
+    hasMetadataMutations: false,
+    hasShapeMutations: false,
+    hasMarkupMutations: false,
+    phase: 'persist-native-pdf-mutations',
+});
 
 const CLEAN_DIRTY_STATE: IWorkspaceSaveDirtyState = {
     annotationChanges: false,
@@ -60,6 +98,10 @@ function buildPlan(options: {
 }
 
 describe('workspaceSavePlan', () => {
+    beforeEach(() => {
+        recoveryMocks.consumeNativePdfMutationProjection.mockReset();
+        recoveryMocks.readDocumentBytes.mockReset();
+    });
     it('represents clean Save and Save As as working-copy sourced serialized plans', () => {
         const save = buildPlan();
         const saveAs = buildPlan({request: {
@@ -191,5 +233,86 @@ describe('workspaceSavePlan', () => {
                 requestId: 'optimize-1',
             },
         });
+    });
+
+    it('creates a detached recovery snapshot without acknowledging the dirty frontier', async () => {
+        const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
+        const verifyAnnotationSavePath = vi.fn(async () => undefined);
+        const commitAnnotationSave = vi.fn();
+        const runSaveTransaction = vi.fn(async () => cast<IPdfViewerSaveTransactionResult>({
+            source: 'native-mutation-projection' as const,
+            nativeMutationProjection: RECOVERY_PROJECTION,
+            fallbackDecision: {},
+            annotationSavePlan: {},
+            assertAnnotationSaveCurrent,
+            verifyAnnotationSavePath,
+            commitAnnotationSave,
+        }));
+        const runWithDocumentOperationLease = cast<NonNullable<
+            IWorkspaceSaveDependencies['runWithDocumentOperationLease']
+        >>(vi.fn(async <T>(
+            _kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ) => operation()));
+        recoveryMocks.consumeNativePdfMutationProjection.mockResolvedValue(RECOVERY_CLONE_REF);
+        recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(4, 5, 6));
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken,
+            workingCopyPath: ref(requireDocumentRef('browser://documents/recovery.pdf')),
+            runSaveTransaction,
+            pdfViewerRef: ref({runSaveTransaction}),
+            runWithDocumentOperationLease,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(4, 5, 6));
+        expect(runWithDocumentOperationLease).toHaveBeenCalledWith('recovery-snapshot', expect.any(Function));
+        expect(runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
+            mode: 'snapshot',
+            saveFlowMode: 'save',
+            requiresManagedShapeBaseline: true,
+        }));
+        expect(recoveryMocks.consumeNativePdfMutationProjection).toHaveBeenCalledWith(expect.objectContaining({
+            operation: 'clone',
+            projection: RECOVERY_PROJECTION,
+            verifyPathBeforeExpose: verifyAnnotationSavePath,
+            assertBeforeExpose: assertAnnotationSaveCurrent,
+        }));
+        expect(commitAnnotationSave).not.toHaveBeenCalled();
+    });
+
+    it('does not serialize a recovery snapshot for a clean document', async () => {
+        const runSaveTransaction = vi.fn();
+        const {deps} = createDeps({pdfViewerRef: ref({runSaveTransaction})});
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.createRecoverySnapshotBytes()).resolves.toBeNull();
+        expect(runSaveTransaction).not.toHaveBeenCalled();
+    });
+
+    it('discards a recovery snapshot when the document revision changes during serialization', async () => {
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const runSaveTransaction = vi.fn(async () => {
+            documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
+            return cast<IPdfViewerSaveTransactionResult>({
+                source: 'native-mutation-projection' as const,
+                nativeMutationProjection: RECOVERY_PROJECTION,
+                fallbackDecision: {},
+                annotationSavePlan: {},
+            });
+        });
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken,
+            runSaveTransaction,
+            pdfViewerRef: ref({runSaveTransaction}),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.createRecoverySnapshotBytes()).resolves.toBeNull();
     });
 });

@@ -14,11 +14,7 @@ import {
 } from './architectureCliArgs.mjs';
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 import { RUNTIME_TOOL_BOUNDARY_RULES } from './runtimeToolBoundaryRules.mjs';
-import {
-    ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES,
-    PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES,
-    SCRIPTS_TO_APP_ALLOWED_EDGES,
-} from './boundaryExceptionPolicy.mjs';
+import { findFormatComparisonViolations } from './formatComparisonRule.mjs';
 
 /** @typedef {import('./dep-graph.mjs').IDependencyEdge} IDependencyEdge */
 /** @typedef {import('./dep-graph.mjs').IDependencyGraph} IDependencyGraph */
@@ -116,6 +112,11 @@ const RETIRED_ELECTRON_FEATURE_SHIM_PATHS = new Set([
     'electron/djvu/conversion.ts',
     'electron/djvu/convert.ts',
     'electron/djvu/viewing.ts',
+    'electron/ocr/worker/main.ts',
+    'electron/ocr/worker/writeOcrIndexes.ts',
+    'electron/ocr/worker/types.ts',
+    'electron/ocr/worker/runProductionOcrQualityCase.ts',
+    'electron/ocr/worker/indexWriter.ts',
     'electron/search/protocol.ts',
 ]);
 
@@ -185,7 +186,7 @@ const ROOT_BOUNDARY_RULES = [
         sourceRoot: 'scripts',
         targetRoot: 'app',
         rule: 'scripts-to-app',
-        message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+        message: 'scripts/** must not import app runtime code; shared diagnostic contracts belong in packages/contracts.',
     },
     ...RUNTIME_TOOL_BOUNDARY_RULES,
 ];
@@ -209,6 +210,15 @@ const PACKAGE_LAYER_RULES = [
         ],
         rule: 'packages-pdf-core-layer',
         message: 'packages/pdf-core may depend only on itself and contracts.',
+    },
+    {
+        sourceRoot: 'packages/agent-core',
+        allowedTargetRoots: [
+            'packages/agent-core',
+            'packages/contracts',
+        ],
+        rule: 'packages-agent-core-layer',
+        message: 'packages/agent-core may depend only on itself and contracts.',
     },
     {
         sourceRoot: 'packages/i18n-core',
@@ -252,12 +262,20 @@ const PACKAGE_LAYER_RULES = [
 ];
 
 /** @type {IPublicOnlyEntrypointRule[]} */
-const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
-    ownerRoot: 'app/platform/browser-api',
-    publicEntry: 'public.ts',
-    rule: 'browser-api-public-entrypoint',
-    message: 'Browser platform API consumers must import through app/platform/browser-api/public.',
-} ];
+const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [
+    {
+        ownerRoot: 'app/platform/browser-api',
+        publicEntry: 'public.ts',
+        rule: 'browser-api-public-entrypoint',
+        message: 'Browser platform API consumers must import through app/platform/browser-api/public.',
+    },
+    {
+        ownerRoot: 'app/modules/document-viewer',
+        publicEntry: 'public.ts',
+        rule: 'document-viewer-public-entrypoint',
+        message: 'Document viewer consumers must import through app/modules/document-viewer/public.',
+    },
+];
 
 const PLATFORM_API_AGGREGATE_COMPOSITION_FILES = new Set(`
 app/platform/browserPlatformApi.ts
@@ -319,15 +337,14 @@ const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
 const NATIVE_TOOL_DOMAIN_ROOTS = [
-    'electron/ocr',
     'electron/pdf',
     'electron/features/djvu',
 ];
 const OCR_NATIVE_TOOL_BOUNDARY_TARGETS = new Set(`
-electron/ocr/paths.ts
-electron/ocr/nativeToolPaths.ts
-electron/ocr/resolveOcrResourcesBase.ts
-electron/ocr/worker/dpiDetection.ts
+electron/features/ocr/main/paths.ts
+electron/features/ocr/main/nativeToolPaths.ts
+electron/features/ocr/main/resolveOcrResourcesBase.ts
+electron/features/ocr/worker/dpiDetection.ts
 `.trim().split('\n'));
 
 /** @type {IFeatureBoundaryRule[]} */
@@ -394,6 +411,9 @@ const SENTRY_EVENT_FACTORY_NAMES = new Set([
     'makeSentryEvent',
 ]);
 const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
+
+/** @type {readonly string[]} */
+const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze(['app/modules/workspace-shell']);
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkElectronFeatureMainPrivacy(edge) {
@@ -581,13 +601,6 @@ function checkPdfViewerEngineLayer(edge) {
         return null;
     }
 
-    if (PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES.some(exception => (
-        exception.source === edge.source
-        && exception.targetRoots.some(root => matchesRoot(edge.target, root))
-    ))) {
-        return null;
-    }
-
     return createViolation({
         rule: 'pdf-viewer-engine-layer-back-edge',
         source: edge.source,
@@ -604,8 +617,7 @@ function isTestSource(filePath) {
 
 /** @param {string} filePath @returns {boolean} */
 function isOcrNativeToolBoundaryOwner(filePath) {
-    return matchesRoot(filePath, 'electron/ocr')
-        || matchesRoot(filePath, 'electron/features/ocr');
+    return matchesRoot(filePath, 'electron/features/ocr');
 }
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
@@ -684,10 +696,7 @@ function collectAnnotationStorageAliases(sourceText) {
 
 /** @param {string} filePath @param {string} [sourceText] @returns {IArchitectureViolation[]} */
 function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
-    if (
-        !matchesRoot(filePath, 'app')
-        || ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES.includes(filePath)
-    ) {
+    if (!matchesRoot(filePath, 'app')) {
         return [];
     }
 
@@ -702,7 +711,7 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
         source: filePath,
         target: filePath,
         specifier: 'source',
-        message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
+        message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
     })];
 }
 
@@ -890,7 +899,7 @@ function parseSourceFiles(filePath, sourceText) {
 const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'app/modules/pdf-viewer',
     'app/services/pdfjs',
-    'app/utils/document-viewer/source',
+    'app/modules/document-viewer/source',
     'app/platform/browser-api/browserPdfjsDocumentInit.ts',
     'electron/features/search',
     'scripts/windows-test/oracles/pdfjsNodeRuntime.ts',
@@ -1515,13 +1524,6 @@ function checkRootBoundaryRule(edge, boundaryRule) {
     if (!matchesRoot(source, boundaryRule.sourceRoot) || !matchesRoot(target, boundaryRule.targetRoot)) {
         return null;
     }
-    if (
-        boundaryRule.rule === 'scripts-to-app'
-        && SCRIPTS_TO_APP_ALLOWED_EDGES.includes(`${source} -> ${target}`)
-    ) {
-        return null;
-    }
-
     return createViolation({
         rule: boundaryRule.rule,
         source,
@@ -1560,6 +1562,7 @@ function checkPackageReverseEdge(edge) {
     }
     if (
         matchesRoot(edge.source, 'packages/pdf-core')
+        || matchesRoot(edge.source, 'packages/agent-core')
         || matchesRoot(edge.source, 'packages/release-selection')
         || matchesRoot(edge.source, 'packages/scan-cleanup')
     ) {
@@ -1664,7 +1667,23 @@ function checkSource(filePath, sourceText) {
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
         ...checkContractsRuntimeBoundary(filePath, sourceFiles),
+        ...checkFormatComparisonSource(filePath, sourceText),
     ];
+}
+
+/** @param {string} filePath @param {string} sourceText @returns {IArchitectureViolation[]} */
+function checkFormatComparisonSource(filePath, sourceText) {
+    if (!FORMAT_COMPARISON_CHECK_ROOTS.some(root => matchesRoot(filePath, root))) {
+        return [];
+    }
+
+    return findFormatComparisonViolations(filePath, sourceText).map(violation => ({
+        rule: 'workspace-format-comparison',
+        source: violation.sourcePath,
+        target: `${violation.sourcePath}:${violation.line}:${violation.column}`,
+        specifier: violation.discriminant ?? '',
+        message: violation.message,
+    }));
 }
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation[]} */

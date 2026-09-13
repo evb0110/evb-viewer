@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -18,6 +16,7 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import { requireRequestId } from '@contracts/shared';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     replaceWorkingCopyFromPath: vi.fn(),
@@ -32,16 +31,16 @@ vi.mock(
     '@app/modules/workspace-shell/composables/useDocumentTransitions',
     () => ({useDocumentTransitions: vi.fn()}),
 );
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: {
         replaceWorkingCopyFromPath: mocks.replaceWorkingCopyFromPath,
         getDocumentRevision: mocks.getDocumentRevision,
         onDocumentRevisionChanged: mocks.onDocumentRevisionChanged,
-    }),
-}));
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({acknowledgeResultFile: mocks.acknowledgeResultFile})}));
-vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({warmIndex: mocks.warmIndex})}));
+    },
+    ocr: {acknowledgeResultFile: mocks.acknowledgeResultFile},
+    search: {warmIndex: mocks.warmIndex},
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 function createLifecycle(overrides: Record<string, unknown> = {}) {
     const scope = effectScope();

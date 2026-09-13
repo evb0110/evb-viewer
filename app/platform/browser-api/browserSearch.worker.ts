@@ -13,11 +13,11 @@ import {
 import { BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 import { getErrorMessage } from '@app/utils/error';
-import {iteratePdfSearchMatches} from '@pdf-core/pdfSearchCore';
 import {
+    iteratePdfSearchMatches,
     SearchRegexLimitError,
-    validateSearchQuery,
-} from '@contracts/search';
+} from '@pdf-core/pdfSearchCore';
+import {validateSearchQuery} from '@pdf-core';
 
 const canceledRequestIds = new Set<number>();
 const activeLoadCancellers = new Map<number, (error: Error) => void>();

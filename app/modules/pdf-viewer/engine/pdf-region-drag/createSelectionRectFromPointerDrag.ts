@@ -1,10 +1,10 @@
 import type {
     IClientPoint,
     IClientRect,
-} from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
-import { clampClientPointToRect } from '@app/utils/document-viewer/region-geometry/clampClientPointToRect';
-import { normalizeClientRect } from '@app/utils/document-viewer/region-geometry/normalizeClientRect';
-import { toLocalRect } from '@app/utils/document-viewer/region-geometry/toLocalRect';
+} from '@app/modules/document-viewer/public';
+import {
+    clampClientPointToRect, normalizeClientRect , toLocalRect,  
+} from '@app/modules/document-viewer/public';
 import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
 
 export function createSelectionRectFromPointerDrag(

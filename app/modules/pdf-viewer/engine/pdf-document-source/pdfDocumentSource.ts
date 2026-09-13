@@ -7,7 +7,7 @@ import pdfjsLib, {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { maxCachedPdfPages } from '@app/modules/pdf-viewer/engine/maxCachedPdfPages';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfRangeRequestBridge,
@@ -15,6 +15,8 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/createPdfRangeRequestBridge';
 import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import type { TDocumentRef } from '@contracts/documentRef';
+
+export const maxCachedPdfPages = getPerformanceProfile().maxCachedPdfPages;
 
 type TPdfSource = Blob | {
     kind: 'path';

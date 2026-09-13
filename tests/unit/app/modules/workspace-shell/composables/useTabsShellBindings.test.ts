@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -28,6 +26,7 @@ import {
     createWorkspaceAutomationStateSnapshot,
     createWorkspaceExposeFixture,
 } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     lifecycleOrder: [] as string[],
@@ -69,31 +68,28 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
 vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
 vi.mock('@app/modules/workspace-shell/menu/registerTabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
+const platformApi = createElectronPlatformApiFixture({
+    documentMenu: mocks.documentMenuCapability,
+    djvu: mocks.djvuCapability,
+    settings: mocks.settingsCapability,
+    updates: mocks.updatesCapability,
+    windowTabs: {
+        claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths as never,
+        acknowledgePendingExternalOpenPaths: mocks.acknowledgePendingExternalOpenPaths,
+        notifyRendererReady: mocks.notifyRendererReady,
+    },
+});
 vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
     shouldPreferDesktopPlatform: mocks.shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge: mocks.waitForDesktopPlatformBridge,
 }));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentMenuCapability: () => mocks.documentMenuCapability,
-}));
-vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settingsCapability}));
-vi.mock('@app/utils/platformUpdates', () => ({getUpdatesCapability: () => mocks.updatesCapability}));
-vi.mock('@app/utils/getDjvuCapability', () => ({getDjvuCapability: () => mocks.djvuCapability}));
 vi.mock('@app/utils/startupWorkProfile', () => ({resolveStartupWorkProfile: mocks.resolveStartupWorkProfile}));
 vi.mock('@app/modules/workspace-shell/host/warmupDesktopViewerChunks', () => ({
     getWorkspaceViewerChunkTargetsForPaths: mocks.getWorkspaceViewerChunkTargetsForPaths,
     warmupDesktopViewerChunkForPaths: mocks.warmupDesktopViewerChunkForPaths,
     scheduleDesktopViewerWarmup: mocks.scheduleDesktopViewerWarmup,
 }));
-vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
-    claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
-    acknowledgePendingExternalOpenPaths: mocks.acknowledgePendingExternalOpenPaths,
-    ...(mocks.workspaceCheckpointClaimEnabled
-        ? {claimWorkspaceCheckpoint: mocks.claimWorkspaceCheckpoint}
-        : {}),
-    notifyRendererReady: mocks.notifyRendererReady,
-})}));
 vi.mock('@app/utils/getOrCaptureRendererBootstrapFailure', () => ({getOrCaptureRendererBootstrapFailure: mocks.getOrCaptureRendererBootstrapFailure}));
 vi.mock('@app/composables/useFatalRuntimeError', () => ({useFatalRuntimeError: () => ({setFatalRuntimeError: mocks.setFatalRuntimeError})}));
 
@@ -231,6 +227,7 @@ describe('useTabsShellBindings', () => {
         mocks.claimPendingExternalOpenPaths.mockResolvedValue([]);
         mocks.acknowledgePendingExternalOpenPaths.mockResolvedValue(undefined);
         mocks.workspaceCheckpointClaimEnabled = false;
+        Reflect.set(platformApi.windowTabs, 'claimWorkspaceCheckpoint', undefined);
         mocks.claimWorkspaceCheckpoint.mockResolvedValue(null);
         mocks.getOrCaptureRendererBootstrapFailure.mockImplementation((options: {error: unknown}) => ({
             failure: {error: options.error},
@@ -549,6 +546,7 @@ describe('useTabsShellBindings', () => {
     it('notifies and schedules once when startup preparation fails', async () => {
         const options = createOptions();
         mocks.workspaceCheckpointClaimEnabled = true;
+        Reflect.set(platformApi.windowTabs, 'claimWorkspaceCheckpoint', mocks.claimWorkspaceCheckpoint);
         mocks.claimWorkspaceCheckpoint.mockRejectedValueOnce(new Error('checkpoint claim failed'));
 
         const unmount = await mountBindingsClient(options);

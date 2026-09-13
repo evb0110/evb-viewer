@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -13,6 +11,7 @@ import {
 } from '@app/utils/documentBytes';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 import {requireDocumentRef} from '@contracts/documentRef';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mockDocuments = {
     statFile: vi.fn(),
@@ -20,10 +19,8 @@ const mockDocuments = {
     readFileRange: vi.fn(),
 };
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mockDocuments,
-}));
+const platformApi = createElectronPlatformApiFixture({documentFiles: mockDocuments});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 describe('documentBytes', () => {
     beforeEach(() => {

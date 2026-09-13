@@ -18,6 +18,7 @@ import {
     h,
 } from 'vue';
 import AboutPage from '@app/pages/about.vue';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     desktopRuntime: false,
@@ -56,7 +57,8 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     }}),
 }));
 vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isDesktopRuntime: {get value() { return mocks.desktopRuntime; }}})}));
-vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => ({openExternal: mocks.openExternal})}));
+const platformApi = createElectronPlatformApiFixture({shell: {openExternal: mocks.openExternal}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 const NuxtLinkStub = defineComponent({
     props: {to: {

@@ -10,7 +10,7 @@ import {
 } from 'vue';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
 import type {IPdfPageMetric} from '@app/types/pdfUi';
-import {DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import {DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 
 describe('usePdfThumbnailVirtualLayout', () => {
     it('projects sparse page metrics without allocating by page count', () => {

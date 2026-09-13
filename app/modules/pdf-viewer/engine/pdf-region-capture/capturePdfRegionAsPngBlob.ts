@@ -1,7 +1,7 @@
-import type { IClientRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
-import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRectHeight';
-import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
-import { toClientRect } from '@app/utils/document-viewer/region-geometry/toClientRect';
+import type { IClientRect } from '@app/modules/document-viewer/public';
+import {
+    getRectHeight, getRectWidth , toClientRect,  
+} from '@app/modules/document-viewer/public';
 import { buildCanvasCapturePlan } from '@app/modules/pdf-viewer/engine/pdf-region-capture/buildCanvasCapturePlan';
 import type {
     ICanvasSource,

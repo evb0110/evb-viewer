@@ -12,14 +12,16 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import type { ITab } from '@app/types/tabs';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({cleanupSplitPayloadSnapshot: vi.fn(async () => undefined)}));
 vi.mock('@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot', () => ({cleanupSplitPayloadSnapshot: mocks.cleanupSplitPayloadSnapshot}));
-vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
+const platformApi = createElectronPlatformApiFixture({windowTabs: {
     transfer: vi.fn(),
     transferAck: vi.fn(async () => true),
     closeCurrentWindow: vi.fn(async () => false),
-})}));
+}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 function createPayload(): Extract<TSplitPayload, {kind: 'pdfSnapshot'}> {
     return {

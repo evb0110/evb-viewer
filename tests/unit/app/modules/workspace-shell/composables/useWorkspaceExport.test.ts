@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     afterEach,
     beforeEach,
@@ -19,45 +17,23 @@ import {
 } from '@contracts/documentRef';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type { IPlatformApiFixtureEventMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
 const trackMock = vi.hoisted(() => vi.fn());
 const exportImagesMock = vi.hoisted(() => vi.fn());
 const exportTiffMock = vi.hoisted(() => vi.fn());
 const cleanupFileMock = vi.hoisted(() => vi.fn(async () => {}));
 const toastAddMock = vi.hoisted(() => vi.fn());
-const progressListeners = vi.hoisted(() => new Set<(progress: {
-    requestId: string;
-    format: 'images' | 'multipage-tiff';
-    phase: 'rendering' | 'combining';
-    processed: number;
-    total: number;
-    percent: number;
-}) => void>());
-const onProgressMock = vi.hoisted(() => vi.fn((callback: (progress: {
-    requestId: string;
-    format: 'images' | 'multipage-tiff';
-    phase: 'rendering' | 'combining';
-    processed: number;
-    total: number;
-    percent: number;
-}) => void) => {
-    progressListeners.add(callback);
-    return () => {
-        progressListeners.delete(callback);
-    };
-}));
-const mockDocumentWorkingCopyCapability = {cleanupFile: cleanupFileMock};
-const mockImageExportCapability = {
-    exportPdfToImages: exportImagesMock,
-    exportPdfToMultiPageTiff: exportTiffMock,
-    onProgress: onProgressMock,
-};
-
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentWorkingCopyCapability: () => mockDocumentWorkingCopyCapability,
-    getImageExportCapability: () => mockImageExportCapability,
-}));
+const platformApi = createElectronPlatformApiFixture({
+    documentWorkingCopy: {cleanupFile: cleanupFileMock},
+    imageExport: {
+        exportPdfToImages: exportImagesMock,
+        exportPdfToMultiPageTiff: exportTiffMock,
+    },
+});
+const imageExportEvent = platformApi.imageExport.onProgress as typeof platformApi.imageExport.onProgress & IPlatformApiFixtureEventMethod;
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 
 function createComposable(options: {
@@ -115,7 +91,7 @@ function createComposable(options: {
 describe('useWorkspaceExport', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        progressListeners.clear();
+        imageExportEvent.dispose();
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
         vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
     });
@@ -420,14 +396,14 @@ describe('useWorkspaceExport', () => {
                 throw new Error('Expected export request id');
             }
 
-            progressListeners.forEach((listener) => listener({
+            imageExportEvent.emit({
                 requestId,
                 format: 'multipage-tiff',
                 phase: 'rendering',
                 processed: 1,
                 total: 2,
                 percent: 45,
-            }));
+            });
 
             expect(state.exportOverlay.value).toEqual({
                 kind: 'multipage-tiff',
@@ -436,14 +412,14 @@ describe('useWorkspaceExport', () => {
                 state: 'running',
             });
 
-            progressListeners.forEach((listener) => listener({
+            imageExportEvent.emit({
                 requestId: 'other-export',
                 format: 'multipage-tiff',
                 phase: 'rendering',
                 processed: 2,
                 total: 2,
                 percent: 90,
-            }));
+            });
             expect(state.exportOverlay.value?.progressPercent).toBe(45);
 
             const resolveExport = exportDeferred.resolve;
@@ -456,7 +432,6 @@ describe('useWorkspaceExport', () => {
             });
             await exportPromise;
 
-            expect(progressListeners.size).toBe(0);
             expect(state.exportOverlay.value).toEqual({
                 kind: 'multipage-tiff',
                 pageCount: 2,

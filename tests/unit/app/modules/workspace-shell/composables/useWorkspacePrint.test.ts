@@ -21,6 +21,7 @@ import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { requireDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
@@ -29,6 +30,7 @@ import {
     createRangePageSelection,
     type TPageSelection,
 } from '@contracts/pageNumbers';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TShouldPrintPageMetricsDirectly = (
     metrics: Array<{
@@ -106,13 +108,14 @@ vi.mock('@app/utils/pdfPrintShared', async (importOriginal) => ({
     },
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal_1) => ({
-    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
-    getDocumentPdfCapability: () => documentsCapabilityMock,
+const platformApi = createElectronPlatformApiFixture({documentPdf: documentsCapabilityMock as never});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule2>()),
     isNativePrintCapabilityUnavailable: (result: {
         success: boolean;
         canceled?: boolean;
-        error?: string;
+        error?: string
     }) => (
         result.success !== true
         && result.canceled !== true
@@ -244,6 +247,7 @@ function createState(options?: {
     totalPages?: number;
     sourcePdf?: TPdfSource | null;
     workingCopyPath?: string | null;
+    printPath?: string | null;
     fileName?: string | null;
     hasPendingUnsavedChanges?: boolean;
     hasPendingPrintSerializationChanges?: boolean;
@@ -281,6 +285,9 @@ function createState(options?: {
     const workingCopyPath = ref(options?.workingCopyPath === undefined
         ? '/tmp/document.pdf'
         : options.workingCopyPath);
+    const printPath = ref<TDocumentRef | null>(options?.printPath
+        ? requireDocumentRef(options.printPath)
+        : null);
     const fileName = ref(options?.fileName ?? 'document.pdf');
     const totalPages = ref(options?.totalPages ?? 10);
     const state = scope.run(() => useWorkspacePrint({
@@ -296,6 +303,7 @@ function createState(options?: {
             : {}),
         sourcePdf,
         workingCopyPath,
+        printPath,
         fileName,
         hasPendingUnsavedChanges: ref(options?.hasPendingUnsavedChanges ?? false),
         ...(options?.hasPendingPrintSerializationChanges !== undefined
@@ -1025,6 +1033,37 @@ describe('useWorkspacePrint', () => {
             expect(pathState.state.supportsFirstPageSinglePrintLayout.value).toBe(true);
         } finally {
             pathState.scope.stop();
+        }
+    });
+
+    it('uses the active driver print path for path-backed printing', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
+        const {
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: requireDocumentRef('/tmp/source.pdf'),
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            printPath: '/tmp/driver-print.pdf',
+            fileName: 'driver-print.pdf',
+        });
+
+        try {
+            await state.handleQuickPrint();
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/driver-print.pdf',
+                'driver-print.pdf',
+                expect.objectContaining({
+                    viewMode: 'single',
+                    orientation: 'auto',
+                }),
+            );
+        } finally {
+            scope.stop();
         }
     });
 

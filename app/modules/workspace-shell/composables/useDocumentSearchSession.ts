@@ -3,14 +3,14 @@ import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
-import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/utils/document-viewer/providers/documentSearch';
+import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/modules/document-viewer/public';
 import type {
     IDocumentSearchBackend,
     IDocumentSearchMatch,
     IDocumentSearchProgress,
     IDocumentSearchSession,
     TDocumentSearchDirection,
-} from '@app/utils/document-viewer/search/documentSearch';
+} from '@app/modules/document-viewer/public';
 
 interface IUseDocumentSearchSessionOptions {
     backend: MaybeRefOrGetter<IDocumentSearchBackend | null>;

@@ -28,7 +28,9 @@ function isProcessGroupAlive(pid: number) {
         process.kill(-pid, 0);
         return true;
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+        // macOS reports EPERM for a group whose remaining members are unreaped zombies.
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ESRCH' || code === 'EPERM') {
             return false;
         }
         throw error;

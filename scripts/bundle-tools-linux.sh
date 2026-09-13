@@ -14,6 +14,19 @@ case "$ARCH" in
   *)       echo "Error: Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
+# Fetch the published archives for this target. Exit code 3 means the target
+# has none yet, so the source build below still produces its tools.
+# EVB_RUNTIME_BINARIES_FROM_SOURCE=1 skips the fetch to rebuild the archives.
+if [ "${EVB_RUNTIME_BINARIES_FROM_SOURCE:-0}" != 1 ]; then
+  fetch_status=0
+  node --import tsx "$SCRIPT_DIR/fetchRuntimeBinaries.ts" --target "$PLATFORM_ARCH" || fetch_status=$?
+  if [ "$fetch_status" -eq 0 ]; then
+    exit 0
+  elif [ "$fetch_status" -ne 3 ]; then
+    exit "$fetch_status"
+  fi
+fi
+
 echo "=========================================="
 echo "Bundling native tools for $PLATFORM_ARCH"
 echo "=========================================="
@@ -63,9 +76,12 @@ run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
   tesseract-ocr \
   poppler-utils \
-  qpdf \
   djvulibre-bin \
   build-essential \
+  cmake \
+  curl \
+  libjpeg-turbo8-dev \
+  zlib1g-dev \
   git \
   meson \
   ninja-build \
@@ -225,9 +241,29 @@ echo "=========================================="
 echo "3. Bundling qpdf..."
 echo "=========================================="
 
+# Ubuntu 22.04 ships qpdf 10.6, but the MRC extractor and the word-loss audit
+# use qpdf 11 JSON v2 options, so build a pinned release against this glibc.
+QPDF_VERSION="11.9.1"
+QPDF_SHA256="2ba4d248f9567a27c146b9772ef5dc93bd9622317978455ffe91b259340d13d1"
+QPDF_BUILD_DIR="$(mktemp -d /tmp/evb-qpdf-linux-XXXXXX)"
+curl -fsSL -o "$QPDF_BUILD_DIR/qpdf.tar.gz" \
+  "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VERSION/qpdf-$QPDF_VERSION.tar.gz"
+echo "$QPDF_SHA256  $QPDF_BUILD_DIR/qpdf.tar.gz" | sha256sum -c -
+tar -xzf "$QPDF_BUILD_DIR/qpdf.tar.gz" -C "$QPDF_BUILD_DIR"
+cmake -S "$QPDF_BUILD_DIR/qpdf-$QPDF_VERSION" -B "$QPDF_BUILD_DIR/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DREQUIRE_CRYPTO_NATIVE=ON \
+  -DUSE_IMPLICIT_CRYPTO=OFF \
+  -DBUILD_STATIC_LIBS=OFF \
+  -DBUILD_DOC=OFF \
+  -DINSTALL_EXAMPLES=OFF
+cmake --build "$QPDF_BUILD_DIR/build" --parallel "$(nproc)" --target qpdf
+
 QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
 reset_bundle_dir "$QPDF_DIR"
+PATH="$QPDF_BUILD_DIR/build/qpdf:$PATH" \
 bundle_tool "qpdf" "$QPDF_DIR"
+rm -rf "$QPDF_BUILD_DIR"
 bundle_lib_deps "$QPDF_DIR/lib"
 fix_lib_rpaths "$QPDF_DIR/lib"
 

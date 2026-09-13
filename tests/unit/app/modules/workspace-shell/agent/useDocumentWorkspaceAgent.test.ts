@@ -39,7 +39,7 @@ import type {
     TWorkspaceAgentFitMode,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+import { createPageLabelModel } from '@app/modules/document-viewer/pageLabels';
 import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 

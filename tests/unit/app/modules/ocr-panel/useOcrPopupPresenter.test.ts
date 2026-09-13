@@ -29,12 +29,13 @@ import type {
 } from '@app/utils/ocr/ocrTypes';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
 const getDebugLogsMock = vi.hoisted(() => vi.fn());
 const browserLoggerWarnMock = vi.hoisted(() => vi.fn());
-const getOcrCapabilityMock = vi.hoisted(() => vi.fn());
+const resolveDocumentOcrAvailabilityMock = vi.hoisted(() => vi.fn());
 const timeoutStartMock = vi.hoisted(() => vi.fn());
 const timeoutStopMock = vi.hoisted(() => vi.fn());
 const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => {
@@ -59,8 +60,11 @@ vi.mock('@vueuse/core', () => ({
         stop: timeoutStopMock,
     }),
 }));
-vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({getDebugLogs: getDebugLogsMock})}));
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: getOcrCapabilityMock}));
+const platformApi = createElectronPlatformApiFixture({
+    settings: {getDebugLogs: getDebugLogsMock},
+    ocr: {resolveDocumentOcrAvailability: resolveDocumentOcrAvailabilityMock},
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
 const { useOcrPopupPresenter } = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
@@ -255,7 +259,7 @@ describe('useOcrPopupPresenter', () => {
             message: 'trace line',
             timestamp: '2026-06-28T00:00:00.000Z',
         }]);
-        getOcrCapabilityMock.mockReturnValue({resolveDocumentOcrAvailability: vi.fn().mockResolvedValue({needsReOcr: false})});
+        resolveDocumentOcrAvailabilityMock.mockResolvedValue({needsReOcr: false});
     });
 
     afterEach(() => {
@@ -401,7 +405,7 @@ describe('useOcrPopupPresenter', () => {
 
     it('offers a full OCR rebuild when the catalog was quarantined', async () => {
         const resolveDocumentOcrAvailability = vi.fn().mockResolvedValue({needsReOcr: true});
-        getOcrCapabilityMock.mockReturnValue({resolveDocumentOcrAvailability});
+        resolveDocumentOcrAvailabilityMock.mockImplementation(resolveDocumentOcrAvailability);
         const harness = createPresenterHarness();
 
         try {

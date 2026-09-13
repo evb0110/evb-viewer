@@ -26,7 +26,7 @@ import type {
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import {
     createScanCleanupSparsePageOrder,
     resolveScanCleanupSelection,

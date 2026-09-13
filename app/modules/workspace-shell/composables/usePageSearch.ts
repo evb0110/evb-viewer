@@ -6,7 +6,7 @@ import type {
     ISearchMatchOptions,
 } from '@contracts/search';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import { reconcileDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import { reconcileDocumentSidebarTab } from '@app/modules/document-viewer/public';
 
 interface IPageSearchDeps {
     showSidebar: Ref<boolean>;

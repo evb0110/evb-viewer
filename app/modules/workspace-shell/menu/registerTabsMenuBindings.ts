@@ -70,7 +70,11 @@ function resolveWorkspaceMenuApi(
     menuApi: TStalePreloadMenuApi,
     source: 'documentMenu' | 'djvu' | undefined,
 ) {
-    return source === 'djvu' ? menuApi.djvu : menuApi.documentMenu;
+    const menuApis: Record<'documentMenu' | 'djvu', TWorkspaceMenuApi | undefined> = {
+        documentMenu: menuApi.documentMenu,
+        djvu: menuApi.djvu,
+    };
+    return menuApis[source ?? 'documentMenu'];
 }
 
 function runWorkspaceMenuCommand(

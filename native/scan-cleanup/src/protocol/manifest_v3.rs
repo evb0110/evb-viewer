@@ -1034,16 +1034,51 @@ mod tests {
     fn shipped_skew_fixtures_round_trip_through_the_same_manifest_contract() {
         let fixture_dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures");
-        let older = serde_json::from_slice::<ManifestV3>(
+        let mut older_value: serde_json::Value = serde_json::from_slice(
             &std::fs::read(fixture_dir.join("scan-cleanup-manifest-v3-older-to-newer.json"))
                 .unwrap(),
         )
         .unwrap();
-        let newer = serde_json::from_slice::<ManifestV3>(
+        let mut newer_value: serde_json::Value = serde_json::from_slice(
             &std::fs::read(fixture_dir.join("scan-cleanup-manifest-v3-newer-to-older.json"))
                 .unwrap(),
         )
         .unwrap();
+        let add_nested_options = |value: &mut serde_json::Value, with_unknown: bool| {
+            let options = &mut value["pages"][0]["options"];
+            options["manualSplit"] = serde_json::json!({
+                "xNormalized": 0.5,
+                "rotationDegrees": 0,
+            });
+            options["manualZones"] = serde_json::json!({
+                "picture": [{
+                    "polygon": {
+                        "points": [
+                            {"xNormalized": 0.2, "yNormalized": 0.2},
+                            {"xNormalized": 0.8, "yNormalized": 0.2},
+                            {"xNormalized": 0.5, "yNormalized": 0.8},
+                        ],
+                        "rotationDegrees": 0,
+                    },
+                    "layer": "painter2",
+                }],
+                "fill": [],
+            });
+            if with_unknown {
+                options["manualSplit"]["futureSplitHint"] = serde_json::json!(true);
+                options["manualZones"]["futureZones"] = serde_json::json!(true);
+                options["manualZones"]["picture"][0]["futureZoneHint"] =
+                    serde_json::json!("ignored");
+                options["manualZones"]["picture"][0]["polygon"]["futurePolygonHint"] =
+                    serde_json::json!("ignored");
+                options["manualZones"]["picture"][0]["polygon"]["points"][0]["futurePointHint"] =
+                    serde_json::json!("ignored");
+            }
+        };
+        add_nested_options(&mut older_value, false);
+        add_nested_options(&mut newer_value, true);
+        let older = serde_json::from_value::<ManifestV3>(older_value).unwrap();
+        let newer = serde_json::from_value::<ManifestV3>(newer_value).unwrap();
         older.validate().unwrap();
         newer.validate().unwrap();
         assert_eq!(

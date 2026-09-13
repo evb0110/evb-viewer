@@ -6,6 +6,7 @@ import type {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {
     beforeEach,
     describe,
@@ -201,11 +202,9 @@ describe('browserDjvuTextSearchCapability', () => {
     });
 
     it('refuses an absolute path without a native DjVu bridge before creating a worker', async () => {
-        vi.stubGlobal('window', {electronAPI: {documentFiles: {
-            statFile: vi.fn(),
-            readFile: vi.fn(),
-            readFileRange: vi.fn(),
-        }}});
+        const electronApi = createElectronPlatformApiFixture();
+        Reflect.deleteProperty(electronApi.djvu, 'getInfo');
+        vi.stubGlobal('window', {electronAPI: electronApi});
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
 
         await expect(browserDjvuTextSearchCapability.searchText(

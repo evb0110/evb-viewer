@@ -32,6 +32,9 @@ function createDriver(
     };
     const view = {
         component: ViewerStub,
+        isPdfjs: true,
+        rendererKind: 'pdfjs' as const,
+        sourceKind: 'pdf' as const,
         sourcePath: null,
         defaultSourceCapabilities: null,
         showDjvuSource: false,
@@ -48,7 +51,10 @@ function createDriver(
             kind: 'pdf',
             path: null as TDocumentRef | null,
         },
+        lifecycle: {createHooks: () => null},
         operations: {
+            open: {strategy: 'pdf-working-copy' as const},
+            restore: {supportsWorkingCopyRecovery: true},
             save: {
                 strategy: 'pdf-working-copy' as const,
                 execute: async () => false,
@@ -57,7 +63,10 @@ function createDriver(
                 imageTarget: null,
                 multiPageTiffTarget: null,
             },
-            print: {strategy: null},
+            print: {
+                strategy: null,
+                path: null,
+            },
         },
         view,
         run: async () => ({

@@ -126,8 +126,8 @@ The generated Electron Builder plan stages tesseract/tessdata, icon.png, third-p
 
 Runtime consumers are:
 
-- Tesseract and unpaper: electron/ocr/, especially electron/ocr/nativeToolPaths.ts, electron/ocr/buildTesseractEnv.ts, and electron/ocr/worker/tryPreprocessOcrImage.ts.
-- Poppler: electron/pdf/, electron/native-tools/buildPopplerEnv.ts, and electron/ocr/worker/popplerStage.ts.
+- Tesseract and unpaper: electron/features/ocr/, especially electron/features/ocr/main/nativeToolPaths.ts, electron/features/ocr/main/buildTesseractEnv.ts, and electron/features/ocr/worker/tryPreprocessOcrImage.ts.
+- Poppler: electron/pdf/, electron/native-tools/buildPopplerEnv.ts, and electron/features/ocr/worker/popplerStage.ts.
 - qpdf: native PDF combine and decryption paths under electron/pdf/ and electron/image/.
 - DjVuLibre: electron/features/djvu/, with electron/features/djvu/main/nativeToolPaths.ts resolving its packaged binaries.
 - Generated project-owned tools: .tmp/<staging-name>/<platform>-<arch>/bin/<binary>, described by packages/contracts/nativeToolProtocols.ts and the generated resource manifest. These are not third-party binaries and need a separate crate, target, protocol, and build receipt.

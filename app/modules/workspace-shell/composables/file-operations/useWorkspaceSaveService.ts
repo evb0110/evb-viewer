@@ -1,43 +1,18 @@
-import type {
-    ComputedRef,
-    Ref,
-    ShallowRef,
-} from 'vue';
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
-import type {
-    IPdfPersistResult,
-    IPdfSaveResult,
-} from '@app/types/pdfUi';
+import type {Ref} from 'vue';
+import type {IPdfPersistResult} from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TPdfDateString } from '@contracts/pdfDateString';
 import type { TRequestId } from '@contracts/shared';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
-import type {
-    IPdfNativeAnnotationDelete,
-    IPdfNativeFreeTextNote,
-    IPdfNativeMutationSet,
-    IPdfNativePlacedImageGeometryUpdate,
-    IPdfNoteGeometryUpdate,
-    IPdfNoteTextUpdate,
-    IPdfOptimizeOptions,
-    IPdfSerializedCommitCallbacks,
-} from '@contracts/electronApiDocuments';
+import type {IPdfOptimizeOptions} from '@contracts/electronApiDocuments';
 import {
     getDocumentMutationErrorPayload,
     isStaleRevisionError,
 } from '@contracts/documentMutationErrors';
 import type {
-    IPdfViewerSaveExpose,
     IPdfViewerSaveTransactionResult,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -51,7 +26,6 @@ import type {
 } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import type {
-    IPostSaveReloadWaiter,
     ISaveCompletionPolicy,
     TWorkspaceSaveAbort,
     TWorkspaceSaveExecutionResult,
@@ -62,20 +36,7 @@ import {
     notSavedBeforeWrite,
     workingCopySaveResult,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
-import {
-    type IUnencryptedSaveNoticeDependencies,
-    unencryptedSaveNoticeGate,
-} from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
-import {
-    buildSaveTransactionRequest,
-    createWorkspaceSavePlan,
-    getSaveFlow,
-    getSaveMode,
-    requiresNativePathBackedSave,
-    type IWorkspaceSaveTarget,
-    type TWorkspaceSavePlan,
-    type TWorkspaceSaveRequest,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
+import {unencryptedSaveNoticeGate} from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
 import {
     nowMs,
     timedSavePhase,
@@ -87,160 +48,47 @@ import {
     resolveOperationKind,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
 import {
+    buildSaveTransactionRequest,
     completeSuccessfulSaveState,
+    createPageMutationWriterSave,
+    createRecoverySnapshotBytes as createRecoverySnapshotBytesForService,
     createReloadWaiter,
+    createWorkspaceSavePlan,
+    getNativeSaveTransactionOptions,
     getCompletionBaseline,
+    getSaveFlow,
+    getSaveMode,
     isTargetCurrent,
+    requiresNativePathBackedSave,
     withReloadWaiter,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+import type {
+    IWorkspaceSaveDependencies,
+    IWorkspaceSaveTarget,
+    TWorkspaceSavePlan,
+    TWorkspaceSaveRequest,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+export {
+    buildSaveTransactionRequest,
+    createWorkspaceSavePlan,
+    getSaveFlow,
+    getSaveMode,
+    requiresNativePathBackedSave,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+export type {
+    IWorkspaceSaveDependencies,
+    IWorkspaceSaveBaseline,
+    IWorkspaceSaveDirtyState,
+    IWorkspaceSaveTarget,
+    IWorkspaceSerializedSaveBody,
+    TWorkspaceSavePlan,
+    TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 
 type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {replaceFromDocument?: (result: IPdfAnnotationParseResult) => void};
-
-export interface IWorkspaceSaveDependencies {
-    status: {
-        isSaving: Ref<boolean>;
-        isSavingAs: Ref<boolean>;
-    };
-    document: {
-        sessionKey: Ref<string | null>;
-        workingCopyPath: Ref<TDocumentRef | null>;
-        originalPath: Ref<TDocumentRef | null>;
-        revisionToken: Ref<TDocumentRevisionToken | null>;
-        /** True only when the current document completed a password-protected open. */
-        wasEncrypted?: Ref<boolean>;
-    };
-    /** UI and persistence hooks for the one-time unencrypted-save warning. */
-    unencryptedSaveNotice?: IUnencryptedSaveNoticeDependencies;
-    hasPendingUnsavedChanges?: ComputedRef<boolean>;
-    hasUnsavedChanges?: () => boolean;
-    optimizePdfOnSaveAs?: Ref<boolean>;
-    annotations: {
-        dirty: Ref<boolean>;
-        markSaved: () => void;
-        getSaveStateToken?: () => unknown;
-        hasChanges: () => boolean;
-        hasPendingDeletes?: () => boolean;
-        openNoteCount: Ref<number>;
-        persistOpenNotes: () => Promise<boolean>;
-    };
-    metadata: {
-        totalPages: Ref<number>;
-        pageLabelsDirty: Ref<boolean>;
-        pageLabelRanges: Ref<IPdfPageLabelRange[]>;
-        bookmarksDirty: Ref<boolean>;
-        bookmarkItems: Ref<IPdfBookmarkEntry[]>;
-        untitledBookmarkLabel: string;
-        markPageLabelsSaved: () => void;
-        getPageLabelsSaveStateToken?: () => unknown;
-        markBookmarksSaved: () => void;
-        getBookmarksSaveStateToken?: () => unknown;
-    };
-    pdf: {
-        document: ShallowRef<IPdfDocument | null>;
-        commitEditorsForSave?: () => Promise<void>;
-        runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
-        getSourceData: () => Promise<Uint8Array | null>;
-    };
-    shapes: {
-        hasChanges: () => boolean;
-        hasManagedShapes: () => boolean;
-        markSaved?: (prepared?: unknown) => void;
-        preparePersistedState?: (data?: Uint8Array) => Promise<unknown>;
-        restorePreparedState?: (snapshot: unknown) => Promise<void> | void;
-    };
-    persistence: {
-        validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
-        saveSerialized: (
-            data: Uint8Array,
-            opts: {
-                saveMode: TPdfSaveMode;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                changedObjectRefs?: string[];
-                commitCallbacks?: IPdfSerializedCommitCallbacks;
-            },
-        ) => Promise<IPdfPersistResult>;
-        saveWorkingCopy: (opts: {
-            saveMode: TPdfSaveMode;
-            preserveLoadedSource?: boolean;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-        }) => Promise<IPdfPersistResult>;
-        saveAs: (
-            data: Uint8Array | undefined,
-            opts: {
-                saveMode: TPdfSaveMode;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                optimizeLossless?: boolean;
-                changedObjectRefs?: string[];
-                commitCallbacks?: IPdfSerializedCommitCallbacks;
-            },
-        ) => Promise<IPdfPersistResult>;
-        repairWorkingCopy?: (opts: {
-            saveMode: TPdfSaveMode;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-        }) => Promise<IPdfPersistResult>;
-        optimizeWorkingCopy?: (opts: {
-            saveMode: TPdfSaveMode;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-        }) => Promise<IPdfPersistResult>;
-        optimizeWorkingCopyAsCopy?: (
-            options: IPdfOptimizeOptions,
-            requestId: TRequestId | undefined,
-            opts: {
-                saveMode: TPdfSaveMode;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-            },
-        ) => Promise<IPdfPersistResult>;
-        trySavePdfNativeMutations?: (
-            mutations: IPdfNativeMutationSet,
-            opts: {
-                saveMode: TPdfSaveMode;
-                optimizeLossless?: boolean;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: TPdfDateString;
-                workingCopyOnly?: true;
-                verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
-                assertBeforeExpose?: () => Promise<void> | void;
-            },
-        ) => Promise<IPdfPersistResult | null>;
-        trySaveEmbeddedNoteTextUpdates?: (
-            updates: IPdfNoteTextUpdate[],
-            opts: {
-                saveMode: TPdfSaveMode;
-                preserveLoadedSource?: boolean;
-                expectedWorkingPath?: TDocumentRef | null;
-                expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: TPdfDateString;
-                workingCopyOnly?: true;
-                geometryUpdates?: IPdfNoteGeometryUpdate[];
-                freeTextNotes?: IPdfNativeFreeTextNote[];
-                deletes?: IPdfNativeAnnotationDelete[];
-                placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
-            },
-        ) => Promise<IPdfPersistResult | null>;
-        getWorkingCopySize?: (path: TDocumentRef) => Promise<number | null>;
-    };
-    lifecycle: {
-        loadRecentFiles: () => void;
-        preparePostSaveReload?: () => IPostSaveReloadWaiter;
-    };
-    runWithDocumentOperationLease?: <T>(
-        kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => Promise<T>;
-    failureSurface?: TWorkspaceFailureSurface;
-}
 
 async function validateWorkingCopy(
     plan: TWorkspaceSavePlan,
@@ -786,6 +634,11 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     let saveOperations = 0;
     let saveQueueTail: Promise<void> = Promise.resolve();
     const acknowledgedUnencryptedSaveSessions = new Set<string>();
+    const nativeSaveTransactionOptions = () => getNativeSaveTransactionOptions(deps);
+    const createRecoverySnapshotBytes = createRecoverySnapshotBytesForService(
+        deps,
+        runWithDocumentOperationLease,
+    );
 
     // A save that failed keeps its state until the workspace adopts a different
     // document or a fresh attempt supersedes it, so the status bar cannot
@@ -1085,6 +938,19 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         isAnySaving,
         handleSave: saveIfDirty,
         handleSaveWithinDocumentOperationLease: () => saveIfDirty({withinDocumentOperationLease: true}),
+        saveForExternalRead: saveIfDirty,
+        saveForExternalReadWithinDocumentOperationLease: () => saveIfDirty({withinDocumentOperationLease: true}),
+        getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
+        createRecoverySnapshotBytes,
+        createPageMutationWriterSave: (options: {
+            currentPage: Readonly<Ref<number>>;
+            waitForPdfReload: (page: number) => Promise<unknown>;
+            loadPdfFromPath?: (path: TDocumentRef, options?: {markDirty?: boolean}) => Promise<unknown>;
+        }) => createPageMutationWriterSave({
+            save: deps,
+            ...options,
+            getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
+        }),
         handleSaveAs: (optimizeLossless = deps.optimizePdfOnSaveAs?.value === true) => save({
             kind: 'save-as',
             optimizeLossless,

@@ -7,10 +7,8 @@ import {
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,
 } from '@pdf-core/pdfSearchCore';
-import {
-    SearchRegexLimitError,
-    SEARCH_REGEX_MAX_EXECUTION_MS,
-} from '@contracts/search';
+import {SearchRegexLimitError} from '@pdf-core';
+import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
 
 export type IPageSearchMatch = IPdfSearchUtf16Range;

@@ -713,11 +713,11 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     const title = tab.fileName ?? documentRef ?? null;
     return {
         kind: 'document',
-        key: documentSessionKey
-            ? `document-session:${documentSessionKey}`
-            : documentRef
-                ? `document:${documentBackend ?? 'unknown'}:${documentRef}`
-                : `tab:${tabId}`,
+        // Saved chats are looked up by this key after a relaunch, and every
+        // open mints a new document session key, so the key follows the file.
+        key: documentRef
+            ? `document:${documentBackend ?? 'unknown'}:${documentRef}`
+            : `tab:${tabId}`,
         title,
         tabId,
         ...(documentSessionKey ? { documentSessionKey } : {}),

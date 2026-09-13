@@ -134,7 +134,7 @@ import type {
     IDocumentBookmarkTreeItem,
     TDocumentBookmarkPersistenceRefusal,
     TDocumentBookmarkStatus,
-} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+} from '@app/modules/document-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {

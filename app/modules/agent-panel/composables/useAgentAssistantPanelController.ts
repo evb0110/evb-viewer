@@ -1,19 +1,21 @@
+import type {
+    IAgentAssistantChatScope,
+    IAgentAssistantChatMessage,
+    IAgentAssistantEvent,
+    IAgentAssistantImageAttachment,
+    IAgentAssistantState,
+    IAgentAssistantStateRequest,
+    TAgentAssistantEffort,
+    TAgentAssistantLoginMode,
+    TAgentAssistantMessageRole,
+    TAgentAssistantPresetId,
+    TAgentAssistantProviderId,
+    TAgentAssistantSpeedMode,
+} from '@contracts/agent';
 import {
     buildAgentAssistantScopeFingerprint,
     cloneAssistantScope,
-    type IAgentAssistantChatScope,
-    type IAgentAssistantChatMessage,
-    type IAgentAssistantEvent,
-    type IAgentAssistantImageAttachment,
-    type IAgentAssistantState,
-    type IAgentAssistantStateRequest,
-    type TAgentAssistantEffort,
-    type TAgentAssistantLoginMode,
-    type TAgentAssistantMessageRole,
-    type TAgentAssistantPresetId,
-    type TAgentAssistantProviderId,
-    type TAgentAssistantSpeedMode,
-} from '@contracts/agent';
+} from '@agent-core/assistantScope';
 import type { TTranslateFn } from '@i18n-app';
 import {createIsoTimestamp} from '@contracts/timestamps';
 import type {ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';

@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -7,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -30,15 +29,15 @@ const {
     statFileMock: vi.fn(async () => ({ size: 0 })),
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentWindowCapability: () => ({ showItemInFolder: showItemInFolderMock }),
-    getDocumentFilesCapability: () => ({
-        getWorkingCopyBackingStatus: getWorkingCopyBackingStatusMock,
+const platformApi = createElectronPlatformApiFixture({
+    documentWindow: { showItemInFolder: showItemInFolderMock },
+    documentFiles: {
+        getWorkingCopyBackingStatus: getWorkingCopyBackingStatusMock as never,
         onWorkingCopyBackingStatusChanged: onWorkingCopyBackingStatusChangedMock,
         statFile: statFileMock,
-    }),
-}));
+    },
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 function documentPathRef(path: string) {
     return ref<TDocumentRef | null>(requireDocumentRef(path));

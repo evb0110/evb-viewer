@@ -237,6 +237,25 @@ async function waitForProcessGroupGone(pid: number, timeoutMs = processTimeoutMs
     return !isProcessGroupAlive(pid);
 }
 
+// The native parent is multithreaded. Its /proc stat reads Z once the leader
+// thread exits, but the kernel reparents children only after the last thread
+// exits, so the descendant's ppid can still name the parent for a moment.
+async function waitForReparentedIdentity(
+    descendantIdentity: IProject8ProcessIdentity,
+    parentPid: number,
+    root: string,
+    token: string,
+    timeoutMs = processTimeoutMs,
+) {
+    const deadline = Date.now() + timeoutMs;
+    let identity = await readLinuxProcessIdentity(descendantIdentity.pid, 'native-descendant', root, token);
+    while (identity.ppid === parentPid && Date.now() < deadline) {
+        await waitMs(processPollMs);
+        identity = await readLinuxProcessIdentity(descendantIdentity.pid, 'native-descendant', root, token);
+    }
+    return identity;
+}
+
 function spawnWorker(root: string, token: string) {
     const worker = spawn(process.execPath, [
         fixtureScriptPath,
@@ -415,9 +434,9 @@ export async function runProject8ProcessProof(): Promise<IProject8ProcessProofEv
         await writeMarker(root, 'release-native-parent');
         const nativeParentExited = await waitForProcessExit(nativeParentIdentity.pid);
         assertCondition(nativeParentExited, 'native parent did not exit after its explicit release barrier');
-        const descendantAfterParentExit = await readLinuxProcessIdentity(
-            descendantIdentity.pid,
-            'native-descendant',
+        const descendantAfterParentExit = await waitForReparentedIdentity(
+            descendantIdentity,
+            nativeParentIdentity.pid,
             root,
             token,
         );

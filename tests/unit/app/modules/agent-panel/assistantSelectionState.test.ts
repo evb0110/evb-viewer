@@ -9,7 +9,7 @@ import type {
     IAgentAssistantStatus,
     TAgentAssistantProviderId,
 } from '@contracts/agent';
-import {cloneAssistantScope} from '@contracts/agent';
+import {cloneAssistantScope} from '@agent-core/assistantScope';
 import {
     createSelectedAssistantStatus,
     getStateScopeFingerprint,

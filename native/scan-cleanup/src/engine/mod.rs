@@ -2,6 +2,7 @@ pub mod analyze;
 pub mod batch_reconciliation;
 pub mod output_geometry;
 pub mod page_statistics;
+pub mod page_workflow;
 pub mod prepare;
 pub mod render;
 pub mod render_plan;

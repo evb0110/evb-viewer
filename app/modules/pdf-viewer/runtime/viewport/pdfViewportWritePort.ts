@@ -2,7 +2,7 @@ import {
     createDocumentViewportWritePort,
     type IDocumentViewportWrite,
     type IDocumentViewportWritePort,
-} from '@app/utils/document-viewer/chassis/documentViewportWritePort';
+} from '@app/modules/document-viewer/public';
 
 export type IPdfViewportWrite = IDocumentViewportWrite;
 export type IPdfViewportWritePort = IDocumentViewportWritePort;

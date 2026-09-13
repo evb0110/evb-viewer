@@ -1,7 +1,7 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { TPdfOpeningViewportRejectionReason } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

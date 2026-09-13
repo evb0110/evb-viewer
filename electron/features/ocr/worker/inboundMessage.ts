@@ -15,7 +15,7 @@ import {
 import type {
     IOcrWorkerStartPayload,
     TOcrWorkerInboundMessage,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import {
     OcrPayloadValidationError,
     validateCancelRequestId,

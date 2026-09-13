@@ -14,7 +14,7 @@ import {
     createDocumentSessionState,
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 let nextPdfFileAnalyticsScopeIndex = 0;

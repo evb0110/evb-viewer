@@ -319,8 +319,10 @@ impl PageCache {
 mod tests {
     use super::*;
     use crate::{
-        engine::render::analyze_page_with_document_prior_cached,
-        protocol::progress::PageStageTimings, MarginsMm, OrthogonalRotation,
+        engine::render::{analyze_page_with_color_and_document_prior_cached, PageAnalysisResult},
+        protocol::progress::PageStageTimings,
+        split::DocumentPrior,
+        MarginsMm, OrthogonalRotation,
     };
     use scan_primitives::GrayImage;
 
@@ -331,6 +333,26 @@ mod tests {
             modified_nanos: 456,
             page_index,
         }
+    }
+
+    fn analyze_page_with_document_prior_cached(
+        source: &GrayImage,
+        options: &CleanupOptions,
+        document_prior: Option<DocumentPrior>,
+        cache: &PageCache,
+        timings: &mut PageStageTimings,
+    ) -> Result<PageAnalysisResult, String> {
+        analyze_page_with_color_and_document_prior_cached(
+            source,
+            None,
+            options,
+            document_prior,
+            true,
+            true,
+            cache,
+            timings,
+        )
+        .map_err(|error| error.to_string())
     }
 
     #[test]

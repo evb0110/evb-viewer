@@ -82,7 +82,7 @@ The open-path call in `createDocumentOpenFlow.ts` is not an inventory entry. It 
 - `packages/pdf-core/loadPdfStructure.ts`, 1 occurrence.
 - `packages/pdf-core/pdfPrintLayout.ts`, 2 occurrences.
 
-The browser PDF-lib operations under `app/platform/browser/` and `app/platform/browser-api/` are explicit browser exceptions. The generated one-page sidecars in `electron/ocr/worker/pdfAssembler.ts` remain outside this inventory.
+The browser PDF-lib operations under `app/platform/browser/` and `app/platform/browser-api/` are explicit browser exceptions. The generated one-page sidecars in `electron/features/ocr/worker/pdfAssembler.ts` remain outside this inventory.
 
 ### PDF.js `getData` and `saveDocument`, 2 entries and 2 occurrences
 
@@ -112,9 +112,9 @@ The scanner does not treat every `readFile` as a PDF read. It proves these class
 - Raster and image inputs in `electron/djvu/buildOptimizedPdf.ts`, `electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts`, `electron/features/image-export/main/export.ts`, and `electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal.ts`.
 - JPEG and PNG preview outputs in `electron/features/documents/main/nativePdfPreview.ts`, `electron/features/djvu/main/pagePreview.ts`, and `electron/features/scan-cleanup/createScanCleanupPreviewService.ts`.
 - Image input reads in `electron/image/pdfCombineShared.ts`, alongside its separate PDF input read.
-- Generated one-page source and OCR PDFs in `electron/ocr/worker/pdfAssembler.ts`. Each sidecar crosses the 16 MiB pdf-lib trust boundary before assembly.
+- Generated one-page source and OCR PDFs in `electron/features/ocr/worker/pdfAssembler.ts`. Each sidecar crosses the 16 MiB pdf-lib trust boundary before assembly.
 - Blob reads for placed images and captured page images in the renderer.
-- The OCR model response buffer in `electron/ocr/languageModels.ts`.
+- The OCR model response buffer in `electron/features/ocr/languageModels.ts`.
 - Browser document and print buffers under the browser platform modules and the browser-only `app/utils/pdfPrint.ts`.
 
 A new call in one of these classes still needs source-shape review. The test pins representative patterns so an image or sidecar read cannot silently become a document read.

@@ -12,9 +12,9 @@ import {
 import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
+    type TWorkerLog,
 } from '@electron/features/ocr/publicNative';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import type {TWorkerLog} from '@electron/ocr/worker/types';
 import {
     requirePublishedRaster,
     runScanCleanupSidecar,

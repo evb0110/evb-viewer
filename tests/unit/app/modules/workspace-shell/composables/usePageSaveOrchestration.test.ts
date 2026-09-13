@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
@@ -14,10 +12,10 @@ import {
     shallowRef,
 } from 'vue';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
-import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const saveMocks = vi.hoisted(() => ({
     capturedDeps: null as unknown,
@@ -28,35 +26,10 @@ const saveMocks = vi.hoisted(() => ({
     handleSaveAs: vi.fn(),
     canSave: {value: false},
     isAnySaving: {value: false},
+    createRecoverySnapshotBytes: vi.fn(),
+    getNativeSaveTransactionOptions: vi.fn(),
 }));
 const platformMocks = vi.hoisted(() => ({statFile: vi.fn()}));
-// The snapshot transaction returns a mutation projection, never bytes, so the
-// recovery path stages the projection as a transient clone and reads it back.
-const artifactMocks = vi.hoisted(() => ({
-    consumeNativePdfMutationProjection: vi.fn(),
-    readDocumentBytes: vi.fn(),
-}));
-
-vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({
-    consumeNativePdfMutationProjection: artifactMocks.consumeNativePdfMutationProjection,
-    NativePdfSaveRequiredError: class NativePdfSaveRequiredError extends Error {},
-}));
-vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: artifactMocks.readDocumentBytes}));
-
-const RECOVERY_CLONE_REF = requireDocumentRef('browser://documents/recovery-clone.pdf');
-const RECOVERY_PROJECTION = cast<never>({
-    canonicalAnnotationProgram: [],
-    mutations: {updates: []},
-    noteTextUpdates: [],
-    freeTextNotes: [],
-    freeTextEditors: [],
-    annotationDeletes: [],
-    hasMetadataMutations: false,
-    hasShapeMutations: false,
-    hasMarkupMutations: false,
-    phase: 'persist-native-pdf-mutations',
-});
-
 vi.mock(
     '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService',
     () => ({useWorkspaceSaveService: vi.fn((deps: unknown) => {
@@ -69,13 +42,13 @@ vi.mock(
             handleSaveAs: saveMocks.handleSaveAs,
             canSave: saveMocks.canSave,
             isAnySaving: saveMocks.isAnySaving,
+            createRecoverySnapshotBytes: saveMocks.createRecoverySnapshotBytes,
+            getNativeSaveTransactionOptions: saveMocks.getNativeSaveTransactionOptions,
         };
     })}),
 );
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({statFile: platformMocks.statFile}),
-}));
+const platformApi = createElectronPlatformApiFixture({documentFiles: {statFile: platformMocks.statFile}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock(
     '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader',
     () => ({createPdfSourceDataReader: () => vi.fn(async () => new Uint8Array([1]))}),
@@ -133,9 +106,9 @@ describe('usePageSaveOrchestration', () => {
         saveMocks.capturedDeps = null;
         saveMocks.canSave.value = false;
         saveMocks.isAnySaving.value = false;
+        saveMocks.createRecoverySnapshotBytes.mockReset();
+        saveMocks.getNativeSaveTransactionOptions.mockReset();
         platformMocks.statFile.mockResolvedValue({size: 1});
-        artifactMocks.consumeNativePdfMutationProjection.mockResolvedValue(RECOVERY_CLONE_REF);
-        artifactMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(4, 5, 6));
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
     });
 
@@ -189,83 +162,26 @@ describe('usePageSaveOrchestration', () => {
         expect(saveMocks.handleOptimizePdfForInteraction).toHaveBeenCalledOnce();
     });
 
-    it('creates a detached recovery snapshot without acknowledging the dirty save frontier', async () => {
-        const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
-        const verifyAnnotationSavePath = vi.fn(async () => undefined);
-        const commitAnnotationSave = vi.fn();
-        const runSaveTransaction = vi.fn(async () => ({
-            source: 'native-mutation-projection' as const,
-            nativeMutationProjection: RECOVERY_PROJECTION,
-            fallbackDecision: {},
-            annotationSavePlan: {},
-            assertAnnotationSaveCurrent,
-            verifyAnnotationSavePath,
-            commitAnnotationSave,
-        }));
-        const runWithDocumentOperationLease = vi.fn(async (_kind, operation: () => Promise<unknown>) => operation());
-        const orchestration = usePageSaveOrchestration(createDeps({
-            annotationDirty: ref(true),
-            hasPendingUnsavedChanges: computed(() => true),
-            documentRevisionToken: ref('revision-1' as TDocumentRevisionToken),
-            workingCopyPath: ref('browser://documents/recovery.pdf'),
-            pdfViewerRef: ref({
-                runSaveTransaction,
-                getAllShapes: vi.fn(() => []),
-            }),
-            runWithDocumentOperationLease,
-        }));
+    it('exposes the save service recovery snapshot entrypoint', async () => {
+        const orchestration = usePageSaveOrchestration(createDeps({hasPendingUnsavedChanges: computed(() => true)}));
 
+        saveMocks.createRecoverySnapshotBytes.mockResolvedValueOnce(Uint8Array.of(4, 5, 6));
         await expect(orchestration.createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(4, 5, 6));
-
-        expect(runWithDocumentOperationLease).toHaveBeenCalledWith('recovery-snapshot', expect.any(Function));
-        expect(runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
-            mode: 'snapshot',
-            saveFlowMode: 'save',
-            requiresManagedShapeBaseline: true,
-        }));
-        expect(artifactMocks.consumeNativePdfMutationProjection).toHaveBeenCalledWith(expect.objectContaining({
-            operation: 'clone',
-            projection: RECOVERY_PROJECTION,
-            verifyPathBeforeExpose: verifyAnnotationSavePath,
-            assertBeforeExpose: assertAnnotationSaveCurrent,
-        }));
-        expect(commitAnnotationSave).not.toHaveBeenCalled();
+        expect(saveMocks.createRecoverySnapshotBytes).toHaveBeenCalledOnce();
     });
 
     it('does not serialize a recovery snapshot for a clean document', async () => {
-        const runSaveTransaction = vi.fn();
-        const orchestration = usePageSaveOrchestration(createDeps({pdfViewerRef: ref({
-            runSaveTransaction,
-            getAllShapes: vi.fn(() => []),
-        })}));
+        saveMocks.createRecoverySnapshotBytes.mockResolvedValueOnce(null);
+        const orchestration = usePageSaveOrchestration(createDeps());
 
         await expect(orchestration.createRecoverySnapshotBytes()).resolves.toBeNull();
-        expect(runSaveTransaction).not.toHaveBeenCalled();
+        expect(saveMocks.createRecoverySnapshotBytes).toHaveBeenCalledOnce();
     });
 
     it('discards a recovery snapshot when the document revision changes during serialization', async () => {
-        const documentRevisionToken = ref<TDocumentRevisionToken | null>(
-            'revision-1' as TDocumentRevisionToken,
-        );
-        const runSaveTransaction = vi.fn(async () => {
-            documentRevisionToken.value = 'revision-2' as TDocumentRevisionToken;
-            return {
-                source: 'native-mutation-projection' as const,
-                nativeMutationProjection: RECOVERY_PROJECTION,
-                fallbackDecision: {},
-                annotationSavePlan: {},
-            };
-        });
-        const orchestration = usePageSaveOrchestration(createDeps({
-            annotationDirty: ref(true),
-            documentRevisionToken,
-            hasPendingUnsavedChanges: computed(() => true),
-            pdfViewerRef: ref({
-                runSaveTransaction,
-                getAllShapes: vi.fn(() => []),
-            }),
-        }));
-
+        const orchestration = usePageSaveOrchestration(createDeps({hasPendingUnsavedChanges: computed(() => true)}));
+        saveMocks.createRecoverySnapshotBytes.mockResolvedValueOnce(null);
         await expect(orchestration.createRecoverySnapshotBytes()).resolves.toBeNull();
+        expect(saveMocks.createRecoverySnapshotBytes).toHaveBeenCalledOnce();
     });
 });

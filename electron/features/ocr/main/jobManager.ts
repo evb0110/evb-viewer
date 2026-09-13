@@ -38,7 +38,7 @@ import type {
 import type {
     TOcrPdfPageSelection,
     TOcrWorkerInboundMessage,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import {
     getJobWindow,
     safeSendToWindow,

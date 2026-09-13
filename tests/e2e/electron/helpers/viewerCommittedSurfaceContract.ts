@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer-core';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
-import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 
 export type TCommittedSurfaceKind =
     | 'blank'

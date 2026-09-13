@@ -20,7 +20,7 @@ import {
     isZoomRestorePdfRerenderSource,
     normalizePdfRerenderSource,
     shouldUseMinimalPdfRerenderBuffer,
-} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+} from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;

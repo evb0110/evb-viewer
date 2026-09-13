@@ -40,7 +40,7 @@ import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine
 import {
     createAnchorPageWindow,
     expandVirtualWindowForAnchor,
-} from '@app/utils/document-viewer/virtualization/pageVirtualization';
+} from '@app/modules/document-viewer/public';
 
 export interface IZoomVirtualizationFreeze {
     sessionId: number | null;

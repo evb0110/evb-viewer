@@ -15,12 +15,12 @@ import {
     shallowRef,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
+import type {IDocumentOutlineItem} from '@app/modules/document-viewer/source/documentPageSource';
 import type {
-    IDocumentOutlineItem,
     IDocumentPageSource,
-    IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+    IDocumentRenderLease,
+} from '@app/modules/document-viewer/public';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import {
     createDocumentSearchSessionDouble,
@@ -95,7 +95,7 @@ interface ICapabilityOptions {
     thumbnails?: boolean;
 }
 
-function createSurfaceLease(): IDocumentSurfaceLease {
+function createSurfaceLease(): IDocumentRenderLease {
     return {
         widthPx: 180,
         heightPx: 252,

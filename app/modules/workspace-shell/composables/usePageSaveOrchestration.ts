@@ -1,32 +1,25 @@
+import type {
+    ComputedRef, Ref, ShallowRef,
+} from 'vue';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
-    ComputedRef,
-    Ref,
-    ShallowRef,
-} from 'vue';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
+    IPdfBookmarkEntry, IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {IScrollSnapshot} from '@app/types/pdfUi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     createPdfSourceDataReader,
-    resolvePdfReloadPage,
     createPdfReloadWaiter,
+    resolvePdfReloadPage,
     type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
-import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
-import { readDocumentBytes } from '@app/utils/documentBytes';
-import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
-import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
-import type { INativePdfSaveTransactionOptions } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
+import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {hasViewerShapeChanges} from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 
 type TPageSaveViewer = IPdfViewerExpose & {
     captureScrollSnapshot?: () => IScrollSnapshot | null;
@@ -87,317 +80,129 @@ interface IPageSaveOrchestrationDeps {
 }
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
-    const { t } = useTypedI18n();
-
-    const {
-        pdfData,
-        pdfDocument,
-        pdfViewerRef,
-        workingCopyPath,
-        originalPath,
-        documentSessionKey,
-        documentRevisionToken,
-        wasEncrypted,
-        unencryptedSaveNotice,
-        totalPages,
-        pageLabelsDirty,
-        pageLabelRanges,
-        bookmarksDirty,
-        bookmarkItems,
-        isSaving,
-        isSavingAs,
-        annotationDirty,
-        annotationNoteWindowsCount,
-        pendingEmbeddedAnnotationDeleteCount,
-        hasAnnotationChanges,
-        markAnnotationSaved,
-        getAnnotationSaveStateToken,
-        markPageLabelsSaved,
-        getPageLabelsSaveStateToken,
-        markBookmarksSaved,
-        getBookmarksSaveStateToken,
-        isDirty,
-        hasPendingUnsavedChanges,
-        validatePdfPath,
-        saveFile,
-        repairWorkingCopy,
-        optimizeWorkingCopy,
-        saveWorkingCopy,
-        trySavePdfNativeMutations,
-        trySaveEmbeddedNoteTextUpdates,
-        saveWorkingCopyAs,
-        persistAllAnnotationNotes,
-        loadRecentFiles,
-        currentPage,
-        resetSearchCache,
-        runWithDocumentOperationLease,
-    } = deps;
-
+    const {t} = useTypedI18n();
     const getSourcePdfData = createPdfSourceDataReader({
-        pdfData,
-        workingCopyPath,
-        documentRevisionToken,
+        pdfData: deps.pdfData,
+        workingCopyPath: deps.workingCopyPath,
+        documentRevisionToken: deps.documentRevisionToken,
     });
-
     const saveDependencies: IWorkspaceSaveDependencies = {
         status: {
-            isSaving,
-            isSavingAs,
+            isSaving: deps.isSaving,
+            isSavingAs: deps.isSavingAs,
         },
         document: {
-            sessionKey: documentSessionKey,
-            workingCopyPath,
-            originalPath,
-            revisionToken: documentRevisionToken,
-            ...(wasEncrypted ? {wasEncrypted} : {}),
+            sessionKey: deps.documentSessionKey,
+            workingCopyPath: deps.workingCopyPath,
+            originalPath: deps.originalPath,
+            revisionToken: deps.documentRevisionToken,
+            ...(deps.wasEncrypted ? {wasEncrypted: deps.wasEncrypted} : {}),
         },
-        ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
-        ...(hasPendingUnsavedChanges ? {hasPendingUnsavedChanges} : {}),
+        ...(deps.unencryptedSaveNotice ? {unencryptedSaveNotice: deps.unencryptedSaveNotice} : {}),
+        ...(deps.hasPendingUnsavedChanges
+            ? {hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges}
+            : {}),
         hasUnsavedChanges: () => (
-            isDirty.value
-            || annotationDirty.value
-            || hasAnnotationChanges()
-            || pageLabelsDirty.value
-            || bookmarksDirty.value
+            deps.isDirty.value
+            || deps.annotationDirty.value
+            || deps.hasAnnotationChanges()
+            || deps.pageLabelsDirty.value
+            || deps.bookmarksDirty.value
         ),
         ...(deps.optimizePdfOnSaveAs ? {optimizePdfOnSaveAs: deps.optimizePdfOnSaveAs} : {}),
         annotations: {
-            dirty: annotationDirty,
-            markSaved: markAnnotationSaved,
-            ...(getAnnotationSaveStateToken ? {getSaveStateToken: getAnnotationSaveStateToken} : {}),
-            hasChanges: hasAnnotationChanges,
-            hasPendingDeletes: () => pendingEmbeddedAnnotationDeleteCount.value > 0,
-            openNoteCount: annotationNoteWindowsCount,
-            persistOpenNotes: persistAllAnnotationNotes,
+            dirty: deps.annotationDirty,
+            markSaved: deps.markAnnotationSaved,
+            ...(deps.getAnnotationSaveStateToken
+                ? {getSaveStateToken: deps.getAnnotationSaveStateToken}
+                : {}),
+            hasChanges: deps.hasAnnotationChanges,
+            hasPendingDeletes: () => deps.pendingEmbeddedAnnotationDeleteCount.value > 0,
+            openNoteCount: deps.annotationNoteWindowsCount,
+            persistOpenNotes: deps.persistAllAnnotationNotes,
         },
         metadata: {
-            totalPages,
-            pageLabelsDirty,
-            pageLabelRanges,
-            bookmarksDirty,
-            bookmarkItems,
+            totalPages: deps.totalPages,
+            pageLabelsDirty: deps.pageLabelsDirty,
+            pageLabelRanges: deps.pageLabelRanges,
+            bookmarksDirty: deps.bookmarksDirty,
+            bookmarkItems: deps.bookmarkItems,
             untitledBookmarkLabel: t('bookmarks.untitled'),
-            markPageLabelsSaved,
-            ...(getPageLabelsSaveStateToken
-                ? {getPageLabelsSaveStateToken}
+            markPageLabelsSaved: deps.markPageLabelsSaved,
+            ...(deps.getPageLabelsSaveStateToken
+                ? {getPageLabelsSaveStateToken: deps.getPageLabelsSaveStateToken}
                 : {}),
-            markBookmarksSaved,
-            ...(getBookmarksSaveStateToken
-                ? {getBookmarksSaveStateToken}
+            markBookmarksSaved: deps.markBookmarksSaved,
+            ...(deps.getBookmarksSaveStateToken
+                ? {getBookmarksSaveStateToken: deps.getBookmarksSaveStateToken}
                 : {}),
         },
         pdf: {
-            document: pdfDocument,
+            document: deps.pdfDocument,
+            viewer: deps.pdfViewerRef,
             commitEditorsForSave: async () => {
-                await pdfViewerRef.value?.commitPdfEditorsForSave?.();
+                await deps.pdfViewerRef.value?.commitPdfEditorsForSave?.();
             },
-            runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
+            runSaveTransaction: request => deps.pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
         },
         persistence: {
-            validatePdfPath,
-            saveSerialized: saveFile,
-            saveWorkingCopy,
-            saveAs: saveWorkingCopyAs,
-            ...(repairWorkingCopy ? {repairWorkingCopy} : {}),
-            ...(optimizeWorkingCopy ? {optimizeWorkingCopy} : {}),
+            validatePdfPath: deps.validatePdfPath,
+            saveSerialized: deps.saveFile,
+            saveWorkingCopy: deps.saveWorkingCopy,
+            saveAs: deps.saveWorkingCopyAs,
+            ...(deps.repairWorkingCopy ? {repairWorkingCopy: deps.repairWorkingCopy} : {}),
+            ...(deps.optimizeWorkingCopy ? {optimizeWorkingCopy: deps.optimizeWorkingCopy} : {}),
             ...(deps.optimizeWorkingCopyAsCopy
                 ? {optimizeWorkingCopyAsCopy: deps.optimizeWorkingCopyAsCopy}
                 : {}),
-            ...(trySavePdfNativeMutations ? {trySavePdfNativeMutations} : {}),
-            ...(trySaveEmbeddedNoteTextUpdates
-                ? {trySaveEmbeddedNoteTextUpdates}
+            ...(deps.trySavePdfNativeMutations
+                ? {trySavePdfNativeMutations: deps.trySavePdfNativeMutations}
                 : {}),
-            getWorkingCopySize: async path => (
-                await getDocumentFilesCapability().statFile(path)
-            ).size,
+            ...(deps.trySaveEmbeddedNoteTextUpdates
+                ? {trySaveEmbeddedNoteTextUpdates: deps.trySaveEmbeddedNoteTextUpdates}
+                : {}),
+            getWorkingCopySize: async path => (await getDocumentFilesCapability().statFile(path)).size,
         },
         shapes: {
-            hasChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
-            hasManagedShapes: () => (pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
-            markSaved: prepared => pdfViewerRef.value?.markSavedShapeState?.(prepared),
+            hasChanges: () => hasViewerShapeChanges(deps.pdfViewerRef.value),
+            hasManagedShapes: () => (deps.pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
+            markSaved: prepared => deps.pdfViewerRef.value?.markSavedShapeState?.(prepared),
             preparePersistedState: data => (
-                pdfViewerRef.value?.preparePersistedManagedShapesForSave?.(data)
+                deps.pdfViewerRef.value?.preparePersistedManagedShapesForSave?.(data)
                 ?? Promise.resolve(null)
             ),
             restorePreparedState: snapshot => (
-                pdfViewerRef.value?.restorePreparedManagedShapesAfterFailedSave?.(snapshot)
+                deps.pdfViewerRef.value?.restorePreparedManagedShapesAfterFailedSave?.(snapshot)
                 ?? Promise.resolve()
             ),
         },
         lifecycle: {
-            loadRecentFiles,
+            loadRecentFiles: deps.loadRecentFiles,
             preparePostSaveReload: () => {
-                const scrollSnapshot = pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
-                const pageToRestore = resolvePdfReloadPage(scrollSnapshot?.anchorPage ?? currentPage.value);
+                const scrollSnapshot = deps.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
+                const pageToRestore = resolvePdfReloadPage(scrollSnapshot?.anchorPage ?? deps.currentPage.value);
                 const reloadWaiter = createPdfReloadWaiter({
-                    pdfDocument,
-                    pdfViewerRef,
-                    resetSearchCache,
+                    pdfDocument: deps.pdfDocument,
+                    pdfViewerRef: deps.pdfViewerRef,
+                    resetSearchCache: deps.resetSearchCache,
                     pageToRestore,
                     restoreScroll: true,
                 });
                 return {
                     promise: reloadWaiter.promise,
-                    cancel: () => {
-                        reloadWaiter.cancel();
-                    },
+                    cancel: () => reloadWaiter.cancel(),
                 };
             },
         },
-        ...(runWithDocumentOperationLease ? {runWithDocumentOperationLease} : {}),
+        ...(deps.runWithDocumentOperationLease
+            ? {runWithDocumentOperationLease: deps.runWithDocumentOperationLease}
+            : {}),
         ...(deps.failureSurface ? {failureSurface: deps.failureSurface} : {}),
     };
-
-    const {
-        handleSave,
-        handleRepairSave,
-        handleOptimizePdfForInteraction,
-        handleOptimizePdfAsCopy,
-        handleSaveAs,
-        canSave,
-        isAnySaving,
-        hasSaveFailure,
-        handleSaveWithinDocumentOperationLease,
-    } = useWorkspaceSaveService(saveDependencies);
-    const saveForExternalRead = handleSave;
-    const saveForExternalReadWithinDocumentOperationLease = handleSaveWithinDocumentOperationLease;
-
-    function getNativeSaveTransactionOptions(): INativePdfSaveTransactionOptions {
-        const documentFiles = getDocumentFilesCapability();
-        const canStageNativeMutation = (
-            typeof documentFiles.releaseManagedTempFileHandle === 'function'
-            && typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
-        );
-        const canConsumeNativeMutation = (
-            typeof documentFiles.cloneStagedPdfNativeMutationToWorkingCopy === 'function'
-            && typeof documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation === 'function'
-        );
-        return {
-            forceWriterSave: false,
-            nativeCapabilities: {
-                hasNativePdfMutationCapability: canStageNativeMutation,
-                canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,
-            },
-            dirtyState: {
-                annotationDirty: annotationDirty.value,
-                hasAnnotationChanges: hasAnnotationChanges(),
-                shapeStateDirty: hasViewerShapeChanges(pdfViewerRef.value),
-            },
-            documentStructure: {
-                pageLabelsDirty: pageLabelsDirty.value,
-                pageLabelRanges: pageLabelRanges.value,
-                bookmarksDirty: bookmarksDirty.value,
-                bookmarkItems: bookmarkItems.value,
-                untitledBookmarkLabel: t('bookmarks.untitled'),
-                totalPages: totalPages.value > 0
-                    ? totalPages.value
-                    : (pdfDocument.value?.numPages ?? 0),
-            },
-        };
-    }
-
-    async function createRecoverySnapshotBytesUnlocked() {
-        const viewer = pdfViewerRef.value;
-        const capturedWorkingCopyPath = workingCopyPath.value;
-        const capturedDocumentRevisionToken = documentRevisionToken.value;
-        const ownsCapturedDocument = () => (
-            workingCopyPath.value === capturedWorkingCopyPath
-            && documentRevisionToken.value === capturedDocumentRevisionToken
-        );
-        if (!viewer || !capturedWorkingCopyPath || !hasPendingUnsavedChanges?.value) {
-            return null;
-        }
-
-        // Desktop recovery persists the managed working-copy path through the
-        // workspace checkpoint. Do not create a detached renderer byte snapshot
-        // for a native path. Browser recovery still uses this byte API because
-        // its durable store is browser-owned.
-        if (isNativeDocumentRef(capturedWorkingCopyPath)) {
-            return null;
-        }
-        if (!await persistAllAnnotationNotes()) {
-            throw new Error('Open annotation notes could not be prepared for crash recovery.');
-        }
-
-        const shapeStateDirty = hasViewerShapeChanges(viewer);
-        const result = await viewer.runSaveTransaction({
-            mode: 'snapshot',
-            saveMode: 'rewrite',
-            saveFlowMode: 'save',
-            includeManagedShapes: shapeStateDirty,
-            rewriteShapeState: shapeStateDirty,
-            forceRewrite: pageLabelsDirty.value || bookmarksDirty.value || shapeStateDirty,
-            requiresManagedShapeBaseline: true,
-            dirtyState: {
-                annotationDirty: annotationDirty.value,
-                hasAnnotationChanges: hasAnnotationChanges(),
-                shapeStateDirty,
-            },
-            documentStructure: {
-                pageLabelsDirty: pageLabelsDirty.value,
-                pageLabelRanges: pageLabelRanges.value,
-                bookmarksDirty: bookmarksDirty.value,
-                bookmarkItems: bookmarkItems.value,
-                untitledBookmarkLabel: t('bookmarks.untitled'),
-                totalPages: totalPages.value > 0
-                    ? totalPages.value
-                    : (pdfDocument.value?.numPages ?? 0),
-            },
-            source: {getSourcePdfData},
-        });
-        if (
-            !result.nativeMutationProjection
-            || capturedDocumentRevisionToken === null
-            || !ownsCapturedDocument()
-        ) {
-            return null;
-        }
-        // The transaction hands back a projection, never bytes. Staging it as a
-        // clone is the only way to read what the dirty document would serialize
-        // to, and the clone is transient, so the maintenance sweep reclaims it
-        // once the caller has copied the bytes into its durable checkpoint.
-        const snapshotRef = await consumeNativePdfMutationProjection({
-            workingPath: capturedWorkingCopyPath,
-            expectedDocumentRevisionToken: capturedDocumentRevisionToken,
-            projection: result.nativeMutationProjection,
-            operation: 'clone',
-            originalPath: originalPath.value,
-            ...(result.verifyAnnotationSavePath
-                ? {verifyPathBeforeExpose: result.verifyAnnotationSavePath}
-                : {}),
-            ...(result.assertAnnotationSaveCurrent
-                ? {assertBeforeExpose: result.assertAnnotationSaveCurrent}
-                : {}),
-        });
-        if (!snapshotRef || !ownsCapturedDocument()) {
-            return null;
-        }
-        // Do not call the transaction's commit callback: recovery must never
-        // acknowledge the live dirty frontier or change the active working copy.
-        return readDocumentBytes(snapshotRef);
-    }
-
-    function createRecoverySnapshotBytes() {
-        return runWithDocumentOperationLease
-            ? runWithDocumentOperationLease('recovery-snapshot', createRecoverySnapshotBytesUnlocked)
-            : createRecoverySnapshotBytesUnlocked();
-    }
-
     return {
         getSourcePdfData,
-        handleSave,
-        handleRepairSave,
-        handleOptimizePdfForInteraction,
-        handleOptimizePdfAsCopy,
-        handleSaveAs,
-        saveForExternalRead,
-        saveForExternalReadWithinDocumentOperationLease,
-        getNativeSaveTransactionOptions,
-        createRecoverySnapshotBytes,
-        isAnySaving,
-        canSave,
-        hasSaveFailure,
+        ...useWorkspaceSaveService(saveDependencies),
     };
 };

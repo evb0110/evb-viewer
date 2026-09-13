@@ -61,6 +61,7 @@ cutter. Routine CI runs the unit suite without coverage instrumentation. Keeping
 unit suite on main avoids missing filesystem and auto-import dependencies. Relevant
 browser, Electron, native, and packaging lanes follow the changed areas.
 Coverage is an optional diagnostic without percentage thresholds. See
+[the CI guide](./ci.md) for the workflow and job map, and
 [ci.yml](../../.github/workflows/ci.yml) for the current selections.
 
 Every push to main runs to completion; a newer push does not cancel it. The

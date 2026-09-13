@@ -5,7 +5,7 @@ import type { IPageRange } from '@app/types/pdfUi';
 import {
     resolveDocumentRasterResidencyPlan,
     type IDocumentRasterResidencyPlan,
-} from '@app/utils/document-viewer/rendering/resolveDocumentRasterResidencyPlan';
+} from '@app/modules/document-viewer/public';
 
 export interface IPdfRasterResidencyPlanOptions {
     mountedPages: readonly number[];

@@ -1,17 +1,14 @@
 import type {
     IDocumentPageMetrics,
-    IDocumentSurfaceLease,
+    IDocumentRenderLease,
     TDocumentRenderPriority,
-    IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
+    IDocumentPageSource, IDocumentViewerRuntime , IDocumentViewerRenderSession , IDocumentOpenSurfaceRenderOwner, 
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSourceTransition,
     IDocumentPageSourceFence,
     IDocumentPageSourceFeaturePackEmit,
 } from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
-import type { IDocumentOpenSurfaceRenderOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
     getFailureReceipt,
     type FailureReceipt,
@@ -21,7 +18,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
-} from '@app/utils/document-viewer/lifecycle/documentViewerActivationPresentation';
+} from '@app/modules/document-viewer/public';
 const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
     navigation: 5,
     visible: 4,
@@ -34,7 +31,7 @@ export interface IDocumentPageSourceVisualState {
     error: string | null;
     failurePresentation: FailurePresentation | null;
     ready: boolean;
-    lease: IDocumentSurfaceLease | null;
+    lease: IDocumentRenderLease | null;
     priority: TDocumentRenderPriority;
     retryCount: number;
     widthPx: number;
@@ -100,7 +97,7 @@ function waitForDocumentPageImagePaint(image: HTMLImageElement, signal: AbortSig
     });
 }
 export function createDocumentPageSourcePresentation(options: {
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     emit: IDocumentPageSourceFeaturePackEmit;
     ensureExactPageMetric: (
         source: IDocumentPageSource, generation: number, pageNumber: number,
@@ -158,7 +155,7 @@ export function createDocumentPageSourcePresentation(options: {
     const subscribeInvalidation = (
         pageNumber: number,
         state: IDocumentPageSourceVisualState,
-        lease: IDocumentSurfaceLease,
+        lease: IDocumentRenderLease,
     ) => lease.onInvalidated?.(() => {
         const invalidated = pageStates.get(pageNumber);
         if (invalidated !== state || invalidated.lease !== lease) {

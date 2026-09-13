@@ -31,30 +31,24 @@ import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/create
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type { IPlatformApiFixtureEventMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
 const mocks = vi.hoisted(() => ({
-    eventSubscriber: null as ((event: IAgentAssistantEvent) => void) | null,
     getAssistantState: vi.fn(),
     installAssistantCodex: vi.fn(),
     sendAssistantMessage: vi.fn(),
     interruptAssistant: vi.fn(),
 }));
 
-vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => ({
+const platformApi = createElectronPlatformApiFixture({agent: {
     getAssistantState: mocks.getAssistantState,
     sendAssistantMessage: mocks.sendAssistantMessage,
     interruptAssistant: mocks.interruptAssistant,
-    resetAssistantChat: vi.fn(),
     installAssistantCodex: mocks.installAssistantCodex,
-    startAssistantLogin: vi.fn(),
-    cancelAssistantLogin: vi.fn(),
-    onAssistantEvent: (subscriber: (event: IAgentAssistantEvent) => void) => {
-        mocks.eventSubscriber = subscriber;
-        return () => {
-            mocks.eventSubscriber = null;
-        };
-    },
-})}));
+}});
+const assistantEvent = platformApi.agent.onAssistantEvent as typeof platformApi.agent.onAssistantEvent & IPlatformApiFixtureEventMethod<IAgentAssistantEvent>;
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     useTypedI18n: () => ({t: (key: string) => key}),
@@ -234,7 +228,7 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
 describe('mounted assistant panel lifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.eventSubscriber = null;
+        assistantEvent.dispose();
         window.localStorage.clear();
     });
 
@@ -595,7 +589,7 @@ describe('mounted assistant panel lifecycle', () => {
         });
         messages.scrollTop = 120;
 
-        mocks.eventSubscriber?.({
+        assistantEvent.emit({
             type: 'message-delta',
             state: createReadyState(),
             messageId: 'assistant-1',
@@ -620,7 +614,7 @@ describe('mounted assistant panel lifecycle', () => {
         await nextTick();
         expect(harness.host.querySelector('.installing')?.textContent).toBe('true');
 
-        mocks.eventSubscriber?.({
+        assistantEvent.emit({
             type: 'install-progress',
             progress: 'Downloading verified Codex.',
             state: updateState,

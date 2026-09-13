@@ -1,4 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
 
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -15,11 +14,13 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
+import {createRangePageSelection} from '@contracts/pageNumbers';
 import {
     createPageMoveRange,
     createPageMoveRanges,
-    createRangePageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type { IPlatformApiFixtureEventMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
 const pageOpsApi = {
     delete: vi.fn(),
@@ -44,8 +45,10 @@ type TBatchProgressListener = (progress: {
     elapsedMs: number;
     estimatedRemainingMs: number | null;
 }) => void;
+type TBatchProgress = Parameters<TBatchProgressListener>[0];
 
-const progressListeners = new Set<TBatchProgressListener>();
+const platformApi = createElectronPlatformApiFixture({pageOps: pageOpsApi});
+const pageOpenProgress = platformApi.documentOpen.onOpenDocumentDirectBatchProgress as typeof platformApi.documentOpen.onOpenDocumentDirectBatchProgress & IPlatformApiFixtureEventMethod<TBatchProgress>;
 
 const loggerError = vi.fn();
 const loggerWarn = vi.fn();
@@ -57,20 +60,7 @@ const pageOperationFailure = {
     severity: 'error',
 };
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getPageOpsCapability: () => pageOpsApi,
-    getDocumentOpenCapability: () => {
-        const onOpenDocumentDirectBatchProgress = (callback: TBatchProgressListener) => {
-            progressListeners.add(callback);
-            return () => {
-                progressListeners.delete(callback);
-            };
-        };
-
-        return {onOpenDocumentDirectBatchProgress};
-    },
-}));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     diagnostic: vi.fn(),
@@ -165,7 +155,7 @@ beforeEach(() => {
         success: true,
         pageCount: 1,
     });
-    progressListeners.clear();
+    pageOpenProgress.dispose();
 });
 
 describe('usePageOperations', () => {
@@ -694,25 +684,23 @@ describe('usePageOperations', () => {
                     throw new Error('Expected requestId for multi-file insert');
                 }
 
-                progressListeners.forEach((listener) => {
-                    listener({
-                        operation: 'document-open',
-                        requestId,
-                        processed: 1,
-                        total: 3,
-                        percent: 33,
-                        elapsedMs: 500,
-                        estimatedRemainingMs: 1000,
-                    });
-                    listener({
-                        operation: 'page-insert',
-                        requestId,
-                        processed: 2,
-                        total: 3,
-                        percent: 66,
-                        elapsedMs: 1200,
-                        estimatedRemainingMs: 600,
-                    });
+                pageOpenProgress.emit({
+                    operation: 'document-open',
+                    requestId,
+                    processed: 1,
+                    total: 3,
+                    percent: 33,
+                    elapsedMs: 500,
+                    estimatedRemainingMs: 1000,
+                });
+                pageOpenProgress.emit({
+                    operation: 'page-insert',
+                    requestId,
+                    processed: 2,
+                    total: 3,
+                    percent: 66,
+                    elapsedMs: 1200,
+                    estimatedRemainingMs: 600,
                 });
 
                 return pendingInsert.promise;

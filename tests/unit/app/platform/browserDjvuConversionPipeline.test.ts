@@ -20,6 +20,7 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
@@ -70,11 +71,9 @@ const browserFailure: FailureReceipt = {
 
 describe('browserDjvuConversionPipeline', () => {
     it('refuses absolute paths without a native DjVu bridge before worker creation', () => {
-        vi.stubGlobal('window', {electronAPI: {documentFiles: {
-            statFile: vi.fn(),
-            readFile: vi.fn(),
-            readFileRange: vi.fn(),
-        }}});
+        const electronApi = createElectronPlatformApiFixture();
+        Reflect.deleteProperty(electronApi.djvu, 'getInfo');
+        vi.stubGlobal('window', {electronAPI: electronApi});
 
         expect(() => assertBrowserDjvuSource(requireDocumentRef('/tmp/native.djvu'), 'info')).toThrowError(
             expect.objectContaining({
@@ -89,11 +88,13 @@ describe('browserDjvuConversionPipeline', () => {
         const readFile = vi.fn();
         const readFileRange = vi.fn();
         const statFile = vi.fn();
-        vi.stubGlobal('window', {electronAPI: {documentFiles: {
+        const electronApi = createElectronPlatformApiFixture({documentFiles: {
             readFile,
             readFileRange,
             statFile,
-        }}});
+        }});
+        Reflect.deleteProperty(electronApi.djvu, 'getInfo');
+        vi.stubGlobal('window', {electronAPI: electronApi});
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
 
         await expect(withBrowserDjvuWorker(

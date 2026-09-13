@@ -4,10 +4,10 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
+import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import {
-    SEARCH_REGEX_MAX_EXECUTION_MS, SearchRegexLimitError,
-} from '@contracts/search';
-import {validateSearchQuery} from '@pdf-core';
+    SearchRegexLimitError,validateSearchQuery,
+} from '@pdf-core';
 import {
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,

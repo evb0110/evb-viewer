@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
 import type { IWorkspaceDocumentSnapshot } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 function createSession(
     overrides: Partial<IWorkspaceDocumentSnapshot> = {},

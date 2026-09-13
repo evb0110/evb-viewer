@@ -1,4 +1,4 @@
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
 
 export function resolvePdfPreparedOpeningFitScale(
     snapshot: IDocumentOpenSurfaceSnapshot,
@@ -15,7 +15,7 @@ export function resolvePdfPreparedOpeningFitScale(
         || !isOpening
         || !frame
         || !geometry
-        || !frame.ownerId.startsWith('document-viewer-chassis:')
+        || !frame.ownerId.startsWith('document-viewer-runtime:')
         || frame.generation !== snapshot.generation
         || frame.pageNumber !== geometry.pageNumber
         || geometry.width <= 0

@@ -2,7 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 

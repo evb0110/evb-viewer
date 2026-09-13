@@ -146,7 +146,17 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 20
         run: |
+          # The packaging container has no Node, so the verified fetch runs on the runner.
+          # Exit code 3 means this target has no published archives yet.
+          fetch_status=0
+          node --import tsx scripts/fetchRuntimeBinaries.ts || fetch_status=$?
+          if [ "$fetch_status" -eq 0 ]; then
+            exit 0
+          elif [ "$fetch_status" -ne 3 ]; then
+            exit "$fetch_status"
+          fi
           docker run --rm \
+            --env EVB_RUNTIME_BINARIES_FROM_SOURCE=1 \
             --env EVB_HOST_GID="$(id -g)" \
             --env EVB_HOST_UID="$(id -u)" \
             --volume "$PWD:/workspace" \

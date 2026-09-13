@@ -1,5 +1,5 @@
 import type { TTabTemperature } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type { TViewerResidencyState } from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
+import type { TViewerResidencyState } from '@app/utils/viewerResidencyPolicy';
 
 export interface ITabTemperatureReclaimCandidateOptions { isSaveProtected?: boolean | undefined; }
 

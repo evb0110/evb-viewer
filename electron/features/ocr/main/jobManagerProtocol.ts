@@ -1,4 +1,4 @@
-import type { TOcrWorkerOutboundMessage } from '@electron/ocr/worker/types';
+import type { TOcrWorkerOutboundMessage } from '@electron/features/ocr/worker/types';
 import type {
     IOcrDiagnostic,
     IOcrErrorEnvelope,

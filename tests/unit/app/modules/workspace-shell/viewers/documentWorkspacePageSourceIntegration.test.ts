@@ -18,18 +18,18 @@ import {
     shallowRef,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import DocumentViewerChassis from '@app/modules/workspace-shell/components/DocumentViewerChassis.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
 
 vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders', async () => {
     const vue = await import('vue');
-    const {documentViewerChassisAuthorityKey} = await import(
-        '@app/utils/document-viewer/chassis/documentViewerChassisAuthority'
+    const {documentViewerRuntimeKey} = await import(
+        '@app/modules/document-viewer/public'
     );
     const createFeaturePackStub = (kind: string) => vue.defineComponent({
         inheritAttrs: false,
@@ -44,7 +44,7 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders
             },
         },
         setup(props) {
-            const authority = vue.inject(documentViewerChassisAuthorityKey);
+            const authority = vue.inject(documentViewerRuntimeKey);
             vue.onMounted(() => {
                 setTimeout(() => authority?.bindSource(props.testSource as IDocumentPageSource), props.bindDelayMs);
             });

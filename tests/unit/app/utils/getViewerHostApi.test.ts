@@ -1,4 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/utils/viewerAssets';
 
 import {
@@ -9,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => {
     const documentOpen = {openDocumentDirect: vi.fn()};
@@ -26,23 +26,18 @@ const mocks = vi.hoisted(() => {
         documentFiles,
         documentPicker,
         hasElectronAPI: vi.fn(() => true),
-        search: {source: 'search'},
-        settings: {source: 'settings'},
-        shell: {source: 'shell'},
     };
 });
 
-vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mocks.hasElectronAPI()}));
-
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mocks.documentFiles,
-    getDocumentOpenCapability: () => mocks.documentOpen,
-    getDocumentPickerCapability: () => mocks.documentPicker,
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: mocks.documentFiles,
+    documentOpen: mocks.documentOpen,
+    documentPicker: mocks.documentPicker,
+});
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    hasElectronAPI: () => mocks.hasElectronAPI(),
 }));
-vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => mocks.search}));
-vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settings}));
-vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => mocks.shell}));
 vi.mock('@app/utils/viewerAssets', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     getViewerAssetResolver: () => ({pdfWorkerUrl: () => '/pdf.worker.js'}),

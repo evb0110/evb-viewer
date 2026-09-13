@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -16,6 +14,7 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TCreateTextMarkupOptions = Parameters<IPdfViewerExpose['createTextMarkupFromText']>[0];
 type TCreatePointNoteOptions = Parameters<IPdfViewerExpose['createPointNoteAnnotation']>[0];
@@ -28,10 +27,8 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }),
-}));
+const platformApi = createElectronPlatformApiFixture({pageOps: {getPageGeometry: mocks.getPageGeometry}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
     diagnostic: (...args: unknown[]) => mocks.diagnostic(...args),
     diagnosticThrottled: (...args: unknown[]) => mocks.diagnosticThrottled(...args),

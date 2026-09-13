@@ -6,3 +6,4 @@ export {
     renderPdfPageToPng,
     renderPdfPageToPpm,
 } from '@electron/features/ocr/worker/popplerStage';
+export type {TWorkerLog} from '@electron/features/ocr/worker/types';

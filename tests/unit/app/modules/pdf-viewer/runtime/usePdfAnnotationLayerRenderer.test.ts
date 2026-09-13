@@ -10,6 +10,7 @@ import {
 import {ref} from 'vue';
 import {usePdfAnnotationLayerRenderer} from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import type {ILinkAnnotation} from '@app/types/annotations';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});
@@ -27,7 +28,8 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     },
 }));
 
-vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => ({openExternal: vi.fn(async () => {})})}));
+const platformApi = createElectronPlatformApiFixture();
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 function createRenderer(overrides: Record<string, unknown> = {}) {
     return usePdfAnnotationLayerRenderer({

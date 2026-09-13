@@ -7,7 +7,7 @@ import type {
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
+import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import type {
     TPageMoveOperation,
     TPageSelection,

@@ -57,6 +57,7 @@ export function scanCleanupPreviewRenderingOwner(
     rawRasterRetention: IScanCleanupPreviewOwnerRetention,
 ): IScanCleanupPreviewRenderingOwner {
     const active = new Map<string, IPreviewEntry>();
+    const manuallyCanceled = new WeakSet<IPreviewEntry>();
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
     const baseAnalysisPins = new Map<string, number>();
     const pendingBaseAnalysisRemovals = new Map<string, IBasePreviewAnalysis[]>();
@@ -146,6 +147,24 @@ export function scanCleanupPreviewRenderingOwner(
                 }
                 else void scheduleBaseAnalysisRemoval(analysis);
             }
+        }
+    };
+    const releaseCanceledPreviewResources = (
+        request: IScanCleanupPreviewRequest,
+        claimId: string,
+        sourcePdfPath = request.sourcePdfPath,
+    ) => {
+        rawRasterRetention.invalidate(sourcePdfPath, request.documentRevision, claimId);
+        const documentKey = baseAnalysisDocumentKey(sourcePdfPath, request.documentRevision);
+        const documentToken = `\u0000${request.documentRevision}\u0000${sourcePdfPath}\u0000`;
+        const documentStillActive = [...active.entries()].some(([
+            key,
+            entry,
+        ]) => entry.claimId !== claimId && key.includes(documentToken));
+        if (documentStillActive) {
+            deferredBaseAnalysisInvalidations.add(documentKey);
+        } else {
+            removeBaseAnalysisForDocument(sourcePdfPath, request.documentRevision);
         }
     };
     const previewOwnerPrefix = (
@@ -265,6 +284,7 @@ export function scanCleanupPreviewRenderingOwner(
             if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
                 if (request.invalidateRawCache === false) entry.canceledAsResult = true;
                 canceledEntries.push(entry);
+                manuallyCanceled.add(entry);
                 entry.cancel(reason);
                 canceled = true;
             }
@@ -274,13 +294,18 @@ export function scanCleanupPreviewRenderingOwner(
         // cancellation forgets which page that is.
         if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
         if (request.invalidateRawCache !== false) {
-            const claimIds = canceledEntries.map(entry => entry.claimId);
-            if (claimIds.length === 0 && !otherOwnerHasWork) {
+            const claims = canceledEntries.map(entry => ({
+                claimId: entry.claimId,
+                sourcePdfPath: entry.sourcePdfPath ?? request.sourcePdfPath,
+            }));
+            if (claims.length === 0 && !otherOwnerHasWork) {
                 rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
             } else {
-                for (const claimId of claimIds) {
+                for (const {
+                    claimId, sourcePdfPath,
+                } of claims) {
                     rawRasterRetention.invalidate(
-                        request.sourcePdfPath,
+                        sourcePdfPath,
                         request.documentRevision,
                         claimId,
                     );
@@ -376,8 +401,9 @@ export function scanCleanupPreviewRenderingOwner(
                         : 'prefetch',
             };
             const entryStateRef: {current?: IPreviewEntry} = {};
+            const jobId = createJobId('scan-cleanup-preview');
             const handle = previewJobs.start({
-                jobId: createJobId('scan-cleanup-preview'),
+                jobId,
                 owner: {
                     sender,
                     ownerId: request.ownerId,
@@ -399,6 +425,15 @@ export function scanCleanupPreviewRenderingOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
+                onCancel: () => {
+                    if (entryStateRef.current && manuallyCanceled.has(entryStateRef.current)) return;
+                    releaseCanceledPreviewResources(
+                        request,
+                        jobId,
+                        entryStateRef.current?.sourcePdfPath,
+                    );
+                    visiblePages.delete(documentPrefix);
+                },
                 run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('pdfExport-', async scratchPath => {
                     let materialized;
                     try {
@@ -408,6 +443,9 @@ export function scanCleanupPreviewRenderingOwner(
                             context.signal,
                             dependencies,
                         );
+                        if (entryStateRef.current) {
+                            entryStateRef.current.sourcePdfPath = materialized.sourcePdfPath;
+                        }
                     } catch (error) {
                         if (getErrorMessage(error) === 'Scan cleanup source is no longer available') {
                             return {canceled: true} as const;

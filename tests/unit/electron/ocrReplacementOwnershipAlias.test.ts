@@ -125,7 +125,7 @@ vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWrite
 
 const { createPendingResultFileStore } = await import('@electron/features/ocr/main/createPendingResultFileStore');
 const { handleReplaceWorkingCopyFromPath } = await import('@electron/features/documents/main/documentFileWriteHandlers');
-const { writeOcrIndexes } = await import('@electron/ocr/worker/writeOcrIndexes');
+const { writeOcrIndexes } = await import('@electron/features/ocr/worker/writeOcrIndexes');
 
 type TPendingResultFileStore = ReturnType<typeof createPendingResultFileStore>;
 

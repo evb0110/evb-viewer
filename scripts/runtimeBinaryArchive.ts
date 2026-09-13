@@ -32,8 +32,17 @@ export interface IRuntimeBinaryManifestEntry {
     target: INativeResourceTarget;
 }
 
+export interface IRuntimeBinaryDataManifestEntry {
+    archiveKind: TRuntimeBinaryArchiveKind;
+    archiveBytes: number;
+    archiveSha256: string;
+    archiveUrl: string;
+    resourceRoot: string;
+}
+
 export interface IRuntimeBinaryManifest {
     entries: readonly IRuntimeBinaryManifestEntry[];
+    dataEntries?: readonly IRuntimeBinaryDataManifestEntry[];
     manifestSha256: string;
 }
 
@@ -68,32 +77,40 @@ function compareCodeUnits(left: string, right: string) {
     return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function canonicalManifestEntries(entries: readonly IRuntimeBinaryManifestEntry[]) {
-    return JSON.stringify([...entries]
-        .sort((left, right) => compareCodeUnits(
-            `${left.familyId}\0${left.target.platformArch}`,
-            `${right.familyId}\0${right.target.platformArch}`,
-        ))
-        .map(entry => ({
-            archiveKind: entry.archiveKind,
-            archiveBytes: entry.archiveBytes,
-            archiveSha256: entry.archiveSha256,
-            archiveUrl: entry.archiveUrl,
-            executableEntry: entry.executableEntry,
-            familyId: entry.familyId,
-            target: {
-                arch: entry.target.arch,
-                exeSuffix: entry.target.exeSuffix,
-                platform: entry.target.platform,
-                platformArch: entry.target.platformArch,
-            },
-        })));
+function canonicalManifestEntries(
+    entries: readonly IRuntimeBinaryManifestEntry[],
+    dataEntries: readonly IRuntimeBinaryDataManifestEntry[],
+) {
+    return JSON.stringify({
+        dataEntries: [...dataEntries]
+            .sort((left, right) => compareCodeUnits(left.resourceRoot, right.resourceRoot)),
+        entries: [...entries]
+            .sort((left, right) => compareCodeUnits(
+                `${left.familyId}\0${left.target.platformArch}`,
+                `${right.familyId}\0${right.target.platformArch}`,
+            ))
+            .map(entry => ({
+                archiveKind: entry.archiveKind,
+                archiveBytes: entry.archiveBytes,
+                archiveSha256: entry.archiveSha256,
+                archiveUrl: entry.archiveUrl,
+                executableEntry: entry.executableEntry,
+                familyId: entry.familyId,
+                target: {
+                    arch: entry.target.arch,
+                    exeSuffix: entry.target.exeSuffix,
+                    platform: entry.target.platform,
+                    platformArch: entry.target.platformArch,
+                },
+            })),
+    });
 }
 
 export function computeRuntimeBinaryManifestSha256(
     entries: readonly IRuntimeBinaryManifestEntry[],
+    dataEntries: readonly IRuntimeBinaryDataManifestEntry[] = [],
 ) {
-    return createHash('sha256').update(canonicalManifestEntries(entries), 'utf8').digest('hex');
+    return createHash('sha256').update(canonicalManifestEntries(entries, dataEntries), 'utf8').digest('hex');
 }
 
 function assertSafeExecutableEntry(entry: string) {
@@ -126,6 +143,44 @@ function assertTarget(target: INativeResourceTarget) {
     }
 }
 
+function assertSafeResourceRoot(resourceRoot: string) {
+    const normalized = resourceRoot.replaceAll('\\', '/');
+    if (
+        normalized.length === 0
+        || normalized.startsWith('/')
+        || normalized.includes('\0')
+        || /^[a-z]:/iu.test(normalized)
+        || normalized.split('/').some(segment => segment === '..' || segment.length === 0)
+    ) {
+        throw new Error(`Runtime resource root is not a safe relative path: ${resourceRoot}`);
+    }
+}
+
+function assertArchiveUrl(archiveUrl: string) {
+    const url = new URL(archiveUrl);
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') {
+        throw new Error(`Runtime archive URL is not a credential-free HTTPS URL: ${archiveUrl}`);
+    }
+}
+
+function assertArchiveMetadata(
+    entry: Pick<IRuntimeBinaryManifestEntry, 'archiveBytes' | 'archiveKind' | 'archiveSha256' | 'archiveUrl'>,
+    label: string,
+) {
+    if (entry.archiveKind !== 'tar.gz' && entry.archiveKind !== 'zip') {
+        throw new Error('Runtime archive kind is unsupported.');
+    }
+    if (
+        !Number.isSafeInteger(entry.archiveBytes)
+        || entry.archiveBytes <= 0
+        || entry.archiveBytes > MAX_RUNTIME_BINARY_ARCHIVE_BYTES
+    ) {
+        throw new Error(`Runtime archive ${label} has an invalid byte length.`);
+    }
+    assertSha256(entry.archiveSha256, `Runtime archive ${label}`);
+    assertArchiveUrl(entry.archiveUrl);
+}
+
 export function validateRuntimeBinaryManifest(manifest: IRuntimeBinaryManifest) {
     assertSha256(manifest.manifestSha256, 'Runtime manifest');
     if (manifest.entries.length === 0) {
@@ -134,26 +189,10 @@ export function validateRuntimeBinaryManifest(manifest: IRuntimeBinaryManifest) 
 
     const targetIds = new Set<string>();
     for (const entry of manifest.entries) {
-        if (entry.archiveKind !== 'tar.gz' && entry.archiveKind !== 'zip') {
-            throw new Error('Runtime archive kind is unsupported.');
-        }
+        assertArchiveMetadata(entry, `${entry.familyId}:${entry.target.platformArch}`);
         assertTarget(entry.target);
-        if (
-            !Number.isSafeInteger(entry.archiveBytes)
-            || entry.archiveBytes <= 0
-            || entry.archiveBytes > MAX_RUNTIME_BINARY_ARCHIVE_BYTES
-        ) {
-            throw new Error(
-                `Runtime archive ${entry.familyId}:${entry.target.platformArch} has an invalid byte length.`,
-            );
-        }
-        assertSha256(entry.archiveSha256, `Runtime archive ${entry.target.platformArch}`);
         assertSafeExecutableEntry(entry.executableEntry);
         assertFamilyId(entry.familyId);
-        const url = new URL(entry.archiveUrl);
-        if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') {
-            throw new Error(`Runtime archive URL is not a credential-free HTTPS URL: ${entry.archiveUrl}`);
-        }
         const targetId = `${entry.familyId}:${entry.target.platformArch}`;
         if (targetIds.has(targetId)) {
             throw new Error(`Runtime manifest contains duplicate family target ${targetId}.`);
@@ -161,7 +200,17 @@ export function validateRuntimeBinaryManifest(manifest: IRuntimeBinaryManifest) 
         targetIds.add(targetId);
     }
 
-    const computedSha256 = computeRuntimeBinaryManifestSha256(manifest.entries);
+    const dataRoots = new Set<string>();
+    for (const entry of manifest.dataEntries ?? []) {
+        assertArchiveMetadata(entry, entry.resourceRoot);
+        assertSafeResourceRoot(entry.resourceRoot);
+        if (dataRoots.has(entry.resourceRoot)) {
+            throw new Error(`Runtime manifest contains duplicate data resource root ${entry.resourceRoot}.`);
+        }
+        dataRoots.add(entry.resourceRoot);
+    }
+
+    const computedSha256 = computeRuntimeBinaryManifestSha256(manifest.entries, manifest.dataEntries ?? []);
     if (computedSha256 !== manifest.manifestSha256) {
         throw new Error(
             `Runtime manifest SHA-256 ${manifest.manifestSha256} does not match ${computedSha256}.`,
@@ -173,11 +222,11 @@ export function validateRuntimeBinaryManifest(manifest: IRuntimeBinaryManifest) 
 function archivePathFor(
     cacheDirectory: string,
     manifest: IRuntimeBinaryManifest,
-    entry: IRuntimeBinaryManifestEntry,
+    entry: Pick<IRuntimeBinaryManifestEntry, 'archiveKind' | 'archiveSha256'> & {cacheKey: string},
 ) {
     return path.join(
         cacheDirectory,
-        `${entry.familyId}-${entry.target.platformArch}-${manifest.manifestSha256}-${entry.archiveSha256}.${entry.archiveKind.replace('.', '-')}`,
+        `${entry.cacheKey}-${manifest.manifestSha256}-${entry.archiveSha256}.${entry.archiveKind.replace('.', '-')}`,
     );
 }
 
@@ -194,38 +243,24 @@ async function removePartialDownload(partPath: string) {
     await rm(partPath, {force: true}).catch(() => undefined);
 }
 
-export async function fetchVerifiedRuntimeArchive({
+async function fetchVerifiedRuntimeArchiveEntry({
     cacheDirectory,
-    familyId,
     manifest,
-    target,
+    entry,
+    cacheKey,
     transport,
 }: {
     cacheDirectory: string;
-    familyId: TNativeToolResourceFamilyId;
     manifest: IRuntimeBinaryManifest;
-    target: INativeResourceTarget;
+    entry: Pick<IRuntimeBinaryManifestEntry, 'archiveBytes' | 'archiveKind' | 'archiveSha256' | 'archiveUrl' | 'executableEntry' | 'familyId' | 'target'>;
+    cacheKey: string;
     transport: TRuntimeBinaryArchiveTransport;
 }): Promise<IRuntimeBinaryArchiveResult> {
-    validateRuntimeBinaryManifest(manifest);
-    const entry = manifest.entries.find(candidate => (
-        candidate.familyId === familyId && candidate.target.platformArch === target.platformArch
-    ));
-    if (!entry) {
-        throw new Error(`Runtime manifest has no family target ${familyId}:${target.platformArch}.`);
-    }
-    assertTarget(target);
-    if (
-        entry.target.platform !== target.platform
-        || entry.target.arch !== target.arch
-        || entry.target.exeSuffix !== target.exeSuffix
-        || entry.target.platformArch !== target.platformArch
-    ) {
-        throw new Error(`Runtime target ${target.platformArch} does not match the manifest target.`);
-    }
-
     await mkdir(cacheDirectory, {recursive: true});
-    const archivePath = archivePathFor(cacheDirectory, manifest, entry);
+    const archivePath = archivePathFor(cacheDirectory, manifest, {
+        ...entry,
+        cacheKey,
+    });
     try {
         const cacheStats = await stat(archivePath);
         if (
@@ -289,4 +324,77 @@ export async function fetchVerifiedRuntimeArchive({
         await removePartialDownload(partialPath);
         throw error;
     }
+}
+
+export async function fetchVerifiedRuntimeArchive({
+    cacheDirectory,
+    familyId,
+    manifest,
+    target,
+    transport,
+}: {
+    cacheDirectory: string;
+    familyId: TNativeToolResourceFamilyId;
+    manifest: IRuntimeBinaryManifest;
+    target: INativeResourceTarget;
+    transport: TRuntimeBinaryArchiveTransport;
+}): Promise<IRuntimeBinaryArchiveResult> {
+    validateRuntimeBinaryManifest(manifest);
+    const entry = manifest.entries.find(candidate => (
+        candidate.familyId === familyId && candidate.target.platformArch === target.platformArch
+    ));
+    if (!entry) {
+        throw new Error(`Runtime manifest has no family target ${familyId}:${target.platformArch}.`);
+    }
+    assertTarget(target);
+    if (
+        entry.target.platform !== target.platform
+        || entry.target.arch !== target.arch
+        || entry.target.exeSuffix !== target.exeSuffix
+        || entry.target.platformArch !== target.platformArch
+    ) {
+        throw new Error(`Runtime target ${target.platformArch} does not match the manifest target.`);
+    }
+    return fetchVerifiedRuntimeArchiveEntry({
+        cacheDirectory,
+        entry,
+        cacheKey: `${entry.familyId}-${entry.target.platformArch}`,
+        manifest,
+        transport,
+    });
+}
+
+export async function fetchVerifiedRuntimeDataArchive({
+    cacheDirectory,
+    dataEntry,
+    manifest,
+    transport,
+}: {
+    cacheDirectory: string;
+    dataEntry: IRuntimeBinaryDataManifestEntry;
+    manifest: IRuntimeBinaryManifest;
+    transport: TRuntimeBinaryArchiveTransport;
+}) {
+    validateRuntimeBinaryManifest(manifest);
+    if (!(manifest.dataEntries ?? []).includes(dataEntry)) {
+        throw new Error(`Runtime manifest does not contain data resource ${dataEntry.resourceRoot}.`);
+    }
+    const entry = {
+        ...dataEntry,
+        executableEntry: `${dataEntry.resourceRoot}/`,
+        familyId: 'tesseract' as const,
+        target: {
+            arch: 'x64' as const,
+            exeSuffix: '' as const,
+            platform: 'linux' as const,
+            platformArch: 'linux-x64' as const,
+        },
+    };
+    return fetchVerifiedRuntimeArchiveEntry({
+        cacheDirectory,
+        entry,
+        cacheKey: `data-${dataEntry.resourceRoot.replaceAll('/', '-')}`,
+        manifest,
+        transport,
+    });
 }

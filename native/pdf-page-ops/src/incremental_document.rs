@@ -31,7 +31,8 @@ const QPDF_STRUCTURE_TIMEOUT: Duration = Duration::from_secs(110);
 const QPDF_STALE_FILE_AGE: Duration = Duration::from_secs(10 * 60);
 const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
 static QPDF_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-#[cfg(test)]
+// Only the Unix fake-qpdf fixtures use this namespace.
+#[cfg(all(test, unix))]
 static TEST_QPDF_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // Keep this argument set compatible with the oldest qpdf shipped by the
 // supported Linux packaging image. qpdf 10 rejects the newer
@@ -148,7 +149,7 @@ fn qpdf_temp_nonce() -> Result<String> {
     Ok(format!("{}-{timestamp}-{sequence}", std::process::id()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn test_qpdf_temp_nonce() -> Result<String> {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let sequence = TEST_QPDF_SEQUENCE.fetch_add(1, Ordering::Relaxed);

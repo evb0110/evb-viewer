@@ -3,15 +3,19 @@ use crate::bw::binary_to_gray;
 use crate::bw::paper_reference;
 use crate::domain::geometry::PageHalf;
 use crate::domain::options::OutputMode;
-#[cfg(test)]
-use crate::engine::render::CleanupRaster;
+use crate::engine::render::{CleanupRaster, CleanupResult, CleanupWarningEvent, WarningExtentUnit};
+use crate::pipeline::{CleanupMetadata, MatchedCanvasPolicy};
 use crate::png::RgbImage;
+use crate::protocol::manifest_v3::DocumentCanvas;
 use crate::{CleanupOptions, OrthogonalRotation};
 use evb_native_support::{NativeError, NativeErrorCode};
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fs;
+use std::path::PathBuf;
 
 pub(crate) const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
 
@@ -122,6 +126,30 @@ pub(crate) struct GeometryOutput {
     pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
     pub(crate) fold_side_near_paper_run: usize,
     pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
+}
+
+pub(crate) struct WrittenOutput {
+    pub(crate) output_path: PathBuf,
+    pub(crate) metadata_path: PathBuf,
+    pub(crate) bilevel_output_path: Option<PathBuf>,
+    pub(crate) background_output_path: Option<PathBuf>,
+    pub(crate) foreground_mask_output_path: Option<PathBuf>,
+    pub(crate) foreground_alpha_output_path: Option<PathBuf>,
+    pub(crate) picture_mask_output_path: Option<PathBuf>,
+    pub(crate) tone_preservation_alpha_output_path: Option<PathBuf>,
+    pub(crate) options: CleanupOptions,
+    pub(crate) source_page_index: usize,
+    pub(crate) half: PageHalf,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) paper_width: f64,
+    pub(crate) paper_height: f64,
+    pub(crate) content_detected: bool,
+    pub(crate) spread_content_top: Option<f64>,
+    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
+    pub(crate) fold_side_near_paper_run: usize,
+    pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
+    pub(crate) matched_in_memory: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1828,6 +1856,445 @@ pub(crate) fn place_rgb_on_white_canvas_with_source_window(
             }
         });
     canvas
+}
+
+pub(crate) fn geometry_output(output: &WrittenOutput) -> GeometryOutput {
+    GeometryOutput {
+        options: output.options.clone(),
+        source_page_index: output.source_page_index,
+        half: output.half,
+        width: output.width,
+        height: output.height,
+        paper_width: output.paper_width,
+        paper_height: output.paper_height,
+        content_detected: output.content_detected,
+        spread_content_top: output.spread_content_top,
+        optical_content_bounds_x: output.optical_content_bounds_x,
+        fold_side_near_paper_run: output.fold_side_near_paper_run,
+        outer_near_paper_edge_runs: output.outer_near_paper_edge_runs,
+    }
+}
+
+pub(crate) fn geometry_output_from_cleanup_result(
+    output: &CleanupResult,
+    options: &CleanupOptions,
+) -> GeometryOutput {
+    let (paper_width, paper_height) = matched_output_paper_dimensions_for(
+        output.metadata.input_width,
+        output.metadata.input_height,
+        output.metadata.rotation,
+        output.metadata.half,
+    );
+    let (fold_side_near_paper_run, outer_near_paper_edge_runs) = paper_edge_runs_for_output(output);
+    GeometryOutput {
+        options: options.clone(),
+        source_page_index: output.metadata.source_page_index,
+        half: output.metadata.half,
+        width: output.image.width(),
+        height: output.image.height(),
+        paper_width,
+        paper_height,
+        content_detected: output.metadata.content_box.is_some(),
+        spread_content_top: spread_content_top_for_output(output),
+        optical_content_bounds_x: optical_content_bounds_x_for_output(output),
+        fold_side_near_paper_run,
+        outer_near_paper_edge_runs,
+    }
+}
+
+fn geometry_plane_view(
+    output: &CleanupResult,
+) -> crate::engine::output_geometry::GeometryPlaneView<'_> {
+    use crate::engine::output_geometry::{
+        GeometryMixedLayersView, GeometryPlaneView, GeometryRasterView,
+    };
+    GeometryPlaneView {
+        image: match &output.image {
+            CleanupRaster::Gray(image) => GeometryRasterView::Gray(image),
+            CleanupRaster::Bilevel(image) => GeometryRasterView::Bilevel(image),
+        },
+        color_image: output.color_image.as_ref(),
+        picture_mask: output.picture_mask.as_ref(),
+        tone_preservation_alpha: output.tone_preservation_alpha.as_ref(),
+        mixed_layers: output
+            .mixed_layers
+            .as_ref()
+            .map(|layers| GeometryMixedLayersView {
+                foreground_mask: &layers.foreground_mask,
+                foreground_alpha: layers.foreground_alpha.as_ref(),
+                background: &layers.background,
+                color_background: layers.color_background.as_ref(),
+            }),
+        output_mode: output.metadata.output_mode,
+        half: output.metadata.half,
+        fallback_content_top: output
+            .metadata
+            .content_box
+            .map(|content| content.y - output.metadata.crop_rect.y)
+            .filter(|top| top.is_finite() && *top >= 0.0),
+    }
+}
+
+fn apply_geometry_raster(
+    output: &mut CleanupResult,
+    image: crate::engine::output_geometry::GeometryRaster,
+) {
+    use crate::engine::output_geometry::GeometryRaster;
+    output.image = match image {
+        GeometryRaster::Gray(image) => CleanupRaster::Gray(image),
+        GeometryRaster::Bilevel(image) => CleanupRaster::Bilevel(image),
+    };
+}
+
+fn take_geometry_raster(
+    output: &mut CleanupResult,
+) -> crate::engine::output_geometry::GeometryRaster {
+    match std::mem::replace(
+        &mut output.image,
+        CleanupRaster::Gray(GrayImage::new(1, 1, 255)),
+    ) {
+        CleanupRaster::Gray(image) => crate::engine::output_geometry::GeometryRaster::Gray(image),
+        CleanupRaster::Bilevel(image) => {
+            crate::engine::output_geometry::GeometryRaster::Bilevel(image)
+        }
+    }
+}
+
+fn take_geometry_layers(
+    output: &mut CleanupResult,
+) -> Option<crate::engine::output_geometry::GeometryMixedLayers> {
+    output.mixed_layers.take().map(
+        |layers| crate::engine::output_geometry::GeometryMixedLayers {
+            foreground_mask: layers.foreground_mask,
+            foreground_alpha: layers.foreground_alpha,
+            background: layers.background,
+            color_background: layers.color_background,
+            source_mrc: layers.source_mrc,
+        },
+    )
+}
+
+fn restore_geometry_layers(
+    output: &mut CleanupResult,
+    layers: Option<crate::engine::output_geometry::GeometryMixedLayers>,
+) {
+    output.mixed_layers = layers.map(|layers| crate::engine::render::MixedLayers {
+        foreground_mask: layers.foreground_mask,
+        foreground_alpha: layers.foreground_alpha,
+        background: layers.background,
+        color_background: layers.color_background,
+        source_mrc: layers.source_mrc,
+    });
+}
+
+pub(crate) fn match_primary_raster_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let intrinsic_width = output.image.width();
+    let intrinsic_height = output.image.height();
+    let image = take_geometry_raster(output);
+    let color_image = output.color_image.take();
+    let (image, color_image) = crate::engine::output_geometry::compose_primary_raster(
+        image,
+        color_image,
+        placement,
+        canvas,
+    );
+    apply_geometry_raster(output, image);
+    output.color_image = color_image;
+    output.metadata.intrinsic_raster_width = Some(intrinsic_width);
+    output.metadata.intrinsic_raster_height = Some(intrinsic_height);
+    output.metadata.output_width = placement.content_width;
+    output.metadata.output_height = placement.content_height;
+    output.metadata.pdf_image_placement = None;
+}
+
+pub(crate) fn match_picture_mask_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    output.picture_mask = crate::engine::output_geometry::compose_picture_mask(
+        output.picture_mask.take(),
+        placement,
+        canvas,
+    );
+}
+
+pub(crate) fn match_tone_preservation_alpha_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    output.tone_preservation_alpha =
+        crate::engine::output_geometry::compose_tone_preservation_alpha(
+            output.tone_preservation_alpha.take(),
+            placement,
+            canvas,
+        );
+}
+
+pub(crate) fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
+    let layers = output.mixed_layers.as_ref().map(|layers| {
+        crate::engine::output_geometry::GeometryMixedLayersView {
+            foreground_mask: &layers.foreground_mask,
+            foreground_alpha: layers.foreground_alpha.as_ref(),
+            background: &layers.background,
+            color_background: layers.color_background.as_ref(),
+        }
+    });
+    if let Some((image, color_image)) =
+        crate::engine::output_geometry::restore_mixed_composite(layers)
+    {
+        apply_geometry_raster(output, image);
+        output.color_image = color_image;
+    }
+}
+
+pub(crate) fn match_layers_in_memory(
+    output: &mut CleanupResult,
+    options: &CleanupOptions,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let layers = take_geometry_layers(output);
+    let picture_mask = output.picture_mask.as_ref();
+    let layers = crate::engine::output_geometry::compose_layers(
+        picture_mask,
+        layers,
+        options,
+        placement,
+        canvas,
+    );
+    restore_geometry_layers(output, layers);
+}
+
+pub(crate) fn paper_edge_runs_for_output(output: &CleanupResult) -> (usize, NearPaperEdgeRuns) {
+    let planes = geometry_plane_view(output);
+    crate::engine::output_geometry::paper_edge_runs(&planes)
+}
+
+pub(crate) fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
+    let planes = geometry_plane_view(output);
+    crate::engine::output_geometry::planes_optical_content_bounds_x(&planes)
+}
+
+pub(crate) fn spread_content_top_for_output(output: &CleanupResult) -> Option<f64> {
+    let planes = geometry_plane_view(output);
+    crate::engine::output_geometry::spread_content_top(&planes)
+}
+
+pub(crate) fn geometry_canvas(canvas: &DocumentCanvas) -> GeometryCanvas {
+    GeometryCanvas {
+        width_points: canvas.width_points,
+        height_points: canvas.height_points,
+        width_px: canvas.width_px,
+        height_px: canvas.height_px,
+    }
+}
+
+pub(crate) fn apply_canvas_metadata(
+    metadata: &mut CleanupMetadata,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let facts = crate::engine::output_geometry::canvas_metadata_facts(placement, canvas);
+    metadata.soft_margins_pixels = facts.soft_margins_pixels;
+    metadata.applied_margins = placement
+        .requested_margins
+        .map(|margin| margin as f64)
+        .into();
+    metadata.uniform_canvas = true;
+    metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
+    metadata.canvas_overflow = facts.canvas_overflow;
+    metadata.matched_canvas_target_width = Some(canvas.width_px);
+    metadata.matched_canvas_target_height = Some(canvas.height_px);
+    metadata.matched_canvas_target_width_points = Some(canvas.width_points);
+    metadata.matched_canvas_target_height_points = Some(canvas.height_points);
+    metadata.matched_canvas_content_width = Some(placement.content_width);
+    metadata.matched_canvas_content_height = Some(placement.content_height);
+    metadata.matched_canvas_optical_placement = placement.optical_content_centered;
+    metadata.matched_canvas_optical_content_left =
+        placement.optical_content_bounds_x.map(|(left, _)| left);
+    metadata.matched_canvas_optical_content_right =
+        placement.optical_content_bounds_x.map(|(_, right)| right);
+    metadata.matched_canvas_intrinsic_overflow_left = placement.intrinsic_overflow_left;
+    metadata.matched_canvas_intrinsic_overflow_right = placement.intrinsic_overflow_right;
+    metadata.matched_canvas_intrinsic_overflow_top = placement.intrinsic_overflow_top;
+    metadata.fold_clip_left = placement.fold_clip_left;
+    metadata.fold_clip_right = placement.fold_clip_right;
+    metadata.canvas_width = canvas.width_px;
+    metadata.canvas_height = canvas.height_px;
+    metadata.placement_offset_x = placement.left;
+    metadata.placement_offset_y = placement.top;
+    metadata.warning_events.extend(
+        canvas_placement_warning_events(placement, canvas, metadata.content_box.is_some())
+            .into_iter()
+            .map(canvas_warning_to_protocol),
+    );
+}
+
+pub(crate) fn canvas_warning_to_protocol(
+    warning: crate::engine::output_geometry::CanvasWarning,
+) -> CleanupWarningEvent {
+    use crate::engine::output_geometry::CanvasWarning;
+    match warning {
+        CanvasWarning::MatchedCanvasContentFitted {
+            content_width,
+            content_height,
+            inner_width,
+            inner_height,
+            document_canvas_width,
+            document_canvas_height,
+            ..
+        } => CleanupWarningEvent::MatchedCanvasContentFitted {
+            unit: WarningExtentUnit::Px,
+            content_width,
+            content_height,
+            inner_width,
+            inner_height,
+            document_canvas_width,
+            document_canvas_height,
+        },
+        CanvasWarning::MatchedCanvasMarginsReduced => {
+            CleanupWarningEvent::MatchedCanvasMarginsReduced
+        }
+        CanvasWarning::MatchedCanvasMarginsUnavailable => {
+            CleanupWarningEvent::MatchedCanvasMarginsUnavailable
+        }
+        CanvasWarning::MatchedCanvasPaperDownscaled {
+            paper_scale,
+            document_canvas_width,
+            document_canvas_height,
+            paper_width,
+            paper_height,
+            ..
+        } => CleanupWarningEvent::MatchedCanvasPaperDownscaled {
+            unit: WarningExtentUnit::Px,
+            scale_percent_tenths: crate::pipeline::quantize_decimal(paper_scale * 100.0, 1),
+            document_canvas_width,
+            document_canvas_height,
+            paper_width,
+            paper_height,
+        },
+        CanvasWarning::MatchedCanvasOpticalCenteringFallback => {
+            CleanupWarningEvent::MatchedCanvasOpticalCenteringFallback
+        }
+        CanvasWarning::MatchedCanvasIntrinsicOverflow { left_px, right_px } => {
+            CleanupWarningEvent::MatchedCanvasIntrinsicOverflow { left_px, right_px }
+        }
+        CanvasWarning::MatchedCanvasSpreadHeadroomTrimmed { top_px } => {
+            CleanupWarningEvent::MatchedCanvasSpreadHeadroomTrimmed { top_px }
+        }
+        CanvasWarning::MatchedCanvasFoldColumnsDiscarded {
+            left_columns,
+            right_columns,
+        } => CleanupWarningEvent::MatchedCanvasFoldColumnsDiscarded {
+            left_columns,
+            right_columns,
+        },
+    }
+}
+
+fn remove_written_output_files(output: &WrittenOutput) {
+    for path in [
+        Some(&output.output_path),
+        Some(&output.metadata_path),
+        output.bilevel_output_path.as_ref(),
+        output.background_output_path.as_ref(),
+        output.foreground_mask_output_path.as_ref(),
+        output.foreground_alpha_output_path.as_ref(),
+        output.picture_mask_output_path.as_ref(),
+        output.tone_preservation_alpha_output_path.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let _ = fs::remove_file(path);
+    }
+}
+
+pub(crate) fn match_page_sizes(
+    outputs: &[&WrittenOutput],
+    document_canvas: Option<crate::protocol::manifest_v3::DocumentCanvas>,
+) -> Result<(), Box<dyn Error>> {
+    let eligible = outputs
+        .iter()
+        .copied()
+        .filter(|output| {
+            output.options.match_page_size && !output.options.ocr_mode && !output.matched_in_memory
+        })
+        .collect::<Vec<_>>();
+    if eligible.is_empty() {
+        return Ok(());
+    }
+    let Some(canvas) = document_canvas.map(|canvas| geometry_canvas(&canvas)) else {
+        return Err(NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            "Matched page size requires a documentCanvas plan; the manifest carried none",
+        )
+        .into());
+    };
+    let geometry_outputs = eligible
+        .iter()
+        .map(|output| geometry_output(output))
+        .collect::<Vec<_>>();
+    let placements = plan_canvas_placements(&geometry_outputs, &canvas);
+
+    for (output, placement) in eligible.into_iter().zip(placements) {
+        let repad_result = (|| -> Result<(), Box<dyn Error>> {
+            validate_canvas_for_options(canvas.width_px, canvas.height_px, &output.options)?;
+            let mut metadata: CleanupMetadata =
+                serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
+            metadata.intrinsic_raster_width.get_or_insert(output.width);
+            metadata
+                .intrinsic_raster_height
+                .get_or_insert(output.height);
+            apply_canvas_metadata(&mut metadata, placement, &canvas);
+            write_json_atomic(&output.metadata_path, &metadata)?;
+            Ok(())
+        })();
+        if let Err(error) = repad_result {
+            remove_written_output_files(output);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn aspect_ratio_matches(
+    input_width: usize,
+    input_height: usize,
+    reference_width: usize,
+    reference_height: usize,
+) -> bool {
+    let input_aspect = input_width as f64 / input_height.max(1) as f64;
+    let reference_aspect = reference_width as f64 / reference_height.max(1) as f64;
+    !matches!(
+        (input_aspect / reference_aspect - 1.0)
+            .abs()
+            .partial_cmp(&0.02),
+        Some(std::cmp::Ordering::Greater)
+    )
+}
+
+pub(crate) fn write_json_atomic(
+    path: &std::path::Path,
+    value: &impl serde::Serialize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = serde_json::to_vec(value)?;
+    let temporary = path.with_extension(format!(
+        "{}.tmp-{}",
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("json"),
+        std::process::id()
+    ));
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(&temporary, path)?;
+    Ok(())
 }
 
 #[cfg(test)]

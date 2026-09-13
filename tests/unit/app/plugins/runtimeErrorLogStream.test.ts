@@ -13,6 +13,7 @@ import {
     requireEpochMs,
     requireIsoTimestamp,
 } from '@contracts/timestamps';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     reportRuntimeError: vi.fn(),
@@ -28,8 +29,9 @@ const mocks = vi.hoisted(() => ({
     isElectronUserAgent: vi.fn(() => true),
 }));
 
-vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({onDebugLog: mocks.onDebugLog})}));
+const platformApi = createElectronPlatformApiFixture({diagnostics: {onDebugLog: mocks.onDebugLog}});
 vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
     isElectronUserAgent: mocks.isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge: mocks.waitForPreferredDesktopPlatformBridge,
 }));
@@ -37,7 +39,10 @@ vi.mock('@app/utils/electronPlatformBridge', () => ({getValidatedElectronPlatfor
 vi.mock('@app/utils/failureReporter', () => ({initializeRendererFailureReporter: mocks.initializeRendererFailureReporter}));
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: mocks.reportRuntimeError})}));
 vi.mock('@app/utils/createPluginTranslate', () => ({createPluginTranslate: () => (key: string) => key}));
-vi.mock('@i18n-core', () => ({isLocaleMessageSource: () => false}));
+vi.mock('@i18n-core', () => ({
+    DEFAULT_LOCALE: 'en',
+    isLocaleMessageSource: () => false,
+}));
 
 const failure: FailureReceipt = {
     eventId: requireDiagnosticEventId('d'.repeat(32)),
@@ -107,9 +112,9 @@ describe('runtime error log stream', () => {
         });
         Object.defineProperty(window, 'electronAPI', {
             configurable: true,
-            value: {diagnostics: {onDebugLog: mocks.onDebugLog}},
+            value: platformApi,
         });
-        mocks.getValidatedElectronPlatformApi.mockReturnValue({diagnostics: {onDebugLog: mocks.onDebugLog}} as never);
+        mocks.getValidatedElectronPlatformApi.mockReturnValue(platformApi);
         mocks.initializeRendererFailureReporter.mockReturnValue({
             capture: mocks.capture,
             captureForPresentation: mocks.captureForPresentation,

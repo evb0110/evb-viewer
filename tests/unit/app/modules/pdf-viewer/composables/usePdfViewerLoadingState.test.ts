@@ -14,7 +14,7 @@ import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/compos
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceRenderFence,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 function createHarness() {
     const scope = effectScope();
     const src = shallowRef<Blob | null>(new Blob([new Uint8Array([1])], {type: 'application/pdf'}));

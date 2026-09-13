@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type * as TViMockOriginalModule from '@app/utils/document-viewer/source/createDjvuPageSource';
+import type * as TViMockOriginalModule from '@app/modules/document-viewer/source/createDjvuPageSource';
 
 import {
     afterEach,
@@ -25,12 +25,12 @@ import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/compos
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
-    createDocumentViewerChassisAuthority,
-    documentViewerChassisAuthorityKey,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+    createDocumentViewerRuntime,
+    documentViewerRuntimeKey,
+} from '@app/modules/document-viewer/public';
+import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 
 const mocks = vi.hoisted(() => ({
     createDjvuPagePreviewSourceFromPath: vi.fn(),
@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath:
     mocks.createDjvuPagePreviewSourceFromPath}));
-vi.mock('@app/utils/document-viewer/source/createDjvuPageSource', async (importOriginal) => ({
+vi.mock('@app/modules/document-viewer/source/createDjvuPageSource', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     createDjvuPageSource:
     mocks.createDjvuPageSource,
@@ -93,7 +93,7 @@ function createFeaturePackHost(
     return defineComponent({
         name: 'DocumentPageSourceFeaturePackHost',
         setup() {
-            const authority = createDocumentViewerChassisAuthority(ref('djvu'), 1, surface);
+            const authority = createDocumentViewerRuntime(ref('djvu'), 1, surface);
             const totalPages = ref(0);
             const isLoading = ref(false);
             const settle = useDocumentOpenVisualSettle({
@@ -113,7 +113,7 @@ function createFeaturePackHost(
             settleHarness.initialVisualReady = settle.initialDocumentVisualReady;
             settleHarness.totalPages = totalPages;
             settleHarness.waitForDocumentOpenSettled = settle.waitForDocumentOpenSettled;
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => {
                 const snapshot = surface.snapshot.value;
                 return h('div', {

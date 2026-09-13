@@ -1,9 +1,8 @@
 import { clamp } from 'es-toolkit/math';
-import type { IClientRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
-import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRectHeight';
-import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
-import { intersectClientRects } from '@app/utils/document-viewer/region-geometry/intersectClientRects';
-import { unionClientRects } from '@app/utils/document-viewer/region-geometry/unionClientRects';
+import type { IClientRect } from '@app/modules/document-viewer/public';
+import {
+    getRectHeight, getRectWidth , intersectClientRects , unionClientRects,  
+} from '@app/modules/document-viewer/public';
 import type {
     ICanvasSource,
     ICaptureFragment,

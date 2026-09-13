@@ -13,19 +13,16 @@ import type {
     IClientRect,
     ILocalRect,
     IOverlayRect,
-} from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
-import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRectHeight';
-import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
-import { toClientRect } from '@app/utils/document-viewer/region-geometry/toClientRect';
-import { toLocalRect } from '@app/utils/document-viewer/region-geometry/toLocalRect';
+} from '@app/modules/document-viewer/public';
+import {
+    getRectHeight, getRectWidth , toClientRect , toLocalRect ,
+    clampKeyboardSelection,
+    createKeyboardSelection as createKeyboardSelectionInBounds,
+    updateKeyboardSelection as updateKeyboardSelectionInBounds, 
+} from '@app/modules/document-viewer/public';
 import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
 import { createSelectionPointerDragHandlers } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionPointerDragHandlers';
 import { createSelectionRectFromPointerDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionRectFromPointerDrag';
-import {
-    clampKeyboardSelection,
-    createKeyboardSelection as createKeyboardSelectionInBounds,
-    updateKeyboardSelection as updateKeyboardSelectionInBounds,
-} from '@app/utils/document-viewer/region-geometry/keyboardSelection';
 import { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 import { writePngBlobToClipboard } from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
 

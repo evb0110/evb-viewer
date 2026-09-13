@@ -82,9 +82,9 @@ Severity: C=critical, H=high, M=medium, L=low. Fix: P=patch, O=overhaul.
 - AGENT-7 (L, P) Browser agent capability satisfies the type but ignores scope/provider/model; browser builds silently diverge. `app/platform/browser-api/browserAgentCapability.ts:35`
 
 ### OCR / search / DjVu (`ocr-search-djvu`)
-- BG-1 (H, P) OCR cancellation emits no terminal backend event; UI depends on a local 5s timeout; result-file cleanup best-effort. `electron/ocr/jobManager.ts:922`
-- BG-2 (H, O) Competing OCR jobs on the same document race in the same `.ocr` artifact directory (dedup by requestId, not path+revision); partial indexes, cross-job rollback. `electron/ocr/jobManager.ts:666`
-- BG-3 (M, P) OCR queue admission uses source bytes + 32KB/page, underestimating rendered-image cost; compressed scans blow disk/memory. `electron/ocr/jobManager.ts:269`
+- BG-1 (H, P) OCR cancellation emits no terminal backend event; UI depends on a local 5s timeout; result-file cleanup best-effort. `electron/features/ocr/main/jobManager.ts:922`
+- BG-2 (H, O) Competing OCR jobs on the same document race in the same `.ocr` artifact directory (dedup by requestId, not path+revision); partial indexes, cross-job rollback. `electron/features/ocr/main/jobManager.ts:666`
+- BG-3 (M, P) OCR queue admission uses source bytes + 32KB/page, underestimating rendered-image cost; compressed scans blow disk/memory. `electron/features/ocr/main/jobManager.ts:269`
 - BG-4 (M, P) Search warmups and same-document index builds are not singleflighted; duplicate builds race sidecar persistence. `electron/features/search/main/searchWorkerService.ts:466`
 - BG-5 (H, O) DjVu native preview renders can't be canceled once in flight ("terminate" flips a renderer flag; `ddjvu` runs to completion or 30-min timeout). `electron/features/djvu/main/pagePreview.ts:201`
 - BG-6 (M, P) DjVu PDF worker has a cancel protocol the client never uses (no `signal`/`createCancelMessage`); cancellation is forced termination. `electron/features/djvu/main/pdfWorkerClient.ts:62`

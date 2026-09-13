@@ -43,10 +43,8 @@ import type { TRequestId } from '@contracts/shared';
 import type { IResolvedSearchMatchOptions } from '@pdf-core/pdfSearchCore';
 import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
-import {
-    SearchRegexLimitError,
-    SEARCH_REGEX_MAX_EXECUTION_MS,
-} from '@contracts/search';
+import {SearchRegexLimitError} from '@pdf-core';
+import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: TRequestId;

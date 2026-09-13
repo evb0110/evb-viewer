@@ -22,8 +22,6 @@ export type {
 } from '@pdf-core/pdfPageSelection';
 
 export {
-    createPageMoveRange,
-    createPageMoveRanges,
     isPageMoveNoOp,
     isPageMoveRangesNoOp,
 };

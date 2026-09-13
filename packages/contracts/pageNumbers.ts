@@ -170,31 +170,6 @@ export function createComplementPageSelection(
     };
 }
 
-export function createComplementOfPageSelection(
-    selection: TPageSelection,
-): IComplementPageSelection {
-    if (selection.kind === 'explicit') {
-        return createComplementPageSelection(selection.pageCount, selection.pages);
-    }
-    return {
-        kind: 'complement',
-        pageCount: selection.pageCount,
-        excludedSelection: selection,
-    };
-}
-
-export function createPredicatePageSelection(
-    pageCount: number,
-    predicate: TPageSelectionPredicate,
-): IPredicatePageSelection {
-    const normalizedPageCount = normalizeSelectionPageCount(pageCount);
-    return {
-        kind: 'predicate',
-        pageCount: normalizedPageCount,
-        predicate,
-    };
-}
-
 export interface IPageMoveRange {
     pageCount: number;
     startPage: number;
@@ -218,81 +193,6 @@ export interface IPageMoveRanges {
 }
 
 export type TPageMoveOperation = IPageMoveRange | IPageMoveRanges;
-
-export function createPageMoveRanges(
-    pageCount: number,
-    ranges: readonly IPageMoveRangeSegment[],
-    insertAt: number,
-): IPageMoveRanges {
-    const normalizedPageCount = normalizeSelectionPageCount(pageCount);
-    if (normalizedPageCount === 0) {
-        throw new RangeError('Page move requires a non-empty document');
-    }
-    if (ranges.length === 0) {
-        throw new RangeError('Page move ranges must contain at least one range');
-    }
-    if (!Number.isSafeInteger(insertAt) || insertAt < 0 || insertAt > normalizedPageCount) {
-        throw new RangeError(`Page move insertAt must be a safe integer in 0-${normalizedPageCount}`);
-    }
-
-    const normalized = [...ranges].map((segment) => {
-        const {
-            startPage,
-            endPage,
-        } = segment;
-        const normalizedStart = normalizeSelectionPage(startPage, normalizedPageCount);
-        const normalizedEnd = normalizeSelectionPage(endPage, normalizedPageCount);
-        if (normalizedStart > normalizedEnd) {
-            throw new RangeError('Page move range must start before it ends');
-        }
-        return {
-            startPage: normalizedStart,
-            endPage: normalizedEnd,
-        };
-    });
-    normalized.sort((left, right) => left.startPage - right.startPage);
-
-    const merged: IPageMoveRangeSegment[] = [];
-    for (const segment of normalized) {
-        const previous = merged.at(-1);
-        if (previous && segment.startPage <= previous.endPage + 1) {
-            previous.endPage = Math.max(previous.endPage, segment.endPage);
-        } else {
-            merged.push(segment);
-        }
-    }
-    return {
-        pageCount: normalizedPageCount,
-        ranges: merged,
-        insertAt,
-    };
-}
-
-export function createPageMoveRange(
-    pageCount: number,
-    startPage: number,
-    endPage: number,
-    insertAt: number,
-): IPageMoveRange {
-    const normalizedPageCount = normalizeSelectionPageCount(pageCount);
-    if (normalizedPageCount === 0) {
-        throw new RangeError('Page move requires a non-empty document');
-    }
-    const normalizedStart = normalizeSelectionPage(startPage, normalizedPageCount);
-    const normalizedEnd = normalizeSelectionPage(endPage, normalizedPageCount);
-    if (normalizedStart > normalizedEnd) {
-        throw new RangeError('Page move range must start before it ends');
-    }
-    if (!Number.isSafeInteger(insertAt) || insertAt < 0 || insertAt > normalizedPageCount) {
-        throw new RangeError(`Page move insertAt must be a safe integer in 0-${normalizedPageCount}`);
-    }
-    return {
-        pageCount: normalizedPageCount,
-        startPage: normalizedStart,
-        endPage: normalizedEnd,
-        insertAt,
-    };
-}
 
 function isPageIndexValue(value: number): value is TPageIndex {
     return Number.isSafeInteger(value) && value >= 0;

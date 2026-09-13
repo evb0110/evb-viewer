@@ -98,38 +98,29 @@ import type {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
-    createDocumentViewerChassisAuthority,
-    documentViewerChassisAuthorityKey,
-    shouldAcceptFeaturePackChassisPage,
-    shouldApplyExternalChassisPage,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+    createDocumentViewerRuntime,
+    documentViewerRuntimeKey,
+    shouldAcceptFeaturePackRuntimePage,
+    shouldApplyExternalRuntimePage, DocumentViewportHost ,
+    injectDocumentOpenSurfaceSession,
+    resolveDocumentOpenSurfaceViewportPolicy,
+    createDocumentOpeningPageFrame,
+    resolveDocumentOpeningPageMargin,
+    resolveDocumentOpeningPageShellId, resolveDocumentPageSourceOpeningFrame , observeDocumentViewportWheelInteraction,
+    captureDocumentViewportResizeAnchor,
+    resolveDocumentViewportResizeAnchorPosition, 
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
     TDocumentPageSourceKind,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import DocumentViewportHost from '@app/utils/document-viewer/chassis/DocumentViewportHost.vue';
+    IDocumentViewportResizeAnchor,
+    IDocumentWheelInteraction,
+} from '@app/modules/document-viewer/public';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
-import {
-    injectDocumentOpenSurfaceSession,
-    resolveDocumentOpenSurfaceViewportPolicy,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import {
-    createDocumentOpeningPageFrameAuthority,
-    resolveDocumentOpeningPageMargin,
-    resolveDocumentOpeningPageShellId,
-} from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
-import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
-import {
-    captureDocumentViewportResizeAnchor,
-    resolveDocumentViewportResizeAnchorPosition,
-    type IDocumentViewportResizeAnchor,
-} from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
-import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
-import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });
@@ -144,7 +135,7 @@ const props = defineProps<{
     isResizing?: boolean;
 }>();
 const emit = defineEmits<{
-    'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrameAuthority>];
+    'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrame>];
     'update:current-page': [pageNumber: number];
     'update:pageSource': [source: IDocumentPageSource | null];
     'update:total-pages': [pageCount: number];
@@ -169,13 +160,16 @@ const featurePacks: Record<TDocumentViewerRendererKind, Component> = {
     'native-pdf': NativePdfFeaturePack,
     'page-source': DocumentPageSourceFeaturePack,
 };
+const viewportIds: Record<TDocumentViewerRendererKind, string | undefined> = {
+    pdfjs: 'pdf-viewer',
+    'native-pdf': undefined,
+    'page-source': undefined,
+};
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
 const rendererKind = computed<TDocumentViewerRendererKind>(() => (
-    props.rendererKind ?? (sourceKind.value === 'djvu' ? 'page-source' : 'pdfjs')
+    props.rendererKind ?? 'pdfjs'
 ));
-const viewportId = computed(() => (
-    rendererKind.value === 'pdfjs' ? 'pdf-viewer' : undefined
-));
+const viewportId = computed(() => viewportIds[rendererKind.value]);
 const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
 const sourceViewerRef = computed(() => activeFeaturePackRef.value);
 const openingFrameLayoutRevision = ref(0);
@@ -191,7 +185,7 @@ const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentViewerChassis requires the host-owned document open surface session');
 }
-const chassisAuthority = createDocumentViewerChassisAuthority(
+const chassisAuthority = createDocumentViewerRuntime(
     sourceKind,
     props.currentPage ?? 1,
     documentOpenSurface,
@@ -332,7 +326,7 @@ function readOpeningViewportSize() {
         height: hostRect?.height ?? 0,
     };
 }
-const openingPageFrameAuthority = createDocumentOpeningPageFrameAuthority({
+const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     openSurface: documentOpenSurface,
     readLayoutRevision: () => openingFrameLayoutRevision.value,
     readPolicy: () => ({
@@ -426,7 +420,7 @@ const chassisOpeningPageShell = computed(() => {
     void openingFrameLayoutRevision.value;
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const frame = snapshot.openingPageFrame;
-    const isPdf = sourceKind.value === 'pdf';
+    const isPdf = rendererKind.value !== 'page-source';
     const isOpening = snapshot.phase === 'pending'
         || snapshot.phase === 'geometry-committed'
         || snapshot.phase === 'canvas-committed'
@@ -530,7 +524,7 @@ watch(
             if (phase !== 'pending') {
                 return;
             }
-            const geometry = sourceKind.value === 'djvu'
+            const geometry = rendererKind.value === 'page-source'
                 ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value, null)
                 : readPrevalidatedTrustedPdfOpenGeometry(
                     documentId,
@@ -576,7 +570,7 @@ const chassisViewportStyle = computed(() => {
     ];
 });
 let handoffGeneration = 0;
-provide(documentViewerChassisAuthorityKey, chassisAuthority);
+provide(documentViewerRuntimeKey, chassisAuthority);
 
 // Feature packs publish their render source through the chassis authority. Keep
 // the compatibility event as a projection of that authoritative state so a
@@ -610,7 +604,7 @@ watch(
 watch(() => props.currentPage, (pageNumber) => {
     if (
         pageNumber !== undefined
-        && shouldApplyExternalChassisPage(
+        && shouldApplyExternalRuntimePage(
             chassisAuthority.openSurface.viewportSession.value,
             pageNumber,
         )
@@ -620,7 +614,7 @@ watch(() => props.currentPage, (pageNumber) => {
 }, {immediate: true});
 
 function handleCurrentPageUpdate(pageNumber: number) {
-    if (shouldAcceptFeaturePackChassisPage(
+    if (shouldAcceptFeaturePackRuntimePage(
         chassisAuthority.openSurface.viewportSession.value,
         pageNumber,
     )) {

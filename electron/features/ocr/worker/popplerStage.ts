@@ -7,7 +7,7 @@ import type {IOcrPageSizeInches} from '@electron/features/ocr/worker/pdfPageSize
 import type {
     IWorkerPaths,
     TWorkerLog,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import {
     runOcrCommand,
     type TOcrRunCommandOptions,
