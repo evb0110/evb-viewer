@@ -304,6 +304,7 @@ export interface IPreviewEntry {
     generation: number;
     pageNumber: number;
     claimId: string;
+    sourcePdfPath?: string;
     tail: Promise<TScanCleanupPreviewWireResult>;
 }
 

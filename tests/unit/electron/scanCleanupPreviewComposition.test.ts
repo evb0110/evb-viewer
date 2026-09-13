@@ -44,6 +44,8 @@ import {
     scenarioLosslessCanvasCacheOrderIndependence,
     scenarioDestroyedInFlightCancellation,
     scenarioRenderProcessGoneInFlightCancellation,
+    scenarioReleasesPreviewArtifactsAfterExplicitCancellation,
+    scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses,
     scenarioPreservesComposedResourcesAcrossTwoOwnersAndDisposesThem,
 } from '@tests/unit/electron/scanCleanupPreviewCompositionScenarios';
 
@@ -97,97 +99,145 @@ describe('scanCleanupPreviewCompositionTest', () => {
             });
         }
     });
-    it('lets a visible request run beside the adjacent prefetch instead of aborting it', async () => {
-        await scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt();
+    const scenarios = [
+        [
+            'visible beside adjacent prefetch',
+            scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt,
+        ],
+        [
+            'adopt identical in-flight preview',
+            scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime,
+        ],
+        [
+            'supersede Auto preview after detection',
+            scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolvesAnotherOutputMode,
+        ],
+        [
+            'supersede stale options generation',
+            scenarioSupersedesAStaleOptionsGenerationForThePageItIsRendering,
+        ],
+        [
+            'cancel pages outside navigation window',
+            scenarioCancelsOnlyThePreviewPagesANavigationNoLongerWants,
+        ],
+        [
+            'retain navigation raster until full cancellation',
+            scenarioLeavesTheRasterOfARetainedNavigationAloneAndRetiresItOnAFullCancellation,
+        ],
+        [
+            'keep detail in its own lane',
+            scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheVisibleBasePreview,
+        ],
+        [
+            'fence invalidated raw raster publication',
+            scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRendererIgnoresCancellation,
+        ],
+        [
+            'fence invalidated base geometry publication',
+            scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSidecarIgnoresCancellation,
+        ],
+        [
+            'abort when the source path changes',
+            scenarioAbortsACleanedRequestWhenTheSameOwnerMovesToAnotherSourcePath,
+        ],
+        [
+            'abort when the revision changes',
+            scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnotherDocumentRevision,
+        ],
+        [
+            'reuse raw raster until session invalidation',
+            scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheDialogSessionIsInvalidated,
+        ],
+        [
+            'publish raw raster before cleaned failure',
+            scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingFails,
+        ],
+        [
+            'invalidate stale raster on revision change',
+            scenarioInvalidatesAStaleRawRasterWhenTheDocumentRevisionChanges,
+        ],
+        [
+            'invalidate stale raster on source change',
+            scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChangeUnderAnUnchangedRevision,
+        ],
+        [
+            'isolate two windows on one document',
+            scenarioDoesNotCrossCancelPreviewsFromTwoWindowsOnTheSameDocument,
+        ],
+        [
+            'keep a late replacement reachable',
+            scenarioKeepsALiveReplacementReachableWhenAnOlderGenerationRetiresLate,
+        ],
+        [
+            'readmit adopted prefetch',
+            scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsOneNothingCanAdmit,
+        ],
+        [
+            'drop a prefetch that cannot be admitted',
+            scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePageCommittedToIt,
+        ],
+        [
+            'cancel during working-copy materialization',
+            scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWhileItsWorkingCopyMaterializes,
+        ],
+        [
+            'settle after working-copy retirement',
+            scenarioSettlesACanceledPreviewWhenItsWorkingCopyRegistrationDisappearsDuringMaterialization,
+        ],
+        [
+            'schedule a page switch during detection',
+            scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPilingNativeProcessesOntoTheHost,
+        ],
+        [
+            'admit visible preview ahead of prefetch',
+            scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocument,
+        ],
+        [
+            'preserve two-owner resources through cancellation',
+            scenarioPreservesComposedResourcesAcrossTwoOwnersAndDisposesThem,
+        ],
+    ] as const;
+    it.each(scenarios)('%s', async (_name, scenario) => {
+        await scenario();
     });
-    it('adopts an identical in-flight preview instead of rendering the page a second time', async () => {
-        await scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime();
-    });
-    it('supersedes an in-flight Auto preview when detection resolves another output mode', async () => {
-        await scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolvesAnotherOutputMode();
-    });
-    it('supersedes a stale options generation for the page it is rendering', async () => {
-        await scenarioSupersedesAStaleOptionsGenerationForThePageItIsRendering();
-    });
-    it('cancels only the preview pages a navigation no longer wants', async () => {
-        await scenarioCancelsOnlyThePreviewPagesANavigationNoLongerWants();
-    });
-    it('leaves the raster of a retained navigation alone and retires it on a full cancellation', async () => {
-        await scenarioLeavesTheRasterOfARetainedNavigationAloneAndRetiresItOnAFullCancellation();
-    });
-    it('runs detail tiles in a separate lane that never cancels the visible base preview', async () => {
-        await scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheVisibleBasePreview();
-    });
-    it('does not republish an invalidated raw raster after its renderer ignores cancellation', async () => {
-        await scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRendererIgnoresCancellation();
-    });
-    it('does not republish invalidated base geometry after its sidecar ignores cancellation', async () => {
-        await scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSidecarIgnoresCancellation();
-    });
-    it('aborts a cleaned request when the same owner moves to another source path', async () => {
-        await scenarioAbortsACleanedRequestWhenTheSameOwnerMovesToAnotherSourcePath();
-    });
-    it('aborts an in-flight request when the same owner moves to another document revision', async () => {
-        await scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnotherDocumentRevision();
-    });
-    it('reuses the raw page raster across option changes until the dialog session is invalidated', async () => {
-        await scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheDialogSessionIsInvalidated();
-    });
-    it('has already published the raw page when cleaned rendering fails', async () => {
-        await scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingFails();
-    });
-    it('invalidates a stale raw raster when the document revision changes', async () => {
-        await scenarioInvalidatesAStaleRawRasterWhenTheDocumentRevisionChanges();
-    });
-    it('invalidates a stale raw raster when the source bytes change under an unchanged revision', async () => {
-        await scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChangeUnderAnUnchangedRevision();
-    });
-    it('does not cross-cancel previews from two windows on the same document', async () => {
-        await scenarioDoesNotCrossCancelPreviewsFromTwoWindowsOnTheSameDocument();
-    }, 15_000);
-    it('keeps a live replacement reachable when an older generation retires late', async () => {
-        await scenarioKeepsALiveReplacementReachableWhenAnOlderGenerationRetiresLate();
-    });
-    it('readmits an adopted prefetch as the visible page and drops one nothing can admit', async () => {
-        await scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsOneNothingCanAdmit();
-    });
-    it('drops a prefetch nothing admits instead of leaving the page committed to it', async () => {
-        await scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePageCommittedToIt();
-    });
-    it('does not queue for a preview lease when the run is canceled while its working copy materializes', async () => {
-        await scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWhileItsWorkingCopyMaterializes();
-    });
-    it('settles a canceled preview when its working-copy registration disappears during materialization', async () => {
-        await scenarioSettlesACanceledPreviewWhenItsWorkingCopyRegistrationDisappearsDuringMaterialization();
-    });
-    it('schedules a page switch during detection instead of piling native processes onto the host', async () => {
-        await scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPilingNativeProcessesOntoTheHost();
-    });
-    it('leases a visible preview ahead of a prefetch of the same document', async () => {
-        await scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocument();
-    });
-    it('keeps owner two resources usable while owner one cancels, then disposes them', async () => {
-        await scenarioPreservesComposedResourcesAcrossTwoOwnersAndDisposesThem();
-    }, 15_000);
 });
 
 describe('parameterized fixture executions', () => {
-    it('forwards trusted MRC layers for automatic B/W', async () => {
-        await scenarioTrustedMrcAutomaticBwPreview();
-    });
-    it('forwards trusted MRC layers for explicit B/W', async () => {
-        await scenarioTrustedMrcExplicitBwPreview();
-    });
-    it('uses a cache-order-independent raster canvas', async () => {
-        await scenarioRasterCanvasCacheOrderIndependence();
-    });
-    it('uses a cache-order-independent lossless canvas', async () => {
-        await scenarioLosslessCanvasCacheOrderIndependence();
-    });
-    it('cancels active work on destroyed', async () => {
-        await scenarioDestroyedInFlightCancellation();
-    });
-    it('cancels active work on render-process-gone', async () => {
-        await scenarioRenderProcessGoneInFlightCancellation();
+    const scenarios = [
+        [
+            'forward trusted MRC layers for automatic B/W',
+            scenarioTrustedMrcAutomaticBwPreview,
+        ],
+        [
+            'forward trusted MRC layers for explicit B/W',
+            scenarioTrustedMrcExplicitBwPreview,
+        ],
+        [
+            'keep raster canvas cache order independent',
+            scenarioRasterCanvasCacheOrderIndependence,
+        ],
+        [
+            'keep lossless canvas cache order independent',
+            scenarioLosslessCanvasCacheOrderIndependence,
+        ],
+        [
+            'cancel active work on destroyed',
+            scenarioDestroyedInFlightCancellation,
+        ],
+        [
+            'cancel active work on render-process-gone',
+            scenarioRenderProcessGoneInFlightCancellation,
+        ],
+        [
+            'release artifacts after explicit cancellation',
+            scenarioReleasesPreviewArtifactsAfterExplicitCancellation,
+        ],
+        [
+            'release artifacts when working copy closes',
+            scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses,
+        ],
+    ] as const;
+    it.each(scenarios)('%s', async (_name, scenario) => {
+        await scenario();
     });
 });
