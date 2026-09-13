@@ -69,7 +69,9 @@ function result(pageNumber: number, yNormalized: number): IScanCleanupDetectionR
     };
 }
 
-function resultStore(records: readonly IScanCleanupDetectionResult[]): IScanCleanupDetectionResultStore {
+function resultStore(
+    records: readonly IScanCleanupDetectionResult[],
+): IScanCleanupDetectionResultStore {
     return {
         pageCount: records.length,
         resultCount: records.length,
@@ -82,8 +84,9 @@ function resultStore(records: readonly IScanCleanupDetectionResult[]): IScanClea
         ),
         forEachChunk: async onChunk => {
             for (let firstPageNumber = 1; firstPageNumber <= records.length; firstPageNumber += 1_024) {
+                const chunk = records.slice(firstPageNumber - 1, firstPageNumber + 1_023);
                 await onChunk(
-                    records.slice(firstPageNumber - 1, firstPageNumber + 1_023),
+                    chunk,
                     firstPageNumber,
                 );
             }
@@ -108,6 +111,11 @@ describe('scan-cleanup bounded ink placement summary', () => {
             options,
             resultStore: resultStore(records),
             signal: new AbortController().signal,
+            identity: {
+                documentRevision: 'revision-1',
+                detectionSignature: 'detection-1',
+                calibrationSignature: 'calibration-1',
+            },
         });
 
         expect(summary.sampleCount).toBe(20_001);
@@ -126,4 +134,5 @@ describe('scan-cleanup bounded ink placement summary', () => {
         ]);
         expect(resolveScanCleanupPlacementAnchorFromSummary(summary, 0.3)).toEqual({yNormalized: expect.closeTo(0.2)});
     });
+
 });

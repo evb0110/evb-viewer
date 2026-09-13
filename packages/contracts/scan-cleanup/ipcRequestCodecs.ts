@@ -51,6 +51,7 @@ import {
 } from '@contracts/scan-cleanup/inputLimits';
 import type {
     IScanCleanupDetectionRequest,
+    IScanCleanupPlacementAnchorCalibrationRequest,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRequest,
@@ -306,7 +307,7 @@ export function decodeScanCleanupPagePlanEvidence(
     };
 }
 
-function decodeScanCleanupPlacementAnchors(
+export function decodeScanCleanupPlacementAnchors(
     value: unknown,
     label: string,
 ): Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> {
@@ -1197,12 +1198,46 @@ function decodeDetectionRequest(value: unknown): IScanCleanupDetectionRequest {
     };
 }
 
+function decodePlacementAnchorCalibrationRequest(
+    value: unknown,
+): IScanCleanupPlacementAnchorCalibrationRequest {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup placement anchor calibration request');
+    const sourcePdfPath = decodeBoundedScanCleanupString(
+        value.sourcePdfPath,
+        'placement anchor calibration source PDF path',
+        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    );
+    const detectionResultStoreId = decodeBoundedScanCleanupString(
+        value.detectionResultStoreId,
+        'placement anchor calibration result store id',
+        SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    );
+    const pageNumber = value.pageNumber === undefined
+        ? undefined
+        : decodeScanCleanupPageNumber(value.pageNumber, 'placement anchor calibration page number');
+    return {
+        sourcePdfPath,
+        ...decodeOwnerContext(value),
+        detectionResultStoreId,
+        options: decodeOptions(value.options),
+        ...(pageNumber === undefined ? {} : {pageNumber}),
+    };
+}
+
 export function decodeDetectionArgs(args: readonly unknown[]) {
     requireIpcArgumentCount(args, {
         min: 1,
         max: 1,
     });
     return [decodeDetectionRequest(args[0])] as [IScanCleanupDetectionRequest];
+}
+
+export function decodePlacementAnchorCalibrationArgs(args: readonly unknown[]) {
+    requireIpcArgumentCount(args, {
+        min: 1,
+        max: 1,
+    });
+    return [decodePlacementAnchorCalibrationRequest(args[0])] as [IScanCleanupPlacementAnchorCalibrationRequest];
 }
 
 export function decodePreviewArgs(args: readonly unknown[]) {

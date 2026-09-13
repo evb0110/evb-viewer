@@ -79,6 +79,7 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
         const bindings: TScanCleanupBindings = {
             preview,
             cancelPreview,
+            resolvePlacementAnchorCalibration: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),

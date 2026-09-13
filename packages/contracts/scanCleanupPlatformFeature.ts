@@ -1,6 +1,8 @@
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupOwnerContext,
+    IScanCleanupPlacementAnchorCalibrationRequest,
+    IScanCleanupPlacementAnchorCalibration,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
@@ -10,6 +12,7 @@ import type {
 import {
     decodeDetectionArgs,
     decodeOwnedJobId,
+    decodePlacementAnchorCalibrationArgs,
     decodePreviewArgs,
     decodePreviewCancelArgs,
     decodeStartArgs,
@@ -18,6 +21,7 @@ import {
     decodeDetectionStartResult,
     decodeScanCleanupDetectionJobState,
     decodeScanCleanupJobState,
+    decodeScanCleanupPlacementAnchorCalibration,
     decodeScanCleanupPreviewResult,
     decodeScanCleanupRawPreviewEvent,
     decodeStartResult,
@@ -89,6 +93,13 @@ const detectionRequest: IScanCleanupDetectionRequest = {
     options,
 };
 const startRequest: IScanCleanupStartRequest = detectionRequest;
+const placementAnchorCalibrationRequest: IScanCleanupPlacementAnchorCalibrationRequest = {
+    ...owner,
+    sourcePdfPath: '/tmp/source.pdf',
+    detectionResultStoreId: 'scan-cleanup-fixture-store',
+    options,
+    pageNumber: requirePageNumber(1),
+};
 const queuedProgress = {
     stage: 'queued' as const,
     completedUnits: 0,
@@ -137,6 +148,10 @@ const previewArgs = s.fromParser(decodeArgs(decodePreviewArgs), () => [previewRe
 const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () => [cancelPreviewRequest]);
 const detectionArgs = s.fromParser(decodeArgs(decodeDetectionArgs), () => [detectionRequest]);
 const startArgs = s.fromParser(decodeArgs(decodeStartArgs), () => [startRequest]);
+const placementAnchorCalibrationArgs = s.fromParser(
+    decodeArgs(decodePlacementAnchorCalibrationArgs),
+    () => [placementAnchorCalibrationRequest],
+);
 const ownedJobArgs = s.fromParser(decodeArgs(decodeOwnedJobId), () => [
     parseJobId('scan-cleanup-fixture') ?? (() => {
         throw new Error('invalid fixture job ID');
@@ -185,6 +200,26 @@ const startResult = s.fromParser(decodeStartResult, () => ({
     jobId: createJobId('scan-cleanup-fixture'),
     outputPdfPath: '/tmp/cleaned.pdf',
 }));
+const placementAnchorCalibrationResult = s.fromParser(
+    decodeScanCleanupPlacementAnchorCalibration,
+    (): IScanCleanupPlacementAnchorCalibration => ({
+        summary: {
+            schemaVersion: 1,
+            sampleCount: 0,
+            referenceHeightPoints: 0,
+            toleranceNormalized: 0,
+            topEdgeNormalized: 0,
+            identity: {
+                documentRevision: 'revision-1',
+                detectionSignature: 'detection-1',
+                calibrationSignature: 'calibration-1',
+            },
+            clusters: [],
+            samples: [],
+        },
+        placementAnchors: {},
+    }),
+);
 const jobState = s.fromParser(decodeScanCleanupJobState, () => null);
 const detectionJobState = s.fromParser(decodeScanCleanupDetectionJobState, () => null);
 const jobEvent = s.fromNullableDecoder(
@@ -212,6 +247,14 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             args: previewArgs,
             result: previewResult,
             main: 'preview',
+        }),
+        resolvePlacementAnchorCalibration: method({
+            name: 'resolvePlacementAnchorCalibration',
+            channel: 'scan-cleanup:placement-anchor-calibration',
+            args: placementAnchorCalibrationArgs,
+            result: placementAnchorCalibrationResult,
+            main: 'resolvePlacementAnchorCalibration',
+            optionalWhenImplemented: true,
         }),
         cancelPreview: method({
             name: 'cancelPreview',

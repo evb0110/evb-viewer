@@ -159,6 +159,8 @@ type TScanCleanupChannel = keyof IScanCleanupInvokeMap;
 
 const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
     [SCAN_CLEANUP_CHANNELS.preview]: previewResult(),
+    [SCAN_CLEANUP_CHANNELS.resolvePlacementAnchorCalibration]:
+        SCAN_CLEANUP_PLATFORM_FEATURE.methods.resolvePlacementAnchorCalibration.ipc.result.example(),
     [SCAN_CLEANUP_CHANNELS.cancelPreview]: true,
     [SCAN_CLEANUP_CHANNELS.detectAll]: {
         started: true,
@@ -232,6 +234,13 @@ describe('scan-cleanup IPC structured-clone contract', () => {
                 ...reactiveOwner,
                 sourcePdfPath: '/documents/source.pdf',
                 invalidateRawCache: false,
+            }),
+            client.resolvePlacementAnchorCalibration!({
+                ...reactiveOwner,
+                sourcePdfPath: '/documents/source.pdf',
+                detectionResultStoreId: 'store-1',
+                options: reactiveOptions,
+                pageNumber: requirePageNumber(2),
             }),
             client.detectAll({
                 ...reactiveOwner,

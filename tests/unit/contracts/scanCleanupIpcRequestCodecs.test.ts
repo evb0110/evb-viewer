@@ -329,6 +329,11 @@ describe('scan-cleanup IPC request codecs', () => {
             referenceHeightPoints: 792,
             toleranceNormalized: 0.014,
             topEdgeNormalized: 0.1,
+            identity: {
+                documentRevision: 'revision-1',
+                detectionSignature: 'detection-1',
+                calibrationSignature: 'calibration-1',
+            },
             clusters: [{
                 startNormalized: 0.1,
                 endNormalized: 0.101,
@@ -360,6 +365,10 @@ describe('scan-cleanup IPC request codecs', () => {
             placementAnchorSummary,
         }])[0].placementAnchorSummary).toEqual(placementAnchorSummary);
         for (const malformed of [
+            {
+                ...placementAnchorSummary,
+                identity: undefined,
+            },
             {
                 ...placementAnchorSummary,
                 schemaVersion: 2,

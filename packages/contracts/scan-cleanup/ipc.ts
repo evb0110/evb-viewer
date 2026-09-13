@@ -491,6 +491,12 @@ export interface IScanCleanupPlacementAnchorSummaryCluster {
     valueNormalized: number;
 }
 
+export interface IScanCleanupPlacementAnchorSummaryIdentity {
+    documentRevision: string;
+    detectionSignature: string;
+    calibrationSignature: string;
+}
+
 export interface IScanCleanupPlacementAnchorSummary {
     schemaVersion: 1;
     /** Number of ink-aligned output samples in the complete detection pass. */
@@ -501,10 +507,24 @@ export interface IScanCleanupPlacementAnchorSummary {
     toleranceNormalized: number;
     /** The document top edge selected from the bounded cluster summary. */
     topEdgeNormalized: number;
+    /** The document and evidence identity that produced this calibration. */
+    identity: IScanCleanupPlacementAnchorSummaryIdentity;
     /** At most one bounded cluster per retained sample bucket. */
     clusters: readonly IScanCleanupPlacementAnchorSummaryCluster[];
     /** Deterministic early, middle, and late evidence samples. */
     samples: readonly IScanCleanupPlacementAnchorSummarySample[];
+}
+
+export interface IScanCleanupPlacementAnchorCalibrationRequest extends IScanCleanupOwnerContext {
+    sourcePdfPath: string;
+    detectionResultStoreId: string;
+    options: IScanCleanupOptions;
+    pageNumber?: TPageNumber;
+}
+
+export interface IScanCleanupPlacementAnchorCalibration {
+    summary: IScanCleanupPlacementAnchorSummary;
+    placementAnchors: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>;
 }
 
 export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationMetadata {

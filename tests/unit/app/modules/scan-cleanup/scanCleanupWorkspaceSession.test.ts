@@ -25,10 +25,16 @@ import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import * as platform from '@app/utils/platform';
 import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
+    IScanCleanupPlacementAnchorCalibration,
+    IScanCleanupPlacementAnchorCalibrationRequest,
     IScanCleanupPagePlanEvidence,
     IScanCleanupPlacementAnchorSummary,
     IScanCleanupPreviewResult,
@@ -109,10 +115,11 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
 function previewResult(
     pageNumber: number,
     classification: IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
+    totalPages = 3,
 ): IScanCleanupPreviewResult {
     return {
         pageNumber: requirePageNumber(pageNumber),
-        totalPages: 3,
+        totalPages,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 1,
         rawHeightPx: 1,
@@ -152,6 +159,12 @@ function scanCleanupOptions(): IScanCleanupOptions {
         skipBlankPages: false,
         pageOverrides: {},
     };
+}
+
+function inkPlacementOptions() {
+    const options = scanCleanupOptions();
+    options.pageAlignment = 'ink';
+    return options;
 }
 
 function detectionState(
@@ -204,6 +217,70 @@ function failedDetectionState(
         error: 'uniform detection failed',
         errorCode,
     };
+}
+
+function placementAnchorSummary(
+    anchorY: number,
+    options: IScanCleanupOptions = inkPlacementOptions(),
+): IScanCleanupPlacementAnchorSummary {
+    return {
+        schemaVersion: 1,
+        sampleCount: 1_025,
+        referenceHeightPoints: 792,
+        toleranceNormalized: 0.014,
+        topEdgeNormalized: 0.1,
+        identity: placementAnchorIdentity(options),
+        clusters: [{
+            startNormalized: 0.1,
+            endNormalized: 0.1,
+            valueNormalized: 0.1,
+        }],
+        samples: [{
+            pageNumber: requirePageNumber(1),
+            half: 'full',
+            yNormalized: 0.1,
+            anchor: {yNormalized: anchorY},
+        }],
+    };
+}
+
+function placementAnchorIdentity(options: IScanCleanupOptions = inkPlacementOptions()) {
+    return {
+        documentRevision: 'revision-1',
+        detectionSignature: createScanCleanupDetectionSignature(options),
+        calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(options),
+    };
+}
+
+function placementAnchorCalibration(
+    anchorY: number,
+    options: IScanCleanupOptions = inkPlacementOptions(),
+): IScanCleanupPlacementAnchorCalibration {
+    return {
+        summary: placementAnchorSummary(anchorY, options),
+        placementAnchors: {full: {yNormalized: anchorY}},
+    };
+}
+
+function setPlacementAnchorCalibrationCapability(
+    capabilityValue: IScanCleanupCapability,
+    resolve: NonNullable<IScanCleanupCapability['resolvePlacementAnchorCalibration']>,
+) {
+    Reflect.set(capabilityValue, 'resolvePlacementAnchorCalibration', resolve);
+}
+
+function completedLargeDetectionState(summary = placementAnchorSummary(0)): TScanCleanupDetectionJobState {
+    const state = detectionState('detect-1', 'completed', 1_025);
+    state.progress = {
+        ...state.progress,
+        completedUnits: 1_025,
+        totalUnits: 1_025,
+        percent: 100,
+    };
+    state.resultCount = 1_025;
+    state.detectionResultStoreId = 'calibration-store';
+    state.placementAnchorSummary = summary;
+    return state;
 }
 
 function capabilityHarness() {
@@ -616,6 +693,282 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('uses the document calibration for retained preview pages beyond the renderer window', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            previewResult(request.pageNumber, 'single-uncut-page', 1_025)
+        ));
+        const calibration = vi.fn(async (request: IScanCleanupPlacementAnchorCalibrationRequest) => placementAnchorCalibration(
+            request.pageNumber === 1 ? 0 : 0.1,
+            request.options,
+        ));
+        setPlacementAnchorCalibrationCapability(
+            harness.value,
+            calibration,
+        );
+        const mounted = mountSession(`ink-window-calibration-${Date.now()}`, {
+            currentPage: () => 1_025,
+            totalPages: () => 1_025,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const state = detectionState('detect-1', 'completed', 1_025);
+        state.resultCount = 1_025;
+        state.detectionResultStoreId = 'ink-window-store';
+        state.progress = {
+            ...state.progress,
+            completedUnits: 1_025,
+            totalUnits: 1_025,
+            percent: 100,
+        };
+        state.placementAnchorSummary = {
+            schemaVersion: 1,
+            sampleCount: 1_025,
+            referenceHeightPoints: 792,
+            toleranceNormalized: 0.014,
+            topEdgeNormalized: 0.1,
+            identity: placementAnchorIdentity(),
+            clusters: [
+                {
+                    startNormalized: 0.1,
+                    endNormalized: 0.1,
+                    valueNormalized: 0.1,
+                },
+                {
+                    startNormalized: 0.2,
+                    endNormalized: 0.2,
+                    valueNormalized: 0.2,
+                },
+            ],
+            samples: [
+                {
+                    pageNumber: requirePageNumber(1),
+                    half: 'full',
+                    yNormalized: 0.1,
+                    anchor: {yNormalized: 0},
+                },
+                {
+                    pageNumber: requirePageNumber(1_025),
+                    half: 'full',
+                    yNormalized: 0.2,
+                    anchor: {yNormalized: 0.1},
+                },
+            ],
+        };
+        state.results = state.results.map((result, index) => ({
+            ...result,
+            sourcePageMetadata: {
+                pageNumber: result.pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+            pagePlanEvidence: {
+                ...result.pagePlanEvidence!,
+                outputs: {full: {contentBox: {
+                    xNormalized: 0.1,
+                    yNormalized: index === 0 ? 0.1 : 0.2,
+                    widthNormalized: 0.7,
+                    heightNormalized: 0.6,
+                    rotationDegrees: 0,
+                }}},
+            },
+        }));
+        harness.emitDetection(state);
+
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 1_025
+            && request.placementAnchors?.full?.yNormalized === 0.1
+        ))).toBe(true));
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 1_024
+            && request.placementAnchors?.full?.yNormalized === 0.1
+        ))).toBe(true));
+        const prefetchedPageCalls = vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.pageNumber === 1_024);
+        const prefetchedPageCalibrationCalls = calibration.mock.calls.filter(([request]) => request.pageNumber === 1_024);
+        mounted.session.selection.selectPage(1_024, 'single', [
+            1,
+            1_024,
+            1_025,
+        ]);
+        await vi.waitFor(() => expect(mounted.session.preview.result.value?.pageNumber).toBe(1_024));
+        expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.pageNumber === 1_024))
+            .toHaveLength(prefetchedPageCalls.length);
+        expect(calibration.mock.calls.filter(([request]) => request.pageNumber === 1_024))
+            .toHaveLength(prefetchedPageCalibrationCalls.length);
+        expect(mounted.session.detection.pagePlanEvidenceByPage.has(1)).toBe(false);
+        mounted.session.selection.selectPage(1, 'single', [
+            1,
+            1_025,
+        ]);
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 1
+            && request.placementAnchors?.full?.yNormalized === 0
+        ))).toBe(true));
+        mounted.unmount();
+    });
+
+    it('recalibrates ink placement for option-only edits without rerunning native detection', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            previewResult(request.pageNumber, 'single-uncut-page')
+        ));
+        const calibration = vi.fn(async (request: IScanCleanupPlacementAnchorCalibrationRequest) => {
+            const override = request.options.pageOverrides['1'];
+            const anchorY = override?.manualContentBoxes?.full?.yNormalized
+                ?? (override?.excluded === true ? 0.3 : 0.1);
+            return placementAnchorCalibration(anchorY, request.options);
+        });
+        const recalculationCalls = () => calibration.mock.calls.filter(([request]) => request.pageNumber === undefined);
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-option-calibration-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 1_025,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(completedLargeDetectionState());
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        expect(calibration).not.toHaveBeenCalled();
+        setPlacementAnchorCalibrationCapability(harness.value, calibration);
+
+        const updateAndAssert = async (override: IScanCleanupOptions['pageOverrides'][string], anchorY: number) => {
+            const callsBefore = recalculationCalls().length;
+            mounted.session.selection.updatePageOverride(1, override);
+            await vi.waitFor(() => expect(recalculationCalls().length).toBeGreaterThan(callsBefore));
+            await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+                .toBe(anchorY));
+            expect(harness.value.detectAll).toHaveBeenCalledOnce();
+            expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
+            expect(mounted.session.detection.placementAnchorCalibrationError.value).toBe('');
+        };
+
+        await updateAndAssert({
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        }, 0.3);
+        await updateAndAssert({
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        }, 0.2);
+        await updateAndAssert({
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            placementOverrides: {full: 'top-center'},
+        }, 0.1);
+        mounted.unmount();
+    });
+
+    it('fences stale calibration and keeps a failed recalculation explicit', async () => {
+        const harness = capabilityHarness();
+        const first = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
+        const second = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
+        let recalculation = 0;
+        const calibration = vi.fn((request: IScanCleanupPlacementAnchorCalibrationRequest) => {
+            if (request.pageNumber !== undefined) {
+                return Promise.resolve(placementAnchorCalibration(0, request.options));
+            }
+            recalculation += 1;
+            return recalculation === 1 ? first.promise : second.promise;
+        });
+        const recalculationCalls = () => calibration.mock.calls.filter(([request]) => request.pageNumber === undefined);
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-stale-calibration-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 1_025,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(completedLargeDetectionState());
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        setPlacementAnchorCalibrationCapability(harness.value, calibration);
+
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        });
+        await vi.waitFor(() => expect(recalculationCalls()).toHaveLength(1));
+        expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(true);
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.3,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        });
+        await vi.waitFor(() => expect(recalculationCalls()).toHaveLength(2));
+
+        first.resolve(placementAnchorCalibration(0.2));
+        await Promise.resolve();
+        expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
+        expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(true);
+        second.resolve(placementAnchorCalibration(0.3, mounted.session.settings.values));
+        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+            .toBe(0.3));
+        expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+
+        const failedCalibration = vi.fn(async (request: IScanCleanupPlacementAnchorCalibrationRequest) => {
+            if (request.pageNumber !== undefined) {
+                return placementAnchorCalibration(0.4, request.options);
+            }
+            throw new Error('result store read failed');
+        });
+        setPlacementAnchorCalibrationCapability(harness.value, failedCalibration);
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        });
+        await vi.waitFor(() => expect(failedCalibration.mock.calls.filter(([request]) => request.pageNumber === undefined))
+            .toHaveLength(1));
+        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false));
+        expect(mounted.session.detection.placementAnchorCalibrationError.value).toContain('result store read failed');
+        expect(mounted.session.detection.error.value).toContain('result store read failed');
+        expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
+        expect(mounted.session.run.runDisabledReason.value).toContain('result store read failed');
+        await mounted.session.run.run();
+        expect(harness.value.start).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
     it('uses native document size for completion before viewer metadata arrives', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
@@ -711,6 +1064,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             referenceHeightPoints: 792,
             toleranceNormalized: 0.014,
             topEdgeNormalized: 0.1,
+            identity: placementAnchorIdentity(),
             clusters: [{
                 startNormalized: 0.1,
                 endNormalized: 0.1,
