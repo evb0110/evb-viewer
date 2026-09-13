@@ -1628,6 +1628,7 @@ export default {
         'settings': {
             'load': 'Instellingen konden niet worden geladen',
             'recovered': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is indien mogelijk als herstelkopie bewaard.',
+            'recoveredWithPath': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is in quarantaine geplaatst op {path}.',
         },
         'runtime': {
             'title': 'Er is iets misgegaan',

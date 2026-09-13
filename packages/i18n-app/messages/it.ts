@@ -1628,6 +1628,7 @@ export default {
         'settings': {
             'load': 'Impossibile caricare le impostazioni',
             'recovered': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato conservato come copia di recupero quando possibile.',
+            'recoveredWithPath': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato messo in quarantena in {path}.',
         },
         'runtime': {
             'title': 'Qualcosa è andato storto',

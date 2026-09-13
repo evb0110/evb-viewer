@@ -1628,6 +1628,7 @@ export default {
         'settings': {
             'load': 'Failed to load settings',
             'recovered': 'Saved settings could not be used, so defaults were restored. The previous file was kept as a recovery copy when possible.',
+            'recoveredWithPath': 'Saved settings could not be used, so defaults were restored. The previous file was quarantined at {path}.',
         },
         'runtime': {
             'title': 'Something went wrong',

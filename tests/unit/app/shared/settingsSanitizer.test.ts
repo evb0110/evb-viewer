@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     DEFAULT_SETTINGS,
+    migrateSettings,
     normalizeLocale,
     normalizeTheme,
     sanitizeSettings,
@@ -40,6 +41,18 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({version: Number.POSITIVE_INFINITY}).version).toBe(DEFAULT_SETTINGS.version);
         expect(sanitizeSettings({version: Number.NaN}).version).toBe(DEFAULT_SETTINGS.version);
         expect(sanitizeSettings({version: -1.5}).version).toBe(-1.5);
+    });
+
+    it('migrates version one settings and preserves unknown storage fields', () => {
+        expect(migrateSettings({
+            version: 1,
+            authorName: 'Alice',
+            futureSetting: {enabled: true},
+        })).toMatchObject({
+            version: DEFAULT_SETTINGS.version,
+            authorName: 'Alice',
+            futureSetting: {enabled: true},
+        });
     });
 
     it('normalizes invalid locale/theme and trims skipped update version', () => {

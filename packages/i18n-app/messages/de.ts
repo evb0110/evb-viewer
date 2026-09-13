@@ -1628,6 +1628,7 @@ export default {
         'settings': {
             'load': 'Einstellungen konnten nicht geladen werden',
             'recovered': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde, wenn möglich, als Wiederherstellungskopie behalten.',
+            'recoveredWithPath': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde unter {path} unter Quarantäne gestellt.',
         },
         'runtime': {
             'title': 'Etwas ist schiefgelaufen',

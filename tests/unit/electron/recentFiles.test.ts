@@ -266,6 +266,35 @@ describe('recentFiles persistence', () => {
         });
     });
 
+    it('logs filtered entries and leaves them on disk for a later compatible reader', async () => {
+        const validPath = join(userDataDir, 'missing-compatible.pdf');
+        const storagePath = join(userDataDir, 'recentFiles.json');
+        const persisted = {
+            version: 1,
+            files: [
+                {
+                    originalPath: validPath,
+                    fileName: 'missing-compatible.pdf',
+                    timestamp: 123,
+                    fileSize: 7,
+                },
+                {
+                    originalPath: 'relative.pdf',
+                    fileName: 'relative.pdf',
+                    timestamp: 124,
+                    fileSize: 8,
+                },
+            ],
+        };
+        writeFileSync(storagePath, JSON.stringify(persisted));
+
+        const recentFiles = await loadRecentFilesModule();
+
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual([expect.objectContaining({originalPath: validPath})]);
+        expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual(persisted);
+        expect(mocks.logger.warn).toHaveBeenCalledWith('Dropped invalid recent file entry 1');
+    });
+
     it('migrates a historical owned working-copy entry to its canonical source while loading', async () => {
         const originalPath = writeFixture('historical-original.pdf', 'original');
         const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-historical-mapped');

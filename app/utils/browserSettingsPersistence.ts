@@ -2,7 +2,7 @@ import { omit } from 'es-toolkit/object';
 import {
     assertSupportedSettingsSchema,
     DEFAULT_SETTINGS,
-    sanitizeSettings,
+    migrateSettings,
     UnsupportedSettingsSchemaError,
 } from '@contracts/settings';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -144,7 +144,7 @@ function parseStoredBrowserSettingsSnapshot(raw: string | null) {
     }
 
     const parsed = parseRawBrowserSettingsPayload(raw);
-    return parsed ? sanitizeSettings(parsed) : null;
+    return parsed ? migrateSettings(parsed) : null;
 }
 
 export function parseBrowserSettingsPayload(
@@ -161,14 +161,14 @@ export function parseBrowserSettingsPayload(
     if (normalizedFallback && !isAppTheme(normalizedFallback.theme)) {
         delete normalizedFallback.theme;
     }
-    return sanitizeSettings({
+    return migrateSettings({
         ...parsed,
         ...normalizedFallback,
     });
 }
 
 export function serializeBrowserSettingsPayload(settings: ISettingsData) {
-    const sanitized = sanitizeSettings(settings);
+    const sanitized = migrateSettings(settings);
     const payload: TBrowserSettingsCookiePayload = {
         version: sanitized.version,
         authorName: sanitized.authorName,
@@ -258,7 +258,7 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
                 cookieSnapshot?.fallbackSettings,
             );
             const migratedSettings = existingStorageSettings
-                ? sanitizeSettings({
+                ? migrateSettings({
                     ...cookieSettings,
                     ...existingStorageSettings,
                     ...cookieSnapshot?.fallbackSettings,
@@ -280,7 +280,7 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
         // Locale and theme cookies are only a partial migration. Start with
         // the committed settings snapshot so an early performance-mode read
         // cannot erase settings saved by the main settings capability.
-        const migratedSettings = sanitizeSettings({
+        const migratedSettings = migrateSettings({
             ...existingStorageSettings,
             ...cookieSnapshot.fallbackSettings,
         });

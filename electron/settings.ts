@@ -8,7 +8,7 @@ import { app } from 'electron';
 import { userInfo } from 'node:os';
 import {
     DEFAULT_SETTINGS,
-    assertSupportedSettingsSchema,
+    migrateSettings,
     sanitizeSettings,
     UnsupportedSettingsSchemaError,
     type ISettingsRecoveryNotice,
@@ -122,9 +122,9 @@ function getDefaultSettings() {
 }
 
 async function recoverSettingsFromStorage(storagePath: string, reason: 'corrupt' | 'unsupported') {
-    settingsRecoveryNotice ??= {reason};
+    let quarantinePath: string | null = null;
     try {
-        const quarantinePath = await quarantineCorruptFile(storagePath);
+        quarantinePath = await quarantineCorruptFile(storagePath);
         await writeSettingsAtomically(storagePath, getDefaultSettings());
         logger.warn(`Quarantined ${reason} settings at ${quarantinePath ?? storagePath}`);
     } catch (recoveryError) {
@@ -134,6 +134,10 @@ async function recoverSettingsFromStorage(storagePath: string, reason: 'corrupt'
             cause: recoveryError,
         });
     }
+    settingsRecoveryNotice ??= {
+        reason,
+        ...(quarantinePath === null ? {} : {quarantinePath}),
+    };
     return getDefaultSettings();
 }
 
@@ -165,8 +169,7 @@ async function readSettingsFromStorage(storagePath: string) {
 
     try {
         const parsed = parseSettingsPayload(content);
-        assertSupportedSettingsSchema(parsed);
-        return applyElectronDefaults(sanitizeSettings(parsed));
+        return applyElectronDefaults(migrateSettings(parsed));
     } catch (err) {
         if (err instanceof UnsupportedSettingsSchemaError) {
             logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {
@@ -230,15 +233,16 @@ export async function updateSettings(
     mutate: TSettingsUpdater,
     options: {diagnosticsConsentRevision?: number} = {},
 ): Promise<ISettingsData> {
-    const storagePath = getStoragePath();
     return queueSettingsMutation(async () => {
+        const generation = settingsCacheGeneration;
+        const storagePath = getStoragePath();
         const startingConsentRevision = diagnosticsConsentRevision;
         const current = settingsCache
             ? cloneSettings(applyDiagnosticsDeniedOverride(settingsCache))
             : await loadSettings();
         const workingCopy = cloneSettings(current);
         const mutationResult = await mutate(workingCopy);
-        let next = sanitizeSettings(
+        let next = migrateSettings(
             isRecord(mutationResult)
                 ? {
                     ...workingCopy,
@@ -259,7 +263,7 @@ export async function updateSettings(
             ? startingConsentRevision !== diagnosticsConsentRevision
             : consentIntentRevision !== diagnosticsConsentRevision;
         if (next.clientDiagnosticsPreference === 'granted' && staleConsentIntent) {
-            next = sanitizeSettings({
+            next = migrateSettings({
                 ...next,
                 clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
             });
@@ -270,16 +274,18 @@ export async function updateSettings(
         ) {
             // Keep later settings writes from reopening a failed revocation
             // from the stale durable snapshot.
-            settingsCache = {
-                ...current,
-                clientDiagnosticsPreference: next.clientDiagnosticsPreference,
-            };
+            if (generation === settingsCacheGeneration) {
+                settingsCache = {
+                    ...current,
+                    clientDiagnosticsPreference: next.clientDiagnosticsPreference,
+                };
+            }
         }
         try {
             const hasExplicitGrantIntent = next.clientDiagnosticsPreference === 'granted'
                 && consentIntentRevision !== undefined;
             const persistedBeforeGrant = hasExplicitGrantIntent
-                ? sanitizeSettings({
+                ? migrateSettings({
                     ...next,
                     clientDiagnosticsPreference: 'denied',
                 })
@@ -291,7 +297,7 @@ export async function updateSettings(
                     ? startingConsentRevision === diagnosticsConsentRevision
                     : consentIntentRevision === diagnosticsConsentRevision;
                 if (!consentStillCurrent) {
-                    next = sanitizeSettings({
+                    next = migrateSettings({
                         ...next,
                         clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
                     });
@@ -304,7 +310,7 @@ export async function updateSettings(
                 } else if (hasExplicitGrantIntent) {
                     await writeSettingsAtomically(storagePath, next);
                     if (consentIntentRevision !== diagnosticsConsentRevision) {
-                        next = sanitizeSettings({
+                        next = migrateSettings({
                             ...next,
                             clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
                         });
@@ -322,15 +328,19 @@ export async function updateSettings(
         } catch (error) {
             if (consentIntentRevision !== undefined && next.clientDiagnosticsPreference === 'granted') {
                 diagnosticsDeniedOverride = 'denied';
-                settingsCache = {
-                    ...current,
-                    clientDiagnosticsPreference: 'denied',
-                };
+                if (generation === settingsCacheGeneration) {
+                    settingsCache = {
+                        ...current,
+                        clientDiagnosticsPreference: 'denied',
+                    };
+                }
                 setMainDiagnosticsPreference('denied');
             }
             throw error;
         }
-        settingsCache = next;
+        if (generation === settingsCacheGeneration) {
+            settingsCache = next;
+        }
         return cloneSettings(next);
     });
 }

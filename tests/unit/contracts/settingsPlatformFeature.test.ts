@@ -24,7 +24,13 @@ describe('settings platform feature schemas', () => {
         expect(codecs[channels.save]!.decodeArgs([{theme: 'dark'}])).toEqual([{theme: 'dark'}]);
         expect(codecs[channels.save]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.get]!.decodeResult(DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
-        expect(codecs[channels.getRecoveryNotice]!.decodeResult({reason: 'unsupported'})).toEqual({reason: 'unsupported'});
+        expect(codecs[channels.getRecoveryNotice]!.decodeResult({
+            reason: 'unsupported',
+            quarantinePath: '/tmp/settings.json.123.corrupt',
+        })).toEqual({
+            reason: 'unsupported',
+            quarantinePath: '/tmp/settings.json.123.corrupt',
+        });
         expect(codecs[channels.getRecoveryNotice]!.decodeResult(null)).toBeNull();
     });
 

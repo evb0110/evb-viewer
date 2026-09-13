@@ -1628,6 +1628,7 @@ export default {
         'settings': {
             'load': 'No se pudieron cargar los ajustes',
             'recovered': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se conservó como copia de recuperación cuando fue posible.',
+            'recoveredWithPath': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se puso en cuarentena en {path}.',
         },
         'runtime': {
             'title': 'Algo salió mal',
