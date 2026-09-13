@@ -1,0 +1,73 @@
+scripts/windows-test/guest/cases/caseRegistry.ts
+  s_71b08669d92876::t_72cccc558e812b 20-22,24-28
+  s_71b08669d92876::t_97c6d387d6c671 17
+  s_71b08669d92876::t_2f6ec864254c93 23
+tests/unit/scripts/saveWitnessMatrix.test.ts
+  s_71b08669d92876::t_a91a3b9a9522f3 12
+  s_71b08669d92876::t_4447f94c8b3a61 11,13
+  s_71b08669d92876::t_153d1487ab491e 22-42
+  s_71b08669d92876::t_b3defd13b6f787 123-141
+  s_71b08669d92876::t_2b355f1549c91c 1-10,20-21,43-94,122
+  s_71b08669d92876::t_34535a178d8687 14-19,95-121
+tests/windows/capabilities.json
+  s_71b08669d92876::t_31441e738b5b78 564
+  s_71b08669d92876::t_c8ffc93d18bb74 565-581
+scripts/windows-test/guest/cases/runWinSaveWitnessMatrix.ts
+  s_71b08669d92876::t_97c6d387d6c671 1-2,8-38,50-52,56-60,62-70,72-74,82-93,95-100,103-104,119-121,123-124,126-128,130-141
+  s_71b08669d92876::t_3f0b5d23446601 3-7,39-49,53-55,61,71,75-81,94,101-102,105-118,122,125,129
+scripts/windows-test/guest/native-ui/winappCliAdapter.ts
+  s_71b08669d92876::t_c3712162a636e6 429-432
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_c3712162a636e6 63-65
+scripts/windows-test/fixtures/generateWindowsFixturesCli.ts
+  s_71b08669d92876::t_c05bc9de4674dd 4-5,19,26-27,85-87,93-96,102,121-125,134-145,147-148
+  s_71b08669d92876::t_97c6d387d6c671 88-92,97-101,126-133
+scripts/save-witness/runSaveWitnessMatrix.ts
+  s_71b08669d92876::t_25725edbcdec85 2,79
+  s_71b08669d92876::t_f8980c926be567 77,83-86
+  s_71b08669d92876::t_0e59d3c73f6c6b 103
+  s_71b08669d92876::t_74a47eda619132 81
+  s_71b08669d92876::t_616425962aa291 1,11-20,22,24-34,45,47-48,53,55-56,58-62,65-73,75-76,78,87-102,104-122
+  s_71b08669d92876::t_97c6d387d6c671 3-7,74
+  s_71b08669d92876::t_6e1f67dde3c882 8-10,21,23,35-44,46,49-52,54,57,63-64,80,82
+electron/file-access/researchFullContentWitness.ts
+  s_71b08669d92876::t_5df1f1e1a40a92 1,5-17,22-24,31-33,35-42,45-56,58-64,66-80,82-88,93-127
+  s_71b08669d92876::t_b528b61bd074ea 2-4,18-21,89-92
+  s_71b08669d92876::t_b3defd13b6f787 25-30,34,43-44,57,65,81
+package.json
+  s_71b08669d92876::t_2f6ec864254c93 109
+tests/windows/fixtures/manifest.json
+  s_71b08669d92876::t_8fd2a7786138b9 302
+  s_730320a62e25fc::t_aa6726ad8e0d4a 292
+  s_71b08669d92876::t_0210fd8b05d5e8 293-301,305-306
+  s_71b08669d92876::t_67856faa5e6a33 303-304
+scripts/save-witness/saveWitnessMatrix.ts
+  s_71b08669d92876::t_50ae4b7d071fb5 6-9,262-270
+  s_71b08669d92876::t_97c6d387d6c671 2-5,10,116-123,125-128,140-154,157-161,166-171
+  s_71b08669d92876::t_02b2ad78a2995f 1,11-76,93-115,124,129-139,155-156,162-165,172-199,203-206,208,212-261,271
+  s_71b08669d92876::t_a0816ff0f922ba 77-92,200-202,207,209-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "90229757d6a94aadfd021c0daf56ae611a27be6c",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_730320a62e25fc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09cf4-245c-73f0-a2ce-67ef28e1649d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
