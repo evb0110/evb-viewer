@@ -691,13 +691,13 @@ describe('dependency graph', () => {
     it('blocks PDF viewer engine imports back to runtime module layers', () => {
         expect(checkArchitectureBoundaryEdge({
             source: 'app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger.ts',
-            target: 'app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol',
+            target: 'app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol.ts',
+            specifier: '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol',
         })).toEqual([{
             rule: 'pdf-viewer-engine-layer-back-edge',
             source: 'app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger.ts',
-            target: 'app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol',
+            target: 'app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol.ts',
+            specifier: '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol',
             message: 'PDF viewer engine code must not import runtime, component, tool, or public module layers; move pure contracts/helpers into engine.',
         }]);
 

@@ -1,1 +1,0 @@
-export * from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
