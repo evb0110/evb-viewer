@@ -1,0 +1,21 @@
+docs/architecture/design-principles.md
+  s_7c67db5516d20d::t_eeee491df4f784 11-16
+tests/unit/scripts/depGraph.test.ts
+  s_7c67db5516d20d::t_84ac1bb8af0468 602,612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "31f9d494dc8efbc97275534a0119955fc3296396",
+  "prompts": {},
+  "sessions": {
+    "s_7c67db5516d20d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-d310-7a13-9854-953fea0d9bf9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
