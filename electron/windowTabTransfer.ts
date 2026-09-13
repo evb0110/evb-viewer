@@ -50,6 +50,7 @@ interface IPendingTransfer {
     targetWindowId: number;
     targetOwnerId: number;
     resolve: (result: IWindowTabTransferResult) => void;
+    timeoutMs: number;
     timeoutHandle: ReturnType<typeof setTimeout>;
     payload: IWindowTabIncomingTransfer;
     pdfSnapshotPath?: string;
@@ -119,13 +120,7 @@ export class WindowTabTransferBroker {
         };
 
         return new Promise<IWindowTabTransferResult>((resolve) => {
-            const timeoutHandle = this.deps.setTimer(() => {
-                this.finishTransfer(transferId, {
-                    success: false,
-                    error: 'Transfer timed out while waiting for target acknowledgement.',
-                });
-            }, normalizeTimeout(request.timeoutMs));
-
+            const timeoutMs = normalizeTimeout(request.timeoutMs);
             this.pendingTransfers.set(transferId, {
                 transferId,
                 sourceWindowId,
@@ -133,7 +128,12 @@ export class WindowTabTransferBroker {
                 targetWindowId: targetWindow.id,
                 targetOwnerId,
                 resolve,
-                timeoutHandle,
+                timeoutMs,
+                timeoutHandle: this.armTransferTimer(
+                    transferId,
+                    timeoutMs,
+                    'Transfer timed out while waiting for the target window to become ready.',
+                ),
                 payload,
                 ...(pdfSnapshotPath ? {pdfSnapshotPath} : {}),
             });
@@ -265,6 +265,16 @@ export class WindowTabTransferBroker {
             return;
         }
 
+        // The acknowledgement deadline covers the target's restore, so it
+        // starts at delivery. A new window's renderer startup happens before
+        // this point and is bounded by its own readiness deadline above.
+        this.deps.clearTimer(pending.timeoutHandle);
+        pending.timeoutHandle = this.armTransferTimer(
+            transferId,
+            pending.timeoutMs,
+            'Transfer timed out while waiting for target acknowledgement.',
+        );
+
         try {
             targetWindow.webContents.send(
                 WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer,
@@ -276,6 +286,15 @@ export class WindowTabTransferBroker {
                 error: `Failed to deliver transfer to target renderer: ${getErrorMessage(error)}`,
             });
         }
+    }
+
+    private armTransferTimer(transferId: string, timeoutMs: number, error: string) {
+        return this.deps.setTimer(() => {
+            this.finishTransfer(transferId, {
+                success: false,
+                error,
+            });
+        }, timeoutMs);
     }
 
     private finishTransfersForSourceWindow(windowId: number, error: string) {
