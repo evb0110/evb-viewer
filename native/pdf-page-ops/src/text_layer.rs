@@ -5,6 +5,7 @@ use lopdf::{
     DecompressError, Error as LopdfError,
 };
 use std::{
+    collections::VecDeque,
     path::Path,
     process::{Command, Stdio},
     thread,
@@ -182,6 +183,178 @@ impl FontMetrics {
     fn word_spacing_applies(&self, code: u16) -> bool {
         matches!(self, Self::Simple { .. }) && code == 32
     }
+}
+
+#[derive(Clone)]
+struct UnicodeMap {
+    code_to_char: HashMap<u16, char>,
+    char_to_code: HashMap<char, u16>,
+}
+
+impl UnicodeMap {
+    fn from_font(document: &Document, font: &Object) -> Option<Self> {
+        let dictionary = resolved_dictionary(document, font)?;
+        let to_unicode = dictionary.get(b"ToUnicode").ok()?;
+        let (_, to_unicode) = document.dereference(to_unicode).ok()?;
+        let stream = to_unicode.as_stream().ok()?;
+        let code_to_char = parse_unicode_cmap(&stream.decompressed_content().ok()?)?;
+        let mut char_to_code = HashMap::with_capacity(code_to_char.len());
+        for (&code, &character) in &code_to_char {
+            if char_to_code.insert(character, code).is_some() {
+                // A character with two source codes cannot be placed back at
+                // its original glyph position without choosing one encoding.
+                return None;
+            }
+        }
+        Some(Self {
+            code_to_char,
+            char_to_code,
+        })
+    }
+
+    fn character(&self, code: u16) -> Option<char> {
+        self.code_to_char.get(&code).copied()
+    }
+
+    fn code(&self, character: char) -> Option<u16> {
+        self.char_to_code.get(&character).copied()
+    }
+}
+
+fn hex_token_value(token: &str) -> Option<Vec<u8>> {
+    let value = token.strip_prefix('<')?.strip_suffix('>')?;
+    if value.is_empty()
+        || value.len() % 2 != 0
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&value[index..index + 2], 16).ok())
+        .collect()
+}
+
+fn unicode_from_cmap_bytes(bytes: &[u8]) -> Option<char> {
+    if bytes.len() % 2 != 0 {
+        return None;
+    }
+    let units = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .collect::<Vec<_>>();
+    let mut characters = char::decode_utf16(units.into_iter());
+    let character = characters.next()?.ok()?;
+    characters.next().is_none().then_some(character)
+}
+
+fn parse_unicode_cmap(bytes: &[u8]) -> Option<HashMap<u16, char>> {
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    let mut map = HashMap::new();
+    let mut mode = None;
+    for line in text.lines() {
+        if line.contains("beginbfchar") {
+            mode = Some("char");
+            continue;
+        }
+        if line.contains("beginbfrange") {
+            mode = Some("range");
+            continue;
+        }
+        if line.contains("endbfchar") || line.contains("endbfrange") {
+            mode = None;
+            continue;
+        }
+        let tokens = line.split_ascii_whitespace().collect::<Vec<_>>();
+        match mode {
+            Some("char") if tokens.len() >= 2 => {
+                let code = hex_token_value(tokens[0])?;
+                let character = unicode_from_cmap_bytes(&hex_token_value(tokens[1])?)?;
+                let code = match code.as_slice() {
+                    [value] => u16::from(*value),
+                    [high, low] => u16::from_be_bytes([*high, *low]),
+                    _ => continue,
+                };
+                map.insert(code, character);
+            }
+            Some("range") if tokens.len() >= 3 => {
+                let first = hex_token_value(tokens[0])?;
+                let last = hex_token_value(tokens[1])?;
+                let destination = hex_token_value(tokens[2])?;
+                let code = match first.as_slice() {
+                    [value] => u16::from(*value),
+                    [high, low] => u16::from_be_bytes([*high, *low]),
+                    _ => continue,
+                };
+                let last = match last.as_slice() {
+                    [value] => u16::from(*value),
+                    [high, low] => u16::from_be_bytes([*high, *low]),
+                    _ => continue,
+                };
+                let destination = match destination.as_slice() {
+                    [value] => u16::from(*value),
+                    [high, low] => u16::from_be_bytes([*high, *low]),
+                    _ => continue,
+                };
+                for offset in 0..=last.saturating_sub(code) {
+                    let Some(character) =
+                        char::from_u32(u32::from(destination) + u32::from(offset))
+                    else {
+                        continue;
+                    };
+                    map.insert(code + offset, character);
+                }
+            }
+            _ => {}
+        }
+    }
+    (!map.is_empty()).then_some(map)
+}
+
+fn logicalize_visual_text(text: &str) -> String {
+    let mut logical = String::with_capacity(text.len());
+    let mut word = String::new();
+    let flush_word = |word: &mut String, logical: &mut String| {
+        if word.is_empty() {
+            return;
+        }
+        let bidi = unicode_bidi::BidiInfo::new(word.as_str(), None);
+        if let Some(paragraph) = bidi.paragraphs.first() {
+            logical.push_str(&bidi.reorder_line(paragraph, 0..word.len()));
+        } else {
+            logical.push_str(word);
+        }
+        word.clear();
+    };
+    for character in text.chars() {
+        if character.is_whitespace() {
+            flush_word(&mut word, &mut logical);
+            logical.push(character);
+        } else {
+            word.push(character);
+        }
+    }
+    flush_word(&mut word, &mut logical);
+    logical
+}
+
+fn contains_rtl(text: &str) -> bool {
+    text.chars().any(|character| {
+        matches!(
+            unicode_bidi::bidi_class(character),
+            unicode_bidi::BidiClass::R
+                | unicode_bidi::BidiClass::AL
+                | unicode_bidi::BidiClass::RLE
+                | unicode_bidi::BidiClass::RLO
+                | unicode_bidi::BidiClass::RLI
+        )
+    })
+}
+
+#[derive(Clone)]
+struct TextFont {
+    metrics: FontMetrics,
+    unicode: Option<UnicodeMap>,
 }
 
 fn dictionary_number(document: &Document, dictionary: &Dictionary, key: &[u8]) -> Option<f64> {
@@ -383,6 +556,23 @@ impl TextMatrix {
             self.b * x + self.d * y + self.f,
         )
     }
+
+    fn operands(self) -> Vec<Object> {
+        [self.a, self.b, self.c, self.d, self.e, self.f]
+            .into_iter()
+            .map(number_object)
+            .collect()
+    }
+
+    fn local_horizontal_offset(self, line: Self) -> Option<f64> {
+        let determinant = line.a * line.d - line.b * line.c;
+        if determinant.abs() <= f64::EPSILON {
+            return None;
+        }
+        let delta_x = self.e - line.e;
+        let delta_y = self.f - line.f;
+        Some((delta_x * line.d - line.c * delta_y) / determinant)
+    }
 }
 
 #[derive(Clone)]
@@ -390,12 +580,21 @@ struct TextFilterState {
     line_matrix: Option<TextMatrix>,
     text_matrix: Option<TextMatrix>,
     leading: Option<f64>,
-    font: Option<(Vec<u8>, FontMetrics)>,
+    font: Option<TextFont>,
     font_size: f64,
     char_spacing: f64,
     word_spacing: f64,
     horizontal_scale: f64,
     rise: f64,
+}
+
+#[derive(Clone)]
+struct TextGlyph {
+    code: u16,
+    bytes: Vec<u8>,
+    start: TextMatrix,
+    advance: f64,
+    character: Option<char>,
 }
 
 impl TextFilterState {
@@ -454,18 +653,48 @@ impl TextFilterState {
         );
         Ok(())
     }
+
+    fn measure_glyphs(&mut self, bytes: &[u8]) -> Result<Vec<TextGlyph>> {
+        let font = self
+            .font
+            .as_ref()
+            .ok_or("overlay-text show operator has no selected font")?
+            .clone();
+        let mut glyphs = Vec::new();
+        for (code, glyph) in font.metrics.glyphs(bytes)? {
+            let start = self
+                .text_matrix
+                .ok_or("overlay-text show operator has no valid text matrix")?;
+            let width = font.metrics.width(code)?;
+            let advance = ((width / 1_000.0) * self.font_size
+                + self.char_spacing
+                + if font.metrics.word_spacing_applies(code) {
+                    self.word_spacing
+                } else {
+                    0.0
+                })
+                * self.horizontal_scale;
+            glyphs.push(TextGlyph {
+                code,
+                bytes: glyph.to_vec(),
+                start,
+                advance,
+                character: font.unicode.as_ref().and_then(|map| map.character(code)),
+            });
+            self.advance(advance)?;
+        }
+        Ok(glyphs)
+    }
 }
 
 fn target_point_is_visible(
-    text: &TextFilterState,
+    text_matrix: TextMatrix,
+    rise: f64,
     graphics: TextMatrix,
     overlay: TextMatrix,
     target_view: PdfRect,
 ) -> Result<bool> {
-    let text_matrix = text
-        .text_matrix
-        .ok_or("overlay-text show operator has no valid text matrix")?;
-    let (text_x, text_y) = text_matrix.transform(0.0, text.rise);
+    let (text_x, text_y) = text_matrix.transform(0.0, rise);
     let (source_x, source_y) = graphics.transform(text_x, text_y);
     let (target_x, target_y) = overlay.transform(source_x, source_y);
     // Use half-open page bounds: adjacent split outputs then have one
@@ -498,6 +727,158 @@ fn push_adjustment(array: &mut Vec<Object>, adjustment: f64) {
     }
 }
 
+fn encode_font_code(metrics: &FontMetrics, code: u16) -> Option<Vec<u8>> {
+    match metrics {
+        FontMetrics::Simple { .. } => u8::try_from(code).ok().map(|value| vec![value]),
+        FontMetrics::IdentityH { .. } => Some(code.to_be_bytes().to_vec()),
+    }
+}
+
+fn reorder_glyphs(glyphs: &[TextGlyph], font: &TextFont) -> Option<Vec<TextGlyph>> {
+    let unicode = font.unicode.as_ref()?;
+    let source = glyphs
+        .iter()
+        .map(|glyph| glyph.character)
+        .collect::<Option<String>>()?;
+    if !contains_rtl(&source) {
+        return None;
+    }
+    let logical = logicalize_visual_text(&source);
+    let mut positions = HashMap::<char, VecDeque<usize>>::new();
+    for (index, character) in source.chars().enumerate() {
+        positions.entry(character).or_default().push_back(index);
+    }
+    let mut reordered = Vec::with_capacity(glyphs.len());
+    for character in logical.chars() {
+        let index = positions.get_mut(&character)?.pop_front()?;
+        let mut glyph = glyphs.get(index)?.clone();
+        glyph.code = unicode.code(character)?;
+        glyph.bytes = encode_font_code(&font.metrics, glyph.code)?;
+        reordered.push(glyph);
+    }
+    (reordered.len() == glyphs.len()).then_some(reordered)
+}
+
+fn repair_show_string(
+    bytes: &[u8],
+    format: lopdf::StringFormat,
+    text: &mut TextFilterState,
+) -> Result<Option<Vec<ContentOperation>>> {
+    let original = text.clone();
+    let result = match text.font.as_ref().cloned() {
+        Some(font) => {
+            let glyphs = match text.measure_glyphs(bytes) {
+                Ok(glyphs) => glyphs,
+                Err(_) => {
+                    *text = original;
+                    return Ok(None);
+                }
+            };
+            let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
+                return Ok(None);
+            };
+            let Some(line_matrix) = text.line_matrix else {
+                return Ok(None);
+            };
+            let Some(final_matrix) = text.text_matrix else {
+                return Ok(None);
+            };
+            let scale = text.font_size * text.horizontal_scale;
+            if !scale.is_finite() || scale.abs() <= f64::EPSILON {
+                return Ok(None);
+            }
+            let mut operations = Vec::with_capacity(reordered.len() * 2 + 2);
+            for glyph in reordered {
+                // PDF.js applies bidi to each contiguous text item. Keep each
+                // repaired scalar in its own item so both PDF.js and Poppler
+                // consume the same logical order without moving the glyph.
+                operations.push(ContentOperation::new("Tm", glyph.start.operands()));
+                operations.push(ContentOperation::new(
+                    "Tj",
+                    vec![Object::String(glyph.bytes, format)],
+                ));
+            }
+            let Some(offset) = final_matrix.local_horizontal_offset(line_matrix) else {
+                return Ok(None);
+            };
+            operations.push(ContentOperation::new("Tm", line_matrix.operands()));
+            let adjustment = -offset * 1_000.0 / scale;
+            if adjustment.abs() > f64::EPSILON {
+                operations.push(ContentOperation::new(
+                    "TJ",
+                    vec![Object::Array(vec![number_object(adjustment)])],
+                ));
+            }
+            Some(operations)
+        }
+        None => None,
+    };
+    Ok(result)
+}
+
+fn repair_filtered_show_string(
+    bytes: &[u8],
+    format: lopdf::StringFormat,
+    text: &mut TextFilterState,
+    graphics: TextMatrix,
+    overlay: TextMatrix,
+    target_view: PdfRect,
+) -> Result<Option<Vec<ContentOperation>>> {
+    let original = text.clone();
+    let glyphs = match text.measure_glyphs(bytes) {
+        Ok(glyphs) => glyphs,
+        Err(error) => {
+            *text = original;
+            return Err(error);
+        }
+    };
+    let font = text
+        .font
+        .as_ref()
+        .cloned()
+        .ok_or("overlay-text show operator has no selected font")?;
+    let Some(reordered) = reorder_glyphs(&glyphs, &font) else {
+        *text = original;
+        return Ok(None);
+    };
+    let Some(line_matrix) = text.line_matrix else {
+        *text = original;
+        return Ok(None);
+    };
+    let Some(final_matrix) = text.text_matrix else {
+        *text = original;
+        return Ok(None);
+    };
+    let scale = text.font_size * text.horizontal_scale;
+    if !scale.is_finite() || scale.abs() <= f64::EPSILON {
+        *text = original;
+        return Ok(None);
+    }
+    let mut operations = Vec::with_capacity(reordered.len() * 2 + 2);
+    for glyph in reordered {
+        if target_point_is_visible(glyph.start, text.rise, graphics, overlay, target_view)? {
+            operations.push(ContentOperation::new("Tm", glyph.start.operands()));
+            operations.push(ContentOperation::new(
+                "Tj",
+                vec![Object::String(glyph.bytes, format)],
+            ));
+        }
+    }
+    let Some(offset) = final_matrix.local_horizontal_offset(line_matrix) else {
+        *text = original;
+        return Ok(None);
+    };
+    operations.push(ContentOperation::new("Tm", line_matrix.operands()));
+    let adjustment = -offset * 1_000.0 / scale;
+    if adjustment.abs() > f64::EPSILON {
+        operations.push(ContentOperation::new(
+            "TJ",
+            vec![Object::Array(vec![number_object(adjustment)])],
+        ));
+    }
+    Ok(Some(operations))
+}
+
 fn filter_string(
     bytes: &[u8],
     format: lopdf::StringFormat,
@@ -507,34 +888,21 @@ fn filter_string(
     target_view: PdfRect,
     output: &mut Vec<Object>,
 ) -> Result<()> {
-    let metrics = text
-        .font
-        .as_ref()
-        .map(|(_, metrics)| metrics.clone())
-        .ok_or("overlay-text show operator has no selected font")?;
-    for (code, glyph) in metrics.glyphs(bytes)? {
-        let visible = target_point_is_visible(text, graphics, overlay, target_view)?;
-        let width = metrics.width(code)?;
-        let advance = ((width / 1_000.0) * text.font_size
-            + text.char_spacing
-            + if metrics.word_spacing_applies(code) {
-                text.word_spacing
-            } else {
-                0.0
-            })
-            * text.horizontal_scale;
+    let glyphs = text.measure_glyphs(bytes)?;
+    for glyph in glyphs {
+        let visible =
+            target_point_is_visible(glyph.start, text.rise, graphics, overlay, target_view)?;
         if visible {
-            push_string(output, glyph, format);
-        } else if advance.abs() > f64::EPSILON {
+            push_string(output, &glyph.bytes, format);
+        } else if glyph.advance.abs() > f64::EPSILON {
             let scale = text.font_size * text.horizontal_scale;
             if !scale.is_finite() || scale.abs() <= f64::EPSILON {
                 return Err(
                     "overlay-text cannot preserve a hidden glyph advance at zero text scale".into(),
                 );
             }
-            push_adjustment(output, -advance * 1_000.0 / scale);
+            push_adjustment(output, -glyph.advance * 1_000.0 / scale);
         }
-        text.advance(advance)?;
     }
     Ok(())
 }
@@ -651,7 +1019,11 @@ fn text_operations(
         })?;
     let content = Content::decode(&bytes)?;
     let strict = filter.is_some();
-    let source_fonts = strict.then(|| page_fonts(source, page_id)).transpose()?;
+    let source_fonts = if strict {
+        Some(page_fonts(source, page_id)?)
+    } else {
+        page_fonts(source, page_id).ok()
+    };
     let mut operations = Vec::new();
     let mut fonts = HashSet::new();
     let mut in_text = false;
@@ -738,16 +1110,32 @@ fn text_operations(
                 }
                 if let Some((name, size)) = parsed {
                     fonts.insert(name.to_vec());
-                    if let Some(source_fonts) = &source_fonts {
+                    if strict {
+                        let source_fonts = source_fonts
+                            .as_ref()
+                            .ok_or("overlay-text source fonts are unavailable")?;
                         let font = source_fonts.get(name).ok_or_else(|| {
                             format!(
                                 "overlay-text source page font /{} is missing from Resources",
                                 String::from_utf8_lossy(name)
                             )
                         })?;
-                        text.font = Some((name.to_vec(), parse_font_metrics(source, font)?));
+                        text.font = Some(TextFont {
+                            metrics: parse_font_metrics(source, font)?,
+                            unicode: UnicodeMap::from_font(source, font),
+                        });
                         text.font_size = size;
+                    } else if let Some(source_fonts) = &source_fonts {
+                        if let Some(font) = source_fonts.get(name) {
+                            if let Ok(metrics) = parse_font_metrics(source, font) {
+                                text.font = Some(TextFont {
+                                    metrics,
+                                    unicode: UnicodeMap::from_font(source, font),
+                                });
+                            }
+                        }
                     }
+                    text.font_size = size;
                 }
                 operations.push(operation);
             }
@@ -814,6 +1202,40 @@ fn text_operations(
             }
             "Tj" | "TJ" if in_text => {
                 if let Some((overlay, target_view)) = filter {
+                    let repaired = if operation.operator == "Tj" && operation.operands.len() == 1 {
+                        match &operation.operands[0] {
+                            Object::String(bytes, format) => repair_filtered_show_string(
+                                bytes,
+                                *format,
+                                &mut text,
+                                graphics,
+                                overlay,
+                                target_view,
+                            )?,
+                            _ => None,
+                        }
+                    } else if operation.operator == "TJ" && operation.operands.len() == 1 {
+                        match operation.operands[0].as_array() {
+                            Ok(values) if values.len() == 1 => match values.first() {
+                                Some(Object::String(bytes, format)) => repair_filtered_show_string(
+                                    bytes,
+                                    *format,
+                                    &mut text,
+                                    graphics,
+                                    overlay,
+                                    target_view,
+                                )?,
+                                _ => None,
+                            },
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(repaired) = repaired {
+                        operations.extend(repaired);
+                        continue;
+                    }
                     let source_values = if operation.operator == "Tj" {
                         if operation.operands.len() != 1 {
                             return Err("overlay-text source has a malformed Tj operator".into());
@@ -846,7 +1268,31 @@ fn text_operations(
                         operations.push(ContentOperation::new("TJ", vec![Object::Array(filtered)]));
                     }
                 } else {
-                    operations.push(operation);
+                    let repaired = if operation.operator == "Tj" && operation.operands.len() == 1 {
+                        match &operation.operands[0] {
+                            Object::String(bytes, format) => {
+                                repair_show_string(bytes, *format, &mut text)?
+                            }
+                            _ => None,
+                        }
+                    } else if operation.operator == "TJ" && operation.operands.len() == 1 {
+                        match operation.operands[0].as_array() {
+                            Ok(values) if values.len() == 1 => match values.first() {
+                                Some(Object::String(bytes, format)) => {
+                                    repair_show_string(bytes, *format, &mut text)?
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(repaired) = repaired {
+                        operations.extend(repaired);
+                    } else {
+                        operations.push(operation);
+                    }
                 }
             }
             "'" if in_text => {

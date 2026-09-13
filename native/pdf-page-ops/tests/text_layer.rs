@@ -302,6 +302,94 @@ fn measurable_helvetica_font() -> Dictionary {
     }
 }
 
+fn identity_pdf_text(text: &str) -> String {
+    text.encode_utf16()
+        .map(|unit| format!("{unit:04x}"))
+        .collect()
+}
+
+#[test]
+fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
+    let source = path("bidi-text-source", "pdf");
+    let input = path("bidi-text-input", "pdf");
+    let output = path("bidi-text-output", "pdf");
+    let instructions = path("bidi-text-instructions", "json");
+    let source_text = "Latin .كلذ 123";
+    let cmap = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend";
+
+    let mut source_document = save_single_page(
+        &source,
+        format!(
+            "BT /F1 20 Tf 1 0 0 1 10 80 Tm <{}> Tj ET",
+            identity_pdf_text(source_text)
+        )
+        .into_bytes(),
+        Dictionary::new(),
+    );
+    let cmap_id = source_document.add_object(Stream::new(dictionary! {}, cmap.to_vec()));
+    let descendant_id = source_document.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "CIDFontType2",
+        "BaseFont" => "OCR",
+        "CIDSystemInfo" => dictionary! {
+            "Registry" => Object::string_literal("Adobe"),
+            "Ordering" => Object::string_literal("Identity"),
+            "Supplement" => 0,
+        },
+        "DW" => 1_000,
+        "CIDToGIDMap" => "Identity",
+    });
+    let font_id = source_document.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type0",
+        "BaseFont" => "OCR",
+        "Encoding" => "Identity-H",
+        "DescendantFonts" => vec![descendant_id.into()],
+        "ToUnicode" => cmap_id,
+    });
+    let source_page_id = *source_document.get_pages().get(&1).unwrap();
+    source_document
+        .get_dictionary_mut(source_page_id)
+        .unwrap()
+        .set(
+            "Resources",
+            dictionary! { "Font" => dictionary! { "F1" => font_id } },
+        );
+    source_document.save(&source).unwrap();
+
+    let mut input_document = save_single_page(&input, Vec::new(), Dictionary::new());
+    let input_page_id = *input_document.get_pages().get(&1).unwrap();
+    input_document
+        .get_dictionary_mut(input_page_id)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 120.into()]);
+    input_document.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let extracted = pdftotext_page(&output, 1, &[]);
+    assert!(extracted.status.success());
+    let extracted = String::from_utf8_lossy(&extracted.stdout);
+    assert!(extracted.contains("Latin"), "extracted text: {extracted}");
+    assert!(extracted.contains("ذلك"), "extracted text: {extracted}");
+    assert!(extracted.contains("123"), "extracted text: {extracted}");
+    assert!(!extracted.contains(".كلذ"), "extracted text: {extracted}");
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
 #[test]
 fn overlay_text_copies_only_invisible_text_and_renames_colliding_fonts() {
     let source = path("text-source", "pdf");
