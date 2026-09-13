@@ -222,6 +222,7 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('sc qc qemu-ga');
         expect(bootstrap).toContain('qemu-ga.exe');
         expect(bootstrap).toContain('query user');
+        expect(bootstrap).toContain('if exist "%EVB_STATE%\\test-marker.json"');
         expect(bootstrap).toContain('schtasks.exe /query /tn "EVB Windows Test Worker" /v /fo list');
         expect(bootstrap).toContain('DefaultUserName');
         expect(bootstrap).not.toContain('/v DefaultPassword');

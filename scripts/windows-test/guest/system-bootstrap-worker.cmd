@@ -67,7 +67,11 @@ if errorlevel 1 (
   call :record query-user 0
 )
 >"%EVB_STATE%\test-marker.json" echo {"imageId":"evb-win518-recovery","guestTestMarker":"system-startup"}
-call :record test-marker-write %ERRORLEVEL%
+if exist "%EVB_STATE%\test-marker.json" (
+  call :record test-marker-write 0
+) else (
+  call :record test-marker-write 1
+)
 copy /Y "%EVB_STAGE%start-worker.cmd" "%EVB_ROOT%\worker\start-worker.cmd" >nul 2>&1
 call :record worker-launcher-copy %ERRORLEVEL%
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%EVB_ROOT%\worker\powershell\register-worker-logon-task.ps1" -UserName EVBTester -NodeExecutable "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" -WorkerScript "%EVB_ROOT%\worker\guestWorker.cjs" -GuestRoot "%EVB_ROOT%" -WorkingDirectory "%EVB_ROOT%\worker" >"%EVB_STATE%\register-worker-logon.stdout.log" 2>"%EVB_STATE%\register-worker-logon.stderr.log"

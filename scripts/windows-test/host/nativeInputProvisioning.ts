@@ -26,7 +26,7 @@ const GUEST_REASSEMBLE_COMMAND = [
     '$parent = [IO.Path]::GetDirectoryName([string]$request.Destination)',
     'if (-not [string]::IsNullOrWhiteSpace($parent)) { [IO.Directory]::CreateDirectory($parent) | Out-Null }',
     '$output = [IO.File]::Open([string]$request.Destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)',
-    'try { foreach ($part in $request.Parts) { $input = [IO.File]::OpenRead([string]$part); try { $input.CopyTo($output) } finally { $input.Dispose() } } } finally { $output.Dispose() }',
+    'try { foreach ($part in $request.Parts) { $partStream = [IO.File]::OpenRead([string]$part); try { $partStream.CopyTo($output) } finally { $partStream.Dispose() } } } finally { $output.Dispose() }',
     'foreach ($part in $request.Parts) { Remove-Item -LiteralPath ([string]$part) -Force }',
     '$hash = (Get-FileHash -LiteralPath ([string]$request.Destination) -Algorithm SHA256).Hash.ToLowerInvariant()',
     'Write-Output (\'evb-chunk-sha256=\' + $hash)',
