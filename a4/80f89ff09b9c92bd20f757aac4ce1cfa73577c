@@ -1,0 +1,97 @@
+tests/unit/electron/helpers/dualProviderCompletionDriver.ts
+  s_d9ac980c002ef4::t_a7bf476675d4b6 18
+  s_d9ac980c002ef4::t_40746bc10941cf 3,8,17,21-22,31,45,50-51
+  s_d9ac980c002ef4::t_5f49bf8cc7a5a2 11-13,52-53
+  s_d9ac980c002ef4::t_f96b64c5763e4d 34
+  s_d9ac980c002ef4::t_94bda102900b42 14-15,24-29,41-44,46-49,65-67
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_d9ac980c002ef4::t_fb8d81dd18a298 24,52,363-364
+  s_d9ac980c002ef4::t_4f8d0bbef46557 960
+  s_d9ac980c002ef4::t_a7bf476675d4b6 956-959,962-1036
+  s_d9ac980c002ef4::t_09a3af0a9934ae 961
+  s_d9ac980c002ef4::t_3eb04abeaa6822 923,928-947,949-955
+  s_d9ac980c002ef4::t_2e81e86d6c6831 1076
+  s_d9ac980c002ef4::t_f96b64c5763e4d 1077
+  s_d9ac980c002ef4::t_f4e6f060e1bb57 1113-1136,1138-1139
+  s_d9ac980c002ef4::t_9f324006d0812d 1038-1072
+  s_d9ac980c002ef4::t_e1f6de5d82f519 1085,1089-1090
+  s_d9ac980c002ef4::t_8decc53f78f660 1037
+  s_d9ac980c002ef4::t_9a37ccd457e05b 1073-1075,1078-1084,1086-1088,1091-1093,1095-1105,1110-1112
+  s_d9ac980c002ef4::t_3d54d51daab69e 924-927,948,1106-1109,1137
+  s_d9ac980c002ef4::t_6cee9638ac5966 1094
+  s_80112e326120a1::t_9a4e8f05714dcb 365
+packages/i18n-app/messages/de.ts
+  s_d9ac980c002ef4::t_7c4e8fe2f36102 1059
+packages/i18n-app/messages/fr.ts
+  s_d9ac980c002ef4::t_30f5bcd559a702 1060
+packages/i18n-app/messages/pt.ts
+  s_d9ac980c002ef4::t_7c4e8fe2f36102 1060
+packages/i18n-app/messages/es.ts
+  s_d9ac980c002ef4::t_7c4e8fe2f36102 1059
+packages/i18n-app/messages/ru.ts
+  s_d9ac980c002ef4::t_5e9b4f8730d624 1071
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_d9ac980c002ef4::t_33d24d7bc10e76 362,409,415-419,441,484,512-515,546-548
+  s_d9ac980c002ef4::t_a0a3e0d04087bd 4,30,413,420-421,503,507-511,558
+  s_d9ac980c002ef4::t_ce870039ee3a6b 533,778-780
+  s_d9ac980c002ef4::t_0acfbc92573e09 516-532
+packages/i18n-app/messages/it.ts
+  s_d9ac980c002ef4::t_7c4e8fe2f36102 1059
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_d9ac980c002ef4::t_783beeb75d52ea 435-436,439-446
+  s_d9ac980c002ef4::t_9c56a47eed500e 20-23,25-28,98-103,402,408,426-433,437,447-448,466-496
+  s_d9ac980c002ef4::t_3d54d51daab69e 449,462
+  s_d9ac980c002ef4::t_8de82e2ba62a64 450-461,463-465
+  s_d9ac980c002ef4::t_9c88f6c78a2708 497,499-541
+  s_d9ac980c002ef4::t_c394e5086e00c2 542-582
+  s_d9ac980c002ef4::t_52eb3c8ae4df0c 178
+  s_ae757872e5d914::t_112640d8a4534d 498
+electron/features/agent/claudeProviderMetadata.ts
+  s_d9ac980c002ef4::t_52eb3c8ae4df0c 503
+packages/i18n-app/messages/ptBr.ts
+  s_d9ac980c002ef4::t_7c4e8fe2f36102 1060
+electron/features/agent/assistantService.ts
+  s_d9ac980c002ef4::t_5e9b4f8730d624 88,753
+  s_d9ac980c002ef4::t_2f0097d9892ea9 1115
+  s_d9ac980c002ef4::t_54a21e1be9858b 1124-1130
+  s_d9ac980c002ef4::t_ce870039ee3a6b 942-945
+  s_d9ac980c002ef4::t_5bea513449e12f 617-620
+packages/i18n-app/messages/nl.ts
+  s_d9ac980c002ef4::t_7c4e8fe2f36102 1059
+electron/features/agent/assistantResultHelpers.ts
+  s_d9ac980c002ef4::t_5e9b4f8730d624 25-28
+packages/i18n-app/messages/en.ts
+  s_d9ac980c002ef4::t_5e9b4f8730d624 1059
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a480f89ff09b9c92bd20f757aac4ce1cfa73577c",
+  "prompts": {},
+  "sessions": {
+    "s_80112e326120a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0982a-e064-7321-8bed-7d998c90aec3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d9ac980c002ef4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0980e-8ed9-7c93-8bed-958b8cc531ab",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
