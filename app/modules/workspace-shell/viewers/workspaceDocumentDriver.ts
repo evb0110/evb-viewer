@@ -55,6 +55,7 @@ import type {
     IWorkspaceViewerAdapter,
     IWorkspaceViewerLifecycleContext,
     IWorkspaceViewerLifecycleHooks,
+    TWorkspaceDocumentDriverId,
     TWorkspaceViewerDocumentType,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type {
@@ -70,7 +71,8 @@ import {
 } from '@app/utils/document-viewer/session/documentSession';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
-export type TWorkspaceDocumentDriverId = 'pdfjs' | 'native-pdf' | 'djvu';
+export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 export function isWorkspaceDocumentOpenResult<T extends TWorkspaceViewerDocumentType>(
@@ -307,6 +309,9 @@ export interface IWorkspaceDocumentDriverLifecycle {createHooks: (context: IWork
 
 export interface IWorkspaceDocumentDriverView {
     component: Component;
+    isPdfjs: boolean;
+    rendererKind: 'pdfjs' | 'native-pdf' | 'page-source';
+    sourceKind: 'pdf' | 'djvu';
     sourcePath: TDocumentRef | null;
     defaultSourceCapabilities: IDocumentSourceCapabilities | null;
     showDjvuSource: boolean;
@@ -478,10 +483,13 @@ export function createWorkspaceDocumentDriverForAdapter(
     adapter: IWorkspaceViewerAdapter,
     sources: IWorkspaceDocumentDriverSources,
 ): IWorkspaceDocumentDriver {
-    const isDjvu = adapter.id === 'djvu';
-    const isNativePdf = adapter.id === 'native-pdf';
+    const {driverProfile} = adapter;
+    const {
+        isDjvu,
+        isNativePdf,
+    } = driverProfile;
     return {
-        id: isDjvu ? 'djvu' : isNativePdf ? 'native-pdf' : 'pdfjs',
+        id: driverProfile.id,
         capabilities: adapter.capabilities,
         get canPreparePrint() {
             return isDjvu && sources.djvuSourcePath.value !== null;
@@ -544,6 +552,9 @@ export function createWorkspaceDocumentDriverForAdapter(
         get view(): IWorkspaceDocumentDriverView {
             return {
                 component: adapter.component,
+                isPdfjs: driverProfile.isPdfjs,
+                rendererKind: driverProfile.rendererKind,
+                sourceKind: driverProfile.sourceKind,
                 sourcePath: isDjvu
                     ? sources.djvuSourcePath.value
                     : isNativePdf
@@ -573,6 +584,9 @@ export const useWorkspaceDocumentDriver = (
 ) => {
     const nativePdfSourcePath = computed<TDocumentRef | null>(() => null);
     const pendingDocumentKind = computed(() => getDocumentKindFromPath(options.pendingDocumentPath?.value ?? ''));
+    const pendingDocumentPathByKind = computed<Record<string, TDocumentRef | null>>(
+        () => ({[pendingDocumentKind.value]: options.pendingDocumentPath?.value ?? null}),
+    );
     const sources = {
         djvuSourcePath: options.djvuSourcePath,
         nativePdfSourcePath,
@@ -606,29 +620,26 @@ export const useWorkspaceDocumentDriver = (
         driverList.find(driver => driver.operations.open.acceptsDocumentType(documentType)) ?? null
     );
     const activeDocumentDriver = computed(() => {
+        const pendingPaths = pendingDocumentPathByKind.value;
         const adapter = resolveWorkspaceViewerAdapter({
             djvuSourcePath: options.djvuSourcePath.value
-                ?? (pendingDocumentKind.value === 'djvu' ? options.pendingDocumentPath?.value ?? null : null),
-            isDjvuMode: options.isDjvuMode.value || pendingDocumentKind.value === 'djvu',
+                ?? pendingPaths.djvu
+                ?? null,
+            isDjvuMode: options.isDjvuMode.value || pendingPaths.djvu !== null,
             pdfSourcePath: isPathPdfSource(options.pdfSrc.value)
                 ? options.pdfSrc.value.path
                 : options.pdfSrc.value
                     ? parseDocumentRef('browser://documents/in-memory-pdf')
-                    : pendingDocumentKind.value === 'pdf'
-                        ? options.pendingDocumentPath?.value ?? null
-                        : null,
+                    : pendingPaths.pdf
+                        ?? null,
             // Native PDF rendering owns only the staged opening preview. The
             // document driver remains PDF.js so selection, annotations, page
             // edits, save, and the full sidebar become available at handoff.
             shouldUseNativePdf: false,
         });
-        if (adapter?.id === 'djvu') {
-            return drivers.djvu;
-        }
-        if (adapter?.id === 'native-pdf') {
-            return drivers.nativePdf;
-        }
-        return adapter ? drivers.pdfjs : null;
+        return adapter
+            ? driverList.find(driver => driver.id === adapter.driverProfile.id) ?? null
+            : null;
     });
 
     return {
@@ -739,7 +750,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
     const activeViewerProps = computed<Record<string, unknown>>(() => {
         const driver = options.activeDocumentDriver.value;
-        if (driver.id === 'pdfjs') {
+        if (driver.view.isPdfjs) {
             return {
                 sourceKind: 'pdf',
                 rendererKind: 'pdfjs',
@@ -784,20 +795,18 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         }
 
         const nativeProps = createNativeViewerProps(driver.view.sourcePath);
-        return driver.id === 'djvu'
-            ? {
-                ...nativeProps,
-                sourceKind: 'djvu',
-                rendererKind: 'page-source',
-                isResizing: options.isWorkspaceLayoutResizing.value,
-                searchResults: options.documentSourceSearchResults.value,
-                currentSearchResultIndex: options.documentSourceCurrentResultIndex.value,
-            }
-            : {
-                ...nativeProps,
-                sourceKind: 'pdf',
-                rendererKind: 'native-pdf',
-            };
+        return {
+            ...nativeProps,
+            sourceKind: driver.view.sourceKind,
+            rendererKind: driver.view.rendererKind,
+            ...(driver.view.showDjvuSource
+                ? {
+                    isResizing: options.isWorkspaceLayoutResizing.value,
+                    searchResults: options.documentSourceSearchResults.value,
+                    currentSearchResultIndex: options.documentSourceCurrentResultIndex.value,
+                }
+                : {}),
+        };
     });
 
     const activeViewerComponent = computed(() => options.activeDocumentDriver.value.view.component);
@@ -819,7 +828,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     };
 
     const activeViewerListeners = computed<IActiveViewerListeners>(() => {
-        if (options.activeDocumentDriver.value.id !== 'pdfjs') {
+        if (!options.activeDocumentDriver.value.view.isPdfjs) {
             return nativeViewerListeners;
         }
 
@@ -844,22 +853,22 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     });
 
     function bindActiveViewerRef(instance: unknown) {
-        const driverId = options.activeDocumentDriver.value.id;
+        const driverView = options.activeDocumentDriver.value.view;
         setViewerRef(
             options.pdfViewerRef,
-            driverId === 'pdfjs' && instance
+            driverView.isPdfjs && instance
                 ? instance as IPdfViewerExpose
                 : null,
         );
         setViewerRef(
             options.nativePdfViewerRef,
-            driverId === 'native-pdf' && instance
+            driverView.showNativePdf && instance
                 ? instance as IDocumentViewerExpose
                 : null,
         );
         setViewerRef(
             options.djvuViewerRef,
-            driverId === 'djvu' && instance
+            driverView.showDjvuSource && instance
                 ? instance as IDocumentViewerExpose
                 : null,
         );

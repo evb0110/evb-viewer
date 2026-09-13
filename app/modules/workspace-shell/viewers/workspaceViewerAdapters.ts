@@ -1,5 +1,8 @@
 import type { Component } from 'vue';
-import { didOpenDocument } from '@app/types/documentOpenOutcome';
+import {
+    didOpenDocument,
+    isOpenFileResultOfKind,
+} from '@app/types/documentOpenOutcome';
 import {
     createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceViewerCapabilities,
@@ -74,7 +77,7 @@ function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IW
         afterOpen: async (outcome, state) => {
             if (
                 didOpenDocument(outcome)
-                && outcome.result.kind === 'pdf'
+                && isOpenFileResultOfKind(outcome.result, 'pdf')
                 && context.isDjvuMode.value
                 && context.workingCopyPath.value !== state.previousWorkingCopyPath
             ) {
@@ -99,6 +102,14 @@ function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IW
 export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
     {
         id: 'pdf',
+        driverProfile: {
+            id: 'pdfjs',
+            isDjvu: false,
+            isNativePdf: false,
+            isPdfjs: true,
+            rendererKind: 'pdfjs',
+            sourceKind: 'pdf',
+        },
         component: DocumentViewerChassis,
         documentTypes: [
             'pdf',
@@ -108,12 +119,28 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
     },
     {
         id: 'native-pdf',
+        driverProfile: {
+            id: 'native-pdf',
+            isDjvu: false,
+            isNativePdf: true,
+            isPdfjs: false,
+            rendererKind: 'native-pdf',
+            sourceKind: 'pdf',
+        },
         component: DocumentViewerChassis,
         documentTypes: ['pdf'],
         capabilities: NATIVE_PDF_VIEWER_CAPABILITIES,
     },
     {
         id: 'djvu',
+        driverProfile: {
+            id: 'djvu',
+            isDjvu: true,
+            isNativePdf: false,
+            isPdfjs: false,
+            rendererKind: 'page-source',
+            sourceKind: 'djvu',
+        },
         component: DocumentViewerChassis,
         documentTypes: ['djvu'],
         capabilities: DJVU_VIEWER_CAPABILITIES,

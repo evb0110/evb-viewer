@@ -47,7 +47,7 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         return { kind: 'empty' };
     }
 
-    if (payload.kind === 'djvu') {
+    if ('sourcePath' in payload) {
         return {
             kind: 'djvu',
             sourcePath: payload.sourcePath,

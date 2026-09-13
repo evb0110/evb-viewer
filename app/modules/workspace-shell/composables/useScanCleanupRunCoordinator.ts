@@ -17,6 +17,7 @@ import { createRequestId } from '@contracts/shared';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { TTranslateFn } from '@i18n-app';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import { isWorkspaceDocumentOpenResult } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 export function resolveScanCleanupEntryViewState(
     viewState: ITabViewSessionState,
@@ -75,7 +76,7 @@ const ABANDONED_OPEN = Symbol('scan-cleanup-generated-open-abandoned');
  * product and stays on disk for the retention sweep to age out.
  */
 function discardUnclaimedGeneratedOpen(result: TOpenFileResult | null) {
-    if (result?.kind !== 'pdf' || !result.workingPath) {
+    if (!result || !isWorkspaceDocumentOpenResult(result, 'pdf') || !result.workingPath) {
         return;
     }
     void getDocumentWorkingCopyCapability().cleanupFile(result.workingPath).catch(() => undefined);
@@ -130,7 +131,7 @@ export async function openScanCleanupGeneratedPdf(
             discardUnclaimedGeneratedOpen(settled.result);
             return false;
         }
-        return settled.result?.kind === 'pdf'
+        return settled.result && isWorkspaceDocumentOpenResult(settled.result, 'pdf')
             ? await handleOpenInNewTab(settled.result)
             : false;
     } finally {

@@ -32,6 +32,9 @@ function createDriver(
     };
     const view = {
         component: ViewerStub,
+        isPdfjs: true,
+        rendererKind: 'pdfjs' as const,
+        sourceKind: 'pdf' as const,
         sourcePath: null,
         defaultSourceCapabilities: null,
         showDjvuSource: false,

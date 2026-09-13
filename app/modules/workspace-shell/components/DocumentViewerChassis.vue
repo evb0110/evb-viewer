@@ -166,13 +166,16 @@ const featurePacks: Record<TDocumentViewerRendererKind, Component> = {
     'native-pdf': NativePdfFeaturePack,
     'page-source': DocumentPageSourceFeaturePack,
 };
+const viewportIds: Record<TDocumentViewerRendererKind, string | undefined> = {
+    pdfjs: 'pdf-viewer',
+    'native-pdf': undefined,
+    'page-source': undefined,
+};
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
 const rendererKind = computed<TDocumentViewerRendererKind>(() => (
     props.rendererKind ?? 'pdfjs'
 ));
-const viewportId = computed(() => (
-    rendererKind.value === 'pdfjs' ? 'pdf-viewer' : undefined
-));
+const viewportId = computed(() => viewportIds[rendererKind.value]);
 const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
 const sourceViewerRef = computed(() => activeFeaturePackRef.value);
 const openingFrameLayoutRevision = ref(0);

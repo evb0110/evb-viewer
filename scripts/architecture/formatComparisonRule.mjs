@@ -9,11 +9,6 @@ const FORMAT_LITERALS = Object.freeze([
     'image',
 ]);
 
-const DEFAULT_ALLOWED_PATHS = Object.freeze([
-    'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts',
-    'app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts',
-]);
-
 const BINARY_COMPARISON_OPERATORS = Object.freeze([
     '==',
     '===',
@@ -195,10 +190,7 @@ const createParseError = (sourcePath, sourceText, error) => {
 
 const isAllowedPath = (sourcePath, allowedPaths) => {
     const normalizedPath = normalizeSourcePath(sourcePath);
-    return [
-        ...DEFAULT_ALLOWED_PATHS,
-        ...(allowedPaths ?? []).map(normalizeSourcePath),
-    ].includes(normalizedPath);
+    return (allowedPaths ?? []).map(normalizeSourcePath).includes(normalizedPath);
 };
 
 /**
@@ -271,7 +263,4 @@ export const findFormatComparisonViolations = (sourcePath, sourceText, options =
     ));
 };
 
-export {
-    DEFAULT_ALLOWED_PATHS,
-    FORMAT_LITERALS,
-};
+export {FORMAT_LITERALS};

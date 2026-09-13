@@ -23,6 +23,7 @@ import {
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import { isWorkspaceDocumentOpenResult } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
     documentSession?: IWorkspaceDocumentController | null | undefined;
@@ -274,13 +275,16 @@ export function createDeferredWorkspaceExposeProxy(
             signal,
         )),
         handleOpenFileWithResult: async (result: TOpenFileResult) => {
-            const isRecoveryOpen = result.kind === 'pdf' && result.recoveryDirtyBaseline === true;
+            const isRecoveryOpen = isWorkspaceDocumentOpenResult(result, 'pdf')
+                && result.recoveryDirtyBaseline === true;
             const action = isRecoveryOpen
                 ? 'restoreCheckpointFileWithResult'
                 : 'handleOpenFileWithResult';
             return openQueued({
                 action,
-                preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
+                preparedOpeningGeometry: isWorkspaceDocumentOpenResult(result, 'pdf')
+                    ? result.openingGeometry
+                    : undefined,
                 ...(isRecoveryOpen ? {preserveDirtyOnFailure: true} : {}),
                 target: buildPendingTabDocumentHint(result),
             }, async signal => deps.withWorkspace(

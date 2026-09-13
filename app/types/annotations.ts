@@ -246,6 +246,10 @@ export type IAnnotationCommentSummary = TaggedUnion<'source', {
     shape: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
 }>;
 
+export function isPdfAnnotationComment(comment: IAnnotationCommentSummary) {
+    return comment.source === 'pdf';
+}
+
 export function requiresEmbeddedAnnotationSave(comment: IAnnotationCommentSummary) {
-    return comment.source === 'pdf' || Boolean(comment.annotationId);
+    return isPdfAnnotationComment(comment) || Boolean(comment.annotationId);
 }

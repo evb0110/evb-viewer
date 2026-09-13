@@ -397,16 +397,7 @@ const SENTRY_EVENT_FACTORY_NAMES = new Set([
 const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
 
 /** @type {readonly string[]} */
-const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze([
-    'app/modules/workspace-shell/viewers',
-    'app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot.ts',
-    'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue',
-    'app/modules/workspace-shell/components/DocumentViewerChassis.vue',
-    'app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue',
-    'app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts',
-    'app/modules/workspace-shell/composables/usePageFileOperations.ts',
-    'app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts',
-]);
+const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze(['app/modules/workspace-shell']);
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkElectronFeatureMainPrivacy(edge) {
