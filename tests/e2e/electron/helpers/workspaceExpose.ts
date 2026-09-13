@@ -485,7 +485,9 @@ export async function readWorkspaceStateValues<TValues extends Record<string, un
     }) => {
         const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
         if (api) {
-            return api.readActiveWorkspaceStateValues<TValues>(payload.propertyNames);
+            // Workspace state values are Vue readonly proxies, which the CDP
+            // return path serializes as `{}`; JSON reads through the proxy.
+            return JSON.parse(JSON.stringify(api.readActiveWorkspaceStateValues<TValues>(payload.propertyNames))) as TValues;
         }
 
         const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.(payload.searchOptions) as Record<string, unknown> | null | undefined;

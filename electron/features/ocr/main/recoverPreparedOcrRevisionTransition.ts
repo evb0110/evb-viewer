@@ -218,7 +218,15 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
             ...(journal.catalogApplyMode === 'copy' || journal.catalogApplyMode === 'rename'
                 ? {catalogApplyMode: journal.catalogApplyMode}
                 : {}),
-            ...(isV4Prepared ? {catalogKind: 'v4-root'} : {}),
+            // The committed shape pairs the kind with the descriptor path;
+            // dropping the path here made every later revision read of this
+            // document fail closed.
+            ...(isV4Prepared
+                ? {
+                    catalogKind: 'v4-root',
+                    descriptorPath: journal.descriptorPath,
+                }
+                : {}),
             committedAt: Date.now(),
         }), 'utf8'));
         return true;

@@ -335,11 +335,19 @@ export async function handleReplaceWorkingCopyFromPath(
     if (!allowedSourcePath) {
         throw new Error('Invalid source path: OCR result must be within temp directory');
     }
+    // The renderer registered this working copy under the spelling it holds,
+    // and the revision event it receives echoes the ref the transition ran
+    // under. On macOS the renderer holds `/var/...` while the realpath is
+    // `/private/var/...`, so the mutation and the revision transition keep the
+    // renderer's spelling like every other mutation handler. Only the catalog
+    // root and the source PDF path handed to the catalog publish are canonical,
+    // because the OCR worker staged the generation under the realpath and the
+    // publish fences on that spelling.
     const canonicalWorkingCopyPath = normalizePathForLookup(allowedWorkingCopyPath);
-    const resolvedWorkingCopyPath = await resolveAllowedWritePath(canonicalWorkingCopyPath);
-    if (resolvedWorkingCopyPath !== canonicalWorkingCopyPath) {
+    if (await resolveAllowedWritePath(canonicalWorkingCopyPath) !== canonicalWorkingCopyPath) {
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
+    const resolvedWorkingCopyPath = allowedWorkingCopyPath;
     // Read validation already returns a canonical real path. Reuse that form
     // for the prepared descriptor binding and every later source operation.
     const resolvedSourcePath = allowedSourcePath;
@@ -393,7 +401,7 @@ export async function handleReplaceWorkingCopyFromPath(
             const transitionId = pendingResult.requestId;
             const transitionSuffix = `${process.pid}-${randomUUID()}`;
             const pdfBackupPath = `${resolvedWorkingCopyPath}.ocr-transition-${transitionSuffix}.bak`;
-            const catalogPath = `${resolvedWorkingCopyPath}.ocr`;
+            const catalogPath = `${canonicalWorkingCopyPath}.ocr`;
             const stagedCatalogPath = `${resolvedSourcePath}.ocr`;
             const stagedDescriptorPath = getOcrCatalogV4PreparedDescriptorPath(resolvedSourcePath);
             const catalogBackupPath = `${catalogPath}.transition-${transitionSuffix}.bak`;
@@ -497,7 +505,7 @@ export async function handleReplaceWorkingCopyFromPath(
                                 await publishPreparedOcrCatalog({
                                     descriptorPath: stagedDescriptorPath,
                                     catalogRoot: catalogPath,
-                                    workingCopyPath: resolvedWorkingCopyPath,
+                                    workingCopyPath: canonicalWorkingCopyPath,
                                     nextRevisionToken: nextRevision.token,
                                     resultPath: resolvedSourcePath,
                                     resultIdentity: pendingResult.resultSha256,

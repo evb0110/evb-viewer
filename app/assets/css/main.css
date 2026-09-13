@@ -312,10 +312,12 @@
     --app-runtime-report-viewport-gutter: 2rem;
 
     /* Nuxt UI lays its toast viewport out from the bottom-right corner, one
-       toast plus a 16px gap per stack slot. Bounding the height of a toast makes
-       that stack measurable, and reserving the band it can grow into keeps the
-       runtime diagnostic card, anchored to the opposite edge, from ever landing
-       on top of a scan-cleanup notification.
+       toast plus a 16px gap per stack slot. Reserving the band the stack can
+       grow into keeps the runtime diagnostic card, anchored to the opposite
+       edge, from landing on top of a scan-cleanup notification. The per-slot
+       height is the size of a failure toast (title, two-line description and
+       the "Copy details" action); toasts are deliberately not clamped to it,
+       because a clamped toast scrolls and hides its own action button.
 
        `--app-toast-stack-max` is not declared here. The shell owns that number:
        it passes it to the toaster as `max` and publishes the same constant onto
@@ -325,7 +327,7 @@
        for the same reason) and covers only the case where that attribute is
        absent entirely; the architecture test pins it to the shell's constant so
        the two cannot drift. */
-    --app-toast-max-height: 7rem;
+    --app-toast-max-height: 9rem;
     --app-toast-stack-gap: 1rem;
     --app-runtime-report-toast-band: calc(
         var(--app-toast-stack-max, 3) * (var(--app-toast-max-height) + var(--app-toast-stack-gap))
@@ -867,14 +869,6 @@
 
 .app-sidebar-tab-trigger-fluid {
     flex: 0 1 auto;
-}
-
-/* Nuxt UI sizes a toast to its content, which would make the band reserved for
-   the toast stack a guess. Bounding the height makes the reserve exact; the
-   overflow keeps a long message reachable by scrolling rather than clipping it. */
-.app-toast {
-    max-height: var(--app-toast-max-height);
-    overflow-y: auto;
 }
 
 .dark {
