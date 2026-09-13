@@ -1,0 +1,132 @@
+docs/internal/reliability/static-breaking-points-audit-2026-08-31.md
+  s_504ddc77c510c5::t_c415806b1c3eae 32
+electron/features/scan-cleanup/worker/runScanCleanupPipeline.ts
+  s_504ddc77c510c5::t_f8436703ba5498 15
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 166
+tests/unit/electron/ocrResourceBase.test.ts
+  s_504ddc77c510c5::t_c415806b1c3eae 41
+electron/features/ocr/main/ocrNativeChildProcessIdentity.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 12
+electron/features/ocr/worker/popplerStage.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 10
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 96
+  s_504ddc77c510c5::t_c415806b1c3eae 22
+electron/features/ocr/worker/indexWriterV4.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 69
+docs/internal/research/stale-revision-xlarge-search-2026-09-02.md
+  s_504ddc77c510c5::t_c415806b1c3eae 63
+docs/internal/research/xlarge-document-path-architecture-2026-08-27.md
+  s_504ddc77c510c5::t_c415806b1c3eae 85,115,117
+electron/features/ocr/main/ocrJobWorkerLifecycle.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 17
+packages/electron-worker-bundles/electronWorkerBundles.js
+  s_504ddc77c510c5::t_049f71203bda74 47
+tests/unit/scripts/depGraph.test.ts
+  s_504ddc77c510c5::t_9f5597ef0c94c9 737-738,758-759
+  s_504ddc77c510c5::t_7ff930c895b7e5 739-754
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 69
+electron/features/ocr/worker/tesseractRunner.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 14
+electron/features/ocr/worker/pdfPageSizeProbe.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 5
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 128
+docs/internal/architecture-audit-2026-07-03.md
+  s_504ddc77c510c5::t_c415806b1c3eae 85-87
+electron/features/ocr/worker/runOcrCommand.ts
+  s_504ddc77c510c5::t_0c83e8534e4201 5
+electron/features/ocr/main/jobManager.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 41
+tests/unit/electron/workerEntrypoints.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 41
+scripts/architecture/boundary-check.mjs
+  s_504ddc77c510c5::t_9f5597ef0c94c9 119-123,331-333,611
+  s_504ddc77c510c5::t_05416e1d59c481 334
+docs/internal/reliability-readiness-audit-2026-08-19.md
+  s_504ddc77c510c5::t_c415806b1c3eae 296,330
+electron/features/ocr/worker/resolveWorkerPaths.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 1
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_504ddc77c510c5::t_f8436703ba5498 59
+electron/features/ocr/worker/pdfAssembler.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 24
+scripts/bundle-leptonica-unpaper-macos.sh
+  s_504ddc77c510c5::t_049f71203bda74 253
+tests/unit/electron/ocrWorkerPopplerStage.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 16
+electron/features/ocr/worker/nativeChildRegistration.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 9
+tests/unit/electron/scanCleanupSidecarAbortWindow.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 11
+tests/unit/electron/scanCleanupSidecarStageTimings.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 11
+tests/unit/scripts/retiredElectronFeaturePaths.test.ts
+  s_504ddc77c510c5::t_9f5597ef0c94c9 17-31
+electron/features/ocr/publicNative.ts
+  s_504ddc77c510c5::t_f8436703ba5498 9
+electron/features/ocr/worker/selectOcrPagesForSupersession.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 9
+tests/unit/electron/ocrIndexWriterSidecar.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 18
+electron/features/ocr/main/jobManagerProtocol.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 1
+electron/features/ocr/worker/indexWriter.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 1-690
+scripts/windows-test/registry/changeSelector.ts
+  s_504ddc77c510c5::t_049f71203bda74 111
+electron/features/ocr/worker/ocrPageSelectionStream.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 17
+electron/features/ocr/main/estimateOcrRequestBytes.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 2
+electron/features/ocr/worker/writeOcrIndexes.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 1-110
+electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 10
+docs/internal/scan-cleanup/audit-2026-08-22-implementation-ledger.md
+  s_504ddc77c510c5::t_c415806b1c3eae 295
+electron/features/scan-cleanup/worker/runScanCleanupSidecar.ts
+  s_504ddc77c510c5::t_f8436703ba5498 17
+electron/features/ocr/worker/main.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 1-1392
+docs/internal/scan-cleanup/audit-2026-08-15-corrective.md
+  s_504ddc77c510c5::t_c415806b1c3eae 232
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 92
+electron/features/ocr/worker/tryPreprocessOcrImage.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 5
+docs/internal/scan-cleanup/audit-2026-08-14/COMPLETENESS-CRITIC.md
+  s_504ddc77c510c5::t_c415806b1c3eae 74
+tests/unit/electron/ocrIndexWriterPath.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 99
+tests/unit/electron/ocrPageSelectionStream.test.ts
+  s_504ddc77c510c5::t_049f71203bda74 13
+electron/features/ocr/main/jobManager.types.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 19
+docs/internal/project6-325-binary-provenance-platform-inventory.md
+  s_504ddc77c510c5::t_c415806b1c3eae 129-130
+electron/features/ocr/main/ocrWorkerResourceMessages.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 14
+tests/helpers/ocrWorkerPipelineHarness.ts
+  s_504ddc77c510c5::t_049f71203bda74 15,31
+electron/features/ocr/worker/inboundMessage.ts
+  s_504ddc77c510c5::t_f4ebc6344f8faa 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2afe6fbab59115c007071768535088642c9b2473",
+  "prompts": {},
+  "sessions": {
+    "s_504ddc77c510c5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-d215-7532-b8d4-726d882dcaf3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
