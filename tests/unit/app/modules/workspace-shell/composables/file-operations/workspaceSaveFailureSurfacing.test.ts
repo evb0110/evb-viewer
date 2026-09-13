@@ -32,8 +32,14 @@ function replaceOpenDocument(deps: TSaveFixtureDeps) {
     deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-other');
 }
 
-/** The same file was reopened, so only the revision token moved. */
+/** The same document session moved to a new revision without reopening. */
 function reopenSameDocument(deps: TSaveFixtureDeps) {
+    deps.documentSessionKey.value = 'document-session-2';
+    deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
+}
+
+/** A resync or post-write failure moved only the document revision. */
+function bumpDocumentRevision(deps: TSaveFixtureDeps) {
     deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
 }
 
@@ -603,7 +609,7 @@ describe('workspace save failure surfacing', () => {
         expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
     });
 
-    it('drops the failure once the workspace adopts a new revision of the same document', async () => {
+    it('keeps the failure when only the document revision moves', async () => {
         const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
             isValid: false,
             tool: 'qpdf' as const,
@@ -615,8 +621,23 @@ describe('workspace save failure surfacing', () => {
         await service.handleSave();
         expect(service.hasSaveFailure.value).toBe(true);
 
-        // Reopening the file leaves both paths untouched, so the revision is
-        // the only thing that says this is no longer the document that failed.
+        bumpDocumentRevision(deps);
+
+        expect(service.hasSaveFailure.value).toBe(true);
+    });
+
+    it('drops the failure once the same file is reopened as a new document session', async () => {
+        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
+            isValid: false,
+            tool: 'qpdf' as const,
+            errors: ['xref table is damaged'],
+            warnings: [],
+        }))});
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await service.handleSave();
+        expect(service.hasSaveFailure.value).toBe(true);
+
         reopenSameDocument(deps);
 
         expect(service.hasSaveFailure.value).toBe(false);

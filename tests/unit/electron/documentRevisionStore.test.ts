@@ -135,6 +135,27 @@ describe('documentRevisionStore', () => {
             });
     });
 
+    it('removes orphaned transition backups when opening a mapped working copy', async () => {
+        const originalPath = join(tempRoot, 'orphaned-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-orphaned', 'orphaned-original.pdf');
+        const orphanedBackupPath = `${originalPath}.evb-transition-stale.bak`;
+        const unrelatedPath = `${originalPath}.evb-transition-stale.txt`;
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, new Uint8Array([1]));
+        writeFileSync(workingPath, new Uint8Array([2]));
+        writeFileSync(orphanedBackupPath, new Uint8Array([1]));
+        writeFileSync(unrelatedPath, new Uint8Array([3]));
+
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+        await ensureWorkingCopyRevision(workingPath, 7);
+
+        expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(unrelatedPath)).toBe(true);
+    });
+
     it('recovers a page identity rebase when revision publication fails', async () => {
         let failedRevisionWrite = false;
         vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {

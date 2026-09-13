@@ -43,6 +43,7 @@ import {
 import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
+    getWorkingCopyOriginalPath,
     getWorkingCopyOriginalFileExpectation,
     getWorkingCopyRegistrationId,
     normalizePathForLookup,
@@ -59,7 +60,10 @@ import {
     recoverWorkingCopyContentTransition,
     rollbackWorkingCopyContentTransition,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
-import {recoverTwoTargetDocumentTransition} from '@electron/file-access/recoverTwoTargetDocumentTransition';
+import {
+    cleanupOrphanedTwoTargetDocumentTransitionBackups,
+    recoverTwoTargetDocumentTransition,
+} from '@electron/file-access/recoverTwoTargetDocumentTransition';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {
     getPageIdentitySidecarPath,
@@ -349,6 +353,11 @@ export async function initializeFreshWorkingCopyRevision(
         return ensureWorkingCopyRevision(normalizedWorkingPath, senderId);
     }
 
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
+    if (originalPath) {
+        await cleanupOrphanedTwoTargetDocumentTransitionBackups(originalPath, normalizedWorkingPath);
+    }
+
     const sidecar = createRevisionSidecar(normalizedWorkingPath, 1, senderId);
     await writeProvisionalWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
     provisionalWorkingCopyRevisions.set(queueKey, {sidecar});
@@ -434,6 +443,10 @@ export async function ensureWorkingCopyRevision(
         return toRevisionInfo(provisional.sidecar);
     }
     await recoverTwoTargetDocumentTransition(normalizedWorkingPath);
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
+    if (originalPath) {
+        await cleanupOrphanedTwoTargetDocumentTransitionBackups(originalPath, normalizedWorkingPath);
+    }
     await recoverWorkingCopyContentTransition(normalizedWorkingPath);
     await recoverPreparedOcrRevisionTransition(normalizedWorkingPath);
     hydrateWorkingCopySyncRequiredFromJournal(normalizedWorkingPath);
