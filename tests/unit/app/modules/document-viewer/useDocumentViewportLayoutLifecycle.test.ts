@@ -702,4 +702,54 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         expect(viewport.scrollTop).toBe(1_968);
         scope.stop();
     });
+
+    it('keeps the resize anchor when a pane deactivation cancels restores during a split', async () => {
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(240);
+        const isResizing = ref(false);
+        const pageLayouts = ref([
+            0,
+            120,
+            240,
+        ].map(top => ({
+            top,
+            width: 100,
+            height: 100,
+        })));
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            isResizing,
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollTop = restored.top;
+                return true;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        isResizing.value = true;
+        lifecycle.cancelPendingRestore();
+        // Moving the pane into its split slot resets the DOM scroll offset.
+        viewport.scrollTop = 0;
+        pageLayouts.value = [
+            0,
+            60,
+            120,
+        ].map(top => ({
+            top,
+            width: 50,
+            height: 50,
+        }));
+        await nextTick();
+        await nextTick();
+
+        expect(viewport.scrollTop).toBe(95);
+        scope.stop();
+    });
 });
