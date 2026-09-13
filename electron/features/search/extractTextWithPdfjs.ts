@@ -93,6 +93,8 @@ export interface IExtractPdfjsTextOptions {
     collectPages?: boolean;
     pages?: readonly number[];
     pageCount?: number;
+    /** Keeps the independent PDF.js benchmark route active for large fixtures. */
+    forcePdfjs?: boolean;
 }
 
 function isInvisibleTextRenderingMode(args: unknown) {
@@ -275,12 +277,13 @@ export async function extractTextWithPdfjs(
         onPageText,
         collectPages = !onPageText,
         pages: requestedPages,
+        forcePdfjs = false,
     } = options;
     log.debug(`Extracting desktop PDF text: ${pdfPath}`);
     throwIfAborted(signal);
 
     const fileStat = await stat(pdfPath);
-    if (fileStat.size > PDFJS_COMPATIBILITY_MAX_INPUT_BYTES) {
+    if (fileStat.size > PDFJS_COMPATIBILITY_MAX_INPUT_BYTES && !forcePdfjs) {
         return extractTextFromPdf(pdfPath, {
             ...(options.pageCount === undefined ? {} : {pageCount: options.pageCount}),
             ...(requestedPages === undefined ? {} : {pages: requestedPages}),
