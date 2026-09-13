@@ -17,8 +17,8 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '45279beb3d88ff4e1b8785313a2f5ad3ab6e277599828c6c51645128704a24fa',
     },
     'djvulibre-win32-x64': {
-        archiveBytes: 743966,
-        archiveSha256: '5784c92dceca50aadf0a282eb5b03211e4a5a5a5bea1fe1af443fadf032699e2',
+        archiveBytes: 744199,
+        archiveSha256: 'df70594d1fab95c1616411c3dbbf566188d91bdff00b99f6f39d699a282b35f1',
     },
     'poppler-darwin-arm64': {
         archiveBytes: 5062527,
@@ -106,5 +106,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '43372f6fc6f6d2ec01dc683390284d3f58a8fbf9bc4f9cfca131c59ba805c1a0',
+    manifestSha256: '81cbfe01cf14d25845e45d10e890aea744e83b9ea283d273a78e91619b321938',
 };
