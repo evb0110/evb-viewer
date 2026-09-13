@@ -6,14 +6,26 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as NodeFs from 'fs';
+import type * as NodeFsPromises from 'fs/promises';
 import { FakeAssistantAppServerProcess } from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(),
+    existsSync: vi.fn(() => true),
+    access: vi.fn(async () => undefined),
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
+vi.mock('fs', async importOriginal => ({
+    ...(await importOriginal<typeof NodeFs>()),
+    existsSync: mocks.existsSync,
+}));
+vi.mock('fs/promises', async importOriginal => ({
+    ...(await importOriginal<typeof NodeFsPromises>()),
+    access: mocks.access,
+}));
 vi.mock('electron', () => ({app: {getPath: () => '/tmp/evb-codex-test'}}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: Record<string, unknown>) => ({
@@ -28,6 +40,8 @@ describe('Codex CLI timeout cleanup', () => {
         vi.useFakeTimers();
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.existsSync.mockReturnValue(true);
+        mocks.access.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -95,5 +109,15 @@ describe('Codex CLI timeout cleanup', () => {
             ok: false,
             stderr: 'Command timed out and its process tree did not terminate.',
         });
+    });
+
+    it('caches a resolved Codex path for the process lifetime', async () => {
+        const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
+
+        await expect(resolveCodexCliPath()).resolves.toBe('/tmp/evb-codex-test/codex/bin/codex');
+        await expect(resolveCodexCliPath()).resolves.toBe('/tmp/evb-codex-test/codex/bin/codex');
+
+        expect(mocks.existsSync).toHaveBeenCalledOnce();
+        expect(mocks.access).toHaveBeenCalledOnce();
     });
 });
