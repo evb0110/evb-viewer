@@ -1544,9 +1544,6 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(beforeNext).toBeGreaterThan(20);
         const totalPages = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
         expect(beforeNext).toBeLessThan(totalPages);
-        await clickPageNavigationButton(session, 'Next Page');
-        await waitForToolbarCurrentPage(session, beforeNext + 1);
-        expect(await waitForVisiblePageCanvas(session, beforeNext + 1, 20_000)).toBe(true);
 
         const result = await session.page.evaluate(() => {
             const testWindow = window as Window & {
@@ -1587,6 +1584,13 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(blankSamples).toEqual([]);
         expect(synchronizedSamples.length).toBeGreaterThan(0);
         expect(synchronizedSamples.every(sample => sample.requestedPage === 1)).toBe(true);
+
+        // The sampler covers the trusted-scroll contract. Stop it before the
+        // separate toolbar-navigation transition, whose commit may briefly
+        // retain the old physical scroll offset.
+        await clickPageNavigationButton(session, 'Next Page');
+        await waitForToolbarCurrentPage(session, beforeNext + 1);
+        expect(await waitForVisiblePageCanvas(session, beforeNext + 1, 20_000)).toBe(true);
     }, 90_000);
 
     it('returns to the first page after trusted fast scroll leaves the requested page stale', async () => {
