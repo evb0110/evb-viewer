@@ -5268,4 +5268,76 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(result.layout.pageShadow, detail).not.toBe('none');
         expect(result.layout.pageBorderRadius, detail).not.toBe('0px');
     }, 150_000);
+
+    it('contains and cancels the native DjVu conversion progress modal with Escape', async () => {
+        let session = sessionFixture.getSession();
+        if (!session || !djvuFixture.path) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-modal-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+
+        await callWorkspaceCommand(session.page, 'handleConvertToPdf');
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).some(button => (
+            button.textContent?.trim() === 'Convert'
+            && !button.disabled
+        )), {timeout: 30_000});
+
+        const dialogButtons = await session.page.$$('[role="dialog"] button');
+        let convertButton: (typeof dialogButtons)[number] | null = null;
+        for (const button of dialogButtons) {
+            if (await button.evaluate(element => element.textContent?.trim() === 'Convert')) {
+                convertButton = button;
+                break;
+            }
+        }
+        expect(convertButton).not.toBeNull();
+        await convertButton!.click();
+
+        const progressSelector = '.app-progress-overlay[role="dialog"]';
+        try {
+            await session.page.waitForSelector(progressSelector, {
+                timeout: 30_000,
+                visible: true,
+            });
+        } catch (error) {
+            const state = await session.page.evaluate(() => ({
+                overlays: Array.from(document.querySelectorAll<HTMLElement>('.app-progress-overlay')).map(element => ({
+                    display: getComputedStyle(element).display,
+                    role: element.getAttribute('role'),
+                })),
+                dialogs: Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).map(element => ({
+                    text: element.textContent?.trim().slice(0, 160),
+                    visible: getComputedStyle(element).display !== 'none',
+                })),
+            }));
+            throw new Error(`${error instanceof Error ? error.message : String(error)}; modal state: ${JSON.stringify(state)}`);
+        }
+        await session.page.keyboard.press('Tab');
+        expect(await session.page.evaluate(() => document.activeElement?.matches(`${progressSelector} button`))).toBe(true);
+        await session.page.keyboard.press('Shift+Tab');
+        expect(await session.page.evaluate(() => document.activeElement?.matches(`${progressSelector} button`))).toBe(true);
+        await session.page.keyboard.press('Escape');
+        await session.page.waitForSelector(progressSelector, {
+            hidden: true,
+            timeout: 30_000,
+        });
+        expect(await session.page.$('.editor-pane.is-active .djvu-banner')).not.toBeNull();
+    }, 120_000);
 });

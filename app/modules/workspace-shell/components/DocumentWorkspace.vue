@@ -323,9 +323,7 @@
             @page-invert-selection="documentControls.handlePageContextMenuInvertSelection"
         />
         <DjvuConversionOverlay
-            v-if="showDjvuConversionUi"
-            v-show="surfaceMode === 'reader'"
-            :is-converting="conversionState.isConverting && !djvuIsLoadingPages"
+            :is-converting="conversionState.isConverting"
             :phase="conversionState.phase"
             :percent="conversionState.percent"
             @cancel="handleDjvuCancel"
@@ -437,6 +435,7 @@ import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspac
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
+import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
 import type {
     IPdfThumbnailPageGeometry,
     IScrollToPageOptions,
@@ -451,7 +450,6 @@ import {
     type IDocumentWorkspaceProps,
     useDocumentWorkspaceLifecycle,
 } from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
-const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
 const ScanCleanupWorkspace = defineAsyncComponent({
     loader: () => import('@app/modules/scan-cleanup/public/workspace')
         .then(module => module.ScanCleanupWorkspace),
@@ -639,7 +637,6 @@ const {
     isDjvuMode,
     djvuSourcePath,
     conversionState,
-    djvuIsLoadingPages,
     djvuShowBanner,
     djvuError,
     djvuOpeningPath,
