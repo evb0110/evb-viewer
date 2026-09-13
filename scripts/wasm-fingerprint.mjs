@@ -41,8 +41,9 @@ const IGNORED_DIRECTORY_NAMES = new Set([
 const IGNORED_FILE_NAMES = new Set(['auto-imports.d.ts']);
 
 /** @typedef {{path: string, relativePath: string}} IWasmFingerprintFile */
+/** @typedef {{bytes: Buffer, relativePath: string}} IWasmFingerprintSource */
 /** @typedef {{offset: number, value: number}} IUnsignedLeb128 */
-/** @typedef {{projectRoot?: string | undefined, rustflags?: string | undefined, rustcCommitHash?: string | undefined}} IWasmFingerprintOptions */
+/** @typedef {{projectRoot?: string | undefined, rustflags?: string | undefined, rustcCommitHash?: string | undefined, sources?: IWasmFingerprintSource[] | undefined}} IWasmFingerprintOptions */
 /** @typedef {{code?: string | undefined}} INodeError */
 /** @typedef {typeof import('./wasm-artifacts.mjs').WASM_ARTIFACTS[number]} IWasmArtifact */
 
@@ -144,6 +145,15 @@ async function getWasmFingerprintInputFiles(root) {
     return files;
 }
 
+/** @param {string} [root] @returns {Promise<IWasmFingerprintSource[]>} */
+export async function readWasmFingerprintSources(root = projectRoot) {
+    const files = await getWasmFingerprintInputFiles(root);
+    return Promise.all(files.map(async file => ({
+        relativePath: file.relativePath,
+        bytes: await readFile(file.path),
+    })));
+}
+
 /** @type {Map<string, Promise<string>>} */
 const rustcCommitHashByRoot = new Map();
 
@@ -166,6 +176,7 @@ export async function computeWasmSourceFingerprint(artifact, {
     projectRoot: root = projectRoot,
     rustflags = '',
     rustcCommitHash: configuredRustcCommitHash,
+    sources,
 } = {}) {
     const rustcCommitHash = configuredRustcCommitHash ?? await readRustcCommitHash(root);
     const hash = createHash('sha256');
@@ -191,10 +202,10 @@ export async function computeWasmSourceFingerprint(artifact, {
     }));
     hash.update('\0');
 
-    for (const file of await getWasmFingerprintInputFiles(root)) {
-        hash.update(file.relativePath);
+    for (const source of sources ?? await readWasmFingerprintSources(root)) {
+        hash.update(source.relativePath);
         hash.update('\0');
-        hash.update(await readFile(file.path));
+        hash.update(source.bytes);
         hash.update('\0');
     }
 

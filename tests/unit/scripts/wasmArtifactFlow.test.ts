@@ -20,6 +20,7 @@ import {
 import { stageWasmArtifacts } from '@scripts/stage-wasm-artifacts.mjs';
 import {
     computeWasmSourceFingerprint,
+    readWasmFingerprintSources,
     stampWasmArtifact,
 } from '@scripts/wasm-fingerprint.mjs';
 
@@ -47,9 +48,13 @@ describe('WASM artifact flow', () => {
         const inputDir = await mkdtemp(path.join(tmpdir(), 'evb-wasm-flow-'));
         const outputDir = await mkdtemp(path.join(tmpdir(), 'evb-wasm-stage-'));
         try {
+            const sources = await readWasmFingerprintSources();
             for (const artifact of WASM_ARTIFACTS) {
                 const fileName = path.basename(artifact.publicRelativePath);
-                const fingerprint = await computeWasmSourceFingerprint(artifact, {rustflags: artifact.rustflags.join(' ')});
+                const fingerprint = await computeWasmSourceFingerprint(artifact, {
+                    rustflags: artifact.rustflags.join(' '),
+                    sources,
+                });
                 const bytes = stampWasmArtifact(Buffer.from([
                     0,
                     97,
