@@ -1,0 +1,42 @@
+app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue
+  s_c2b7952c790c46::t_72ffecaf7b3711 8
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 338-345,347,350,404,508
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_c2b7952c790c46::t_72ffecaf7b3711 314-319,330-347,349,353-357
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_c2b7952c790c46::t_72ffecaf7b3711 46-49
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 736-739
+tests/e2e/electron/helpers/workspaceExpose.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 488-490
+app/assets/css/main.css
+  s_c2b7952c790c46::t_72ffecaf7b3711 315-320,330
+tests/unit/electron/ocrRevisionTransitionRecovery.test.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 18,107-146
+  s_c2b7952c790c46::t_781a696a343320 147-148
+tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 16,20-23,28,60-82,91-105
+electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 221-229
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_c2b7952c790c46::t_72ffecaf7b3711 181,298,313-314,316,322,330,333-334
+app/modules/workspace-shell/components/DocumentSourceSidebar.vue
+  s_c2b7952c790c46::t_72ffecaf7b3711 155-158,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4d99c5ca1db947426eccbd47813f44e302a6f07",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
