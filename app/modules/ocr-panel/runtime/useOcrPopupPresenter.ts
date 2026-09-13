@@ -38,8 +38,9 @@ import {
 } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 
 type TOcrViewState = 'configure' | 'running' | 'applying' | 'results' | 'error';
-type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing';
+type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing' | 'unavailable';
 type TOcrSupersessionChoice = 'missing-only' | 'repeat';
+export type TOcrLanguageModelDisplayState = 'ready' | 'missing' | 'downloading' | 'error' | 'unavailable';
 
 const OCR_LANGUAGE_BCP47_OVERRIDES: Partial<Record<TOcrLanguageCode, string>> = {
     grc: 'grc',
@@ -81,6 +82,39 @@ export const OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES = {
     ukr: 'Ukrainian',
     vie: 'Vietnamese',
 } as const satisfies Record<TOcrLanguageCode, string>;
+
+export const OCR_LANGUAGE_NAME_KEYS = {
+    ara: 'ocr.languagePicker.names.ara',
+    bul: 'ocr.languagePicker.names.bul',
+    ces: 'ocr.languagePicker.names.ces',
+    dan: 'ocr.languagePicker.names.dan',
+    deu: 'ocr.languagePicker.names.deu',
+    ell: 'ocr.languagePicker.names.ell',
+    eng: 'ocr.languagePicker.names.eng',
+    fin: 'ocr.languagePicker.names.fin',
+    fra: 'ocr.languagePicker.names.fra',
+    grc: 'ocr.languagePicker.names.grc',
+    heb: 'ocr.languagePicker.names.heb',
+    hrv: 'ocr.languagePicker.names.hrv',
+    hun: 'ocr.languagePicker.names.hun',
+    ind: 'ocr.languagePicker.names.ind',
+    ita: 'ocr.languagePicker.names.ita',
+    kmr: 'ocr.languagePicker.names.kmr',
+    nld: 'ocr.languagePicker.names.nld',
+    nor: 'ocr.languagePicker.names.nor',
+    pol: 'ocr.languagePicker.names.pol',
+    por: 'ocr.languagePicker.names.por',
+    ron: 'ocr.languagePicker.names.ron',
+    rus: 'ocr.languagePicker.names.rus',
+    slk: 'ocr.languagePicker.names.slk',
+    spa: 'ocr.languagePicker.names.spa',
+    srp: 'ocr.languagePicker.names.srp',
+    swe: 'ocr.languagePicker.names.swe',
+    syr: 'ocr.languagePicker.names.syr',
+    tur: 'ocr.languagePicker.names.tur',
+    ukr: 'ocr.languagePicker.names.ukr',
+    vie: 'ocr.languagePicker.names.vie',
+} as const satisfies Record<TOcrLanguageCode, TTranslationKey>;
 
 function createLanguageDisplayNames(locale: TLocale) {
     try {
@@ -157,6 +191,7 @@ export function buildOcrLanguagePickerItems(
     locale: TLocale,
     searchQuery: string,
     failedLanguageCodes: ReadonlySet<string>,
+    displayNameResolver?: (code: TOcrLanguageCode) => string,
 ) {
     const selectedCodes = new Set(groupingSelection);
     const displayNames = createLanguageDisplayNames(locale);
@@ -168,15 +203,19 @@ export function buildOcrLanguagePickerItems(
         selected: 0,
         installed: 1,
         missing: 2,
+        unavailable: 3,
     };
     return languages
         .map((language) => {
-            const label = resolveOcrLanguageDisplayName(language.code, locale, displayNames);
+            const label = displayNameResolver?.(language.code)
+                ?? resolveOcrLanguageDisplayName(language.code, locale, displayNames);
             const group: TOcrLanguagePickerGroup = selectedCodes.has(language.code)
                 ? 'selected'
                 : language.modelState === 'installed'
                     ? 'installed'
-                    : 'missing';
+                    : language.modelState === undefined
+                        ? 'unavailable'
+                        : 'missing';
             return {
                 value: language.code,
                 label,
@@ -184,7 +223,9 @@ export function buildOcrLanguagePickerItems(
                 group,
                 modelState: failedLanguageCodes.has(language.code)
                     ? 'error' as const
-                    : language.modelState ?? 'missing',
+                    : language.modelState === 'installed'
+                        ? 'ready' as const
+                        : language.modelState ?? 'unavailable',
             };
         })
         .filter(item => normalizedQuery.length === 0
@@ -284,6 +325,7 @@ export const useOcrPopupPresenter = ({
         hasResults,
         progressPercent,
         availableLanguages,
+        languageLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('ready'),
         loadLanguages,
         runOcr,
         cancelOcr,
@@ -352,7 +394,29 @@ export const useOcrPopupPresenter = ({
         locale.value,
         languageSearchQuery.value,
         failedLanguageCodes.value,
+        code => t(OCR_LANGUAGE_NAME_KEYS[code], undefined),
     ));
+    const languagePickerGroups = computed(() => (
+        [
+            'selected',
+            'installed',
+            'missing',
+            'unavailable',
+        ] as const
+    ).map(group => ({
+        key: group,
+        items: languagePickerItems.value.filter(item => item.group === group),
+    })));
+    const languageInventoryState = computed(() => {
+        if (languageLoadState.value === 'ready' && availableLanguages.value.length > 0) {
+            return 'ready' as const;
+        }
+        if (languageLoadState.value === 'error'
+            || (languageLoadState.value === 'ready' && availableLanguages.value.length === 0)) {
+            return 'unavailable' as const;
+        }
+        return 'loading' as const;
+    });
     const showLanguageSearch = computed(() => shouldShowOcrLanguageSearch(
         availableLanguages.value.length,
     ));
@@ -386,6 +450,19 @@ export const useOcrPopupPresenter = ({
         settings.value.selectedLanguages.some(code => isAvailableOcrLanguageCode(code)
             && availableLanguageCodes.value.has(code)),
     );
+    const hasSelectedLanguageDownload = computed(() => {
+        const stateByCode = new Map(availableLanguages.value.map(language => [
+            language.code,
+            language.modelState,
+        ]));
+        return settings.value.selectedLanguages.some(code => {
+            if (!isAvailableOcrLanguageCode(code)) {
+                return false;
+            }
+            const state = stateByCode.get(code);
+            return state === 'missing' || failedLanguageCodes.value.has(code);
+        });
+    });
     const canRunOcr = computed(() =>
         !disabled.value
         && !progress.value.isRunning
@@ -463,9 +540,11 @@ export const useOcrPopupPresenter = ({
     const selectedLanguagesModel = computed<TOcrLanguageCode[]>({
         get: () => settings.value.selectedLanguages.filter(isAvailableOcrLanguageCode),
         set: (selectedLanguages) => {
+            const normalizedLanguages = normalizeSelectedOcrLanguages(selectedLanguages);
+            pickerGroupingSelection.value = [...normalizedLanguages];
             settings.value = {
                 ...settings.value,
-                selectedLanguages: normalizeSelectedOcrLanguages(selectedLanguages),
+                selectedLanguages: normalizedLanguages,
             };
         },
     });
@@ -878,6 +957,9 @@ export const useOcrPopupPresenter = ({
         resultStatusText,
         languageSearchQuery,
         languagePickerItems,
+        languagePickerGroups,
+        languageInventoryState,
+        hasSelectedLanguageDownload,
         showLanguageSearch,
         showMultipleLanguagesHint,
         hasLanguageDownloadFailure,

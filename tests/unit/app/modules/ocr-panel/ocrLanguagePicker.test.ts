@@ -124,6 +124,40 @@ describe('OCR language picker ordering and filtering', () => {
         }
     });
 
+    it('uses the supplied localized registry names and keeps unknown availability explicit', () => {
+        const items = buildOcrLanguagePickerItems(
+            [
+                {
+                    code: 'grc',
+                    script: 'greek',
+                },
+                {
+                    code: 'syr',
+                    script: 'rtl',
+                },
+            ],
+            [],
+            'en',
+            '',
+            new Set(),
+            code => code === 'grc' ? 'Ancient Greek' : 'Syriac',
+        );
+
+        expect(items.map(item => [
+            item.label,
+            item.modelState,
+        ])).toEqual([
+            [
+                'Ancient Greek',
+                'unavailable',
+            ],
+            [
+                'Syriac',
+                'unavailable',
+            ],
+        ]);
+    });
+
     it('finds a language by its familiar two-letter code in every UI locale', () => {
         const byQuery = (query: string, locale: TLocale) => buildOcrLanguagePickerItems(
             AVAILABLE_OCR_LANGUAGES,

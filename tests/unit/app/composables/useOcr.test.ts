@@ -154,6 +154,24 @@ describe('useOcr', () => {
         expect(ocr.error.value).toBeNull();
     });
 
+    it('marks language availability unavailable when the inventory request fails', async () => {
+        mockOcr.getLanguages.mockRejectedValueOnce(new Error('inventory unavailable'));
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            await ocr.loadLanguages();
+
+            expect(ocr.languageLoadState.value).toBe('error');
+            expect(ocr.availableLanguages.value).toEqual([]);
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('settles runOcr when canceled before completion', async () => {
         interface IOcrCompleteTestResult {
             requestId: string;

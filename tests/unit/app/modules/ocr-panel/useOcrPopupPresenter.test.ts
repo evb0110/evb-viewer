@@ -142,6 +142,7 @@ function createOcrMock() {
     const cancelOcr = vi.fn<() => Promise<IOcrCancelResult>>(async () => ({canceled: true}));
     return {
         availableLanguages: languages,
+        languageLoadState: ref<'idle' | 'loading' | 'ready' | 'error'>('ready'),
         settings,
         activeRunSettings,
         lastCompletedRunSettings,

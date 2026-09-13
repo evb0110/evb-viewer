@@ -64,6 +64,7 @@ export const useOcr = () => {
     const { localizeOcrError } = useOcrErrorLocalizer();
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
+    const languageLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const settings = ref<IOcrSettings>({
         pageRange: 'current',
         customRange: '',
@@ -288,12 +289,17 @@ export const useOcr = () => {
     }, OCR_TIMEOUT_MS, { immediate: false });
 
     async function loadLanguages(surfaceError = true) {
+        languageLoadState.value = 'loading';
         try {
             const languages = await getOcrCapability().getLanguages();
             if (!disposed) {
                 availableLanguages.value = languages;
+                languageLoadState.value = 'ready';
             }
         } catch (e) {
+            if (!disposed) {
+                languageLoadState.value = 'error';
+            }
             if (!disposed && surfaceError) {
                 error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
             }
@@ -969,6 +975,7 @@ export const useOcr = () => {
 
     return {
         availableLanguages,
+        languageLoadState,
         settings,
         activeRunSettings,
         lastCompletedRunSettings,

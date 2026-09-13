@@ -273,43 +273,63 @@
                             />
                         </div>
                         <div class="language-picker-list app-scrollbar app-scroll-region--balanced">
-                            <UCheckboxGroup
-                                v-if="languagePickerItems.length > 0"
-                                v-model="selectedLanguagesModel"
-                                :legend="t('ocr.languages')"
-                                :items="languagePickerItems"
-                                value-key="value"
-                                size="sm"
-                                variant="card"
-                                orientation="horizontal"
-                                indicator="hidden"
-                                :ui="languageChipGroupUi"
+                            <p
+                                v-if="languageInventoryState === 'loading'"
+                                class="language-inventory-status"
+                                role="status"
+                                aria-live="polite"
                             >
-                                <template #label="{ item }">
-                                    <span class="chip-name">{{ item.label }}</span>
-                                    <span class="chip-code">{{ item.value }}</span>
-                                    <span
-                                        v-if="item.modelState === 'missing'"
-                                        class="chip-state"
+                                {{ t('ocr.languagePicker.inventoryLoading') }}
+                            </p>
+                            <p
+                                v-else-if="languageInventoryState === 'unavailable'"
+                                class="language-inventory-status"
+                                role="alert"
+                            >
+                                {{ t('ocr.languagePicker.inventoryUnavailable') }}
+                            </p>
+                            <template v-else-if="languagePickerItems.length > 0">
+                                <template
+                                    v-for="group in languagePickerGroups"
+                                    :key="group.key"
+                                >
+                                    <p
+                                        v-if="group.items.length > 0"
+                                        class="language-group-heading"
                                     >
-                                        <UIcon name="i-ph-download-simple" class="size-3" />
-                                        {{ t('ocr.languagePicker.downloadSizeHint') }}
-                                    </span>
-                                    <UIcon
-                                        v-else-if="item.modelState === 'downloading'"
-                                        name="i-ph-circle-notch"
-                                        class="chip-spinner size-3 animate-spin"
-                                        :aria-label="t('ocr.languageModelState.downloading')"
-                                    />
-                                    <span
-                                        v-else-if="item.modelState === 'error'"
-                                        class="chip-state is-error"
+                                        {{ t(`ocr.languagePicker.groups.${group.key}`, undefined) }}
+                                    </p>
+                                    <UCheckboxGroup
+                                        v-if="group.items.length > 0"
+                                        v-model="selectedLanguagesModel"
+                                        :legend="t(`ocr.languagePicker.groups.${group.key}`, undefined)"
+                                        :items="group.items"
+                                        value-key="value"
+                                        size="sm"
+                                        variant="card"
+                                        orientation="vertical"
+                                        indicator="hidden"
+                                        :ui="languageChipGroupUi"
                                     >
-                                        <UIcon name="i-ph-warning-circle" class="size-3" />
-                                        {{ t('ocr.languagePicker.downloadFailed') }}
-                                    </span>
+                                        <template #label="{ item }">
+                                            <span class="chip-name">{{ item.label }}</span>
+                                            <span class="chip-code">{{ item.value }}</span>
+                                            <span
+                                                class="chip-state"
+                                                :class="{ 'is-error': item.modelState === 'error' }"
+                                            >
+                                                <UIcon
+                                                    :name="getLanguageModelStateIcon(item.modelState)"
+                                                    class="size-3"
+                                                    :class="{ 'animate-spin': item.modelState === 'downloading' }"
+                                                    aria-hidden="true"
+                                                />
+                                                {{ t(getLanguageModelStateLabelKey(item.modelState), undefined) }}
+                                            </span>
+                                        </template>
+                                    </UCheckboxGroup>
                                 </template>
-                            </UCheckboxGroup>
+                            </template>
                             <p v-else class="language-empty">
                                 {{ t('ocr.languagePicker.noResults') }}
                             </p>
@@ -430,7 +450,7 @@
                 <UButton
                     color="primary"
                     icon="i-ph-play"
-                    :label="t('ocr.start')"
+                    :label="hasSelectedLanguageDownload ? t('ocr.languagePicker.downloadAndStart') : t('ocr.languagePicker.startWithoutDownload')"
                     :disabled="!canRunOcr"
                     @click="handleRunOcr"
                 />
@@ -454,6 +474,7 @@ import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingH
 import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
+import type { TOcrLanguageModelDisplayState } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
     IOcrSearchablePdfResult,
@@ -471,6 +492,7 @@ type TOcrPageSegmentationHelpKey = Extract<TTranslationKey, `ocr.pageSegmentatio
 type TOcrSupersessionChoice = 'missing-only' | 'repeat';
 type TOcrSupersessionChoiceLabelKey = Extract<TTranslationKey, `ocr.supersession.primaryOptions.${string}`>;
 type TOcrSupersessionChoiceDescriptionKey = Extract<TTranslationKey, `ocr.supersession.primaryDescriptions.${string}`>;
+type TOcrLanguageModelStateLabelKey = Extract<TTranslationKey, `ocr.languageModelState.${string}`>;
 
 const ocrQualityProfileOptions = [
     'balanced',
@@ -523,7 +545,7 @@ const segmentedRadioGroupUi = {
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
 const languageChipGroupUi = {
-    fieldset: 'w-full flex-wrap gap-1.5',
+    fieldset: 'w-full gap-1.5',
     legend: 'sr-only',
     item: 'language-chip',
     label: 'language-chip-label font-normal text-xs',
@@ -590,6 +612,9 @@ const {
     resultStatusText,
     languageSearchQuery,
     languagePickerItems,
+    languagePickerGroups,
+    languageInventoryState,
+    hasSelectedLanguageDownload,
     showLanguageSearch,
     showMultipleLanguagesHint,
     hasLanguageDownloadFailure,
@@ -731,6 +756,33 @@ function getSupersessionChoiceLabelKey(choice: TOcrSupersessionChoice): TOcrSupe
 
 function getSupersessionChoiceDescriptionKey(choice: TOcrSupersessionChoice): TOcrSupersessionChoiceDescriptionKey {
     return `ocr.supersession.primaryDescriptions.${choice}`;
+}
+
+function getLanguageModelStateLabelKey(state: string): TOcrLanguageModelStateLabelKey {
+    const normalizedState: TOcrLanguageModelDisplayState = state === 'ready'
+        || state === 'missing'
+        || state === 'downloading'
+        || state === 'error'
+        || state === 'unavailable'
+        ? state
+        : 'unavailable';
+    return `ocr.languageModelState.${normalizedState}`;
+}
+
+function getLanguageModelStateIcon(state: string) {
+    if (state === 'ready') {
+        return 'i-ph-check-circle';
+    }
+    if (state === 'missing') {
+        return 'i-ph-download-simple';
+    }
+    if (state === 'downloading') {
+        return 'i-ph-circle-notch';
+    }
+    if (state === 'error') {
+        return 'i-ph-warning-circle';
+    }
+    return 'i-ph-question';
 }
 
 defineExpose<IOcrPopupAgentExpose>({
@@ -904,6 +956,25 @@ defineExpose<IOcrPopupAgentExpose>({
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: var(--app-space-3xs);
+}
+
+.language-inventory-status {
+    padding: var(--app-space-6xl);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    text-align: center;
+}
+
+.language-group-heading {
+    margin: var(--app-space-3xl) var(--app-space-2xs) var(--app-space-xs);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-micro);
+    font-weight: var(--app-font-weight-semibold);
+    text-transform: uppercase;
+}
+
+.language-group-heading:first-child {
+    margin-top: var(--app-space-xs);
 }
 
 :deep(.language-chip) {
