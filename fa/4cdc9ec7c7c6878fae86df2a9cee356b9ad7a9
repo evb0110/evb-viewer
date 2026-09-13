@@ -1,0 +1,49 @@
+app/modules/workspace-shell/document-sessions/useDocumentSourceSession.ts
+  s_1f5857c6c42e58::t_da8c37999e5bef 30-34,43,93
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_1f5857c6c42e58::t_7494f8987d58ed 11-14,25-27,34,58,69,80,211-219,317
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_1f5857c6c42e58::t_820b1c29137295 54-57,124-126,129,485
+  s_1f5857c6c42e58::t_6d2ed24f4dca02 901
+app/modules/workspace-shell/composables/useWorkspaceInteractionControls.ts
+  s_1f5857c6c42e58::t_81c89d56ec19ab 18-19,76-77,128,294
+  s_1f5857c6c42e58::t_56a8f6fe2fda06 75
+app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.ts
+  s_1f5857c6c42e58::t_da8c37999e5bef 127,176-177
+app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt.ts
+  s_1f5857c6c42e58::t_da8c37999e5bef 7,17,21
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_1f5857c6c42e58::t_cb0869f109bcba 43-46,50,76-91,592,594-596,626
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_1f5857c6c42e58::t_601ff1af31a608 26,29-30,62-64,73-78,81-94,371,398
+  s_1f5857c6c42e58::t_53c093f7864fe7 345
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.test.ts
+  s_1f5857c6c42e58::t_078baf339899b1 122,127-128,177,205,243,261,314,353,383
+  s_1f5857c6c42e58::t_75ff651e5b76c7 123-126
+  s_1f5857c6c42e58::t_f30100e09a49ab 13
+app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen.ts
+  s_1f5857c6c42e58::t_da8c37999e5bef 3,15,17-18
+app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.ts
+  s_1f5857c6c42e58::t_da8c37999e5bef 13,167,214
+  s_1f5857c6c42e58::t_fe4d0deb3ae610 76,573-575
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_1f5857c6c42e58::t_da8c37999e5bef 11,30
+app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts
+  s_1f5857c6c42e58::t_cb0869f109bcba 158,160-161,164-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fa4cdc9ec7c7c6878fae86df2a9cee356b9ad7a9",
+  "prompts": {},
+  "sessions": {
+    "s_1f5857c6c42e58": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e0ca-7031-a8cc-d6bd239e76f1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
