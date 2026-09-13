@@ -311,7 +311,12 @@ const isClosingDocument = computed(() => (
     activeDocumentSession.value.snapshot.value.activeTransaction?.kind === 'close'
 ));
 const hasPendingDocumentHint = computed(() => {
-    const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? null;
+    // A host remounted after a cold release has no workspace until it is
+    // activated, but its record still holds the document it committed. That
+    // record is the release evidence; a pending record is still opening.
+    const recordSnapshot = currentToolbarSnapshot.value;
+    const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot()
+        ?? (recordSnapshot.isOpeningDocument ? null : recordSnapshot);
     return shouldKeepWorkspacePendingDocumentHint({
         hasDocumentHint: hasDocumentHint === true,
         isClosingDocument: isClosingDocument.value,
