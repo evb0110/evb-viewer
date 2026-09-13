@@ -37,6 +37,7 @@ type TFileOperationsSaveControllerTestDeps =
         documentSessionKey: IWorkspaceSaveDependencies['document']['sessionKey'];
         documentRevisionToken: IWorkspaceSaveDependencies['document']['revisionToken'];
         wasEncrypted?: NonNullable<IWorkspaceSaveDependencies['document']['wasEncrypted']>;
+        hasPendingUnsavedChanges?: IWorkspaceSaveDependencies['hasPendingUnsavedChanges'];
         suppressUnencryptedSaveNotice?: NonNullable<
             IWorkspaceSaveDependencies['unencryptedSaveNotice']
         >['suppress'];
@@ -70,6 +71,7 @@ type TFileOperationsSaveControllerTestDeps =
         markBookmarksSaved: IWorkspaceSaveDependencies['metadata']['markBookmarksSaved'];
         getBookmarksSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getBookmarksSaveStateToken'];
         pdfDocument: IWorkspaceSaveDependencies['pdf']['document'];
+        pdfViewerRef?: IWorkspaceSaveDependencies['pdf']['viewer'];
         commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
@@ -145,6 +147,9 @@ function createSaveDependencies(
             ...(deps.wasEncrypted ? {wasEncrypted: deps.wasEncrypted} : {}),
         },
         ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
+        ...(deps.hasPendingUnsavedChanges
+            ? {hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges}
+            : {}),
         annotations: {
             dirty: deps.annotationDirty,
             markSaved: deps.markAnnotationSaved,
@@ -176,6 +181,7 @@ function createSaveDependencies(
         },
         pdf: {
             document: deps.pdfDocument,
+            viewer: deps.pdfViewerRef ?? ref({runSaveTransaction: deps.runSaveTransaction}),
             ...(deps.commitPdfEditorsForSave
                 ? {commitEditorsForSave: deps.commitPdfEditorsForSave}
                 : {}),

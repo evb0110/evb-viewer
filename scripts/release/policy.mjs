@@ -60,8 +60,6 @@ export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     'app/modules/workspace-shell/composables/file-operations/**',
     'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
     'app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult.ts',
-    'app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.ts',
-    'app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest.ts',
     'app/modules/workspace-shell/composables/usePageSaveOrchestration.ts',
     'app/modules/workspace-shell/composables/usePdfFile.ts',
     'app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts',

@@ -10,8 +10,11 @@ import type {
     INativePdfMutationProjection,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/public';
-import {createPageMutationWriterSave} from '@app/modules/workspace-shell/composables/createPageMutationWriterSave';
 import type {IConsumeNativePdfMutationProjectionOptions} from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
+import {
+    createDeps,
+    useWorkspaceSaveServiceForTest,
+} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
@@ -37,7 +40,7 @@ const projection: INativePdfMutationProjection = {
     phase: 'persist-native-pdf-mutations',
 };
 
-describe('createPageMutationWriterSave', () => {
+describe('workspace save service page mutation writer', () => {
     beforeEach(() => {
         mocks.consumeNativePdfMutationProjection.mockReset();
     });
@@ -67,13 +70,16 @@ describe('createPageMutationWriterSave', () => {
             assertAnnotationSaveCurrent: vi.fn(),
             commitAnnotationSave,
         });
-        const saveAnnotationsForPageMutation = createPageMutationWriterSave({
+        const runSaveTransaction = vi.fn(async () => transaction);
+        const {deps} = createDeps({
             annotationDirty: ref(true),
             hasAnnotationChanges: () => true,
-            pendingEmbeddedAnnotationDeleteCount: ref(0),
+            runSaveTransaction,
+            pdfViewerRef: ref({runSaveTransaction}),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             documentRevisionToken: ref(requireDocumentRevisionToken('revision-1')),
-            pdfViewerRef: ref({runSaveTransaction: vi.fn(async () => transaction)}),
+        });
+        const saveAnnotationsForPageMutation = useWorkspaceSaveServiceForTest(deps).createPageMutationWriterSave({
             currentPage: ref(0),
             waitForPdfReload: vi.fn(async () => {
                 events.push('wait-for-reload');
@@ -115,13 +121,16 @@ describe('createPageMutationWriterSave', () => {
             nativeMutationProjection: projection,
             commitAnnotationSave,
         });
-        const save = createPageMutationWriterSave({
+        const runSaveTransaction = vi.fn(async () => transaction);
+        const {deps} = createDeps({
             annotationDirty: ref(true),
             hasAnnotationChanges: () => true,
-            pendingEmbeddedAnnotationDeleteCount: ref(0),
             workingCopyPath,
             documentRevisionToken: ref(requireDocumentRevisionToken('revision-1')),
-            pdfViewerRef: ref({runSaveTransaction: vi.fn(async () => transaction)}),
+            runSaveTransaction,
+            pdfViewerRef: ref({runSaveTransaction}),
+        });
+        const save = useWorkspaceSaveServiceForTest(deps).createPageMutationWriterSave({
             currentPage: ref(0),
             waitForPdfReload,
             loadPdfFromPath,
