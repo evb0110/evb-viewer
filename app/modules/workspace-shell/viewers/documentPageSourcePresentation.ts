@@ -161,7 +161,7 @@ export function createDocumentPageSourcePresentation(options: {
         if (invalidated !== state || invalidated.lease !== lease) {
             return;
         }
-        const image = getConnectedImage(pageNumber, invalidated);
+        const image = getMountedImage(pageNumber, invalidated);
         if (image?.dataset.pageSourceCandidate) image.remove();
         invalidated.unsubscribeInvalidation?.();
         invalidated.unsubscribeInvalidation = null;
@@ -178,7 +178,7 @@ export function createDocumentPageSourcePresentation(options: {
     const getRenderGeneration = (pageNumber: number): number | '' => (
         pageStates.get(pageNumber)?.generation ?? ''
     );
-    const getConnectedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
+    const getMountedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
         const openingTarget = options.getOpeningTarget(pageNumber);
         const candidates = openingTarget
             ? openingTarget.querySelectorAll<HTMLImageElement>('[data-testid="document-page-source-image"]')
@@ -187,9 +187,11 @@ export function createDocumentPageSourcePresentation(options: {
             image.dataset.pageRenderGeneration === String(state.generation)
             && image.dataset.documentLoadGeneration === String(options.readFence().loadGeneration)
             && isOwnedConnectedDocumentPageImage(image, pageNumber, openingTarget)
-            && image.complete
-            && image.naturalWidth > 0
         )) ?? null;
+    };
+    const getConnectedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
+        const image = getMountedImage(pageNumber, state);
+        return image?.complete && image.naturalWidth > 0 ? image : null;
     };
     const getVisual = (pageNumber: number): TDocumentPageSourceVisual => {
         const state = pageStates.get(pageNumber);
@@ -434,7 +436,7 @@ export function createDocumentPageSourcePresentation(options: {
             return;
         }
         activeController?.abort();
-        const preserveExistingVisual = Boolean(previous?.lease && getConnectedImage(pageNumber, previous));
+        const preserveExistingVisual = Boolean(previous?.lease && getMountedImage(pageNumber, previous));
         if (previous && preserveExistingVisual && priority === 'navigation') {
             commitReady(pageNumber, previous);
         }
