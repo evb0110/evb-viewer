@@ -203,6 +203,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     },
     scanCleanup: {
         preview: {kind: 'async', path: ["scanCleanup","preview"]},
+        resolvePlacementAnchorCalibration: {kind: 'async', path: ["scanCleanup","resolvePlacementAnchorCalibration"]},
         cancelPreview: {kind: 'async', path: ["scanCleanup","cancelPreview"]},
         detectAll: {kind: 'async', path: ["scanCleanup","detectAll"]},
         cancelDetection: {kind: 'async', path: ["scanCleanup","cancelDetection"]},

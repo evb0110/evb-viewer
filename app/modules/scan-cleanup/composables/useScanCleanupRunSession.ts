@@ -76,6 +76,8 @@ interface IUseScanCleanupRunSessionOptions {
     detectionResultStoreId?: Readonly<Ref<string | null>>;
     /** Bounded document-wide calibration for xlarge `ink` placement. */
     placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
+    placementAnchorCalibrationPending?: Readonly<Ref<boolean>>;
+    placementAnchorCalibrationError?: Readonly<Ref<string>>;
     detectionPending: ComputedRef<boolean>;
     documentSettingsReady: ComputedRef<boolean>;
     detectionStatus: ComputedRef<Extract<TScanCleanupDetectionJobState['status'], 'completed' | 'failed' | 'canceled'> | null>;
@@ -219,6 +221,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             && options.detectionResultStoreId?.value !== undefined
             && (options.placementAnchorSummary?.value ?? null) === null;
     });
+    const placementAnchorCalibrationPending = computed(() => options.detectionStatus.value === 'completed'
+        && options.placementAnchorCalibrationPending?.value === true);
+    const placementAnchorCalibrationError = computed(() => options.detectionStatus.value === 'completed'
+        ? options.placementAnchorCalibrationError?.value ?? ''
+        : '');
     const missingInkPlacementAnchorPage = computed(() => {
         const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
         if (
@@ -296,6 +303,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && !isRunning.value
         && hasIncludedPage.value
         && marginsAreValid.value
+        && !placementAnchorCalibrationPending.value
+        && placementAnchorCalibrationError.value === ''
         && !inkPlacementCapacityExceeded.value
         && missingInkPlacementAnchorPage.value === null
         && getScanCleanupCapability() !== null);
@@ -322,6 +331,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         if (!marginsAreValid.value) {
             return t('scanCleanup.runDisabled.invalidMargins');
+        }
+        if (placementAnchorCalibrationPending.value) {
+            return t('scanCleanup.preview.loading');
+        }
+        if (placementAnchorCalibrationError.value !== '') {
+            return placementAnchorCalibrationError.value;
         }
         if (inkPlacementCapacityExceeded.value) {
             return SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE;
@@ -389,6 +404,19 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
 
     async function run() {
         if (!options.sourcePath.value) {
+            return;
+        }
+        if (placementAnchorCalibrationPending.value) {
+            return;
+        }
+        if (placementAnchorCalibrationError.value !== '') {
+            reportScanCleanupRunError(
+                options.ownerId,
+                placementAnchorCalibrationError.value,
+                options.sourcePath.value,
+                'internal',
+                options.documentRevision.value,
+            );
             return;
         }
         if (inkPlacementCapacityExceeded.value) {

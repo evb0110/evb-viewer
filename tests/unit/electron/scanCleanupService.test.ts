@@ -18,6 +18,7 @@ import {
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
+import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';
@@ -43,6 +44,7 @@ import {
     releaseScanCleanupDetectionResultStores,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     beginMainOperationShutdown,
     resetMainOperationLifecycleForTests,
@@ -332,6 +334,71 @@ describe('scan cleanup service', () => {
         expect(result.error).toContain('20,000');
         expect(mocks.runWorker).not.toHaveBeenCalled();
         expect(close).not.toHaveBeenCalled();
+        await releaseScanCleanupDetectionResultStores([detectionResultStoreId]);
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it('refuses an xlarge run with a stale placement calibration identity', async () => {
+        const close = vi.fn(async () => undefined);
+        const resultStore: IScanCleanupDetectionResultStore = {
+            pageCount: 20_001,
+            resultCount: 20_001,
+            append: async () => undefined,
+            replace: async () => undefined,
+            getPage: async pageNumber => ({
+                pageNumber: requirePageNumber(pageNumber),
+                classification: 'single-uncut-page',
+                confidence: 1,
+                cutterXPx: null,
+                documentPrior: null,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: true,
+                clusterAgreement: 1,
+            } satisfies IScanCleanupDetectionResult),
+            readRange: async () => [],
+            forEachChunk: async () => undefined,
+            close,
+        };
+        const detectionResultStoreId = registerScanCleanupDetectionResultStore({
+            detectionSignature: createScanCleanupDetectionSignature({
+                ...startRequest.options,
+                pageAlignment: 'ink',
+            }),
+            documentRevision: owner.documentRevision,
+            ownerId: owner.ownerId,
+            resultStore,
+            sourcePdfPath: startRequest.sourcePdfPath,
+        });
+        const service = createScanCleanupService();
+
+        const result = await service.start(sender(), {
+            ...startRequest,
+            detectionResultStoreId,
+            options: {
+                ...startRequest.options,
+                pageAlignment: 'ink',
+            },
+            placementAnchorSummary: {
+                schemaVersion: 1,
+                sampleCount: 20_001,
+                referenceHeightPoints: 792,
+                toleranceNormalized: 0.01,
+                topEdgeNormalized: 0.1,
+                identity: {
+                    documentRevision: 'stale-revision',
+                    detectionSignature: 'stale-detection',
+                    calibrationSignature: 'stale-calibration',
+                },
+                clusters: [],
+                samples: [],
+            },
+        });
+
+        expect(result).toMatchObject({
+            started: false,
+            errorCode: 'invalid-request',
+        });
+        expect(mocks.runWorker).not.toHaveBeenCalled();
         await releaseScanCleanupDetectionResultStores([detectionResultStoreId]);
         expect(close).toHaveBeenCalledOnce();
     });

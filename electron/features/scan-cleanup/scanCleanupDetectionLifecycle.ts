@@ -3,6 +3,8 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
     IScanCleanupOwnerContext,
+    IScanCleanupPlacementAnchorCalibration,
+    IScanCleanupPlacementAnchorCalibrationRequest,
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
 } from '@contracts/electronApiScanCleanup';
@@ -25,6 +27,7 @@ import {getErrorMessage} from '@electron/utils/error';
 import {createStableJobBrokerOwnerId} from '@electron/resources/jobBroker';
 import {
     registerScanCleanupDetectionResultStore,
+    claimScanCleanupDetectionResultStore,
     releaseScanCleanupDetectionResultStores,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {createMainJobRegistry} from '@electron/operation-lifecycle/createMainJobRegistry';
@@ -42,7 +45,14 @@ import type {
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createLogger} from '@electron/utils/createLogger';
-import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {
+    buildScanCleanupPlacementAnchorSummary,
+    resolveScanCleanupPlacementAnchorsFromResult,
+} from '@evb/scan-cleanup/core/placementAnchors';
 
 const logger = createLogger('scan-cleanup-detection');
 function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
@@ -173,6 +183,10 @@ export interface IScanCleanupDetectionOwner extends IScanCleanupDetectionLifecyc
         jobId: string,
         owner: IScanCleanupOwnerContext,
     ) => TScanCleanupDetectionJobState | null;
+    resolvePlacementAnchorCalibration: (
+        sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupPlacementAnchorCalibrationRequest,
+    ) => Promise<IScanCleanupPlacementAnchorCalibration>;
 }
 
 export function scanCleanupDetectionOwner(
@@ -180,6 +194,12 @@ export function scanCleanupDetectionOwner(
     rawRasterRetention: IScanCleanupDetectionRetentionView,
 ): IScanCleanupDetectionOwner {
     const detectionLifecycle = createScanCleanupDetectionLifecycle();
+    const placementCalibrationByStore = new Map<string, {
+        key: string;
+        promise: ReturnType<typeof buildScanCleanupPlacementAnchorSummary>;
+        controller: AbortController;
+        waiters: number;
+    }>();
     const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) => (
         state === null ? null : projectScanCleanupDetectionStateForRenderer(state)
     );
@@ -304,9 +324,110 @@ export function scanCleanupDetectionOwner(
         sender: IScanCleanupDetectionSubscriber,
         owner: IScanCleanupOwnerContext,
     ) => createStableJobBrokerOwnerId('scan-cleanup', sender.id, owner.ownerId);
+    const resolvePlacementAnchorCalibration = async (
+        _sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupPlacementAnchorCalibrationRequest,
+    ): Promise<IScanCleanupPlacementAnchorCalibration> => {
+        if (!isAbsolute(request.sourcePdfPath)) {
+            throw new Error('Source must be an absolute path');
+        }
+        attachScanCleanupPageOverrideDefaults(
+            request.options.pageOverrides,
+            request.options.pageOverrideDefaults,
+            request.options.marginsMm,
+        );
+        const detectionSignature = createScanCleanupDetectionSignature(request.options);
+        const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
+        const lease = claimScanCleanupDetectionResultStore(
+            request.detectionResultStoreId,
+            {
+                detectionSignature,
+                documentRevision: request.documentRevision,
+                ownerId: request.ownerId,
+                sourcePdfPath: request.sourcePdfPath,
+            },
+        );
+        if (lease === null) {
+            placementCalibrationByStore.delete(request.detectionResultStoreId);
+            throw new Error('Detection results are no longer available for this document');
+        }
+        const key = JSON.stringify([
+            request.detectionResultStoreId,
+            request.ownerId,
+            request.documentRevision,
+            detectionSignature,
+            calibrationSignature,
+        ]);
+        try {
+            let build = placementCalibrationByStore.get(request.detectionResultStoreId);
+            if (build === undefined || build.key !== key) {
+                if (build !== undefined && build.waiters === 0) {
+                    build.controller.abort();
+                }
+                const controller = new AbortController();
+                const promise = buildScanCleanupPlacementAnchorSummary({
+                    options: request.options,
+                    resultStore: lease.resultStore,
+                    signal: controller.signal,
+                    identity: {
+                        documentRevision: request.documentRevision,
+                        detectionSignature,
+                        calibrationSignature,
+                    },
+                });
+                build = {
+                    key,
+                    promise,
+                    controller,
+                    waiters: 0,
+                };
+                placementCalibrationByStore.set(request.detectionResultStoreId, build);
+                void promise.catch(() => {
+                    if (placementCalibrationByStore.get(request.detectionResultStoreId) === build) {
+                        placementCalibrationByStore.delete(request.detectionResultStoreId);
+                    }
+                });
+            }
+            // A changed option set must not abort a caller still waiting on the
+            // previous build, but a superseded build nobody awaits is aborted so
+            // rapid option changes do not run concurrent passes over the store.
+            const currentBuild = build;
+            currentBuild.waiters += 1;
+            let summary: Awaited<typeof currentBuild.promise>;
+            try {
+                summary = await currentBuild.promise;
+            } finally {
+                currentBuild.waiters -= 1;
+                if (
+                    currentBuild.waiters === 0
+                    && placementCalibrationByStore.get(request.detectionResultStoreId) !== currentBuild
+                ) {
+                    currentBuild.controller.abort();
+                }
+            }
+            const result = request.pageNumber === undefined
+                ? undefined
+                : await lease.resultStore.getPage(request.pageNumber);
+            if (request.pageNumber !== undefined && result === undefined) {
+                throw new Error(`Scan cleanup placement calibration has no page ${String(request.pageNumber)}`);
+            }
+            return {
+                summary,
+                placementAnchors: result === undefined
+                    ? {}
+                    : resolveScanCleanupPlacementAnchorsFromResult(summary, request.options, result),
+            };
+        } finally {
+            await lease.release();
+        }
+    };
     const ownerMethods: Pick<
         IScanCleanupDetectionOwner,
-        'detectAll' | 'cancelDetection' | 'getDetectionJobState' | 'subscribeDetectionJob'
+        | 'detectAll'
+        | 'cancelDetection'
+        | 'getDetectionJobState'
+        | 'subscribeDetectionJob'
+        | 'resolvePlacementAnchorCalibration'
     > = {
         detectAll(sender, request) {
             const jobId = createJobId('scan-cleanup-detect');
@@ -546,6 +667,7 @@ export function scanCleanupDetectionOwner(
                 ))
                 : null;
         },
+        resolvePlacementAnchorCalibration,
     };
     return {
         ...detectionLifecycle,
@@ -553,6 +675,8 @@ export function scanCleanupDetectionOwner(
         async dispose() {
             await detectionJobs.clearForTests();
             await detectionLifecycle.dispose();
+            placementCalibrationByStore.forEach(build => build.controller.abort());
+            placementCalibrationByStore.clear();
         },
     };
 }

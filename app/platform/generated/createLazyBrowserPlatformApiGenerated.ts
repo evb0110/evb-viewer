@@ -189,6 +189,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrOnProgressMethod = lazyEvent(pathDescriptors.ocr.onProgress.path);
     const ocrOnCompleteMethod = lazyEvent(pathDescriptors.ocr.onComplete.path);
     const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
+    const scanCleanupResolvePlacementAnchorCalibrationMethod = lazyAsync(pathDescriptors.scanCleanup.resolvePlacementAnchorCalibration.path);
     const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
     const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
     const scanCleanupCancelDetectionMethod = lazyAsync(pathDescriptors.scanCleanup.cancelDetection.path);
@@ -457,6 +458,7 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     scanCleanup: {
         preview: scanCleanupPreviewMethod,
+        resolvePlacementAnchorCalibration: scanCleanupResolvePlacementAnchorCalibrationMethod,
         cancelPreview: scanCleanupCancelPreviewMethod,
         detectAll: scanCleanupDetectAllMethod,
         cancelDetection: scanCleanupCancelDetectionMethod,

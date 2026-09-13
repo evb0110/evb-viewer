@@ -5,6 +5,7 @@ import {
     type IScanCleanupOptions,
     type IScanCleanupDocumentPrior,
     type IScanCleanupPagePlanEvidence,
+    type IScanCleanupPlacementAnchorCalibration,
     type IScanCleanupPlacementAnchorSummary,
     type IScanCleanupPlacementAnchor,
     type IScanCleanupRawPreviewEvent,
@@ -33,6 +34,7 @@ import {
     resolveScanCleanupOutputPlacement,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
+    usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
 import type {
     ComputedRef,
@@ -96,7 +98,11 @@ interface IUseScanCleanupPreviewSessionOptions {
     ownerId: string;
     pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
+    placementAnchorCalibrationPending?: Readonly<Ref<boolean>>;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
+    resolvePlacementAnchorsForPage?: (
+        pageNumber: number,
+    ) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>;
     previewPage: Ref<number>;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
@@ -239,6 +245,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         maxEntries: 4,
         maxBytes: 48 * 1024 * 1024,
     });
+    const resolvedPlacementAnchorsByPage = new Map<number, {
+        calibrationIdentity: string;
+        anchors: IScanCleanupPreviewRequest['placementAnchors'] | undefined
+    }>();
     const metadataByPage = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']>());
     const metadataPageOrder = new Set<number>();
     let sequence = 0;
@@ -404,6 +414,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         pageNumber = options.previewPage.value,
         previewOptions = resolvedOptions.value,
         previewSourcePath = options.sourcePath.value,
+        resolvedPlacementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
     ) {
         const authoritativeLayout = options.authoritativeLayoutByPage.value.get(pageNumber);
         const renderedLayout = metadataByPage.get(pageNumber)?.layoutClassification;
@@ -423,34 +434,76 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             unresolvedPageLayout,
             options.pagePlanEvidenceByPage.get(pageNumber) ?? null,
             options.layoutDetectionComplete.value,
-            placementAnchorsFor(pageNumber) ?? null,
+            resolvedPlacementAnchors ?? placementAnchorsFor(pageNumber) ?? null,
         ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
     }
 
-    function placementAnchorsFor(pageNumber: number) {
-        const anchors = options.placementAnchorsByPage.value.get(pageNumber);
-        if (anchors !== undefined && Object.keys(anchors).length > 0) {
-            return anchors;
+    function placementAnchorCalibrationIdentity(summary: IScanCleanupPlacementAnchorSummary) {
+        return JSON.stringify(summary.identity);
+    }
+
+    function retainResolvedPlacementAnchors(
+        pageNumber: number,
+        summary: IScanCleanupPlacementAnchorSummary,
+        anchors: IScanCleanupPreviewRequest['placementAnchors'] | undefined,
+    ) {
+        resolvedPlacementAnchorsByPage.delete(pageNumber);
+        resolvedPlacementAnchorsByPage.set(pageNumber, {
+            calibrationIdentity: placementAnchorCalibrationIdentity(summary),
+            anchors: anchors !== undefined && Object.keys(anchors).length > 0 ? anchors : undefined,
+        });
+        while (resolvedPlacementAnchorsByPage.size > PREVIEW_METADATA_PAGE_CACHE_LIMIT) {
+            const oldest = resolvedPlacementAnchorsByPage.keys().next().value;
+            if (oldest === undefined) {
+                break;
+            }
+            resolvedPlacementAnchorsByPage.delete(oldest);
         }
+    }
+
+    function placementAnchorsFor(pageNumber: number) {
         const summary = options.placementAnchorSummary?.value ?? null;
-        if (summary === null || !options.settings.matchPageSize) {
+        const resolved = summary === null
+            ? undefined
+            : resolvedPlacementAnchorsByPage.get(pageNumber);
+        if (
+            resolved !== undefined
+            && summary !== null
+            && resolved.calibrationIdentity === placementAnchorCalibrationIdentity(summary)
+        ) {
+            return resolved.anchors;
+        }
+        if (resolved !== undefined) {
+            resolvedPlacementAnchorsByPage.delete(pageNumber);
+        }
+        if (
+            summary === null
+            && options.resolvePlacementAnchorsForPage !== undefined
+            && usesScanCleanupInkAlignment(options.settings)
+        ) {
             return undefined;
         }
-        const pageOverride = getScanCleanupPageOverride(
-            options.settings.pageOverrides,
-            requirePageNumber(pageNumber),
-        );
-        const summaryAnchors = summary.samples
-            .filter(sample => sample.pageNumber === pageNumber && resolveScanCleanupOutputPlacement(
-                options.settings.pageAlignment,
-                pageOverride,
-                sample.half,
-            ) === 'ink')
-            .reduce<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>((resolved, sample) => {
-                resolved[sample.half] = sample.anchor;
-                return resolved;
-            }, {});
-        return Object.keys(summaryAnchors).length === 0 ? undefined : summaryAnchors;
+        if (summary !== null && options.settings.matchPageSize) {
+            const pageOverride = getScanCleanupPageOverride(
+                options.settings.pageOverrides,
+                requirePageNumber(pageNumber),
+            );
+            const summaryAnchors = summary.samples
+                .filter(sample => sample.pageNumber === pageNumber && resolveScanCleanupOutputPlacement(
+                    options.settings.pageAlignment,
+                    pageOverride,
+                    sample.half,
+                ) === 'ink')
+                .reduce<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>((resolved, sample) => {
+                    resolved[sample.half] = sample.anchor;
+                    return resolved;
+                }, {});
+            if (Object.keys(summaryAnchors).length > 0) {
+                return summaryAnchors;
+            }
+        }
+        const anchors = options.placementAnchorsByPage.value.get(pageNumber);
+        return anchors !== undefined && Object.keys(anchors).length > 0 ? anchors : undefined;
     }
 
     function presentationKey(key: string) {
@@ -503,6 +556,26 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         return resolveOutputModeRecommendation(pageNumber) === 'mixed'
             ? options.softAlphaForegroundRecommendationByPage.get(pageNumber)
             : undefined;
+    }
+
+    function requiresAuthoritativePlacement(previewOptions: IScanCleanupOptions, key: string) {
+        return options.resolvePlacementAnchorsForPage !== undefined
+            && usesScanCleanupInkAlignment(previewOptions)
+            && (
+                options.placementAnchorCalibrationPending?.value === true
+                || (
+                    options.placementAnchorSummary?.value !== null
+                    && options.placementAnchorSummary?.value !== undefined
+                    && !cache.has(key)
+                )
+            );
+    }
+
+    function placementCalibrationIsPending(previewOptions: IScanCleanupOptions) {
+        return options.resolvePlacementAnchorsForPage !== undefined
+            && options.placementAnchorSummary?.value === null
+            && options.placementAnchorCalibrationPending?.value === true
+            && usesScanCleanupInkAlignment(previewOptions);
     }
 
     function nextRequestId() {
@@ -610,24 +683,50 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cancel(false);
     }
 
-    function scheduleAdjacentPrefetch(
+    async function scheduleAdjacentPrefetch(
         previewResult: IScanCleanupPreviewResult,
         previewOptions: IScanCleanupOptions,
         previewSourcePath: TDocumentRef,
+        requestSequence = sequence,
     ) {
         const adjacentPages = [
             previewResult.pageNumber + 1,
             previewResult.pageNumber - 1,
         ]
             .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewResult.totalPages);
-        prefetcher.schedule(adjacentPages.map(pageNumber => {
+        const candidates = (await Promise.all(adjacentPages.map(async pageNumber => {
             const documentPrior = options.documentPriorByPage.get(pageNumber);
             const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
             const softAlphaForegroundRecommendation =
                 resolveSoftAlphaForegroundRecommendation(pageNumber);
             const pagePlanEvidence = options.pagePlanEvidenceByPage.get(pageNumber);
-            const placementAnchors = placementAnchorsFor(pageNumber);
-            const key = cacheKey(pageNumber, previewOptions, previewSourcePath);
+            let placementAnchors = placementAnchorsFor(pageNumber);
+            let key = cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchors);
+            if (options.resolvePlacementAnchorsForPage !== undefined && !cache.has(key)) {
+                try {
+                    const resolved = await options.resolvePlacementAnchorsForPage(pageNumber);
+                    if (resolved !== undefined) {
+                        const currentSummary = options.placementAnchorSummary?.value;
+                        if (
+                            currentSummary === null
+                            || currentSummary === undefined
+                            || placementAnchorCalibrationIdentity(resolved.summary)
+                                !== placementAnchorCalibrationIdentity(currentSummary)
+                        ) {
+                            return null;
+                        }
+                        retainResolvedPlacementAnchors(
+                            pageNumber,
+                            resolved.summary,
+                            resolved.placementAnchors,
+                        );
+                    }
+                } catch {
+                    return null;
+                }
+            }
+            placementAnchors = placementAnchorsFor(pageNumber);
+            key = cacheKey(pageNumber, previewOptions, previewSourcePath, placementAnchors);
             return {
                 key,
                 request: {
@@ -650,7 +749,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     layoutByPage: layoutByPage.value,
                 },
             };
-        }));
+        }))).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
+        if (requestSequence !== sequence) {
+            return;
+        }
+        prefetcher.schedule(candidates);
     }
 
     function schedule(immediate = false) {
@@ -677,7 +780,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const softAlphaForegroundRecommendation =
             resolveSoftAlphaForegroundRecommendation(requestPage);
         const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
-        const placementAnchors = placementAnchorsFor(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
         const requestId = nextRequestId();
         activeVisibleRequestId = requestId;
@@ -707,7 +809,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }
         // Look the page up before cancelling anything: a navigation that the
         // cache can answer has no reason to disturb work in flight at all.
-        const cached = cache.get(key);
+        const cached = requiresAuthoritativePlacement(requestOptions, key)
+            ? undefined
+            : cache.get(key);
         // Original must never keep painting the raw bytes from the page that
         // was just left while this page has no cached raster of its own.
         if (!cached && viewMode.value === 'original') rawResult.value = null;
@@ -732,6 +836,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 ])].filter(pageNumber => pageNumber >= 1 && pageNumber <= totalPages.value)}
                 : {}),
         }).catch(() => undefined);
+        if (placementCalibrationIsPending(requestOptions)) {
+            loading.value = true;
+            error.value = '';
+            errorCode.value = null;
+            return;
+        }
         if (cached) {
             resultKey.value = key;
             resultPresentationKey.value = presentationKey(key);
@@ -740,7 +850,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             loading.value = false;
             error.value = '';
             errorCode.value = null;
-            scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
+            void scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
             return;
         }
         loading.value = true;
@@ -749,6 +859,45 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const runPreview = async () => {
             timer = null;
             try {
+                const resolvedFromStore = options.resolvePlacementAnchorsForPage === undefined
+                    ? undefined
+                    : await options.resolvePlacementAnchorsForPage(requestPage);
+                if (resolvedFromStore !== undefined) {
+                    const currentSummary = options.placementAnchorSummary?.value;
+                    if (
+                        currentSummary === null
+                        || currentSummary === undefined
+                        || placementAnchorCalibrationIdentity(resolvedFromStore.summary)
+                            !== placementAnchorCalibrationIdentity(currentSummary)
+                    ) {
+                        return;
+                    }
+                    retainResolvedPlacementAnchors(
+                        requestPage,
+                        resolvedFromStore.summary,
+                        resolvedFromStore.placementAnchors,
+                    );
+                }
+                const resolvedPlacementAnchors = placementAnchorsFor(requestPage);
+                if (requestSequence !== sequence) {
+                    return;
+                }
+                const resolvedKey = cacheKey(
+                    requestPage,
+                    requestOptions,
+                    requestSourcePath,
+                    resolvedPlacementAnchors,
+                );
+                const resolvedCached = cache.get(resolvedKey);
+                if (resolvedCached) {
+                    resultKey.value = resolvedKey;
+                    resultPresentationKey.value = presentationKey(resolvedKey);
+                    result.value = resolvedCached;
+                    rawResult.value = resolvedCached;
+                    loading.value = false;
+                    void scheduleAdjacentPrefetch(resolvedCached, requestOptions, requestSourcePath, requestSequence);
+                    return;
+                }
                 // One request per page switch. Its raw raster arrives over
                 // `onPreviewRaw` a sidecar run ahead of the cleaned outputs and
                 // is displayed there; this promise settles with the cleaned
@@ -769,7 +918,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         ? {}
                         : {softAlphaForegroundRecommendation}),
                     ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
-                    ...(placementAnchors === undefined ? {} : {placementAnchors}),
+                    ...(resolvedPlacementAnchors === undefined ? {} : {placementAnchors: resolvedPlacementAnchors}),
                     layoutDetectionComplete: options.layoutDetectionComplete.value,
                     layoutByPage: layoutByPage.value,
                 })), requestId);
@@ -805,15 +954,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 // the options that produced this result, so a preview that
                 // outlived the navigation that asked for it is still exactly
                 // what the next visit to that page needs.
-                cachePreview(key, previewResult);
+                cachePreview(resolvedKey, previewResult);
                 if (requestSequence !== sequence) {
                     return;
                 }
                 retainPageMetadata(previewResult.pageNumber, previewResult.pageMetadata);
-                resultKey.value = key;
-                resultPresentationKey.value = presentationKey(key);
+                resultKey.value = resolvedKey;
+                resultPresentationKey.value = presentationKey(resolvedKey);
                 result.value = previewResult;
-                scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath);
+                void scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath, requestSequence);
             } catch (caught) {
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
                     return;
@@ -1083,6 +1232,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         streamedRawByRequest.clear();
         inFlightPreviewPages.clear();
         inFlightPreviewRequestIds.clear();
+        resolvedPlacementAnchorsByPage.clear();
         activeVisibleRequestId = null;
         result.value = null;
         rawResult.value = null;
@@ -1092,6 +1242,28 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailDiagnostic.value = null;
         displayedDetailSourceKey = null;
     });
+    watch(
+        () => {
+            const summary = options.placementAnchorSummary?.value;
+            return summary === null || summary === undefined
+                ? null
+                : placementAnchorCalibrationIdentity(summary);
+        },
+        identity => {
+            for (const [
+                pageNumber,
+                resolved,
+            ] of resolvedPlacementAnchorsByPage) {
+                if (resolved.calibrationIdentity !== identity) {
+                    resolvedPlacementAnchorsByPage.delete(pageNumber);
+                }
+            }
+        },
+    );
+    watch(
+        () => options.placementAnchorCalibrationPending?.value,
+        () => schedule(),
+    );
     watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
         stopRawStream?.();

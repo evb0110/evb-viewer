@@ -20,6 +20,7 @@ import {
     nextTick,
     reactive,
     ref,
+    shallowRef,
 } from 'vue';
 import type {
     IScanCleanupCapability,
@@ -28,6 +29,8 @@ import type {
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupRawPreviewEvent,
+    IScanCleanupPlacementAnchorCalibration,
+    IScanCleanupPlacementAnchorSummary,
     TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -87,6 +90,35 @@ function scanCleanupOptions(): IScanCleanupOptions {
         autoDewarp: false,
         skipBlankPages: false,
         pageOverrides: {},
+    };
+}
+
+function placementAnchorSummary(
+    detectionSignature: string,
+    anchorY: number,
+): IScanCleanupPlacementAnchorSummary {
+    return {
+        schemaVersion: 1,
+        sampleCount: 1,
+        referenceHeightPoints: 792,
+        toleranceNormalized: 0.014,
+        topEdgeNormalized: 0.1,
+        identity: {
+            documentRevision: 'revision-1',
+            detectionSignature,
+            calibrationSignature: 'calibration-1',
+        },
+        clusters: [{
+            startNormalized: 0.1,
+            endNormalized: 0.1,
+            valueNormalized: 0.1,
+        }],
+        samples: [{
+            pageNumber: requirePageNumber(100),
+            half: 'full',
+            yNormalized: 0.1,
+            anchor: {yNormalized: anchorY},
+        }],
     };
 }
 
@@ -320,9 +352,17 @@ function mountPreviewSession(
     documentPriorByPage: Map<number, IScanCleanupDocumentPrior>,
     initialViewMode?: 'original' | 'cleaned',
     lifecycleKey?: Ref<string>,
+    placementAnchorSummary?: Ref<IScanCleanupPlacementAnchorSummary | null>,
+    resolvePlacementAnchorsForPage?: (
+        pageNumber: number,
+    ) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>,
+    initialPageAlignment: IScanCleanupOptions['pageAlignment'] = 'top-center',
 ) {
     let session: ReturnType<typeof useScanCleanupPreviewSession> | null = null;
-    const settings = reactive(scanCleanupOptions());
+    const settings = reactive({
+        ...scanCleanupOptions(),
+        pageAlignment: initialPageAlignment,
+    });
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup() {
@@ -337,9 +377,11 @@ function mountPreviewSession(
             lifecycleDocumentKey: computed(() => requireDocumentRef(`/docs/${lifecycleKey?.value ?? 'reference.pdf'}`)),
             ownerId: 'owner-1',
             pagePlanEvidenceByPage: new Map(),
+            ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
             placementAnchorsByPage: computed(() => new Map()),
             previewPage,
             recommendedOutputModeByPage: new Map(),
+            ...(resolvePlacementAnchorsForPage === undefined ? {} : {resolvePlacementAnchorsForPage}),
             softAlphaForegroundRecommendationByPage: new Map(),
             selectPage: page => { previewPage.value = page; },
             settings,
@@ -684,6 +726,37 @@ describe('scan cleanup preview navigation', () => {
 
         expect(backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === 100)).toHaveLength(callsBefore + 1);
         expect(mounted.session.result.value?.pageNumber).toBe(100);
+        mounted.unmount();
+    });
+
+    it('rejects placement anchors returned for an older calibration identity', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const summary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(
+            placementAnchorSummary('detection-current', 0.2),
+        );
+        const oldCalibration = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
+        const resolvePlacementAnchorsForPage = vi.fn(async () => oldCalibration.promise);
+        const mounted = mountPreviewSession(
+            ref(100),
+            reactive(new Map()),
+            undefined,
+            undefined,
+            summary,
+            resolvePlacementAnchorsForPage,
+            'ink',
+        );
+        vi.advanceTimersByTime(0);
+        await vi.waitFor(() => expect(resolvePlacementAnchorsForPage).toHaveBeenCalledOnce());
+
+        summary.value!.identity.detectionSignature = 'detection-new';
+        oldCalibration.resolve({
+            summary: placementAnchorSummary('detection-current', 0.2),
+            placementAnchors: {full: {yNormalized: 0.2}},
+        });
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+
+        expect(backend.previewCalls).not.toHaveBeenCalled();
         mounted.unmount();
     });
 

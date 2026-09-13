@@ -79,6 +79,10 @@ import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/pla
 import {splitContiguousPageRuns} from '@evb/scan-cleanup/core/splitContiguousPageRuns';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {usesScanCleanupInkAlignment} from '@contracts/scanCleanupPageOverrides';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 
 export const DETECTION_DPI = 150;
 export const PREVIEW_DPI = DETECTION_DPI;
@@ -1750,6 +1754,11 @@ async function runBatchedScanCleanupDetection<TDocument>(
             options: request.options,
             resultStore,
             signal,
+            identity: {
+                documentRevision: request.documentRevision,
+                detectionSignature: createScanCleanupDetectionSignature(request.options),
+                calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(request.options),
+            },
         })
         : undefined;
     return {

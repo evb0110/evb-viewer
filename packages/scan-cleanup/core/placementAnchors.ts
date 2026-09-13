@@ -5,8 +5,10 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {
     IScanCleanupDetectionResult,
+    IScanCleanupPlacementAnchorCalibration,
     IScanCleanupPlacementAnchorSummary,
     IScanCleanupPlacementAnchorSummarySample,
+    IScanCleanupPlacementAnchorSummaryIdentity,
 } from '@contracts/scan-cleanup/ipc';
 import {
     getScanCleanupPageOverride,
@@ -84,6 +86,21 @@ export function resolveScanCleanupPlacementAnchorFromSummary(
     return resolveSummaryAnchor(summary, yNormalized);
 }
 
+export function resolveScanCleanupPlacementAnchorsFromResult(
+    summary: IScanCleanupPlacementAnchorSummary,
+    options: IScanCleanupOptions,
+    result: IScanCleanupDetectionResult,
+): IScanCleanupPlacementAnchorCalibration['placementAnchors'] {
+    const placementAnchors: IScanCleanupPlacementAnchorCalibration['placementAnchors'] = {};
+    for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+        const sample = resolveInkSample(result, options, half, summary.referenceHeightPoints);
+        if (sample !== undefined) {
+            placementAnchors[half] = resolveSummaryAnchor(summary, sample.yNormalized);
+        }
+    }
+    return placementAnchors;
+}
+
 /**
  * Build document-wide `ink` calibration without materializing the detection
  * store. The first pass finds the reference sheet height and sample count.
@@ -94,10 +111,12 @@ export async function buildScanCleanupPlacementAnchorSummary({
     options,
     resultStore,
     signal,
+    identity,
 }: {
     options: IScanCleanupOptions;
     resultStore: IScanCleanupDetectionResultStore;
     signal: AbortSignal;
+    identity: IScanCleanupPlacementAnchorSummaryIdentity;
 }): Promise<IScanCleanupPlacementAnchorSummary> {
     let referenceHeightPoints = 0;
     let sampleCount = 0;
@@ -172,6 +191,7 @@ export async function buildScanCleanupPlacementAnchorSummary({
         referenceHeightPoints,
         toleranceNormalized,
         topEdgeNormalized: resolution.topEdgeNormalized,
+        identity,
         clusters: resolution.clusters,
         samples: [],
     };
