@@ -244,6 +244,7 @@ function createProductionUtmTransport(
     const utmctl: IUtmctlClient = {
         ...rawUtmctl,
         start: async vmId => {
+            await inputCapture.snapshotBeforeStart();
             await rawUtmctl.start(vmId);
             await inputCapture.ensureReleased(vmId);
         },

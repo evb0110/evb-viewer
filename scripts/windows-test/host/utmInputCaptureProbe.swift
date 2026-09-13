@@ -20,6 +20,40 @@ struct ProbeResult: Codable {
     let action: String
 }
 
+struct WindowSnapshot: Codable {
+    let enumerationAvailable: Bool
+    let windowNumbers: [Int]
+    let windows: [[String: String]]
+    let utmPid: Int32
+    let frontmostPid: Int32
+}
+
+func snapshotWindows(for pid: pid_t) -> WindowSnapshot {
+    guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
+        return WindowSnapshot(enumerationAvailable: false, windowNumbers: [], windows: [], utmPid: Int32(pid), frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+    }
+    let windows = rawWindows.compactMap { window -> [String: String]? in
+        guard (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == Int(pid),
+              (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+              let number = (window[kCGWindowNumber as String] as? NSNumber)?.intValue
+        else { return nil }
+        let bounds = window[kCGWindowBounds as String] as? [String: Any]
+        return [
+            "number": String(number),
+            "width": String((bounds?["Width"] as? NSNumber)?.intValue ?? -1),
+            "height": String((bounds?["Height"] as? NSNumber)?.intValue ?? -1),
+            "owner": (window[kCGWindowOwnerName as String] as? String) ?? "",
+        ]
+    }
+    return WindowSnapshot(
+        enumerationAvailable: true,
+        windowNumbers: windows.compactMap { Int($0["number"] ?? "") },
+        windows: windows,
+        utmPid: Int32(pid),
+        frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1,
+    )
+}
+
 func targetWindowPresence(for pid: pid_t, title: String) -> Bool? {
     guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
         return nil
@@ -113,7 +147,7 @@ func hideApplication(_ pid: pid_t) -> Bool {
     ) == .success
 }
 
-func parseArguments() throws -> (title: String, action: String) {
+func parseArguments() throws -> (title: String?, action: String) {
     let arguments = CommandLine.arguments
     var title: String?
     var action = "status"
@@ -132,10 +166,15 @@ func parseArguments() throws -> (title: String, action: String) {
             action = "restore"
         case "--status":
             action = "status"
+        case "--snapshot":
+            action = "snapshot"
         default:
             throw ProbeError.invalidArguments("unknown argument")
         }
         index += 1
+    }
+    if action == "snapshot" {
+        return (title, action)
     }
     guard let title, !title.isEmpty else {
         throw ProbeError.invalidArguments("missing window title")
@@ -150,14 +189,23 @@ guard applications.count == 1, let application = applications.first else {
 }
 
 let pid = application.processIdentifier
+if arguments.action == "snapshot" {
+    let encoded = try JSONEncoder().encode(snapshotWindows(for: pid))
+    FileHandle.standardOutput.write(encoded)
+    FileHandle.standardOutput.write(Data([10]))
+    exit(EXIT_SUCCESS)
+}
 let axApplication = AXUIElementCreateApplication(pid)
-guard let targetPresence = targetWindowPresence(for: pid, title: arguments.title) else {
+guard let title = arguments.title else {
+    throw ProbeError.invalidArguments("missing window title")
+}
+guard let targetPresence = targetWindowPresence(for: pid, title: title) else {
     throw ProbeError.targetWindowUnavailable("UTM window enumeration was unavailable")
 }
 if !targetPresence {
     let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
     let output = ProbeResult(
-        windowTitle: arguments.title,
+        windowTitle: title,
         windowAvailable: false,
         before: 0,
         after: 0,
@@ -170,11 +218,11 @@ if !targetPresence {
     FileHandle.standardOutput.write(Data([10]))
     exit(EXIT_SUCCESS)
 }
-guard let window = findWindow(axApplication, title: arguments.title) else {
-    throw ProbeError.targetWindowUnavailable(arguments.title)
+guard let window = findWindow(axApplication, title: title) else {
+    throw ProbeError.targetWindowUnavailable(title)
 }
 guard let control = findCaptureControl(window), let before = checkboxValue(control) else {
-    throw ProbeError.captureControlUnavailable(arguments.title)
+    throw ProbeError.captureControlUnavailable(title)
 }
 
 if (arguments.action == "release" || arguments.action == "restore") && before != 0 {
@@ -203,7 +251,7 @@ if arguments.action == "release" || arguments.action == "restore" {
     }
 }
 let output = ProbeResult(
-    windowTitle: arguments.title,
+    windowTitle: title,
     windowAvailable: true,
     before: before,
     after: after,

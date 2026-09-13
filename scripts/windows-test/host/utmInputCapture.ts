@@ -1,6 +1,7 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {randomUUID} from 'node:crypto';
 import {
+    access,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -25,9 +26,20 @@ export interface IUtmInputCaptureProbeResult {
     frontmostPid: number;
     utmPid: number;
     action: 'status' | 'release' | 'restore';
+    windowNumbersBefore?: number[];
+    windowNumbersAfter?: number[];
+}
+
+export interface IUtmInputCaptureWindowSnapshot {
+    enumerationAvailable: boolean;
+    windowNumbers: number[];
+    windows: Array<Record<string, string>>;
+    utmPid: number;
+    frontmostPid: number;
 }
 
 export interface IUtmInputCaptureGuard {
+    snapshotBeforeStart(): Promise<IUtmInputCaptureWindowSnapshot>;
     ensureReleased(vmId: string): Promise<IUtmInputCaptureProbeResult>;
     status(vmId: string): Promise<IUtmInputCaptureProbeResult>;
     restoreHostInput(): Promise<void>;
@@ -73,6 +85,36 @@ function parseProbeResult(text: string): IUtmInputCaptureProbeResult {
     };
 }
 
+function parseWindowSnapshot(text: string): IUtmInputCaptureWindowSnapshot {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text.trim());
+    } catch (error) {
+        throw new Error(`The UTM input-capture window snapshot returned invalid JSON: ${getErrorMessage(error)}.`);
+    }
+    if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error('The UTM input-capture window snapshot returned a non-object result.');
+    }
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.enumerationAvailable !== 'boolean'
+        || typeof record.utmPid !== 'number'
+        || typeof record.frontmostPid !== 'number') {
+        throw new Error('The UTM input-capture window snapshot returned a malformed result.');
+    }
+    const windowNumbers = Array.isArray(record.windowNumbers)
+        ? record.windowNumbers.filter((value): value is number => typeof value === 'number')
+        : [];
+    return {
+        enumerationAvailable: record.enumerationAvailable,
+        windowNumbers,
+        windows: Array.isArray(record.windows)
+            ? record.windows as Array<Record<string, string>>
+            : [],
+        utmPid: record.utmPid,
+        frontmostPid: record.frontmostPid,
+    };
+}
+
 function targetWindowName(entries: Awaited<ReturnType<IUtmctlClient['list']>>, vmId: string, deniedVmIds: Set<string>) {
     const normalizedVmId = vmId.toLowerCase();
     if (deniedVmIds.has(normalizedVmId)) {
@@ -95,7 +137,9 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
     let ownsProbeExecutable = false;
     let compilePromise: Promise<string> | null = null;
     let activeWindowTitle: string | null = null;
+    let activeWindowAvailable = false;
     let activeRunId: string | null = null;
+    let beforeStartSnapshot: IUtmInputCaptureWindowSnapshot | null = null;
 
     const ensureProbeExecutable = async () => {
         if (probeExecutable !== null) {
@@ -137,6 +181,21 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         return parseProbeResult(result.stdout);
     };
 
+    const runWindowSnapshot = async () => {
+        const executable = await ensureProbeExecutable();
+        const result = await options.runner.run(executable, ['--snapshot'], {timeoutMs: 15_000});
+        if (result.exitCode !== 0 || result.timedOut) {
+            throw new Error(`The UTM input-capture window snapshot failed: ${result.stderr.trim() || result.stdout.trim() || 'probe failed'}.`);
+        }
+        return parseWindowSnapshot(result.stdout);
+    };
+
+    const snapshotBeforeStart = async () => {
+        const snapshot = await runWindowSnapshot();
+        beforeStartSnapshot = snapshot;
+        return snapshot;
+    };
+
     const resolveWindowTitle = async (vmId: string) => targetWindowName(
         await options.utmctl.list(),
         vmId,
@@ -147,8 +206,12 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         if (options.layout === undefined || activeRunId === null) {
             return;
         }
+        const runDirectory = path.join(options.layout.runsDir, activeRunId);
+        if (await access(runDirectory).then(() => true, () => false) === false) {
+            return;
+        }
         await writeFile(
-            path.join(options.layout.runsDir, activeRunId, `input-capture-${phase}.json`),
+            path.join(runDirectory, `input-capture-${phase}.json`),
             `${JSON.stringify({
                 schemaVersion: 1,
                 phase,
@@ -159,6 +222,8 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
                 frontmostPid: result.frontmostPid,
                 utmPid: result.utmPid,
                 action: result.action,
+                windowNumbersBefore: result.windowNumbersBefore,
+                windowNumbersAfter: result.windowNumbersAfter,
                 hostInputAvailable: result.after === 0 && result.frontmostPid !== result.utmPid,
             }, null, 4)}\n`,
             'utf8',
@@ -170,17 +235,29 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         activeWindowTitle = windowTitle;
         const runIdMatch = RUN_ID_PATTERN.exec(windowTitle);
         activeRunId = runIdMatch?.[1] ?? null;
-        const result = await runProbe(windowTitle, 'release');
-        if (!result.windowAvailable) {
-            await record('launch', result);
-            return result;
+        const before = beforeStartSnapshot ?? await snapshotBeforeStart();
+        const after = await runWindowSnapshot();
+        beforeStartSnapshot = null;
+        if (!before.enumerationAvailable || !after.enumerationAvailable) {
+            throw new Error('UTM window enumeration was unavailable; refusing to claim host input was released.');
         }
-        if (result.after !== 0) {
-            throw new Error(`UTM Capture Input remained enabled for ${windowTitle} after the Command+Option release chord.`);
+        const beforeNumbers = new Set(before.windowNumbers);
+        const newWindows = after.windowNumbers.filter(number => !beforeNumbers.has(number));
+        if (newWindows.length > 0) {
+            throw new Error('A new on-screen UTM window appeared, but Capture Input cannot be verified without Screen Recording or Accessibility permission.');
         }
-        if (result.frontmostPid === result.utmPid) {
-            throw new Error(`UTM remained focused for ${windowTitle} after the Capture Input check.`);
-        }
+        activeWindowAvailable = false;
+        const result: IUtmInputCaptureProbeResult = {
+            windowTitle,
+            windowAvailable: false,
+            before: 0,
+            after: 0,
+            frontmostPid: after.frontmostPid,
+            utmPid: after.utmPid,
+            action: 'release',
+            windowNumbersBefore: before.windowNumbers,
+            windowNumbersAfter: after.windowNumbers,
+        };
         await record('launch', result);
         return result;
     };
@@ -192,6 +269,12 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
 
     const restoreHostInput = async () => {
         if (activeWindowTitle === null) {
+            return;
+        }
+        if (!activeWindowAvailable) {
+            activeWindowTitle = null;
+            activeRunId = null;
+            beforeStartSnapshot = null;
             return;
         }
         try {
@@ -220,11 +303,14 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
             ownsProbeExecutable = false;
             compilePromise = null;
             activeWindowTitle = null;
+            activeWindowAvailable = false;
             activeRunId = null;
+            beforeStartSnapshot = null;
         }
     };
 
     return {
+        snapshotBeforeStart,
         ensureReleased,
         status,
         restoreHostInput,

@@ -78,45 +78,22 @@ function fakeRunner(results: Array<Record<string, unknown>>): {
     };
 }
 
-function probeResult(action: 'release' | 'restore', after = 0, windowTitle = CLONE_NAME) {
+function windowSnapshot(windowNumbers: number[], enumerationAvailable = true) {
     return {
-        windowTitle,
-        windowAvailable: true,
-        before: action === 'release' && after === 0 ? 1 : after,
-        after,
+        enumerationAvailable,
+        windowNumbers,
+        windows: [],
+        utmPid: 202,
         frontmostPid: 101,
-        utmPid: 202,
-        action,
-    };
-}
-
-function noWindowProbeResult(action: 'release' | 'restore', windowTitle = CLONE_NAME) {
-    return {
-        windowTitle,
-        windowAvailable: false,
-        before: 0,
-        after: 0,
-        frontmostPid: 101,
-        utmPid: 202,
-        action,
-    };
-}
-
-function focusedProbeResult(action: 'release' | 'restore', windowTitle = CLONE_NAME) {
-    return {
-        windowTitle,
-        windowAvailable: true,
-        before: 0,
-        after: 0,
-        frontmostPid: 202,
-        utmPid: 202,
-        action,
     };
 }
 
 describe('UTM input-capture guard', () => {
     it('accepts a verified absence of an on-screen UTM window', async () => {
-        const fake = fakeRunner([noWindowProbeResult('release')]);
+        const fake = fakeRunner([
+            windowSnapshot([10]),
+            windowSnapshot([10]),
+        ]);
         const guard = createUtmInputCaptureGuard({
             runner: fake.runner,
             utmctl: fakeUtmctl(),
@@ -128,14 +105,45 @@ describe('UTM input-capture guard', () => {
             after: 0,
         });
     });
-    it('releases capture with the supported chord and records launch and cleanup evidence', async () => {
+    it('fails closed when window enumeration is unavailable', async () => {
+        const fake = fakeRunner([
+            windowSnapshot([], false),
+            windowSnapshot([], false),
+        ]);
+        const guard = createUtmInputCaptureGuard({
+            runner: fake.runner,
+            utmctl: fakeUtmctl(),
+            probeExecutablePath: '/tmp/utm-input-capture-probe',
+        });
+
+        await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/enumeration was unavailable/u);
+    });
+
+    it('fails closed when a new on-screen UTM window appears', async () => {
+        const fake = fakeRunner([
+            windowSnapshot([10]),
+            windowSnapshot([
+                10,
+                11,
+            ]),
+        ]);
+        const guard = createUtmInputCaptureGuard({
+            runner: fake.runner,
+            utmctl: fakeUtmctl(),
+            probeExecutablePath: '/tmp/utm-input-capture-probe',
+        });
+
+        await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/Screen Recording or Accessibility/u);
+    });
+
+    it('records launch evidence for a stable UTM window set', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-utm-input-capture-'));
         roots.push(root);
         const layout = windowsTestHostLayout(root);
         await mkdir(path.join(layout.runsDir, '20260905T120000Z-0123456789ab'), {recursive: true});
         const fake = fakeRunner([
-            probeResult('release'),
-            probeResult('restore'),
+            windowSnapshot([10]),
+            windowSnapshot([10]),
         ]);
         const guard = createUtmInputCaptureGuard({
             runner: fake.runner,
@@ -145,20 +153,10 @@ describe('UTM input-capture guard', () => {
         });
 
         const launch = await guard.ensureReleased(GOLDEN_VM_ID);
-        await guard.restoreHostInput();
-
         expect(launch.after).toBe(0);
         expect(fake.calls).toEqual([
-            [
-                '--window-title',
-                CLONE_NAME,
-                '--release',
-            ],
-            [
-                '--window-title',
-                CLONE_NAME,
-                '--restore',
-            ],
+            ['--snapshot'],
+            ['--snapshot'],
         ]);
         expect(JSON.parse(await readFile(
             path.join(layout.runsDir, '20260905T120000Z-0123456789ab', 'input-capture-launch.json'),
@@ -169,31 +167,9 @@ describe('UTM input-capture guard', () => {
             hostInputAvailable: true,
         });
         expect(JSON.parse(await readFile(
-            path.join(layout.runsDir, '20260905T120000Z-0123456789ab', 'input-capture-cleanup.json'),
+            path.join(layout.runsDir, '20260905T120000Z-0123456789ab', 'input-capture-launch.json'),
             'utf8',
-        )).phase).toBe('cleanup');
-    });
-
-    it('fails closed when the release chord leaves capture enabled', async () => {
-        const fake = fakeRunner([probeResult('release', 1)]);
-        const guard = createUtmInputCaptureGuard({
-            runner: fake.runner,
-            utmctl: fakeUtmctl(),
-            probeExecutablePath: '/tmp/utm-input-capture-probe',
-        });
-
-        await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/remained enabled/u);
-    });
-
-    it('fails closed when UTM remains focused after the launch check', async () => {
-        const fake = fakeRunner([focusedProbeResult('release')]);
-        const guard = createUtmInputCaptureGuard({
-            runner: fake.runner,
-            utmctl: fakeUtmctl(),
-            probeExecutablePath: '/tmp/utm-input-capture-probe',
-        });
-
-        await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/remained focused/u);
+        )).windowNumbersBefore).toEqual([10]);
     });
 
     it('records an off state across repeated disposable cold-reset lifecycles', async () => {
@@ -204,10 +180,10 @@ describe('UTM input-capture guard', () => {
         await mkdir(path.join(layout.runsDir, '20260905T120000Z-0123456789ab'), {recursive: true});
         await mkdir(path.join(layout.runsDir, '20260905T120001Z-abcdef012345'), {recursive: true});
         const fake = fakeRunner([
-            probeResult('release'),
-            probeResult('restore'),
-            probeResult('release', 0, secondCloneName),
-            probeResult('restore', 0, secondCloneName),
+            windowSnapshot([10]),
+            windowSnapshot([10]),
+            windowSnapshot([20]),
+            windowSnapshot([20]),
         ]);
         const guard = createUtmInputCaptureGuard({
             runner: fake.runner,
@@ -217,7 +193,6 @@ describe('UTM input-capture guard', () => {
         });
 
         const first = await guard.ensureReleased(GOLDEN_VM_ID);
-        await guard.restoreHostInput();
         const secondGuard = createUtmInputCaptureGuard({
             runner: fake.runner,
             utmctl: fakeUtmctl(secondCloneName),
@@ -225,16 +200,11 @@ describe('UTM input-capture guard', () => {
             probeExecutablePath: '/tmp/utm-input-capture-probe',
         });
         const second = await secondGuard.ensureReleased(GOLDEN_VM_ID);
-        await secondGuard.restoreHostInput();
 
         expect(first.after).toBe(0);
         expect(second.after).toBe(0);
         expect(JSON.parse(await readFile(
             path.join(layout.runsDir, '20260905T120000Z-0123456789ab', 'input-capture-launch.json'),
-            'utf8',
-        )).hostInputAvailable).toBe(true);
-        expect(JSON.parse(await readFile(
-            path.join(layout.runsDir, '20260905T120001Z-abcdef012345', 'input-capture-cleanup.json'),
             'utf8',
         )).hostInputAvailable).toBe(true);
     });
