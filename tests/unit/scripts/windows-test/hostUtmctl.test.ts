@@ -237,7 +237,6 @@ describe('utmctl client commands', () => {
         }
         expect(calls.find(call => call.args[0] === 'start')?.args).toEqual([
             'start',
-            '--hide',
             vmId.toUpperCase(),
         ]);
     });

@@ -60,10 +60,10 @@ export const defaultUtmctlCommandSpelling = {
     version: ['version'],
     list: ['list'],
     status: ['status'],
-    start: [
-        'start',
-        '--hide',
-    ],
+    // Runner-created clones add QEMU `-display none` in createTestClone. The
+    // UTM `--hide` flag is a ScriptingBridge window-close operation, not a
+    // headless start, and requires an extra Automation privilege.
+    start: ['start'],
     stopRequest: [
         'stop',
         '--request',

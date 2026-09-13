@@ -710,6 +710,16 @@ export async function executeWindowsTestRun(
             // the shared staging root.
             await guest.ensureDirectory(
                 clonedVmId,
+                windowsTestGuestLayout.inboxDir,
+                deadlines.commandTimeoutMs,
+            );
+            await guest.ensureDirectory(
+                clonedVmId,
+                windowsTestGuestLayout.outboxDir,
+                deadlines.commandTimeoutMs,
+            );
+            await guest.ensureDirectory(
+                clonedVmId,
                 `${guestPaths.stagingDir}\\fixtures`,
                 deadlines.commandTimeoutMs,
             );
