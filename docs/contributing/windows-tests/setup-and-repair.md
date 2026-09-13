@@ -307,137 +307,47 @@ it, delete it through the owned target path, confirm no test clone remains, and
 check free space with df. Confirm the original Windows VM is stopped and was
 not modified.
 
-#### Live qualification gap recorded 2026-09-13
+## Decision path
 
-The recovery command was run against one owned clone. UTM accepted scan-code
-and keystroke events addressed by exact clone identity. Guest evidence reported
-guestAgentAvailable=true and workerReady=false. The clone therefore had QEMU
-guest-agent transport, but its interactive worker did not publish a heartbeat.
-The Windows build was 26200 and the architecture was ARM64. The guest-side
-`startup-validation.json` identified the cause: the scheduled task had an
-administrator token, which the worker rejects. The recovery helper was added
-to create or repair a standard account, but the live attempt then rebooted into
-a state where the agent stopped responding before a fresh logon could be
-verified. The WIN-SAVE measurements were not run.
+1. Run `pnpm windows:test:prepare`. Pass when the standalone `utmctl` copy and
+   metadata verify. If it fails, repair preparation and stop before polling.
+2. Resolve the clone from the structured local session identity. Pass when its
+   bundle UUID and name match exactly one registered test VM. If identity or
+   registration is ambiguous, stop without sending UTM commands.
+3. Run the read-only screen and input-capture check before native input. Pass
+   when the UTM window is identified and `Capture Input` is off. If screen
+   capture fails, record the exact host permission error, request Screen
+   Recording, and continue only with guest-agent evidence. Never infer guest
+   login from a native input call returning successfully.
+4. Boot or observe the owned clone, then pull the lab marker and boot token
+   with the prepared standalone `utmctl`. Pass when the QEMU guest agent
+   answers and the marker is non-empty. If the pull fails or is empty, inspect
+   the guest-agent service through the supported evidence path before retrying.
+5. Pull the heartbeat and boot token again. Pass only when the shared fresh
+   interactive heartbeat check finds the current boot ID, matching lab marker,
+   nonzero interactive session, Default desktop, and unlocked state, with a
+   timestamp after this run. If it fails, pull bootstrap records, task output,
+   worker stderr, and extraction evidence. Do not change logon settings until
+   those records identify the first failed step.
+6. Stage bootstrap files with verified push and host readback, or use the
+   configured input media batch. Pass when every expected hash matches in the
+   guest. If a hash differs, stop the run and preserve the evidence.
+7. After fresh worker readiness, run the requested WIN-SAVE matrix. If the
+   minimal `cmd.exe` guest-exec probe does not complete, record that as the
+   first failing operation and leave the matrix unqualified.
 
-Screen Recording was unavailable on the coordinator. Both per-window and
-full-display capture failed, so there is no screenshot proof for the input
-steps. Treat this as an open host-permission gap. Screen Recording is not
-needed for the guest-agent path. The clone was stopped and
-deleted after the attempt, free space was rechecked, and the original Windows
-VM remained stopped. This result qualifies the native input transport only; it
-does not qualify the worker, candidate app, cold reset, or any Windows save
-case.
+## Observed qualification status
 
-#### Second live qualification gap recorded 2026-09-13
+The prepared standalone `utmctl` path and the retained clone identity checks
+work. The clone is registered and running. Guest file pulls complete, but the
+returned state files are zero bytes. The first failing live operation is a
+minimal `cmd.exe` guest-exec probe that does not complete. No fresh worker
+heartbeat or WIN-SAVE measurement exists.
 
-A fresh clone reached file-pull evidence for the guest marker, but the bounded
-guest `exec` probe timed out before service metadata or System event IDs could
-be read. The QEMU guest-agent service repair helper was therefore not live
-qualified on this clone. The clone was stopped and deleted, free space was
-rechecked, and the original Windows VM remained stopped.
-
-#### Third live qualification gap recorded 2026-09-13
-
-On a retained clone, the new plan steps successfully pushed the service script,
-sent native input, and pulled the result file. The result file was empty, so
-the input sequence did not reach an elevated PowerShell prompt. Repeating the
-Win+R and elevation scan-code sequence still produced no guest result. This
-qualifies the pushed-script transport and evidence pull only. It does not
-qualify service repair, worker startup, or any save case.
-
-#### Fourth live qualification gap recorded 2026-09-13
-
-One clone was kept alive while four input hypotheses were tested in order.
-Wake/Enter followed by the ordinary Windows-key shortcut produced no marker.
-An extended Windows-key scan-code sequence also produced no marker. A trivial
-`cmd.exe` echo command produced no marker, ruling out a successful command with
-only a keyboard-layout error. Repeating the trivial command after a mouse click
-inside the display produced no marker. Each native input call returned success,
-but every guest-created marker remained absent. The clone was stopped and
-deleted only after these checks. The worker heartbeat and WIN-SAVE measurements
-remain unqualified.
-
-#### SYSTEM startup recovery
-
-When the guest agent is absent after a reboot, stage the worker archive, its
-map, the account secret, `system-bootstrap-worker.cmd`, `start-worker.cmd`,
-`install-system-bootstrap.cmd`, and `machine-startup-scripts.ini` with
-`pnpm windows:test:provision --plan /absolute/path/to/.devkit/plan.json`.
-The plan must name the exact owned clone and include the before-boot UTM
-inventory. Set `timeoutMs` in the local plan to at least `60000` when the
-Node archive is being staged.
-
-The all-users Startup installer creates the Group Policy Machine Startup
-directory when a copied image lacks it. It registers the real bootstrap as a
-SYSTEM startup task and runs that task. The SYSTEM script writes
-`state/system-bootstrap.marker`, recording the exit code of account creation,
-group membership, Winlogon settings, lock policy, launcher copy, task
-registration, Node extraction, worker copies, and marker creation. It never
-writes the password to evidence. The standard-user task invokes
-`start-worker.cmd`, which writes `state/task-marker.json` and then starts the
-worker. A marker proves only that its stage ran. `state/heartbeat.json` is
-still required for worker readiness.
-
-The SYSTEM script also sets `DevicePasswordLessBuildVersion` to `0`, disables
-the OOBE privacy page and first-logon animation, and removes any
-`AutoLogonCount` limit. It records each registry exit code. On every later
-SYSTEM pass it runs `query user` into `state/system-session.log` and copies
-the same launcher into the standard user's profile Startup directory. The
-profile launcher is the fallback when Windows has an interactive session but
-does not fire the stored-credential on-logon task.
-
-After each reboot, use the bounded file-pull readiness check. If the agent is
-not available, native UTM scan-code input may wake and sign in to the clone;
-do not call the input event a success. Pull the SYSTEM marker, task marker,
-worker-launch marker, and heartbeat. Empty files and stale files copied from
-the source image are failures. Keep the clone for another repair iteration
-when the SYSTEM marker identifies a fixable command error. If the agent does
-not return after the bounded recovery and native-input attempts, record the
-guest error and leave the WIN-SAVE cases unqualified.
-
-#### Sixth live qualification gap recorded 2026-09-13
-
-The SYSTEM startup route was run on one retained clone. The first SYSTEM
-marker was non-empty and recorded successful account creation, Winlogon
-AutoAdminLogon, default credentials and domain, lock-workstation policy,
-worker launcher copy, and on-logon task creation. The source image did not
-contain the Group Policy Startup directory, so the reusable Startup installer
-created it and registered the SYSTEM task.
-
-After reboot, the guest agent stopped responding. Native focus, wake,
-secure-attention, credential, and scan-code Windows-key recovery attempts were
-made on the same clone. A later bounded pull restored the agent, but the task
-marker was a stale NUL-filled file from the source image, not a fresh task
-result. The repaired `cmd.exe /c` task action and a second reboot produced no
-fresh installer marker, worker-launch marker, or heartbeat. The final native
-input retry also produced no fresh marker. Therefore the worker never became
-ready and no WIN-SAVE measurement was run. Screen Recording was not used;
-window inspection was separately blocked by missing macOS Accessibility
-consent.
-
-#### Seventh live qualification gap recorded 2026-09-13
-
-The Windows 11 autologon fix was staged on a fresh owned clone. The clone
-never produced an installer marker or a SYSTEM marker. Bounded pulls after
-reboot and after native focus, wake, secure-attention, and credential recovery
-continued to report that the QEMU guest agent was not running. Consequently
-there is no guest evidence that the passwordless-device, OOBE, first-logon,
-or AutoLogonCount settings were applied, and no `query user` result exists.
-The worker heartbeat and WIN-SAVE measurements remain unqualified. This is a
-missing-agent plus unreachable-logon blocker, not evidence that the revised
-registry settings failed.
-
-#### Fifth live qualification gap recorded 2026-09-13
-
-The no-input autostart payload was pushed into the user Startup and Group
-Policy Machine Startup locations. After reboot, the machine-startup route
-produced a non-empty marker once, proving that route can run without a user
-session. It did not produce a heartbeat because it runs as SYSTEM and the
-worker requires an interactive standard account. A clone-only standard-account
-and autologon bootstrap was then pushed and rebooted, but it produced no
-non-empty marker or heartbeat. The profile-hive pull also returned no usable
-file evidence. WIN-SAVE measurements remain unqualified.
+Screen capture is denied on this host with `could not create image from
+display`. Record that host limitation and continue with guest-agent evidence;
+it does not prove anything about guest login. Native input calls and absent
+markers are not readiness evidence.
 
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.

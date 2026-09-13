@@ -5,8 +5,9 @@ import { createUtmctlGuestChannel } from '@scripts/windows-test/host/guestChanne
 import { loadWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
 import { createNativeInputProvisioner } from '@scripts/windows-test/host/nativeInputProvisioning';
 import {
-    createProcessCommandRunner, createUtmctlClient, resolveDefaultUtmctlPath,
+    createProcessCommandRunner, createUtmctlClient,
 } from '@scripts/windows-test/host/utmctlClient';
+import { resolvePreparedStandaloneUtmctl } from '@scripts/windows-test/host/standaloneUtmctl';
 import {
     destructivePolicyFromConfig,
     selectClonedVmId,
@@ -56,7 +57,7 @@ export async function runWindowsTestProvisionCli(argv: readonly string[]) {
         const runner = createProcessCommandRunner();
         const utmctl = createUtmctlClient({
             runner,
-            utmctlPath: resolveDefaultUtmctlPath({ dataRoot: layout.root }),
+            utmctlPath: await resolvePreparedStandaloneUtmctl({layout}),
             dataRoot: layout.root,
             temporaryFilePath: label => `${layout.root}/.devkit-${label}`,
         });

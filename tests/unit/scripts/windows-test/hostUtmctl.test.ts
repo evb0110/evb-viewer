@@ -204,11 +204,11 @@ describe('utmctl client commands', () => {
         expect(calls[0]?.command).toBe(preparedPath);
     });
 
-    it('keeps the bundled executable as the pre-preparation fallback', () => {
-        expect(resolveDefaultUtmctlPath({
+    it('refuses to resolve before standalone preparation', () => {
+        expect(() => resolveDefaultUtmctlPath({
             dataRoot: '/tmp/evb-windows-tests',
             fileExists: () => false,
-        })).toBe(DEFAULT_UTMCTL_PATH);
+        })).toThrow('verified standalone utmctl copy is unavailable');
     });
 
     it('uses the uppercase UUID expected by UTM for every VM operation', async () => {
@@ -574,6 +574,17 @@ describe('utmctl client commands', () => {
         expect(error).toBeInstanceOf(UtmctlTransportError);
         expect((error as UtmctlTransportError).kind).toBe('transport-failed');
         expect((error as UtmctlTransportError).message).toContain('guest file was not found');
+    });
+
+    it('rejects a zero-exit file pull when UTM reports a guest file lock on stderr', async () => {
+        const {runner} = fakeRunner([result({stderr: 'Error from event: failed to open file: process cannot access the file because it is being used by another process.'})]);
+        const client = createUtmctlClient({runner});
+
+        await expect(client.pullFile(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\state\\locked.txt',
+            '/tmp/locked-result.json',
+        )).rejects.toMatchObject({kind: 'transport-failed'});
     });
 
     it('creates run-scoped guest directories with the path supplied as stdin data', async () => {
