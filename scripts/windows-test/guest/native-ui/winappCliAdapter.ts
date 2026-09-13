@@ -426,7 +426,10 @@ function assertCommandSucceeded(result: IGuestCommandResult, description: string
         + ' failed with exit '
         + result.exitCode
         + ': '
-        + message.trim().slice(0, 300),
+        + JSON.stringify({
+            stdout: result.stdout,
+            stderr: result.stderr,
+        }),
     );
 }
 

@@ -711,7 +711,7 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls.some(call => call.startsWith(`clone ${GOLDEN_VM_ID}`))).toBe(false);
     });
 
-    it('does not reclaim an unbound stale lease once its run directory exists', async () => {
+    it('releases an unbound stale lease without touching a VM', async () => {
         const oldRunId = '20260903T090000Z-abcdefabcdef';
         const harness = await createHarness();
         await mkdir(windowsTestRunLayout(harness.layout.runsDir, oldRunId).runDir, {recursive: true});
@@ -728,9 +728,10 @@ describe('windows test run coordinator', () => {
 
         const report = await harness.run();
 
-        expect(report.outcome).toBe('infrastructure-failed');
-        expect(await exists(harness.layout.leaseFile)).toBe(true);
-        expect(harness.utmctl.calls).toEqual([]);
+        expect(report.outcome).toBe('passed');
+        expect(await exists(harness.layout.leaseFile)).toBe(false);
+        expect(harness.utmctl.calls).toContain(`clone ${GOLDEN_VM_ID} evb-win-test-${RUN_ID}`);
+        expect(harness.utmctl.calls).not.toContain(`delete ${GOLDEN_VM_ID}`);
     });
 
     it('exits 5 and tells the guest to stop when a cancel request appears', async () => {

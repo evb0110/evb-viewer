@@ -448,7 +448,7 @@ export async function executeWindowsTestRunOnHost(
                     ...input,
                     repositoryRoot,
                 }),
-                cloneVm: async cloneName => {
+                cloneVm: async (cloneName, cloneOptions) => {
                     if (!cloneName.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)) {
                         throw new Error(`The disposable clone name ${cloneName} does not use the expected prefix.`);
                     }
@@ -477,6 +477,7 @@ export async function executeWindowsTestRunOnHost(
                         inputMediaPath: inputMedia.isoPath,
                         runner,
                         utmctl,
+                        headless: cloneOptions.headless,
                     });
                 },
                 lock: {

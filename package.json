@@ -106,6 +106,7 @@
     "stress": "pnpm run build:electron && pnpm exec tsx scripts/stress/runStress.ts",
     "stress:fixtures": "pnpm exec tsx scripts/stress/runStress.ts --fixtures-only",
     "stress:replay": "pnpm run build:electron && pnpm exec tsx scripts/stress/replayStress.ts",
+    "diag:save-witness-matrix": "pnpm exec tsx scripts/save-witness/runSaveWitnessMatrix.ts",
     "benchmark:save-pipeline": "node scripts/benchmark-save-pipeline.mjs",
     "dist": "node scripts/check-dev-environment.mjs --strict && pnpm run build:desktop && electron-builder",
     "release:verify:checks": "node scripts/release/verify-local-checks.mjs",

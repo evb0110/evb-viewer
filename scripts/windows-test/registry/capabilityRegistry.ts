@@ -80,6 +80,7 @@ export interface IWindowsCapabilityCase {
     owner: string;
     quarantine: IWindowsCapabilityQuarantine | null;
     note?: string;
+    hostDisplayRequired?: boolean;
 }
 
 export interface IWindowsCapabilityRegistry {
@@ -91,6 +92,7 @@ export interface IWindowsCapabilityRegistry {
 export interface IWindowsSuiteResolution {
     tests: string[];
     uncoveredObligations: string[];
+    hostDisplayRequired: boolean;
 }
 
 export interface IWindowsCoverageBucket {
@@ -154,7 +156,8 @@ export function isWindowsCapabilityCase(value: unknown): value is IWindowsCapabi
         && typeof value.negativeControl === 'string'
         && typeof value.owner === 'string'
         && (value.quarantine === null || isQuarantine(value.quarantine))
-        && (value.note === undefined || typeof value.note === 'string');
+        && (value.note === undefined || typeof value.note === 'string')
+        && (value.hostDisplayRequired === undefined || typeof value.hostDisplayRequired === 'boolean');
 }
 
 export function isWindowsCapabilityRegistry(value: unknown): value is IWindowsCapabilityRegistry {
@@ -221,10 +224,10 @@ export function resolveSuite(
     suite: TWindowsTestSuite,
     environmentId: string,
 ): IWindowsSuiteResolution {
-    const selected = registry.cases.filter(entry => selectsCase(entry, suite));
+    const selectedEntries = registry.cases.filter(entry => selectsCase(entry, suite));
     const tests: string[] = [];
     const uncoveredObligations: string[] = [];
-    for (const capabilityCase of selected) {
+    for (const capabilityCase of selectedEntries) {
         if (isRunnableInEnvironment(capabilityCase, environmentId)) {
             tests.push(capabilityCase.id);
             continue;
@@ -233,9 +236,11 @@ export function resolveSuite(
             `${capabilityCase.id}: ${describeUncoveredObligation(capabilityCase, environmentId)}`,
         );
     }
+    const runnable = new Set(tests);
     return {
         tests,
         uncoveredObligations,
+        hostDisplayRequired: selectedEntries.some(entry => runnable.has(entry.id) && entry.hostDisplayRequired !== false),
     };
 }
 

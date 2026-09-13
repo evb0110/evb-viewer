@@ -14,8 +14,18 @@ import {
     runWinTools01,
     runWinUi02,
 } from '@scripts/windows-test/guest/cases/uiToolsCases';
+import { runWinSaveWitnessMatrix } from '@scripts/windows-test/guest/cases/runWinSaveWitnessMatrix';
 
 export const windowsTestCaseDefinitions: readonly ICaseDefinition[] = [
+    {
+        id: 'WIN-SAVE-10',
+        family: 'save',
+        driver: 'APP',
+        ledgerDrivers: 'APP + NATIVE',
+        actionKind: 'process',
+        status: 'implemented',
+        run: runWinSaveWitnessMatrix,
+    },
     {
         id: 'WIN-SAVE-01',
         family: 'save',

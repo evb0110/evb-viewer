@@ -94,7 +94,8 @@
             ],
             "negativeControl": "Wrong-page-marker PDF accepted as the surviving page set",
             "owner": "electron-test-engineer",
-            "quarantine": null
+            "quarantine": null,
+            "hostDisplayRequired": false
         },
         {
             "id": "WIN-PRINT-03",
@@ -558,6 +559,24 @@
                 "reopen"
             ],
             "negativeControl": "Recovery loop that reseeds identity on every reopen",
+            "owner": "electron-test-engineer",
+            "quarantine": null
+        },
+        {
+            "id": "WIN-SAVE-10",
+            "family": "Saving, editing, identity and recovery",
+            "title": "Three-cycle save-witness measurements for small, exact 65 MiB and exact 513 MiB PDFs",
+            "driver": "APP",
+            "priority": "P0",
+            "obligation": "automated",
+            "status": "implemented",
+            "gate": "advisory",
+            "suites": ["all"],
+            "primaryEnvironment": "utm-win11-arm64-app-arm64",
+            "environments": ["utm-win11-arm64-app-arm64"],
+            "fixtures": ["F10"],
+            "oracles": ["filesystem-state", "hash-identity", "reopen", "performance"],
+            "negativeControl": "Identical atomic replacement must not be accepted without a full-content witness",
             "owner": "electron-test-engineer",
             "quarantine": null
         },

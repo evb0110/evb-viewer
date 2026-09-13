@@ -64,6 +64,7 @@ import { WINDOWS_HOST_ORACLE_RESULTS_FILE } from '@scripts/windows-test/oracles/
 import {
     WindowsTestIdentityGuardError,
     assertDestructiveTarget,
+    assertNotGoldenOrBaselineTarget,
     destructivePolicyFromConfig,
     selectClonedVmId,
     withOwnedCloneAllowlisted,
@@ -141,7 +142,7 @@ export interface IWindowsTestRunDependencies {
     randomRunSuffix(): string;
     stagedInputs?: readonly IWindowsTestStagedInput[];
     /** Optional guarded clone implementation for UTM versions that place clones elsewhere. */
-    cloneVm?(cloneName: string): Promise<void>;
+    cloneVm?(cloneName: string, options: {headless: boolean}): Promise<void>;
     /** Run host-side output oracles only after guest evidence has validated. */
     evaluateHostOracles?(input: IWindowsTestHostOracleEvaluationInput): Promise<IWindowsTestHostOracleEvaluationResult>;
     identityGuard?: IWindowsTestIdentityGuardDependencies;
@@ -404,13 +405,23 @@ export async function executeWindowsTestRun(
                 if (staleLease.vmId === null) {
                     const staleRun = windowsTestRunLayout(layout.runsDir, staleLease.runId);
                     const runExists = await stat(staleRun.runDir).then(() => true).catch(() => false);
-                    if (runExists) {
+                    const registered = await utmctl.list();
+                    const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${staleLease.runId}`;
+                    if (registered.some(entry => entry.name === cloneName)) {
                         throw new Error(`Stale run ${staleLease.runId} has no bound clone identity; refusing to replace its host exclusion.`);
+                    }
+                    if (runExists) {
+                        messages.push(`Stale run ${staleLease.runId} has no registered clone; releasing its orphaned host lease.`);
                     }
                     return;
                 }
                 const staleVmId = staleLease.vmId;
                 const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${staleLease.runId}`;
+                const staleTarget = {
+                    vmId: staleVmId,
+                    bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
+                };
+                assertNotGoldenOrBaselineTarget(staleTarget, destructivePolicyFromConfig(config));
                 const registered = await utmctl.list();
                 const ownedUuid = staleVmId.toLowerCase();
                 const byUuid = registered.filter(entry => entry.uuid.toLowerCase() === ownedUuid);
@@ -426,10 +437,7 @@ export async function executeWindowsTestRun(
                     staleLease.vmId,
                 );
                 await assertDestructiveTarget(
-                    {
-                        vmId: staleVmId,
-                        bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
-                    },
+                    staleTarget,
                     policy,
                     dependencies.identityGuard,
                 );
@@ -442,10 +450,7 @@ export async function executeWindowsTestRun(
                 );
                 if (stoppedAfterRequest === null) {
                     await assertDestructiveTarget(
-                        {
-                            vmId: staleVmId,
-                            bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
-                        },
+                        staleTarget,
                         policy,
                         dependencies.identityGuard,
                     );
@@ -616,7 +621,7 @@ export async function executeWindowsTestRun(
             if (dependencies.cloneVm === undefined) {
                 await utmctl.clone(config.goldenVmId, cloneName);
             } else {
-                await dependencies.cloneVm(cloneName);
+                await dependencies.cloneVm(cloneName, {headless: !selection.hostDisplayRequired});
             }
             const after = await utmctl.list();
             clonedVmId = selectClonedVmId(before, after);

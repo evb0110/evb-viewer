@@ -60,9 +60,9 @@ export const defaultUtmctlCommandSpelling = {
     version: ['version'],
     list: ['list'],
     status: ['status'],
-    // Runner-created clones add QEMU `-display none` in createTestClone. The
-    // UTM `--hide` flag is a ScriptingBridge window-close operation, not a
-    // headless start, and requires an extra Automation privilege.
+    // `--hide` asks ScriptingBridge to close UTM windows and needs an extra
+    // Automation privilege. The runner uses the normal start path, while the
+    // input-capture guard remains fail-closed for any newly visible window.
     start: ['start'],
     stopRequest: [
         'stop',

@@ -17,6 +17,7 @@ import {
 } from 'vitest';
 import {
     assertDestructiveTarget,
+    assertNotGoldenOrBaselineTarget,
     destructivePolicyFromConfig,
     selectClonedVmId,
     withOwnedCloneAllowlisted,
@@ -109,6 +110,27 @@ describe('destructive VM identity guard', () => {
         ).catch((thrown: unknown) => thrown);
 
         expect((error as WindowsTestIdentityGuardError).refusal).toBe('vm-id-denied');
+    });
+
+    it('refuses a bundle below baselines even when its name looks like a test clone', async () => {
+        const baselineBundle = path.join(imageRoot, 'baselines', 'evb-win-test-promoted.utm');
+        await mkdir(path.dirname(baselineBundle), {recursive: true});
+
+        expect(() => assertNotGoldenOrBaselineTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: baselineBundle,
+            },
+            policy,
+        )).toThrowError(/golden baseline directory/u);
+        await expect(assertDestructiveTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: baselineBundle,
+            },
+            policy,
+            identityDependencies(ALLOWED_VM_ID),
+        )).rejects.toMatchObject({refusal: 'bundle-path-is-golden-baseline'});
     });
 
     it('refuses native input before invoking osascript for a personal VM', async () => {

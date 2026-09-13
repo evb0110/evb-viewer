@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
     mkdir,
+    readFile,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -14,13 +16,15 @@ import {
     generateWrongMarkerControl,
 } from '@scripts/windows-test/fixtures/generateNegativeControls';
 import { generateNumberedFixture } from '@scripts/windows-test/fixtures/generateNumberedFixture';
+import { generateLargePdfE2eFixture } from '@scripts/generate-large-pdf-e2e-fixture.mjs';
 
 export const WINDOWS_FIXTURE_GENERATED_DIRECTORY = path.join('tests', 'windows', 'fixtures', 'generated');
 
 export interface IWindowsFixtureArtifact {
     fixtureId: string;
     fileName: string;
-    build: () => Promise<Uint8Array>;
+    build?: () => Promise<Uint8Array>;
+    write?: (outputPath: string) => Promise<void>;
 }
 
 export interface IWindowsFixtureGenerationEntry {
@@ -78,6 +82,24 @@ export function windowsFixtureArtifacts(): IWindowsFixtureArtifact[] {
             fileName: 'f08-control-corrupt-sidecar.json',
             build: () => Promise.resolve(encodeText(generateCorruptSidecarControl())),
         },
+        {
+            fixtureId: 'F10-save-witness-65mib',
+            fileName: 'f10-save-witness-65mib.pdf',
+            write: outputPath => generateLargePdfE2eFixture({
+                outputPath,
+                pageCount: 431,
+                targetBytes: 65 * 1024 * 1024,
+            }).then(() => undefined),
+        },
+        {
+            fixtureId: 'F10-save-witness-513mib',
+            fileName: 'f10-save-witness-513mib.pdf',
+            write: outputPath => generateLargePdfE2eFixture({
+                outputPath,
+                pageCount: 431,
+                targetBytes: 513 * 1024 * 1024,
+            }).then(() => undefined),
+        },
     ];
 }
 
@@ -95,11 +117,35 @@ export async function runWindowsFixtureGeneration(
         await mkdir(options.outputDirectory, { recursive: true });
     }
     for (const artifact of windowsFixtureArtifacts()) {
-        const bytes = await artifact.build();
         const absolutePath = path.join(options.outputDirectory, artifact.fileName);
-        if (options.write) {
-            await writeFile(absolutePath, bytes);
+        if (artifact.write !== undefined) {
+            if (options.write) {
+                await artifact.write(absolutePath);
+            }
+            const identity = options.write
+                ? {
+                    bytes: (await stat(absolutePath)).size,
+                    sha256: createHash('sha256').update(await readFile(absolutePath)).digest('hex'),
+                }
+                : {
+                    bytes: 0,
+                    sha256: '',
+                };
+            entries.push({
+                fixtureId: artifact.fixtureId,
+                relativePath: options.relativeTo === undefined
+                    ? absolutePath
+                    : path.relative(options.relativeTo, absolutePath).split(path.sep).join('/'),
+                ...identity,
+                written: options.write,
+            });
+            continue;
         }
+        if (artifact.build === undefined) {
+            throw new Error(`Fixture ${artifact.fixtureId} has neither a byte builder nor a file writer.`);
+        }
+        const bytes = await artifact.build();
+        if (options.write) await writeFile(absolutePath, bytes);
         entries.push({
             fixtureId: artifact.fixtureId,
             relativePath: options.relativeTo === undefined

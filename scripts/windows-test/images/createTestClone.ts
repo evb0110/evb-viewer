@@ -71,6 +71,7 @@ export async function createTestClone(options: {
     runner: ICommandRunner;
     utmctl: IUtmctlClient;
     inputMediaPath?: string;
+    headless?: boolean;
 }) {
     const {
         config,
@@ -96,13 +97,17 @@ export async function createTestClone(options: {
         throw new Error('Golden image identity or bundle location does not match the configured lab image.');
     }
     const registered = await utmctl.list();
+    const baselineRoot = path.resolve(root, 'baselines');
     const retained = new Set(registered
         .filter(entry => entry.uuid.toLowerCase() !== config.goldenVmId
             && entry.name.startsWith('evb-win-test-'))
         .map(entry => entry.name));
     for (const entry of await readdir(root)) {
+        const candidate = path.resolve(root, entry);
+        const candidateIsBaseline = candidate === baselineRoot
+            || path.relative(baselineRoot, candidate).startsWith('..') === false;
         if (entry.startsWith('evb-win-test-') && entry.endsWith('.utm')
-            && path.resolve(root, entry) !== source) {
+            && candidate !== source && !candidateIsBaseline) {
             retained.add(entry.slice(0, -4));
         }
     }
@@ -201,6 +206,29 @@ export async function createTestClone(options: {
             `Network.${index}.MacAddress`,
             '-string',
             mac,
+            cloneConfig,
+        ]);
+    }
+    if (options.headless === true) {
+        await runChecked('/usr/bin/plutil', [
+            '-replace',
+            'Display',
+            '-json',
+            '[]',
+            cloneConfig,
+        ]);
+        const qemu = isRecord(decoded.QEMU) ? decoded.QEMU : {};
+        const additionalArguments = Array.isArray(qemu.AdditionalArguments)
+            ? qemu.AdditionalArguments.filter((value): value is string => typeof value === 'string')
+            : [];
+        if (!additionalArguments.includes('virtio-gpu-pci')) {
+            additionalArguments.push('-device', 'virtio-gpu-pci');
+        }
+        await runChecked('/usr/bin/plutil', [
+            '-replace',
+            'QEMU.AdditionalArguments',
+            '-json',
+            JSON.stringify(additionalArguments),
             cloneConfig,
         ]);
     }

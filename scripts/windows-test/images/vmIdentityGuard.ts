@@ -25,6 +25,7 @@ export const windowsTestIdentityRefusals = [
     'vm-id-denied',
     'bundle-path-unresolved',
     'bundle-path-outside-test-image-root',
+    'bundle-path-is-golden-baseline',
     'bundle-identity-unreadable',
     'bundle-vm-id-mismatch',
     'bundle-display-name-denied',
@@ -107,11 +108,37 @@ function isInside(parent: string, child: string) {
     return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
+/**
+ * Teardown may only act on a run-owned clone. The configured golden UUID and
+ * every bundle below the baseline directory remain immutable, even when a
+ * stale lease or a test-style display name makes them look disposable.
+ */
+export function assertNotGoldenOrBaselineTarget(
+    target: IWindowsTestDestructiveTarget,
+    policy: IWindowsTestDestructivePolicy,
+) {
+    if (target.vmId.toLowerCase() === policy.goldenVmId.toLowerCase()) {
+        throw new WindowsTestIdentityGuardError(
+            'vm-id-is-golden-image',
+            'Refusing a destructive operation on the configured golden image.',
+        );
+    }
+    const baselineRoot = path.resolve(policy.testImageRoot, 'baselines');
+    const resolvedBundle = path.resolve(target.bundlePath);
+    if (resolvedBundle === baselineRoot || isInside(baselineRoot, resolvedBundle)) {
+        throw new WindowsTestIdentityGuardError(
+            'bundle-path-is-golden-baseline',
+            'Refusing a destructive operation on a bundle under the golden baseline directory.',
+        );
+    }
+}
+
 export async function assertDestructiveTarget(
     target: IWindowsTestDestructiveTarget,
     policy: IWindowsTestDestructivePolicy,
     dependencies: IWindowsTestIdentityGuardDependencies = nodeIdentityGuardDependencies,
 ) {
+    assertNotGoldenOrBaselineTarget(target, policy);
     const vmId = target.vmId.toLowerCase();
     if (!isVmUuid(vmId)) {
         throw new WindowsTestIdentityGuardError(
