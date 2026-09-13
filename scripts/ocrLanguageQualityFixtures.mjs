@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {
     createCanvas, GlobalFonts,
+    loadImage,
 } from '@napi-rs/canvas';
 
 /** @typedef {Record<string, string[]>} TPassageSeeds */
@@ -17,11 +18,662 @@ import {
 const PAGE_WIDTH_MM = 210;
 const PAGE_HEIGHT_MM = 297;
 const PAGE_DPI = 200;
+const DEGRADATION_BASE_DPI = 300;
 const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_MM / 25.4 * PAGE_DPI);
 const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_MM / 25.4 * PAGE_DPI);
 const PAGE_WIDTH_POINTS = PAGE_WIDTH_MM / 25.4 * 72;
 const PAGE_HEIGHT_POINTS = PAGE_HEIGHT_MM / 25.4 * 72;
 const FONT_DIRECTORY = 'ocr-language-fonts';
+const MANIFEST_FROZEN_AT = '2026-09-13T00:00:00Z';
+
+/** @type {Array<Record<string, any>>} */
+const DEGRADATION_PROFILES = [
+    {
+        id: 'clean-300dpi',
+        label: 'Clean 300 DPI control',
+        severity: 'clean',
+        purpose: 'control',
+        operations: [],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'resample-200dpi',
+        label: '200 DPI resampling',
+        severity: 'mild',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'resample',
+            targetDpi: 200,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'resample-150dpi',
+        label: '150 DPI resampling',
+        severity: 'moderate',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'resample',
+            targetDpi: 150,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'blur-0p5px-300dpi',
+        label: '0.5 pixel Gaussian blur at 300 DPI',
+        severity: 'mild',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'gaussianBlur',
+            sigmaPx: 0.5,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'blur-1p0px-300dpi',
+        label: '1.0 pixel Gaussian blur at 300 DPI',
+        severity: 'moderate',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'gaussianBlur',
+            sigmaPx: 1,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'jpeg-q75',
+        label: 'JPEG quality 75',
+        severity: 'mild',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'jpeg',
+            quality: 75,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'jpeg-q50',
+        label: 'JPEG quality 50',
+        severity: 'severe',
+        purpose: 'stress',
+        operations: [{
+            type: 'jpeg',
+            quality: 50,
+        }],
+        acceptanceEligible: false,
+    },
+    {
+        id: 'skew-minus-0p5deg',
+        label: '-0.5 degree skew on a preserved canvas',
+        severity: 'mild',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'skew',
+            degrees: -0.5,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'skew-plus-0p5deg',
+        label: '+0.5 degree skew on a preserved canvas',
+        severity: 'mild',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'skew',
+            degrees: 0.5,
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'skew-minus-1p5deg',
+        label: '-1.5 degree skew on a preserved canvas',
+        severity: 'severe',
+        purpose: 'stress',
+        operations: [{
+            type: 'skew',
+            degrees: -1.5,
+        }],
+        acceptanceEligible: false,
+    },
+    {
+        id: 'skew-plus-1p5deg',
+        label: '+1.5 degree skew on a preserved canvas',
+        severity: 'severe',
+        purpose: 'stress',
+        operations: [{
+            type: 'skew',
+            degrees: 1.5,
+        }],
+        acceptanceEligible: false,
+    },
+    {
+        id: 'illumination-smooth',
+        label: 'Smooth illumination gradient',
+        severity: 'mild',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'illumination',
+            start: 0.84,
+            end: 1.0,
+            axis: 'x',
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'ink-faded-smooth',
+        label: 'Smooth faded ink',
+        severity: 'moderate',
+        purpose: 'diagnostic',
+        operations: [{
+            type: 'fadedInk',
+            inkRetention: 0.58,
+            axis: 'y',
+        }],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'moderate-resample200-blur05',
+        label: '200 DPI resampling plus 0.5 pixel blur',
+        severity: 'moderate',
+        purpose: 'acceptance',
+        operations: [
+            {
+                type: 'resample',
+                targetDpi: 200,
+            },
+            {
+                type: 'gaussianBlur',
+                sigmaPx: 0.5,
+            },
+        ],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'moderate-jpeg75-skew05',
+        label: 'JPEG quality 75 plus 0.5 degree skew',
+        severity: 'moderate',
+        purpose: 'acceptance',
+        operations: [
+            {
+                type: 'jpeg',
+                quality: 75,
+            },
+            {
+                type: 'skew',
+                degrees: 0.5,
+            },
+        ],
+        acceptanceEligible: true,
+    },
+    {
+        id: 'moderate-illumination-blur05',
+        label: 'Smooth illumination plus 0.5 pixel blur',
+        severity: 'moderate',
+        purpose: 'acceptance',
+        operations: [
+            {
+                type: 'illumination',
+                start: 0.84,
+                end: 1.0,
+                axis: 'x',
+            },
+            {
+                type: 'gaussianBlur',
+                sigmaPx: 0.5,
+            },
+        ],
+        acceptanceEligible: true,
+    },
+];
+
+const OCR_POLICY = {
+    frozenAt: MANIFEST_FROZEN_AT,
+    frozenBeforeResults: true,
+    clean: {
+        maxFaithfulCer: 0.02,
+        maxFaithfulWer: 0.02,
+    },
+    moderate: {
+        maxFaithfulCer: 0.05,
+        maxFaithfulWer: 0.05,
+    },
+    stress: {
+        acceptanceEligible: false,
+        reportOnly: true,
+    },
+    adoption: {
+        minimumRelativeCerReduction: 0.1,
+        noRegression: true,
+        noLostCriticalToken: true,
+        noAdditionalMissingOrDuplicateLine: true,
+        noNewOrderOrPdfFidelityDefect: true,
+        belowPointOnePercentRequiresOneFewerAbsoluteError: true,
+    },
+    resources: {
+        maxAdditionalRecognizedCropAreaInPageAreas: 1,
+        maxRegionsPerPage: 16,
+        cleanPageP95Overhead: 0.05,
+    },
+    geometry: {
+        affineOnly: true,
+        nonlinearDeformations: 'excluded from geometry-scored acceptance until a pinned deformation map updates polygons',
+    },
+};
+
+const CORPUS_SPLIT = {
+    frozenAt: MANIFEST_FROZEN_AT,
+    development: {
+        passageRule: 'passage-1',
+        fontIds: [
+            'latinSans',
+            'arabicSans',
+            'hebrewSans',
+            'syriacRegular',
+        ],
+        templates: ['single-language'],
+    },
+    evaluation: {
+        passageRule: 'passage-2',
+        fontIds: [
+            'latinSerif',
+            'arabicNaskh',
+            'hebrewSerif',
+            'syriacBlack',
+        ],
+        templates: [
+            'single-language',
+            'same-script-competition',
+            'latin-cyrillic-greek',
+            'rtl-ltr',
+            'mixed-rtl',
+            'columns-headings-footnotes-marginal-numbers',
+        ],
+    },
+    cohortRule: 'source document plus font stays in one split; every crop and degradation remains in its cohort',
+};
+
+const MIXED_DOCUMENT_DEFINITIONS = [
+    {
+        id: 'mixed-same-script-latin',
+        template: 'same-script-competition',
+        split: 'evaluation',
+        selectedLanguages: [
+            'eng',
+            'fra',
+        ],
+        readingOrderAmbiguous: false,
+        blocks: [
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'body',
+                x: 126,
+                y: 170,
+                width: 2229,
+                text: 'The English record keeps the identifier 417-A beside the checked date 2026-11-07.',
+                lineHeight: 72,
+            },
+            {
+                id: 'fra',
+                language: 'fra',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'body',
+                x: 126,
+                y: 430,
+                width: 2229,
+                text: 'Le dossier français conserve le numéro critique 417-B et la mesure 3.14 sans changer leur ordre.',
+                lineHeight: 72,
+            },
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'heading',
+                x: 126,
+                y: 760,
+                width: 2229,
+                text: 'Shared Latin script competition',
+                fontSize: 42,
+                lineHeight: 70,
+            },
+            {
+                id: 'fra',
+                language: 'fra',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'footnote',
+                x: 126,
+                y: 920,
+                width: 2229,
+                text: 'Note 2: both selected languages remain active for this complete page.',
+                fontSize: 26,
+                lineHeight: 52,
+            },
+        ],
+    },
+    {
+        id: 'mixed-latin-cyrillic-greek',
+        template: 'latin-cyrillic-greek',
+        split: 'evaluation',
+        selectedLanguages: [
+            'eng',
+            'rus',
+            'ell',
+        ],
+        readingOrderAmbiguous: false,
+        blocks: [
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'heading',
+                x: 126,
+                y: 150,
+                width: 2229,
+                text: 'Three writing systems, one page',
+                fontSize: 44,
+                lineHeight: 72,
+            },
+            {
+                id: 'rus',
+                language: 'rus',
+                script: 'cyrillic',
+                fontId: 'latinSerif',
+                role: 'body',
+                x: 126,
+                y: 350,
+                width: 2229,
+                text: 'Русская запись сохраняет номер 208-К и проверяет различие между похожими буквами.',
+                lineHeight: 72,
+            },
+            {
+                id: 'ell',
+                language: 'ell',
+                script: 'greek',
+                fontId: 'latinSerif',
+                role: 'body',
+                x: 126,
+                y: 650,
+                width: 2229,
+                text: 'Η ελληνική γραμμή διατηρεί το σημάδι 5.6 και τους τόνους στην ίδια σειρά.',
+                lineHeight: 72,
+            },
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'footnote',
+                x: 126,
+                y: 980,
+                width: 2229,
+                text: 'Footnote 4. The language list is selected once for the whole page.',
+                fontSize: 26,
+                lineHeight: 52,
+            },
+        ],
+    },
+    {
+        id: 'mixed-rtl-ltr',
+        template: 'rtl-ltr',
+        split: 'evaluation',
+        selectedLanguages: [
+            'ara',
+            'eng',
+        ],
+        readingOrderAmbiguous: false,
+        blocks: [
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'heading',
+                x: 126,
+                y: 150,
+                width: 2229,
+                text: 'English heading 17',
+                fontSize: 44,
+                lineHeight: 72,
+            },
+            {
+                id: 'ara',
+                language: 'ara',
+                script: 'arabic',
+                fontId: 'arabicNaskh',
+                role: 'body',
+                x: 126,
+                y: 380,
+                width: 2229,
+                text: 'يحفظ السجل العربي الرمز والتاريخ في موضعهما الصحيح.',
+                lineHeight: 72,
+            },
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'body',
+                x: 126,
+                y: 680,
+                width: 2229,
+                text: 'The LTR note follows the RTL paragraph and retains 3.14.',
+                lineHeight: 72,
+            },
+            {
+                id: 'ara',
+                language: 'ara',
+                script: 'arabic',
+                fontId: 'arabicNaskh',
+                role: 'footnote',
+                x: 126,
+                y: 980,
+                width: 2229,
+                text: 'الحاشية 2: تبقى اللغات المختارة ثابتة في التشغيل.',
+                fontSize: 28,
+                lineHeight: 54,
+            },
+        ],
+    },
+    {
+        id: 'mixed-rtl-scripts',
+        template: 'mixed-rtl',
+        split: 'evaluation',
+        selectedLanguages: [
+            'ara',
+            'heb',
+            'syr',
+        ],
+        readingOrderAmbiguous: false,
+        blocks: [
+            {
+                id: 'ara',
+                language: 'ara',
+                script: 'arabic',
+                fontId: 'arabicNaskh',
+                role: 'body',
+                x: 126,
+                y: 170,
+                width: 2229,
+                text: 'سجل عربي يحفظ القيمة والرمز في موضعهما الصحيح.',
+                lineHeight: 72,
+            },
+            {
+                id: 'heb',
+                language: 'heb',
+                script: 'hebrew',
+                fontId: 'hebrewSerif',
+                role: 'body',
+                x: 126,
+                y: 440,
+                width: 2229,
+                text: 'הרשומה העברית שומרת את הסדר המקורי ואת הסימן',
+                lineHeight: 72,
+            },
+            {
+                id: 'syr',
+                language: 'syr',
+                script: 'syriac',
+                fontId: 'syriacBlack',
+                role: 'body',
+                x: 126,
+                y: 710,
+                width: 2229,
+                text: 'ܟܬܒܐ ܣܘܪܝܝܐ ܢܛܪ ܫܘܡܐ ܘܫܡܐ ܡܒܘܚܢܐ',
+                lineHeight: 72,
+            },
+            {
+                id: 'eng',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'marginal-number',
+                x: 90,
+                y: 1060,
+                width: 160,
+                text: '9',
+                fontSize: 34,
+                lineHeight: 52,
+            },
+        ],
+    },
+    {
+        id: 'mixed-columns-and-notes',
+        template: 'columns-headings-footnotes-marginal-numbers',
+        split: 'evaluation',
+        selectedLanguages: [
+            'eng',
+            'rus',
+            'ell',
+        ],
+        readingOrderAmbiguous: false,
+        blocks: [
+            {
+                id: 'heading',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'heading',
+                x: 126,
+                y: 130,
+                width: 2229,
+                text: 'Column ledger 2026',
+                fontSize: 46,
+                lineHeight: 76,
+            },
+            {
+                id: 'left',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSerif',
+                role: 'column',
+                x: 126,
+                y: 370,
+                width: 1010,
+                text: 'The first column records item 101 and the marginal number 1. It keeps a short line for every checked entry.',
+                lineHeight: 66,
+            },
+            {
+                id: 'right',
+                language: 'rus',
+                script: 'cyrillic',
+                fontId: 'latinSerif',
+                role: 'column',
+                x: 1345,
+                y: 370,
+                width: 1010,
+                text: 'Вторая колонка хранит запись 202 и отдельный номер 2. Порядок строк задан макетом.',
+                lineHeight: 66,
+            },
+            {
+                id: 'footnote',
+                language: 'ell',
+                script: 'greek',
+                fontId: 'latinSerif',
+                role: 'footnote',
+                x: 126,
+                y: 1330,
+                width: 2229,
+                text: 'Σημείωση 3: η υποσημείωση ανήκει στο τέλος της σελίδας.',
+                fontSize: 28,
+                lineHeight: 54,
+            },
+            {
+                id: 'marginal',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'marginal-number',
+                x: 2380,
+                y: 500,
+                width: 70,
+                text: '7',
+                fontSize: 30,
+                lineHeight: 50,
+            },
+        ],
+    },
+    {
+        id: 'mixed-ambiguous-columns',
+        template: 'columns-headings-footnotes-marginal-numbers',
+        split: 'development',
+        selectedLanguages: [
+            'eng',
+            'fra',
+        ],
+        readingOrderAmbiguous: true,
+        orderPolicy: 'ambiguous-excluded-from-acceptance',
+        blocks: [
+            {
+                id: 'left',
+                language: 'eng',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'column',
+                x: 126,
+                y: 260,
+                width: 1010,
+                text: 'The left note has no declared relation to the right note.',
+                lineHeight: 66,
+            },
+            {
+                id: 'right',
+                language: 'fra',
+                script: 'latin',
+                fontId: 'latinSans',
+                role: 'column',
+                x: 1345,
+                y: 260,
+                width: 1010,
+                text: 'La note droite conserve le numéro 6 sans ordre imposé.',
+                lineHeight: 66,
+            },
+        ],
+    },
+    {
+        id: 'blank-control',
+        template: 'blank-control',
+        split: 'development',
+        selectedLanguages: [],
+        control: 'blank',
+        readingOrderAmbiguous: false,
+        blocks: [],
+    },
+    {
+        id: 'image-only-control',
+        template: 'image-only-control',
+        split: 'development',
+        selectedLanguages: [],
+        control: 'image-only',
+        readingOrderAmbiguous: false,
+        blocks: [],
+    },
+];
 
 /** @type {TPassageSeeds} */
 const PASSAGE_SEEDS = {
@@ -297,9 +949,9 @@ function makePassage(code, index) {
 
 /** @param {TStringMap} fontHashes @returns {TGeneratedRecord} */
 function makeManifest(fontHashes) {
-    return {
-        schemaVersion: 1,
-        benchmark: 'MLOCR-02',
+    const definition = {
+        benchmark: 'MLOCR-03',
+        cleanBaseline: 'MLOCR-02',
         source: {
             type: 'original-benchmark-text',
             author: 'EVB Viewer contributors',
@@ -312,6 +964,36 @@ function makeManifest(fontHashes) {
             dpi: PAGE_DPI,
             pixelWidth: PAGE_WIDTH_PX,
             pixelHeight: PAGE_HEIGHT_PX,
+        },
+        degradedPhysicalPage: {
+            widthMm: PAGE_WIDTH_MM,
+            heightMm: PAGE_HEIGHT_MM,
+            dpi: DEGRADATION_BASE_DPI,
+            pixelWidth: Math.round(PAGE_WIDTH_PX * DEGRADATION_BASE_DPI / PAGE_DPI),
+            pixelHeight: Math.round(PAGE_HEIGHT_PX * DEGRADATION_BASE_DPI / PAGE_DPI),
+        },
+        profiles: DEGRADATION_PROFILES,
+        corpusSplit: CORPUS_SPLIT,
+        policy: OCR_POLICY,
+        mixedDocuments: MIXED_DOCUMENT_DEFINITIONS,
+    };
+    const frozenDefinition = {
+        benchmark: definition.benchmark,
+        cleanBaseline: definition.cleanBaseline,
+        physicalPage: definition.physicalPage,
+        degradedPhysicalPage: definition.degradedPhysicalPage,
+        profiles: definition.profiles,
+        corpusSplit: definition.corpusSplit,
+        policy: definition.policy,
+        mixedDocuments: definition.mixedDocuments,
+    };
+    return {
+        schemaVersion: 2,
+        ...definition,
+        frozen: {
+            at: MANIFEST_FROZEN_AT,
+            beforeResults: true,
+            definitionSha256: sha256(JSON.stringify(frozenDefinition)),
         },
         fonts: Object.fromEntries(Object.entries(FONT_DEFINITIONS).map(([
             id,
@@ -493,32 +1175,53 @@ function wrapText(context, text, maxWidth) {
     return lines;
 }
 
-/** @param {any} page @param {ILoadedFont} fontDefinition */
-function renderPage(page, fontDefinition) {
-    const canvas = createCanvas(PAGE_WIDTH_PX, PAGE_HEIGHT_PX);
-    const context = canvas.getContext('2d');
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, PAGE_WIDTH_PX, PAGE_HEIGHT_PX);
-    context.font = `32px "${fontDefinition.family}"`;
+/** @param {string} script */
+function isRtlScript(script) {
+    return script === 'arabic' || script === 'hebrew' || script === 'syriac';
+}
+
+/** @param {string} text */
+function criticalTokensForText(text) {
+    return [...new Set(text.match(/\b\d(?:[\d./-]*\d)?\b/gu) ?? [])];
+}
+
+/**
+ * @param {any} context
+ * @param {any} page
+ * @param {any} blockDefinition
+ * @param {number} blockIndex
+ */
+function renderTextBlock(context, page, blockDefinition, blockIndex) {
+    const font = page.loadedFonts[blockDefinition.fontId];
+    if (!font) {
+        throw new Error(`Missing loaded font ${blockDefinition.fontId} for ${page.id}`);
+    }
+    const fontSize = blockDefinition.fontSize ?? 32;
+    const lineHeight = blockDefinition.lineHeight ?? 56;
+    const text = Array.isArray(blockDefinition.text)
+        ? blockDefinition.text.join(' ')
+        : blockDefinition.text;
+    context.font = `${fontSize}px "${font.family}"`;
     context.fillStyle = '#101010';
     context.textBaseline = 'top';
-    const rtl = page.script === 'arabic' || page.script === 'hebrew' || page.script === 'syriac';
+    const rtl = isRtlScript(blockDefinition.script);
     context.direction = rtl ? 'rtl' : 'ltr';
     context.textAlign = rtl ? 'right' : 'left';
-    const margin = 126;
-    const maxWidth = PAGE_WIDTH_PX - margin * 2;
-    const lineHeight = 56;
-    const top = 132;
-    const lines = wrapText(context, page.text, maxWidth);
-    const lineRecords = lines.map((text, index) => {
-        const width = context.measureText(text).width;
-        const x = rtl ? PAGE_WIDTH_PX - margin - width : margin;
-        const y = top + index * lineHeight;
-        context.fillText(text, rtl ? PAGE_WIDTH_PX - margin : margin, y);
+    const lines = Array.isArray(blockDefinition.text)
+        ? blockDefinition.text
+        : wrapText(context, text, blockDefinition.width);
+    const anchorX = rtl
+        ? blockDefinition.x + blockDefinition.width
+        : blockDefinition.x;
+    const lineRecords = lines.map(/** @param {string} lineText @param {number} lineIndex */ (lineText, lineIndex) => {
+        const width = context.measureText(lineText).width;
+        const x = rtl ? anchorX - width : anchorX;
+        const y = blockDefinition.y + lineIndex * lineHeight;
+        context.fillText(lineText, anchorX, y);
         return {
-            id: `${page.id}-line-${String(index + 1).padStart(3, '0')}`,
-            text,
-            readingOrder: index,
+            id: `${page.id}-${blockDefinition.id}-line-${String(lineIndex + 1).padStart(3, '0')}`,
+            text: lineText,
+            readingOrder: blockIndex + lineIndex,
             polygon: {
                 x,
                 y,
@@ -527,24 +1230,401 @@ function renderPage(page, fontDefinition) {
             },
         };
     });
-    if (lines.length * lineHeight + top > PAGE_HEIGHT_PX - 100) {
-        throw new Error(`${page.id} does not fit on the fixed page`);
-    }
-    page.blocks = [{
-        id: `${page.id}-block-001`,
+    return {
+        id: `${page.id}-${blockDefinition.id}`,
+        language: blockDefinition.language,
+        script: blockDefinition.script,
+        role: blockDefinition.role,
         polygon: {
-            x: margin,
-            y: top,
-            width: maxWidth,
-            height: lines.length * lineHeight,
+            x: blockDefinition.x,
+            y: blockDefinition.y,
+            width: blockDefinition.width,
+            height: Math.max(lineHeight, lines.length * lineHeight),
         },
         lines: lineRecords,
-    }];
-    page.readingOrder = lineRecords.map(line => line.id);
+    };
+}
+
+/** @param {any} page @param {Record<string, ILoadedFont>} loadedFonts */
+function renderPage(page, loadedFonts) {
+    const canvas = createCanvas(PAGE_WIDTH_PX, PAGE_HEIGHT_PX);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, PAGE_WIDTH_PX, PAGE_HEIGHT_PX);
+    page.loadedFonts = loadedFonts;
+    const renderScale = page.renderBlocks ? PAGE_DPI / DEGRADATION_BASE_DPI : 1;
+    const blockDefinitions = (page.renderBlocks ?? [{
+        id: 'block-001',
+        language: page.language,
+        script: page.script,
+        fontId: page.fontId,
+        role: 'body',
+        x: 126,
+        y: 132,
+        width: PAGE_WIDTH_PX - 252,
+        text: page.text,
+    }]).map(/** @param {any} block */ block => ({
+        ...block,
+        x: block.x * renderScale,
+        y: block.y * renderScale,
+        width: block.width * renderScale,
+        fontSize: block.fontSize === undefined ? undefined : block.fontSize * renderScale,
+        lineHeight: block.lineHeight === undefined ? undefined : block.lineHeight * renderScale,
+    }));
+    if (page.control === 'image-only') {
+        const controlScale = renderScale;
+        context.fillStyle = '#dedede';
+        context.fillRect(300 * controlScale, 520 * controlScale, 740 * controlScale, 420 * controlScale);
+        context.fillStyle = '#b1b1b1';
+        context.fillRect(1120 * controlScale, 700 * controlScale, 820 * controlScale, 240 * controlScale);
+        context.strokeStyle = '#858585';
+        context.lineWidth = 12 * controlScale;
+        context.strokeRect(300 * controlScale, 520 * controlScale, 1640 * controlScale, 420 * controlScale);
+    }
+    const blocks = blockDefinitions.map(/** @param {any} blockDefinition @param {number} index */ (blockDefinition, index) => (
+        renderTextBlock(context, page, blockDefinition, index)
+    ));
+    const lines = blocks.flatMap(/** @param {any} block */ block => block.lines);
+    const orderedLines = page.readingOrderAmbiguous
+        ? []
+        : lines.map(/** @param {any} line */ line => line.id);
+    page.blocks = blocks;
+    page.readingOrder = orderedLines;
+    page.text = lines.map(/** @param {any} line */ line => line.text).join('\n');
+    page.criticalTokens = criticalTokensForText(page.text);
+    delete page.loadedFonts;
     const raster = canvas.toBuffer('image/jpeg', 95);
     page.imageFormat = 'jpeg';
     page.imageSha256 = sha256(raster);
     return raster;
+}
+
+const IDENTITY_AFFINE = [
+    [
+        1,
+        0,
+        0,
+    ],
+    [
+        0,
+        1,
+        0,
+    ],
+    [
+        0,
+        0,
+        1,
+    ],
+];
+
+/** @param {any[][]} left @param {any[][]} right */
+function multiplyAffine(left, right) {
+    return Array.from({length: 3}, (_, row) => Array.from({length: 3}, (_, column) => {
+        const leftRow = left[row] ?? [];
+        const rightColumn = [
+            0,
+            1,
+            2,
+        ].map(index => right[index]?.[column] ?? 0);
+        return (leftRow[0] ?? 0) * rightColumn[0]
+            + (leftRow[1] ?? 0) * rightColumn[1]
+            + (leftRow[2] ?? 0) * rightColumn[2];
+    }));
+}
+
+/** @param {any[][]} matrix */
+function stableAffine(matrix) {
+    return matrix.map(row => row.map(value => Number(value.toFixed(12))));
+}
+
+/** @param {any[][]} matrix @param {{x: number, y: number, width: number, height: number}} polygon */
+export function transformPolygon(matrix, polygon) {
+    const corners = [
+        [
+            polygon.x,
+            polygon.y,
+        ],
+        [
+            polygon.x + polygon.width,
+            polygon.y,
+        ],
+        [
+            polygon.x,
+            polygon.y + polygon.height,
+        ],
+        [
+            polygon.x + polygon.width,
+            polygon.y + polygon.height,
+        ],
+    ].map(([
+        x,
+        y,
+    ]) => {
+        const pointX = x ?? 0;
+        const pointY = y ?? 0;
+        const denominator = (matrix[2]?.[0] ?? 0) * pointX
+            + (matrix[2]?.[1] ?? 0) * pointY
+            + (matrix[2]?.[2] ?? 1);
+        return [
+            ((matrix[0]?.[0] ?? 0) * pointX + (matrix[0]?.[1] ?? 0) * pointY + (matrix[0]?.[2] ?? 0)) / denominator,
+            ((matrix[1]?.[0] ?? 0) * pointX + (matrix[1]?.[1] ?? 0) * pointY + (matrix[1]?.[2] ?? 0)) / denominator,
+        ];
+    });
+    const xs = corners.map(([x]) => x ?? 0);
+    const ys = corners.map(([
+        , y,
+    ]) => y ?? 0);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return {
+        x,
+        y,
+        width: Math.max(...xs) - x,
+        height: Math.max(...ys) - y,
+    };
+}
+
+/** @param {any} page @param {any[][]} matrix */
+export function transformPageGeometry(page, matrix) {
+    return {
+        ...page,
+        blocks: page.blocks.map(/** @param {any} block */ block => ({
+            ...block,
+            polygon: transformPolygon(matrix, block.polygon),
+            lines: block.lines.map(/** @param {any} line */ line => ({
+                ...line,
+                polygon: transformPolygon(matrix, line.polygon),
+            })),
+        })),
+    };
+}
+
+/** @param {any} image @param {number} width @param {number} height @param {string} [filter] */
+function drawImageToCanvas(image, width, height, filter) {
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    if (filter) context.filter = filter;
+    context.drawImage(image, 0, 0, width, height);
+    return canvas;
+}
+
+/** @param {any} canvas @param {number} start @param {number} end @param {'x' | 'y'} axis */
+function applyIllumination(canvas, start, end, axis) {
+    const context = canvas.getContext('2d');
+    const gradient = axis === 'x'
+        ? context.createLinearGradient(0, 0, canvas.width, 0)
+        : context.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, `rgb(${Math.round(start * 255)}, ${Math.round(start * 255)}, ${Math.round(start * 255)})`);
+    gradient.addColorStop(1, `rgb(${Math.round(end * 255)}, ${Math.round(end * 255)}, ${Math.round(end * 255)})`);
+    context.save();
+    context.globalCompositeOperation = 'multiply';
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+}
+
+/** @param {any} canvas @param {number} inkRetention @param {'x' | 'y'} axis */
+function applyFadedInk(canvas, inkRetention, axis) {
+    const context = canvas.getContext('2d');
+    const gradient = axis === 'x'
+        ? context.createLinearGradient(0, 0, canvas.width, 0)
+        : context.createLinearGradient(0, 0, 0, canvas.height);
+    const start = Math.round((1 - inkRetention) * 255);
+    gradient.addColorStop(0, `rgb(${start}, ${start}, ${start})`);
+    gradient.addColorStop(1, 'rgb(255, 255, 255)');
+    context.save();
+    context.globalCompositeOperation = 'screen';
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+}
+
+/** @param {{cleanRaster: Buffer, profile: any, sourceDpi?: number}} options */
+export async function realizeOcrQualityProfile({
+    cleanRaster, profile, sourceDpi = PAGE_DPI,
+}) {
+    /** @type {any} */
+    let image = await loadImage(cleanRaster);
+    let width = image.width;
+    let height = image.height;
+    let dpi = sourceDpi;
+    let affine = IDENTITY_AFFINE.map(row => [...row]);
+    const realizedOperations = [];
+    if (dpi !== DEGRADATION_BASE_DPI) {
+        const scale = DEGRADATION_BASE_DPI / dpi;
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+        image = drawImageToCanvas(image, width, height).toBuffer('image/png');
+        image = await loadImage(image);
+        affine = multiplyAffine([
+            [
+                scale,
+                0,
+                0,
+            ],
+            [
+                0,
+                scale,
+                0,
+            ],
+            [
+                0,
+                0,
+                1,
+            ],
+        ], affine);
+        realizedOperations.push({
+            type: 'baseResample',
+            sourceDpi: dpi,
+            targetDpi: DEGRADATION_BASE_DPI,
+            scale,
+            width,
+            height,
+        });
+        dpi = DEGRADATION_BASE_DPI;
+    }
+    for (const operation of profile.operations) {
+        if (operation.type === 'resample') {
+            const scale = operation.targetDpi / dpi;
+            width = Math.max(1, Math.round(width * scale));
+            height = Math.max(1, Math.round(height * scale));
+            image = drawImageToCanvas(image, width, height).toBuffer('image/png');
+            image = await loadImage(image);
+            affine = multiplyAffine([
+                [
+                    scale,
+                    0,
+                    0,
+                ],
+                [
+                    0,
+                    scale,
+                    0,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ], affine);
+            dpi = operation.targetDpi;
+            realizedOperations.push({
+                ...operation,
+                sourceDpi: dpi / scale,
+                scale,
+                width,
+                height,
+            });
+            continue;
+        }
+        if (operation.type === 'gaussianBlur') {
+            image = await loadImage(drawImageToCanvas(
+                image,
+                width,
+                height,
+                `blur(${operation.sigmaPx}px)`,
+            ).toBuffer('image/png'));
+            realizedOperations.push({
+                ...operation,
+                width,
+                height,
+            });
+            continue;
+        }
+        if (operation.type === 'jpeg') {
+            image = await loadImage(drawImageToCanvas(image, width, height)
+                .toBuffer('image/jpeg', operation.quality));
+            realizedOperations.push({
+                ...operation,
+                width,
+                height,
+            });
+            continue;
+        }
+        if (operation.type === 'skew') {
+            const radians = operation.degrees * Math.PI / 180;
+            const cosine = Math.cos(radians);
+            const sine = Math.sin(radians);
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const skewMatrix = [
+                [
+                    cosine,
+                    -sine,
+                    centerX - cosine * centerX + sine * centerY,
+                ],
+                [
+                    sine,
+                    cosine,
+                    centerY - sine * centerX - cosine * centerY,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ];
+            const canvas = createCanvas(width, height);
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, width, height);
+            context.setTransform(cosine, sine, -sine, cosine, skewMatrix[0]?.[2] ?? 0, skewMatrix[1]?.[2] ?? 0);
+            context.drawImage(image, 0, 0, width, height);
+            image = await loadImage(canvas.toBuffer('image/png'));
+            affine = multiplyAffine(skewMatrix, affine);
+            realizedOperations.push({
+                ...operation,
+                canvas: 'preserved',
+                affine: stableAffine(skewMatrix),
+                width,
+                height,
+            });
+            continue;
+        }
+        if (operation.type === 'illumination') {
+            const canvas = drawImageToCanvas(image, width, height);
+            applyIllumination(canvas, operation.start, operation.end, operation.axis);
+            image = await loadImage(canvas.toBuffer('image/png'));
+            realizedOperations.push({
+                ...operation,
+                width,
+                height,
+            });
+            continue;
+        }
+        if (operation.type === 'fadedInk') {
+            const canvas = drawImageToCanvas(image, width, height);
+            applyFadedInk(canvas, operation.inkRetention, operation.axis);
+            image = await loadImage(canvas.toBuffer('image/png'));
+            realizedOperations.push({
+                ...operation,
+                width,
+                height,
+            });
+            continue;
+        }
+        throw new Error(`Unsupported OCR degradation operation ${operation.type}`);
+    }
+    const raster = drawImageToCanvas(image, width, height).toBuffer('image/png');
+    return {
+        raster,
+        realized: {
+            profileId: profile.id,
+            seed: `ocr-mLOCR-03:${profile.id}`,
+            sourceDpi,
+            dpi,
+            width,
+            height,
+            affine: stableAffine(affine),
+            nonlinear: false,
+            geometryScored: true,
+            operations: realizedOperations,
+            sourceImageSha256: sha256(cleanRaster),
+            imageSha256: sha256(raster),
+        },
+    };
 }
 
 /**
@@ -575,12 +1655,18 @@ export async function generateOcrLanguageQualityFixture({
                 const page = {
                     id: `${language.code}-p${passage.id.endsWith('1') ? '1' : '2'}-v${fontVariant.id.endsWith('1') ? '1' : '2'}`,
                     pageNumber,
+                    kind: 'language',
                     language: language.code,
                     script: language.script,
                     passageId: passage.id,
                     fontVariantId: fontVariant.id,
                     fontId: fontVariant.fontId,
                     text: passage.text,
+                    sourceDocumentId: `${language.code}-${passage.id}-${fontVariant.fontId}`,
+                    cohortId: `${language.code}-${passage.id}-${fontVariant.fontId}`,
+                    split: passage.id.endsWith('2') ? 'evaluation' : 'development',
+                    evaluationEligible: passage.id.endsWith('2') && fontVariant.id.endsWith('2'),
+                    readingOrderAmbiguous: false,
                 };
                 const font = loaded[page.fontId];
                 if (!font) {
@@ -603,17 +1689,52 @@ export async function generateOcrLanguageQualityFixture({
                 }
                 pageImages.push({
                     page,
-                    raster: renderPage(page, font),
+                    raster: renderPage(page, loaded),
                 });
             }
         }
+    }
+    for (const mixedDocument of MIXED_DOCUMENT_DEFINITIONS) {
+        pageNumber += 1;
+        /** @type {any} */
+        const page = {
+            id: mixedDocument.id,
+            pageNumber,
+            kind: mixedDocument.control ? 'control' : 'mixed',
+            language: mixedDocument.selectedLanguages.join('+'),
+            selectedLanguages: mixedDocument.selectedLanguages,
+            script: 'mixed',
+            text: '',
+            sourceDocumentId: mixedDocument.id,
+            cohortId: mixedDocument.id,
+            split: mixedDocument.split,
+            evaluationEligible: mixedDocument.split === 'evaluation',
+            readingOrderAmbiguous: mixedDocument.readingOrderAmbiguous,
+            orderPolicy: mixedDocument.orderPolicy ?? 'explicit-template',
+            control: mixedDocument.control,
+            renderBlocks: mixedDocument.blocks,
+        };
+        const missing = [...new Set(mixedDocument.blocks.flatMap(block => (
+            missingGlyphs(block.text, loaded[block.fontId]?.hasGlyph ?? (() => false))
+        )))];
+        page.coverage = {
+            valid: missing.length === 0,
+            missingGlyphs: missing,
+            fontFamily: 'mixed',
+            fontSha256: null,
+        };
+        pageImages.push({
+            page,
+            raster: renderPage(page, loaded),
+        });
     }
     const pdf = await PDFDocument.create();
     pdf.setTitle('EVB Viewer MLOCR-02 clean raster OCR fixture');
     pdf.setAuthor('EVB Viewer contributors');
     pdf.setCreationDate(new Date(0));
     pdf.setModificationDate(new Date(0));
-    for (const entry of pageImages) {
+    const cleanPageImages = pageImages.filter(entry => entry.page.kind === 'language');
+    for (const entry of cleanPageImages) {
         const pdfPage = pdf.addPage([
             PAGE_WIDTH_POINTS,
             PAGE_HEIGHT_POINTS,
@@ -650,7 +1771,7 @@ export async function generateOcrLanguageQualityFixture({
             pdfPath,
             pdfSha256: sha256(pdfBytes),
             imageDirectory,
-            pageCount: pageImages.length,
+            pageCount: cleanPageImages.length,
             sourceTextBytes: 0,
         },
     };
@@ -659,9 +1780,20 @@ export async function generateOcrLanguageQualityFixture({
         manifest: renderedManifest,
         pdfPath,
         pageImages,
+        languagePages: pageImages
+            .filter(entry => entry.page.kind === 'language')
+            .map(entry => entry.page),
+        mixedPages: pageImages
+            .filter(entry => entry.page.kind !== 'language')
+            .map(entry => entry.page),
     };
 }
 
 export {
-    LANGUAGE_CODES, PAGE_DPI,
+    DEGRADATION_PROFILES,
+    DEGRADATION_BASE_DPI,
+    LANGUAGE_CODES,
+    MIXED_DOCUMENT_DEFINITIONS,
+    OCR_POLICY,
+    PAGE_DPI,
 };

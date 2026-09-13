@@ -86,5 +86,8 @@ export async function runProductionOcrQualityCase(testCase: IOcrProductionQualit
         preprocessing: processedPath === stagedInputPath ? 'raw-fallback' : 'clean-applied',
         text: result.pageData.text,
         wordCount: result.pageData.words.length,
+        words: result.pageData.words,
+        imageWidth: result.pageData.imageWidth,
+        imageHeight: result.pageData.imageHeight,
     };
 }

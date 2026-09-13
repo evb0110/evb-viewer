@@ -8,6 +8,7 @@ import {
     readdir,
     rm,
     symlink,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -32,13 +33,17 @@ import {
 import {build} from 'esbuild';
 import {
     measureOcrQuality,
+    measureUnicodeMarks,
     retainsFaithfulCriticalToken,
     retainsCriticalToken,
 } from './ocrQualityMetrics.mjs';
 import {
+    DEGRADATION_PROFILES,
     generateOcrLanguageQualityFixture,
     LANGUAGE_CODES,
     PAGE_DPI,
+    transformPageGeometry,
+    realizeOcrQualityProfile,
 } from './ocrLanguageQualityFixtures.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +57,7 @@ const qpdf = process.env.EVB_QPDF_PATH ?? 'qpdf';
 const unpaper = process.env.EVB_UNPAPER_PATH
     ?? join(repositoryRoot, 'resources', 'tesseract', 'linux-x64', 'bin', 'unpaper');
 const required = process.env.EVB_OCR_QUALITY_REQUIRED === '1';
+const degradedOptIn = required || process.env.EVB_OCR_QUALITY_DEGRADED === '1';
 let tessdataDirectory = process.env.EVB_TESSDATA_PATH
     ?? join(repositoryRoot, 'resources', 'tesseract', 'tessdata');
 const fontPath = join(repositoryRoot, 'public', 'pdf', 'standard_fonts', 'LiberationSans-Regular.ttf');
@@ -147,6 +153,8 @@ async function loadPdfjsTextExtractor() {
     });
     return import(`${pathToFileURL(bundlePath).href}?run=${Date.now()}`);
 }
+
+let pdfjsTextExtractor;
 
 async function runProductionOcrQualityDocument({
     workerBundlePath,
@@ -286,8 +294,8 @@ async function collectCatalogPageText(sourcePdfPath) {
 }
 
 async function extractPdfjsPageText(pdfPath) {
-    const {extractTextWithPdfjs} = await loadPdfjsTextExtractor();
-    const pages = await extractTextWithPdfjs(pdfPath, {
+    pdfjsTextExtractor ??= await loadPdfjsTextExtractor();
+    const pages = await pdfjsTextExtractor.extractTextWithPdfjs(pdfPath, {
         collectPages: true,
         forcePdfjs: true,
     });
@@ -322,6 +330,12 @@ function aggregateQuality(samples) {
             werNumerator: 0,
             werDenominator: 0,
         },
+        marks: {
+            expected: 0,
+            actual: 0,
+            missing: 0,
+            extra: 0,
+        },
     };
     for (const sample of samples) {
         const metrics = measureOcrQuality(sample.expected, sample.actual);
@@ -334,6 +348,11 @@ function aggregateQuality(samples) {
             result[key].werNumerator += metrics[key].wer * metrics[key].denominator.wer;
             result[key].werDenominator += metrics[key].denominator.wer;
         }
+        const marks = measureUnicodeMarks(sample.expected, sample.actual);
+        result.marks.expected += marks.expected;
+        result.marks.actual += marks.actual;
+        result.marks.missing += marks.missing;
+        result.marks.extra += marks.extra;
     }
     return Object.fromEntries([
         'faithful',
@@ -348,7 +367,15 @@ function aggregateQuality(samples) {
                 wer: result[key].werDenominator,
             },
         },
-    ]));
+    ]).concat([[
+        'marks',
+        {
+            ...result.marks,
+            retainedRatio: result.marks.expected === 0
+                ? (result.marks.actual === 0 ? 1 : 0)
+                : Math.min(result.marks.expected, result.marks.actual) / result.marks.expected,
+        },
+    ]]));
 }
 
 function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages) {
@@ -365,6 +392,7 @@ function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages)
         },
     ]));
     for (const page of manifest.pages) {
+        if (page.kind !== 'language') continue;
         const language = byLanguage.get(page.language);
         if (!page.coverage.valid) {
             language.invalidFixtureCount += 1;
@@ -412,6 +440,491 @@ function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages)
             failures: recognitionDefects.map(extractor => `${extractor} faithful score is non-zero`),
         };
     });
+}
+
+async function directoryBytes(directory) {
+    let total = 0;
+    for (const entry of await readdir(directory, {withFileTypes: true})) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+            total += await directoryBytes(path);
+        } else {
+            total += (await stat(path)).size;
+        }
+    }
+    return total;
+}
+
+function polygonIntersectionOverUnion(first, second) {
+    const left = Math.max(first.x, second.x);
+    const top = Math.max(first.y, second.y);
+    const right = Math.min(first.x + first.width, second.x + second.width);
+    const bottom = Math.min(first.y + first.height, second.y + second.height);
+    const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
+    const firstArea = first.width * first.height;
+    const secondArea = second.width * second.height;
+    return intersection / Math.max(1, firstArea + secondArea - intersection);
+}
+
+function tokenOverlap(first, second) {
+    const firstTokens = new Set(first.toLocaleLowerCase('und').match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
+    const secondTokens = new Set(second.toLocaleLowerCase('und').match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
+    if (firstTokens.size === 0 || secondTokens.size === 0) return 0;
+    let intersection = 0;
+    for (const token of firstTokens) {
+        if (secondTokens.has(token)) intersection += 1;
+    }
+    return intersection / Math.max(firstTokens.size, secondTokens.size);
+}
+
+function referenceLines(page) {
+    return page.blocks.flatMap(block => block.lines.map(line => ({
+        ...line,
+        blockId: block.id,
+        language: block.language,
+        role: block.role,
+    })));
+}
+
+function emittedRegions(words) {
+    const regions = [];
+    for (const word of words) {
+        const polygon = {
+            x: word.x,
+            y: word.y,
+            width: word.width,
+            height: word.height,
+        };
+        const centerY = polygon.y + polygon.height / 2;
+        const previous = regions.at(-1);
+        if (!previous || Math.abs(centerY - previous.centerY) > Math.max(polygon.height, previous.polygon.height) * 0.75) {
+            regions.push({
+                text: word.text,
+                polygon,
+                centerY,
+                words: [word],
+            });
+            continue;
+        }
+        previous.text = `${previous.text} ${word.text}`;
+        previous.words.push(word);
+        const right = Math.max(previous.polygon.x + previous.polygon.width, polygon.x + polygon.width);
+        const bottom = Math.max(previous.polygon.y + previous.polygon.height, polygon.y + polygon.height);
+        previous.polygon = {
+            x: Math.min(previous.polygon.x, polygon.x),
+            y: Math.min(previous.polygon.y, polygon.y),
+            width: right - Math.min(previous.polygon.x, polygon.x),
+            height: bottom - Math.min(previous.polygon.y, polygon.y),
+        };
+        previous.centerY = previous.polygon.y + previous.polygon.height / 2;
+    }
+    return regions;
+}
+
+function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transformedPage) {
+    const expected = page.text ?? '';
+    const raw = measureOcrQuality(expected, result.text);
+    const pdfjs = measureOcrQuality(expected, pdfjsText);
+    const searchablePdf = measureOcrQuality(expected, searchablePdfText);
+    const marks = measureUnicodeMarks(expected, result.text);
+    const expectedLines = referenceLines(transformedPage);
+    const predictedRegions = emittedRegions(result.words ?? []);
+    const usedReferences = new Set();
+    const matches = [];
+    for (const predicted of predictedRegions) {
+        let best = null;
+        expectedLines.forEach((reference, index) => {
+            if (usedReferences.has(index)) return;
+            const geometry = polygonIntersectionOverUnion(predicted.polygon, reference.polygon);
+            const text = tokenOverlap(predicted.text, reference.text);
+            const score = geometry * 0.65 + text * 0.35;
+            if (!best || score > best.score) best = {
+                index,
+                geometry,
+                text,
+                score,
+            };
+        });
+        if (best && (best.geometry >= 0.05 || best.text >= 0.25)) {
+            usedReferences.add(best.index);
+            matches.push({
+                predicted,
+                referenceIndex: best.index,
+                geometry: best.geometry,
+            });
+        }
+    }
+    const unmatchedReferenceRegions = expectedLines.length - matches.length;
+    const extraPredictedRegions = predictedRegions.length - matches.length;
+    const orderIndexes = matches.map(match => match.referenceIndex);
+    let orderFailureCount = 0;
+    if (!page.readingOrderAmbiguous) {
+        for (let left = 0; left < orderIndexes.length; left += 1) {
+            for (let right = left + 1; right < orderIndexes.length; right += 1) {
+                if (orderIndexes[left] > orderIndexes[right]) orderFailureCount += 1;
+            }
+        }
+    }
+    const actualLines = result.text.split(/\r?\n/gu).map(line => line.trim()).filter(Boolean);
+    const availableExpectedLines = expectedLines.map(line => line.text);
+    const usedActualLines = new Set();
+    let missingLineCount = 0;
+    for (const expectedLine of availableExpectedLines) {
+        let bestIndex = -1;
+        let bestScore = 0;
+        actualLines.forEach((actualLine, index) => {
+            if (usedActualLines.has(index)) return;
+            const score = tokenOverlap(expectedLine, actualLine);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = index;
+            }
+        });
+        if (bestIndex >= 0 && bestScore >= 0.25) usedActualLines.add(bestIndex);
+        else missingLineCount += 1;
+    }
+    let duplicateLineCount = 0;
+    for (const [
+        index,
+        actualLine,
+    ] of actualLines.entries()) {
+        if (usedActualLines.has(index)) continue;
+        if (availableExpectedLines.some(expectedLine => tokenOverlap(expectedLine, actualLine) >= 0.25)) {
+            duplicateLineCount += 1;
+        }
+    }
+    const criticalTokens = page.criticalTokens ?? [];
+    const missingCriticalTokens = criticalTokens.filter(token => (
+        !retainsFaithfulCriticalToken(result.text, token)
+        || !retainsFaithfulCriticalToken(pdfjsText, token)
+        || !retainsFaithfulCriticalToken(searchablePdfText, token)
+    ));
+    return {
+        rawOcr: raw,
+        pdfjsText: pdfjs,
+        searchablePdf,
+        marks,
+        criticalTokenCount: criticalTokens.length,
+        missingCriticalTokens,
+        missingLineCount,
+        duplicateLineCount,
+        geometry: {
+            referenceRegionCount: expectedLines.length,
+            predictedRegionCount: predictedRegions.length,
+            matchedRegionCount: matches.length,
+            unmatchedReferenceRegions,
+            extraPredictedRegions,
+            meanIntersectionOverUnion: matches.length === 0
+                ? (expectedLines.length === 0 ? 1 : 0)
+                : matches.reduce((sum, match) => sum + match.geometry, 0) / matches.length,
+        },
+        order: {
+            ambiguous: page.readingOrderAmbiguous,
+            excludedFromAcceptance: page.readingOrderAmbiguous,
+            failureCount: orderFailureCount,
+            emittedRegionOrder: orderIndexes,
+        },
+    };
+}
+
+function summarizeDegradedEntries(entries) {
+    const groups = new Map();
+    for (const entry of entries) {
+        const key = `${entry.profileId}|${entry.severity}|${entry.language}`;
+        const group = groups.get(key) ?? {
+            profileId: entry.profileId,
+            severity: entry.severity,
+            language: entry.language,
+            entries: [],
+        };
+        group.entries.push(entry);
+        groups.set(key, group);
+    }
+    return [...groups.values()].map(group => {
+        const rawEntries = group.entries.map(entry => ({
+            expected: entry.expected,
+            actual: entry.rawActual,
+        }));
+        const pdfEntries = group.entries.map(entry => ({
+            expected: entry.expected,
+            actual: entry.pdfActual,
+        }));
+        const pdfjsEntries = group.entries.map(entry => ({
+            expected: entry.expected,
+            actual: entry.pdfjsActual,
+        }));
+        const rawCharacterWeighted = aggregateQuality(rawEntries);
+        const pdfjsCharacterWeighted = aggregateQuality(pdfjsEntries);
+        const pdfCharacterWeighted = aggregateQuality(pdfEntries);
+        const rawMacro = {
+            cer: group.entries.reduce((sum, entry) => sum + entry.evaluation.rawOcr.faithful.cer, 0) / group.entries.length,
+            wer: group.entries.reduce((sum, entry) => sum + entry.evaluation.rawOcr.faithful.wer, 0) / group.entries.length,
+        };
+        const pdfMacro = {
+            cer: group.entries.reduce((sum, entry) => sum + entry.evaluation.searchablePdf.faithful.cer, 0) / group.entries.length,
+            wer: group.entries.reduce((sum, entry) => sum + entry.evaluation.searchablePdf.faithful.wer, 0) / group.entries.length,
+        };
+        const pdfjsMacro = {
+            cer: group.entries.reduce((sum, entry) => sum + entry.evaluation.pdfjsText.faithful.cer, 0) / group.entries.length,
+            wer: group.entries.reduce((sum, entry) => sum + entry.evaluation.pdfjsText.faithful.wer, 0) / group.entries.length,
+        };
+        return {
+            profileId: group.profileId,
+            severity: group.severity,
+            language: group.language,
+            sampleCount: group.entries.length,
+            acceptanceEligible: group.entries.every(entry => entry.acceptanceEligible),
+            purpose: group.entries[0].purpose,
+            rawOcr: {
+                macro: rawMacro,
+                characterWeighted: rawCharacterWeighted,
+            },
+            pdfjsText: {
+                macro: pdfjsMacro,
+                characterWeighted: pdfjsCharacterWeighted,
+            },
+            searchablePdf: {
+                macro: pdfMacro,
+                characterWeighted: pdfCharacterWeighted,
+            },
+            marks: group.entries.reduce((summary, entry) => {
+                summary.expected += entry.evaluation.marks.expected;
+                summary.actual += entry.evaluation.marks.actual;
+                summary.missing += entry.evaluation.marks.missing;
+                summary.extra += entry.evaluation.marks.extra;
+                return summary;
+            }, {
+                expected: 0,
+                actual: 0,
+                missing: 0,
+                extra: 0,
+            }),
+            criticalTokens: {
+                expected: group.entries.reduce((sum, entry) => sum + entry.evaluation.criticalTokenCount, 0),
+                missing: group.entries.reduce((sum, entry) => sum + entry.evaluation.missingCriticalTokens.length, 0),
+            },
+            criticalNumbers: {
+                expected: group.entries.reduce((sum, entry) => sum + entry.evaluation.criticalTokenCount, 0),
+                missing: group.entries.reduce((sum, entry) => sum + entry.evaluation.missingCriticalTokens.length, 0),
+            },
+            completeness: {
+                missingLines: group.entries.reduce((sum, entry) => sum + entry.evaluation.missingLineCount, 0),
+                duplicateLines: group.entries.reduce((sum, entry) => sum + entry.evaluation.duplicateLineCount, 0),
+                unmatchedReferenceRegions: group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.unmatchedReferenceRegions, 0),
+                extraPredictedRegions: group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.extraPredictedRegions, 0),
+            },
+            geometry: {meanIntersectionOverUnion: group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.meanIntersectionOverUnion, 0) / group.entries.length},
+            order: {
+                ambiguousPages: group.entries.filter(entry => entry.evaluation.order.ambiguous).length,
+                failures: group.entries.reduce((sum, entry) => sum + entry.evaluation.order.failureCount, 0),
+            },
+            resources: {
+                runtimeMs: {
+                    mean: group.entries.reduce((sum, entry) => sum + entry.runtimeMs, 0) / group.entries.length,
+                    max: Math.max(...group.entries.map(entry => entry.runtimeMs)),
+                },
+                peakRssBytes: Math.max(...group.entries.map(entry => entry.peakRssBytes)),
+                scratchBytes: Math.max(...group.entries.map(entry => entry.scratchBytes)),
+            },
+        };
+    });
+}
+
+async function runMeasuredDegradedCase({
+    page,
+    profile,
+    cleanRaster,
+    cleanImageSha256,
+    transformedPage,
+    outputDirectory,
+    selectedLanguage,
+    runProductionOcrQualityCase,
+    unpaperBinary,
+    scanCleanupBinary,
+}) {
+    const {
+        raster, realized,
+    } = await realizeOcrQualityProfile({
+        cleanRaster,
+        profile,
+    });
+    const caseDirectory = join(outputDirectory, `${page.id}__${profile.id}`);
+    await mkdir(caseDirectory, {recursive: true});
+    const imagePath = join(caseDirectory, 'degraded-input.png');
+    await writeFile(imagePath, raster);
+    const memorySamples = [process.memoryUsage().rss];
+    const memoryMonitor = setInterval(() => {
+        memorySamples.push(process.memoryUsage().rss);
+    }, 25);
+    const startedAt = process.hrtime.bigint();
+    let result;
+    try {
+        result = await runProductionOcrQualityCase({
+            dpi: realized.dpi,
+            inputPath: imagePath,
+            language: selectedLanguage,
+            outputDirectory: caseDirectory,
+            tessdataDirectory,
+            tesseractBinary: tesseract,
+            ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
+            ...(unpaperBinary ? {unpaperBinary} : {}),
+        });
+    } finally {
+        clearInterval(memoryMonitor);
+        memorySamples.push(process.memoryUsage().rss);
+    }
+    const runtimeMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    const searchablePdfText = (await execFileAsync(pdftotext, [
+        result.pdfPath,
+        '-',
+    ], {
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 30_000,
+    })).stdout;
+    const pdfjsText = (await extractPdfjsPageText(result.pdfPath))[0] ?? '';
+    const transformed = transformPageGeometry(page, realized.affine);
+    const evaluation = evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transformedPage ?? transformed);
+    const scratchBytes = await directoryBytes(caseDirectory);
+    const resourceUsage = process.resourceUsage();
+    const peakRssBytes = Math.max(
+        ...memorySamples,
+        resourceUsage.maxRSS * 1024,
+    );
+    return {
+        pageId: page.id,
+        sourceDocumentId: page.sourceDocumentId,
+        cohortId: page.cohortId,
+        split: page.split,
+        profileId: profile.id,
+        severity: profile.severity,
+        purpose: profile.purpose,
+        acceptanceEligible: profile.acceptanceEligible,
+        language: page.language,
+        selectedLanguages: page.selectedLanguages ?? [page.language],
+        productionLanguage: selectedLanguage,
+        expected: page.text,
+        rawActual: result.text,
+        pdfjsActual: pdfjsText,
+        pdfActual: searchablePdfText,
+        cleanImageSha256,
+        realized,
+        imageSha256: realized.imageSha256,
+        evaluation,
+        runtimeMs,
+        peakRssBytes,
+        scratchBytes,
+        preprocessing: result.preprocessing,
+        wordCount: result.wordCount,
+    };
+}
+
+function selectDegradedPages(manifest) {
+    return manifest.pages.filter(page => (
+        (page.kind === 'language' && page.evaluationEligible && page.coverage.valid)
+        || page.kind === 'mixed' && page.evaluationEligible && page.coverage.valid
+        || page.control === 'blank'
+        || page.control === 'image-only'
+    ));
+}
+
+async function runDegradedLanguageBenchmark({
+    fixture,
+    runProductionOcrQualityCase,
+    unpaperBinary,
+    scanCleanupBinary,
+}) {
+    const profileById = new Map(DEGRADATION_PROFILES.map(profile => [
+        profile.id,
+        profile,
+    ]));
+    const cleanProfile = profileById.get('clean-300dpi');
+    if (!cleanProfile) throw new Error('MLOCR-03 clean control profile is missing');
+    const pageImages = new Map(fixture.pageImages.map(entry => [
+        entry.page.id,
+        entry.raster,
+    ]));
+    const pages = selectDegradedPages(fixture.manifest);
+    const outputDirectory = join(workDirectory, 'ocr-language-quality-degraded');
+    const cleanImageHashes = new Map();
+    const entries = [];
+    const profiles = DEGRADATION_PROFILES;
+    const selectedLanguagesByPage = new Map();
+    for (const page of pages) {
+        const cleanRaster = pageImages.get(page.id);
+        if (!cleanRaster) throw new Error(`Missing clean counterpart for ${page.id}`);
+        const clean = await realizeOcrQualityProfile({
+            cleanRaster,
+            profile: cleanProfile,
+        });
+        cleanImageHashes.set(page.id, clean.realized.imageSha256);
+    }
+    for (const profile of profiles) {
+        for (const page of pages) {
+            const cleanRaster = pageImages.get(page.id);
+            if (!cleanRaster || !page.coverage.valid) continue;
+            const selectedLanguage = page.control
+                ? 'eng'
+                : (page.selectedLanguages?.length > 0
+                    ? page.selectedLanguages
+                    : [page.language]).join('+');
+            const priorLanguages = selectedLanguagesByPage.get(page.id);
+            if (priorLanguages !== undefined && priorLanguages !== selectedLanguage) {
+                throw new Error(`Selected languages changed across profiles for ${page.id}`);
+            }
+            selectedLanguagesByPage.set(page.id, selectedLanguage);
+            const entry = await runMeasuredDegradedCase({
+                page,
+                profile,
+                cleanRaster,
+                cleanImageSha256: cleanImageHashes.get(page.id),
+                outputDirectory,
+                selectedLanguage,
+                runProductionOcrQualityCase,
+                unpaperBinary,
+                scanCleanupBinary,
+            });
+            entries.push(entry);
+            process.stdout.write(
+                `MLOCR-03 ${profile.id} ${page.id}: raw CER=${entry.evaluation.rawOcr.faithful.cer.toFixed(4)}, WER=${entry.evaluation.rawOcr.faithful.wer.toFixed(4)}, missingLines=${entry.evaluation.missingLineCount}, duplicateLines=${entry.evaluation.duplicateLineCount}, unmatchedRegions=${entry.evaluation.geometry.unmatchedReferenceRegions}, extraRegions=${entry.evaluation.geometry.extraPredictedRegions}, orderFailures=${entry.evaluation.order.failureCount}, runtimeMs=${entry.runtimeMs.toFixed(1)}\n`,
+            );
+        }
+    }
+    return {
+        status: 'complete',
+        benchmark: 'MLOCR-03',
+        frozenPolicy: fixture.manifest.policy,
+        frozenDefinition: fixture.manifest.frozen,
+        split: fixture.manifest.corpusSplit,
+        pageCount: pages.length,
+        profileCount: profiles.length,
+        cleanCounterparts: Object.fromEntries(cleanImageHashes),
+        imageHashes: entries.map(entry => ({
+            pageId: entry.pageId,
+            profileId: entry.profileId,
+            cleanImageSha256: entry.cleanImageSha256,
+            degradedImageSha256: entry.imageSha256,
+            realized: entry.realized,
+        })),
+        pages: entries.map(entry => ({
+            pageId: entry.pageId,
+            sourceDocumentId: entry.sourceDocumentId,
+            cohortId: entry.cohortId,
+            split: entry.split,
+            profileId: entry.profileId,
+            severity: entry.severity,
+            purpose: entry.purpose,
+            acceptanceEligible: entry.acceptanceEligible,
+            language: entry.language,
+            selectedLanguages: entry.selectedLanguages,
+            evaluation: entry.evaluation,
+            runtimeMs: entry.runtimeMs,
+            peakRssBytes: entry.peakRssBytes,
+            scratchBytes: entry.scratchBytes,
+            preprocessing: entry.preprocessing,
+            wordCount: entry.wordCount,
+        })),
+        summaries: summarizeDegradedEntries(entries),
+    };
 }
 
 async function prepareBenchmarkTessdata() {
@@ -481,7 +994,7 @@ async function runCleanLanguageBenchmark({
     const workerResult = await runProductionOcrQualityDocument({
         workerBundlePath,
         sourcePdfPath,
-        pages: fixture.manifest.pages,
+        pages: fixture.manifest.pages.filter(page => page.kind === 'language'),
         tempDirectory: workerTempDirectory,
         unpaperBinary,
         scanCleanupBinary,
@@ -493,17 +1006,18 @@ async function runCleanLanguageBenchmark({
     const pdfjsPages = await extractPdfjsPageText(workerResult.pdfPath);
     const popplerPages = await extractPopplerPageText(workerResult.pdfPath);
     const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);
+    const cleanPages = fixture.manifest.pages.filter(page => page.kind === 'language');
     const report = {
         status: 'complete',
         fixture: {
             languageCount: languages.length,
-            pageCount: fixture.manifest.pages.length,
+            pageCount: cleanPages.length,
             pdfSha256: fixture.manifest.artifact.pdfSha256,
             outputPdfSha256: workerResult.resultSha256,
             sourceTextEmpty: true,
             physicalPage: fixture.manifest.physicalPage,
-            pageOrder: fixture.manifest.pages.map(page => page.id),
-            rasterSha256ByPage: Object.fromEntries(fixture.manifest.pages.map(page => [
+            pageOrder: cleanPages.map(page => page.id),
+            rasterSha256ByPage: Object.fromEntries(cleanPages.map(page => [
                 page.id,
                 page.imageSha256,
             ])),
@@ -632,6 +1146,24 @@ try {
                     unpaperBinary,
                     scanCleanupBinary,
                 });
+                if (degradedOptIn) {
+                    const fixtureDirectory = join(workDirectory, 'ocr-language-quality-degraded-fixture');
+                    const fixture = await generateOcrLanguageQualityFixture({
+                        repositoryRoot,
+                        outputDirectory: fixtureDirectory,
+                        manifestPath: cleanManifestPath,
+                    });
+                    const {runProductionOcrQualityCase} = await loadProductionRunner();
+                    const degradedReport = await runDegradedLanguageBenchmark({
+                        fixture,
+                        runProductionOcrQualityCase,
+                        unpaperBinary,
+                        scanCleanupBinary,
+                    });
+                    process.stdout.write(`MLOCR-03 degraded raster report: ${JSON.stringify(degradedReport)}\n`);
+                } else {
+                    process.stdout.write('MLOCR-03 degraded raster benchmark skipped; set EVB_OCR_QUALITY_DEGRADED=1 or use the required quality command\n');
+                }
                 const failures = [];
                 const preprocessingCoverage = new Set();
                 for (const [
