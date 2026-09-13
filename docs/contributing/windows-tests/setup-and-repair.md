@@ -291,6 +291,14 @@ log. Do not copy event message text into host output. If the service is not
 installed, return to the missing-agent native-input branch and install it
 before continuing.
 
+For a no-logon recovery, the retained `scripts/windows-test/guest/autostart-worker.cmd`
+and `machine-startup-scripts.ini` can be pushed into the Windows Startup and
+Group Policy Machine Startup locations. The command writes
+`state/autostart-marker.json` before launching Node. Push the worker bundle and
+Node archive beside the command, stop and start the clone, then use bounded
+marker and heartbeat pulls. Empty or merely readable files are not success;
+the marker content must identify the attempted stage.
+
 Successful evidence consists of the redacted provisioning output, fresh
 screenshots for each input step, the guest marker read, a fresh heartbeat with
 the Windows build and architecture, and the normal run evidence under
@@ -349,6 +357,17 @@ inside the display produced no marker. Each native input call returned success,
 but every guest-created marker remained absent. The clone was stopped and
 deleted only after these checks. The worker heartbeat and WIN-SAVE measurements
 remain unqualified.
+
+#### Fifth live qualification gap recorded 2026-09-13
+
+The no-input autostart payload was pushed into the user Startup and Group
+Policy Machine Startup locations. After reboot, the machine-startup route
+produced a non-empty marker once, proving that route can run without a user
+session. It did not produce a heartbeat because it runs as SYSTEM and the
+worker requires an interactive standard account. A clone-only standard-account
+and autologon bootstrap was then pushed and rebooted, but it produced no
+non-empty marker or heartbeat. The profile-hive pull also returned no usable
+file evidence. WIN-SAVE measurements remain unqualified.
 
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.

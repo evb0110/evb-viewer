@@ -192,6 +192,15 @@ describe('guest PowerShell script files', () => {
         expect(source).not.toContain('Message');
     });
 
+    it('keeps the no-input startup payload tied to the guest root and marker', async () => {
+        const command = await readFile(path.join(scriptsDirectory, '..', 'autostart-worker.cmd'), 'utf8');
+        const policy = await readFile(path.join(scriptsDirectory, '..', 'machine-startup-scripts.ini'), 'utf8');
+        expect(command).toContain('C:\\EVBViewerTests');
+        expect(command).toContain('autostart-marker.json');
+        expect(command).toContain('guestWorker.cjs');
+        expect(policy).toContain('0CmdLine=evb-worker.cmd');
+    });
+
     it('registers a hidden PowerShell startup action with the worker paths and account', () => {
         const source = sources.get('register-worker-logon-task.ps1') ?? '';
         expect(source).toContain('\'start-worker-logon.ps1\'');
