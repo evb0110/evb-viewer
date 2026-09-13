@@ -11,6 +11,7 @@ import {
 import {
     requestShutdownSaveFlush,
     shutdownSaveFlushRequiresRecoveryPreservation,
+    shutdownSaveFlushRequiresRetryableQuit,
 } from '@electron/bootstrap/requestShutdownSaveFlush';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
@@ -282,6 +283,21 @@ describe('requestShutdownSaveFlush', () => {
             dirtyWorkingCopyPaths: [],
             failedWindowIds: [],
             flushedWorkingCopyPaths: ['/tmp/flushed.pdf'],
+            timedOutWindowIds: [],
+        })).toBe(false);
+    });
+
+    it('classifies renderer persistence failures as retryable graceful-quit failures', () => {
+        expect(shutdownSaveFlushRequiresRetryableQuit({
+            dirtyWorkingCopyPaths: [],
+            failedWindowIds: [1],
+            flushedWorkingCopyPaths: [],
+            timedOutWindowIds: [],
+        })).toBe(true);
+        expect(shutdownSaveFlushRequiresRetryableQuit({
+            dirtyWorkingCopyPaths: ['/tmp/dirty.pdf'],
+            failedWindowIds: [],
+            flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
         })).toBe(false);
     });

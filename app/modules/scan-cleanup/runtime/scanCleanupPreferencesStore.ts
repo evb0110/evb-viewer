@@ -494,48 +494,22 @@ function scheduleScanCleanupPreferencesPersistence(value: IScanCleanupGlobalPref
     }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
 }
 
-export function flushScanCleanupPreferencesStore(): Promise<void> {
+export async function flushScanCleanupPreferencesStore(): Promise<void> {
     if (persistenceTimer !== null) {
         clearTimeout(persistenceTimer);
         persistenceTimer = null;
     }
-    const pending = pendingPreferences;
-    if (!pending || !preferencesHydrated) {
-        return remoteWriteQueue;
-    }
-    if (desktopStore) {
-        if (!remoteSettingsFile) {
-            return remoteWriteQueue;
+    if (!desktopStore) {
+        const pending = pendingPreferences;
+        if (!pending || !preferencesHydrated) {
+            return;
         }
-        const settingsPatch = Object.fromEntries([...pendingGlobalFields].map(([
-            key,
-            intent,
-        ]) => [
-            key,
-            intent.value,
-        ])) as IScanCleanupGlobalPreferencePatch;
-        if (Object.keys(settingsPatch).length === 0) {
-            pendingPreferences = null;
-            return remoteWriteQueue;
-        }
-        const request: IScanCleanupSettingsUpdateRequest = {settingsPatch};
-        if (
-            pendingRemoteGlobalUpdate
-            && pendingRemoteGlobalRevision === pendingPreferencesRevision
-            && isEqual(pendingRemoteGlobalUpdate, request)
-            && pendingRemoteGlobalWrite !== null
-            && !pendingRemoteGlobalWriteSettledFailure
-        ) {
-            return pendingRemoteGlobalWrite ?? remoteWriteQueue;
-        }
-        return queueRemoteUpdate(request);
-    } else {
         const previous = persistedBrowserPreferences ?? loadScanCleanupPreferences();
         const settingsPatch = buildGlobalPreferencesPatch(previous, pending);
         if (Object.keys(settingsPatch).length === 0) {
             pendingPreferences = null;
             persistenceRetryAttempt = 0;
-            return Promise.resolve();
+            return;
         }
         try {
             persistedBrowserPreferences = saveScanCleanupPreferencesPatch(settingsPatch);
@@ -549,7 +523,46 @@ export function flushScanCleanupPreferencesStore(): Promise<void> {
             schedulePersistenceRetry();
             return Promise.reject(error);
         }
-        return Promise.resolve();
+        return;
+    }
+
+    for (;;) {
+        const pending = pendingPreferences;
+        if (!preferencesHydrated) {
+            await whenScanCleanupPreferencesReady();
+            continue;
+        }
+        if (!pending || !remoteSettingsFile) {
+            const queued = remoteWriteQueue;
+            await queued;
+            if (pendingPreferences === null || queued === remoteWriteQueue) {
+                return;
+            }
+            continue;
+        }
+        const settingsPatch = Object.fromEntries([...pendingGlobalFields].map(([
+            key,
+            intent,
+        ]) => [
+            key,
+            intent.value,
+        ])) as IScanCleanupGlobalPreferencePatch;
+        if (Object.keys(settingsPatch).length === 0) {
+            pendingPreferences = null;
+            return;
+        }
+        const request: IScanCleanupSettingsUpdateRequest = {settingsPatch};
+        if (
+            pendingRemoteGlobalUpdate
+            && pendingRemoteGlobalRevision === pendingPreferencesRevision
+            && isEqual(pendingRemoteGlobalUpdate, request)
+            && pendingRemoteGlobalWrite !== null
+            && !pendingRemoteGlobalWriteSettledFailure
+        ) {
+            await pendingRemoteGlobalWrite;
+        } else {
+            await queueRemoteUpdate(request);
+        }
     }
 }
 
