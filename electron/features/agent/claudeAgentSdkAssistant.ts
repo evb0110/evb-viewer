@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {app} from 'electron';
 import {
+    getSessionInfo,
     query,
     type AccountInfo,
     type CanUseTool,
@@ -26,6 +27,7 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import { createClaudeContextUnavailableError } from '@electron/features/agent/assistantResultHelpers';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_TOOLS,
@@ -357,6 +359,7 @@ export class ClaudeAgentAssistantSession {
     private readonly currentEffort: EffortLevel;
     private readonly currentSpeedMode: TAgentAssistantSpeedMode;
     private readonly queryFastMode: boolean;
+    private startupGeneration = 0;
     private sessionId: string | null = null;
     private account: AccountInfo | null = null;
     private modelOptions: readonly IAgentAssistantModelOption[] | null = null;
@@ -403,11 +406,19 @@ export class ClaudeAgentAssistantSession {
         attachments: IAgentAssistantImageAttachment[],
         model: string,
     ) {
+        const startupGeneration = this.startupGeneration;
         if (this.retirementPromise) {
             throw new Error('Claude assistant session is still retiring a previous turn.');
         }
-        this.ensureStarted();
+        await this.ensureStarted();
         await this.setModel(model);
+        if (
+            this.closing
+            || this.interrupting
+            || startupGeneration !== this.startupGeneration
+        ) {
+            throw new Error('Claude assistant session is closed.');
+        }
         const promptQueue = this.promptQueue;
         if (!promptQueue) {
             throw new Error('Claude assistant query is unavailable.');
@@ -427,6 +438,7 @@ export class ClaudeAgentAssistantSession {
         }
 
         if (!this.query || !this.currentTurnId) {
+            this.startupGeneration += 1;
             return;
         }
 
@@ -469,6 +481,7 @@ export class ClaudeAgentAssistantSession {
             return this.retirementPromise;
         }
 
+        this.startupGeneration += 1;
         this.closing = true;
         this.promptQueue?.close();
         this.promptQueue = null;
@@ -487,9 +500,36 @@ export class ClaudeAgentAssistantSession {
         return retirementPromise;
     }
 
-    private ensureStarted() {
+    private async ensureStarted() {
         if (this.query) {
             return;
+        }
+        if (this.closing || this.interrupting) {
+            throw new Error('Claude assistant session is closed.');
+        }
+
+        const resumeSessionId = this.options.resumeSessionId?.trim() ?? '';
+        const startupGeneration = this.startupGeneration;
+        const isStartupCanceled = () => this.closing
+            || this.interrupting
+            || startupGeneration !== this.startupGeneration;
+        if (resumeSessionId) {
+            let sessionInfo: Awaited<ReturnType<typeof getSessionInfo>>;
+            try {
+                sessionInfo = await getSessionInfo(resumeSessionId);
+            } catch (error) {
+                if (isStartupCanceled()) {
+                    throw new Error('Claude assistant session is closed.');
+                }
+                logger.warn(`Failed to verify Claude session ${resumeSessionId}: ${getErrorMessage(error)}`);
+                throw new Error(createClaudeContextUnavailableError());
+            }
+            if (isStartupCanceled()) {
+                throw new Error('Claude assistant session is closed.');
+            }
+            if (!sessionInfo) {
+                throw new Error(createClaudeContextUnavailableError());
+            }
         }
 
         const allowedMcpTools = ASSISTANT_MCP_TOOLS.map(tool => `mcp__${this.options.mcpServerName}__${tool}`);
@@ -503,6 +543,9 @@ export class ClaudeAgentAssistantSession {
             });
         }) satisfies CanUseTool;
         const sdkModel = getClaudeSdkModel(this.currentModel);
+        if (isStartupCanceled()) {
+            throw new Error('Claude assistant session is closed.');
+        }
         const promptQueue = new ClaudePromptQueue();
         const claudeQuery = query({
             prompt: promptQueue,
@@ -512,7 +555,7 @@ export class ClaudeAgentAssistantSession {
                 effort: this.currentEffort,
                 ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
                 ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
-                ...(this.options.resumeSessionId ? { resume: this.options.resumeSessionId } : {}),
+                ...(resumeSessionId ? { resume: resumeSessionId } : {}),
                 env: {
                     ...process.env,
                     CLAUDE_AGENT_SDK_CLIENT_APP: `evb-viewer/${app.getVersion()}`,
@@ -732,6 +775,9 @@ export class ClaudeAgentAssistantSession {
     }
 
     private publishInitialized() {
+        if (this.closing || this.interrupting) {
+            return;
+        }
         this.options.callbacks.onInitialized({
             sessionId: this.sessionId,
             model: this.currentModel,

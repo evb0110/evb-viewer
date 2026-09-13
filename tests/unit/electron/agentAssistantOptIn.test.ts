@@ -21,6 +21,7 @@ import type {
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
 import {
+    FakeClaudeAssistantSession,
     runDualProviderCompletionDriver,
     waitForCodexRequest,
     waitForCodexRequestCount,
@@ -48,6 +49,7 @@ const mocks = vi.hoisted(() => ({
     installManagedCodex: vi.fn(),
     spawn: vi.fn(),
     assistantDisabledMessage: 'Enable EVB Assistant in Settings to use assistant chat.',
+    assistantContextUnavailableMessage: 'Claude could not restore this chat context. Start a new chat to continue.',
     startEmbeddedMcpServer: vi.fn(),
     abortActiveEmbeddedMcpRequests: vi.fn(),
     shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
@@ -357,6 +359,9 @@ vi.mock('@electron/te', () => ({te: (key: string) => {
     }
     if (key === 'dialogs.agentAssistant.turnBusy') {
         return mocks.assistantTurnBusyMessage;
+    }
+    if (key === 'dialogs.agentAssistant.contextUnavailable') {
+        return mocks.assistantContextUnavailableMessage;
     }
     return key;
 }}));
@@ -1013,6 +1018,223 @@ describe('agent assistant opt-in gating', () => {
         expect(driver.claudeSessions).toHaveLength(1);
         expect(driver.claudeSessions[0]?.completedMessages).toEqual(['Claude completed: claude completion']);
         expect(mocks.spawn).toHaveBeenCalledOnce();
+    });
+
+    it('retains Claude provider context when the runtime is restarted', async () => {
+        const {
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await runDualProviderCompletionDriver({
+            startCodex: () => enableAssistantRuntime(),
+            installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
+            resolveClaudeRuntime: () => mocks.claudeRuntimeLoadGate?.resolve(),
+            send: sendAgentAssistantMessage,
+            createScope: createDocumentScope,
+        });
+
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        await shutdownAgentAssistant();
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+
+        const result = await sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Continue after the runtime restart',
+            scope: createDocumentScope('dual-provider-claude.pdf'),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(mocks.claudeSessionConstructor).toHaveBeenCalledTimes(2);
+        expect(mocks.claudeSessionConstructor.mock.calls[1]?.[0]).toMatchObject({resumeSessionId: 'claude-session-1'});
+        const messageTexts = result.state.messages.map(message => message.text);
+        expect(messageTexts.filter(text => text === 'claude completion')).toHaveLength(1);
+        expect(messageTexts.filter(text => text === 'Claude completed: claude completion')).toHaveLength(1);
+        expect(messageTexts).toContain('Continue after the runtime restart');
+        expect(messageTexts).toContain('Claude completed: Continue after the runtime restart');
+    });
+
+    it('resumes Claude context across effort and effective Fast changes', async () => {
+        configureEnabledAssistantRuntime();
+        const scope = createDocumentScope('claude-settings-change.pdf');
+        const sessions: FakeClaudeAssistantSession[] = [];
+        mocks.claudeSessionConstructor.mockImplementation(function createClaudeSession(options) {
+            const session = new FakeClaudeAssistantSession(options, sessions.length === 0 ? 'claude-session-1' : null);
+            sessions.push(session);
+            return session;
+        });
+        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        const first = await sendAgentAssistantMessage({
+            provider: 'claude',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            text: 'Unique fact from the first Claude turn',
+            presetId: 'check-ocr-readiness',
+            attachments: [{
+                type: 'image',
+                id: 'settings-change-image',
+                name: 'context.png',
+                mimeType: 'image/png',
+                sizeBytes: 1,
+                dataUrl: 'data:image/png;base64,AA==',
+            }],
+            scope,
+        });
+        const fast = await sendAgentAssistantMessage({
+            provider: 'claude',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'fast',
+            text: 'Ask about the unique fact after Fast mode',
+            scope,
+        });
+        const deeper = await sendAgentAssistantMessage({
+            provider: 'claude',
+            model: 'opus',
+            effort: 'high',
+            speedMode: 'standard',
+            text: 'Ask again after the effort change',
+            scope,
+        });
+
+        expect(first.ok).toBe(true);
+        expect(fast.ok).toBe(true);
+        expect(deeper.ok).toBe(true);
+        expect(sessions).toHaveLength(3);
+        expect(mocks.claudeSessionConstructor.mock.calls.map(([options]) => options)).toEqual([
+            expect.objectContaining({
+                effort: 'low',
+                speedMode: 'standard',
+            }),
+            expect.objectContaining({
+                effort: 'low',
+                speedMode: 'fast',
+                resumeSessionId: 'claude-session-1',
+            }),
+            expect.objectContaining({
+                effort: 'high',
+                speedMode: 'standard',
+                resumeSessionId: 'claude-session-1',
+            }),
+        ]);
+        expect(sessions[0]?.sentTexts[0]).toContain('Unique fact from the first Claude turn');
+        expect(sessions[0]?.sentTexts[0]).toContain('Check whether the active EVB Viewer document is ready for agent analysis.');
+        expect(sessions[0]?.sentAttachments[0]).toEqual([expect.objectContaining({
+            id: 'settings-change-image',
+            dataUrl: 'data:image/png;base64,AA==',
+        })]);
+        const userMessages = deeper.state.messages.filter(message => message.role === 'user');
+        expect(userMessages.map(message => message.text)).toEqual([
+            'Unique fact from the first Claude turn',
+            'Ask about the unique fact after Fast mode',
+            'Ask again after the effort change',
+        ]);
+        expect(new Set(deeper.state.messages.map(message => message.id)).size).toBe(deeper.state.messages.length);
+    });
+
+    it('cancels Claude startup when interrupted before provider setup completes', async () => {
+        configureEnabledAssistantRuntime();
+        const scope = createDocumentScope('claude-interrupt-during-startup.pdf');
+        const sendGate = createInitializeGate();
+        let session: FakeClaudeAssistantSession | undefined;
+        mocks.claudeSessionConstructor.mockImplementation(function createClaudeSession(options) {
+            session = new FakeClaudeAssistantSession(options, 'claude-session-1', sendGate.promise);
+            return session;
+        });
+        const {
+            interruptAgentAssistant,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        const send = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not submit after interrupt',
+            scope,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.claudeSessionConstructor).toHaveBeenCalledOnce();
+        });
+        await interruptAgentAssistant({
+            provider: 'claude',
+            scope,
+        });
+        sendGate.resolve();
+
+        await expect(send).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        expect(session?.sentTexts).toEqual([]);
+    });
+
+    it('refuses contextless Claude history while keeping it available for New chat', async () => {
+        configureEnabledAssistantRuntime();
+        const scope = createDocumentScope('contextless-claude.pdf');
+        mocks.claudeSessionConstructor.mockImplementation(function createContextlessClaudeSession(options) {
+            return new FakeClaudeAssistantSession(options, null);
+        });
+        const {
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        const first = await sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Unique contextless fact',
+            scope,
+        });
+        expect(first.ok).toBe(true);
+
+        const refused = await sendAgentAssistantMessage({
+            provider: 'claude',
+            effort: 'high',
+            text: 'Do not submit without context',
+            scope,
+        });
+
+        expect(refused).toMatchObject({
+            ok: false,
+            error: mocks.assistantContextUnavailableMessage,
+        });
+        expect(mocks.claudeSessionConstructor).toHaveBeenCalledOnce();
+        expect(refused.state.messages.map(message => message.text)).toContain('Unique contextless fact');
+
+        const reset = await resetAgentAssistantChat({
+            provider: 'claude',
+            scope,
+        });
+        expect(reset.messages).toEqual([]);
+    });
+
+    it('recovers Claude provider context from durable state after a process restart', async () => {
+        const firstModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const driver = await runDualProviderCompletionDriver({
+            startCodex: () => enableAssistantRuntime(),
+            installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
+            resolveClaudeRuntime: () => mocks.claudeRuntimeLoadGate?.resolve(),
+            send: firstModule.sendAgentAssistantMessage,
+            createScope: createDocumentScope,
+        });
+        await firstModule.preserveAssistantStateForShutdown();
+
+        vi.resetModules();
+        const restartedModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const result = await restartedModule.sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Continue after process restart',
+            scope: createDocumentScope('dual-provider-claude.pdf'),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(driver.claudeResult.state.messages.map(message => message.text)).toContain('Claude completed: claude completion');
+        expect(result.state.messages.map(message => message.text)).toContain('Claude completed: claude completion');
+        expect(result.state.messages.map(message => message.text)).toContain('Claude completed: Continue after process restart');
+        expect(mocks.claudeSessionConstructor).toHaveBeenCalledTimes(2);
+        expect(mocks.claudeSessionConstructor.mock.calls[1]?.[0]).toMatchObject({resumeSessionId: 'claude-session-1'});
     });
 
     it('does not turn an idle Claude stream exit into a duplicate failed chat turn', async () => {

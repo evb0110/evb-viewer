@@ -1057,6 +1057,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Activez EVB Assistant dans les paramètres pour utiliser la discussion avec l’assistant.',
             'turnBusy': 'EVB Assistant traite encore le message précédent pour ce document.',
+            'contextUnavailable': 'Impossible de restaurer le contexte de cette discussion Claude. Démarrez une nouvelle discussion pour continuer.',
         },
     },
     'optimizePdf': {

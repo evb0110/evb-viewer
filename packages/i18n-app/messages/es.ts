@@ -1056,6 +1056,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Activa EVB Assistant en Ajustes para usar el chat del asistente.',
             'turnBusy': 'EVB Assistant aún está trabajando en el mensaje anterior de este documento.',
+            'contextUnavailable': 'No se pudo restaurar el contexto de este chat de Claude. Inicia un chat nuevo para continuar.',
         },
     },
     'optimizePdf': {

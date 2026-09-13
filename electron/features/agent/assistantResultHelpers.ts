@@ -22,6 +22,10 @@ export function getAssistantTurnBusyError() {
     return te('dialogs.agentAssistant.turnBusy');
 }
 
+export function createClaudeContextUnavailableError() {
+    return te('dialogs.agentAssistant.contextUnavailable');
+}
+
 export function createAssistantBusyResult(
     currentState: () => IAgentAssistantState,
 ) {

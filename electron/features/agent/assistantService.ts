@@ -85,6 +85,7 @@ import {
 import { runAssistantShutdownStep } from '@electron/features/agent/runAssistantShutdownStep';
 import {
     createAssistantBusyResult,
+    createClaudeContextUnavailableError,
     createAssistantDisabledError,
     createAssistantDisabledResult,
     getAssistantTurnBusyError,
@@ -104,7 +105,6 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('agent-assistant-service');
 const ASSISTANT_TURN_CANCELLED_ERROR = 'Assistant turn was canceled before provider setup completed.';
-const CLAUDE_CONTEXT_UNAVAILABLE_ERROR = 'Claude cannot continue this chat because its provider context is unavailable. Start a new chat to continue.';
 
 class AssistantTurnSupersededError extends Error {
     readonly subsystem = 'agent';
@@ -224,7 +224,6 @@ async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean }
             closePromises.push(session.claudeSession.close());
         }
         session.claudeSession = undefined;
-        session.providerThreadId = null;
     }
     await Promise.allSettled(closePromises);
     claudeProviderRuntime.runtimeState = 'stopped';
@@ -616,7 +615,10 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
     });
     return {
         onInitialized: (info: IClaudeAgentAssistantInit) => {
-            session.providerThreadId = info.sessionId;
+            const providerThreadId = info.sessionId?.trim();
+            if (providerThreadId) {
+                session.providerThreadId = providerThreadId;
+            }
             session.model = normalizeClaudeAssistantModel(info.model ?? session.model);
             if (info.models && info.models.length > 0) {
                 claudeAssistantModels = info.models;
@@ -749,7 +751,7 @@ async function ensureClaudeAssistantSession(
     if (shouldRefuseClaudeContextContinuation(session.messages.length, session.providerThreadId)) {
         // Display history alone cannot recreate hidden preset instructions,
         // assistant turns, tool history, or image content for Claude.
-        throw new Error(CLAUDE_CONTEXT_UNAVAILABLE_ERROR);
+        throw new Error(createClaudeContextUnavailableError());
     }
     claudeProviderRuntime.runtimeState = 'starting';
     delete claudeProviderRuntime.lastError;
@@ -946,6 +948,11 @@ export async function sendAgentAssistantMessage(
                         logger.warn(`Failed to close superseded Claude assistant session: ${getErrorMessage(closeError)}`);
                     });
                     session.claudeSession = undefined;
+                }
+                if (!isClaimCurrent()) {
+                    discardCanceledClaudeMessage();
+                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
+                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
                 }
                 if (error instanceof AssistantTurnSupersededError) {
                     discardCanceledClaudeMessage();
