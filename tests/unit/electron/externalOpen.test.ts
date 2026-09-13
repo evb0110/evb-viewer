@@ -39,6 +39,7 @@ describe('createMacOpenFileRouter', () => {
             requestMainWindowForExternalOpen: vi.fn(),
         };
 
+        mocks.existsSync.mockImplementation(path => path === '/Users/test/Documents/sample.PDF');
         router.handleOpenFile('  /Users/test/Documents/sample.PDF  ');
         router.attachExternalOpenManager(externalOpenManager);
 
@@ -83,6 +84,22 @@ describe('createMacOpenFileRouter', () => {
         expect(externalOpenManager.queueOpenRequest).toHaveBeenCalledTimes(1);
         expect(externalOpenManager.queueOpenRequest).toHaveBeenCalledWith(['/Users/test/Documents/live.pdf']);
         expect(externalOpenManager.requestMainWindowForExternalOpen).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves an existing trailing-whitespace path from the macOS open-file event', () => {
+        const logger = createLogger();
+        const router = createMacOpenFileRouter({ logger });
+        const externalOpenManager = {
+            queueOpenRequest: vi.fn(),
+            requestMainWindowForExternalOpen: vi.fn(),
+        };
+        const exactPath = '/Users/test/Documents/report.pdf ';
+        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+
+        router.attachExternalOpenManager(externalOpenManager);
+        router.handleOpenFile(exactPath);
+
+        expect(externalOpenManager.queueOpenRequest).toHaveBeenCalledWith([exactPath]);
     });
 });
 
@@ -184,6 +201,17 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/Users/test/Documents/live.pdf']);
     });
 
+    it('keeps an existing trailing-whitespace filename through dispatch', () => {
+        const harness = createManagerHarness();
+        const exactPath = '/docs/report.pdf ';
+        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest([exactPath]);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
+    });
+
     it('resolves relative command-line paths before dispatch', () => {
         const harness = createManagerHarness();
         const relativePath = 'landing/public/evb-viewer-og.png';
@@ -192,6 +220,17 @@ describe('createExternalOpenManager', () => {
         harness.manager.queueOpenRequestFromArgs([relativePath]);
 
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([resolve(relativePath)]);
+    });
+
+    it('keeps an existing trailing-whitespace command-line filename through dispatch', () => {
+        const harness = createManagerHarness();
+        const exactPath = '/docs/report.pdf ';
+        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequestFromArgs([exactPath]);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
     });
 
     it('dispatches a later singleton after 100 ms', async () => {
