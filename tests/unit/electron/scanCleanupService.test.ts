@@ -25,6 +25,7 @@ import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import type * as TOpenPathCapabilitiesModule from '@electron/file-access/openPathCapabilities';
 import {OPEN_PATH_CAPABILITY_TTL_MS} from '@electron/file-access/openPathCapabilities';
 import {decodeScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     JobBroker,
     type IJobBrokerRequest,
@@ -39,8 +40,11 @@ import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     claimScanCleanupDetectionResultStore,
+    isScanCleanupDetectionResultStoreRegistered,
     registerScanCleanupDetectionResultStore,
+    releaseScanCleanupDetectionResultStoreOwner,
     releaseScanCleanupDetectionResultStores,
+    retainScanCleanupDetectionResultStoreOwner,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
@@ -308,6 +312,7 @@ describe('scan cleanup service', () => {
             }),
             documentRevision: owner.documentRevision,
             ownerId: owner.ownerId,
+            ownerKey: owner.ownerId,
             resultStore,
             sourcePdfPath: startRequest.sourcePdfPath,
         });
@@ -352,6 +357,7 @@ describe('scan cleanup service', () => {
             detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
             documentRevision: owner.documentRevision,
             ownerId: owner.ownerId,
+            ownerKey: owner.ownerId,
             resultStore,
             sourcePdfPath: startRequest.sourcePdfPath,
         };
@@ -364,6 +370,289 @@ describe('scan cleanup service', () => {
         await first!.release();
         expect(close).not.toHaveBeenCalled();
         await second!.release();
+        await releaseScanCleanupDetectionResultStores([storeId]);
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it('retires a superseded detection store after its borrow settles', async () => {
+        const oldClose = vi.fn(async () => undefined);
+        const newClose = vi.fn(async () => undefined);
+        const input = {
+            detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
+            documentRevision: owner.documentRevision,
+            ownerId: owner.ownerId,
+            ownerKey: `superseded-${Date.now()}`,
+            resultStore: {
+                pageCount: 1_025,
+                resultCount: 1_025,
+                append: async () => undefined,
+                replace: async () => undefined,
+                getPage: async () => undefined,
+                readRange: async () => [],
+                forEachChunk: async () => undefined,
+                close: oldClose,
+            },
+            sourcePdfPath: startRequest.sourcePdfPath,
+        };
+        const oldStoreId = registerScanCleanupDetectionResultStore(input);
+        const borrow = claimScanCleanupDetectionResultStore(oldStoreId, input);
+        expect(borrow).not.toBeNull();
+
+        const newStoreId = registerScanCleanupDetectionResultStore({
+            ...input,
+            resultStore: {
+                ...input.resultStore,
+                close: newClose,
+            },
+        });
+
+        expect(isScanCleanupDetectionResultStoreRegistered(oldStoreId)).toBe(false);
+        expect(oldClose).not.toHaveBeenCalled();
+        await borrow!.release();
+        expect(oldClose).toHaveBeenCalledOnce();
+        await releaseScanCleanupDetectionResultStores([newStoreId]);
+        expect(newClose).toHaveBeenCalledOnce();
+    });
+
+    it('keeps completed detection evidence alive past the handoff window for an open owner', async () => {
+        vi.useFakeTimers();
+        try {
+            const close = vi.fn(async () => undefined);
+            const resultForPage = (pageNumber: number) => ({
+                pageNumber: requirePageNumber(pageNumber),
+                classification: 'single-uncut-page' as const,
+                confidence: 0.9,
+                cutterXPx: null,
+                documentPrior: null,
+                tier1Verdict: 'single-uncut-page' as const,
+                reconciled: false,
+                clusterAgreement: 0,
+            });
+            const resultStore: IScanCleanupDetectionResultStore = {
+                pageCount: 1_025,
+                resultCount: 1_025,
+                append: async () => undefined,
+                replace: async () => undefined,
+                getPage: async pageNumber => resultForPage(pageNumber),
+                readRange: async () => [],
+                forEachChunk: async onChunk => {
+                    for (let pageNumber = 1; pageNumber <= 1_025; pageNumber += 1) {
+                        await onChunk([resultForPage(pageNumber)], pageNumber);
+                    }
+                },
+                close,
+            };
+            const input = {
+                detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
+                documentRevision: owner.documentRevision,
+                ownerId: owner.ownerId,
+                ownerKey: owner.ownerId,
+                resultStore,
+                sourcePdfPath: startRequest.sourcePdfPath,
+            };
+            retainScanCleanupDetectionResultStoreOwner(owner.ownerId);
+            const storeId = registerScanCleanupDetectionResultStore(input);
+
+            vi.advanceTimersByTime(10 * 60 * 1000 - 1);
+            expect(isScanCleanupDetectionResultStoreRegistered(storeId)).toBe(true);
+            vi.advanceTimersByTime(1);
+            expect(isScanCleanupDetectionResultStoreRegistered(storeId)).toBe(true);
+            vi.advanceTimersByTime(10 * 60 * 1000 + 1);
+            expect(isScanCleanupDetectionResultStoreRegistered(storeId)).toBe(true);
+            const webContents = sender();
+            const service = createScanCleanupService();
+            const started = await service.start(webContents, {
+                ...startRequest,
+                detectionResultStoreId: storeId,
+            });
+
+            expect(started.started).toBe(true);
+            if (!started.started) throw new Error('Expected the retained detection evidence to start cleanup');
+            await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
+                .toMatchObject({status: 'completed'}));
+            expect(mocks.runWorker).toHaveBeenCalledOnce();
+            expect(close).not.toHaveBeenCalled();
+            await releaseScanCleanupDetectionResultStoreOwner(owner.ownerId);
+            expect(close).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('expires an unowned detection store after the handoff window', async () => {
+        vi.useFakeTimers();
+        try {
+            const close = vi.fn(async () => undefined);
+            const resultStore: IScanCleanupDetectionResultStore = {
+                pageCount: 1_025,
+                resultCount: 1_025,
+                append: async () => undefined,
+                replace: async () => undefined,
+                getPage: async () => undefined,
+                readRange: async () => [],
+                forEachChunk: async () => undefined,
+                close,
+            };
+            const storeId = registerScanCleanupDetectionResultStore({
+                detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
+                documentRevision: owner.documentRevision,
+                ownerId: `${owner.ownerId}-orphan`,
+                ownerKey: `${owner.ownerId}-orphan`,
+                resultStore,
+                sourcePdfPath: startRequest.sourcePdfPath,
+            });
+
+            vi.advanceTimersByTime(10 * 60 * 1000 - 1);
+            expect(isScanCleanupDetectionResultStoreRegistered(storeId)).toBe(true);
+            vi.advanceTimersByTime(1);
+            await Promise.resolve();
+            expect(isScanCleanupDetectionResultStoreRegistered(storeId)).toBe(false);
+            expect(close).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('releases run borrows after cancellation and worker failure so the same evidence can retry', async () => {
+        const close = vi.fn(async () => undefined);
+        const resultForPage = (pageNumber: number) => ({
+            pageNumber: requirePageNumber(pageNumber),
+            classification: 'single-uncut-page' as const,
+            confidence: 0.9,
+            cutterXPx: null,
+            documentPrior: null,
+            tier1Verdict: 'single-uncut-page' as const,
+            reconciled: false,
+            clusterAgreement: 0,
+        });
+        const resultStore: IScanCleanupDetectionResultStore = {
+            pageCount: 1_025,
+            resultCount: 1_025,
+            append: async () => undefined,
+            replace: async () => undefined,
+            getPage: async pageNumber => resultForPage(pageNumber),
+            readRange: async () => [],
+            forEachChunk: async onChunk => {
+                for (let pageNumber = 1; pageNumber <= 1_025; pageNumber += 1) {
+                    await onChunk([resultForPage(pageNumber)], pageNumber);
+                }
+            },
+            close,
+        };
+        const input = {
+            detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
+            documentRevision: owner.documentRevision,
+            ownerId: owner.ownerId,
+            ownerKey: owner.ownerId,
+            resultStore,
+            sourcePdfPath: startRequest.sourcePdfPath,
+        };
+        retainScanCleanupDetectionResultStoreOwner(owner.ownerId);
+        const storeId = registerScanCleanupDetectionResultStore(input);
+        const entered = Promise.withResolvers<undefined>();
+        mocks.runWorker.mockImplementationOnce(async (_request, _paths, _policy, signal) => {
+            entered.resolve(undefined);
+            await new Promise<never>((_resolve, reject) => {
+                (signal as AbortSignal).addEventListener(
+                    'abort',
+                    () => reject((signal as AbortSignal).reason),
+                    {once: true},
+                );
+            });
+            return {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                warnings: [],
+            };
+        });
+        mocks.runWorker.mockRejectedValueOnce(new Error('transient worker failure'));
+        const service = createScanCleanupService();
+        const webContents = sender();
+
+        const canceled = await service.start(webContents, {
+            ...startRequest,
+            detectionResultStoreId: storeId,
+        });
+        expect(canceled.started).toBe(true);
+        if (!canceled.started) throw new Error('Expected the first cleanup run to start');
+        await entered.promise;
+        expect(service.cancel(webContents, canceled.jobId, owner)).toBe(true);
+        await vi.waitFor(() => expect(service.getState(webContents, canceled.jobId, owner))
+            .toMatchObject({status: 'canceled'}));
+
+        const failed = await service.start(webContents, {
+            ...startRequest,
+            detectionResultStoreId: storeId,
+        });
+        expect(failed.started).toBe(true);
+        if (!failed.started) throw new Error('Expected the retry after cancellation to start');
+        await vi.waitFor(() => expect(service.getState(webContents, failed.jobId, owner))
+            .toMatchObject({status: 'failed'}));
+
+        const completed = await service.start(webContents, {
+            ...startRequest,
+            detectionResultStoreId: storeId,
+        });
+        expect(completed.started).toBe(true);
+        if (!completed.started) throw new Error('Expected the retry after worker failure to start');
+        await vi.waitFor(() => expect(service.getState(webContents, completed.jobId, owner))
+            .toMatchObject({status: 'completed'}));
+
+        expect(mocks.runWorker).toHaveBeenCalledTimes(3);
+        expect(close).not.toHaveBeenCalled();
+        await releaseScanCleanupDetectionResultStoreOwner(owner.ownerId);
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it('returns a typed unavailable result for a missing detection store', async () => {
+        const service = createScanCleanupService();
+
+        await expect(service.start(sender(), {
+            ...startRequest,
+            detectionResultStoreId: 'missing-detection-store',
+        })).resolves.toMatchObject({
+            started: false,
+            errorCode: 'detection-results-unavailable',
+        });
+    });
+
+    it('keeps owner validation as an invalid request for a registered store', async () => {
+        const close = vi.fn(async () => undefined);
+        const resultStore: IScanCleanupDetectionResultStore = {
+            pageCount: 1_025,
+            resultCount: 1_025,
+            append: async () => undefined,
+            replace: async () => undefined,
+            getPage: async () => undefined,
+            readRange: async () => [],
+            forEachChunk: async () => undefined,
+            close,
+        };
+        const input = {
+            detectionSignature: createScanCleanupDetectionSignature(startRequest.options),
+            documentRevision: owner.documentRevision,
+            ownerId: owner.ownerId,
+            ownerKey: owner.ownerId,
+            resultStore,
+            sourcePdfPath: startRequest.sourcePdfPath,
+        };
+        const storeId = registerScanCleanupDetectionResultStore(input);
+        const service = createScanCleanupService();
+
+        await expect(service.start(sender(), {
+            ...startRequest,
+            ownerId: 'different-owner',
+            detectionResultStoreId: storeId,
+        })).resolves.toMatchObject({
+            started: false,
+            errorCode: 'invalid-request',
+        });
         await releaseScanCleanupDetectionResultStores([storeId]);
         expect(close).toHaveBeenCalledOnce();
     });

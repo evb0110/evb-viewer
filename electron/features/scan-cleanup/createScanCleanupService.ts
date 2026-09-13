@@ -78,7 +78,10 @@ import {
     getScanCleanupPageOverride,
     usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
-import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {
+    claimScanCleanupDetectionResultStore,
+    isScanCleanupDetectionResultStoreRegistered,
+} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     persistScanCleanupDetectionResultStore,
     removeScanCleanupDetectionResultStoreDescriptor,
@@ -622,7 +625,9 @@ export function createScanCleanupService(
                         started: false,
                         jobId,
                         error: 'Detection results are no longer available for this document',
-                        errorCode: 'invalid-request',
+                        errorCode: isScanCleanupDetectionResultStoreRegistered(request.detectionResultStoreId)
+                            ? 'invalid-request'
+                            : 'detection-results-unavailable',
                     };
                 }
                 if (

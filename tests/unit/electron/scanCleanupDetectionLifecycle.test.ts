@@ -25,9 +25,12 @@ import {
     scenarioRasterizesOnlyThePagesRetentionNoLongerHoldsAndStillReconcilesOverTheWholeDocument,
     scenarioCancelsDetectAllThroughItsSignalAndRemovesItsScratchArtifacts,
     scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequestForTheSameOwner,
+    scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart,
     scenarioStartsFreshIdenticalDetectionAfterCancellationIsAcknowledgedButNotTerminal,
     scenarioCancelsDetectAllWhenTheOwningRendererIsDestroyed,
     scenarioDoesNotDeliverTerminalDetectionStateAfterARendererIsDestroyed,
+    scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOwnerCloses,
+    scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeated,
 } from '@tests/unit/electron/scanCleanupDetectionLifecycleScenarios';
 
 describe('scanCleanupDetectionLifecycleTest', () => {
@@ -92,6 +95,9 @@ describe('scanCleanupDetectionLifecycleTest', () => {
     it('joins identical detection work and replaces a changed request for the same owner', async () => {
         await scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequestForTheSameOwner();
     });
+    it('coalesces back-to-back identical detection requests before the first starts', async () => {
+        await scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart();
+    });
     it('starts fresh identical detection after cancellation is acknowledged but not terminal', async () => {
         await scenarioStartsFreshIdenticalDetectionAfterCancellationIsAcknowledgedButNotTerminal();
     });
@@ -100,5 +106,11 @@ describe('scanCleanupDetectionLifecycleTest', () => {
     });
     it('does not deliver terminal detection state after a renderer is destroyed', async () => {
         await scenarioDoesNotDeliverTerminalDetectionStateAfterARendererIsDestroyed();
+    });
+    it('retains borrowed completed evidence until the renderer owner closes', async () => {
+        await scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOwnerCloses();
+    });
+    it('does not release completed evidence when cancellation is repeated', async () => {
+        await scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeated();
     });
 });

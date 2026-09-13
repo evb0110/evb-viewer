@@ -99,6 +99,7 @@ interface IUseScanCleanupRunSessionOptions {
     softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
     sourcePath: ComputedRef<TDocumentRef | null>;
     totalPages: ComputedRef<number>;
+    refreshDetection: () => Promise<void>;
     waitForDetectionBeforeRun: () => Promise<void>;
 }
 
@@ -516,6 +517,27 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         const stopWait = new Promise<void>(resolve => {
             interruptPendingTransition = resolve;
         });
+        let detectionRecoveryAttempted = false;
+        const refreshDetectionOnce = async () => {
+            if (detectionRecoveryAttempted) {
+                return false;
+            }
+            detectionRecoveryAttempted = true;
+            transition.value = 'waiting-for-detection';
+            await options.refreshDetection();
+            return true;
+        };
+        const startCleanupWithDetectionRecovery = async () => {
+            let result = await startScanCleanup(buildRequest());
+            if (
+                !result.started
+                && result.errorCode === 'detection-results-unavailable'
+                && await refreshDetectionOnce()
+            ) {
+                result = await startScanCleanup(buildRequest());
+            }
+            return result;
+        };
         beginScanCleanupAttempt();
         try {
             // The detection pass is a uniform run input. A click made while it
@@ -565,25 +587,27 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
-            const hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
+            let detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
+            let hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
             if (
                 requestedPageNumbers === null
                 && runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
                 && detectionResultStoreId === null
             ) {
-                // A completed xlarge detection has no renderer-sized result
-                // map to fall back to. If its opaque handoff expired or was
-                // never published, refuse the run rather than sending a
-                // detection-free request to the worker.
-                reportScanCleanupRunError(
-                    options.ownerId,
-                    t('scanCleanup.detectAll.evidenceMissing'),
-                    requestSourcePdfPath,
-                    'internal',
-                    requestDocumentRevision,
-                );
-                return;
+                if (await refreshDetectionOnce()) {
+                    detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
+                    hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
+                }
+                if (detectionResultStoreId === null) {
+                    reportScanCleanupRunError(
+                        options.ownerId,
+                        t('scanCleanup.detectAll.evidenceMissing'),
+                        requestSourcePdfPath,
+                        'internal',
+                        requestDocumentRevision,
+                    );
+                    return;
+                }
             }
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
             if (isInkPlacementAnchorMissing()) {
@@ -662,8 +686,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 return;
             }
-            const request = buildRequest();
-            const result = await startScanCleanup(request);
+            const result = await startCleanupWithDetectionRecovery();
             if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.

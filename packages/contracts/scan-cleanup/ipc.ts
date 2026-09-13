@@ -65,6 +65,7 @@ export type TScanCleanupErrorCode =
     /** Not even one page raster fits the scratch budget. Carries scratch figures. */
     | 'insufficient-scratch'
     | 'canceled'
+    | 'detection-results-unavailable'
     | 'internal';
 
 export const SCAN_CLEANUP_ERROR_CODES = [
@@ -72,6 +73,7 @@ export const SCAN_CLEANUP_ERROR_CODES = [
     'tools-unavailable',
     'insufficient-scratch',
     'canceled',
+    'detection-results-unavailable',
     'internal',
 ] as const satisfies readonly TScanCleanupErrorCode[];
 
