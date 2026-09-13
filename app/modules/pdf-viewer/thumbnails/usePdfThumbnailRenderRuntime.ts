@@ -20,8 +20,8 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     buildThumbnailRenderTransform,
     isThumbnailRasterWidthReady,
-    resolveThumbnailRasterWidth,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+    resolveThumbnailRasterWidth, resolveBoundedRasterDimensions, 
+} from '@app/modules/document-viewer/public';
 import {
     resolvePdfThumbnailItemChromeHeight,
     resolvePdfThumbnailRenderWidth,
@@ -34,7 +34,6 @@ import {
 import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
 import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
-import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
 
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 const IMMEDIATE_RENDER_RADIUS = 2;

@@ -2,7 +2,7 @@ import {THUMBNAIL_WIDTH} from '@app/constants/pdfLayout';
 import {
     resolveThumbnailItemChromeHeightFromStyles,
     resolveThumbnailRenderWidthFromStyles,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+} from '@app/modules/document-viewer/public';
 
 export function resolvePdfThumbnailRenderWidth(container: HTMLElement) {
     const containerStyle = window.getComputedStyle(container);

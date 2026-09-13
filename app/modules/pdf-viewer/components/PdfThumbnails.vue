@@ -94,7 +94,9 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     formatPageIndicatorWithOptions,createDocumentThumbnailResizeAnchorLifecycle,
     DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
-    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS, 
+    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
+    resolveThumbnailRasterWidth,
+    roundMetric, 
 } from '@app/modules/document-viewer/public';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
@@ -106,10 +108,6 @@ import {
     resolveThumbnailVirtualPages,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
-import {
-    resolveThumbnailRasterWidth,
-    roundMetric,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
 import {
     PDF_THUMBNAIL_LOG_SECTION,
     usePdfThumbnailRenderRuntime,

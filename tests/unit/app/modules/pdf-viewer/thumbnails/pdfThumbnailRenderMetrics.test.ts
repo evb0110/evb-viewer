@@ -14,7 +14,7 @@ import {
     resolveThumbnailRenderWidthFromStyles,
     roundMetric,
     type IThumbnailStyleLike,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+} from '@app/modules/document-viewer/public';
 
 function style(values: Record<string, string>): IThumbnailStyleLike {
     return {getPropertyValue(property: string) {
