@@ -97,26 +97,49 @@ function cappedLeaseRender(widthPx: number, cap: number, release = vi.fn()) {
     };
 }
 
+interface IRenderRequest {
+    pageNumber: number;
+    signal: AbortSignal;
+}
+
 describe('createDocumentThumbnailScheduler', () => {
-    it('selects queued work without sorting the demand list', async () => {
-        const sort = vi.spyOn(Array.prototype, 'sort');
+    it('frees a slot when a render ignores its abort signal', async () => {
+        vi.useFakeTimers();
+        const schedulerHolder: {scheduler: ReturnType<typeof createDocumentThumbnailScheduler> | null} = {scheduler: null};
+        const aborted = vi.fn(() => schedulerHolder.scheduler?.reconcile([demand(2, 128)]));
+        const render = vi.fn((request: IRenderRequest) => {
+            const pageNumber = request.pageNumber;
+            const signal = request.signal;
+            signal.addEventListener('abort', aborted, {once: true});
+            return pageNumber === 1
+                ? new Promise<IDocumentSurfaceLease>(() => undefined)
+                : Promise.resolve(lease(128));
+        });
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
             onStateChange: vi.fn(),
             prepareSurface: vi.fn(async () => undefined),
-            render: vi.fn(async () => lease(128)),
+            render,
+            renderTimeoutMs: 100,
         });
+        schedulerHolder.scheduler = scheduler;
 
         scheduler.reconcile([
-            demand(3, 128, 2),
-            demand(1, 128, 0),
-            demand(2, 128, 1),
+            demand(1, 128),
+            demand(2, 128),
         ]);
-        await scheduler.whenIdle();
+        const idle = scheduler.whenIdle();
 
-        expect(sort).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(idle).resolves.toBeUndefined();
+        expect(aborted).toHaveBeenCalledOnce();
+        expect(render.mock.calls.map(([request]) => request.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+        expect(scheduler.getSnapshot().activeCount).toBe(0);
         scheduler.dispose();
-        sort.mockRestore();
+        vi.useRealTimers();
     });
 
     it('schedules navigation before nearby work and respects the concurrency limit', async () => {
@@ -143,6 +166,7 @@ describe('createDocumentThumbnailScheduler', () => {
         expect(scheduler.getSnapshot().activeCount).toBe(1);
 
         pending[0]!.resolve(lease(128));
+        await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
         expect(started[1]).toBe(13);

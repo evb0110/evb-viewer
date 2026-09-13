@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
         estimatedResidentBytes: 6.8 * 1024 * 1024 * 1024,
         childMaxOldSpaceMib: 5_939,
     })),
-    terminateProcessTree: vi.fn(async () => true),
+    terminateProcessTree: vi.fn(async (_pid: number, _options: {isTargetAlive?: () => boolean}) => true),
 }));
 
 vi.mock('electron', () => ({utilityProcess: {fork: mocks.fork}}));
@@ -173,6 +173,20 @@ describe('buildPrintablePdfPath', () => {
 
         await expect(result).rejects.toThrow('print canceled');
         expect(mocks.release).toHaveBeenCalledOnce();
+    });
+
+    it('does not treat an exited utility process as a live termination target', async () => {
+        const child = createChild();
+        mocks.fork.mockReturnValue(child);
+        const result = build();
+        await waitForFork();
+
+        child.emit('exit', null);
+
+        await expect(result).rejects.toThrow('Close other documents');
+        const options = mocks.terminateProcessTree.mock.calls[0]?.[1];
+        expect(options?.isTargetAlive).toBeTypeOf('function');
+        expect(options?.isTargetAlive?.()).toBe(false);
     });
 
     it('releases the broker lease after the layout timeout', async () => {

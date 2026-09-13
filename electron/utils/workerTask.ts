@@ -550,6 +550,7 @@ function attachWorkerHandlers<T>({
                 new Error(`Worker task timed out after ${inactivityTimeoutMs}ms without progress`),
             );
         }, inactivityTimeoutMs);
+        inactivityTimeout.unref();
     };
 
     options.signal?.addEventListener('abort', handleAbort, { once: true });
@@ -559,6 +560,7 @@ function attachWorkerHandlers<T>({
         timeout = setTimeout(() => {
             requestCancel('timeout', new Error(`Worker task timed out after ${timeoutMs}ms`));
         }, timeoutMs);
+        timeout.unref();
     }
     restartInactivityTimeout();
 

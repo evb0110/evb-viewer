@@ -355,8 +355,6 @@ function flushState(logFile: string, state: IFileLogState) {
 
             await appendFile(logFile, payload, 'utf8');
             state.approximateBytes += payloadBytes;
-
-            await pruneLogDirectory();
         })
         .catch(() => {
             // Avoid throwing from logger writes.
@@ -364,6 +362,9 @@ function flushState(logFile: string, state: IFileLogState) {
         .finally(() => {
             state.pendingWrites = Math.max(0, state.pendingWrites - bufferedLines.length);
         });
+    void state.queue.then(() => {
+        void pruneLogDirectory().catch(() => undefined);
+    });
 
     return state.queue;
 }

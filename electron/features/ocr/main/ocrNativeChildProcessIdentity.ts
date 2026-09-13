@@ -201,7 +201,12 @@ export function createOcrNativeChildTerminationController(): IOcrNativeChildTerm
             return false;
         }
 
-        const before = await readOcrNativeChildProcessIdentity(record.pid);
+        const pid = record.pid;
+        const matchesProcessIdentity = () => {
+            const current = readOcrNativeChildProcessIdentityAtSpawn(pid);
+            return current?.kind === processIdentity.kind && current.value === processIdentity.value;
+        };
+        const before = await readOcrNativeChildProcessIdentity(pid);
         if (
             before === null
                 || before.kind !== processIdentity.kind
@@ -210,8 +215,9 @@ export function createOcrNativeChildTerminationController(): IOcrNativeChildTerm
             return false;
         }
 
-        const terminated = await terminateProcessTree(record.pid, {
+        const terminated = await terminateProcessTree(pid, {
             graceMs: OCR_NATIVE_CHILD_KILL_GRACE_MS,
+            isTargetAlive: matchesProcessIdentity,
             platform: process.platform,
             preferProcessGroup: shouldUseDetachedProcessGroup(),
         });
@@ -221,7 +227,7 @@ export function createOcrNativeChildTerminationController(): IOcrNativeChildTerm
 
         // A successful signal request is not enough. Re-read the identity
         // so a reused PID, or a still-running child, fails closed.
-        const after = await readOcrNativeChildProcessIdentity(record.pid);
+        const after = await readOcrNativeChildProcessIdentity(pid);
         return after === null;
     }};
 }
