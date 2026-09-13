@@ -1,0 +1,21 @@
+scripts/architecture/boundary-check.mjs
+  s_6415595a992fb7::t_f8e921efb6b4ea 275,312,575,675,875,898,954
+scripts/diagnostics/pdfNavigationBlinkTrace.ts
+  s_6415595a992fb7::t_f70e9cfb4c3ae3 11,437,447,1438
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1845bf16441853fb8863e1bb1cc48b242bb79e0b",
+  "prompts": {},
+  "sessions": {
+    "s_6415595a992fb7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e668-7da3-86ae-e2e60906c988",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
