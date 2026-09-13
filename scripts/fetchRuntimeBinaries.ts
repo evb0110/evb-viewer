@@ -1,8 +1,8 @@
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {createReadStream} from 'node:fs';
 import {
     mkdir,
+    open,
     rename,
     rm,
 } from 'node:fs/promises';
@@ -64,10 +64,11 @@ function archiveUrlForTransport(url: string, env: NodeJS.ProcessEnv) {
     return new URL(fileName, base.href.endsWith('/') ? base.href : `${base.href}/`).href;
 }
 
-function runtimeArchiveTransport(url: string, env: NodeJS.ProcessEnv) {
+async function runtimeArchiveTransport(url: string, env: NodeJS.ProcessEnv) {
     const mappedUrl = archiveUrlForTransport(url, env);
     if (mappedUrl.startsWith('file:')) {
-        return createReadStream(fileURLToPath(mappedUrl));
+        const handle = await open(fileURLToPath(mappedUrl));
+        return handle.createReadStream();
     }
     return fetchRuntimeBinaryArchiveResponseBody(mappedUrl);
 }
