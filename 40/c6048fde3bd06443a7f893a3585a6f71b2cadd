@@ -1,0 +1,26 @@
+docs/contributing/ci.md
+  s_ebe20004c040b0::t_091a19439eb36b 1-30,51-273
+  s_ebe20004c040b0::t_2603e4c2b996a0 31-50
+docs/contributing/local-gates.md
+  s_ebe20004c040b0::t_091a19439eb36b 64
+.github/workflows/process-safety-platform.yml
+  s_ebe20004c040b0::t_c3325a4ace31d1 40-41,63-64,85-86,114-115
+.github/workflows/perf-lane.yml
+  s_ebe20004c040b0::t_c3325a4ace31d1 33-34,65-66,151-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "40c6048fde3bd06443a7f893a3585a6f71b2cadd",
+  "prompts": {},
+  "sessions": {
+    "s_ebe20004c040b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099e8-0c88-74d1-b027-55a33c9d168a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
