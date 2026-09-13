@@ -519,6 +519,27 @@ async function removeInvalidModelIfPresent(languageCode: string, modelPath: stri
     return verifyInstalledLanguageModel(languageCode, modelPath);
 }
 
+async function ensureTessdataInventoryReadable(runtimeDir: string) {
+    try {
+        statSync(runtimeDir);
+    } catch (error) {
+        if (getErrorCode(error) === 'ENOENT') {
+            return;
+        }
+        throw new Error(
+            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
+        );
+    }
+
+    try {
+        await readdir(runtimeDir);
+    } catch (error) {
+        throw new Error(
+            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
+        );
+    }
+}
+
 async function verifyInstalledLanguageModel(
     languageCode: string,
     modelPath: string,
@@ -1099,6 +1120,7 @@ export async function ensureTessdataLanguages(
 export async function getOcrLanguageModelStates() {
     await ensureRuntimeTessdataSeeded();
     const runtimeDir = getRuntimeTessdataDir();
+    await ensureTessdataInventoryReadable(runtimeDir);
     return Promise.all(Array.from(AVAILABLE_OCR_LANGUAGE_CODES, async languageCode => ({
         code: languageCode,
         state: inFlightDownloads.has(languageCode)
