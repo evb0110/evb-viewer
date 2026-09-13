@@ -198,7 +198,32 @@ describe('guest PowerShell script files', () => {
         expect(command).toContain('C:\\EVBViewerTests');
         expect(command).toContain('autostart-marker.json');
         expect(command).toContain('guestWorker.cjs');
-        expect(policy).toContain('0CmdLine=evb-worker.cmd');
+        expect(policy).toContain('0CmdLine=system-bootstrap-worker.cmd');
+    });
+
+    it('keeps SYSTEM startup setup separate from the standard-user worker task', async () => {
+        const bootstrap = await readFile(path.join(scriptsDirectory, '..', 'system-bootstrap-worker.cmd'), 'utf8');
+        const launcher = await readFile(path.join(scriptsDirectory, '..', 'start-worker.cmd'), 'utf8');
+        const installer = await readFile(path.join(scriptsDirectory, '..', 'install-system-bootstrap.cmd'), 'utf8');
+        const policy = await readFile(path.join(scriptsDirectory, '..', 'machine-startup-scripts.ini'), 'utf8');
+        expect(policy).toContain('0CmdLine=system-bootstrap-worker.cmd');
+        expect(bootstrap).toContain('net user EVBTester');
+        expect(bootstrap).toContain('DefaultDomainName');
+        expect(bootstrap).toContain('DisableLockWorkstation');
+        expect(bootstrap).toContain('/sc onlogon');
+        expect(bootstrap).toContain('/ru EVBTester');
+        expect(bootstrap).toContain('/it');
+        expect(bootstrap).toContain('cmd.exe /c C:\\EVBViewerTests\\worker\\start-worker.cmd');
+        expect(bootstrap).toContain('system-bootstrap.marker');
+        expect(bootstrap).toContain('call :record');
+        expect(launcher).toContain('task-marker.json');
+        expect(launcher).toContain('worker-launch-marker.txt');
+        expect(launcher).toContain('EVBTester');
+        expect(launcher).toContain('guestWorker.cjs');
+        expect(installer).toContain('GroupPolicy\\Machine\\Scripts\\Startup');
+        expect(installer).toContain('/ru SYSTEM');
+        expect(installer).toContain('installer-start.marker');
+        expect(installer).toContain('schtasks.exe /run');
     });
 
     it('registers a hidden PowerShell startup action with the worker paths and account', () => {

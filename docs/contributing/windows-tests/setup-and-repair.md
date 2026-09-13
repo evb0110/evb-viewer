@@ -358,6 +358,56 @@ but every guest-created marker remained absent. The clone was stopped and
 deleted only after these checks. The worker heartbeat and WIN-SAVE measurements
 remain unqualified.
 
+#### SYSTEM startup recovery
+
+When the guest agent is absent after a reboot, stage the worker archive, its
+map, the account secret, `system-bootstrap-worker.cmd`, `start-worker.cmd`,
+`install-system-bootstrap.cmd`, and `machine-startup-scripts.ini` with
+`pnpm windows:test:provision --plan /absolute/path/to/.devkit/plan.json`.
+The plan must name the exact owned clone and include the before-boot UTM
+inventory. Set `timeoutMs` in the local plan to at least `60000` when the
+Node archive is being staged.
+
+The all-users Startup installer creates the Group Policy Machine Startup
+directory when a copied image lacks it. It registers the real bootstrap as a
+SYSTEM startup task and runs that task. The SYSTEM script writes
+`state/system-bootstrap.marker`, recording the exit code of account creation,
+group membership, Winlogon settings, lock policy, launcher copy, task
+registration, Node extraction, worker copies, and marker creation. It never
+writes the password to evidence. The standard-user task invokes
+`start-worker.cmd`, which writes `state/task-marker.json` and then starts the
+worker. A marker proves only that its stage ran. `state/heartbeat.json` is
+still required for worker readiness.
+
+After each reboot, use the bounded file-pull readiness check. If the agent is
+not available, native UTM scan-code input may wake and sign in to the clone;
+do not call the input event a success. Pull the SYSTEM marker, task marker,
+worker-launch marker, and heartbeat. Empty files and stale files copied from
+the source image are failures. Keep the clone for another repair iteration
+when the SYSTEM marker identifies a fixable command error. If the agent does
+not return after the bounded recovery and native-input attempts, record the
+guest error and leave the WIN-SAVE cases unqualified.
+
+#### Sixth live qualification gap recorded 2026-09-13
+
+The SYSTEM startup route was run on one retained clone. The first SYSTEM
+marker was non-empty and recorded successful account creation, Winlogon
+AutoAdminLogon, default credentials and domain, lock-workstation policy,
+worker launcher copy, and on-logon task creation. The source image did not
+contain the Group Policy Startup directory, so the reusable Startup installer
+created it and registered the SYSTEM task.
+
+After reboot, the guest agent stopped responding. Native focus, wake,
+secure-attention, credential, and scan-code Windows-key recovery attempts were
+made on the same clone. A later bounded pull restored the agent, but the task
+marker was a stale NUL-filled file from the source image, not a fresh task
+result. The repaired `cmd.exe /c` task action and a second reboot produced no
+fresh installer marker, worker-launch marker, or heartbeat. The final native
+input retry also produced no fresh marker. Therefore the worker never became
+ready and no WIN-SAVE measurement was run. Screen Recording was not used;
+window inspection was separately blocked by missing macOS Accessibility
+consent.
+
 #### Fifth live qualification gap recorded 2026-09-13
 
 The no-input autostart payload was pushed into the user Startup and Group

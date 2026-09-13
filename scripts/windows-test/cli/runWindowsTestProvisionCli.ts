@@ -33,6 +33,7 @@ function parsePlan(value: unknown) {
         beforeVmIds: string[];
         steps: Array<Record<string, unknown>>;
         waitForWorker?: boolean;
+        timeoutMs?: number;
     };
 }
 
@@ -82,6 +83,7 @@ export async function runWindowsTestProvisionCli(argv: readonly string[]) {
                 vmId: plan.vmId,
                 bundlePath: plan.bundlePath,
             },
+            ...(plan.timeoutMs === undefined ? {} : { timeoutMs: plan.timeoutMs }),
         });
         for (const [
             index,

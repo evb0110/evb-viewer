@@ -56,6 +56,16 @@ without changing its bytes; doctor must reject a missing or stale copy. Read
 [the transport investigation](../research/utm-windows-live-transport-2026-09-05.md)
 when diagnosing Dock activity, false zero exits, or VM lookup failures.
 
+For a copied image whose Group Policy Startup directory is absent, use the
+SYSTEM route in the setup and repair guide. Stage the checked-in
+`install-system-bootstrap.cmd`, `system-bootstrap-worker.cmd`,
+`start-worker.cmd`, worker bundle, Node archive, account secret, and startup
+INI through the guarded provision CLI. The installer creates the missing
+directory and runs the account and on-logon setup as SYSTEM. Pull the SYSTEM,
+task, launch, and heartbeat markers after every reboot. A marker or a task
+registration is not worker readiness. The guide records the current live gap,
+including the case where the guest agent does not return after reboot.
+
 Keep one UTM app instance running before invoking doctor, run, or stop. The
 runner checks its executable, PID, and start time before Apple Events commands
 and refuses a missing or replaced process. It does not reopen UTM after a
