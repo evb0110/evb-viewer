@@ -12,7 +12,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { isVmUuid } from '@scripts/windows-test/contracts/windowsTestContracts';
+import {
+    isVmUuid,
+    windowsTestDefaultDeadlines,
+} from '@scripts/windows-test/contracts/windowsTestContracts';
 import {
     resolveWindowsTestDataRoot,
     windowsTestGuestLayout,
@@ -384,7 +387,7 @@ export interface IUtmctlClient {
     pullFile(vmId: string, guestPath: string, hostPath: string, options?: {timeoutMs?: number;}): Promise<void>;
 }
 
-const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = windowsTestDefaultDeadlines.guestTransportSeconds * 1_000;
 const DEFAULT_GUEST_EXEC_POLL_INTERVAL_MS = 2_000;
 const GUEST_EXEC_DEADLINE_HEADROOM_MS = 2_000;
 const WINDOWS_POWERSHELL_EXECUTABLE = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
