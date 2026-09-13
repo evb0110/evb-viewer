@@ -1124,6 +1124,7 @@ export default {
             one: '{count} fichier non pris en charge a été ignoré.',
             other: '{count} fichiers non pris en charge ont été ignorés.',
         }),
+        'discardPending': 'Ignorer le résultat en attente',
     },
     'noteWindow': {
         'popUpNote': 'Page {page}',
@@ -1576,6 +1577,7 @@ export default {
         'export': {
             'images': 'Échec de l’export des images',
             'multiPageTiff': 'Échec de l’export TIFF',
+            'alreadyRunning': 'Un export est déjà en cours',
         },
         'browser': {
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',

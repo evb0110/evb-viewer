@@ -1123,6 +1123,7 @@ export default {
             one: 'Se omitió {count} archivo no compatible.',
             other: 'Se omitieron {count} archivos no compatibles.',
         }),
+        'discardPending': 'Descartar resultado pendiente',
     },
     'noteWindow': {
         'popUpNote': 'Página {page}',
@@ -1565,6 +1566,7 @@ export default {
         'export': {
             'images': 'No se pudieron exportar las imágenes',
             'multiPageTiff': 'No se pudo exportar el TIFF',
+            'alreadyRunning': 'Ya hay una exportación en curso',
         },
         'browser': {
             'filePickerSetupDenied': 'Se denegó el acceso del navegador a los archivos. Vuelve a elegir Abrir para usar el selector compatible.',

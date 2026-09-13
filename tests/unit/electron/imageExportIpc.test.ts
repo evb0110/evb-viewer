@@ -329,9 +329,71 @@ describe('image export IPC lifecycle', () => {
                 pageNumbers: [2],
                 format: 'jpeg',
                 signal: expect.any(AbortSignal),
+                beforePublish: expect.any(Function),
             }),
         );
         expect(mocks.exportPdfPagesAsImages).not.toHaveBeenCalled();
+    });
+
+    it('routes DjVu TIFF export through the freshness-checked source provider', async () => {
+        const sender = createSender();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export.tiff',
+        });
+
+        await expect(handlePdfExportMultiPageTiff(
+            createContext(sender),
+            '/tmp/working.djvu',
+            [2],
+            'djvu-tiff-export-request',
+            'djvu',
+        )).resolves.toMatchObject({
+            success: true,
+            outputPaths: ['/tmp/export.tiff'],
+        });
+
+        expect(mocks.exportDjvuAsMultiPageTiff).toHaveBeenCalledWith(
+            '/tmp/working.djvu',
+            '/tmp/export.tiff',
+            expect.objectContaining({
+                pageNumbers: [2],
+                signal: expect.any(AbortSignal),
+                beforePublish: expect.any(Function),
+            }),
+        );
+    });
+
+    it('rejects a DjVu image export when its original changes before promotion', async () => {
+        const sender = createSender();
+        mocks.backingState = 'lazy-original';
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockReset()
+            .mockResolvedValueOnce({
+                mtimeNs: 2n,
+                size: 1024n,
+            })
+            .mockResolvedValueOnce({
+                mtimeNs: 3n,
+                size: 1024n,
+            });
+        mocks.exportDjvuPagesAsImages.mockImplementationOnce(async (
+            _sourcePath: string,
+            _outputPath: string,
+            options: ITestProgressOptions & {beforePublish?: () => Promise<void>},
+        ) => {
+            await options.beforePublish?.();
+            return ['/tmp/export.jpg'];
+        });
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.djvu',
+            [2],
+            'djvu-source-changed',
+            'djvu',
+        )).rejects.toThrow('The original document changed while it was being read');
+        expect(mocks.exportDjvuPagesAsImages).toHaveBeenCalledOnce();
     });
 
     it.each([

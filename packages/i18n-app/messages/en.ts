@@ -1123,6 +1123,7 @@ export default {
             one: '{count} unsupported file was skipped.',
             other: '{count} unsupported files were skipped.',
         }),
+        'discardPending': 'Discard pending result',
     },
     'noteWindow': {
         'popUpNote': 'Page {page}',
@@ -1565,6 +1566,7 @@ export default {
         'export': {
             'images': 'Failed to export images',
             'multiPageTiff': 'Failed to export TIFF',
+            'alreadyRunning': 'An export is already running',
         },
         'browser': {
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
