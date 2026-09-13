@@ -142,6 +142,7 @@ function createOcrMock() {
     const cancelOcr = vi.fn<() => Promise<IOcrCancelResult>>(async () => ({canceled: true}));
     return {
         availableLanguages: languages,
+        languageLoadState: ref<'idle' | 'loading' | 'ready' | 'error'>('ready'),
         settings,
         activeRunSettings,
         lastCompletedRunSettings,
@@ -535,6 +536,13 @@ describe('useOcrPopupPresenter', () => {
 
         try {
             expect(harness.ocr.settings.value.supersessionPolicy).toBe('missing-only');
+            expect(harness.presenter.supersessionChoiceModel.value).toBe('missing-only');
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+
+            harness.presenter.supersessionChoiceModel.value = 'repeat';
+            await nextTick();
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('replace-evb');
+            expect(harness.presenter.replaceOnlyEvbModel.value).toBe(true);
             expect(harness.presenter.canRunOcr.value).toBe(true);
 
             harness.ocr.settings.value = {
@@ -572,6 +580,20 @@ describe('useOcrPopupPresenter', () => {
             };
             await nextTick();
             expect(harness.ocr.settings.value.replaceAllAcknowledged).toBe(false);
+
+            harness.presenter.replaceOnlyEvbModel.value = false;
+            await nextTick();
+            expect(harness.ocr.settings.value).toMatchObject({
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: false,
+            });
+
+            harness.presenter.supersessionChoiceModel.value = 'missing-only';
+            await nextTick();
+            expect(harness.ocr.settings.value).toMatchObject({
+                supersessionPolicy: 'missing-only',
+                replaceAllAcknowledged: false,
+            });
         } finally {
             stopHarness(harness.scope);
         }
