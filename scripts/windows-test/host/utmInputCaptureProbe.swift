@@ -12,11 +12,24 @@ enum ProbeError: Error {
 
 struct ProbeResult: Codable {
     let windowTitle: String
+    let windowAvailable: Bool
     let before: Int
     let after: Int
     let frontmostPid: Int32
     let utmPid: Int32
     let action: String
+}
+
+func onScreenWindowCount(for pid: pid_t) -> Int? {
+    guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+    return rawWindows.reduce(into: 0) { count, window in
+        if let ownerPid = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue,
+           ownerPid == Int(pid) {
+            count += 1
+        }
+    }
 }
 
 func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
@@ -133,6 +146,25 @@ guard applications.count == 1, let application = applications.first else {
 
 let pid = application.processIdentifier
 let axApplication = AXUIElementCreateApplication(pid)
+guard let onScreenWindows = onScreenWindowCount(for: pid) else {
+    throw ProbeError.targetWindowUnavailable("UTM window enumeration was unavailable")
+}
+if onScreenWindows == 0 {
+    let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+    let output = ProbeResult(
+        windowTitle: arguments.title,
+        windowAvailable: false,
+        before: 0,
+        after: 0,
+        frontmostPid: frontmostPid,
+        utmPid: pid,
+        action: arguments.action,
+    )
+    let encoded = try JSONEncoder().encode(output)
+    FileHandle.standardOutput.write(encoded)
+    FileHandle.standardOutput.write(Data([10]))
+    exit(EXIT_SUCCESS)
+}
 guard let window = findWindow(axApplication, title: arguments.title) else {
     throw ProbeError.targetWindowUnavailable(arguments.title)
 }
@@ -167,6 +199,7 @@ if arguments.action == "release" || arguments.action == "restore" {
 }
 let output = ProbeResult(
     windowTitle: arguments.title,
+    windowAvailable: true,
     before: before,
     after: after,
     frontmostPid: restoredFrontmostPid,

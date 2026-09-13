@@ -81,8 +81,21 @@ function fakeRunner(results: Array<Record<string, unknown>>): {
 function probeResult(action: 'release' | 'restore', after = 0, windowTitle = CLONE_NAME) {
     return {
         windowTitle,
+        windowAvailable: true,
         before: action === 'release' && after === 0 ? 1 : after,
         after,
+        frontmostPid: 101,
+        utmPid: 202,
+        action,
+    };
+}
+
+function noWindowProbeResult(action: 'release' | 'restore', windowTitle = CLONE_NAME) {
+    return {
+        windowTitle,
+        windowAvailable: false,
+        before: 0,
+        after: 0,
         frontmostPid: 101,
         utmPid: 202,
         action,
@@ -92,6 +105,7 @@ function probeResult(action: 'release' | 'restore', after = 0, windowTitle = CLO
 function focusedProbeResult(action: 'release' | 'restore', windowTitle = CLONE_NAME) {
     return {
         windowTitle,
+        windowAvailable: true,
         before: 0,
         after: 0,
         frontmostPid: 202,
@@ -101,6 +115,19 @@ function focusedProbeResult(action: 'release' | 'restore', windowTitle = CLONE_N
 }
 
 describe('UTM input-capture guard', () => {
+    it('accepts a verified absence of an on-screen UTM window', async () => {
+        const fake = fakeRunner([noWindowProbeResult('release')]);
+        const guard = createUtmInputCaptureGuard({
+            runner: fake.runner,
+            utmctl: fakeUtmctl(),
+            probeExecutablePath: '/tmp/utm-input-capture-probe',
+        });
+
+        await expect(guard.ensureReleased(GOLDEN_VM_ID)).resolves.toMatchObject({
+            windowAvailable: false,
+            after: 0,
+        });
+    });
     it('releases capture with the supported chord and records launch and cleanup evidence', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-utm-input-capture-'));
         roots.push(root);
@@ -235,6 +262,8 @@ describe('UTM input-capture guard', () => {
         expect(source).toContain('let optionKey: CGKeyCode = 58');
         expect(source).toContain('arguments.action == "release" || arguments.action == "restore"');
         expect(source).toContain('hideApplication(pid)');
+        expect(source).toContain('CGWindowListCopyWindowInfo');
+        expect(source).toContain('windowAvailable: false');
         expect(source).not.toContain('AXPress');
     });
 });

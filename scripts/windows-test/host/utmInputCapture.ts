@@ -19,6 +19,7 @@ const RUN_ID_PATTERN = /^evb-win-test-(\d{8}T\d{6}Z-[a-f0-9]{12})$/u;
 
 export interface IUtmInputCaptureProbeResult {
     windowTitle: string;
+    windowAvailable: boolean;
     before: number;
     after: number;
     frontmostPid: number;
@@ -53,6 +54,7 @@ function parseProbeResult(text: string): IUtmInputCaptureProbeResult {
     }
     const record = parsed as Record<string, unknown>;
     if (typeof record.windowTitle !== 'string'
+        || typeof record.windowAvailable !== 'boolean'
         || typeof record.before !== 'number'
         || typeof record.after !== 'number'
         || typeof record.frontmostPid !== 'number'
@@ -62,6 +64,7 @@ function parseProbeResult(text: string): IUtmInputCaptureProbeResult {
     }
     return {
         windowTitle: record.windowTitle,
+        windowAvailable: record.windowAvailable,
         before: record.before,
         after: record.after,
         frontmostPid: record.frontmostPid,
@@ -150,6 +153,7 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
                 schemaVersion: 1,
                 phase,
                 windowTitle: result.windowTitle,
+                windowAvailable: result.windowAvailable,
                 before: result.before,
                 after: result.after,
                 frontmostPid: result.frontmostPid,
@@ -167,6 +171,10 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         const runIdMatch = RUN_ID_PATTERN.exec(windowTitle);
         activeRunId = runIdMatch?.[1] ?? null;
         const result = await runProbe(windowTitle, 'release');
+        if (!result.windowAvailable) {
+            await record('launch', result);
+            return result;
+        }
         if (result.after !== 0) {
             throw new Error(`UTM Capture Input remained enabled for ${windowTitle} after the Command+Option release chord.`);
         }
@@ -188,6 +196,10 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         }
         try {
             const result = await runProbe(activeWindowTitle, 'restore');
+            if (!result.windowAvailable) {
+                await record('cleanup', result);
+                return;
+            }
             if (result.after !== 0) {
                 throw new Error(`UTM Capture Input remained enabled for ${activeWindowTitle} during cleanup.`);
             }
