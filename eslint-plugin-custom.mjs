@@ -1087,7 +1087,7 @@ export default {rules: {
         create(context) {
             const repoPath = toRepoPath(context.physicalFilename ?? context.filename);
             const guarded = [
-                'app/utils/document-viewer/viewport/',
+                'app/modules/document-viewer/viewport/',
                 'app/modules/pdf-viewer/runtime/page-slots/',
                 'app/modules/pdf-viewer/runtime/viewport/',
             ].some(root => repoPath.startsWith(root));

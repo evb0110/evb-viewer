@@ -13,15 +13,15 @@ import {
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 import type {
     IDocumentPageSource,
-    IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+    IDocumentRenderLease,
+} from '@app/modules/document-viewer/public';
+import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { createDocumentPageSlotRegistry } from '@app/utils/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
 
 function createCurrentTargetEvent(target: EventTarget): Event {
     const event = new Event('load');
@@ -64,7 +64,7 @@ function createPresentationHarness() {
     const oldRelease = vi.fn();
     const oldUnsubscribeInvalidation = vi.fn();
     let invalidateOldLease = () => {};
-    const oldLease: IDocumentSurfaceLease = {
+    const oldLease: IDocumentRenderLease = {
         bytes: 40_000,
         heightPx: 100,
         onInvalidated(listener) {
@@ -75,8 +75,8 @@ function createPresentationHarness() {
         surface: 'old-surface',
         widthPx: 100,
     };
-    let resolveReplacement!: (lease: IDocumentSurfaceLease) => void;
-    const replacement = new Promise<IDocumentSurfaceLease>((resolve) => {
+    let resolveReplacement!: (lease: IDocumentRenderLease) => void;
+    const replacement = new Promise<IDocumentRenderLease>((resolve) => {
         resolveReplacement = resolve;
     });
     const source: IDocumentPageSource = {
@@ -211,7 +211,7 @@ describe('document page-source presentation lifecycle', () => {
         expect(harness.oldRelease).not.toHaveBeenCalled();
         expect(harness.presentation.pageStates.get(1)?.lease?.surface).toBe(harness.oldLease.surface);
 
-        const replacementLease: IDocumentSurfaceLease = {
+        const replacementLease: IDocumentRenderLease = {
             bytes: 160_000,
             heightPx: 200,
             release: vi.fn(),
@@ -270,7 +270,7 @@ describe('document page-source presentation lifecycle', () => {
         }));
         const replacementUnsubscribe = vi.fn();
         const replacementRelease = vi.fn();
-        const replacementLease: IDocumentSurfaceLease = {
+        const replacementLease: IDocumentRenderLease = {
             bytes: 360_000,
             heightPx: 300,
             onInvalidated: vi.fn(() => {

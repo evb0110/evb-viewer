@@ -13,8 +13,9 @@ import type {
     IWorkspaceViewerLifecycleHooks,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
-import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/documentSession';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type {
+    TPdfProjectionReason, IDocumentOpenSurfaceSession,  
+} from '@app/modules/document-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';

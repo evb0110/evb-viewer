@@ -6,7 +6,7 @@ import {
     DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
     DocumentThumbnailLayout,
     type IDocumentThumbnailLayoutAnchor,
-} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+} from '@app/modules/document-viewer/public';
 
 interface IUsePdfThumbnailVirtualLayoutOptions {
     captureAnchor: () => IDocumentThumbnailLayoutAnchor | null;

@@ -30,15 +30,14 @@ import type {
     TPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
 import {
-    createDocumentSession,
+    createDocumentProjectionSession,
     ensurePdfProjection,
-    type IDocumentSession,
+    type IDocumentOpenSurfaceSession,
+    type IDocumentPageSource,
+    type IDocumentProjectionSession,
+    type IDocumentSourceCapabilities,
     type TPdfProjectionReason,
-} from '@app/utils/document-viewer/session/documentSession';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
+} from '@app/modules/document-viewer/public';
 import {
     normalizePdfRasterSourcePagePixels,
     registerPdfRasterDisplayProfile,
@@ -55,7 +54,6 @@ import {
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { cacheTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache';
 import {
     getDocumentFilesCapability,
@@ -233,7 +231,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     let conversionGeneration = 0;
     let activeConversionGeneration: number | null = null;
     let isUnmounted = false;
-    let activeProjectionSession: IDocumentSession | null = null;
+    let activeProjectionSession: IDocumentProjectionSession | null = null;
 
     function logSuppressedError(action: string, error: unknown) {
         BrowserLogger.warn('djvu', action, error);
@@ -598,7 +596,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             sourceSizeBytes.value = typeof sourceInfo?.sourceSize === 'number'
                 ? sourceInfo.sourceSize
                 : null;
-            activeProjectionSession = createDocumentSession({
+            activeProjectionSession = createDocumentProjectionSession({
                 id: `djvu:${String(djvuPath)}`,
                 originalRef: djvuPath,
                 source: createProjectionSourceIdentity('djvu', djvuPath),
@@ -827,7 +825,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         }
         const session = activeProjectionSession?.originalRef === sourcePath
             ? activeProjectionSession
-            : createDocumentSession({
+            : createDocumentProjectionSession({
                 id: `djvu:${String(sourcePath)}`,
                 originalRef: sourcePath,
                 source: createProjectionSourceIdentity('djvu', sourcePath),

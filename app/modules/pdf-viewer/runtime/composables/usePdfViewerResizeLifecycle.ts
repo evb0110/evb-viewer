@@ -10,7 +10,7 @@ import type {
     IResizeAnchorContext,
     summarizeViewerMetrics,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 import type {
     IPdfViewerTransaction,
     IPdfViewerTransactionCancellation,

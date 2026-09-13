@@ -16,13 +16,13 @@ import {
     canRestoreNativePdfViewportLayout,
     createNativePdfRestoreEpoch,
 } from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
-import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
-import type { IDocumentZoomPageLayout } from '@app/utils/document-viewer/zoomAnchor';
+import { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
+import type { IDocumentZoomPageLayout } from '@app/modules/document-viewer/zoomAnchor';
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
     resolveDocumentViewportPageNumbers,
-} from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
+} from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 
 interface INativePdfTestPageLayout extends IDocumentZoomPageLayout {
     readonly height: number;

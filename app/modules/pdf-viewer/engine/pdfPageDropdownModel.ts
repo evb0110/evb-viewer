@@ -3,7 +3,7 @@ import { stepBySpread } from '@app/utils/pdfViewMode';
 import {
     getVisiblePageLabel,
     type TDocumentPageLabelLookup,
-} from '@app/utils/document-viewer/pageLabels';
+} from '@app/modules/document-viewer/public';
 
 export interface IPdfPageDropdownDisplayPageOptions {
     currentPage: number;

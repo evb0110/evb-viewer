@@ -13,7 +13,7 @@ import type { Ref } from 'vue';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
-import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/utils/document-viewer/pageLabels';
+import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/modules/document-viewer/pageLabels';
 import { cast } from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 

@@ -71,9 +71,10 @@
 
 <script setup lang="ts">
 import type {ComponentPublicInstance} from 'vue';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
-import type {IDocumentThumbnailListEmits} from '@app/utils/document-viewer/thumbnails/documentThumbnailListEmits';
-import {useDocumentThumbnailController} from '@app/utils/document-viewer/thumbnails/useDocumentThumbnailController';
+import type {
+    IDocumentPageSource,IDocumentThumbnailListEmits,
+} from '@app/modules/document-viewer/public';
+import {useDocumentThumbnailController} from '@app/modules/document-viewer/public';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
 

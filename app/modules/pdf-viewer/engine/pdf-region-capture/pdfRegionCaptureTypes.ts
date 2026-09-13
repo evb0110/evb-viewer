@@ -1,4 +1,4 @@
-import type { IClientRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
+import type { IClientRect } from '@app/modules/document-viewer/public';
 
 export interface ICanvasSource {
     canvas: HTMLCanvasElement;

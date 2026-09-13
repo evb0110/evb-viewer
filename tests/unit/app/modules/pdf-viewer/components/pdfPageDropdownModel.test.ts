@@ -9,7 +9,7 @@ import {
     resolvePdfPageDropdownDisplayPage,
     stepPdfPageDropdownCommand,
 } from '@app/modules/pdf-viewer/engine/pdfPageDropdownModel';
-import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+import { createPageLabelModel } from '@app/modules/document-viewer/pageLabels';
 
 function createPageLabels() {
     return Array.from({length: 584}, (_, index) => {

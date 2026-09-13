@@ -1,4 +1,4 @@
-import type { IClientPoint } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
+import type { IClientPoint } from '@app/modules/document-viewer/public';
 import { hasActiveSelectionDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/hasActiveSelectionDrag';
 import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
 import { toClientPoint } from '@app/modules/pdf-viewer/engine/pdf-region-drag/toClientPoint';

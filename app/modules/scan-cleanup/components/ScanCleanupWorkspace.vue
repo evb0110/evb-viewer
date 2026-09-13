@@ -210,7 +210,7 @@ import {
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPageLayout,
 } from '@contracts/scanCleanupPageOverrides';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/public';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';

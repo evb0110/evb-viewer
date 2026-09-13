@@ -432,7 +432,7 @@ import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
@@ -444,7 +444,7 @@ import type {
 import {
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/public';
 import {
     createDocumentWorkspaceCommandBindings,
     type IDocumentWorkspaceEmits,

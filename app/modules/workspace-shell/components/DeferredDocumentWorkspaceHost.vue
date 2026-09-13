@@ -128,8 +128,8 @@ import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
     shouldPresentDocumentOpenEmptyPlaceholder,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
+} from '@app/modules/document-viewer/public';
+import type { IDocumentOpeningPageFrame } from '@app/modules/document-viewer/public';
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
 import { isRecentOpenCommandEligible } from '@app/modules/workspace-shell/host/isRecentOpenCommandEligible';
 import { getErrorMessage } from '@app/utils/error';
@@ -195,7 +195,7 @@ const workspaceRequested = ref(false);
 const canPremountActiveEmpty = ref(true);
 const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
 const workspaceHostElement = shallowRef<HTMLElement | null>(null);
-const openingPageFrameAuthority = shallowRef<IDocumentOpeningPageFrameAuthority | null>(null);
+const openingPageFrameAuthority = shallowRef<IDocumentOpeningPageFrame | null>(null);
 const isRecentOpenOwnerReady = ref(false);
 const isViewerOwnerMounted = ref(false);
 let isHostUnmounted = false;
@@ -247,7 +247,7 @@ function refreshOpeningFrameOwnerReadiness() {
         && openingPageFrameAuthority.value !== null;
 }
 
-function handleViewerOwnerReady(authority: IDocumentOpeningPageFrameAuthority) {
+function handleViewerOwnerReady(authority: IDocumentOpeningPageFrame) {
     // The premounted chassis owns both the prepared shell and final fit scale.
     // Sharing its authority prevents the empty host from independently
     // guessing scrollbar, sidebar, or renderer viewport geometry.

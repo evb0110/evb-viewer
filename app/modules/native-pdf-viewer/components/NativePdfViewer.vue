@@ -79,24 +79,19 @@ import {
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfPagePresentation';
 import { revokeNativePdfPageObjectUrl } from '@app/modules/native-pdf-viewer/runtime/revokeNativePdfPageObjectUrl';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
-import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import {
+    createPagePreviewDocumentSource, injectDocumentViewerRuntime, createDocumentViewportWritePort, clampDocumentManualZoom, DOCUMENT_PAGE_GUTTER_PX, useDocumentViewportLayoutLifecycle, createDocumentWheelZoomHandler, useDocumentWheelZoomSessionBoundaries,
     getPagePreviewSizesWithDeadline,
-    type IDocumentPreviewPageState,
-    type IPagePreviewSource,
-} from '@app/utils/document-viewer/pagePreviewSource';
+} from '@app/modules/document-viewer/public';
+import type {
+    IDocumentPageSource,
+    IDocumentPreviewPageState,
+    IPagePreviewSource,
+} from '@app/modules/document-viewer/public';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
-import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
-import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
-import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
-import { createDocumentWheelZoomHandler } from '@app/utils/document-viewer/input/documentWheelInteraction';
-import { useDocumentWheelZoomSessionBoundaries } from '@app/utils/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
-import * as documentPageDisplayLayout from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
+import * as documentPageDisplayLayout from '@app/modules/document-viewer/public';
 import {
     createNativePdfPageGeometry,
     createNativePdfSparsePageLayout,
@@ -129,7 +124,7 @@ const {
     zoom = undefined,
     zoomMode: zoomModeProp = undefined,
 } = defineProps<IProps>();
-const chassisAuthority = injectDocumentViewerChassisAuthority();
+const chassisAuthority = injectDocumentViewerRuntime();
 const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
 const renderSession = chassisAuthority?.renderCoordinator.createSession(`native-pdf-feature:${String(++nextNativePageSlotOwnerId)}`);
 const pageSlots = renderSession?.pageSlots;

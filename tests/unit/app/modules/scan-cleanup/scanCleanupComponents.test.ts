@@ -53,7 +53,7 @@ import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
 const workspaceSession = vi.hoisted(() => ({value: null as Record<string, unknown> | null}));
 const workspaceSessionOptions = vi.hoisted(() => ({value: null as Record<string, () => unknown> | null}));

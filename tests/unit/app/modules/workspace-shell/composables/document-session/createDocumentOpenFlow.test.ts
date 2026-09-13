@@ -30,8 +30,8 @@ import {
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/browserFilePickerAdapter';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     invalidateTrustedPdfOpenGeometry,
     readPrevalidatedTrustedPdfOpenGeometry,
@@ -60,8 +60,10 @@ const mocks = vi.hoisted(() => ({
     documentPicker: { openDocumentDialog: vi.fn() },
     documentRecentFiles: {recentFiles: {get: vi.fn()}},
     performanceProfile: {
+        tier: 'medium',
         lowCpu: false,
         lowMemory: false,
+        maxCachedPdfPages: 48,
     },
     nativePreview: {createSource: vi.fn()},
 }));
@@ -74,7 +76,10 @@ const platformApi = createElectronPlatformApiFixture({
     documentRecentFiles: mocks.documentRecentFiles,
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
-vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
+vi.mock('@app/utils/performanceProfile', () => ({
+    getPerformanceProfile: () => mocks.performanceProfile,
+    resolvePerformanceProfile: () => mocks.performanceProfile,
+}));
 vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     createNativePdfPreviewSourceFromPath: mocks.nativePreview.createSource,

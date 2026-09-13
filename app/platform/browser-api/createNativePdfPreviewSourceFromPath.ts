@@ -12,8 +12,8 @@ import type {
 import {
     requireWorkspaceSurfaceBudgetPort,
     type IWorkspaceSurfaceBudgetLeasePort,
-} from '@app/utils/document-viewer/workspaceSurfaceBudgetPort';
-import type { IPagePreviewRenderedObjectUrl } from '@app/utils/document-viewer/pagePreviewSource';
+} from '@app/utils/workspaceSurfaceBudgetPort';
+import type { IPagePreviewRenderedObjectUrl } from '@app/modules/document-viewer/public';
 
 function createJpegObjectUrl(bytes: Uint8Array) {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));

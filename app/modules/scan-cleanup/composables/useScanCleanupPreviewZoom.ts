@@ -6,7 +6,7 @@ import {
     DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
     resolveDocumentWheelInteraction,
     resolveDocumentWheelZoomTarget,
-} from '@app/utils/document-viewer/input/documentWheelInteraction';
+} from '@app/modules/document-viewer/public';
 import type {IScanCleanupDragRect} from '@app/modules/scan-cleanup/composables/useScanCleanupDragTransaction';
 
 interface IPreviewPanGesture {

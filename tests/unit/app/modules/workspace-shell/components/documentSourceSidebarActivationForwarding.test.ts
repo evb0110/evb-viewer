@@ -14,7 +14,7 @@ import {
     h,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import {
     createDocumentSearchSessionDouble,

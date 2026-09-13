@@ -1,4 +1,4 @@
 export {
     createDocumentPageSlotRegistry as createPdfPageSlotRegistry,
     type IDocumentPageSlotOwner as IPdfPageSlotRegistry,
-} from '@app/utils/document-viewer/page-slots/createDocumentPageSlotRegistry';
+} from '@app/modules/document-viewer/public';

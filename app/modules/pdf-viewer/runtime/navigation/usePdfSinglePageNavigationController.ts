@@ -30,13 +30,13 @@ import {
     resolvePdfNavigationTarget,
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
-import {createWheelFlipGate} from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
-import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
+    createWheelFlipGate,
     canScrollWithinPageBounds,
     resolveWheelDirection,
     resolveWheelTargetPage,
-} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
+} from '@app/modules/document-viewer/public';
+import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';

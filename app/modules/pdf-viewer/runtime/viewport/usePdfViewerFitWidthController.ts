@@ -10,8 +10,8 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
-import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
-import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
+import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
 
 interface IUsePdfViewerFitWidthControllerOptions {

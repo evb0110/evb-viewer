@@ -9,7 +9,7 @@ import {
 import type {
     IDocumentPageRenderRequest,
     IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
+} from '@app/modules/document-viewer/source/documentPageSource';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 

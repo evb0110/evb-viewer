@@ -17,7 +17,7 @@ import type {
     TPdfSource,
 } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;

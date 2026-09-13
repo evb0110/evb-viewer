@@ -12,7 +12,7 @@ import {
     PAGE_LABEL_DENSE_READ_MAX_PAGES,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     type IDocumentPageLabelModel,
-} from '@app/utils/document-viewer/pageLabels';
+} from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {TDocumentRef} from '@contracts/documentRef';

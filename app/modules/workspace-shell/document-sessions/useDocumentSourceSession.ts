@@ -1,5 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/public';
 
 type TDocumentSessionSourceKind = 'pdf' | 'djvu' | null;
 

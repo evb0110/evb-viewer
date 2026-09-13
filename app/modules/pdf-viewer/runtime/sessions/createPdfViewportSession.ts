@@ -15,8 +15,8 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { hasCommittedDocumentOpeningLayout } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
+import { hasCommittedDocumentOpeningLayout } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
@@ -100,7 +100,7 @@ export interface ICreatePdfViewportSessionOptions {
     isPageFreshlyRenderedForNavigation: (pageNumber: TPageNumber) => boolean;
     waitForPageTextLayerReady?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<boolean>) | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     performancePolicy: IPdfRenderPerformancePolicy;
     maxBufferCanvasPixels: number;
     settledMaxCanvasPixels: number;

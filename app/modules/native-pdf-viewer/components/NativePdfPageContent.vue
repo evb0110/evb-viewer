@@ -57,7 +57,7 @@
 <script setup lang="ts">
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IDocumentPreviewPageState } from '@app/modules/document-viewer/public';
 
 const props = defineProps<{
     pageNumber: number;

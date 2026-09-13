@@ -7,7 +7,7 @@ import {
     createDocumentSinglePageRange,
     doDocumentPageRangesIntersect,
     normalizeDocumentPageRange,
-} from '@app/utils/document-viewer/documentPageRange';
+} from '@app/modules/document-viewer/public';
 
 function normalizePdfViewerTransactionRange(range: IPageRange, totalPages: number): IPageRange {
     return normalizeDocumentPageRange(range, totalPages);

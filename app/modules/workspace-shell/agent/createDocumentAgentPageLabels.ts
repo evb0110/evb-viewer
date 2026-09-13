@@ -31,7 +31,7 @@ import {
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     type IDocumentPageLabelModel,
     type TDocumentPageLabelLookup,
-} from '@app/utils/document-viewer/pageLabels';
+} from '@app/modules/document-viewer/public';
 
 type TAgentMetadataIssueSeverity = 'error' | 'warning' | 'info';
 type TAgentPageLabelInputMode = 'ranges' | 'segments' | 'labels';

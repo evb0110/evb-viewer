@@ -6,8 +6,8 @@ import {
     vi,
 } from 'vitest';
 import { buildCanvasCapturePlan } from '@app/modules/pdf-viewer/engine/pdf-region-capture/buildCanvasCapturePlan';
-import { intersectClientRects } from '@app/utils/document-viewer/region-geometry/intersectClientRects';
-import { normalizeClientRect } from '@app/utils/document-viewer/region-geometry/normalizeClientRect';
+import { intersectClientRects } from '@app/modules/document-viewer/region-geometry/intersectClientRects';
+import { normalizeClientRect } from '@app/modules/document-viewer/region-geometry/normalizeClientRect';
 import { writePngBlobToClipboard } from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
 
 describe('pdfRegionSnip geometry', () => {

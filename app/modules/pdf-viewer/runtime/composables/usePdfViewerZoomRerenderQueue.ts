@@ -11,7 +11,7 @@ import {
     PDF_RERENDER_SOURCE,
     isResizePdfRerenderSource,
     normalizePdfRerenderSource,
-} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+} from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 import type {
     IPdfViewerTransaction,
     IPdfViewerTransactionCancellation,

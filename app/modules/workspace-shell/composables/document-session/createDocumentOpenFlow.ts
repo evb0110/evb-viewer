@@ -49,7 +49,7 @@ import {
     getDocumentPdfCapability,
     getDocumentPickerCapability,
 } from '@app/utils/platformDocuments';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import {validatePdfRevision} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {
     stagePdfOpeningPreview,

@@ -4,11 +4,11 @@ import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdfUi';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
 import { pdfSourcesMatch } from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
 
 function diagnosePdfLoadedOpeningPageGeometry(
-    chassisAuthority: IDocumentViewerChassisAuthority,
+    chassisAuthority: IDocumentViewerRuntime,
     input: Parameters<typeof commitPdfLoadedOpeningPageGeometry>[1],
 ) {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
@@ -49,7 +49,7 @@ function diagnosePdfLoadedOpeningPageGeometry(
 }
 
 export function commitPdfLoadedOpeningPageGeometry(
-    chassisAuthority: IDocumentViewerChassisAuthority,
+    chassisAuthority: IDocumentViewerRuntime,
     input: {
         expectedGeneration: number;
         documentId: string;

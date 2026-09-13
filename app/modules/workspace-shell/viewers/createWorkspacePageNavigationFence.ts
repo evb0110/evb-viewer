@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 

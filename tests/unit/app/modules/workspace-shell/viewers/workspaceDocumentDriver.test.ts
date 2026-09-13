@@ -1,4 +1,4 @@
-import type * as TViMockOriginalModule from '@app/utils/document-viewer/session/documentSession';
+import type * as TViMockOriginalModule from '@app/modules/document-viewer/public';
 
 import {
     computed,
@@ -37,7 +37,7 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 
 const driverMocks = vi.hoisted(() => ({
     cancel: vi.fn(async () => true),
-    createDocumentSession: vi.fn((options: unknown) => options),
+    createDocumentProjectionSession: vi.fn((options: unknown) => options),
     ensurePdfProjection: vi.fn(async (
         _session: unknown,
         projection: {build: () => Promise<unknown>},
@@ -60,9 +60,9 @@ const platformApi = createElectronPlatformApiFixture({djvu: {
     printDjvuPath: driverMocks.printDjvuPath as never,
 }});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
-vi.mock('@app/utils/document-viewer/session/documentSession', async (importOriginal) => ({
+vi.mock('@app/modules/document-viewer/public', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    createDocumentSession: driverMocks.createDocumentSession,
+    createDocumentProjectionSession: driverMocks.createDocumentProjectionSession,
     ensurePdfProjection: driverMocks.ensurePdfProjection,
 }));
 

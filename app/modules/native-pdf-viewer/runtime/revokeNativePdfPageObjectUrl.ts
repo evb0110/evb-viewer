@@ -1,4 +1,4 @@
-import type { IPagePreviewSource } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IPagePreviewSource } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 export function revokeNativePdfPageObjectUrl(

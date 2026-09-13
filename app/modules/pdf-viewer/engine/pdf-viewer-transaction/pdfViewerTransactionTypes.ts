@@ -13,7 +13,7 @@ import type {
     IDocumentViewportTransactionConsumeFitRenderHandoffEvent,
     IDocumentViewportTransactionMachineState,
     TDocumentViewportTransactionState,
-} from '@app/utils/document-viewer/viewport/documentViewportTransactionTypes';
+} from '@app/modules/document-viewer/public';
 
 export type TPdfViewerTransactionKind =
     | 'navigation'

@@ -1,4 +1,4 @@
-import type { IClientPoint } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
+import type { IClientPoint } from '@app/modules/document-viewer/public';
 
 export function toClientPoint(payload: IClientPoint): IClientPoint {
     return {

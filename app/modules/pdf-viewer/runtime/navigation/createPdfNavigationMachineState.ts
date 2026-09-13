@@ -1,8 +1,8 @@
-import type { TPageSnapAnchor } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
 import {
     createDocumentViewportNavigationMachineState,
     type IDocumentViewportNavigationState,
-} from '@app/utils/document-viewer/viewport/documentViewportNavigationMachine';
+    type TPageSnapAnchor,
+} from '@app/modules/document-viewer/public';
 
 export type TPdfNavigationSource =
     | 'paged'
