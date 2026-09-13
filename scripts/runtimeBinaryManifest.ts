@@ -37,8 +37,8 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '8031fb1f62b159179bc38ba80bc3ee478141d2b511357db63f880c5edab60aa0',
     },
     'qpdf-linux-x64': {
-        archiveBytes: 3733364,
-        archiveSha256: '6c822969fdb2c87c9ae0cff6823c4b0bf0aeada898e7aefb113537caad93e43a',
+        archiveBytes: 1471609,
+        archiveSha256: 'cb01670b9155c524e73f7ef3a72c38a1569a8db730ace91c1ad51317ea5ff6a6',
     },
     'qpdf-win32-x64': {
         archiveBytes: 3205447,
@@ -106,5 +106,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'a5cea06116ea81b37310fa468d1aa74530c518c8d1003b42639df0cdceb204b6',
+    manifestSha256: '43372f6fc6f6d2ec01dc683390284d3f58a8fbf9bc4f9cfca131c59ba805c1a0',
 };
