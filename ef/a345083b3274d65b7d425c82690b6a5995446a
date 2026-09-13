@@ -1,0 +1,69 @@
+tests/unit/app/utils/document-viewer/thumbnails/documentThumbnailScrollRestorer.test.ts
+  s_539cca802b64d0::t_41157782c60a89 107,109
+  s_539cca802b64d0::t_89dc5bd58207c3 113-115
+  s_539cca802b64d0::t_5ab96e4b79741f 90-91,98-101,103-106,108,110-112,116-119
+  s_539cca802b64d0::t_870564f9447f19 92-96
+  s_539cca802b64d0::t_044e7144892aaf 97,102
+app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache.ts
+  s_539cca802b64d0::t_fa699ddab75761 24,36
+  s_539cca802b64d0::t_98fc62e68b718d 21,23,25,28-29,33,38-40,57-58,60-62,65-66,71-72,74-75,83-87
+  s_ae757872e5d914::t_237056c7512e74 88
+app/modules/workspace-shell/host/runPostReadyRecentGeometryPrewarm.ts
+  s_539cca802b64d0::t_05d94ffbf54889 88,135
+app/modules/workspace-shell/host/recentOpenGeometryReadiness.ts
+  s_539cca802b64d0::t_05d94ffbf54889 45-46,63,65
+  s_539cca802b64d0::t_98fc62e68b718d 27-30,35-40,82
+tests/unit/app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache.test.ts
+  s_539cca802b64d0::t_6f0b3b3dfddd33 64-74,88-101
+  s_539cca802b64d0::t_b1fd38f5f65a64 178-181
+  s_539cca802b64d0::t_5ab96e4b79741f 41-44,58-63,75-79
+  s_539cca802b64d0::t_05d94ffbf54889 80,82-87,102-112
+  s_539cca802b64d0::t_c3983e5b792682 81
+app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache.ts
+  s_539cca802b64d0::t_a89b8807cfc01a 37-40
+  s_539cca802b64d0::t_98fc62e68b718d 4,12,20-22,25-32,34-36,41,153-154
+  s_539cca802b64d0::t_c8e4aea2f1c5f8 13-15
+  s_539cca802b64d0::t_3167c8424e0502 155-162
+app/utils/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer.ts
+  s_539cca802b64d0::t_b1fd38f5f65a64 44,48-50
+  s_539cca802b64d0::t_1c5802e85d81af 45-47
+tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsKeyboardNavigation.test.ts
+  s_539cca802b64d0::t_5ab96e4b79741f 154-157,188-190,382-386
+  s_fcd865832e826f::t_24112fdec96d71 387-388
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_539cca802b64d0::t_98fc62e68b718d 531
+tests/unit/app/modules/document-viewer/documentThumbnailMetricsBudget.test.ts
+  s_ae757872e5d914::t_ebd2358f40ebd7 13-14,28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "efa345083b3274d65b7d425c82690b6a5995446a",
+  "prompts": {},
+  "sessions": {
+    "s_539cca802b64d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098b8-2c3b-7a60-8c91-dd81752967a3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_fcd865832e826f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098ad-89e5-7740-8e49-ae5d6e5b5903",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
