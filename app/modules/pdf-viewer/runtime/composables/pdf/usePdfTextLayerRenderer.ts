@@ -519,7 +519,13 @@ export const usePdfTextLayerRenderer = (deps: {
         try {
             if (hasGeometryHighlights) {
                 clearHighlights(textLayerDiv);
-                renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
+                renderWordBoxesForPageMatch(
+                    container,
+                    pageMatchData,
+                    currentMatchValue,
+                    pageIndex,
+                    renderedTextLayers.get(textLayerDiv)?.viewport,
+                );
             } else if (pageMatchData && pageMatchData.matches.length > 0) {
                 highlightPage(
                     textLayerDiv,

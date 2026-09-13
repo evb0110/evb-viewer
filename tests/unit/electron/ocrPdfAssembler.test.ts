@@ -36,6 +36,7 @@ import {
     loadBoundedGeneratedPagePdf,
     MAX_OCR_PAGE_ARTIFACT_BYTES,
     OcrGeneratedPageArtifactLimitError,
+    OcrPageReplacementUnsupportedError,
     sanitizeOcrContentStreamForEmbedding,
     stripTesseractImageLayer,
 } from '@electron/features/ocr/worker/pdfAssembler';
@@ -173,17 +174,58 @@ async function createPdfWithMixedHiddenTextPreamble(filePath: string) {
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const fontName = page.node.newFontDictionary('MixedOcrFont', font.ref);
     const encodedText = font.encodeText('OLD OCR').toString();
-    const stream = [
+    const preambleStream = [
         'BT',
         `${fontName} 12 Tf`,
         '3 Tr',
         'ET',
+        '',
+    ].join('\n');
+    const textStream = [
         'BT',
         `1 0 0 1 20 120 Tm ${encodedText} Tj`,
         'ET',
         '',
     ].join('\n');
-    page.node.addContentStream(pdf.context.register(pdf.context.flateStream(stream)));
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream(preambleStream)));
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream(textStream)));
+    await writeFile(filePath, await pdf.save());
+}
+
+async function createPdfWithTextClipping(filePath: string) {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([
+        220,
+        180,
+    ]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontName = page.node.newFontDictionary('ClippingFont', font.ref);
+    const encodedText = font.encodeText('CLIPPED OLD').toString();
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream([
+        'BT',
+        `${fontName} 12 Tf 7 Tr 1 0 0 1 20 120 Tm ${encodedText} Tj`,
+        'ET',
+        '',
+    ].join('\n'))));
+    await writeFile(filePath, await pdf.save());
+}
+
+async function createPdfWithMixedVisibleAndHiddenText(filePath: string) {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([
+        220,
+        180,
+    ]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontName = page.node.newFontDictionary('MixedTextFont', font.ref);
+    const visibleText = font.encodeText('VISIBLE OLD').toString();
+    const hiddenText = font.encodeText('HIDDEN OLD').toString();
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream([
+        'BT',
+        `${fontName} 12 Tf 0 Tr 1 0 0 1 20 120 Tm ${visibleText} Tj 3 Tr ${hiddenText} Tj`,
+        'ET',
+        '',
+    ].join('\n'))));
     await writeFile(filePath, await pdf.save());
 }
 
@@ -827,9 +869,72 @@ describe('assembleSearchablePdf', () => {
         );
 
         const firstPageContent = await getFirstPageContentText(outputPath);
+        const extractedText = await extractPdfText(outputPath);
 
         expect(firstPageContent).toMatch(/3 Tr\s+ET\s+BT/u);
         expect(firstPageContent).toContain('EVB_VIEWER_OCR_LAYER_BEGIN');
+        expect(extractedText).not.toContain('OLD OCR');
+        expect(extractedText).toContain('NEW OCR');
+    });
+
+    it('refuses text clipping replacement before publishing output', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'clipping-original.pdf');
+        const ocrPath = join(tempDir, 'clipping-ocr.pdf');
+        await createPdfWithTextClipping(originalPath);
+        await createPdfWithVisibleAndHiddenText(ocrPath, {hiddenText: 'NEW OCR'});
+        const originalBytes = await readFile(originalPath);
+
+        const error = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                ocrPath,
+            ]]),
+            1,
+            tempDir,
+            'clipping-session',
+            vi.fn(),
+            path => path,
+        ).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(OcrPageReplacementUnsupportedError);
+        expect(error).toMatchObject({
+            code: 'OCR_PAGE_REPLACEMENT_UNSUPPORTED',
+            reason: 'text-clipping',
+        });
+        expect(await readFile(originalPath)).toEqual(originalBytes);
+    });
+
+    it('refuses mixed visible and hidden text objects before publishing output', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'mixed-text-original.pdf');
+        const ocrPath = join(tempDir, 'mixed-text-ocr.pdf');
+        await createPdfWithMixedVisibleAndHiddenText(originalPath);
+        await createPdfWithVisibleAndHiddenText(ocrPath, {hiddenText: 'NEW OCR'});
+        const originalBytes = await readFile(originalPath);
+
+        const error = await assembleSearchablePdf(
+            QPDF_TEST_BINARY,
+            originalPath,
+            new Map([[
+                1,
+                ocrPath,
+            ]]),
+            1,
+            tempDir,
+            'mixed-text-session',
+            vi.fn(),
+            path => path,
+        ).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(OcrPageReplacementUnsupportedError);
+        expect(error).toMatchObject({
+            code: 'OCR_PAGE_REPLACEMENT_UNSUPPORTED',
+            reason: 'mixed-text',
+        });
+        expect(await readFile(originalPath)).toEqual(originalBytes);
     });
 
     it.each([
