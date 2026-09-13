@@ -2,6 +2,7 @@ import type {
     IncomingMessage,
     ServerResponse,
 } from 'http';
+import {timingSafeEqual} from 'node:crypto';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     createHealthResponse,
@@ -147,7 +148,12 @@ function isAuthorizedMcpRequest(request: IncomingMessage, options: IHttpHandlerO
     }
 
     const header = request.headers.authorization;
-    return typeof header === 'string' && header === `Bearer ${bearerToken}`;
+    if (typeof header !== 'string') {
+        return false;
+    }
+    const expected = Buffer.from(`Bearer ${bearerToken}`, 'utf8');
+    const actual = Buffer.from(header, 'utf8');
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 function isBrowserOriginMcpRequest(request: IncomingMessage) {

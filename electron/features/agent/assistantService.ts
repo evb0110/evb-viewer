@@ -800,6 +800,7 @@ async function ensureClaudeAssistantSession(
 export async function getAgentAssistantState(
     request?: IAgentAssistantStateRequest,
 ): Promise<IAgentAssistantState> {
+    await sessionStore.ready;
     await assistantFeatureLifecycle.waitForShutdown();
     const session = getRequestChatSession(request);
     const scope = session?.scope ?? null;
@@ -829,6 +830,7 @@ export async function sendAgentAssistantMessage(
     request: IAgentAssistantSendMessageRequest,
     options: IAgentAssistantSendMessageOptions = {},
 ): Promise<IAgentAssistantSendMessageResult> {
+    await sessionStore.ready;
     await assistantFeatureLifecycle.waitForShutdown();
     if (!(await isAssistantFeatureEnabled())) {
         const error = await stopAssistantForDisabledFeature();
@@ -1118,6 +1120,7 @@ export async function sendAgentAssistantMessage(
 export async function interruptAgentAssistant(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
+    await sessionStore.ready;
     const requestedSession = getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
@@ -1196,6 +1199,7 @@ export async function interruptAgentAssistant(
 export async function resetAgentAssistantChat(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
+    await sessionStore.ready;
     const session = getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     abortActiveEmbeddedMcpRequests(
@@ -1256,6 +1260,7 @@ export async function resetAgentAssistantChat(
 }
 
 async function stopAssistantRuntimeForShutdown() {
+    await sessionStore.ready;
     assistantHeartbeatTimer?.dispose();
     assistantHeartbeatTimer = null;
     syncAssistantHeartbeat = () => {};
