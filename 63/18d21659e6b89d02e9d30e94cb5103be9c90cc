@@ -1,0 +1,40 @@
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_1f5857c6c42e58::t_593cbd1bc12088 745
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_1f5857c6c42e58::t_593cbd1bc12088 171,426,530
+app/types/annotations.ts
+  s_1f5857c6c42e58::t_929b9c2303be0a 248-251
+scripts/architecture/boundary-check.mjs
+  s_1f5857c6c42e58::t_35a8704f1dbcc2 402-406,408
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures.ts
+  s_1f5857c6c42e58::t_929b9c2303be0a 3-6,39
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_1f5857c6c42e58::t_99e50bc4de9dfa 139,767-769
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_1f5857c6c42e58::t_050685860fcb27 15-16
+  s_1f5857c6c42e58::t_929b9c2303be0a 154
+app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot.ts
+  s_1f5857c6c42e58::t_6788fec2f28a82 106-107,109,113,117,128-130,132-141,152-173,177-178
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_1f5857c6c42e58::t_593cbd1bc12088 430
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_1f5857c6c42e58::t_ac5af14f54ec62 25,73,202
+app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts
+  s_1f5857c6c42e58::t_929b9c2303be0a 51,227,268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6318d21659e6b89d02e9d30e94cb5103be9c90cc",
+  "prompts": {},
+  "sessions": {
+    "s_1f5857c6c42e58": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e0ca-7031-a8cc-d6bd239e76f1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
