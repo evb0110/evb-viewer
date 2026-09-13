@@ -605,6 +605,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
 
     function handleExit(message: string) {
         const session = options.getActiveChatSession();
+        options.clearLoginState();
         options.clearRuntimeForExit();
         options.codexProviderRuntime.runtimeState = 'error';
         for (const chatSession of options.sessionStore.listSessions()) {

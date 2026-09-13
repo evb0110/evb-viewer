@@ -71,6 +71,10 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    loginOpenGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
     processKillGate: null as null | {
         promise: Promise<void>;
         resolve: () => void;
@@ -82,6 +86,7 @@ const mocks = vi.hoisted(() => ({
     claudeSessionConstructor: vi.fn(),
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
+    loginCancelMode: 'success',
     turnStartResponseId: undefined as unknown,
     malformedTurnStartResponse: false,
     logger: {
@@ -190,6 +195,13 @@ class FakeCodexAppServerProcess extends EventEmitter {
                 respondToLogin();
                 return;
             }
+            case 'account/login/cancel':
+                if (mocks.loginCancelMode === 'error') {
+                    this.respondError(request.id, 'login cancellation failed.');
+                    return;
+                }
+                this.respond(request.id, {});
+                return;
             case 'mcpServerStatus/list':
                 this.respond(request.id, {data: [{
                     name: 'evb_viewer_embedded',
@@ -472,11 +484,13 @@ describe('agent assistant opt-in gating', () => {
         mocks.turnStartResponseHook = null;
         mocks.threadStartGate = null;
         mocks.loginStartGate = null;
+        mocks.loginOpenGate = null;
         mocks.processKillGate = null;
         mocks.claudeRuntimeLoadGate = createInitializeGate();
         mocks.claudeSessionConstructor.mockReset();
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
+        mocks.loginCancelMode = 'success';
         mocks.turnStartResponseId = undefined;
         mocks.malformedTurnStartResponse = false;
         mocks.runCodexCli.mockResolvedValue({ok: true});
@@ -1381,6 +1395,94 @@ describe('agent assistant opt-in gating', () => {
         });
         expect(mocks.openExternal).not.toHaveBeenCalled();
         await shutdownAgentAssistant();
+    });
+
+    it('shares one pending provider login start across concurrent callers', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginStartGate = createInitializeGate();
+        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const first = startAgentAssistantLogin({mode: 'chatgpt'});
+        await waitForCodexRequest(process, 'account/login/start');
+        const second = startAgentAssistantLogin({mode: 'device-code'});
+
+        await settleAsyncTicks();
+        expect(process.requestMethods.filter(method => method === 'account/login/start')).toHaveLength(1);
+
+        mocks.loginStartGate.resolve();
+        const [
+            firstResult,
+            secondResult,
+        ] = await Promise.all([
+            first,
+            second,
+        ]);
+
+        expect(firstResult).toMatchObject({
+            ok: true,
+            loginId: 'login-1',
+        });
+        expect(secondResult).toEqual(firstResult);
+        expect(mocks.openExternal).toHaveBeenCalledOnce();
+    });
+
+    it('cancels a provider flow when opening its browser fails and allows a retry', async () => {
+        const process = enableAssistantRuntime();
+        mocks.openExternal.mockRejectedValueOnce(new Error('browser unavailable'));
+        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({
+            ok: false,
+            error: 'browser unavailable',
+        });
+        expect(process.requestMethods).toContain('account/login/cancel');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({
+            ok: true,
+            loginId: 'login-1',
+        });
+        expect(process.requestMethods.filter(method => method === 'account/login/start')).toHaveLength(2);
+    });
+
+    it('does not let a completed login race overwrite its settled authentication state', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginOpenGate = createInitializeGate();
+        mocks.openExternal.mockImplementationOnce(() => mocks.loginOpenGate!.promise);
+        const {
+            getAgentAssistantState,
+            startAgentAssistantLogin,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const login = startAgentAssistantLogin({mode: 'chatgpt'});
+        await waitForCodexRequest(process, 'account/login/start');
+        await vi.waitFor(() => expect(mocks.openExternal).toHaveBeenCalledOnce());
+        process.notifyAppServer('account/login/completed', {
+            loginId: 'login-1',
+            success: true,
+        });
+        mocks.loginOpenGate.resolve();
+
+        await expect(login).resolves.toMatchObject({ok: true});
+        await expect(getAgentAssistantState()).resolves.toMatchObject({status: {authState: 'signed-in'}});
+    });
+
+    it('reconciles a failed provider cancellation before releasing login ownership', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginCancelMode = 'error';
+        const {
+            cancelAgentAssistantLogin,
+            startAgentAssistantLogin,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({ok: true});
+        const canceled = await cancelAgentAssistantLogin();
+
+        expect(process.requestMethods).toContain('account/login/cancel');
+        expect(process.requestMethods).toContain('account/read');
+        expect(canceled.status.authState).toBe('signed-in');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({ok: true});
+        expect(process.requestMethods.filter(method => method === 'account/login/start')).toHaveLength(2);
     });
 
     it('drops a turn response that arrives after opt-out', async () => {

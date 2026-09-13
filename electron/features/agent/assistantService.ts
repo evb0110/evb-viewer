@@ -93,7 +93,6 @@ import {
 import { createAssistantAppServerNotificationController } from '@electron/features/agent/createAssistantAppServerNotificationController';
 import { createAssistantEventPublisher } from '@electron/features/agent/createAssistantEventPublisher';
 import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
-import type { TAssistantReturnWindow } from '@electron/features/agent/assistantReturnWindow';
 import { createCodexAssistantAdapter } from '@electron/features/agent/createCodexAssistantAdapter';
 import {
     abortActiveEmbeddedMcpRequests,
@@ -120,8 +119,6 @@ const providerRuntimeStates = createAssistantProviderRuntimeStates();
 const codexProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'codex');
 const claudeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'claude');
 let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
-let pendingLoginId: string | null = null;
-let authReturnWindow: TAssistantReturnWindow = null;
 interface IClaudeRuntimeModule {ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;}
 let claudeRuntimeModulePromise: Promise<IClaudeRuntimeModule> | null = null;
 async function loadClaudeRuntimeModule() {
@@ -340,9 +337,6 @@ const codexAssistantAdapter = createCodexAssistantAdapter({
     publishEvent: event => publishAssistantEvent(event),
     createDisabledResult: state => createAssistantDisabledResult(state),
     stopForDisabledFeature: stopAssistantForDisabledFeature,
-    getPendingLoginId: () => pendingLoginId,
-    setPendingLoginId: value => { pendingLoginId = value; },
-    setAuthReturnWindow: value => { authReturnWindow = value; },
     logger,
 });
 
@@ -350,17 +344,16 @@ const appServerNotifications = createAssistantAppServerNotificationController({
     addMessage: sessionStore.addMessage,
     appendAssistantDelta: sessionStore.appendAssistantDelta,
     clearLoginState: () => {
-        authReturnWindow = null;
-        pendingLoginId = null;
+        codexAssistantAdapter.clearLoginState();
     },
     clearRuntimeForExit: () => runtimeLifecycle.clearRuntimeForExit(),
     codexProviderRuntime,
     completeSessionTurn,
     currentCodexSelection,
-    getPendingLoginId: () => pendingLoginId,
+    getPendingLoginId: codexAssistantAdapter.getPendingLoginId,
     errorSessionTurn,
     getActiveChatSession: () => sessionStore.getActiveSession('codex'),
-    getAuthReturnWindow: () => authReturnWindow,
+    getAuthReturnWindow: codexAssistantAdapter.getAuthReturnWindow,
     getChatSessionByThreadId: candidateThreadId => sessionStore.getSessionByThreadId(candidateThreadId),
     getRememberedScope: () => sessionStore.getRememberedScope(),
     logger,
@@ -1266,8 +1259,7 @@ async function stopAssistantRuntimeForShutdown() {
     assistantHeartbeatTimer?.dispose();
     assistantHeartbeatTimer = null;
     syncAssistantHeartbeat = () => {};
-    authReturnWindow = null;
-    pendingLoginId = null;
+    codexAssistantAdapter.clearLoginState();
     await runAssistantShutdownStep('Codex runtime', () => runtimeLifecycle.shutdownCodexRuntime({shutdownMcp: false}), logger);
     await runAssistantShutdownStep('Claude runtime', () => shutdownClaudeAssistantRuntime({shutdownMcp: false}), logger);
 }
