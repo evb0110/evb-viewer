@@ -1,0 +1,48 @@
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_12acc77af62b71::t_707b432875ed25 36-46
+tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts
+  s_12acc77af62b71::t_777cbfef44700b 755-782
+  s_12acc77af62b71::t_9421d713dde44b 816-821,835-838
+  s_12acc77af62b71::t_6342b0b12704b5 718-754,783-815,822-834,839-840
+electron/bootstrap/mainProcess.ts
+  s_12acc77af62b71::t_ce27cc0936a30e 579-581
+  s_12acc77af62b71::t_66e2ca0a91bb63 32
+app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore.ts
+  s_12acc77af62b71::t_66aca127e38501 512,531,534-535,564
+  s_12acc77af62b71::t_06281ff2d8f05d 532-533
+  s_12acc77af62b71::t_66e2ca0a91bb63 497,502-511,513-526,528-530,536-541,552,562-563
+electron/bootstrap/requestShutdownSaveFlush.ts
+  s_12acc77af62b71::t_66e2ca0a91bb63 28-34
+tests/unit/app/composables/useSettings.test.ts
+  s_12acc77af62b71::t_6342b0b12704b5 342-364
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_12acc77af62b71::t_6342b0b12704b5 14,289-301
+  s_e2fcfed2b5a8cb::t_f3024bd29045c5 302-303
+app/composables/useSettings.ts
+  s_12acc77af62b71::t_0402a5683aee90 216-222
+  s_12acc77af62b71::t_66e2ca0a91bb63 42,215,249,286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88e915455d0d592995d4fee960f402a211d51432",
+  "prompts": {},
+  "sessions": {
+    "s_12acc77af62b71": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098b4-f41d-7151-9d5c-1454aafb86e5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_e2fcfed2b5a8cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098b5-cd63-7f73-947b-ccb31a76a19f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
