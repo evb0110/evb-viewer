@@ -21,7 +21,7 @@ import type {
 import type {
     IOcrPageGeometry,
     TWorkerLog,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import {
     runOcrCommand,
     type TOcrRunCommandOptions,

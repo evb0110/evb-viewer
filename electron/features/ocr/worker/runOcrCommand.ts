@@ -2,7 +2,7 @@ import {
     runNativeToolCommand,
     type IRunNativeToolCommandOptions,
 } from '@electron/native-tools/runNativeToolCommand';
-import type { IRunCommandResult } from '@electron/ocr/worker/types';
+import type { IRunCommandResult } from '@electron/features/ocr/worker/types';
 import {getOcrNativeChildRegistrationProvider} from '@electron/features/ocr/worker/nativeChildRegistration';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 

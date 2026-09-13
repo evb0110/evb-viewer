@@ -96,7 +96,7 @@ vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCo
 const {
     resolveSafeOcrIndexBasePath,
     writeOcrIndexV3,
-} = await import('@electron/ocr/worker/indexWriter');
+} = await import('@electron/features/ocr/worker/indexWriter');
 
 function makeDocumentRevision(documentRef: string) {
     return {

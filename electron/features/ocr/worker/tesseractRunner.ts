@@ -11,7 +11,7 @@ import {
     isSupportedPageSegmentationMode,
 } from '@contracts/agentOcr';
 import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
-import type { IOcrFileResult } from '@electron/ocr/worker/types';
+import type { IOcrFileResult } from '@electron/features/ocr/worker/types';
 import {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
 import {createTesseractFinalize} from '@electron/features/ocr/main/createTesseractFinalize';
 import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';

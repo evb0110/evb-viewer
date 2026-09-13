@@ -3,8 +3,8 @@ import {OCR_SHARD_SIZE} from '@contracts/ocrIndex';
 import type {
     IOcrPageWithWords,
     TWorkerLog,
-} from '@electron/ocr/worker/types';
-import {resolveSafeOcrIndexBasePath} from '@electron/ocr/worker/indexWriter';
+} from '@electron/features/ocr/worker/types';
+import {resolveSafeOcrIndexBasePath} from '@electron/features/ocr/worker/indexWriter';
 import {
     prepareOcrCatalogV4Generation,
     rollbackPreparedOcrCatalogV4,

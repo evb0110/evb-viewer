@@ -51,7 +51,7 @@ import type {
     IOcrPdfPageRequest,
     TOcrPdfPageSelection,
     TWorkerLog,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import { clampDpi } from '@electron/image/imageDpi';
 import {
@@ -107,7 +107,7 @@ import {
     iterateCheckpointPdfEntries,
     normalizeOcrPageSelection,
 } from '@electron/features/ocr/worker/ocrPageSelectionStream';
-import {writeOcrIndexes} from '@electron/ocr/worker/writeOcrIndexes';
+import {writeOcrIndexes} from '@electron/features/ocr/worker/writeOcrIndexes';
 import {
     createRequestId,
     requireRequestId,

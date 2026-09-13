@@ -66,7 +66,7 @@ vi.mock('@electron/features/ocr/worker/tesseractRunner', () => ({
 }));
 vi.mock('@electron/features/ocr/worker/persistOcrPageCheckpoint', () => ({persistOcrPageCheckpoint: (...args: unknown[]) => mocks.persistOcrPageCheckpoint(...args)}));
 
-const {processOcrPages} = await import('@electron/ocr/worker/main');
+const {processOcrPages} = await import('@electron/features/ocr/worker/main');
 
 type TPageContext = Parameters<typeof processOcrPages>[3];
 
