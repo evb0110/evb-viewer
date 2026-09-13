@@ -1194,6 +1194,7 @@ const {
     documentViewerRef,
     ensureProjection: ensureDjvuPdfProjection,
     saveAs: handleSaveAsDirect,
+    saveAsThroughDriver: orchestration.saveWorkflow.handleSaveAs,
     exportDocx: handleExportDocxDirect,
     isExportingDocx,
     cancelExportDocx: cancelDocxExportDirect,

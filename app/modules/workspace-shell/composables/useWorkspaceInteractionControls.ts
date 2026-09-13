@@ -291,7 +291,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         loadPdfFromPath,
         documentRevisionToken,
         ...(getNativeSaveTransactionOptions !== undefined ? {getNativeSaveTransactionOptions} : {}),
-        getDocumentDriverForType,
+        ...(getDocumentDriverForType === undefined ? {} : {getDocumentDriverForType}),
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 

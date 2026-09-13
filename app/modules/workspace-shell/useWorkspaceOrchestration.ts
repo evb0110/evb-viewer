@@ -844,6 +844,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         selectedPageSelection,
         sourcePdf: pdfSrc,
         workingCopyPath,
+        printPath: computed(() => (
+            documentDriver.activeDocumentDriver.value?.operations.print.path ?? null
+        )),
         fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges,

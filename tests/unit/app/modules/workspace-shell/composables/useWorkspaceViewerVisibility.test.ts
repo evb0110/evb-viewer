@@ -63,7 +63,10 @@ function createDriver(
                 imageTarget: null,
                 multiPageTiffTarget: null,
             },
-            print: {strategy: null},
+            print: {
+                strategy: null,
+                path: null,
+            },
         },
         view,
         run: async () => ({

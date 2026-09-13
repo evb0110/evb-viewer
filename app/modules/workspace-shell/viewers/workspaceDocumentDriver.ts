@@ -297,7 +297,10 @@ export interface IWorkspaceDocumentDriverOperations {
         imageTarget: IWorkspaceDocumentDriverExportTarget | null;
         multiPageTiffTarget: IWorkspaceDocumentDriverExportTarget | null;
     };
-    print: { strategy: TWorkspaceDocumentPrintStrategy | null };
+    print: {
+        strategy: TWorkspaceDocumentPrintStrategy | null;
+        path: TDocumentRef | null;
+    };
 }
 
 export interface IWorkspaceDocumentDriverLifecycle {createHooks: (context: IWorkspaceViewerLifecycleContext) => IWorkspaceViewerLifecycleHooks | null;}
@@ -498,6 +501,11 @@ export function createWorkspaceDocumentDriverForAdapter(
             const multiPageTiffTarget = imageTarget === null
                 ? null
                 : {...imageTarget};
+            const printPath = isDjvu
+                ? null
+                : isNativePdf
+                    ? sources.nativePdfSourcePath.value
+                    : sourcePath;
             return {
                 open: {
                     strategy: isDjvu ? 'djvu-activation' : 'pdf-working-copy',
@@ -519,7 +527,10 @@ export function createWorkspaceDocumentDriverForAdapter(
                     imageTarget,
                     multiPageTiffTarget,
                 },
-                print: {strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf'},
+                print: {
+                    strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf',
+                    path: printPath,
+                },
             };
         },
         get source(): IWorkspaceDocumentDriverSource {

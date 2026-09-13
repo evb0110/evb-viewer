@@ -54,4 +54,34 @@ describe('useDjvuProjectionActions', () => {
         expect(ensureProjection).not.toHaveBeenCalled();
         expect(exportDocx).not.toHaveBeenCalled();
     });
+
+    it('uses the driver save-as operation for DjVu and restores the viewed page', async () => {
+        const saveAsThroughDriver = vi.fn(async () => true);
+        const scrollToPage = vi.fn();
+        const waitForViewerLoadSettled = vi.fn(async () => undefined);
+        const actions = useDjvuProjectionActions({
+            isDjvuMode: ref(true),
+            currentPage: ref(31),
+            documentViewerRef: ref({
+                getCurrentPage: () => 17,
+                scrollToPage,
+                waitForViewerLoadSettled,
+            }),
+            ensureProjection: vi.fn(async () => true),
+            saveAs: vi.fn(async () => true),
+            saveAsThroughDriver,
+            exportDocx: vi.fn(async () => undefined),
+            isExportingDocx: ref(false),
+            cancelExportDocx: vi.fn(),
+            handleDropdownOpen: vi.fn(),
+            insertImageFromFile: vi.fn(),
+            pasteImageFromClipboard: vi.fn(),
+            createQuickNote: vi.fn(),
+        });
+
+        await expect(actions.handleSaveAs()).resolves.toBe(true);
+
+        expect(saveAsThroughDriver).toHaveBeenCalledOnce();
+        expect(scrollToPage).toHaveBeenCalledWith(17);
+    });
 });

@@ -397,7 +397,10 @@ const SENTRY_EVENT_FACTORY_NAMES = new Set([
 const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
 
 /** @type {readonly string[]} */
-const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze(['app/modules/workspace-shell/viewers']);
+const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze([
+    'app/modules/workspace-shell/viewers',
+    'app/modules/workspace-shell/composables/usePageFileOperations.ts',
+]);
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkElectronFeatureMainPrivacy(edge) {

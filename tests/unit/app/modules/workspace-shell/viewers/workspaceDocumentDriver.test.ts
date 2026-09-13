@@ -217,7 +217,10 @@ describe('WorkspaceDocumentDriver', () => {
                     sourcePath: '/managed/source.djvu',
                     requiresFreshWorkingCopy: false,
                 }},
-                print: {strategy: 'djvu-pdf-projection'},
+                print: {
+                    strategy: 'djvu-pdf-projection',
+                    path: null,
+                },
             },
             view: {showDjvuSource: true},
         });
@@ -241,11 +244,29 @@ describe('WorkspaceDocumentDriver', () => {
                 imageTarget: null,
                 multiPageTiffTarget: null,
             },
-            print: {strategy: 'pdf'},
+            print: {
+                strategy: 'pdf',
+                path: null,
+            },
         });
         expect(pdf.operations.open.acceptsDocumentType('pdf')).toBe(true);
         expect(pdf.operations.open.acceptsDocumentType('image')).toBe(true);
         expect(pdf.operations.open.acceptsDocumentType('djvu')).toBe(false);
+
+        const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/managed/working.pdf'));
+        const pdfWithPrintPath = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), {
+            djvuSourcePath: ref<TDocumentRef | null>(null),
+            nativePdfSourcePath: ref<TDocumentRef | null>(null),
+            workingCopyPath,
+        });
+        expect(pdfWithPrintPath.operations.print.path).toBe('/managed/working.pdf');
+
+        const nativePrintPath = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('native-pdf'), {
+            djvuSourcePath: ref<TDocumentRef | null>(null),
+            nativePdfSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/native.pdf')),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        });
+        expect(nativePrintPath.operations.print.path).toBe('/managed/native.pdf');
 
         const save = vi.fn(async () => true);
         const saveAs = vi.fn(async () => true);
