@@ -7,7 +7,7 @@ import {
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,
     validateSearchQuery,
-} from '@pdf-core';
+} from '@pdf-core/pdfSearchCore';
 import type { IDocumentTextProvider } from '@app/modules/document-viewer/source/documentPageSource';
 import type {
     IDocumentSearchMatch,
