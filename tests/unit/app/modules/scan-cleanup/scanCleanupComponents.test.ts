@@ -2669,6 +2669,132 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.refresh-indicator')).toBeNull();
     });
 
+    it('keeps a pending navigated frame out of geometry edits', async () => {
+        const pageNumber = ref(1);
+        const result = shallowRef(spreadPreviewResult(1));
+        const rawResult = shallowRef(rawPreviewResult(1));
+        const resultPresentationKey = ref('document-a:page-1');
+        const commit = vi.fn();
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            rawResult: rawResult.value,
+            resultCurrent: true,
+            resultPresentationKey: resultPresentationKey.value,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: pageNumber.value,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            'onUpdate:manualSplit': commit,
+        })}));
+        mockPreviewGeometry(harness.host, [
+            domRect(0, 0, 500, 800),
+            domRect(500, 0, 500, 800),
+        ]);
+        const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
+        const capture = mockPointerCapture(cutter);
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 600,
+            clientY: 400,
+            pointerId: 31,
+        }));
+        expect(capture.hasPointerCapture(31)).toBe(true);
+
+        pageNumber.value = 2;
+        result.value = spreadPreviewResult(2);
+        rawResult.value = rawPreviewResult(2);
+        resultPresentationKey.value = 'document-a:page-2';
+        await nextTick();
+
+        expect(harness.host.querySelector('.preview-loading')).not.toBeNull();
+        expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+        expect(capture.hasPointerCapture(31)).toBe(false);
+        expect(harness.host.querySelectorAll('.preview-cleaned-pixel-preload')).toHaveLength(2);
+
+        cutter.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 700,
+            clientY: 400,
+            pointerId: 31,
+        }));
+        cutter.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'ArrowRight',
+        }));
+        expect(commit).not.toHaveBeenCalled();
+
+        await loadPendingCleanedFrame(harness.host);
+        expect(harness.host.querySelector('.drag-overlay-layer')).not.toBeNull();
+    });
+
+    it('does not place old geometry controls over a newly displayed raw page', async () => {
+        const pageNumber = ref(1);
+        const result = shallowRef(spreadPreviewResult(1));
+        const rawResult = shallowRef(rawPreviewResult(1));
+        const resultPresentationKey = ref('document-a:page-1');
+        const viewMode = ref<'original' | 'cleaned'>('original');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            rawResult: rawResult.value,
+            resultCurrent: true,
+            resultPresentationKey: resultPresentationKey.value,
+            loading: false,
+            error: '',
+            viewMode: viewMode.value,
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: pageNumber.value,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        pageNumber.value = 2;
+        result.value = spreadPreviewResult(2);
+        rawResult.value = rawPreviewResult(2);
+        resultPresentationKey.value = 'document-a:page-2';
+        await nextTick();
+
+        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
+        expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+    });
+
+    it('shows a navigated-frame decode error without enabling the old page overlay', async () => {
+        const pageNumber = ref(1);
+        const result = shallowRef(spreadPreviewResult(1));
+        const resultPresentationKey = ref('document-a:page-1');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            resultCurrent: true,
+            resultPresentationKey: resultPresentationKey.value,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: pageNumber.value,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        pageNumber.value = 2;
+        result.value = spreadPreviewResult(2);
+        resultPresentationKey.value = 'document-a:page-2';
+        await nextTick();
+        harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')
+            ?.dispatchEvent(new Event('error'));
+        await nextTick();
+
+        expect(harness.host.querySelector('.preview-empty-layer .preview-message.is-error')).not.toBeNull();
+        expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+    });
+
     it('keeps the last rendered frame while the current page topology refreshes', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
