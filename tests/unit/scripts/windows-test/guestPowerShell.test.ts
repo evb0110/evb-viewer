@@ -230,6 +230,8 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('/v ForceAutoLogon');
         expect(bootstrap).toContain('DefaultPasswordSecret present');
         expect(bootstrap).toContain('CurrentAccountPrincipalSource');
+        expect(bootstrap).toContain('for /f "skip=1 tokens=1" %%U in');
+        expect(bootstrap).toContain('do net user %%U');
         expect(bootstrap).not.toContain('schtasks.exe /create /sc onlogon');
         expect(bootstrap).toContain('system-bootstrap.marker');
         expect(bootstrap).toContain('node-executable-missing');
