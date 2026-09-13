@@ -152,10 +152,13 @@ function getTabLabel(tab: TDocumentSidebarTab) {
 }
 
 function handleShellTabUpdate(value: string) {
-    if (!availableTabs.value.includes(value as TDocumentSidebarTab)) {
+    const tab = /^\d+$/u.test(value)
+        ? availableTabs.value[Number(value)]
+        : value as TDocumentSidebarTab;
+    if (!tab || !availableTabs.value.includes(tab)) {
         return;
     }
-    selectTab(value as TDocumentSidebarTab);
+    selectTab(tab);
 }
 
 /**

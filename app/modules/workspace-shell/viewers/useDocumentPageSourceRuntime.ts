@@ -733,7 +733,10 @@ export const useDocumentPageSourceRuntime = (options: {
         await nextTick();
         const renderQueue = resolveDocumentPageSourceRenderQueue({
             bufferPages: renderDemand.value.bufferPages,
-            concurrency: DOCUMENT_SOURCE_RENDER_CONCURRENCY,
+            concurrency: Math.max(
+                DOCUMENT_SOURCE_RENDER_CONCURRENCY,
+                renderDemand.value.visiblePages.length,
+            ),
             currentPage: props.value.currentPage,
             guardRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
             inFlightPages: [...presentation.renderControllers.keys()],

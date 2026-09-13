@@ -178,7 +178,7 @@ describe('OCR replacement ownership path aliases', () => {
         mocks.removeResultFile.mockResolvedValue(true);
         mocks.rename.mockResolvedValue(undefined);
         mocks.resolveAllowedReadPath.mockResolvedValue(canonicalOcrPath);
-        mocks.resolveAllowedWritePath.mockResolvedValue(resolvedWorkingCopyPath);
+        mocks.resolveAllowedWritePath.mockImplementation(async (path: string) => path);
         mocks.rm.mockResolvedValue(undefined);
         mocks.rollbackPreparedOcrCatalogV4.mockResolvedValue(false);
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
@@ -295,6 +295,7 @@ describe('OCR replacement ownership path aliases', () => {
         expect(mocks.resolveAllowedWritePath).toHaveBeenNthCalledWith(2, resolvedWorkingCopyPath);
         expect(mocks.publishPreparedOcrCatalogV4).toHaveBeenCalledWith(expect.objectContaining({
             catalogRoot: `${resolvedWorkingCopyPath}.ocr`,
+            sourcePdfPath: resolvedWorkingCopyPath,
             resultPath: canonicalOcrPath,
         }));
     });
@@ -309,14 +310,16 @@ describe('OCR replacement ownership path aliases', () => {
             {expectedDocumentRevisionToken: sourceRevisionToken},
         )).resolves.toBe(true);
 
+        // The renderer keys its revision listener by the `/var` spelling it
+        // registered, so the transition and the catalog rebind must use it.
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalledWith(
-            resolvedWorkingCopyPath,
+            workingCopyPath,
             'ocr-apply',
             expect.any(Function),
             ownerContext.senderId,
         );
         expect(mocks.rebindDocumentTextCatalogRevision).toHaveBeenCalledWith(
-            resolvedWorkingCopyPath,
+            workingCopyPath,
             sourceRevisionToken,
             'revision-after-ocr',
         );
@@ -324,11 +327,11 @@ describe('OCR replacement ownership path aliases', () => {
         expect(mocks.copyFile).toHaveBeenNthCalledWith(
             2,
             canonicalOcrPath,
-            expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.[^/]+\.tmp$/u),
+            expect.stringMatching(/\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.[^/]+\.tmp$/u),
         );
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.[^/]+\.tmp$/u),
-            resolvedWorkingCopyPath,
+            expect.stringMatching(/\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.[^/]+\.tmp$/u),
+            workingCopyPath,
         );
 
         mocks.copyFile.mockClear();

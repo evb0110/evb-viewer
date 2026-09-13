@@ -311,7 +311,12 @@ const isClosingDocument = computed(() => (
     activeDocumentSession.value.snapshot.value.activeTransaction?.kind === 'close'
 ));
 const hasPendingDocumentHint = computed(() => {
-    const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? null;
+    // A host remounted after a cold release has no workspace until it is
+    // activated, but its record still holds the document it committed. That
+    // record is the release evidence; a pending record is still opening.
+    const recordSnapshot = currentToolbarSnapshot.value;
+    const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot()
+        ?? (recordSnapshot.isOpeningDocument ? null : recordSnapshot);
     return shouldKeepWorkspacePendingDocumentHint({
         hasDocumentHint: hasDocumentHint === true,
         isClosingDocument: isClosingDocument.value,
@@ -322,13 +327,34 @@ const pendingDocumentPath = computed(() => (
     activeDocumentOpenTransaction.value?.documentRef
     ?? (hasPendingDocumentHint.value ? documentPath : null)
 ));
+// An in-place reload of the open document (OCR apply, page edits) re-arms the
+// open surface through `idle` while the previous pages stay painted. Showing
+// the Recent placeholder there also flips `isActive` on the workspace, which
+// unmounts the teleported toolbar and every popup it hosts. The placeholder is
+// for the transition from no document to a document, so it waits for a new
+// document, not a new generation of the one that already presented.
+const lastPresentedDocumentId = ref<string | null>(null);
+watch(
+    () => documentOpenSurface.snapshot.value,
+    (snapshot) => {
+        if (snapshot.identity === null) {
+            lastPresentedDocumentId.value = null;
+        } else if (!shouldPresentDocumentOpenEmptyPlaceholder(snapshot)) {
+            lastPresentedDocumentId.value = snapshot.identity.documentId;
+        }
+    },
+    {flush: 'sync'},
+);
 const isPlaceholderVisible = computed(() => {
+    const snapshot = documentOpenSurface.snapshot.value;
     return shouldShowWorkspacePlaceholder({
         hasQueuedSplitRestore: hasQueuedSplitRestore.value,
         hasPendingDocumentHint: hasPendingDocumentHint.value,
-        hasVisibleDocument: !shouldPresentDocumentOpenEmptyPlaceholder(
-            documentOpenSurface.snapshot.value,
-        ),
+        hasVisibleDocument: !shouldPresentDocumentOpenEmptyPlaceholder(snapshot)
+            || (
+                snapshot.identity !== null
+                && snapshot.identity.documentId === lastPresentedDocumentId.value
+            ),
         isDocumentOpenInFlight: isDocumentOpenInFlight.value,
     });
 });
