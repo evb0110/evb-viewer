@@ -217,6 +217,14 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('register-worker-logon-task.ps1');
         expect(bootstrap).toContain('-UserName EVBTester');
         expect(bootstrap).toContain('register-worker-logon.stderr.log');
+        expect(bootstrap).toContain('boot-diagnostic.log');
+        expect(bootstrap).toContain('sc query qemu-ga');
+        expect(bootstrap).toContain('sc qc qemu-ga');
+        expect(bootstrap).toContain('qemu-ga.exe');
+        expect(bootstrap).toContain('query user');
+        expect(bootstrap).toContain('schtasks.exe /query /tn "EVB Windows Test Worker" /v /fo list');
+        expect(bootstrap).toContain('DefaultUserName');
+        expect(bootstrap).not.toContain('/v DefaultPassword');
         expect(bootstrap).not.toContain('schtasks.exe /create /sc onlogon');
         expect(bootstrap).toContain('system-bootstrap.marker');
         expect(bootstrap).toContain('node-executable-missing');

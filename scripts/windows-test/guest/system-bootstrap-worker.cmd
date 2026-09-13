@@ -73,6 +73,25 @@ call :record worker-launcher-copy %ERRORLEVEL%
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%EVB_ROOT%\worker\powershell\register-worker-logon-task.ps1" -UserName EVBTester -NodeExecutable "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" -WorkerScript "%EVB_ROOT%\worker\guestWorker.cjs" -GuestRoot "%EVB_ROOT%" -WorkingDirectory "%EVB_ROOT%\worker" >"%EVB_STATE%\register-worker-logon.stdout.log" 2>"%EVB_STATE%\register-worker-logon.stderr.log"
 call :record register-worker-logon %ERRORLEVEL%
 if exist "%EVB_STATE%\register-worker-logon.stderr.log" type "%EVB_STATE%\register-worker-logon.stderr.log" >>"%EVB_MARKER%"
+>"%EVB_STATE%\boot-diagnostic.log" (
+  echo [qemu-ga service]
+  sc query qemu-ga
+  sc qc qemu-ga
+  echo [qemu-ga executable lookup]
+  where qemu-ga.exe
+  echo [qemu-ga version]
+  for /f "delims=" %%P in ('where qemu-ga.exe 2^>nul') do "%%P" --version
+  echo [interactive sessions]
+  query user
+  echo [worker task]
+  schtasks.exe /query /tn "EVB Windows Test Worker" /v /fo list
+  echo [winlogon policy]
+  reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon
+  reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName
+  reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName
+  reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonCount
+)
+call :record boot-diagnostic 0
 if "%EVB_FAILURE%"=="1" exit /b 1
 >"%EVB_STATE%\system-bootstrap-complete.marker" echo complete=v2
 exit /b 0
