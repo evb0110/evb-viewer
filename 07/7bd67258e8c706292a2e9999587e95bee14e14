@@ -1,0 +1,19 @@
+electron/features/ocr/languageModels.ts
+  s_bf339acad50bb8::t_dc11cb7f2e54ae 522-542,1123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "077bd67258e8c706292a2e9999587e95bee14e14",
+  "prompts": {},
+  "sessions": {
+    "s_bf339acad50bb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09cd2-215f-7422-9e8f-989f386d6d9e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
