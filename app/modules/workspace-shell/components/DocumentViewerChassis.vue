@@ -43,7 +43,10 @@
             @selectstart="chassisAuthority.dispatchViewportEvent('selectstart', $event)"
         >
             <div
-                v-if="chassisOpeningPageShell && shouldRenderChassisOpeningPageShell"
+                v-if="chassisOpeningPageShell
+                    && shouldRenderChassisOpeningPageShell
+                    && (chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview
+                        || chassisAuthority.openingPageVisual.value !== 'fresh')"
                 class="document-viewer-chassis__opening-layer"
             >
                 <section
