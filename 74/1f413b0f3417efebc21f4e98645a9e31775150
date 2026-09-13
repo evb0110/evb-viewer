@@ -1,0 +1,19 @@
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_71b08669d92876::t_8911ccc2e12beb 23,27-35,37,154,157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "741f413b0f3417efebc21f4e98645a9e31775150",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+docs/project8-locale-equality-review-2026-09-11.md
+  s_e1c3ddd1776bb7::t_0baee038776407 3-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cb517c584ae3abaa7d3c5964d19797b91ebd3bd1",
+  "prompts": {},
+  "sessions": {
+    "s_e1c3ddd1776bb7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09cfa-b401-7193-bc16-770cd7154b44",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

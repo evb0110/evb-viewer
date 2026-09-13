@@ -1,0 +1,36 @@
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_71b08669d92876::t_1744ca1bf154aa 254
+  s_71b08669d92876::t_f5ccc6177d695a 23-27,29-32,34-52,54-56,150,169-170,176-178,192-197,199-202,208,221-222,225
+  s_71b08669d92876::t_d37f48bdf0adcf 28,33,53
+tests/unit/scripts/windows-test/utmInputCapture.test.ts
+  s_71b08669d92876::t_53f873ddafe38f 81,83-85,93-96,108,113-124,129-139,170,172
+  s_71b08669d92876::t_79caaa549a70e0 109-112,125-128,145-146,158-159,183-186
+scripts/windows-test/host/utmInputCapture.ts
+  s_71b08669d92876::t_ec3036ebc9f8f2 4,209-212,214
+  s_71b08669d92876::t_8956832ca2de0a 104-106,109
+  s_71b08669d92876::t_d37f48bdf0adcf 38,100-101,114,255
+  s_71b08669d92876::t_70399123f77612 102
+  s_71b08669d92876::t_1744ca1bf154aa 29-30,225-226,258-259
+  s_71b08669d92876::t_612f7ebd50d67c 110-112
+  s_71b08669d92876::t_f5ccc6177d695a 33-37,42,88-99,103,107-108,113,115,140,142,184-198,238-242,244-247,249-254,256-257,260,274-279,306,308,313
+  s_71b08669d92876::t_9e8fca52aa71bd 31-32
+  s_71b08669d92876::t_147c388df2f59e 116-117
+scripts/windows-test/host/hostRunner.ts
+  s_71b08669d92876::t_f5ccc6177d695a 247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "75afc9ea6578b0a6d9d42695462e57865b5dcbc9",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
