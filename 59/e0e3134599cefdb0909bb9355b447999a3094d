@@ -1,0 +1,61 @@
+app/utils/document-viewer/thumbnails/documentThumbnailScheduler.ts
+  s_b5c0fca9df64a7::t_bef53a8ee0c65d 197-200
+  s_b5c0fca9df64a7::t_a2b71f44d3405f 190-196
+  s_b5c0fca9df64a7::t_56edec0a7e4255 175-176,248-251
+  s_b5c0fca9df64a7::t_64d7b234cf949b 32,51-52,92-95,179,185-189
+tests/unit/electron/workerTask.test.ts
+  s_b5c0fca9df64a7::t_b880108ea82afb 968-995
+electron/features/documents/main/buildPrintablePdfPath.ts
+  s_b5c0fca9df64a7::t_d3f2bca1d8f4d0 77
+  s_b5c0fca9df64a7::t_9595b6bc3cf591 69,135
+electron/utils/workerTask.ts
+  s_b5c0fca9df64a7::t_bb09a24be87f36 553,563
+tests/unit/electron/createLoggerBuffering.test.ts
+  s_b5c0fca9df64a7::t_86411ab4361574 115-116
+  s_b5c0fca9df64a7::t_123c8c9477f411 131-133,141
+  s_b5c0fca9df64a7::t_cc5cbed652534a 117
+  s_b5c0fca9df64a7::t_ccaaaa15934a5a 13,36,55-56,110-114,118-130,134-140,142-146
+  s_b5c0fca9df64a7::t_8c4730cfb7d0eb 147-148
+tests/unit/app/utils/document-viewer/thumbnails/documentThumbnailScheduler.test.ts
+  s_b5c0fca9df64a7::t_f5a27c8591b649 104,110
+  s_b5c0fca9df64a7::t_1d05435a2891c9 106-107,113,117,119-124,126,131-135,140-144
+  s_b5c0fca9df64a7::t_7df8218901b5f9 100-103,111-112
+  s_b5c0fca9df64a7::t_0d1d0c766c3708 171
+  s_b5c0fca9df64a7::t_1d64802c0ebc49 109,114-116
+  s_b5c0fca9df64a7::t_69da1f6c111931 108
+  s_b5c0fca9df64a7::t_bef53a8ee0c65d 118,125
+  s_b5c0fca9df64a7::t_623dc51c41cbc9 127-130,136-139
+electron/utils/createIpcProgressPump.ts
+  s_b5c0fca9df64a7::t_ef729585a1e9ca 40,77-82,228-230,243-245
+electron/utils/processTree.ts
+  s_b5c0fca9df64a7::t_9595b6bc3cf591 57,60,66,167-168,174,178,181,184
+  s_b5c0fca9df64a7::t_a9a227b480775e 191,194,204
+tests/unit/electron/buildPrintablePdfPath.test.ts
+  s_b5c0fca9df64a7::t_a04cf7ea50bca5 26
+  s_b5c0fca9df64a7::t_7606246730509c 178-189
+  s_b5c0fca9df64a7::t_44a76e4f0534cc 176-177
+electron/utils/createLogger.ts
+  s_b5c0fca9df64a7::t_3c707197dff71a 365-367
+tests/unit/electron/utils/processTree.test.ts
+  s_b5c0fca9df64a7::t_7606246730509c 89-115
+tests/unit/electron/createIpcProgressPump.test.ts
+  s_b5c0fca9df64a7::t_1d05435a2891c9 167-189
+electron/features/ocr/main/ocrNativeChildProcessIdentity.ts
+  s_b5c0fca9df64a7::t_9595b6bc3cf591 204-209,218,220,230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59e0e3134599cefdb0909bb9355b447999a3094d",
+  "prompts": {},
+  "sessions": {
+    "s_b5c0fca9df64a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098d9-b43d-7862-bf7c-71d2ffe3edff",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
