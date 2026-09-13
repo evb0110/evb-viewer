@@ -1,0 +1,91 @@
+packages/i18n-app/messages/ptBr.ts
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1127
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1580
+tests/unit/electron/imageExportIpc.test.ts
+  s_2a74fb84059d9a::t_9b2d4b328f4504 367-371,380-398
+  s_2a74fb84059d9a::t_b2227f591c327d 332
+  s_2a74fb84059d9a::t_ea9840b0077eaf 372-379
+  s_2a74fb84059d9a::t_063e300d2ddcdd 338-366
+electron/features/image-export/main/ipc.ts
+  s_2a74fb84059d9a::t_3e7e2f84e333b6 371-375,377-379,449-456
+  s_2a74fb84059d9a::t_41c145c6ff74d9 376
+packages/i18n-app/messages/it.ts
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1126
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1569
+packages/i18n-app/messages/es.ts
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1569
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1126
+tests/unit/app/services/pdf/combinePdfFiles.test.ts
+  s_2a74fb84059d9a::t_0dbad96ea2b805 333-347,363-391
+  s_2a74fb84059d9a::t_4f4430a01f950c 48-51
+  s_2a74fb84059d9a::t_dd454c75fbabcc 15,348-362
+packages/i18n-app/messages/en.ts
+  s_2a74fb84059d9a::t_4b491be7f3bdf2 1126
+  s_2a74fb84059d9a::t_59a3e9e4492a52 1569
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_2a74fb84059d9a::t_0939b790b90cf3 267
+  s_2a74fb84059d9a::t_bd65aa85c3826b 28,49,161-166,193,220,263-266,268-270,275-285,301,303-309
+  s_2a74fb84059d9a::t_1b644aa5a3583a 155-160,286-300,302,310-318
+electron/features/image-export/main/djvuImageExport.ts
+  s_2a74fb84059d9a::t_ab9e5375147462 47,183,468
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_2a74fb84059d9a::t_dd454c75fbabcc 436
+  s_2a74fb84059d9a::t_7cbfc61019222e 589-605
+  s_2a74fb84059d9a::t_59a3e9e4492a52 255,260-261,435,577-583,586,606-614,618-620,623
+  s_2a74fb84059d9a::t_515dbf2fe6a6fb 256-259
+  s_ae757872e5d914::t_b268c07f7de55f 576,621-622
+packages/i18n-app/messages/fr.ts
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1580
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1127
+packages/i18n-app/messages/pt.ts
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1580
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1127
+packages/i18n-app/messages/nl.ts
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1126
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1569
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_2a74fb84059d9a::t_1301ea63426cb5 289-328
+app/modules/combine/useCombinePdfOperation.ts
+  s_2a74fb84059d9a::t_0d1c24edcffe7a 32
+  s_2a74fb84059d9a::t_ff25829c881072 133
+  s_2a74fb84059d9a::t_e7e33595f1ea8d 9,134,151-158,167,171
+app/components/combine/CombinePdfPage.vue
+  s_2a74fb84059d9a::t_e7e33595f1ea8d 102-108,227,335
+  s_2a74fb84059d9a::t_7cbfc61019222e 331
+  s_2a74fb84059d9a::t_62d6835cd4ee5c 101
+packages/i18n-app/messages/de.ts
+  s_2a74fb84059d9a::t_2cacdc7e7ffe9d 1569
+  s_2a74fb84059d9a::t_bdd01369d02f4a 1126
+app/services/pdf/combinePdfFiles.ts
+  s_2a74fb84059d9a::t_5df359063ec9a2 21,78-84
+  s_2a74fb84059d9a::t_9b2d4b328f4504 22-25,69-70
+  s_2a74fb84059d9a::t_e7e33595f1ea8d 52-60,62-65,68,71-77,85,131-135,219-222,257-259,278,285
+  s_2a74fb84059d9a::t_42a3a76ffb13c1 263-266
+packages/i18n-app/messages/ru.ts
+  s_2a74fb84059d9a::t_59a3e9e4492a52 1609
+  s_2a74fb84059d9a::t_4b491be7f3bdf2 1144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "11c4b2d279be54433e07ac664c9cdc2aea2e8793",
+  "prompts": {},
+  "sessions": {
+    "s_2a74fb84059d9a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098ef-89c6-7390-af41-32cc187f81bf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
