@@ -704,7 +704,7 @@ jobs:
           verify-electron: 'true'
 
       - name: Install PDF test tools
-        run: brew install qpdf
+        run: brew install imagemagick poppler qpdf
 
       - name: Electron E2E regression
         run: pnpm run test:e2e:electron:regression
