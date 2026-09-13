@@ -152,6 +152,24 @@ describe('assistant chat session store persistence', () => {
         ]);
     });
 
+    it('persists removing a canceled message before a restart', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        const message = store.addMessage(session, {
+            role: 'user',
+            text: 'canceled before submission',
+        });
+
+        expect(store.removeMessage(session, message.id)).toBe(true);
+        expect(store.removeMessage(session, message.id)).toBe(false);
+        await store.flushPersistenceForTests();
+
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection)).toEqual([]);
+    });
+
     it('coalesces rapid deltas and persists the newest snapshot', async () => {
         const rootDir = createTempRoot();
         const persistence = createPersistence(rootDir);

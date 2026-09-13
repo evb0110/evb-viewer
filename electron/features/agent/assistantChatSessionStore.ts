@@ -408,6 +408,17 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         return nextMessage;
     }
 
+    function removeMessage(session: IAssistantChatSession, messageId: string) {
+        const messageIndex = session.messages.findIndex(message => message.id === messageId);
+        if (messageIndex < 0) {
+            return false;
+        }
+
+        session.messages.splice(messageIndex, 1);
+        persistence?.recordSessionSnapshot(keyForSession(session), session);
+        return true;
+    }
+
     function upsertAssistantMessage(
         session: IAssistantChatSession,
         id: string,
@@ -495,6 +506,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         rememberStateScope,
         recordSessionSnapshot,
         recordTurnBoundary,
+        removeMessage,
         resolveRequestedScope,
         resetSessionTranscript,
         setActiveSession,

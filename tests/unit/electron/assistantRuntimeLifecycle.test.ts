@@ -228,4 +228,55 @@ describe('assistant runtime lifecycle', () => {
             params: expect.objectContaining({threadId: 'thread-preserved'}),
         });
     });
+
+    it('coalesces concurrent replacement starts after termination proof completes', async () => {
+        const sessionStore = createAssistantChatSessionStore({persistence: false});
+        const providerRuntime = createAssistantProviderRuntimeStates({codex: {
+            authState: 'signed-in',
+            runtimeState: 'stopped',
+        }}).codex;
+        const lifecycle = createAssistantRuntimeLifecycle({
+            providerRuntime,
+            sessionStore,
+            getCodexModels: () => [],
+            setCodexModels: vi.fn(),
+            isAssistantFeatureEnabled: vi.fn(async () => true),
+            createAssistantDisabledError: () => 'disabled',
+            shutdownAssistant: vi.fn(async () => undefined),
+            publishCodexState: vi.fn(),
+            handleNotification: vi.fn(),
+            handleExit: vi.fn(),
+            logger: {
+                info: vi.fn(),
+                warn: vi.fn(),
+            },
+        });
+
+        const firstRuntime = await lifecycle.ensureRuntime();
+        const terminationError = new Error('process tree did not terminate cleanly');
+        let resolveRetry: (() => void) | undefined;
+        const retry = new Promise<void>(resolve => {
+            resolveRetry = resolve;
+        });
+        runtimeMocks.shutdown
+            .mockRejectedValueOnce(terminationError)
+            .mockImplementationOnce(() => retry);
+
+        await expect(lifecycle.shutdownCodexRuntime()).rejects.toBe(terminationError);
+        const firstReplacement = lifecycle.ensureRuntime();
+        const secondReplacement = lifecycle.ensureRuntime();
+
+        await new Promise(resolve => setImmediate(resolve));
+        expect(runtimeMocks.spawnCount).toBe(1);
+
+        resolveRetry?.();
+        const replacements = await Promise.all([
+            firstReplacement,
+            secondReplacement,
+        ]);
+
+        expect(runtimeMocks.spawnCount).toBe(2);
+        expect(replacements[0]).toBe(replacements[1]);
+        expect(replacements[0]).not.toBe(firstRuntime);
+    });
 });
