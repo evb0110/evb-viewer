@@ -20,16 +20,21 @@ struct ProbeResult: Codable {
     let action: String
 }
 
-func onScreenWindowCount(for pid: pid_t) -> Int? {
+func targetWindowPresence(for pid: pid_t, title: String) -> Bool? {
     guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
         return nil
     }
-    return rawWindows.reduce(into: 0) { count, window in
-        if let ownerPid = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue,
-           ownerPid == Int(pid) {
-            count += 1
-        }
+    let ownerWindows = rawWindows.filter { window in
+        (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == Int(pid)
     }
+    if ownerWindows.isEmpty {
+        return false
+    }
+    let namedWindows = ownerWindows.compactMap { $0[kCGWindowName as String] as? String }
+    if namedWindows.isEmpty {
+        return nil
+    }
+    return namedWindows.contains(title)
 }
 
 func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
@@ -146,10 +151,10 @@ guard applications.count == 1, let application = applications.first else {
 
 let pid = application.processIdentifier
 let axApplication = AXUIElementCreateApplication(pid)
-guard let onScreenWindows = onScreenWindowCount(for: pid) else {
+guard let targetPresence = targetWindowPresence(for: pid, title: arguments.title) else {
     throw ProbeError.targetWindowUnavailable("UTM window enumeration was unavailable")
 }
-if onScreenWindows == 0 {
+if !targetPresence {
     let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
     let output = ProbeResult(
         windowTitle: arguments.title,
