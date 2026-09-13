@@ -1,7 +1,13 @@
 import {
     link,
+    readdir,
     rm,
 } from 'node:fs/promises';
+import {
+    basename,
+    dirname,
+    join,
+} from 'node:path';
 import {isRecord} from '@contracts/runtimeGuards';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
@@ -18,6 +24,33 @@ import {
 
 function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;
+}
+
+export async function cleanupOrphanedTwoTargetDocumentTransitionBackups(
+    originalPath: string,
+    workingCopyPath: string,
+) {
+    // Recovery runs immediately before this sweep. Recheck the journal so a
+    // transition that starts between those steps keeps its backup.
+    if (await readDocumentRecoveryJournal(journalPath(workingCopyPath)) !== undefined) {
+        return;
+    }
+    const originalDirectory = dirname(originalPath);
+    const backupPrefix = `${basename(originalPath)}.evb-transition-`;
+    let entries;
+    try {
+        entries = await readdir(originalDirectory, {withFileTypes: true});
+    } catch {
+        return;
+    }
+
+    await Promise.all(entries
+        .filter(entry => (
+            entry.name.startsWith(backupPrefix)
+            && entry.name.endsWith('.bak')
+            && (entry.isFile() || entry.isSymbolicLink())
+        ))
+        .map(entry => rm(join(originalDirectory, entry.name), {force: true}).catch(() => undefined)));
 }
 
 function parseJournalSnapshot(value: unknown, journalPath: string) {

@@ -1651,15 +1651,7 @@ export function acknowledgeWorkspaceCheckpoint(
 export function clearWorkspaceCheckpoint() {
     return enqueueWorkspaceCheckpointBarrier(async () => {
         const checkpoints = Array.from(lastDurableWorkspaceCheckpoints.values());
-        let journal: IStoredWorkspaceJournal;
-        try {
-            journal = await readStoredWorkspaceJournal();
-        } catch (error) {
-            if (error instanceof WorkspaceCheckpointReadError) {
-                throw error;
-            }
-            throw error;
-        }
+        const journal = await readStoredWorkspaceJournal();
         // Keep the durable records until auxiliary recovery bytes retire. A
         // failed cleanup must leave every claim discoverable for the next retry.
         await Promise.all([
