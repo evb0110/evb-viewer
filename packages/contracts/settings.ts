@@ -14,6 +14,7 @@ import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
+const SETTINGS_SCHEMA_VERSION = 2;
 const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<ISettingsData['defaultZoomPreset']>([
     'fit-width',
     'fit-height',
@@ -52,7 +53,10 @@ export type TSettingsSavePatch = Partial<Pick<ISettingsData, TSettingsSaveKey>>;
 
 export type TSettingsRecoveryReason = 'corrupt' | 'unsupported' | 'unreadable';
 
-export interface ISettingsRecoveryNotice { reason: TSettingsRecoveryReason; }
+export interface ISettingsRecoveryNotice {
+    reason: TSettingsRecoveryReason;
+    quarantinePath?: string;
+}
 
 export const SETTINGS_SAVE_KEYS = [
     'version',
@@ -90,7 +94,7 @@ export function pickSettingsSavePatch(settings: ISettingsData): TSettingsSavePat
 }
 
 export const DEFAULT_SETTINGS: ISettingsData = {
-    version: 2,
+    version: SETTINGS_SCHEMA_VERSION,
     authorName: '',
     theme: 'light',
     locale: DEFAULT_LOCALE,
@@ -123,7 +127,10 @@ export function decodeSettingsRecoveryNotice(value: unknown): ISettingsRecoveryN
         || (value.reason !== 'corrupt' && value.reason !== 'unsupported' && value.reason !== 'unreadable')) {
         return null;
     }
-    return {reason: value.reason};
+    return {
+        reason: value.reason,
+        ...(typeof value.quarantinePath === 'string' ? {quarantinePath: value.quarantinePath} : {}),
+    };
 }
 
 export function assertSupportedSettingsSchema(raw: unknown): asserts raw is unknown {
@@ -268,4 +275,60 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         settings.skippedUpdateVersion = skippedUpdateVersion;
     }
     return settings;
+}
+
+type TSettingsMigration = (settings: Record<string, unknown>) => Record<string, unknown>;
+
+const SETTINGS_MIGRATIONS: Readonly<Record<number, TSettingsMigration>> = {1: settings => ({
+    ...settings,
+    performanceMode: settings.performanceMode ?? DEFAULT_SETTINGS.performanceMode,
+    tabMemoryPolicy: settings.tabMemoryPolicy ?? DEFAULT_SETTINGS.tabMemoryPolicy,
+    version: SETTINGS_SCHEMA_VERSION,
+})};
+
+const SETTINGS_STORAGE_KNOWN_KEYS: ReadonlySet<string> = new Set([
+    ...SETTINGS_SAVE_KEYS,
+    'agentMcpEnabled',
+    'skippedUpdateVersion',
+]);
+
+function sanitizeSettingsForStorage(raw: unknown): ISettingsData {
+    const sanitized = sanitizeSettings(raw);
+    if (!isRecord(raw)) {
+        return sanitized;
+    }
+
+    for (const [
+        key,
+        value,
+    ] of Object.entries(raw)) {
+        if (!SETTINGS_STORAGE_KNOWN_KEYS.has(key)) {
+            Object.assign(sanitized, {[key]: value});
+        }
+    }
+    return sanitized;
+}
+
+export function migrateSettings(raw: unknown): ISettingsData {
+    const source = isRecord(raw)
+        ? Object.fromEntries(Object.entries(raw))
+        : {};
+    assertSupportedSettingsSchema(source);
+
+    let version = typeof source.version === 'number'
+        && Number.isInteger(source.version)
+        && source.version >= 1
+        ? source.version
+        : 1;
+    let migrated = source;
+    while (version < DEFAULT_SETTINGS.version) {
+        const migration = SETTINGS_MIGRATIONS[version];
+        if (!migration) {
+            throw new Error(`Missing settings migration from version ${version}`);
+        }
+        migrated = migration(migrated);
+        version += 1;
+    }
+    migrated.version = SETTINGS_SCHEMA_VERSION;
+    return sanitizeSettingsForStorage(migrated);
 }

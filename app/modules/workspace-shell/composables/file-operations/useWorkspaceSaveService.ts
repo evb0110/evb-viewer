@@ -468,29 +468,7 @@ async function executeNativeMutationSave(
         };
 
     if (Object.keys(nativeMutations).length === 0) {
-        saveTransaction.commitAnnotationSave?.();
-        return {
-            status: 'saved',
-            persisted: {
-                success: true,
-                outPath: plan.target.expectedWorkingPath ?? null,
-                saveMode: getSaveMode(plan),
-                didSaveAs: false,
-            },
-            serializedChanges: false,
-            reloadWaiter: null,
-            completion: {
-                markAnnotationStateSaved: false,
-                markBookmarksStateSaved: false,
-                markPageLabelsStateSaved: false,
-                allowAnnotationSaveStateRefresh: false,
-                allowBookmarksSaveStateRefresh: false,
-                allowPageLabelsSaveStateRefresh: false,
-                markShapeStateSaved: false,
-                preserveLivePdfjsSession: true,
-                resetAnnotationStorage: false,
-            },
-        };
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
 
     let persisted: IPdfPersistResult | null;

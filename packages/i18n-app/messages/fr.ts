@@ -1639,6 +1639,7 @@ export default {
         'settings': {
             'load': 'Impossible de charger les paramètres',
             'recovered': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. Le fichier précédent a été conservé comme copie de récupération lorsque cela était possible.',
+            'recoveredWithPath': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. L\'ancien fichier a été placé en quarantaine à l\'emplacement {path}.',
         },
         'runtime': {
             'title': 'Une erreur est survenue',

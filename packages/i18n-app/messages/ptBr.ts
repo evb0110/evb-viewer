@@ -1639,6 +1639,7 @@ export default {
         'settings': {
             'load': 'Não foi possível carregar as configurações',
             'recovered': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi mantido como cópia de recuperação quando possível.',
+            'recoveredWithPath': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi colocado em quarentena em {path}.',
         },
         'runtime': {
             'title': 'Algo deu errado',

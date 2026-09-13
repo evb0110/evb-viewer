@@ -158,8 +158,12 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
     };
     const files: IRecentFile[] = [];
     if (Array.isArray(parsed.files)) {
-        for (const candidate of parsed.files) {
+        for (const [
+            index,
+            candidate,
+        ] of parsed.files.entries()) {
             if (!isRecord(candidate)) {
+                logger.warn(`Dropped invalid recent file entry ${index}`);
                 continue;
             }
             const originalPath = candidate.originalPath;
@@ -188,7 +192,9 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
                     fileSize,
                     ...(modifiedAt === undefined ? {} : {modifiedAt}),
                 });
+                continue;
             }
+            logger.warn(`Dropped invalid recent file entry ${index}`);
         }
     }
 
