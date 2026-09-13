@@ -16,6 +16,7 @@ import type {
 
 interface IRestoreWorkspaceCheckpointOptions {
     tabs: Ref<ITab[]>;
+    activeTabId: Readonly<Ref<string | null>>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     restoreGraph: (checkpoint: IWorkspaceCheckpoint) => void;
     openPathInReservedTab: (tabId: string, target: TDocumentRef | TOpenFileResult) => Promise<boolean>;
@@ -167,6 +168,7 @@ export async function restoreWorkspaceCheckpoint(
         }
     }
     await nextTick();
+    const graphActiveTabId = options.activeTabId.value;
     const failedPaths: TDocumentRef[] = [];
     const restoredTabIds = new Set<string>();
     let nextTabIndex = 0;
@@ -242,7 +244,9 @@ export async function restoreWorkspaceCheckpoint(
             restoredActiveTabId = restored.tabId;
         }
     }
-    if (restoredActiveTabId) {
+    // Tabs are clickable while their documents reopen. A tab the user chose in
+    // that window outranks the checkpoint's choice.
+    if (restoredActiveTabId && options.activeTabId.value === graphActiveTabId) {
         options.activateTab(restoredActiveTabId);
     }
     return failedPaths;

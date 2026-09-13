@@ -549,6 +549,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
                 const failedCheckpointPaths = await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
                     tabs,
+                    activeTabId,
                     workspaceRefs,
                     restoreGraph: restoreWorkspaceCheckpointGraph,
                     openPathInReservedTab,
