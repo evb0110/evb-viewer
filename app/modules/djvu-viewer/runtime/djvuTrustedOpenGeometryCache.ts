@@ -1,6 +1,7 @@
 import type { IRecentFile } from '@contracts/shared';
 import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
 import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createBoundedLruCache } from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
 import { settleDocumentOpeningGeometryPrewarmTask } from '@app/utils/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask';
 
 interface ISourceStat {
@@ -8,17 +9,36 @@ interface ISourceStat {
     modifiedAt?: number;
 }
 
-const geometryByPath = new Map<string, IDocumentOpenSurfacePageGeometrySeed>();
+const DJVU_TRUSTED_OPEN_GEOMETRY_CACHE_LIMIT = 256;
+const geometryByPath = createBoundedLruCache<string, IDocumentOpenSurfacePageGeometrySeed>(
+    DJVU_TRUSTED_OPEN_GEOMETRY_CACHE_LIMIT,
+);
 const pendingByPath = new Map<string, Promise<IDocumentOpenSurfacePageGeometrySeed | null>>();
 const DEFAULT_RECENT_DJVU_OPEN_GEOMETRY_PREWARM_LIMIT = 4;
 
 function matchesStat(geometry: IDocumentOpenSurfacePageGeometrySeed, stat: ISourceStat) {
-    return geometry.size === stat.size && geometry.modifiedAt === (stat.modifiedAt ?? 0);
+    return stat.modifiedAt !== undefined
+        && geometry.size === stat.size
+        && geometry.modifiedAt === stat.modifiedAt;
 }
 
-export function readPrevalidatedTrustedDjvuOpenGeometry(path: string, pageNumber = 1) {
+export function readPrevalidatedTrustedDjvuOpenGeometry(
+    path: string,
+    pageNumber: number,
+    sourceStat: ISourceStat | null,
+) {
+    if (!sourceStat) {
+        return null;
+    }
     const geometry = geometryByPath.get(path);
-    return geometry?.pageNumber === pageNumber ? geometry : null;
+    if (!geometry || geometry.pageNumber !== pageNumber) {
+        return null;
+    }
+    if (!matchesStat(geometry, sourceStat)) {
+        geometryByPath.delete(path);
+        return null;
+    }
+    return geometry;
 }
 
 export function cacheTrustedDjvuOpenGeometry(
@@ -130,8 +150,16 @@ export async function prewarmRecentDjvuOpeningGeometry(
                     }
                 });
                 // The platform operation is not abortable through this port.
-                // Keep the bounded worker slot occupied instead of stacking
-                // additional native probes behind the timeout.
+                // Stop probing after a timeout. Mark unclaimed candidates so
+                // callers can distinguish skipped probes from missing results.
+                while (nextIndex < candidates.length) {
+                    const skippedFile = candidates[nextIndex++];
+                    if (!skippedFile) {
+                        continue;
+                    }
+                    results.set(skippedFile.originalPath, null);
+                    options.onSettled?.(skippedFile, null);
+                }
                 return;
             }
         }

@@ -151,7 +151,10 @@ function stubRailGeometry() {
     });
 }
 
-async function mountThumbnails(overrides: Partial<IThumbnailHarnessState> = {}) {
+async function mountThumbnails(
+    overrides: Partial<IThumbnailHarnessState> = {},
+    options: {waitForTick?: boolean} = {},
+) {
     const state = reactive<IThumbnailHarnessState>({
         currentPage: 3,
         selectedPages: [2],
@@ -182,7 +185,9 @@ async function mountThumbnails(overrides: Partial<IThumbnailHarnessState> = {}) 
     app.component('UIcon', PassThroughStub);
     app.component('AppTooltip', PassThroughStub);
     app.mount(host);
-    await nextTick();
+    if (options.waitForTick ?? true) {
+        await nextTick();
+    }
     const unmount = () => {
         app.unmount();
         host.remove();
@@ -372,6 +377,13 @@ describe('PdfThumbnails keyboard navigation', () => {
         });
 
         expect(row(host, 18).getAttribute('aria-current')).toBe('page');
+    });
+
+    it('uses the mounted rail height for the first virtual window', async () => {
+        stubRailGeometry();
+        const {host} = await mountThumbnails({totalPages: 300}, {waitForTick: false});
+
+        expect(rows(host).map(element => Number(element.dataset.page))).toContain(10);
     });
 
     it('reveals a virtualized row before moving focus to it', async () => {

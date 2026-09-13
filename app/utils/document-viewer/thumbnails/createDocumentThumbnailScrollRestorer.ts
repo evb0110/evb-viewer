@@ -41,7 +41,13 @@ export function createDocumentThumbnailScrollRestorer(
         }
 
         const container = options.getContainer();
-        if (!container || Math.abs(container.scrollTop - targetScrollTop) < SCROLL_TOP_EPSILON) {
+        if (!container) {
+            if (attempt + 1 < maxAttempts) {
+                await verify(request, targetScrollTop, attempt + 1);
+            }
+            return;
+        }
+        if (Math.abs(container.scrollTop - targetScrollTop) < SCROLL_TOP_EPSILON) {
             return;
         }
 

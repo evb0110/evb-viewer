@@ -10,7 +10,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IDocumentThumbnailMetricsCache} from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
+import type {IBoundedLruCache} from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
+import type {IDocumentPageMetrics} from '@app/utils/document-viewer/source/documentPageSource';
 import {DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT} from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
 import {
     countDocumentThumbnailCalls,
@@ -24,7 +25,7 @@ import {
 } from '@tests/helpers/document-viewer/documentThumbnailListHarness';
 
 interface IMetricsCacheModule {
-    createDocumentThumbnailMetricsCache: (limit?: number) => IDocumentThumbnailMetricsCache;
+    createDocumentThumbnailMetricsCache: (limit?: number) => IBoundedLruCache<number, Promise<IDocumentPageMetrics>>;
     DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT: number;
 }
 
