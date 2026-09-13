@@ -1,0 +1,42 @@
+electron/features/agent/assistantChatSessionStore.ts
+  s_7c22a950dc3bb0::t_a7bbfbfda50bcf 412-419
+  s_7c22a950dc3bb0::t_a15bcf22887f4d 411,420-421,509
+tests/unit/electron/assistantRuntimeLifecycle.test.ts
+  s_7c22a950dc3bb0::t_09b2d01971e5c0 231-272,277-281
+  s_7c22a950dc3bb0::t_fd3f341a14125d 273-276
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_7c22a950dc3bb0::t_9d21188eb088be 955-957
+  s_7c22a950dc3bb0::t_b28fcdf5eb977e 974
+  s_7c22a950dc3bb0::t_5456f667112b91 696-706,709-720,722-724
+  s_7c22a950dc3bb0::t_fcb0c60b75143b 707,721
+  s_7c22a950dc3bb0::t_87b70c2ef3fca0 926-954,958-969,973,975-996
+  s_7c22a950dc3bb0::t_79d887b97f6b8c 970-972
+  s_7c22a950dc3bb0::t_a3bf1830114f1e 708
+tests/unit/electron/assistantChatSessionStore.test.ts
+  s_7c22a950dc3bb0::t_dbae378f101430 155-172
+electron/features/agent/assistantService.ts
+  s_7c22a950dc3bb0::t_6c3e96304312c6 313,319,912-913,937,939
+  s_7c22a950dc3bb0::t_595c03fb0bffca 960-964
+  s_7c22a950dc3bb0::t_ad21dea0c5fc64 914-919,951,956
+  s_7c22a950dc3bb0::t_78a241198ede5a 1127,1132
+  s_7c22a950dc3bb0::t_1b284b31b33db7 988
+  s_7c22a950dc3bb0::t_7d1317f0847b45 1128,1137-1148
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_7c22a950dc3bb0::t_616cb44a3c6119 363-365,370-372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8249155f2dfb656634fd71d0146d1884ecf1e418",
+  "prompts": {},
+  "sessions": {
+    "s_7c22a950dc3bb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09807-4dc4-7a43-a32d-d357ed107d4e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
