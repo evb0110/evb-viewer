@@ -1,0 +1,22 @@
+app/modules/workspace-shell/document-sessions/workspaceDocumentController.ts
+  s_247a07a16a61fa::t_0fb8e074613b18 699
+  s_247a07a16a61fa::t_aa10e318dea5e2 677-681
+tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentController.test.ts
+  s_247a07a16a61fa::t_a1515058a5f73c 245-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "80e62972a42bc89b6b439ae7d971dbf63fdac1ba",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
