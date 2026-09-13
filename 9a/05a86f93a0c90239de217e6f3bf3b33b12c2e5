@@ -1,0 +1,24 @@
+packages/contracts/scan-cleanup/nativeArtifactCodecs.ts
+  s_19bce63e13a0b8::t_55a9bb7e7ce164 933-934
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_19bce63e13a0b8::t_075316d7ad1f4d 1033,1038,1043-1058,1060-1077
+  s_19bce63e13a0b8::t_d3a360b5109a3e 1059
+tests/unit/contracts/canonicalAppFrames.test.ts
+  s_19bce63e13a0b8::t_55a9bb7e7ce164 152-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9a05a86f93a0c90239de217e6f3bf3b33b12c2e5",
+  "prompts": {},
+  "sessions": {
+    "s_19bce63e13a0b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-dd12-7962-b989-fef053cd2488",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
