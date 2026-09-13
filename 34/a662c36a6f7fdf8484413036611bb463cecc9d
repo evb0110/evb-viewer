@@ -1,0 +1,61 @@
+scripts/windows-test/guest/cases/caseRegistry.ts
+  s_71b08669d92876::t_72cccc558e812b 20-22,24-28
+  s_71b08669d92876::t_97c6d387d6c671 17
+  s_71b08669d92876::t_2f6ec864254c93 23
+scripts/windows-test/fixtures/generateWindowsFixturesCli.ts
+  s_71b08669d92876::t_97c6d387d6c671 88-92,97-101,126-133
+  s_71b08669d92876::t_c05bc9de4674dd 4-5,19,26-27,85-87,93-96,102,121-125,134-145,147-148
+tests/unit/scripts/saveWitnessMatrix.test.ts
+  s_71b08669d92876::t_2b355f1549c91c 1-12,34-87
+  s_71b08669d92876::t_153d1487ab491e 13-33
+scripts/windows-test/guest/native-ui/winappCliAdapter.ts
+  s_71b08669d92876::t_c3712162a636e6 429-432
+scripts/save-witness/runSaveWitnessMatrix.ts
+  s_71b08669d92876::t_616425962aa291 1,8-13,15-48,58-87,89-90,92,96-97,99-113,115-133
+  s_71b08669d92876::t_a0816ff0f922ba 14,49-57
+  s_71b08669d92876::t_0e59d3c73f6c6b 114
+  s_71b08669d92876::t_010744ecf3e87d 2,91,93-95,98
+  s_71b08669d92876::t_97c6d387d6c671 3-7,88
+scripts/save-witness/saveWitnessMatrix.ts
+  s_71b08669d92876::t_97c6d387d6c671 2-7,113-120,122-125,137-151,154-158,163-168
+  s_71b08669d92876::t_02b2ad78a2995f 1,8-73,90-112,121,126-136,152-153,159-162,169-196,200-203,205,209-260
+  s_71b08669d92876::t_a0816ff0f922ba 74-89,197-199,204,206-208
+tests/windows/fixtures/manifest.json
+  s_71b08669d92876::t_0210fd8b05d5e8 293-301,305-306
+  s_71b08669d92876::t_67856faa5e6a33 303-304
+  s_71b08669d92876::t_8fd2a7786138b9 302
+  s_730320a62e25fc::t_aa6726ad8e0d4a 292
+package.json
+  s_71b08669d92876::t_2f6ec864254c93 109
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_c3712162a636e6 63-65
+scripts/windows-test/guest/cases/runWinSaveWitnessMatrix.ts
+  s_71b08669d92876::t_97c6d387d6c671 1-104
+tests/windows/capabilities.json
+  s_71b08669d92876::t_c8ffc93d18bb74 565-581
+  s_71b08669d92876::t_31441e738b5b78 564
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "34a662c36a6f7fdf8484413036611bb463cecc9d",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_730320a62e25fc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09cf4-245c-73f0-a2ce-67ef28e1649d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
