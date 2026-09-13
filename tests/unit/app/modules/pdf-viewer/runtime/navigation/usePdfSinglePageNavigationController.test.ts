@@ -213,6 +213,103 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
+    it('keeps a page jump absorbed by a resize when page metrics cancel that resize', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = pageNumber === 1
+                ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
+                : '<div class="document-page-skeleton"></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 3}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 3,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        const geometryRevision = ref(1);
+        const freshPages = new Set([1]);
+        const viewportWrites = createTestPdfViewportWritePort();
+        const renderVisiblePages = vi.fn(async (range: {
+            start: number;
+            end: number
+        }) => {
+            if (renderVisiblePages.mock.calls.length === 1) {
+                // Thumbnail hydration loads neighbouring page metrics while
+                // the target raster is pending, and that raster is replaced.
+                geometryRevision.value += 1;
+                return;
+            }
+            const target = viewer.querySelector<HTMLElement>(
+                `.page_container[data-page="${String(range.start)}"]`,
+            );
+            target?.querySelector('.document-page-skeleton')?.remove();
+            target?.insertAdjacentHTML('beforeend', '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>');
+            freshPages.add(range.start);
+        });
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(3),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages,
+                isPageFreshlyRenderedForNavigation: pageNumber => freshPages.has(pageNumber),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => geometryRevision.value,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            controller.scrollToPage(requirePageNumber(3));
+            const resize = controller.submitViewportStateIntent('resize');
+            await expect(resize).resolves.toMatchObject({outcome: 'cancelled'});
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(3);
+            });
+            expect(viewportWrites.writes).toHaveLength(1);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
     it('keeps a pending text-anchor search through an anchored resize preview', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');
