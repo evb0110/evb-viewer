@@ -1,0 +1,161 @@
+packages/agent-core/assistantScope.ts
+  s_7c67db5516d20d::t_6ee9247b563b09 1-40
+electron/features/agent/assistantChatSessionStore.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 17
+electron/features/agent/buildAgentAssistantStateSnapshot.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 8
+  s_7c67db5516d20d::t_e8295722e4579c 1-6
+tests/unit/app/modules/agent-panel/assistantEventFence.test.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 10
+electron/features/search/extractTextWithPdfjs.ts
+  s_7c67db5516d20d::t_6543f93893c67b 30
+scripts/architecture/boundary-check.mjs
+  s_7c67db5516d20d::t_eeee491df4f784 214-221
+  s_7c67db5516d20d::t_4a9767ca9b9764 1572
+  s_247a07a16a61fa::t_eeb9ef3ed772cb 213
+electron/features/ocr/main/visitDocumentOcrCatalogPages.ts
+  s_7c67db5516d20d::t_e8295722e4579c 9-11
+packages/pdf-core/pdfSearchCore.ts
+  s_7c67db5516d20d::t_d730dbc122775c 13,15,17-19,24,26
+  s_7c67db5516d20d::t_31409e3a9d2f35 16
+electron/features/search/worker/searchMatch.ts
+  s_7c67db5516d20d::t_e8295722e4579c 10
+  s_7c67db5516d20d::t_dae89b02cd6405 11
+tsconfig.base.json
+  s_7c67db5516d20d::t_20b668b9182ded 24
+app/modules/agent-panel/utils/assistantEventFence.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 7
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_7c67db5516d20d::t_eeee491df4f784 587
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_7c67db5516d20d::t_a947ffb3936bd1 275
+  s_7c67db5516d20d::t_5ccbcc6dee87f4 17-20,151-157
+  s_7c67db5516d20d::t_29aefac9468e3f 211,215,217-221,228,232-233,236-263,266-274,279-286,289-296,300-306,308,312-315,317-321,326-329,331-345,356-358,362-366
+  s_7c67db5516d20d::t_56869afa8ae4e6 3-4,7,11,13,21-112,160-210,212-214,216,222-227,229-231,234-235,264-265,276-278,287-288,297-299,307,309-311,316,322-325,330,346-355,359-361,367-431
+  s_7c67db5516d20d::t_6238afcebdc0f3 113-150,158-159
+  s_7c67db5516d20d::t_f57f27a2216bfb 16
+scripts/vitestResolveAlias.ts
+  s_7c67db5516d20d::t_20b668b9182ded 15
+electron/features/agent/createAssistantAppServerNotificationController.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 6
+app/platform/browser-api/browserSearchWorkerClient.ts
+  s_7c67db5516d20d::t_dae89b02cd6405 14
+  s_7c67db5516d20d::t_e8295722e4579c 13
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_7c67db5516d20d::t_d1ed294724aa74 22
+  s_7c67db5516d20d::t_e8295722e4579c 18
+app/modules/agent-panel/utils/assistantSelectionState.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 9
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 18
+  s_7c67db5516d20d::t_e8295722e4579c 1-13
+  s_7c67db5516d20d::t_ece5362b038dc5 14
+packages/agent-core/package.json
+  s_7c67db5516d20d::t_6ee9247b563b09 1-8
+electron/features/ocr/main/documentTextCatalog.ts
+  s_7c67db5516d20d::t_6543f93893c67b 40
+nuxt.config.ts
+  s_7c67db5516d20d::t_d84d3e6e9390fc 330
+tests/unit/app/modules/workspace-shell/composables/usePageOpsHandlers.test.ts
+  s_7c67db5516d20d::t_e8295722e4579c 15
+  s_7c67db5516d20d::t_d1ed294724aa74 19
+tests/unit/contracts/search.test.ts
+  s_7c67db5516d20d::t_d656d42ea9c7e0 105-111
+electron/ocr/worker/indexWriter.ts
+  s_7c67db5516d20d::t_e8295722e4579c 37
+  s_7c67db5516d20d::t_6543f93893c67b 38
+packages/pdf-core/pdfPageSelection.ts
+  s_7c67db5516d20d::t_f82bb6718cbc1e 2,7,11
+  s_7c67db5516d20d::t_305c7c39a329cc 73,125
+  s_7c67db5516d20d::t_a87b80e7c81aa1 28-72,74-124,126-134
+packages/contracts/search.ts
+  s_7c67db5516d20d::t_2782b5a27f896a 304-306,308-310,424
+  s_7c67db5516d20d::t_305c7c39a329cc 307
+app/modules/agent-panel/utils/createEmptyAssistantState.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 8
+packages/contracts/pageOpsPlatformFeature.ts
+  s_7c67db5516d20d::t_e8295722e4579c 18
+  s_7c67db5516d20d::t_fe92d40dd63ca7 875-877,879,882-883
+  s_7c67db5516d20d::t_31409e3a9d2f35 878
+electron/features/page-ops/main/pageOpsMainBindings.ts
+  s_7c67db5516d20d::t_864791e0669022 35
+packages/pdf-core/index.ts
+  s_7c67db5516d20d::t_31409e3a9d2f35 79
+  s_7c67db5516d20d::t_68a5306176dc48 181,183,191
+tests/unit/contracts/ocrText.test.ts
+  s_7c67db5516d20d::t_d656d42ea9c7e0 12
+app/platform/browser-api/browserSearch.worker.ts
+  s_7c67db5516d20d::t_d72b0f411fb761 17,19
+  s_7c67db5516d20d::t_e8295722e4579c 20
+electron/features/agent/assistantService.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 16
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_7c67db5516d20d::t_d656d42ea9c7e0 100-101
+electron/features/agent/createAssistantEventPublisher.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 7
+tests/unit/app/modules/agent-panel/assistantSelectionState.test.ts
+  s_7c67db5516d20d::t_c0212c0a97e069 12
+app/platform/browser-api/extractBrowserSearchPageText.ts
+  s_7c67db5516d20d::t_b10a718ffbe3be 4
+  s_7c67db5516d20d::t_e8295722e4579c 3,5
+electron/features/search/indexBuilder.ts
+  s_7c67db5516d20d::t_6543f93893c67b 20-23
+packages/pdf-core/nativePdfMutationPolicy.ts
+  s_7c67db5516d20d::t_b27d7141bcfdf7 8,26
+  s_7c67db5516d20d::t_68a5306176dc48 12,22-25,27-35
+  s_31c63c4436a213::t_e79abcaf53f0b0 36
+electron/features/search/worker.ts
+  s_7c67db5516d20d::t_dae89b02cd6405 47
+  s_7c67db5516d20d::t_e8295722e4579c 46
+packages/contracts/nativePdfMutations.ts
+  s_7c67db5516d20d::t_b27d7141bcfdf7 1491-1492,1506-1509,1512,1518-1522
+packages/agent-core/tsconfig.json
+  s_7c67db5516d20d::t_8dc4c2fd45c7fd 1-19
+app/platform/browser-api/createBrowserSearchCapability.ts
+  s_7c67db5516d20d::t_dae89b02cd6405 7
+  s_7c67db5516d20d::t_e8295722e4579c 9-10
+electron/features/page-ops/main/qpdf.ts
+  s_7c67db5516d20d::t_864791e0669022 36-39
+pnpm-lock.yaml
+  s_6415595a992fb7::t_14042b60d66916 435-436
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "95b7771ffcdf952902068e91df0c98ecb8b56c22",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_31c63c4436a213": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099e8-0f66-7883-b5e2-c3f75816218d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_6415595a992fb7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e668-7da3-86ae-e2e60906c988",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_7c67db5516d20d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-d310-7a13-9854-953fea0d9bf9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
