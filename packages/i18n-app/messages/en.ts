@@ -306,6 +306,15 @@ export default {
         'customRangePlaceholder': 'e.g. 1-5, 8, 10-12',
         'supersession': {
             'label': 'Existing text',
+            'primaryOptions': {
+                'missing-only': 'Recognize pages without selectable text',
+                'repeat': 'Recognize scanned text again',
+            },
+            'primaryDescriptions': {
+                'missing-only': 'Skip pages that already contain selectable text.',
+                'repeat': 'Replace previous recognition results on the selected scanned pages. Original document text is preserved.',
+            },
+            'advanced': 'Advanced repeat options',
             'options': {
                 'missing-only': 'OCR missing text only',
                 'replace-evb': 'Re-OCR EVB text',
@@ -316,7 +325,9 @@ export default {
                 'replace-evb': 'Replace the active EVB OCR generation; native and foreign text stay untouched.',
                 'replace-all': 'Replace EVB and foreign hidden OCR layers; visible native text stays untouched.',
             },
-            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR text on the selected pages will be removed and replaced.',
+            'onlyEvb': 'Only replace recognition done by EVB Viewer',
+            'replaceAllAcknowledgement': 'Also replace recognition from other apps',
+            'replaceAllDescription': 'Recognition from other apps on the selected pages will also be replaced.',
         },
         'qualityProfile': {
             'label': 'Quality',

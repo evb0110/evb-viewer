@@ -124,9 +124,9 @@
 
                     <div class="section">
                         <URadioGroup
-                            v-model="settings.supersessionPolicy"
+                            v-model="supersessionChoiceModel"
                             name="ocrSupersessionPolicy"
-                            :items="supersessionPolicyItems"
+                            :items="supersessionChoiceItems"
                             value-key="value"
                             :ui="listRadioGroupUi"
                         >
@@ -137,19 +137,52 @@
                                     :options="supersessionPolicyHelpItems"
                                 />
                             </template>
+                            <template #description="{ item }">
+                                <span class="policy-option-description">{{ item.description }}</span>
+                            </template>
                         </URadioGroup>
                         <p class="policy-hint" aria-live="polite">
                             {{ selectedSupersessionDescription }}
                         </p>
-                        <div
-                            class="supersession-acknowledgement"
-                            :class="{ 'is-hidden': settings.supersessionPolicy !== 'replace-all' }"
+                        <UCollapsible
+                            v-if="supersessionChoiceModel === 'repeat'"
+                            v-model:open="repeatAdvancedOpen"
+                            :unmount-on-hide="false"
+                            class="supersession-advanced"
                         >
-                            <UCheckbox
-                                v-model="settings.replaceAllAcknowledged"
-                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
-                            />
-                        </div>
+                            <template #default="{ open: isAdvancedOpen }">
+                                <button
+                                    type="button"
+                                    class="supersession-advanced-toggle"
+                                    :aria-expanded="isAdvancedOpen ? 'true' : 'false'"
+                                >
+                                    <UIcon
+                                        :name="isAdvancedOpen ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                                        class="supersession-advanced-icon"
+                                    />
+                                    <span>{{ t('ocr.supersession.advanced') }}</span>
+                                </button>
+                            </template>
+                            <template #content>
+                                <div class="supersession-advanced-content">
+                                    <UCheckbox
+                                        v-model="replaceOnlyEvbModel"
+                                        :label="t('ocr.supersession.onlyEvb')"
+                                    />
+                                    <div
+                                        v-if="!replaceOnlyEvbModel"
+                                        class="supersession-acknowledgement"
+                                        role="alert"
+                                    >
+                                        <p>{{ t('ocr.supersession.replaceAllDescription') }}</p>
+                                        <UCheckbox
+                                            v-model="settings.replaceAllAcknowledged"
+                                            :label="t('ocr.supersession.replaceAllAcknowledgement')"
+                                        />
+                                    </div>
+                                </div>
+                            </template>
+                        </UCollapsible>
                     </div>
 
                     <!-- Quality Profile Selection -->
@@ -414,7 +447,6 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
-    TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
@@ -436,8 +468,9 @@ type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentati
 type TOcrQualityProfileHelpKey = Extract<TTranslationKey, `ocr.qualityProfile.help.${string}`>;
 type TOcrPreprocessingModeHelpKey = Extract<TTranslationKey, `ocr.preprocessing.help.${string}`>;
 type TOcrPageSegmentationHelpKey = Extract<TTranslationKey, `ocr.pageSegmentation.help.${string}`>;
-type TOcrSupersessionLabelKey = Extract<TTranslationKey, `ocr.supersession.options.${string}`>;
-type TOcrSupersessionDescriptionKey = Extract<TTranslationKey, `ocr.supersession.descriptions.${string}`>;
+type TOcrSupersessionChoice = 'missing-only' | 'repeat';
+type TOcrSupersessionChoiceLabelKey = Extract<TTranslationKey, `ocr.supersession.primaryOptions.${string}`>;
+type TOcrSupersessionChoiceDescriptionKey = Extract<TTranslationKey, `ocr.supersession.primaryDescriptions.${string}`>;
 
 const ocrQualityProfileOptions = [
     'balanced',
@@ -450,11 +483,10 @@ const ocrPreprocessingModeOptions = [
     'clean',
 ] as const satisfies readonly TOcrPreprocessingMode[];
 
-const ocrSupersessionPolicies = [
+const ocrSupersessionChoices = [
     'missing-only',
-    'replace-evb',
-    'replace-all',
-] as const satisfies readonly TOcrTextSupersessionPolicy[];
+    'repeat',
+] as const satisfies readonly TOcrSupersessionChoice[];
 
 const ocrPageSegmentationOptions = [
     {
@@ -561,6 +593,8 @@ const {
     showLanguageSearch,
     showMultipleLanguagesHint,
     hasLanguageDownloadFailure,
+    supersessionChoiceModel,
+    replaceOnlyEvbModel,
     selectedLanguagesModel,
     pageSegmentationModeSelectValue,
     handleCopyLogs,
@@ -590,6 +624,14 @@ const {
         onExportDocx: selectedLanguages => emit('export-docx', selectedLanguages),
         onCancelDocxExport: () => emit('cancel-docx-export'),
     },
+});
+
+const repeatAdvancedOpen = ref(false);
+
+watch(() => settings.value.supersessionPolicy, policy => {
+    if (policy === 'replace-all') {
+        repeatAdvancedOpen.value = true;
+    }
 });
 
 const triggerIcon = computed(() => (
@@ -629,19 +671,21 @@ const preprocessingModeItems = computed<Array<{
     value: mode,
     label: t(getPreprocessingModeLabelKey(mode), undefined),
 })));
-const supersessionPolicyItems = computed<Array<{
-    value: TOcrTextSupersessionPolicy;
+const supersessionChoiceItems = computed<Array<{
+    value: TOcrSupersessionChoice;
     label: string;
-}>>(() => ocrSupersessionPolicies.map(policy => ({
-    value: policy,
-    label: t(getSupersessionLabelKey(policy), undefined),
+    description: string;
+}>>(() => ocrSupersessionChoices.map(choice => ({
+    value: choice,
+    label: t(getSupersessionChoiceLabelKey(choice), undefined),
+    description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
 })));
-const supersessionPolicyHelpItems = computed(() => ocrSupersessionPolicies.map(policy => ({
-    label: t(getSupersessionLabelKey(policy), undefined),
-    description: t(getSupersessionDescriptionKey(policy), undefined),
+const supersessionPolicyHelpItems = computed(() => ocrSupersessionChoices.map(choice => ({
+    label: t(getSupersessionChoiceLabelKey(choice), undefined),
+    description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
 })));
 const selectedSupersessionDescription = computed(() => t(
-    getSupersessionDescriptionKey(settings.value.supersessionPolicy),
+    getSupersessionChoiceDescriptionKey(supersessionChoiceModel.value),
     undefined,
 ));
 const pageSegmentationItems = computed<Array<{
@@ -681,12 +725,12 @@ function getPreprocessingModeHelpKey(mode: TOcrPreprocessingMode): TOcrPreproces
     return `ocr.preprocessing.help.${mode}`;
 }
 
-function getSupersessionLabelKey(policy: TOcrTextSupersessionPolicy): TOcrSupersessionLabelKey {
-    return `ocr.supersession.options.${policy}`;
+function getSupersessionChoiceLabelKey(choice: TOcrSupersessionChoice): TOcrSupersessionChoiceLabelKey {
+    return `ocr.supersession.primaryOptions.${choice}`;
 }
 
-function getSupersessionDescriptionKey(policy: TOcrTextSupersessionPolicy): TOcrSupersessionDescriptionKey {
-    return `ocr.supersession.descriptions.${policy}`;
+function getSupersessionChoiceDescriptionKey(choice: TOcrSupersessionChoice): TOcrSupersessionChoiceDescriptionKey {
+    return `ocr.supersession.primaryDescriptions.${choice}`;
 }
 
 defineExpose<IOcrPopupAgentExpose>({
@@ -775,19 +819,47 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .supersession-acknowledgement {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-sm);
     margin-top: var(--app-space-3xl);
     padding: var(--app-space-lg);
     border: 1px solid var(--ui-warning);
     border-radius: var(--app-radius-md);
     background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
-    transition: opacity 0.18s ease;
 }
 
-/* Kept in layout at every policy so choosing "replace all" reveals the
-   acknowledgement without moving the controls below it. */
-.supersession-acknowledgement.is-hidden {
-    visibility: hidden;
-    opacity: 0;
+.policy-option-description {
+    display: block;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-text);
+}
+
+.supersession-advanced {
+    margin-top: var(--app-space-3xl);
+}
+
+.supersession-advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    padding: var(--app-space-2xs) 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.supersession-advanced-toggle:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+}
+
+.supersession-advanced-icon {
+    color: var(--ui-text-dimmed);
+}
+
+.supersession-advanced-content {
+    padding: var(--app-space-sm) 0 0 var(--app-space-6xl);
 }
 
 .section-row {

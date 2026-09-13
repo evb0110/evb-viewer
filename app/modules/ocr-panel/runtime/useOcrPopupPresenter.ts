@@ -39,6 +39,7 @@ import {
 
 type TOcrViewState = 'configure' | 'running' | 'applying' | 'results' | 'error';
 type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing';
+type TOcrSupersessionChoice = 'missing-only' | 'repeat';
 
 const OCR_LANGUAGE_BCP47_OVERRIDES: Partial<Record<TOcrLanguageCode, string>> = {
     grc: 'grc',
@@ -359,6 +360,28 @@ export const useOcrPopupPresenter = ({
         settings.value.selectedLanguages.length,
     ));
     const hasLanguageDownloadFailure = computed(() => failedLanguageCodes.value.size > 0);
+    const supersessionChoiceModel = computed<TOcrSupersessionChoice>({
+        get: () => settings.value.supersessionPolicy === 'missing-only'
+            ? 'missing-only'
+            : 'repeat',
+        set: choice => {
+            settings.value = {
+                ...settings.value,
+                supersessionPolicy: choice === 'missing-only' ? 'missing-only' : 'replace-evb',
+                replaceAllAcknowledged: false,
+            };
+        },
+    });
+    const replaceOnlyEvbModel = computed({
+        get: () => settings.value.supersessionPolicy === 'replace-evb',
+        set: onlyEvb => {
+            settings.value = {
+                ...settings.value,
+                supersessionPolicy: onlyEvb ? 'replace-evb' : 'replace-all',
+                replaceAllAcknowledged: false,
+            };
+        },
+    });
     const hasSelectedAvailableLanguage = computed(() =>
         settings.value.selectedLanguages.some(code => isAvailableOcrLanguageCode(code)
             && availableLanguageCodes.value.has(code)),
@@ -858,6 +881,8 @@ export const useOcrPopupPresenter = ({
         showLanguageSearch,
         showMultipleLanguagesHint,
         hasLanguageDownloadFailure,
+        supersessionChoiceModel,
+        replaceOnlyEvbModel,
         selectedLanguagesModel,
         pageSegmentationModeSelectValue,
         handleCopyLogs,

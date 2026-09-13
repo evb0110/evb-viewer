@@ -771,11 +771,22 @@ export default {
         'customRangePlaceholder': 'bijv. 1-5, 8, 10-12',
         'supersession': {
             'label': 'Bestaande tekst',
+            'primaryOptions': {
+                'missing-only': 'Pagina’s zonder selecteerbare tekst herkennen',
+                'repeat': 'Gescan­de tekst opnieuw herkennen',
+            },
+            'primaryDescriptions': {
+                'missing-only': 'Pagina’s overslaan die al selecteerbare tekst bevatten.',
+                'repeat': 'Eerdere herkenningsresultaten op de geselecteerde gescande pagina’s vervangen. De oorspronkelijke documenttekst blijft behouden.',
+            },
+            'advanced': 'Geavanceerde opties voor opnieuw herkennen',
             'options': {
                 'missing-only': 'Alleen OCR uitvoeren voor ontbrekende tekst',
                 'replace-evb': 'EVB-tekst opnieuw met OCR verwerken',
                 'replace-all': 'Alle verborgen OCR vervangen',
             },
+            'onlyEvb': 'Alleen herkenning vervangen die door EVB Viewer is uitgevoerd',
+            'replaceAllDescription': 'Herkenning van andere apps op de geselecteerde pagina’s wordt ook vervangen.',
             'descriptions': {
                 'missing-only': 'Alle bestaande tekstlagen behouden en alleen pagina\'s zonder tekst met OCR verwerken.',
                 'replace-evb': 'De actieve EVB-OCR-generatie vervangen; oorspronkelijke en externe tekst blijven behouden.',

@@ -771,11 +771,22 @@ export default {
         'customRangePlaceholder': 'z. B. 1-5, 8, 10-12',
         'supersession': {
             'label': 'Vorhandener Text',
+            'primaryOptions': {
+                'missing-only': 'Seiten ohne auswählbaren Text erkennen',
+                'repeat': 'Gescannten Text erneut erkennen',
+            },
+            'primaryDescriptions': {
+                'missing-only': 'Seiten überspringen, die bereits auswählbaren Text enthalten.',
+                'repeat': 'Vorherige Erkennungsergebnisse auf den ausgewählten gescannten Seiten ersetzen. Originaler Dokumenttext bleibt erhalten.',
+            },
+            'advanced': 'Erweiterte Wiederholungsoptionen',
             'options': {
                 'missing-only': 'Nur fehlenden OCR-Text erfassen',
                 'replace-evb': 'EVB-Text erneut per OCR erfassen',
                 'replace-all': 'Alle ausgeblendeten OCR-Texte ersetzen',
             },
+            'onlyEvb': 'Nur von EVB Viewer durchgeführte Erkennung ersetzen',
+            'replaceAllDescription': 'Erkennung anderer Programme auf den ausgewählten Seiten wird ebenfalls ersetzt.',
             'descriptions': {
                 'missing-only': 'Vorhandene Texte beibehalten und nur Seiten ohne Text per OCR erfassen.',
                 'replace-evb': 'Nur die aktive EVB-OCR-Generation ersetzen.',

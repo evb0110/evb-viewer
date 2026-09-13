@@ -771,11 +771,22 @@ export default {
         'customRangePlaceholder': 'ej., 1-5, 8, 10-12',
         'supersession': {
             'label': 'Texto existente',
+            'primaryOptions': {
+                'missing-only': 'Reconocer páginas sin texto seleccionable',
+                'repeat': 'Reconocer de nuevo el texto escaneado',
+            },
+            'primaryDescriptions': {
+                'missing-only': 'Omitir las páginas que ya contienen texto seleccionable.',
+                'repeat': 'Reemplazar los resultados anteriores en las páginas escaneadas seleccionadas. Se conserva el texto original del documento.',
+            },
+            'advanced': 'Opciones avanzadas de repetición',
             'options': {
                 'missing-only': 'OCR solo del texto que falta',
                 'replace-evb': 'Volver a ejecutar OCR sobre el texto de EVB',
                 'replace-all': 'Reemplazar todo el OCR oculto',
             },
+            'onlyEvb': 'Reemplazar solo el reconocimiento realizado por EVB Viewer',
+            'replaceAllDescription': 'También se reemplazará el reconocimiento de otras aplicaciones en las páginas seleccionadas.',
             'descriptions': {
                 'missing-only': 'Conservar el texto existente y ejecutar OCR solo en las páginas sin texto.',
                 'replace-evb': 'Reemplazar solo la generación de OCR activa de EVB.',
