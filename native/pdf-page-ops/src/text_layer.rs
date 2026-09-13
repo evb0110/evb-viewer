@@ -243,7 +243,7 @@ fn unicode_from_cmap_bytes(bytes: &[u8]) -> Option<char> {
         .chunks_exact(2)
         .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
         .collect::<Vec<_>>();
-    let mut characters = char::decode_utf16(units.into_iter());
+    let mut characters = char::decode_utf16(units);
     let character = characters.next()?.ok()?;
     characters.next().is_none().then_some(character)
 }
