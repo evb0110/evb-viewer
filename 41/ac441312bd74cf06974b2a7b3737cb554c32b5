@@ -1,0 +1,26 @@
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_5a446af5c4f928::t_8681900e155d9d 29-30,101-108
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_5a446af5c4f928::t_478a9c4dedd476 145-148
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_5a446af5c4f928::t_8681900e155d9d 96-105
+docs/contributing/windows-tests/setup-and-repair.md
+  s_5a446af5c4f928::t_5441907c5f99d8 239-240,250-253
+  s_5a446af5c4f928::t_cf0563b7ce3aa3 332-340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41ac441312bd74cf06974b2a7b3737cb554c32b5",
+  "prompts": {},
+  "sessions": {
+    "s_5a446af5c4f928": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-eeda-7b21-8785-ed198c57c18e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
