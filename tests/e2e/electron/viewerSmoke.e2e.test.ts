@@ -4715,6 +4715,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(summary.maxMountedPages, summaryDetail).toBeLessThanOrEqual(40);
         expect(summary.rangeTransitions, summaryDetail).toBeGreaterThan(3);
         expect(summary.maxVisibleGapPx, summaryDetail).toBeLessThanOrEqual(240);
+        // A fast renderer may paint every sampled page before a skeleton frame
+        // is observable. The invariant is visible occupancy, checked below,
+        // rather than observing a particular placeholder implementation.
         expect(samples.every(sample => sample.visiblePendingWithoutSkeletonCount === 0), summaryDetail)
             .toBe(true);
         expect(samples.every(sample => sample.visibleUnoccupiedCount === 0), summaryDetail)
