@@ -17,12 +17,34 @@
         @contextmenu="!chassisAuthority && emit('contextmenu', $event)"
         @selectstart="!chassisAuthority && emit('selectstart', $event)"
     >
-        <template v-for="item in virtualPageItems" :key="item.key">
+        <template v-for="item in groupedVirtualPageItems" :key="item.key">
             <div
                 v-if="item.kind === 'spacer'"
                 class="pdf-viewer-virtual-spacer"
                 :style="item.style"
             />
+            <div v-else-if="item.kind === 'row'" class="pdf-viewer-page-row">
+                <PdfViewerPage
+                    v-for="pageItem in item.pages"
+                    :key="pageItem.key"
+                    :page="pageItem.page"
+                    :show-skeleton="shouldRenderPageSkeleton(pageItem.page)"
+                    :render-failed="isPageRenderFailed(pageItem.page)"
+                    :render-error-label="pageRenderErrorLabel"
+                    :spread-single="isSpreadSingle(pageItem.page)"
+                    :buffered="isBufferedPage(pageItem.page)"
+                    :rendered="isRenderedPage(pageItem.page)"
+                    :page-scale="getPageScale(pageItem.page)"
+                    :placeholder-style="getEffectivePagePlaceholderStyle(pageItem.page)"
+                    :placed-image="pendingImagePlacement?.pageNumber === pageItem.page ? pendingImagePlacement : null"
+                    :placed-image-busy="isPendingImagePlacementFinalizing"
+                    @page-container-mounted="emit('page-container-mounted', $event)"
+                    @page-container-unmounted="emit('page-container-unmounted', $event)"
+                    @update-placed-image-rect="emit('update-placed-image-rect', $event)"
+                    @finalize-placed-image="emit('finalize-placed-image')"
+                    @cancel-placed-image="emit('cancel-placed-image')"
+                />
+            </div>
             <PdfViewerPage
                 v-else
                 :page="item.page"
@@ -61,7 +83,10 @@ import {
     type TPageNumber,
 } from '@contracts/pageNumbers';
 import PdfViewerPage from '@app/modules/pdf-viewer/components/PdfViewerPage.vue';
-import { flattenPdfVirtualPageSegments } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
+import {
+    flattenPdfVirtualPageSegments,
+    groupPdfVirtualPageItems,
+} from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import type {
     IPdfImagePlacementDraft,
@@ -145,6 +170,15 @@ const virtualPageItems = computed(() => {
         initialPageShellPage,
     });
 });
+
+const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
+    virtualPageItems.value,
+    {
+        isFacingMode: viewerClass['pdfViewer--mode-facing'] === true
+            || viewerClass['pdfViewer--mode-facing-first-single'] === true,
+        isSpreadSingle,
+    },
+));
 
 function shouldRenderPageSkeleton(page: TPageNumber) {
     // The viewport-session projection is the only presentation authority.
