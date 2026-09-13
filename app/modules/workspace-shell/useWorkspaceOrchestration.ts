@@ -35,7 +35,6 @@ import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPageMutationWriterSave } from '@app/modules/workspace-shell/composables/createPageMutationWriterSave';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -630,17 +629,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         )
     ));
     const canMutatePages = computed(() => deps.sourceCapabilities.value.pageEdits);
-    const saveAnnotationsForPageMutation = createPageMutationWriterSave({
-        annotationDirty,
-        hasAnnotationChanges,
-        pendingEmbeddedAnnotationDeleteCount,
-        workingCopyPath,
-        documentRevisionToken,
-        pdfViewerRef,
+    const saveAnnotationsForPageMutation = pageSaveOrchestration.createPageMutationWriterSave({
         currentPage,
         waitForPdfReload,
         loadPdfFromPath,
-        getNativeSaveTransactionOptions,
     });
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,

@@ -2,7 +2,7 @@ import type {Ref} from 'vue';
 import type {
     IWorkspaceSaveBaseline,
     IWorkspaceSaveDirtyState,
-} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
 export interface IWorkspaceSaveStateDependencies {
     annotations: {
