@@ -1,0 +1,40 @@
+electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts
+  s_d7a6f10338e453::t_db93d2d107995b 221-229
+tests/e2e/electron/helpers/workspaceExpose.ts
+  s_d7a6f10338e453::t_ad64616b83e031 488-490
+app/assets/css/main.css
+  s_d7a6f10338e453::t_a0dc2c114f5b41 315-320,330
+tests/unit/electron/ocrRevisionTransitionRecovery.test.ts
+  s_d7a6f10338e453::t_db93d2d107995b 107-148
+  s_d7a6f10338e453::t_fa5c487df3056f 18
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_d7a6f10338e453::t_d53d6a66b4abcc 298
+  s_d7a6f10338e453::t_d2cff5c5db93f0 181,313-314,316,322,330,333-334
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_d7a6f10338e453::t_d53d6a66b4abcc 343-345,508
+  s_d7a6f10338e453::t_d2cff5c5db93f0 338-342,347,350,404
+tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts
+  s_d7a6f10338e453::t_894add938d1e12 23,77-80
+  s_d7a6f10338e453::t_ad64616b83e031 20,60-76,81,100-103
+  s_d7a6f10338e453::t_3c3d31c8c93a82 95-98
+  s_d7a6f10338e453::t_d3979bb53d7972 16,21,28,82,91-94,99,104-105
+  s_d7a6f10338e453::t_1b8ca81f5ac256 22
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_d7a6f10338e453::t_ad64616b83e031 325-342,344,348-352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "15ca11e3a370b3391d475d9b55fd1a4172f454bb",
+  "prompts": {},
+  "sessions": {
+    "s_d7a6f10338e453": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "366d5394-7c44-4b99-8dd8-c1669d388ad5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
