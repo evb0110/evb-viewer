@@ -8,9 +8,12 @@ and serialized formats.
   A new layer should replace an old one, not sit beside it.
 - Give each piece of state and each lifecycle one owner. Other views derive from
   that owner instead of mirroring it through callbacks or copies.
-- Define serialized, IPC, worker, and cross-process domain shapes in
-  `packages/contracts`. Validate at trust boundaries; do not revalidate or clone
-  an already typed representation inside one process.
+- Define serialized, IPC, worker, and cross-process wire shapes, schemas, codecs,
+  and guards in `packages/contracts`. Domain algorithms belong in their owning
+  domain module. Validate at trust boundaries; do not revalidate or clone an
+  already typed representation inside one process.
+- Keep `packages/contracts` portable. It may depend only on itself and the
+  `@i18n-core` leaf package. `@i18n-core` must not depend on runtime packages.
 - Import contracts through an owned `@contracts/<subpath>` entry point. The
   contracts package has no root barrel, and package aliases use one canonical
   spelling in source and tooling.
