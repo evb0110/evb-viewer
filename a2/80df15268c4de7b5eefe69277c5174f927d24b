@@ -1,0 +1,21 @@
+tests/unit/electron/settingsDiagnosticsConsent.test.ts
+  s_fb432a54d3907a::t_9a65d12623e3c7 172-220
+electron/settings.ts
+  s_fb432a54d3907a::t_fe7c909ba391bc 306-314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a280df15268c4de7b5eefe69277c5174f927d24b",
+  "prompts": {},
+  "sessions": {
+    "s_fb432a54d3907a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0981e-0708-7ec1-a53f-b41030626d44",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
