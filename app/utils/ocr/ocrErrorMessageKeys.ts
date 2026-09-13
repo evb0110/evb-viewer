@@ -21,6 +21,7 @@ export const ocrErrorMessageKeys = [
     'errors.ocr.errorCode.internal',
     'errors.ocr.errorCode.queueBackpressure',
     'errors.ocr.errorCode.workerUnavailable',
+    'errors.ocr.errorCode.workerMessageError',
     'errors.ocr.errorCode.toolsValidationFailed',
 ] as const satisfies readonly TTranslationKey[];
 
@@ -29,6 +30,7 @@ export const ocrErrorCodeMessageKeys = {
     OCR_INTERNAL_ERROR: 'errors.ocr.errorCode.internal',
     OCR_QUEUE_BACKPRESSURE: 'errors.ocr.errorCode.queueBackpressure',
     OCR_WORKER_UNAVAILABLE: 'errors.ocr.errorCode.workerUnavailable',
+    OCR_WORKER_MESSAGE_ERROR: 'errors.ocr.errorCode.workerMessageError',
     OCR_TOOLS_VALIDATION_FAILED: 'errors.ocr.errorCode.toolsValidationFailed',
 } as const satisfies Record<TOcrErrorCode, TTranslationKey>;
 

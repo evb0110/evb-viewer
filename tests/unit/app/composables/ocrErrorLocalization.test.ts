@@ -44,6 +44,7 @@ describe('ocrErrorMessageKeys', () => {
             'OCR_INVALID_PAYLOAD',
             'OCR_QUEUE_BACKPRESSURE',
             'OCR_TOOLS_VALIDATION_FAILED',
+            'OCR_WORKER_MESSAGE_ERROR',
             'OCR_WORKER_UNAVAILABLE',
         ]);
 

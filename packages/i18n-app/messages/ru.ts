@@ -1636,6 +1636,7 @@ export default {
                 'internal': 'Неожиданная ошибка OCR',
                 'queueBackpressure': 'Очередь OCR переполнена',
                 'workerUnavailable': 'Рабочий процесс OCR недоступен',
+                'workerMessageError': 'Рабочий процесс OCR не смог передать результат',
                 'toolsValidationFailed': 'Инструменты OCR не готовы',
             },
         },

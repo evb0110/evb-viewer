@@ -1596,6 +1596,7 @@ export default {
                 'internal': 'OCR is onverwacht mislukt',
                 'queueBackpressure': 'De OCR-wachtrij is vol',
                 'workerUnavailable': 'De OCR-worker is niet beschikbaar',
+                'workerMessageError': 'De OCR-worker kon geen resultaat leveren',
                 'toolsValidationFailed': 'OCR-tools zijn niet gereed',
             },
         },

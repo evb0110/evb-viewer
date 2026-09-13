@@ -1607,6 +1607,7 @@ export default {
                 'internal': 'O OCR falhou inesperadamente',
                 'queueBackpressure': 'A fila de OCR está cheia',
                 'workerUnavailable': 'O worker de OCR está indisponível',
+                'workerMessageError': 'O worker de OCR não conseguiu entregar um resultado',
                 'toolsValidationFailed': 'As ferramentas de OCR não estão prontas',
             },
         },

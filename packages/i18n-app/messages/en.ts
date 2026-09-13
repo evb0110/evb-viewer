@@ -1596,6 +1596,7 @@ export default {
                 'internal': 'OCR failed unexpectedly',
                 'queueBackpressure': 'OCR queue is full',
                 'workerUnavailable': 'OCR worker is unavailable',
+                'workerMessageError': 'OCR worker could not deliver a result',
                 'toolsValidationFailed': 'OCR tools are not ready',
             },
         },

@@ -1596,6 +1596,7 @@ export default {
                 'internal': 'L’OCR ha avuto un errore imprevisto',
                 'queueBackpressure': 'La coda OCR è piena',
                 'workerUnavailable': 'Il worker OCR non è disponibile',
+                'workerMessageError': 'Il worker OCR non ha potuto consegnare il risultato',
                 'toolsValidationFailed': 'Gli strumenti OCR non sono pronti',
             },
         },
