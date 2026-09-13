@@ -240,6 +240,7 @@ describe('DOCX export component coverage', () => {
             app.component('UButton', ButtonStub);
             app.component('UIcon', SlotStub);
             app.component('AppProgressBar', SlotStub);
+            app.component('UProgress', SlotStub);
             app.component('OcrSettingHelpTooltip', SlotStub);
             app.component('AppSearchInput', SlotStub);
             app.component('URadioGroup', SlotStub);
@@ -254,5 +255,84 @@ describe('DOCX export component coverage', () => {
         expect(close?.disabled).toBe(true);
         host.querySelector<HTMLButtonElement>('button[data-label="ocr.cancel"]')?.click();
         expect(cancelDocxExport).toHaveBeenCalledOnce();
+    });
+
+    it('shows a retryable cancellation error while OCR remains active', async () => {
+        const {default: OcrPopup} = await import('@app/modules/ocr-panel/components/OcrPopup.vue');
+        const handleCancel = vi.fn();
+        presenterMock.mockReturnValue({
+            applyingStatusText: ref('ocr.applying'),
+            canRunOcr: ref(false),
+            cancelOcrForAgent: vi.fn(),
+            copyLogsTooltip: ref('ocr.copyLogs'),
+            effectiveError: ref('errors.ocr.cancel'),
+            getAgentOcrSnapshot: vi.fn(),
+            handleCancel,
+            handleCancelDocxExport: vi.fn(),
+            handleCloseResults: vi.fn(),
+            handleCopyLogs: vi.fn(),
+            handleExportDocx: vi.fn(),
+            handleRunOcr: vi.fn(),
+            hasLanguageDownloadFailure: ref(false),
+            hasResultWarning: ref(false),
+            isCopyingLogs: ref(false),
+            languagePickerItems: ref([]),
+            languageSearchQuery: ref(''),
+            pageSegmentationModeSelectValue: ref(''),
+            progress: ref({
+                isRunning: true,
+                status: 'cancel-requested',
+            }),
+            progressPercent: ref(42),
+            progressStatusText: ref('ocr.processing'),
+            resultStatusText: ref('ocr.done'),
+            runOcrForAgent: vi.fn(),
+            selectedLanguagesModel: ref([]),
+            settings: ref({
+                customRange: '',
+                pageRange: 'current',
+                preprocessingMode: 'off',
+                qualityProfile: 'balanced',
+                replaceAllAcknowledged: false,
+                selectedLanguages: [],
+                supersessionPolicy: 'missing-only',
+            }),
+            showCustomRange: ref(false),
+            showLanguageSearch: ref(false),
+            showMultipleLanguagesHint: ref(false),
+            showSuccessState: ref(false),
+            triggerTooltip: ref('ocr.open'),
+            viewState: ref('running'),
+        });
+        const {host} = mountComponent(OcrPopup, {
+            currentPage: 1,
+            documentRevision: null,
+            isExportingDocx: false,
+            open: true,
+            pdfDocument: null,
+            totalPages: 1,
+            workingCopyPath: '/tmp/work.pdf',
+        }, app => {
+            app.component('UModal', ModalStub);
+            app.component('AppTooltip', SlotStub);
+            app.component('UButton', ButtonStub);
+            app.component('UIcon', SlotStub);
+            app.component('AppProgressBar', SlotStub);
+            app.component('UProgress', SlotStub);
+            app.component('OcrSettingHelpTooltip', SlotStub);
+            app.component('AppSearchInput', SlotStub);
+            app.component('URadioGroup', SlotStub);
+            app.component('UInput', SlotStub);
+            app.component('UCheckbox', SlotStub);
+            app.component('UCheckboxGroup', SlotStub);
+            app.component('UFormField', SlotStub);
+            app.component('USelect', SlotStub);
+        });
+
+        expect(host.querySelector('.progress-error')?.textContent).toBe('errors.ocr.cancel');
+        const cancel = host.querySelector<HTMLButtonElement>('button[data-label="ocr.cancel"]');
+        expect(cancel?.disabled).toBe(false);
+        cancel?.click();
+        expect(handleCancel).toHaveBeenCalledOnce();
     });
 });

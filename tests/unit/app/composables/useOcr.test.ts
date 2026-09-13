@@ -202,7 +202,7 @@ describe('useOcr', () => {
 
             expect(settled).toBe('resolved');
             expect(mockOcr.cancel).toHaveBeenCalledTimes(1);
-            expect(progressUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(progressUnsubscribe).not.toHaveBeenCalled();
             expect(completeUnsubscribe).not.toHaveBeenCalled();
             expect(ocr.progress.value.isRunning).toBe(true);
             expect(ocr.progress.value.status).toBe('cancel-requested');
@@ -219,6 +219,7 @@ describe('useOcr', () => {
                 errors: ['OCR canceled'],
             });
             expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(progressUnsubscribe).toHaveBeenCalledOnce();
         } finally {
             scope.stop();
         }
@@ -284,6 +285,80 @@ describe('useOcr', () => {
         } finally {
             scope.stop();
             vi.useRealTimers();
+        }
+    });
+
+    it('applies a terminal result that arrives before a rejected cancellation response', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            sourceDocumentRevisionToken?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        const completeUnsubscribe = vi.fn();
+        const cancelResponse = Promise.withResolvers<{
+            canceled: false;
+            reason: 'failed';
+            error: string;
+        }>();
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return completeUnsubscribe;
+        });
+        mockOcr.cancel.mockReturnValueOnce(cancelResponse.promise);
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            const cancelPromise = ocr.cancelOcr();
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+
+            registeredCompleteHandler({
+                requestId,
+                success: true,
+                pdfPath: '/tmp/late-ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
+                requiresCleanupAck: true,
+                errors: [],
+            });
+            cancelResponse.resolve({
+                canceled: false,
+                reason: 'failed',
+                error: 'cancel transport down',
+            });
+
+            await expect(cancelPromise).resolves.toMatchObject({
+                canceled: false,
+                reason: 'failed',
+            });
+            await runPromise;
+
+            expect(ocr.results.value.searchablePdfResult).toEqual({
+                requestId,
+                pdfPath: '/tmp/late-ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
+                requiresCleanupAck: true,
+            });
+            expect(mockOcr.acknowledgeResultFile).not.toHaveBeenCalled();
+            expect(ocr.progress.value.isRunning).toBe(false);
+            expect(ocr.progress.value.status).toBe('idle');
+            expect(ocr.error.value).toBeNull();
+            expect(completeUnsubscribe).toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
         }
     });
 
