@@ -671,6 +671,12 @@ describe('useWindowTabTransfers', () => {
                 },
             })),
         });
+        const placeholderSession = createWorkspaceDocumentController({
+            tabId: placeholderTab.id,
+            sessionId: requireSessionId('session-placeholder'),
+            initialTab: placeholderTab,
+        });
+        placeholderSession.attachWorkspace(restoredWorkspace);
         const updateTab = vi.fn();
         const activatePane = vi.fn();
         const activateTab = vi.fn();
@@ -702,6 +708,7 @@ describe('useWindowTabTransfers', () => {
             updateTab,
             cleanupEmptyPanes: vi.fn(),
             closeTabInState: vi.fn(),
+            documentSessionsByTabId: shallowRef({[placeholderTab.id]: placeholderSession}),
             workspaceRefs: ref(new Map<string, IWorkspaceExpose>()),
             waitForWorkspace: vi.fn(async (tabId: string): Promise<IWorkspaceExpose | null> => (
                 tabId === placeholderTab.id ? restoredWorkspace : null
@@ -728,7 +735,12 @@ describe('useWindowTabTransfers', () => {
         });
 
         expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
-        expect(restoredWorkspace.handleCloseFileFromUi).toHaveBeenCalledWith({persist: false});
+        // The close must run as a session close transaction so the host drops
+        // its pending-document hint instead of re-projecting the closed file.
+        expect(restoredWorkspace.handleCloseFileFromUi).toHaveBeenCalledWith({
+            persist: false,
+            onCloseCommit: expect.any(Function),
+        });
         expect(updateTab).toHaveBeenCalledWith('tab-placeholder', expect.objectContaining({
             fileName: null,
             originalPath: null,
