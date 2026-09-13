@@ -27,6 +27,7 @@ interface IShutdownStep {
     label: string;
     run: () => Promise<void> | void;
     timeoutMs?: number;
+    onFailure?: () => void;
     /**
      * Runs after the cleanup deadline instead of competing for it. Only the log
      * flush qualifies: it is what makes every other step's timeout visible in
@@ -72,6 +73,7 @@ async function runStep(
         return {failed: false};
     } catch (error) {
         const timeout = isTimeoutError(error);
+        step.onFailure?.();
         logger.error(
             timeout
                 ? `Shutdown step timed out (${step.label}, ${timeoutMs}ms)`
@@ -243,13 +245,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
 
         if (context.retryablePreservationFailure === true && !isFatalShutdownInProgress) {
             isGracefulQuitRequested = false;
-            shutdownPromise = null;
-            shutdownContext = null;
             options.logger.warn('Graceful quit was held for a retryable preservation failure');
-            return;
         }
 
-        if (armForceExit) {
+        if (armForceExit && context.retryablePreservationFailure !== true) {
             startBestEffortCleanupDeadline();
         }
         try {
@@ -283,6 +282,22 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         }
         if (quitOptions?.afterCleanup) {
             gracefulQuitAfterCleanup = quitOptions.afterCleanup;
+        }
+        if (shutdownPromise && shutdownContext?.retryablePreservationFailure === true) {
+            const pendingShutdown = shutdownPromise;
+            void pendingShutdown.then(() => {
+                if (
+                    shutdownPromise !== pendingShutdown
+                    || isQuittingAfterCleanup
+                    || isFatalShutdownInProgress
+                ) {
+                    return;
+                }
+                shutdownPromise = null;
+                shutdownContext = null;
+                requestGracefulQuit(quitOptions);
+            });
+            return;
         }
         isGracefulQuitRequested = true;
         const cleanupPromise = shutdownPromise ?? startShutdown({
