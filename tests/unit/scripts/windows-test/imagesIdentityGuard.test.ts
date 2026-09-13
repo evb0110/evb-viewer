@@ -251,6 +251,63 @@ describe('destructive VM identity guard', () => {
             .toBe(createHash('sha256').update(contents).digest('hex'));
     });
 
+    it('chunks large no-media pushes and verifies each chunk and the reassembled file', async () => {
+        const source = path.join(imageRoot, 'large-bootstrap.cmd');
+        const destination = 'C:\\EVBViewerTests\\worker\\large-bootstrap.cmd';
+        const contents = Buffer.alloc(2 * 1024 * 1024 + 17, 0x5a);
+        await writeFile(source, contents);
+        await writeFile(path.join(imageRoot, 'clone.utm', 'config.plist'), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Information</key><dict><key>UUID</key><string>${ALLOWED_VM_ID}</string><key>Name</key><string>evb-win-test-clone</string></dict></dict></plist>`);
+        const guestFiles = new Map<string, Buffer>();
+        const client = {
+            pushFile: async (_vmId: string, guestPath: string, bytes: Uint8Array | string) => {
+                guestFiles.set(guestPath, Buffer.from(bytes));
+            },
+            pullFile: async (_vmId: string, guestPath: string, hostPath: string) => {
+                await writeFile(hostPath, guestFiles.get(guestPath) ?? new Uint8Array());
+            },
+            exec: async (_vmId: string, _command: readonly string[], options?: {input?: string}) => {
+                if (options?.input !== undefined) {
+                    const request = JSON.parse(options.input) as {
+                        Destination: string;
+                        Parts: string[]
+                    };
+                    guestFiles.set(request.Destination, Buffer.concat(request.Parts.map(part => guestFiles.get(part) ?? Buffer.alloc(0))));
+                    request.Parts.forEach(part => guestFiles.delete(part));
+                }
+                return {
+                    exitCode: 0,
+                    stdout: options?.input === undefined ? `match ${createHash('sha256').update(contents).digest('hex')}` : '',
+                    stderr: '',
+                    timedOut: false,
+                    signal: null,
+                    transportFailure: null,
+                };
+            },
+        } as IUtmctlClient;
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: label => path.join(imageRoot, `${label}.tmp`),
+        });
+        const provisioner = createNativeInputProvisioner({
+            runner: {run: async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            })},
+            guest,
+            policy,
+            target: {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+
+        await provisioner.pushFile(source, destination);
+        expect(guestFiles.get(destination)).toEqual(contents);
+    });
+
     it('refuses a personal VM by path even when the UUID is allowlisted', async () => {
         const error = await assertDestructiveTarget(
             {

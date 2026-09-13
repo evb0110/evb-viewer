@@ -9,10 +9,22 @@ import {
     createHash, randomUUID,
 } from 'node:crypto';
 import {
-    readFile, rm,
+    mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { windowsTestGuestLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
 import { isFreshInteractiveWorkerHeartbeat } from '@scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat';
+import { GUEST_POWERSHELL_COMMAND } from '@scripts/windows-test/host/guestChannel';
+
+const GUEST_FILE_CHUNK_BYTES = 1024 * 1024;
+const GUEST_REASSEMBLE_COMMAND = [
+    '$ErrorActionPreference = \'Stop\'',
+    '$request = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+    '$output = [IO.File]::Open([string]$request.Destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)',
+    'try { foreach ($part in $request.Parts) { $input = [IO.File]::OpenRead([string]$part); try { $input.CopyTo($output) } finally { $input.Dispose() } } } finally { $output.Dispose() }',
+    'foreach ($part in $request.Parts) { Remove-Item -LiteralPath ([string]$part) -Force }',
+].join('; ');
 
 export type TNativeInputModifier = 'command' | 'control' | 'option' | 'shift';
 
@@ -88,6 +100,53 @@ export function createNativeInputProvisioner(options: INativeInputProvisioningOp
             workerReady: isFreshInteractiveWorkerHeartbeat(bootIdText, heartbeat, readinessStartedAtMs),
         };
     };
+    const pushChunked = async (hostPath: string, guestPath: string, contents: Buffer, expectedSha256: string) => {
+        if (options.guest.execute === undefined) {
+            throw new Error('The guest channel cannot reassemble chunked staging data.');
+        }
+        const temporaryDirectory = await mkdtemp(path.join(tmpdir(), 'evb-windows-chunks-'));
+        const chunkPaths: string[] = [];
+        const guestChunkPaths: string[] = [];
+        try {
+            for (let offset = 0, index = 0; offset < contents.byteLength; offset += GUEST_FILE_CHUNK_BYTES, index++) {
+                const chunk = contents.subarray(offset, Math.min(offset + GUEST_FILE_CHUNK_BYTES, contents.byteLength));
+                const chunkHostPath = path.join(temporaryDirectory, `chunk-${index}.bin`);
+                const chunkGuestPath = `${guestPath}.chunk-${randomUUID()}`;
+                await writeFile(chunkHostPath, chunk);
+                const chunkHash = createHash('sha256').update(chunk).digest('hex');
+                await options.guest.stageFile(options.target.vmId, chunkHostPath, chunkGuestPath, timeoutMs);
+                const readbackPath = path.join(temporaryDirectory, `readback-${index}.bin`);
+                if (!await options.guest.pullGuestFile(options.target.vmId, chunkGuestPath, readbackPath, timeoutMs)
+                    || createHash('sha256').update(await readFile(readbackPath)).digest('hex') !== chunkHash) {
+                    throw new Error(`Chunk ${index} of ${hostPath} failed readback verification.`);
+                }
+                chunkPaths.push(readbackPath);
+                guestChunkPaths.push(chunkGuestPath);
+            }
+            const outcome = await options.guest.execute(options.target.vmId, [
+                ...GUEST_POWERSHELL_COMMAND,
+                '-Command',
+                GUEST_REASSEMBLE_COMMAND,
+            ], timeoutMs, JSON.stringify({
+                Destination: guestPath,
+                Parts: guestChunkPaths,
+            }));
+            if (outcome.transportFailure !== null || outcome.exitCode !== 0) {
+                throw new Error(`Chunk reassembly failed for ${hostPath}.`);
+            }
+            const wholeReadbackPath = path.join(temporaryDirectory, 'whole-readback.bin');
+            if (!await options.guest.pullGuestFile(options.target.vmId, guestPath, wholeReadbackPath, timeoutMs)
+                || createHash('sha256').update(await readFile(wholeReadbackPath)).digest('hex') !== expectedSha256) {
+                throw new Error(`The reassembled guest file ${guestPath} failed hash verification.`);
+            }
+        } finally {
+            await Promise.all(chunkPaths.map(chunkPath => rm(chunkPath, {force: true})));
+            await rm(temporaryDirectory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    };
 
     return {
         readiness: probe,
@@ -121,6 +180,11 @@ export function createNativeInputProvisioner(options: INativeInputProvisioningOp
                     expectedSha256,
                 }], timeoutMs);
             if (verified) {
+                return;
+            }
+            const contents = await readFile(hostPath);
+            if (contents.byteLength > GUEST_FILE_CHUNK_BYTES) {
+                await pushChunked(hostPath, guestPath, contents, expectedSha256);
                 return;
             }
             const readbackPath = `${hostPath}.${randomUUID()}.readback`;

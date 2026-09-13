@@ -279,6 +279,7 @@ export interface IWindowsTestGuestChannel {
     requestGuestCancel(vmId: string, runId: string, timeoutMs: number): Promise<void>;
     readGuestText(vmId: string, guestPath: string, timeoutMs: number): Promise<string | null>;
     pullGuestFile(vmId: string, guestPath: string, hostPath: string, timeoutMs: number): Promise<boolean>;
+    execute?(vmId: string, command: readonly string[], timeoutMs: number, input?: string): Promise<IUtmctlExecOutcome>;
 }
 
 const HEARTBEAT_READ_TIMEOUT_MS = windowsTestDefaultDeadlines.uiStepSeconds * 1_000;
@@ -474,5 +475,9 @@ export function createUtmctlGuestChannel(options: {
                 return false;
             }
         },
+        execute: async (vmId, command, timeoutMs, input) => options.client.exec(vmId, command, {
+            timeoutMs,
+            ...(input === undefined ? {} : {input}),
+        }),
     };
 }
