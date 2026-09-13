@@ -35,7 +35,9 @@ pub(crate) enum BoundedIoError {
     #[cfg(unix)]
     ConnectTimeout,
     Io(std::io::Error),
-    TooLarge { limit: usize },
+    TooLarge {
+        limit: usize,
+    },
 }
 
 impl fmt::Display for BoundedIoError {
