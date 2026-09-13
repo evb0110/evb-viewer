@@ -1,0 +1,19 @@
+docs/project8-assistant-lifecycle-acceptance-2026-09-14.md
+  s_ef3b2e3cdf541f::t_13cb7844a4f968 1-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a62cfe4c4290eb5a1b6e7d7a87312ed28453e5e",
+  "prompts": {},
+  "sessions": {
+    "s_ef3b2e3cdf541f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09cf4-4815-78e2-bb48-ef1657e037f0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
