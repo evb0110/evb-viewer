@@ -1,0 +1,43 @@
+electron/features/ocr/public/index.ts
+  s_501b80727069bf::t_9f6cda17713687 4
+tests/unit/electron/createPendingResultFileStore.test.ts
+  s_501b80727069bf::t_37ef601c7f9af8 234-276
+  s_501b80727069bf::t_b560fd635a46a9 155,184
+  s_501b80727069bf::t_b56bf9744d32ed 156-183,185-186
+tests/unit/electron/documentsService.test.ts
+  s_501b80727069bf::t_8bbb3da2377797 2,48
+  s_501b80727069bf::t_fda8527e965111 47,49
+  s_501b80727069bf::t_37ef601c7f9af8 23-24,50-52,159-171
+  s_501b80727069bf::t_1bf5633cb963c5 172
+electron/features/ocr/main/createPendingResultFileStore.ts
+  s_501b80727069bf::t_9f6cda17713687 27,80-83,234-237
+  s_501b80727069bf::t_97449862566625 238-241
+electron/features/documents/createDocumentsService.ts
+  s_501b80727069bf::t_dcc0b3c129b3a6 391,396,398-399
+  s_501b80727069bf::t_8bbb3da2377797 77
+  s_501b80727069bf::t_53125043a4c731 397
+electron/features/ocr/public.ts
+  s_501b80727069bf::t_9f6cda17713687 8
+electron/file-access/workingCopyCleanup.ts
+  s_501b80727069bf::t_220b2186ec6c03 770,781,787
+  s_501b80727069bf::t_23158666b4c66f 792
+  s_501b80727069bf::t_b1a7878a575390 694,700,709,716,734,745,755
+tests/unit/electron/workingCopyCleanup.test.ts
+  s_501b80727069bf::t_e5e305333978b8 418,504
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f10e02e7c86d003e40fb36c481140abaf4859599",
+  "prompts": {},
+  "sessions": {
+    "s_501b80727069bf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0983e-bbc4-7ac3-b785-fd053a4adf5d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
