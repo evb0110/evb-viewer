@@ -86,6 +86,33 @@ describePosix('terminateProcessTree (posix)', () => {
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
     });
 
+    it('stops polling once the caller proves the direct target exited', async () => {
+        const pid = makeTestPid(4243);
+        let now = 0;
+        let targetAlive = true;
+        const delaySpy = vi.spyOn(processTreeRuntime, 'delay').mockImplementation(async () => {
+            now += 100;
+        });
+        vi.spyOn(processTreeRuntime, 'now').mockImplementation(() => now);
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
+            if (signal === 0) {
+                return targetPid === pid;
+            }
+            if (targetPid === pid && signal === 'SIGTERM') {
+                targetAlive = false;
+            }
+            return true;
+        }) as typeof processTreeRuntime.kill);
+
+        await expect(terminateProcessTree(pid, {
+            graceMs: 1_000,
+            isTargetAlive: () => targetAlive,
+            preferProcessGroup: false,
+        })).resolves.toBe(true);
+
+        expect(delaySpy).not.toHaveBeenCalled();
+    });
+
     it('falls back to the direct PID when no process group exists', async () => {
         const pid = makeTestPid(4342);
         let directAlive = true;

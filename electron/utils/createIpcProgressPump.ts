@@ -37,7 +37,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     const pendingByKey = new Map<string, TPayload>();
     const pendingTargetsByKey = new Map<string, IProgressPumpTarget<TPayload> | null | undefined>();
     const timersByKey = new Map<string, ReturnType<typeof setTimeout>>();
-    const keyedSubscribers = new Map<string, IProgressPumpTarget<TPayload>>();
+    const keyedSubscribers = new Map<string, Set<IProgressPumpTarget<TPayload>>>();
     const unkeyedSubscribers = new Set<IProgressPumpTarget<TPayload>>();
     const retainedByKey = new Map<string, IRetainedProgress<TPayload>>();
     const replayMode = options.replayMode ?? {kind: 'internal'};
@@ -74,11 +74,13 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     ) {
         const primaryTargetKey = getTargetKey(primaryTarget);
         sendToTarget(primaryTarget, payload);
-        for (const subscriber of keyedSubscribers.values()) {
-            if (primaryTargetKey !== null && getTargetKey(subscriber) === primaryTargetKey) {
-                continue;
+        for (const subscribers of keyedSubscribers.values()) {
+            for (const subscriber of subscribers) {
+                if (primaryTargetKey !== null && getTargetKey(subscriber) === primaryTargetKey) {
+                    continue;
+                }
+                sendToTarget(subscriber, payload);
             }
-            sendToTarget(subscriber, payload);
         }
         for (const subscriber of unkeyedSubscribers) {
             sendToTarget(subscriber, payload);
@@ -223,7 +225,9 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         }
         const targetKey = getTargetKey(target);
         if (targetKey) {
-            keyedSubscribers.set(targetKey, target);
+            const subscribers = keyedSubscribers.get(targetKey) ?? new Set<IProgressPumpTarget<TPayload>>();
+            subscribers.add(target);
+            keyedSubscribers.set(targetKey, subscribers);
         } else {
             unkeyedSubscribers.add(target);
         }
@@ -236,7 +240,9 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
 
         return () => {
             if (targetKey) {
-                if (keyedSubscribers.get(targetKey) === target) {
+                const subscribers = keyedSubscribers.get(targetKey);
+                subscribers?.delete(target);
+                if (subscribers?.size === 0) {
                     keyedSubscribers.delete(targetKey);
                 }
                 return;

@@ -54,16 +54,16 @@ function isProcessGroupAlive(pid: number) {
     }
 }
 
-async function waitForExit(pid: number, timeoutMs: number) {
+async function waitForExit(isAlive: () => boolean, timeoutMs: number) {
     const deadline = processTreeRuntime.now() + Math.max(0, timeoutMs);
     while (processTreeRuntime.now() < deadline) {
-        if (!isPidAlive(pid)) {
+        if (!isAlive()) {
             return true;
         }
         await processTreeRuntime.delay(100);
     }
 
-    return !isPidAlive(pid);
+    return !isAlive();
 }
 
 async function waitForPreferredProcessExit(
@@ -157,7 +157,6 @@ export async function terminateProcessTree(
     options: ITerminateProcessTreeOptions = {},
 ) {
     const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
-    const isTargetAlive = options.isTargetAlive ?? (() => true);
     const platform = options.platform ?? process.platform;
     const preferProcessGroup = options.preferProcessGroup ?? false;
     const taskkillTimeoutMs = options.taskkillTimeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS;
@@ -165,34 +164,34 @@ export async function terminateProcessTree(
 
     const targetAlive = preferProcessGroup
         ? isProcessGroupAlive(pid) || isDirectTargetAlive()
-        : isPidAlive(pid);
-    if (!targetAlive || (!preferProcessGroup && !isDirectTargetAlive())) {
+        : isDirectTargetAlive();
+    if (!targetAlive) {
         return true;
     }
 
     if (platform === 'win32') {
         await runTaskkill(pid, false, taskkillTimeoutMs);
-        const exitedGracefully = await waitForExit(pid, graceMs);
+        const exitedGracefully = await waitForExit(isDirectTargetAlive, graceMs);
         if (exitedGracefully) {
             return true;
         }
-        if (isTargetAlive() && isPidAlive(pid)) {
+        if (isDirectTargetAlive()) {
             await runTaskkill(pid, true, taskkillTimeoutMs);
             const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
-            const exitedAfterForce = await waitForExit(pid, forceKillWaitMs);
+            const exitedAfterForce = await waitForExit(isDirectTargetAlive, forceKillWaitMs);
             return exitedAfterForce;
         }
-        return !isTargetAlive() || !isPidAlive(pid);
+        return !isDirectTargetAlive();
     }
 
     const processGroupWasAlive = preferProcessGroup && isProcessGroupAlive(pid);
     sendPosixSignal(pid, 'SIGTERM', processGroupWasAlive);
     const exitedGracefully = processGroupWasAlive
         ? await waitForPreferredProcessExit(pid, graceMs, isDirectTargetAlive)
-        : await waitForExit(pid, graceMs);
+        : await waitForExit(isDirectTargetAlive, graceMs);
     const stillAlive = preferProcessGroup
         ? isProcessGroupAlive(pid) || isDirectTargetAlive()
-        : isPidAlive(pid);
+        : isDirectTargetAlive();
     if (exitedGracefully || !stillAlive || (!preferProcessGroup && !isDirectTargetAlive())) {
         return true;
     }
@@ -202,5 +201,5 @@ export async function terminateProcessTree(
     if (preferProcessGroup) {
         return waitForPreferredProcessExit(pid, forceKillWaitMs, isDirectTargetAlive);
     }
-    return waitForExit(pid, forceKillWaitMs);
+    return waitForExit(isDirectTargetAlive, forceKillWaitMs);
 }
