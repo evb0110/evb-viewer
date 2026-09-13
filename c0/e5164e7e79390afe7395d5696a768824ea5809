@@ -1,0 +1,23 @@
+scripts/release/publish-release-mirror.mjs
+  s_ae757872e5d914::t_c5992f8a0000f1 855
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_ae757872e5d914::t_5ab25d9d4d3811 946
+  s_ae757872e5d914::t_475e0b87d99df3 927-933,941
+  s_ae757872e5d914::t_05923e7fe0bff9 905-907,939-940
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c0e5164e7e79390afe7395d5696a768824ea5809",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
