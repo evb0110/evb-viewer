@@ -19,6 +19,14 @@ interface IImagePlacementPointerRotateOptions {
 
 const DEFAULT_ROTATION_SNAP_STEP_DEGREES = 15;
 
+function getShortestImagePlacementAngleDelta(deltaDegrees: number) {
+    let normalized = ((deltaDegrees + 180) % 360 + 360) % 360 - 180;
+    if (normalized === -180 && deltaDegrees > 0) {
+        normalized = 180;
+    }
+    return normalized;
+}
+
 function getRectCenter(rect: IImagePlacementRectPx): IPoint2D {
     return {
         x: rect.left + (rect.width / 2),

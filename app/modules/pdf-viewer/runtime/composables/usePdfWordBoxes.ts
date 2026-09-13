@@ -5,12 +5,17 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
-import { isOcrDebugEnabled } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled';
 import { loadSharedDocumentOcrPage } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
 import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { safeGetLocalStorageItem } from '@app/utils/localStorage';
+
+function isOcrDebugEnabled() {
+    return safeGetLocalStorageItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
+}
 
 export const usePdfWordBoxes = () => {
     const viewportByPageContainer = new WeakMap<HTMLElement, IPdfViewport>();
