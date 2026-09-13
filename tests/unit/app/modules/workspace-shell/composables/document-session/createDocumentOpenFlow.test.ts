@@ -60,8 +60,10 @@ const mocks = vi.hoisted(() => ({
     documentPicker: { openDocumentDialog: vi.fn() },
     documentRecentFiles: {recentFiles: {get: vi.fn()}},
     performanceProfile: {
+        tier: 'medium',
         lowCpu: false,
         lowMemory: false,
+        maxCachedPdfPages: 48,
     },
     nativePreview: {createSource: vi.fn()},
 }));
@@ -74,7 +76,10 @@ vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
     getDocumentPickerCapability: () => mocks.documentPicker,
     getDocumentRecentFilesCapability: () => mocks.documentRecentFiles,
 }));
-vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
+vi.mock('@app/utils/performanceProfile', () => ({
+    getPerformanceProfile: () => mocks.performanceProfile,
+    resolvePerformanceProfile: () => mocks.performanceProfile,
+}));
 vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     createNativePdfPreviewSourceFromPath: mocks.nativePreview.createSource,
