@@ -8,6 +8,10 @@ import type {IpcMainInvokeEvent} from 'electron';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {registerPlatformFeatureHandlers} from '@electron/platform-ipc/validatedIpcRegistrar';
+import {
+    createScanCleanupPreviewIpcAdapter,
+    type IScanCleanupPreviewIpcOwners,
+} from '@electron/features/scan-cleanup/createScanCleanupPreviewIpcAdapter';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {
     createFeatureRegistrarCases,
@@ -74,8 +78,23 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
         const previewResult = SCAN_CLEANUP_PLATFORM_FEATURE.methods.preview.ipc.result.example();
         const cancelResult = SCAN_CLEANUP_PLATFORM_FEATURE.methods.cancelPreview.ipc.result.example();
         type TScanCleanupBindings = TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const preview = vi.fn<TScanCleanupBindings['preview']>(async () => previewResult);
-        const cancelPreview = vi.fn<TScanCleanupBindings['cancelPreview']>(async () => cancelResult);
+        const owners = {
+            preview: vi.fn(async () => previewResult),
+            resolvePlacementAnchorCalibration: vi.fn(),
+            cancel: vi.fn(() => cancelResult),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            dispose: vi.fn(async () => undefined),
+        } satisfies IScanCleanupPreviewIpcOwners;
+        const adapter = createScanCleanupPreviewIpcAdapter(owners);
+        const preview = vi.fn<TScanCleanupBindings['preview']>(
+            (context, request) => adapter.preview(context.sender, request),
+        );
+        const cancelPreview = vi.fn<TScanCleanupBindings['cancelPreview']>(
+            (context, request) => adapter.cancel(context.sender, request),
+        );
         const bindings: TScanCleanupBindings = {
             preview,
             cancelPreview,
@@ -122,6 +141,14 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
         trustedSender.isTrustedIpcInvokeSender.mockReturnValue(true);
         await expect(previewHandler(event, ...previewCase.validArgs)).resolves.toEqual(previewResult);
         await expect(cancelHandler(event, ...cancelCase.validArgs)).resolves.toEqual(cancelResult);
+        expect(owners.preview).toHaveBeenCalledWith(
+            event.sender,
+            ...previewCase.validArgs,
+        );
+        expect(owners.cancel).toHaveBeenCalledWith(
+            event.sender,
+            ...cancelCase.validArgs,
+        );
         expect(preview).toHaveBeenCalledWith(
             {
                 sender: event.sender,
@@ -141,6 +168,8 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
 
         preview.mockClear();
         cancelPreview.mockClear();
+        owners.preview.mockClear();
+        owners.cancel.mockClear();
         await expect(previewHandler(event, Symbol('malformed'))).rejects.toThrow(
             `Invalid IPC arguments for ${previewChannel}`,
         );

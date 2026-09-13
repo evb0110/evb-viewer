@@ -6,6 +6,7 @@ import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scanCleanupSettings';
 import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
 import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {createScanCleanupPreviewIpcAdapter} from '@electron/features/scan-cleanup/createScanCleanupPreviewIpcAdapter';
 import {createScanCleanupMainBindingsDisposer} from '@electron/features/scan-cleanup/createScanCleanupMainBindingsDisposer';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
@@ -13,7 +14,8 @@ import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
 
-const previewService = scanCleanupPreviewLifecycle(defaultDependencies);
+const previewOwners = scanCleanupPreviewLifecycle(defaultDependencies);
+const previewService = createScanCleanupPreviewIpcAdapter(previewOwners);
 const service = createScanCleanupService();
 const settingsStore = createScanCleanupSettingsStore({filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME)});
 const logger = createLogger('scan-cleanup-scratch');
@@ -22,7 +24,7 @@ void Promise.resolve()
     .then(() => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}))
     .catch(error => logger.warn(`Could not sweep scan-cleanup scratch directories at startup: ${String(error)}`));
 
-const disposePreviewService = createScanCleanupMainBindingsDisposer(previewService);
+const disposePreviewService = createScanCleanupMainBindingsDisposer(previewOwners);
 
 export function disposeScanCleanupMainBindings(): Promise<void> {
     return disposePreviewService();
