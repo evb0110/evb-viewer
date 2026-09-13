@@ -16,6 +16,7 @@ import {
     createScanCleanupInputBudget,
     type IScanCleanupInputBudget,
     SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE,
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
 } from '@contracts/scan-cleanup/inputLimits';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
@@ -1033,6 +1034,15 @@ function assertManualZones(value: unknown, inputBudget: IScanCleanupInputBudget)
         fail('manualZones exceeds the per-page zone limit');
     }
     consumeScanCleanupZones(inputBudget, zoneCount, 'provenance manual zones');
+    let pageVertexCount = 0;
+    const assertPagePolygon = (polygon: unknown, label: string) => {
+        const pointCount = assertNormalizedPolygon(polygon, label, inputBudget);
+        const nextPageVertexCount = pageVertexCount + pointCount;
+        if (nextPageVertexCount > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) {
+            fail('manualZones exceeds the per-page vertex limit');
+        }
+        pageVertexCount = nextPageVertexCount;
+    };
     value.picture.forEach((zone, index) => {
         if (!isRecord(zone)) fail(`manualZones.picture[${String(index)}] is invalid`);
         assertExactKeys(zone, [
@@ -1044,16 +1054,14 @@ function assertManualZones(value: unknown, inputBudget: IScanCleanupInputBudget)
             'painter2',
             'eraser3',
         ].includes(zone.layer as string)) fail('manualZones picture layer is invalid');
-        assertNormalizedPolygon(
+        assertPagePolygon(
             zone.polygon,
             `manualZones.picture[${String(index)}].polygon`,
-            inputBudget,
         );
     });
-    value.fill.forEach((polygon, index) => assertNormalizedPolygon(
+    value.fill.forEach((polygon, index) => assertPagePolygon(
         polygon,
         `manualZones.fill[${String(index)}]`,
-        inputBudget,
     ));
 }
 
@@ -1092,6 +1100,7 @@ function assertNormalizedPolygon(
         value.points as IScanCleanupManualZones['fill'][number]['points'],
         label,
     );
+    return value.points.length;
 }
 
 function assertMargins(value: unknown) {

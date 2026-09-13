@@ -391,6 +391,7 @@ describe('file-backed scan-cleanup settings store', () => {
         const sourceSha256 = 'c'.repeat(64);
         const legacyDocumentKey = '/documents/legacy-scan.pdf';
         const initial = createDefaultScanCleanupSettingsFile();
+        initial.settings.layoutMode = 'force-single';
         initial.documentOverrides = {[expiredHash]: {lastUsedAtMs: now - SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS - 1}};
         await writeFile(filePath, JSON.stringify(initial), 'utf8');
         const store = createScanCleanupSettingsStore({
@@ -400,7 +401,10 @@ describe('file-backed scan-cleanup settings store', () => {
 
         const loaded = await store.get({
             legacyStorage: {
-                settingsRaw: null,
+                settingsRaw: JSON.stringify({
+                    layoutMode: 'force-two-page',
+                    readingOrder: 'rtl',
+                }),
                 documentOverridesRaw: JSON.stringify({[legacyDocumentKey]: {
                     updatedAt: now,
                     outputMode: 'grayscale',
@@ -411,9 +415,92 @@ describe('file-backed scan-cleanup settings store', () => {
             legacyDocumentKey,
         });
 
+        expect(loaded.settings.readingOrder).toBe('rtl');
+        expect(loaded.settings.layoutMode).toBe('force-single');
         expect(loaded.documentOverrides).toEqual({[sourceSha256]: {
             outputMode: 'grayscale',
             lastUsedAtMs: now,
         }});
+
+        const restarted = createScanCleanupSettingsStore({
+            filePath,
+            now: () => now + 1,
+        });
+        await expect(restarted.get()).resolves.toMatchObject({
+            settings: {
+                readingOrder: 'rtl',
+                layoutMode: 'force-single',
+            },
+            documentOverrides: {[sourceSha256]: {
+                outputMode: 'grayscale',
+                lastUsedAtMs: now,
+            }},
+        });
+    });
+
+    it('clamps legacy manual split endpoints before strict desktop decoding', async () => {
+        const filePath = await createStoreFile();
+        const sourceSha256 = 'f'.repeat(64);
+        const legacyDocumentKey = '/documents/legacy-split.pdf';
+        const positions = [
+            0,
+            0.019,
+            0.02,
+            0.5,
+            0.98,
+            0.981,
+            1,
+        ];
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            now: () => 20,
+        });
+
+        const loaded = await store.get({
+            legacyStorage: {
+                settingsRaw: '{}',
+                documentOverridesRaw: JSON.stringify({[legacyDocumentKey]: {
+                    updatedAt: 10,
+                    overrides: Object.fromEntries(positions.map((xNormalized, index) => [
+                        String(index + 1),
+                        {
+                            rotationDegrees: (index % 4) * 90,
+                            layoutOverride: 'spread',
+                            excluded: false,
+                            manualSplit: {
+                                xNormalized,
+                                rotationDegrees: (index % 4) * 90,
+                            },
+                        },
+                    ])),
+                }}),
+                exportedAtMs: 10,
+            },
+            sourceSha256,
+            legacyDocumentKey,
+        });
+
+        expect(Object.values(loaded.documentOverrides[sourceSha256]!.overrides!).map(override => (
+            override.manualSplit?.xNormalized
+        ))).toEqual([
+            0.02,
+            0.02,
+            0.02,
+            0.5,
+            0.98,
+            0.98,
+            0.98,
+        ]);
+        expect(Object.values(loaded.documentOverrides[sourceSha256]!.overrides!).map(override => (
+            override.manualSplit?.rotationDegrees
+        ))).toEqual([
+            0,
+            90,
+            180,
+            270,
+            0,
+            90,
+            180,
+        ]);
     });
 });
