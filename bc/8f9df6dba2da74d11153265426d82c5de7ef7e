@@ -1,0 +1,22 @@
+tests/unit/helpers/createElectronPlatformApiFixture.test.ts
+  s_4d690040fb2f95::t_85a593b5178824 158-160,163-170
+  s_4d690040fb2f95::t_dd5fc23419569b 157,161
+tests/helpers/createDefaultPlatformApiFixtureMethod.ts
+  s_4d690040fb2f95::t_ca9c1df6fa5cb3 15,18,33,35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bc8f9df6dba2da74d11153265426d82c5de7ef7e",
+  "prompts": {},
+  "sessions": {
+    "s_4d690040fb2f95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09a1b-002c-7a02-b854-ee8aad7fdb31",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
