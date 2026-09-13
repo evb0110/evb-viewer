@@ -215,6 +215,78 @@ pnpm windows:test --suite critical
 pnpm windows:test:report --run RUN_ID
 ```
 
+### Native-input provisioning recovery
+
+Use the retained windows:test:provision command when a stopped or newly
+copied QEMU VM has no QEMU guest agent. This route needs a logged-in Aqua
+session, UTM Automation consent for the launcher, enough free space for one
+clone, and Screen Recording permission if screenshots are part of the
+qualification. The clone must be registered under a test-only name, have its
+bundle inside testImageRoot, and be claimed from one before/after UTM
+inventory. The personal VM named Windows is never an owned target. A one-time
+campaign authorization to copy it does not change this reusable policy.
+
+Create a local-only plan under .devkit with vmId, bundlePath, beforeVmIds, and
+steps. The step kinds are scanCodes, keystroke, and mouseClick. Keep the plan
+out of commits and logs. Run:
+
+~~~sh
+pnpm windows:test:provision --plan /absolute/path/to/.devkit/windows-provision-plan.json
+~~~
+
+The command rechecks the existing identity guard before every event. It sends
+only UTM's QEMU native AppleScript input commands, using an exact claimed UUID.
+keystroke text must be ASCII. The command prints step numbers and two readiness
+fields only. It never prints input text, UUIDs, bundle paths, or passwords.
+
+guestAgentAvailable is true only when the existing guest channel can read the
+lab marker through QEMU guest agent transport. workerReady is true only when
+that transport can read a current worker heartbeat. Input delivery does not
+make either state ready. After each input event, take a fresh screenshot of the
+clone's UTM window and inspect it before sending the next event. Resolve the
+window by its registered test-only display name. If capture fails, grant Screen
+Recording to the launcher and record that infrastructure gap rather than
+claiming a guest state.
+
+For the missing-agent branch, first observe guestAgentAvailable=false. Use
+native input to sign in, open an elevated PowerShell with Win+R and
+Ctrl+Shift+Enter, then run a short command that downloads or reads the
+prepared recovery script from the lab's approved host-served URL or UTM
+shared directory. That script installs QEMU guest agent, creates the marked
+guest directories, installs the pinned Windows Node runtime, copies the
+prepared worker and PowerShell helpers, and registers
+register-worker-logon-task.ps1. Reboot or sign out and back in as required.
+The flow is complete only after the guest channel reads the marker and the
+worker publishes a fresh heartbeat. If the marker becomes readable but the
+heartbeat does not, report guestAgentAvailable=true and workerReady=false and
+repair the worker separately.
+
+Successful evidence consists of the redacted provisioning output, fresh
+screenshots for each input step, the guest marker read, a fresh heartbeat with
+the Windows build and architecture, and the normal run evidence under
+runs/<RUN_ID>/. Do not preserve a failed lab clone after the campaign. Stop
+it, delete it through the owned target path, confirm no test clone remains, and
+check free space with df. Confirm the original Windows VM is stopped and was
+not modified.
+
+#### Live qualification gap recorded 2026-09-13
+
+The recovery command was run against one owned clone. UTM accepted scan-code
+and keystroke events addressed by exact clone identity. Guest evidence reported
+guestAgentAvailable=true and workerReady=false. The clone therefore had QEMU
+guest-agent transport, but its interactive worker did not publish a heartbeat.
+The Windows build was 26200 and the architecture was ARM64. Attempts to start
+the prepared worker and its scheduled task did not produce a heartbeat. The
+WIN-SAVE measurements were not run.
+
+Screen Recording was unavailable on the coordinator. Both per-window and
+full-display capture failed, so there is no screenshot proof for the input
+steps. Treat this as an open host-permission gap. The clone was stopped and
+deleted after the attempt, free space was rechecked, and the original Windows
+VM remained stopped. This result qualifies the native input transport only; it
+does not qualify the worker, candidate app, cold reset, or any Windows save
+case.
+
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.
 The copy path does not use `utmctl clone`, which writes into UTM's own storage.

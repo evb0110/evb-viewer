@@ -92,7 +92,11 @@ and the decision records in [docs/architecture/adr/](docs/architecture/adr/).
   and [docs/internal/agents/triage-labels.md](docs/internal/agents/triage-labels.md).
 - The Windows lane runs the packaged app in a UTM VM through the
   `pnpm windows:test*` scripts. Follow
-  [docs/internal/agents/utm-windows-tests.md](docs/internal/agents/utm-windows-tests.md).
+  [docs/internal/agents/utm-windows-tests.md](docs/internal/agents/utm-windows-tests.md)
+  and [docs/contributing/windows-tests/setup-and-repair.md](docs/contributing/windows-tests/setup-and-repair.md)
+  before declaring computer use unavailable. The native UTM input route is in
+  `scripts/windows-test/host/nativeInputProvisioning.ts` and the
+  `windows:test:provision` CLI.
   Never target the personal VM named `Windows`, and keep its UUID and bundle
   path out of the repository and the logs.
 - For an ambiguous request to check, verify, or inspect Sentry, start with

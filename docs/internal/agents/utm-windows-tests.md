@@ -28,6 +28,19 @@ probes UTM and its Automation consent, checks the golden image and caches,
 and never starts, stops, or modifies a VM.
 
 Use the prepared, hash-verified standalone `utmctl` under the host tools cache.
+
+If the guest agent is missing, read the native-input recovery section in
+docs/contributing/windows-tests/setup-and-repair.md before declaring computer
+use unavailable. The retained command is
+pnpm windows:test:provision --plan /absolute/path/to/.devkit/plan.json.
+It claims one clone from a before/after inventory, reuses the destructive
+identity guard before every UTM AppleScript input keystroke, input scan code,
+or input mouse click, and reports guest-agent and worker readiness separately.
+It never treats an input call as guest completion. Keep input text, UUIDs,
+bundle paths, and passwords out of output. A successful recovery needs a guest
+marker read and a fresh worker heartbeat, plus screenshot evidence when visual
+input verification is required. Delete the lab clone after the campaign and
+confirm the personal Windows VM remains stopped.
 Running the executable inside `UTM.app` registers each CLI process as a foreground
 application on this Mac and produces a recurring second UTM Dock icon. A symlink
 resolves back into the app bundle. Preparation must copy the signed executable

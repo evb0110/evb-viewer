@@ -24,6 +24,8 @@ import type {
     WindowsTestIdentityGuardError,
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
+import type { IWindowsTestWorkerHeartbeat } from '@scripts/windows-test/contracts/windowsTestContracts';
+import { createNativeInputProvisioner } from '@scripts/windows-test/host/nativeInputProvisioning';
 
 const ALLOWED_VM_ID = '11111111-2222-4333-8444-555555555555';
 const GOLDEN_VM_ID = '22222222-3333-4444-8555-666666666666';
@@ -103,6 +105,101 @@ describe('destructive VM identity guard', () => {
         ).catch((thrown: unknown) => thrown);
 
         expect((error as WindowsTestIdentityGuardError).refusal).toBe('vm-id-denied');
+    });
+
+    it('refuses native input before invoking osascript for a personal VM', async () => {
+        const calls: string[] = [];
+        const provisioner = createNativeInputProvisioner({
+            runner: {run: async command => {
+                calls.push(command);
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                    timedOut: false,
+                    signal: null,
+                };
+            }},
+            guest: {
+                ping: async () => false,
+                readHeartbeat: async () => null,
+                ensureDirectory: async () => undefined,
+                stageFile: async () => undefined,
+                stageAndVerifyFiles: async () => false,
+                stageText: async () => undefined,
+                verifyStagedFileHash: async () => false,
+                writeJob: async () => undefined,
+                publishReadyMarker: async () => undefined,
+                requestGuestCancel: async () => undefined,
+                readGuestText: async () => null,
+                pullGuestFile: async () => false,
+            },
+            policy,
+            target: {
+                vmId: PERSONAL_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+
+        await expect(provisioner.scanCodes([28])).rejects.toMatchObject({ refusal: 'vm-id-denied' });
+        expect(calls).toEqual([]);
+    });
+
+    it('keeps agent and worker readiness separate until a heartbeat appears', async () => {
+        let heartbeat: IWindowsTestWorkerHeartbeat | null = null;
+        const guest = {
+            ping: async () => true,
+            readHeartbeat: async () => heartbeat,
+            ensureDirectory: async () => undefined,
+            stageFile: async () => undefined,
+            stageAndVerifyFiles: async () => false,
+            stageText: async () => undefined,
+            verifyStagedFileHash: async () => false,
+            writeJob: async () => undefined,
+            publishReadyMarker: async () => undefined,
+            requestGuestCancel: async () => undefined,
+            readGuestText: async () => null,
+            pullGuestFile: async () => false,
+        };
+        const provisioner = createNativeInputProvisioner({
+            runner: { run: async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            }) },
+            guest,
+            policy,
+            target: {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+        await expect(provisioner.readiness()).resolves.toEqual({
+            guestAgentAvailable: true,
+            workerReady: false,
+        });
+        heartbeat = {
+            schemaVersion: 1,
+            bootId: 'boot',
+            guestTestMarker: 'marker',
+            updatedAt: 'now',
+            locked: false,
+            worker: {
+                userSid: 'sid',
+                sessionId: 1,
+                integrityLevel: 'medium',
+                inputDesktop: 'Default',
+                interactive: true,
+                workerPid: 1,
+                workerStartTime: 'now',
+            },
+        };
+        await expect(provisioner.readiness()).resolves.toEqual({
+            guestAgentAvailable: true,
+            workerReady: true,
+        });
     });
 
     it('refuses a personal VM by path even when the UUID is allowlisted', async () => {
