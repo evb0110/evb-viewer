@@ -57,6 +57,7 @@ const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     createManagedScratchTempDir: vi.fn(async (_prefix: string) => ''),
     managedScratchDirs: [] as IManagedScratchDir[],
+    statfs: vi.fn(),
     renderPageCount: 2,
     pdfPageCount: 2,
     nativeImageCombinePath: null as string | null,
@@ -110,6 +111,7 @@ vi.mock('fs/promises', async () => {
         },
         rename: mocks.rename,
         stat: mocks.stat,
+        statfs: mocks.statfs,
     };
 });
 
@@ -306,6 +308,7 @@ describe('image export', () => {
         tempDir = await mkdtemp(join(process.cwd(), '.devkit', 'image-export-test-'));
         mocks.runCommand.mockReset();
         mocks.stat.mockReset();
+        mocks.statfs.mockReset();
         mocks.rename.mockReset();
         mocks.atomicReplace.mockReset();
         mocks.copyFileAtomic.mockReset();
@@ -348,6 +351,10 @@ describe('image export', () => {
             isFile: () => true,
             size: 1024,
         }));
+        mocks.statfs.mockResolvedValue({
+            bavail: 10_000_000,
+            bsize: 4096,
+        });
         mocks.rename.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await rm(sourcePath, { force: true });
@@ -797,6 +804,23 @@ describe('image export', () => {
         const outputPath = join(tempDir, 'large-document.png');
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(60);
+    });
+
+    it('refuses an export when the target volume cannot hold its projected staging bytes', async () => {
+        mocks.statfs.mockResolvedValue({
+            bavail: 0,
+            bsize: 4096,
+        });
+        const outputPath = join(tempDir, 'low-space.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
+            .rejects
+            .toThrow('Image export does not have enough free space for projected staging');
+        expect(mocks.runCommand).not.toHaveBeenCalledWith(
+            '/mock/pdftoppm',
+            expect.any(Array),
+            expect.anything(),
+        );
     });
 
     it('refuses a PDF image export above the output-path budget before rendering', async () => {
@@ -1332,6 +1356,31 @@ describe('image export', () => {
         );
         await rollbackStagedFilePublications(ledger);
         expect(await readFile(targetPath, 'utf8')).toBe('original');
+    });
+
+    it('restores a displaced target when promotion identity stat fails', async () => {
+        const targetPath = join(tempDir, 'stat-failure-target.png');
+        const stagedPath = join(tempDir, 'stat-failure-target.staged');
+        await writeFile(targetPath, 'original');
+        await writeFile(stagedPath, 'replacement');
+        mocks.stat
+            .mockRejectedValueOnce(new Error('stat unavailable after promotion'))
+            .mockResolvedValueOnce({
+                isFile: () => true,
+                size: 11,
+                dev: 1,
+                ino: 2,
+                mtimeMs: 3,
+            });
+
+        await expect(promoteStagedFiles([{
+            stagedPath,
+            targetPath,
+            targetExisted: true,
+        }])).rejects.toThrow('stat unavailable after promotion');
+
+        expect(await readFile(targetPath, 'utf8')).toBe('original');
+        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
     });
 
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {

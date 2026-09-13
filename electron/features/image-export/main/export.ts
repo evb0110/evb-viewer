@@ -69,10 +69,12 @@ import {
 } from '@electron/utils/managedScratchTemp';
 import {
     addStagedImageFileBytes,
+    assertImageExportFreeSpace,
     assertImageExportOutputPathBudget,
     type IExportPageSize,
     IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
     resolveExportRenderDpi,
+    estimateImageExportStagedBytes,
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
@@ -493,12 +495,13 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
             size: target.size,
             mtimeMs: target.mtimeMs,
         })).catch(() => null);
-        const targetStillOwned = promotedFile.targetIdentity !== null
-            && currentTargetIdentity !== null
-            && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
-            && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
-            && promotedFile.targetIdentity.size === currentTargetIdentity.size
-            && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
+        const targetStillOwned = promotedFile.targetIdentity === null
+            ? currentTargetIdentity !== null
+            : currentTargetIdentity !== null
+                && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
+                && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
+                && promotedFile.targetIdentity.size === currentTargetIdentity.size
+                && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
         if (promotedFile.backupPath) {
             if (!targetStillOwned) {
                 rollbackFailures.push(new Error(`Refusing to restore ${promotedFile.targetPath} after external modification`));
@@ -748,7 +751,10 @@ async function detectExportRenderDpi(
         ),
     ]);
 
-    return resolveExportRenderDpi(detection.documentDpi, pageSizes);
+    return {
+        renderDpi: resolveExportRenderDpi(detection.documentDpi, pageSizes),
+        pageSizes,
+    };
 }
 
 export async function getPdfPageCount(
@@ -968,13 +974,13 @@ async function planExportRender(preparedSourcePdf: string, options: IExportPdfOp
 
     return {
         pageCount,
-        renderDpi: await detectExportRenderDpi(
+        ...(await detectExportRenderDpi(
             preparedSourcePdf,
             getPdfNativeToolPaths(),
             pageCount,
             options.signal,
             options.cancelGroup,
-        ),
+        )),
     };
 }
 
@@ -1020,8 +1026,13 @@ export async function exportPdfPagesAsImages(
         const {
             pageCount,
             renderDpi,
+            pageSizes,
         } = await planExportRender(preparedSourcePdf, options);
         assertImageExportOutputPathBudget(pageCount);
+        await assertImageExportFreeSpace(
+            outputDirectory,
+            estimateImageExportStagedBytes(pageCount, renderDpi, pageSizes),
+        );
         const exportedPaths = resolveSuffixedOutputPathConflicts(Array.from({length: pageCount}, (_, index) => ({
             path: pageCount === 1 ? normalizedPath : join(outputDirectory, `${outputStem}${outputExtension}`),
             suffix: pageCount === 1 ? '' : `-${String(index + 1).padStart(3, '0')}`,
@@ -1245,7 +1256,12 @@ export async function exportPdfAsMultiPageTiff(
             const {
                 pageCount,
                 renderDpi,
+                pageSizes,
             } = await planExportRender(preparedSourcePdf, options);
+            await assertImageExportFreeSpace(
+                outputDirectory,
+                estimateImageExportStagedBytes(pageCount, renderDpi, pageSizes),
+            );
             let renderedPageCount = 0;
             emitExportProgress(options, {
                 phase: 'rendering',

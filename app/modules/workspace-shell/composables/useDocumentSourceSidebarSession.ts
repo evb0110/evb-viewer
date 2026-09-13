@@ -1,8 +1,12 @@
+import type { MaybeRefOrGetter } from 'vue';
 import { createDocumentPageSourceSearchBackend } from '@app/utils/document-viewer/search/createDocumentPageSourceSearchBackend';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 
-interface IUseDocumentSourceSidebarSessionOptions {onNavigate: (pageIndex: number) => void;}
+interface IUseDocumentSourceSidebarSessionOptions {
+    documentRevision?: MaybeRefOrGetter<string | null | undefined>;
+    onNavigate: (pageIndex: number) => void;
+}
 
 /**
  * Owns the shared sidebar state published by non-PDF document adapters.
@@ -14,6 +18,7 @@ export const useDocumentSourceSidebarSession = (options: IUseDocumentSourceSideb
     const backend = computed(() => createDocumentPageSourceSearchBackend(source.value));
     const searchSession = useDocumentSearchSession({
         backend,
+        documentRevision: options.documentRevision,
         onNavigate: match => options.onNavigate(match.pageIndex),
     });
 

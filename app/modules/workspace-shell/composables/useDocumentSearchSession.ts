@@ -14,6 +14,7 @@ import type {
 
 interface IUseDocumentSearchSessionOptions {
     backend: MaybeRefOrGetter<IDocumentSearchBackend | null>;
+    documentRevision?: MaybeRefOrGetter<string | null | undefined>;
     onNavigate?: ((match: IDocumentSearchMatch, index: number) => void) | undefined;
     normalizeError?: ((error: unknown) => string) | undefined;
 }
@@ -47,7 +48,7 @@ export const useDocumentSearchSession = (
         toValue(options.backend)?.minQueryLength ?? DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH
     ));
     let activeController: AbortController | null = null;
-    let backendGeneration = 0;
+    let sourceGeneration = 0;
     let runGeneration = 0;
 
     function cancel() {
@@ -107,8 +108,9 @@ export const useDocumentSearchSession = (
         }
 
         const controller = new AbortController();
-        const currentBackendGeneration = backendGeneration;
+        const currentSourceGeneration = sourceGeneration;
         const currentRunGeneration = runGeneration;
+        const currentDocumentRevision = toValue(options.documentRevision);
         activeController = controller;
         isSearching.value = true;
         progress.value = {
@@ -124,14 +126,15 @@ export const useDocumentSearchSession = (
                     if (
                         !controller.signal.aborted
                         && currentRunGeneration === runGeneration
-                        && currentBackendGeneration === backendGeneration
+                        && currentSourceGeneration === sourceGeneration
                     ) progress.value = nextProgress;
                 },
             });
             if (
                 controller.signal.aborted
                 || currentRunGeneration !== runGeneration
-                || currentBackendGeneration !== backendGeneration
+                || currentSourceGeneration !== sourceGeneration
+                || currentDocumentRevision !== toValue(options.documentRevision)
                 || backend !== toValue(options.backend)
             ) {
                 return false;
@@ -145,7 +148,8 @@ export const useDocumentSearchSession = (
                 !controller.signal.aborted
                 && !isAbortError(caught)
                 && currentRunGeneration === runGeneration
-                && currentBackendGeneration === backendGeneration
+                && currentSourceGeneration === sourceGeneration
+                && currentDocumentRevision === toValue(options.documentRevision)
             ) error.value = (options.normalizeError ?? defaultSearchError)(caught);
             return false;
         } finally {
@@ -157,9 +161,12 @@ export const useDocumentSearchSession = (
     }
 
     watch(
-        () => toValue(options.backend),
+        [
+            () => toValue(options.backend),
+            () => toValue(options.documentRevision),
+        ],
         () => {
-            backendGeneration += 1;
+            sourceGeneration += 1;
             clear();
         },
         {flush: 'sync'},
