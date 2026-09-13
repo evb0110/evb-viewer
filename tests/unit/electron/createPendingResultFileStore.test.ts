@@ -152,6 +152,38 @@ describe('createPendingResultFileStore', () => {
         expect(store.claimForDocument(44, '/tmp/ocr-1.pdf', OCR_DOCUMENT_REF, OCR_DOCUMENT_REVISION).status).toBe('claimed');
     });
 
+    it('claims an unclaimed result by document scope after the original sender disappears', () => {
+        const store = createPendingResultFileStore({
+            logger,
+            ttlMs: 60_000,
+            removeResultFile,
+        });
+        store.track(
+            OCR_JOB_ID,
+            OCR_REQUEST_ID,
+            42,
+            OCR_DOCUMENT_REF,
+            OCR_DOCUMENT_REVISION,
+            '/tmp/ocr-1.pdf',
+            'sha256-ocr-1',
+            true,
+        );
+
+        expect(store.claimForDocument(
+            43,
+            '/tmp/ocr-1.pdf',
+            OCR_DOCUMENT_REF,
+            OCR_DOCUMENT_REVISION,
+        )).toMatchObject({
+            status: 'claimed',
+            entry: {
+                webContentsId: 42,
+                claimedByWebContentsId: 43,
+            },
+        });
+        expect(removeResultFile).not.toHaveBeenCalled();
+    });
+
     it('rejects a claim for a different document revision or scope', () => {
         const store = createPendingResultFileStore({
             logger,
@@ -198,5 +230,48 @@ describe('createPendingResultFileStore', () => {
             OCR_DOCUMENT_REVISION,
         )).resolves.toEqual({cleaned: true});
         expect(store.find(42, OCR_REQUEST_ID)).toBeNull();
+    });
+
+    it('discards every completed result for a permanently discarded document', async () => {
+        removeResultFile
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(true);
+        const store = createPendingResultFileStore({
+            logger,
+            ttlMs: 60_000,
+            removeResultFile,
+        });
+        store.track(
+            OCR_JOB_ID,
+            OCR_REQUEST_ID,
+            42,
+            OCR_DOCUMENT_REF,
+            OCR_DOCUMENT_REVISION,
+            '/tmp/ocr-1.pdf',
+            'sha256-ocr-1',
+            true,
+        );
+        store.track(
+            requireJobId('42:ocr-2'),
+            requireRequestId('ocr-2'),
+            42,
+            OCR_DOCUMENT_REF,
+            OCR_DOCUMENT_REVISION,
+            '/tmp/ocr-2.pdf',
+            'sha256-ocr-2',
+            true,
+        );
+
+        await store.discardForDocument(OCR_DOCUMENT_REF);
+
+        expect(store.find(42, OCR_REQUEST_ID)).not.toBeNull();
+        expect(store.find(42, requireRequestId('ocr-2'))).toBeNull();
+        expect(removeResultFile).toHaveBeenCalledTimes(2);
+
+        await store.discardForDocument(OCR_DOCUMENT_REF);
+
+        expect(store.find(42, OCR_REQUEST_ID)).toBeNull();
+        expect(removeResultFile).toHaveBeenCalledTimes(3);
     });
 });
