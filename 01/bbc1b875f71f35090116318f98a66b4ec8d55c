@@ -1,0 +1,167 @@
+tests/unit/app/modules/pdf-viewer/engine/pdfDocumentSource.test.ts
+  s_4d690040fb2f95::t_9271ed8e7739a5 53-57
+tests/unit/app/modules/workspace-shell/composables/usePageStatusBar.test.ts
+  s_4d690040fb2f95::t_42f2605efc66f7 8,32-34,38-40
+  s_4d690040fb2f95::t_67413ced694c4d 35
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearch.test.ts
+  s_4d690040fb2f95::t_5f77c490b88579 73-74,81-82
+  s_4d690040fb2f95::t_fb457b9c54436a 76-80
+  s_4d690040fb2f95::t_3d23b19b906854 796-797,844-845,1137
+tests/unit/app/platform/browserDjvuCapabilityRouting.test.ts
+  s_4d690040fb2f95::t_9aabd4eea10249 9,33,37,39
+  s_4d690040fb2f95::t_9a605cf6cb360a 38
+tests/unit/app/utils/getViewerHostApi.test.ts
+  s_4d690040fb2f95::t_1655b9b2769696 11,32-39
+tests/unit/app/pages/aboutPage.test.ts
+  s_4d690040fb2f95::t_92ef610f8c6df6 21,60-61
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_4d690040fb2f95::t_6028935ca39500 23,56-57
+tests/unit/app/platform/browserDjvuTextSearchCapability.test.ts
+  s_4d690040fb2f95::t_2f28992c9feae2 9,205
+  s_4d690040fb2f95::t_9a605cf6cb360a 206
+  s_4d690040fb2f95::t_290e87011c33d4 207
+tests/unit/app/utils/failureReporter.test.ts
+  s_4d690040fb2f95::t_3de4b3b9591129 14,571
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_4d690040fb2f95::t_f2e45632fe6018 22-23,50,63,158,687,695-696
+  s_4d690040fb2f95::t_85a593b5178824 688-694,697-703
+  s_4d690040fb2f95::t_60387c69007d44 48,51
+tests/unit/app/modules/pdf-viewer/engine/importEmbeddedShapeAnnotationsInWorker.test.ts
+  s_4d690040fb2f95::t_9271ed8e7739a5 49-56
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_4d690040fb2f95::t_0a17fa748a5f63 18,50-51
+tests/unit/app/modules/workspace-shell/composables/useTabsShellBindings.test.ts
+  s_4d690040fb2f95::t_d07794f28003ad 77,230,549
+  s_4d690040fb2f95::t_75f0a6a43f969a 29,71-76,78-81,83
+tests/unit/app/composables/useUiScale.test.ts
+  s_4d690040fb2f95::t_bd1a5216a83e40 14,30,36-37
+tests/unit/app/utils/documentBytes.test.ts
+  s_4d690040fb2f95::t_f1d16878d3baeb 14,22-23
+tests/unit/app/modules/pdf-viewer/runtime/usePdfAnnotationLayerRenderer.test.ts
+  s_4d690040fb2f95::t_92ef610f8c6df6 13,31-32
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlowRestore.test.ts
+  s_4d690040fb2f95::t_c2c84135825252 22,48-55
+tests/unit/app/services/pdf-file/readPdfConformanceProfile.test.ts
+  s_4d690040fb2f95::t_b21bb3d06fbfbd 10,18-19
+tests/unit/app/modules/pdf-viewer/engine/embeddedShapeAnnotationsWorkerClientNativeIndex.test.ts
+  s_4d690040fb2f95::t_61308cd1c84f82 28,39-42,267
+  s_4d690040fb2f95::t_efcfb1259b6a7d 105
+  s_4d690040fb2f95::t_85a593b5178824 30-37
+tests/unit/app/utils/platformOcrArtifacts.test.ts
+  s_4d690040fb2f95::t_f1d16878d3baeb 9,16-17
+tests/unit/app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint.test.ts
+  s_4d690040fb2f95::t_eb6fb84e7fbb19 11,51-55
+tests/unit/app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.test.ts
+  s_4d690040fb2f95::t_d011490a5653ce 34,43-47
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_4d690040fb2f95::t_858612254e997b 14,21-22
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_4d690040fb2f95::t_18483115c0a98a 34-35,44,49-51,231,592,617
+tests/unit/app/modules/workspace-shell/composables/appShellLifecycleAndUpdates.test.ts
+  s_4d690040fb2f95::t_1727e971d7bffa 26,35-36
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceCrop.test.ts
+  s_4d690040fb2f95::t_f594c2b31fb1b2 17,30-31
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_4d690040fb2f95::t_48f6d6326f14e5 94,399,406,415,422
+  s_4d690040fb2f95::t_3003e27b868f7b 20-21,28-36
+tests/unit/app/modules/pdf-viewer/engine/scanDocumentForEmbeddedShapeCandidates.test.ts
+  s_4d690040fb2f95::t_a843c0c62b7b88 14
+  s_4d690040fb2f95::t_9271ed8e7739a5 16-20
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_4d690040fb2f95::t_023608cc646fb6 43,69-76
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_4d690040fb2f95::t_87dff0dcd572ad 58-60
+  s_4d690040fb2f95::t_88fe75d5ab9ac5 36,57,61-62
+tests/unit/app/modules/workspace-shell/composables/usePageFileOperations.test.ts
+  s_4d690040fb2f95::t_0139cc8d27c8f8 42-43
+  s_4d690040fb2f95::t_0a17fa748a5f63 21,41,44-47
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfersRestore.test.ts
+  s_4d690040fb2f95::t_89ac77e6a99d59 15,19,23-24
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrintDriverFallback.test.ts
+  s_4d690040fb2f95::t_1abf1d01093893 17,27-28
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor.test.ts
+  s_4d690040fb2f95::t_8031b8c9bf9e04 23,41-42,49-50
+  s_4d690040fb2f95::t_dd5fc23419569b 43,48
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_4d690040fb2f95::t_2c575166f43716 32,38,63-67,262,408
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_4d690040fb2f95::t_a801849e63044c 112-113
+  s_4d690040fb2f95::t_87dff0dcd572ad 110
+  s_4d690040fb2f95::t_793a8936b5ab98 32,111
+  s_4d690040fb2f95::t_85a593b5178824 117
+tests/unit/app/modules/workspace-shell/composables/usePdfFileNativeMutations.test.ts
+  s_4d690040fb2f95::t_aafc63db5bfc24 100-101
+  s_4d690040fb2f95::t_a71d735b800839 17,107-108
+  s_4d690040fb2f95::t_2d27522c71de8f 103
+  s_4d690040fb2f95::t_d78d7da6c4bf07 104-106
+  s_4d690040fb2f95::t_3fb1bf7ebb6f01 18,99,102
+tests/unit/app/modules/workspace-shell/composables/useExternalFileDrop.test.ts
+  s_4d690040fb2f95::t_a71d735b800839 41
+  s_4d690040fb2f95::t_8a217fd9b98e8b 27-35,131,154,176,212,246
+  s_4d690040fb2f95::t_6fcc1bc924e3c8 36-40
+tests/unit/app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot.test.ts
+  s_4d690040fb2f95::t_88fe75d5ab9ac5 11,19-20
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_4d690040fb2f95::t_0b148f22f21927 8,32,132,134
+  s_4d690040fb2f95::t_d78d7da6c4bf07 27-30
+tests/unit/app/modules/workspace-shell/composables/useAppShellDirectionalTabs.test.ts
+  s_4d690040fb2f95::t_85a593b5178824 32
+  s_4d690040fb2f95::t_d78d7da6c4bf07 33-35
+tests/unit/app/platform/browserDjvuConversionPipeline.test.ts
+  s_4d690040fb2f95::t_1e483a4239efbb 23,74,91,95
+  s_4d690040fb2f95::t_290e87011c33d4 76,97
+  s_4d690040fb2f95::t_9a605cf6cb360a 75,96
+tests/unit/app/composables/useOcr.test.ts
+  s_4d690040fb2f95::t_066ded9e77d137 63
+tests/unit/app/composables/useAppUpdates.test.ts
+  s_4d690040fb2f95::t_2b169bd5f6faad 14
+  s_4d690040fb2f95::t_97cf2c0aa86c08 8
+  s_4d690040fb2f95::t_ee092c08199af5 11,23
+  s_4d690040fb2f95::t_36af799326b960 21
+  s_4d690040fb2f95::t_0509f435da1395 9-10,12,18-20,22,25,44,48,83,122,153,191
+  s_4d690040fb2f95::t_bc9ef19719f91e 24
+tests/unit/app/modules/pdf-viewer/engine/createPdfRangeRequestBridge.test.ts
+  s_4d690040fb2f95::t_9271ed8e7739a5 18-22
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_4d690040fb2f95::t_e84bbc03b9466b 19,34-35,39-43
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_4d690040fb2f95::t_2ed202ae4d778f 27,79-80
+  s_4d690040fb2f95::t_b37e32fde95b7a 78,81
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerRevisionLifecycle.test.ts
+  s_4d690040fb2f95::t_a71d735b800839 4,44-45,47
+  s_4d690040fb2f95::t_6028935ca39500 34
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_4d690040fb2f95::t_0b148f22f21927 16,32,34,115,117
+  s_4d690040fb2f95::t_d78d7da6c4bf07 44-45
+  s_4d690040fb2f95::t_a810181d7f6b36 42-43
+tests/unit/app/services/pdf/combinePdfFiles.test.ts
+  s_4d690040fb2f95::t_62677a462f92b6 147
+  s_4d690040fb2f95::t_89215647754b85 14-15,52-60,75,106,266
+tests/unit/app/composables/useDocxExport.test.ts
+  s_4d690040fb2f95::t_d0e7ae576014f6 48,107,254,275,294
+  s_4d690040fb2f95::t_2ea93c8ef2daac 15,66-70
+  s_4d690040fb2f95::t_dd5fc23419569b 47
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_4d690040fb2f95::t_152d0ffc224875 24,36,40-43
+  s_4d690040fb2f95::t_0139cc8d27c8f8 37-39
+tests/unit/app/utils/ocr/loadOcrText.test.ts
+  s_4d690040fb2f95::t_f1d16878d3baeb 9,15,19-20
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_4d690040fb2f95::t_d011490a5653ce 20,39-40,44-45,53-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "01bbc1b875f71f35090116318f98a66b4ec8d55c",
+  "prompts": {},
+  "sessions": {
+    "s_4d690040fb2f95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09a1b-002c-7a02-b854-ee8aad7fdb31",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
