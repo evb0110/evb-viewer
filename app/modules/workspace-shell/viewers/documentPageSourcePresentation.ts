@@ -195,7 +195,7 @@ export function createDocumentPageSourcePresentation(options: {
         const state = pageStates.get(pageNumber);
         loadedSurfaceImages.get(pageNumber);
         const connected = Boolean(state && getConnectedImage(pageNumber, state));
-        const pending: TDocumentPageSourceVisual = options.readFence().src === null ? 'none' : 'skeleton';
+        const pending: TDocumentPageSourceVisual = 'skeleton';
         if (state?.error) {
             return 'error';
         }

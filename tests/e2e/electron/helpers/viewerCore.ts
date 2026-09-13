@@ -1026,7 +1026,14 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         }
         const rect = sidebar.getBoundingClientRect();
         const style = window.getComputedStyle(sidebar);
-        return rect.width > 10 && rect.height > 10 && style.display !== 'none' && style.visibility !== 'hidden';
+        // The panel takes its open width at once while the wrapper slides open
+        // over it, so the panel measures visible before it can take a click.
+        const wrapperRect = sidebar.closest('.sidebar-wrapper')?.getBoundingClientRect();
+        return rect.width > 10
+            && rect.height > 10
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Boolean(wrapperRect && wrapperRect.right >= rect.right - 1);
     }, {timeout: timeoutMs});
 }
 
