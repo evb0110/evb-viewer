@@ -57,6 +57,7 @@ import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtim
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import { consumeDocumentViewportPaneRelocationScrollFence } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
 import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
@@ -877,8 +878,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         lastPhysicalScrollTop = container.scrollTop;
         viewModel.syncHorizontalScrollForZoomMode();
         const authority = singlePageScroll.viewportAuthority;
+        const wasAuthorityScroll = viewportWritePort.consumeAuthorityScroll(container);
+        if (consumeDocumentViewportPaneRelocationScrollFence(container)) {
+            // Teleport can reset the native scroll offset while moving a pane.
+            // The workspace marks that move explicitly, so only this lifecycle
+            // event is excluded from viewport authority.
+            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
+            return;
+        }
         if (
-            viewportWritePort.consumeAuthorityScroll(container)
+            wasAuthorityScroll
             || options.isResizing.value
             || resizeTransitionVisible.value
             || zoomSnapSuppressedForClass.value

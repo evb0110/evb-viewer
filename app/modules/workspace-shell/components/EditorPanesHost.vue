@@ -89,6 +89,10 @@ import {
     capturePaneRelocationScroll,
     restorePaneRelocationScroll,
 } from '@app/modules/workspace-shell/layout/preservePaneRelocationScroll';
+import {
+    clearDocumentViewportPaneRelocationScrollFence,
+    fenceDocumentViewportPaneRelocationScroll,
+} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 
 defineOptions({ name: 'EditorPanesHost' });
 
@@ -287,6 +291,13 @@ function handleUpdateSplitRatio(splitId: string, ratio: number) {
 
 function handlePaneSlot(paneId: string, element: HTMLElement | null) {
     if (element) {
+        const pane = Array.from(
+            hostRef.value?.querySelectorAll<HTMLElement>('[data-editor-pane-id]') ?? [],
+        ).find(candidate => candidate.dataset.editorPaneId === paneId);
+        if (pane) {
+            fenceDocumentViewportPaneRelocationScroll(pane);
+            requestAnimationFrame(() => clearDocumentViewportPaneRelocationScrollFence(pane));
+        }
         paneSlotTargets.set(paneId, element);
         return;
     }
