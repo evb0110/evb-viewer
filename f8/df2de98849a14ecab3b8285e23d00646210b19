@@ -1,0 +1,19 @@
+scripts/release/runPackagedAutomation.ts
+  s_c2b7952c790c46::t_3f55452b561049 31-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f8df2de98849a14ecab3b8285e23d00646210b19",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
