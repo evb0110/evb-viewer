@@ -733,6 +733,24 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return submission.finally(() => {
             navigationVisualHandoff.finishIntent(viewportStateIntentId);
             navigationVisualHandoff.clearSequence(handoffSequence);
+        }).then((result) => {
+            // This intent took the destination away from the navigation queue.
+            // If it dies without a successor (for example, page metrics bumped
+            // the geometry revision mid-render), hand the destination back.
+            if (
+                result.outcome === 'cancelled'
+                && intentSequence === handoffSequence
+                && queuedNavigation === null
+                && viewportAuthority.activeIntent.value === null
+                && result.intent.documentRevision === options.getDocumentRevision()
+            ) {
+                queuedNavigation = {
+                    request: absorbedNavigation,
+                    sequence: handoffSequence,
+                };
+                replayQueuedNavigation();
+            }
+            return result;
         });
     }
 

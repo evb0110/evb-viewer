@@ -1284,7 +1284,17 @@ describe('standard PDF.js fit-mode continuity', () => {
 
         await goToPageViaToolbar(session.page, DEEP_PAGE);
         await waitForToolbarCurrentPage(session.page, DEEP_PAGE, SETTLE_TIMEOUT_MS);
-        await waitForFitSettlement(session, DEEP_PAGE);
+        try {
+            await waitForFitSettlement(session, DEEP_PAGE);
+        } catch (error) {
+            throw new Error(`The deep page never settled: ${JSON.stringify({
+                authority: await readViewerAuthorityState(session),
+                chassis: await session.page.evaluate(() => ({...document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .document-viewer-chassis',
+                )?.dataset})),
+                trace: await readRawPdfRenderTrace(session, 120),
+            })}`, {cause: error});
+        }
 
         // An invalid staged open must leave the document the user already had
         // exactly where they left it. The app stages an open into a tab of its

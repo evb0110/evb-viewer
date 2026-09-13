@@ -46,12 +46,17 @@ suite to add, save, reopen, and verify another FreeText popup note.
 
 ## Native opening-preview handoff lane
 
-`tests/e2e/electron/largePdfNativePreview.e2e.test.ts` proves that a path-backed
-PDF above the opening-preview threshold paints a native raster first and hands
-the same viewport to PDF.js. Only the byte count decides whether this synthetic
-fixture exercises that bridge, so the lane needs *size*, not document content.
+`tests/e2e/electron/largePdfNativePreview.e2e.test.ts` proves that the exact
+production dictionary paints a native raster first and hands the same viewport
+to PDF.js. It runs only when `EVB_EXACT_FIXTURE_PROFILE` stages that fixture.
+The padded synthetic PDF below crosses the byte threshold but validates in
+milliseconds, so PDF.js can legitimately paint before the native preview. A
+handoff assertion against it measures that race, not the product contract.
 
-Instead the lane provisions its own fixture with
+The split-pane lifecycle lane still needs a PDF above the threshold, and only
+the byte count decides that, so it needs *size*, not document content.
+
+That lane provisions its own fixture with
 `scripts/generate-large-pdf-e2e-fixture.mjs`, which writes a small pdf-lib
 document and sparse-pads it to `PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES + 1 MiB`. It runs
 in well under a second, costs a few hundred KiB of real disk, and is cached under

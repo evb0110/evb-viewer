@@ -975,7 +975,7 @@ describe('Electron E2E - Recent Files', () => {
             };
         });
         const firstPreparedFrame = coldOpenTrace.frames.find(frame => (
-            frame.openSurfaceDiagnostic?.openSurfaceOpeningFrameOwner?.startsWith('document-viewer-chassis:')
+            frame.openSurfaceDiagnostic?.openSurfaceOpeningFrameOwner?.startsWith('document-viewer-runtime:')
             && frame.shellRect !== null
             && (frame.viewportClientWidth ?? 0) > 0
         ));
