@@ -294,16 +294,16 @@ export function scanCleanupPreviewRenderingOwner(
         // cancellation forgets which page that is.
         if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
         if (request.invalidateRawCache !== false) {
-            const claimIds = canceledEntries.map(entry => ({
+            const claims = canceledEntries.map(entry => ({
                 claimId: entry.claimId,
                 sourcePdfPath: entry.sourcePdfPath ?? request.sourcePdfPath,
             }));
-            if (claimIds.length === 0 && !otherOwnerHasWork) {
+            if (claims.length === 0 && !otherOwnerHasWork) {
                 rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
             } else {
                 for (const {
                     claimId, sourcePdfPath,
-                } of claimIds) {
+                } of claims) {
                     rawRasterRetention.invalidate(
                         sourcePdfPath,
                         request.documentRevision,

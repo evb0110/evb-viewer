@@ -17,8 +17,7 @@ describe('scan-cleanup main binding lifecycle', () => {
             'electron/features/scan-cleanup/scanCleanupMainBindings.ts',
         ), 'utf8');
 
-        expect(source).toMatch(/createScanCleanupPreviewIpcAdapter\(previewOwners\)/u);
-        expect(source).toMatch(/createScanCleanupMainBindingsDisposer\(previewOwners\)/u);
+        expect(source).toMatch(/createScanCleanupMainBindingsDisposer\(previewService\)/u);
         expect(source).toMatch(/export function disposeScanCleanupMainBindings\(\)/u);
         expect(source).toMatch(/Object\.assign\(featureBindings, \{disposeScanCleanupMainBindings\}\)/u);
     });
