@@ -1,0 +1,19 @@
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_5a446af5c4f928::t_16ef1ffefe399d 483-486,489-496,498,500-503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1835197837bf6deddf681d2fdf5cc9283419e5e6",
+  "prompts": {},
+  "sessions": {
+    "s_5a446af5c4f928": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-eeda-7b21-8785-ed198c57c18e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
