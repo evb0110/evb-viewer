@@ -36,14 +36,18 @@ export interface IDefaultUtmctlPathOptions {
 /**
  * Prefer the prepared copy because the executable inside UTM.app registers as
  * a foreground application and creates a second Dock icon for each poll.
- * Before preparation, retain the bundled path so doctor can report that the
- * host still needs preparation instead of failing with an opaque ENOENT.
+ * A missing prepared copy is an operator error. Running the executable inside
+ * UTM.app registers a foreground app and creates a second Dock icon for each
+ * poll, so there is no safe fallback here.
  */
 export function resolveDefaultUtmctlPath(options: IDefaultUtmctlPathOptions = {}) {
     const dataRoot = options.dataRoot ?? resolveWindowsTestDataRoot(options.env);
     const preparedPath = path.join(dataRoot, STANDALONE_UTMCTL_RELATIVE_PATH);
     const fileExists = options.fileExists ?? existsSync;
-    return fileExists(preparedPath) ? preparedPath : DEFAULT_UTMCTL_PATH;
+    if (!fileExists(preparedPath)) {
+        throw new Error('The verified standalone utmctl copy is unavailable. Run pnpm windows:test:prepare before running the Windows test lane.');
+    }
+    return preparedPath;
 }
 
 // Captured from `utmctl help <subcommand>` of the installed UTM 4.7.5 build 118.

@@ -69,6 +69,7 @@ import {
     withOwnedCloneAllowlisted,
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type { IWindowsTestIdentityGuardDependencies } from '@scripts/windows-test/images/vmIdentityGuard';
+import { isFreshInteractiveWorkerHeartbeat } from '@scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat';
 
 export const WINDOWS_TEST_CLONE_NAME_PREFIX = 'evb-win-test-';
 
@@ -680,15 +681,9 @@ export async function executeWindowsTestRun(
                     if (observed === null) {
                         return null;
                     }
-                    const heartbeatUpdatedAtMs = Date.parse(observed.updatedAt);
-                    const freshSinceRunStart = Number.isFinite(startedAtMs)
-                        && Number.isFinite(heartbeatUpdatedAtMs)
-                        && heartbeatUpdatedAtMs >= startedAtMs;
-                    const usable = observed.bootId === bootId
-                        && observed.worker.interactive
-                        && observed.worker.sessionId !== 0
-                        && !observed.locked;
-                    return usable && freshSinceRunStart ? observed : null;
+                    return isFreshInteractiveWorkerHeartbeat(currentBootId, observed, startedAtMs)
+                        ? observed
+                        : null;
                 },
             );
             if (heartbeat === null) {

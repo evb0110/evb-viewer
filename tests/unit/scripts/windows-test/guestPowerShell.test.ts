@@ -207,18 +207,22 @@ describe('guest PowerShell script files', () => {
         const installer = await readFile(path.join(scriptsDirectory, '..', 'install-system-bootstrap.cmd'), 'utf8');
         const policy = await readFile(path.join(scriptsDirectory, '..', 'machine-startup-scripts.ini'), 'utf8');
         expect(policy).toContain('0CmdLine=system-bootstrap-worker.cmd');
-        expect(bootstrap).toContain('net user EVBTester');
+        expect(bootstrap).toContain('Get-LocalUser -Name EVBTester');
         expect(bootstrap).toContain('DefaultDomainName');
         expect(bootstrap).toContain('DevicePasswordLessBuildVersion');
         expect(bootstrap).toContain('DisablePrivacyExperience');
         expect(bootstrap).toContain('EnableFirstLogonAnimation');
         expect(bootstrap).toContain('AutoLogonCount');
         expect(bootstrap).toContain('DisableLockWorkstation');
-        expect(bootstrap).toContain('/sc onlogon');
-        expect(bootstrap).toContain('/ru EVBTester');
-        expect(bootstrap).toContain('/it');
-        expect(bootstrap).toContain('cmd.exe /c C:\\EVBViewerTests\\worker\\start-worker.cmd');
+        expect(bootstrap).toContain('register-worker-logon-task.ps1');
+        expect(bootstrap).toContain('-UserName EVBTester');
+        expect(bootstrap).toContain('register-worker-logon.stderr.log');
+        expect(bootstrap).not.toContain('schtasks.exe /create /sc onlogon');
         expect(bootstrap).toContain('system-bootstrap.marker');
+        expect(bootstrap).toContain('node-executable-missing');
+        expect(bootstrap).toContain('configure-failed');
+        expect(bootstrap).toContain('complete=v2');
+        expect(bootstrap).toContain('powershell-copy');
         expect(bootstrap).toContain('query user');
         expect(bootstrap).toContain('user-startup-launcher-copy');
         expect(bootstrap).toContain('call :record');
@@ -226,10 +230,17 @@ describe('guest PowerShell script files', () => {
         expect(launcher).toContain('worker-launch-marker.txt');
         expect(launcher).toContain('EVBTester');
         expect(launcher).toContain('guestWorker.cjs');
+        expect(launcher).toContain('start-worker-logon.ps1');
+        expect(launcher).toContain('ExpectedUserName EVBTester');
+        expect(launcher).not.toContain('-MuteScript');
+        expect(launcher).not.toContain('-PrinterScript');
+        expect(launcher).not.toContain('disable-test-audio.ps1');
+        expect(launcher).not.toContain('start "EVB Windows Test Worker"');
         expect(installer).toContain('GroupPolicy\\Machine\\Scripts\\Startup');
         expect(installer).toContain('/ru SYSTEM');
         expect(installer).toContain('installer-start.marker');
         expect(installer).toContain('schtasks.exe /run');
+        expect(installer).toContain('copy-powershell');
     });
 
     it('registers a hidden PowerShell startup action with the worker paths and account', () => {

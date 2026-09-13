@@ -3,7 +3,9 @@ import {
     mkdtemp,
     rm,
     symlink,
+    writeFile,
 } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -26,6 +28,8 @@ import type {
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
 import type { IWindowsTestWorkerHeartbeat } from '@scripts/windows-test/contracts/windowsTestContracts';
 import { createNativeInputProvisioner } from '@scripts/windows-test/host/nativeInputProvisioning';
+import { createUtmctlGuestChannel } from '@scripts/windows-test/host/guestChannel';
+import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
 
 const ALLOWED_VM_ID = '11111111-2222-4333-8444-555555555555';
 const GOLDEN_VM_ID = '22222222-3333-4444-8555-666666666666';
@@ -162,7 +166,7 @@ describe('destructive VM identity guard', () => {
             writeJob: async () => undefined,
             publishReadyMarker: async () => undefined,
             requestGuestCancel: async () => undefined,
-            readGuestText: async () => null,
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('boot-id.txt') ? 'boot' : null,
             pullGuestFile: async () => false,
         };
         const provisioner = createNativeInputProvisioner({
@@ -188,7 +192,7 @@ describe('destructive VM identity guard', () => {
             schemaVersion: 1,
             bootId: 'boot',
             guestTestMarker: 'marker',
-            updatedAt: 'now',
+            updatedAt: new Date().toISOString(),
             locked: false,
             worker: {
                 userSid: 'sid',
@@ -204,6 +208,47 @@ describe('destructive VM identity guard', () => {
             guestAgentAvailable: true,
             workerReady: true,
         });
+    });
+
+    it('uses verified push and readback when the real no-media guest channel declines batching', async () => {
+        const source = path.join(imageRoot, 'bootstrap.cmd');
+        const destination = 'C:\\EVBViewerTests\\worker\\bootstrap.cmd';
+        const contents = 'bootstrap bytes';
+        await writeFile(source, contents);
+        await writeFile(path.join(imageRoot, 'clone.utm', 'config.plist'), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Information</key><dict><key>UUID</key><string>${ALLOWED_VM_ID}</string><key>Name</key><string>evb-win-test-clone</string></dict></dict></plist>`);
+        const guestFiles = new Map<string, Uint8Array>();
+        const client = {
+            pushFile: async (_vmId: string, guestPath: string, bytes: Uint8Array | string) => {
+                guestFiles.set(guestPath, Buffer.from(bytes));
+            },
+            pullFile: async (_vmId: string, guestPath: string, hostPath: string) => {
+                await writeFile(hostPath, guestFiles.get(guestPath) ?? new Uint8Array());
+            },
+        } as IUtmctlClient;
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: label => path.join(imageRoot, `${label}.tmp`),
+        });
+        const provisioner = createNativeInputProvisioner({
+            runner: {run: async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            })},
+            guest,
+            policy,
+            target: {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+
+        await provisioner.pushFile(source, destination);
+        expect(guestFiles.get(destination)).toEqual(Buffer.from(contents));
+        expect(createHash('sha256').update(guestFiles.get(destination) ?? '').digest('hex'))
+            .toBe(createHash('sha256').update(contents).digest('hex'));
     });
 
     it('refuses a personal VM by path even when the UUID is allowlisted', async () => {

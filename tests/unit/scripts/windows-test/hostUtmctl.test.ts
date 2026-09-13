@@ -204,11 +204,11 @@ describe('utmctl client commands', () => {
         expect(calls[0]?.command).toBe(preparedPath);
     });
 
-    it('keeps the bundled executable as the pre-preparation fallback', () => {
-        expect(resolveDefaultUtmctlPath({
+    it('refuses to resolve before standalone preparation', () => {
+        expect(() => resolveDefaultUtmctlPath({
             dataRoot: '/tmp/evb-windows-tests',
             fileExists: () => false,
-        })).toBe(DEFAULT_UTMCTL_PATH);
+        })).toThrow('verified standalone utmctl copy is unavailable');
     });
 
     it('uses the uppercase UUID expected by UTM for every VM operation', async () => {
