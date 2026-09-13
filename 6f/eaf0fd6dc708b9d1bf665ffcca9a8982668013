@@ -1,0 +1,19 @@
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_247a07a16a61fa::t_fa7cb2685931aa 314-319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6feaf0fd6dc708b9d1bf665ffcca9a8982668013",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_247a07a16a61fa::t_d4bc0fcd571d37 343-344
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_247a07a16a61fa::t_f8f0cf4dec9aeb 674-679,711,738-743
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "79159eaea5207296d855216f3cd28c30f10a0e02",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

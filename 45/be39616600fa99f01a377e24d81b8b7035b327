@@ -1,0 +1,20 @@
+scripts/runtimeBinaryManifest.ts
+  s_c2b7952c790c46::t_03f6e9c179b121 109
+  s_c2b7952c790c46::t_ab9e11e0ac9b21 16-17,28-29,40-41,52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "45be39616600fa99f01a377e24d81b8b7035b327",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

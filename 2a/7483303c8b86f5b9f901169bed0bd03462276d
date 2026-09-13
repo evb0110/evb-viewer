@@ -1,0 +1,49 @@
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_71b08669d92876::t_dfe3119aa9b360 207-208,211
+scripts/windows-test/guest/start-worker.cmd
+  s_71b08669d92876::t_398a9b5abce528 2,9-10,12
+docs/contributing/windows-tests/setup-and-repair.md
+  s_71b08669d92876::t_abc2ff82f11063 443,453,461
+  s_71b08669d92876::t_2863d7e895e7e9 442,444-452,454-460
+scripts/windows-test/guest/install-system-bootstrap.cmd
+  s_71b08669d92876::t_398a9b5abce528 9-14,21-22,24-25,28-36
+  s_71b08669d92876::t_23cc10e3b7eb09 15-20
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_71b08669d92876::t_23cc10e3b7eb09 222-224,232-234,239
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_71b08669d92876::t_efa7a25df0babc 165,191
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_dfe3119aa9b360 39-41,47-50
+scripts/windows-test/host/runCoordinator.ts
+  s_71b08669d92876::t_29f1fbcd246388 684-686
+  s_71b08669d92876::t_d486c3bdbf6b94 72
+scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat.ts
+  s_71b08669d92876::t_d486c3bdbf6b94 1-23
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_71b08669d92876::t_1feda0d9f86eb6 8
+  s_71b08669d92876::t_79ab4fe5aa959b 10,60
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_71b08669d92876::t_37b966ff483547 8-9,111-121
+  s_71b08669d92876::t_eb04f57a65cef8 62,84
+  s_71b08669d92876::t_29f1fbcd246388 10,79-81
+  s_71b08669d92876::t_d486c3bdbf6b94 11
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_71b08669d92876::t_37b966ff483547 16-17,21-35
+  s_71b08669d92876::t_398a9b5abce528 7,58,61-65,68,73-75,85-86,91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a7483303c8b86f5b9f901169bed0bd03462276d",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

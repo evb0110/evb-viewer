@@ -1,0 +1,78 @@
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_71b08669d92876::t_dfe3119aa9b360 207-208,211
+scripts/windows-test/guest/install-system-bootstrap.cmd
+  s_71b08669d92876::t_398a9b5abce528 9-14,21-22,24-25,28-36
+  s_71b08669d92876::t_23cc10e3b7eb09 15-20
+docs/contributing/windows-tests/setup-and-repair.md
+  s_71b08669d92876::t_abc2ff82f11063 443,453,461
+  s_71b08669d92876::t_2863d7e895e7e9 442,444-452,454-460
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_71b08669d92876::t_d81b6134694d11 6,8,31-32,213-217,219-226,228-239,241-242
+  s_71b08669d92876::t_efa7a25df0babc 169,195
+  s_71b08669d92876::t_23c6986e69ed7a 218
+  s_71b08669d92876::t_fe1024d590b5bf 227
+  s_5a446af5c4f928::t_3de889bebe8f76 243-244
+  s_71b08669d92876::t_d1d45ba624aaaf 240
+  s_de4eb7ea9d9bbe::t_cc4d1642defffa 245-253
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_dfe3119aa9b360 39-41,47-50
+scripts/windows-test/host/runCoordinator.ts
+  s_71b08669d92876::t_29f1fbcd246388 684-686
+  s_71b08669d92876::t_d486c3bdbf6b94 72
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_71b08669d92876::t_6079ef14f3e97d 22,25,27,30,32,35
+  s_71b08669d92876::t_37b966ff483547 16-17,21,26,31
+  s_71b08669d92876::t_398a9b5abce528 7,64,67-71,74,79-81,95-96,101
+  s_71b08669d92876::t_017a8cfc388ea3 50-51,54-57,88-92
+scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat.ts
+  s_71b08669d92876::t_d486c3bdbf6b94 1-23
+scripts/windows-test/guest/start-worker.cmd
+  s_71b08669d92876::t_398a9b5abce528 2,9-10,12
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_71b08669d92876::t_6079ef14f3e97d 9,119-133
+  s_71b08669d92876::t_d486c3bdbf6b94 11
+  s_5a446af5c4f928::t_aa68855be42113 12-15,66,88
+  s_71b08669d92876::t_37b966ff483547 115-118,134
+  s_71b08669d92876::t_896f6a5b184140 8
+  s_5a446af5c4f928::t_8681900e155d9d 135-138
+  s_71b08669d92876::t_eb04f57a65cef8 84
+  s_71b08669d92876::t_29f1fbcd246388 10
+  s_5a446af5c4f928::t_d3957f29a59305 83,85
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_71b08669d92876::t_1feda0d9f86eb6 8
+  s_71b08669d92876::t_79ab4fe5aa959b 10,60
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_71b08669d92876::t_23cc10e3b7eb09 222-224,232-234,239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4dfce60bd9225f64071ad4c64581bde5592eb847",
+  "prompts": {},
+  "sessions": {
+    "s_5a446af5c4f928": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-eeda-7b21-8785-ed198c57c18e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_de4eb7ea9d9bbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a1ffbedc-c4e5-4af2-95f0-de71e7942a7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}

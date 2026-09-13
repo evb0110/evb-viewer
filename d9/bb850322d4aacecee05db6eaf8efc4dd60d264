@@ -1,0 +1,20 @@
+scripts/bundle-tools-linux.sh
+  s_c2b7952c790c46::t_f2442b586b0ca8 81-84,244-264,267-268
+  s_c2b7952c790c46::t_a9d227f417dc23 270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d9bb850322d4aacecee05db6eaf8efc4dd60d264",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

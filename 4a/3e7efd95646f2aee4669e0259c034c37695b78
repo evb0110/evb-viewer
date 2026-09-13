@@ -1,0 +1,21 @@
+app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle.ts
+  s_247a07a16a61fa::t_1b54436a4d584c 151-162
+tests/unit/app/modules/document-viewer/useDocumentViewportLayoutLifecycle.test.ts
+  s_247a07a16a61fa::t_9fad8ed0bb6801 705-754
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4a3e7efd95646f2aee4669e0259c034c37695b78",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

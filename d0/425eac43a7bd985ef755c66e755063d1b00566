@@ -1,0 +1,21 @@
+.github/workflows/build-target.yml
+  s_c2b7952c790c46::t_22a961c1189877 149-157,159
+native/pdf-page-ops/src/incremental_document.rs
+  s_c2b7952c790c46::t_22a961c1189877 34-35,152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d0425eac43a7bd985ef755c66e755063d1b00566",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

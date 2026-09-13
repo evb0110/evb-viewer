@@ -1,0 +1,19 @@
+app/modules/workspace-shell/components/DocumentSourceSidebar.vue
+  s_668b54a22d2ebb::t_ab343b0a8e80ae 154-157,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4e20fdb19b1250328418d57ef2696d0770b3fcf",
+  "prompts": {},
+  "sessions": {
+    "s_668b54a22d2ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09a9d-5a44-75d0-86c9-1cbbfc8fd1fe",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

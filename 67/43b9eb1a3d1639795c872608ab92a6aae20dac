@@ -1,0 +1,34 @@
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_71b08669d92876::t_29f1fbcd246388 8,77-79
+  s_71b08669d92876::t_d486c3bdbf6b94 9
+  s_71b08669d92876::t_eb04f57a65cef8 60,82
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_dfe3119aa9b360 39-41,47-50
+docs/contributing/windows-tests/setup-and-repair.md
+  s_71b08669d92876::t_abc2ff82f11063 442-457
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_71b08669d92876::t_dfe3119aa9b360 207-208,211
+scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat.ts
+  s_71b08669d92876::t_d486c3bdbf6b94 1-23
+scripts/windows-test/host/runCoordinator.ts
+  s_71b08669d92876::t_d486c3bdbf6b94 72
+  s_71b08669d92876::t_29f1fbcd246388 684-686
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_71b08669d92876::t_79ab4fe5aa959b 8,10,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6743b9eb1a3d1639795c872608ab92a6aae20dac",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
