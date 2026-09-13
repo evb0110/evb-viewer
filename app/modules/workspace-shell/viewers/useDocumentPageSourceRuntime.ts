@@ -50,6 +50,7 @@ import {
 const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
 const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
+const DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES = DOCUMENT_SOURCE_MAX_MOUNTED_PAGES;
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
 const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
@@ -532,7 +533,9 @@ export const useDocumentPageSourceRuntime = (options: {
             return layout ? layout.width * layout.height * pixelRatio * pixelRatio : 1;
         },
         maxBufferPixels: rasterBufferProfile.maxBufferCanvasPixels,
-        maximumResidentPages: DOCUMENT_SOURCE_MAX_RESIDENT_PAGES,
+        maximumResidentPages: props.value.continuousScroll && effectiveZoom.value < 1
+            ? DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES
+            : DOCUMENT_SOURCE_MAX_RESIDENT_PAGES,
         minimumBufferPages: props.value.continuousScroll && effectiveZoom.value < 1
             ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
             : 2,
