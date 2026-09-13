@@ -852,6 +852,7 @@ async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseT
         }
         return existing;
     }
+    /** @type {IReleaseTransaction} */
     const transaction = {
         schemaVersion: 1,
         releaseTag,

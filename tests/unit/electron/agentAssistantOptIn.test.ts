@@ -902,8 +902,9 @@ describe('agent assistant opt-in gating', () => {
             text: 'Do not create this session',
             scope: documentScope,
         });
-        await settleAsyncTicks();
-        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        await vi.waitFor(() => {
+            expect(mocks.startEmbeddedMcpServer).toHaveBeenCalled();
+        });
         expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
 
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
@@ -923,17 +924,26 @@ describe('agent assistant opt-in gating', () => {
             sendAgentAssistantMessage,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
+        const mcpStartGate = createInitializeGate();
+        const mcpStart = await mocks.startEmbeddedMcpServer();
+        mocks.startEmbeddedMcpServer.mockClear();
+        mocks.startEmbeddedMcpServer.mockImplementationOnce(async () => {
+            await mcpStartGate.promise;
+            return mcpStart;
+        });
         const sendPromise = sendAgentAssistantMessage({
             provider: 'claude',
             text: 'Do not create this session after reset',
             scope: documentScope,
         });
-        await settleAsyncTicks();
-        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        await vi.waitFor(() => {
+            expect(mocks.startEmbeddedMcpServer).toHaveBeenCalled();
+        });
         await resetAgentAssistantChat({
             provider: 'claude',
             scope: documentScope,
         });
+        mcpStartGate.resolve();
         mocks.claudeRuntimeLoadGate?.resolve();
 
         await expect(sendPromise).resolves.toMatchObject({ok: false});
