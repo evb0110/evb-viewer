@@ -37,6 +37,8 @@ import { getValidationImpactPolicy } from './release/policy.mjs';
 import { matchesChangedAreaPattern } from './ci/classify-changed-areas.mjs';
 import { withNodeHeap } from './typecheckNodeEnv.mjs';
 import {createAllGatesValidationStages} from './all-gates-validation-plan.mjs';
+import {FULL_TYPECHECK_PROJECTS} from './run-workspace-package-typecheck.mjs';
+import {getWorkspacePackageRoots} from './workspace-roots.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const unitProjects = [
@@ -47,13 +49,7 @@ const unitProjects = [
     'unit-policy',
     'unit-static-architecture',
 ];
-const allTs7Projects = [
-    'electron/tsconfig.json',
-    'tests/tsconfig.json',
-    'tsconfig.scripts.json',
-    'tsconfig.scripts-js.json',
-    'server/tsconfig.json',
-];
+const allTs7Projects = [...FULL_TYPECHECK_PROJECTS];
 // ESLint holds one TypeScript program per tsconfig in the flat config, and the
 // tests program alone types 1300+ files, so the peak lives above 6 GB.
 const eslintNodeHeapMb = 8192;
@@ -1241,8 +1237,12 @@ export function getValidationInputFingerprint({
     root = projectRoot,
     tools = [],
 } = {}) {
+    const workspacePackageRoots = inputScope === 'typecheck'
+        ? getWorkspacePackageRoots({projectRoot: root})
+        : [];
     const paths = unique([
         ...(inputScope ? validationStageInputPaths[inputScope] ?? [] : []),
+        ...workspacePackageRoots,
         ...inputPaths,
         ...additionalInputPaths,
     ]);
