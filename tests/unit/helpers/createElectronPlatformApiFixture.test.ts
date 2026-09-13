@@ -154,10 +154,20 @@ describe('createElectronPlatformApiFixture', () => {
         expect(operation.cancel).not.toThrow();
         await expect(pending).rejects.toThrow('Fixture operation canceled');
 
-        const failedOperation = createPlatformApiFixtureOperation<{ok: true}>();
+        interface IFixtureError {
+            code: 'FIXTURE_FAILURE';
+            message: string
+        }
+        const failedOperation = createPlatformApiFixtureOperation<{ok: true}, [], number, IFixtureError>();
         const failed = failedOperation.method();
-        failedOperation.reject(new Error('fixture failure'));
-        await expect(failed).rejects.toThrow('fixture failure');
+        failedOperation.reject({
+            code: 'FIXTURE_FAILURE',
+            message: 'fixture failure',
+        });
+        await expect(failed).rejects.toEqual({
+            code: 'FIXTURE_FAILURE',
+            message: 'fixture failure',
+        });
     });
 
     it('settles keyed operations independently', async () => {

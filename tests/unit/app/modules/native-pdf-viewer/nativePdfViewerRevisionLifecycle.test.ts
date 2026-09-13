@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 
 import {
     afterEach,
@@ -31,6 +31,7 @@ import {
     createDocumentViewerChassisAuthority,
     documentViewerChassisAuthorityKey,
 } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const nativePdfMocks = vi.hoisted(() => ({createSource: vi.fn()}));
 const vueUseMocks = vi.hoisted(() => ({
@@ -40,9 +41,10 @@ const vueUseMocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/public', () => ({createNativePdfPreviewSourceFromPath: nativePdfMocks.createSource}));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+const platformApi = createElectronPlatformApiFixture();
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({}),
+    getDocumentFilesCapability: () => platformApi.documentFiles,
 }));
 
 vi.mock('@vueuse/core', () => ({

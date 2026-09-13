@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
@@ -29,11 +30,13 @@ const {browserDjvuCapability} = await import(
 describe('browserDjvuCapability routing', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.stubGlobal('window', {electronAPI: {documentFiles: {
+        const electronApi = createElectronPlatformApiFixture({documentFiles: {
             readFile: mocks.readFile,
             readFileRange: mocks.readFileRange,
             statFile: mocks.statFile,
-        }}});
+        }});
+        Reflect.deleteProperty(electronApi.djvu, 'getInfo');
+        vi.stubGlobal('window', {electronAPI: electronApi});
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
         mocks.getPageSizes.mockResolvedValue([{
             dpi: 300,

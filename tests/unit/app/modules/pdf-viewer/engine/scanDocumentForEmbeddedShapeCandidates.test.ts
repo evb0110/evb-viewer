@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
@@ -13,12 +11,13 @@ import {
     hasEmbeddedShapeCandidateBytes,
 } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/scanDocumentForEmbeddedShapeCandidates';
 
-const mockDocuments = {readFileChunks: vi.fn()};
+const mockDocuments = vi.hoisted(() => ({readFileChunks: vi.fn()}));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mockDocuments,
-}));
+vi.mock('@app/utils/platform', async () => {
+    const {createElectronPlatformApiFixture} = await import('@tests/helpers/createElectronPlatformApiFixture');
+    const platformApi = createElectronPlatformApiFixture({documentFiles: mockDocuments});
+    return {getPlatformAPI: () => platformApi};
+});
 
 const encode = (value: string) => new TextEncoder().encode(value);
 

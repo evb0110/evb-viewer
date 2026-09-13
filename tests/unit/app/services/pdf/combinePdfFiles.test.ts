@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     afterEach,
     beforeEach,
@@ -13,6 +11,8 @@ import type {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {SerializableError} from '@contracts/serializableError';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type { IPlatformApiFixtureEventMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
 interface IMenuProgress {
     operation: 'document-open';
@@ -25,16 +25,7 @@ interface IMenuProgress {
 }
 
 const mocks = vi.hoisted(() => {
-    const progress = { handler: null as null | ((nextProgress: IMenuProgress) => void) };
-    const stopProgress = vi.fn();
-    const onOpenDocumentDirectBatchProgress = vi.fn((handler: (nextProgress: IMenuProgress) => void) => {
-        progress.handler = handler;
-        return stopProgress;
-    });
-
     return {
-        progress,
-        stopProgress,
         hasElectronAPI: vi.fn(() => true),
         documentPicker: {
             getPathsForFiles: vi.fn(),
@@ -43,7 +34,6 @@ const mocks = vi.hoisted(() => {
         documentOpen: {
             openDocumentDirectBatch: vi.fn(),
             cancelOpenDocumentDirectBatch: vi.fn(async () => true),
-            onOpenDocumentDirectBatchProgress,
         },
         documentWorkingCopy: {
             createWorkingCopyFromData: vi.fn(),
@@ -59,12 +49,15 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mocks.hasElectronAPI()}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentOpenCapability: () => mocks.documentOpen,
-    getDocumentPickerCapability: () => mocks.documentPicker,
-    getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
+const platformApi = createElectronPlatformApiFixture({
+    documentOpen: mocks.documentOpen,
+    documentPicker: mocks.documentPicker,
+    documentWorkingCopy: mocks.documentWorkingCopy,
+});
+const progressEvent = platformApi.documentOpen.onOpenDocumentDirectBatchProgress as typeof platformApi.documentOpen.onOpenDocumentDirectBatchProgress & IPlatformApiFixtureEventMethod<IMenuProgress>;
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    hasElectronAPI: () => mocks.hasElectronAPI(),
 }));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
@@ -79,7 +72,7 @@ describe('combinePdfFiles', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.stubGlobal('crypto', {randomUUID: () => 'combine-request-1'});
-        mocks.progress.handler = null;
+        progressEvent.dispose();
         mocks.hasElectronAPI.mockReturnValue(true);
         mocks.documentPicker.getPathsForFiles.mockReturnValue([]);
         mocks.documentOpen.openDocumentDirectBatch.mockResolvedValue({
@@ -110,7 +103,7 @@ describe('combinePdfFiles', () => {
             '/tmp/second.pdf',
         ]);
         mocks.documentOpen.openDocumentDirectBatch.mockImplementation(async (_paths: string[], requestId: string) => {
-            mocks.progress.handler?.({
+            progressEvent.emit({
                 operation: 'document-open',
                 requestId,
                 processed: 1,
@@ -151,8 +144,7 @@ describe('combinePdfFiles', () => {
             '/tmp/first.pdf',
             '/tmp/second.pdf',
         ], 'pdf-combine-combine-request-1', {forceCombine: true});
-        expect(mocks.documentOpen.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
-        expect(mocks.stopProgress).toHaveBeenCalledOnce();
+        expect(platformApi.documentOpen.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
         expect(onProgress).toHaveBeenNthCalledWith(1, {
             processed: 1,
             total: 2,
@@ -271,7 +263,7 @@ describe('combinePdfFiles', () => {
                 20,
                 100,
             ]) {
-                mocks.progress.handler?.({
+                progressEvent.emit({
                     operation: 'document-open',
                     requestId,
                     processed: 1,

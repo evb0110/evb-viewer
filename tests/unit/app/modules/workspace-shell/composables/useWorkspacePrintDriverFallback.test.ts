@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -16,6 +14,7 @@ import type {
     IWorkspaceDriverPrintRequest,
     TWorkspaceDriverCommandResult,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const documentsCapabilityMock = vi.hoisted(() => ({
     cancelPdfPrint: vi.fn(async () => ({canceled: true})),
@@ -25,19 +24,8 @@ const documentsCapabilityMock = vi.hoisted(() => ({
 const toastAddMock = vi.hoisted(() => vi.fn());
 const toastRemoveMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentPdfCapability: () => documentsCapabilityMock,
-    isNativePrintCapabilityUnavailable: (result: {
-        success: boolean;
-        canceled?: boolean;
-        error?: string;
-    }) => (
-        result.success !== true
-        && result.canceled !== true
-        && result.error === 'Printing via the native desktop dialog is unavailable in the browser capability'
-    ),
-}));
+const platformApi = createElectronPlatformApiFixture({documentPdf: documentsCapabilityMock});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 function flushMicrotasks() {
     return new Promise<void>(resolve => setTimeout(resolve, 0));

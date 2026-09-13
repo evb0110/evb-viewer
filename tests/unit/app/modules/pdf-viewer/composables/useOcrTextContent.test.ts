@@ -11,13 +11,15 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IOcrWord } from '@contracts/shared';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const ocrCapability = vi.hoisted(() => ({
     resolveDocumentOcrAvailability: vi.fn(),
     resolveDocumentOcrPage: vi.fn(),
     resolveDocumentTextCatalog: vi.fn(),
 }));
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ocrCapability}));
+const platformApi = createElectronPlatformApiFixture({ocr: ocrCapability});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
 const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');

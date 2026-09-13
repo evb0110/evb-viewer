@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -10,6 +8,7 @@ import {
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     cleanupFile: vi.fn(),
@@ -17,10 +16,8 @@ const mocks = vi.hoisted(() => ({
     loggerWarn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentWorkingCopyCapability: () => ({ cleanupFile: mocks.cleanupFile }),
-}));
+const platformApi = createElectronPlatformApiFixture({documentWorkingCopy: {cleanupFile: mocks.cleanupFile}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { warn: mocks.loggerWarn } }));
 

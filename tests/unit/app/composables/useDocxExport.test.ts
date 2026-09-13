@@ -1,4 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
 
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -13,6 +12,7 @@ import {effectScope} from 'vue';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {requireSessionId} from '@contracts/shared';
 import type {
     TDocxParagraphDirection,
@@ -44,8 +44,8 @@ const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<Ar
     text: string;
 }> | null>>(async () => null));
 const documentFilesMock = vi.hoisted(() => ({
-    saveDocxAs: vi.fn(async () => '/tmp/export.docx'),
-    writeDocxFile: vi.fn(async () => {}),
+    saveDocxAs: vi.fn(async () => requireDocumentRef('/tmp/export.docx')),
+    writeDocxFile: vi.fn(async () => true),
     beginDocxFileStream: vi.fn<IDocxExportFileCapability['beginDocxFileStream']>(async () => ({sessionId: requireSessionId('docx-session')})),
     writeDocxFileStreamChunk: vi.fn<IDocxExportFileCapability['writeDocxFileStreamChunk']>(async () => true),
     commitDocxFileStream: vi.fn<IDocxExportFileCapability['commitDocxFileStream']>(async () => true),
@@ -63,11 +63,11 @@ interface IActualDocxStreamingModule {
     DOCX_STREAM_CHUNK_BYTES: number;
 }
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => documentFilesMock,
-    getDocumentWorkingCopyCapability: () => documentWorkingCopyMock,
-}));
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: documentFilesMock,
+    documentWorkingCopy: documentWorkingCopyMock,
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
@@ -104,7 +104,7 @@ describe('useDocxExport', () => {
         const callOrder: string[] = [];
         documentFilesMock.saveDocxAs.mockImplementationOnce(async () => {
             callOrder.push('save');
-            return '/tmp/export.docx';
+            return requireDocumentRef('/tmp/export.docx');
         });
         loadDocumentTextCatalogPagesMock.mockImplementationOnce(async () => {
             callOrder.push('loadCatalog');
@@ -251,7 +251,7 @@ describe('useDocxExport', () => {
     });
 
     it('does not cleanup filesystem output paths when no DOCX text is available', async () => {
-        documentFilesMock.saveDocxAs.mockResolvedValueOnce('/tmp/empty.docx');
+        documentFilesMock.saveDocxAs.mockResolvedValueOnce(requireDocumentRef('/tmp/empty.docx'));
         loadDocumentTextCatalogPagesMock.mockResolvedValueOnce(null);
 
         const { useDocxExport } = await import('@app/composables/useDocxExport');
@@ -272,7 +272,7 @@ describe('useDocxExport', () => {
     });
 
     it('cleans up browser output refs when no DOCX text is available', async () => {
-        documentFilesMock.saveDocxAs.mockResolvedValueOnce('browser://documents/output/empty.docx');
+        documentFilesMock.saveDocxAs.mockResolvedValueOnce(requireDocumentRef('browser://documents/output/empty.docx'));
         loadDocumentTextCatalogPagesMock.mockResolvedValueOnce(null);
 
         const { useDocxExport } = await import('@app/composables/useDocxExport');
@@ -291,7 +291,7 @@ describe('useDocxExport', () => {
     });
 
     it('cleans up a browser output ref when cancellation lands after Save As', async () => {
-        const outputPath = 'browser://documents/output/canceled.docx';
+        const outputPath = requireDocumentRef('browser://documents/output/canceled.docx');
         documentFilesMock.saveDocxAs.mockResolvedValueOnce(outputPath);
 
         const { useDocxExport } = await import('@app/composables/useDocxExport');

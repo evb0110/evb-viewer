@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => {
     const consoleObserverCleanup = vi.fn();
@@ -23,8 +24,12 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({onDebugLog: mocks.onDebugLog})}));
+const platformApi = createElectronPlatformApiFixture({
+    diagnostics: {onDebugLog: mocks.onDebugLog},
+    settings: {onDebugLog: mocks.onDebugLog},
+});
 vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
     hasElectronAPI: mocks.hasElectronAPI,
     isElectronUserAgent: mocks.isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge: mocks.waitForPreferredDesktopPlatformBridge,
@@ -124,9 +129,9 @@ describe('renderer hygiene plugins', () => {
         });
         Object.defineProperty(window, 'electronAPI', {
             configurable: true,
-            value: { diagnostics: { onDebugLog: mocks.onDebugLog } },
+            value: platformApi,
         });
-        mocks.getValidatedElectronPlatformApi.mockReturnValue({diagnostics: {onDebugLog: mocks.onDebugLog}} as never);
+        mocks.getValidatedElectronPlatformApi.mockReturnValue(platformApi);
         const plugin = (await import('@app/plugins/runtimeErrorLogStream.client')).default as (app: unknown) => void;
         const harness = createNuxtApp();
 
