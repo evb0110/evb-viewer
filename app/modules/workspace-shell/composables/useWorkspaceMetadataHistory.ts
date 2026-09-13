@@ -7,8 +7,8 @@ import {
     createPageLabelModel,
     materializePageLabelsForCompatibility,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
-} from '@app/utils/document-viewer/pageLabels';
-import type { IDocumentPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+} from '@app/modules/document-viewer/public';
+import type { IDocumentPageLabelModel } from '@app/modules/document-viewer/public';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 

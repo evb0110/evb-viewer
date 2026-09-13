@@ -24,11 +24,16 @@ const pdfPaths = Array.from({length: 6}, (_, index) => requireDocumentRef(
     `/documents/recent-${String(index + 1)}.pdf`,
 ));
 const mocks = vi.hoisted(() => ({performanceProfile: {
+    tier: 'medium',
     lowCpu: false,
     lowMemory: false,
+    maxCachedPdfPages: 48,
 }}));
 
-vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
+vi.mock('@app/utils/performanceProfile', () => ({
+    getPerformanceProfile: () => mocks.performanceProfile,
+    resolvePerformanceProfile: () => mocks.performanceProfile,
+}));
 
 function createRecentFile(
     originalPath: TDocumentRef,

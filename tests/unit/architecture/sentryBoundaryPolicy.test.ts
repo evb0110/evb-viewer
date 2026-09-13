@@ -89,7 +89,7 @@ describe('Sentry SDK and CLI architecture policy', () => {
                 'import type { Event } from \'@sentry/core\';\n',
             ],
             [
-                'electron/ocr/worker/main.ts',
+                'electron/features/ocr/worker/main.ts',
                 'import { captureException } from \'@sentry/node\';\n',
             ],
         ] as const;

@@ -25,8 +25,8 @@ import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/session
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 function createDomRect(shape: object): DOMRect {
     // The rendering session reads only viewport geometry from these browser
@@ -36,9 +36,9 @@ function createDomRect(shape: object): DOMRect {
 
 function createChassisAuthority(
     openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>,
-): IDocumentViewerChassisAuthority {
+): IDocumentViewerRuntime {
     // The test enables only the open-surface authority path.
-    return {openSurface} as IDocumentViewerChassisAuthority;
+    return {openSurface} as IDocumentViewerRuntime;
 }
 
 const rendererFixture = vi.hoisted(() => {

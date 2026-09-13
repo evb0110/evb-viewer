@@ -13,7 +13,7 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     ASSISTANT_DEFAULT_EFFORT,

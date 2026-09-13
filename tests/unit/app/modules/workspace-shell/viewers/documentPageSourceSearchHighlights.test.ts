@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { resolveDocumentPageSourceSearchHighlights } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceSearchHighlights';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 
 function createMatch(overrides: Partial<IDocumentSearchMatch> = {}): IDocumentSearchMatch {
     return {

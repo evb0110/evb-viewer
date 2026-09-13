@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -20,6 +18,7 @@ import { requireEpochMs } from '@contracts/timestamps';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const {
     mockHasElectronAPI,
@@ -39,13 +38,13 @@ const {
     }),
 }));
 
-vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentPickerCapability: () => ({
-        openCombineDialog: mockOpenCombineDialog,
-        openFolderDialog: mockOpenFolderDialog,
-    }),
+const platformApi = createElectronPlatformApiFixture({documentPicker: {
+    openCombineDialog: mockOpenCombineDialog,
+    openFolderDialog: mockOpenFolderDialog,
+}});
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    hasElectronAPI: () => mockHasElectronAPI(),
 }));
 
 function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {

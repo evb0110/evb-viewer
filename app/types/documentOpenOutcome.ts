@@ -19,6 +19,13 @@ export type TDocumentOpenOutcome =
         result: TOpenFileResult;
     };
 
+export function isOpenFileResultOfKind<TKind extends TOpenFileResult['kind']>(
+    result: TOpenFileResult,
+    kind: TKind,
+): result is Extract<TOpenFileResult, {kind: TKind}> {
+    return result.kind === kind;
+}
+
 export function didOpenDocument(outcome: TDocumentOpenOutcome) {
     return outcome.status === 'opened';
 }

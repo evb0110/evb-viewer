@@ -19,7 +19,7 @@ import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWi
 import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import type { IDocumentPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+import type { IDocumentPageLabelModel } from '@app/modules/document-viewer/public';
 
 export type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 export type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';

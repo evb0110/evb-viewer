@@ -32,15 +32,19 @@ const STREAM_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Debug)]
 pub(crate) enum BoundedIoError {
     Canceled,
+    #[cfg(unix)]
     ConnectTimeout,
     Io(std::io::Error),
-    TooLarge { limit: usize },
+    TooLarge {
+        limit: usize,
+    },
 }
 
 impl fmt::Display for BoundedIoError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Canceled => formatter.write_str("input copy was canceled"),
+            #[cfg(unix)]
             Self::ConnectTimeout => {
                 formatter.write_str("stream producer did not connect before the deadline")
             }
@@ -56,7 +60,9 @@ impl Error for BoundedIoError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
-            Self::Canceled | Self::ConnectTimeout | Self::TooLarge { .. } => None,
+            #[cfg(unix)]
+            Self::ConnectTimeout => None,
+            Self::Canceled | Self::TooLarge { .. } => None,
         }
     }
 }

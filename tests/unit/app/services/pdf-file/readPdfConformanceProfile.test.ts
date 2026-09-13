@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -9,6 +7,7 @@ import {
 } from 'vitest';
 import { readPdfConformanceProfile } from '@app/services/pdf-file/readPdfConformanceProfile';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     browserLogger: { warn: vi.fn() },
@@ -16,10 +15,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: mocks.browserLogger }));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentPdfCapability: () => mocks.documentPdf,
-}));
+const platformApi = createElectronPlatformApiFixture({documentPdf: mocks.documentPdf});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 describe('readPdfConformanceProfile', () => {
     beforeEach(() => {

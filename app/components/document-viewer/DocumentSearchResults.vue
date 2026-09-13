@@ -109,16 +109,17 @@
 <script setup lang="ts">
 import { useVirtualList } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/providers/documentSearch';
+import {
+    formatPageIndicatorWithOptions,
+    type IDocumentSearchMatch,
+    type TDocumentPageLabelLookup,
+} from '@app/modules/document-viewer/public';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentSearchResultItem from '@app/components/document-viewer/DocumentSearchResultItem.vue';
-import { formatDocumentSearchResultsSummary } from '@app/utils/document-viewer/providers/formatDocumentSearchResultsSummary';
 import {
-    formatPageIndicatorWithOptions,
-    type TDocumentPageLabelLookup,
-} from '@app/utils/document-viewer/pageLabels';
-import { resolveVirtualRowRevealScrollTop } from '@app/utils/document-viewer/virtualization/resolveVirtualRowRevealScrollTop';
+    formatDocumentSearchResultsSummary, resolveVirtualRowRevealScrollTop,  
+} from '@app/modules/document-viewer/public';
 
 const SEARCH_VIRTUAL_ROW_HEIGHT_TOKENS = Object.freeze({
     group: '--app-search-virtual-group-row-height',

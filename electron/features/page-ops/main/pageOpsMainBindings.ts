@@ -32,7 +32,7 @@ import type {
 import type { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
-import { createPageMoveRanges } from '@contracts/pageNumbers';
+import { createPageMoveRanges } from '@pdf-core/pdfPageSelection';
 import { te } from '@electron/te';
 import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {

@@ -37,7 +37,7 @@ import {
     OCR_SCALAR_PAGE_LIMIT,
 } from '@contracts/ocrIndex';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
+import {buildOcrTextLayerIndexText} from '@pdf-core';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
     extractTextFromPdf,

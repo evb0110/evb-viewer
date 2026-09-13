@@ -14,7 +14,7 @@ import type {
     TNativeScanCleanupPageStageTimingsV3,
     TNativeScanCleanupProgressV3,
 } from '@contracts/electronApiScanCleanup';
-import type {TWorkerLog} from '@electron/ocr/worker/types';
+import type {TWorkerLog} from '@electron/features/ocr/publicNative';
 import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,

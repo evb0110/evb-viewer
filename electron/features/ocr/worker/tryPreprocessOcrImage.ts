@@ -2,7 +2,7 @@ import {
     readFile, stat,
 } from 'fs/promises';
 import { runOcrCommand } from '@electron/features/ocr/worker/runOcrCommand';
-import type { TWorkerLog } from '@electron/ocr/worker/types';
+import type { TWorkerLog } from '@electron/features/ocr/worker/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import type { IOcrDiagnostic } from '@contracts/electronApiOcr';

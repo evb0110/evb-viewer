@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     afterEach,
     beforeEach,
@@ -31,9 +29,10 @@ const mocks = vi.hoisted(() => ({
     }),
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentWorkingCopyCapability: () => ({ createWorkingCopyFromPath: mocks.createWorkingCopyFromPath }),
+const platformApi = createElectronPlatformApiFixture({documentWorkingCopy: {createWorkingCopyFromPath: mocks.createWorkingCopyFromPath}});
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    hasElectronAPI: () => true,
 }));
 
 function createPayload(): TSplitPayload {

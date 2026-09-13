@@ -1,13 +1,13 @@
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import {
     commitDocumentOpenSurfaceViewport,
     shouldProjectDocumentViewportCommitPage,
     type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+    type IDocumentViewerRuntime,
+} from '@app/modules/document-viewer/public';
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 
 function projectSettledProgrammaticPage(
-    authority: IDocumentViewerChassisAuthority | null | undefined,
+    authority: IDocumentViewerRuntime | null | undefined,
     commit: IPdfViewportPositionCommit,
     emitCurrentPage: (page: number) => void,
 ) {
@@ -45,7 +45,7 @@ function projectPdfViewportPositionCommit(
 }
 
 export function createPdfOpenSurfaceViewportCallbacks(
-    authority: IDocumentViewerChassisAuthority | null | undefined,
+    authority: IDocumentViewerRuntime | null | undefined,
     emitCurrentPage: (page: number) => void,
     onNavigationViewportCommitted: (page: number) => void,
 ) {

@@ -1,7 +1,8 @@
-import { pdfLayerVisualSnapshotActiveClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotActiveClass';
 import { pdfLayerVisualSnapshotClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotClass';
-import { pdfLayerVisualSnapshotSourceClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotSourceClass';
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
+
+const pdfLayerVisualSnapshotActiveClass = 'pdf-layer-preserve-active';
+const pdfLayerVisualSnapshotSourceClass = 'pdf-layer-preserve-hidden-source';
 
 const activeSnapshotHostCounts = new WeakMap<Element, number>();
 

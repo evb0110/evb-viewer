@@ -21,6 +21,7 @@ import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-
 import type { ITab } from '@app/types/tabs';
 import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     cleanupSplitPayloadSnapshot: vi.fn(async () => undefined),
@@ -32,13 +33,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot', () => ({ cleanupSplitPayloadSnapshot: mocks.cleanupSplitPayloadSnapshot }));
 
-vi.mock('@app/utils/platformWindowTabs', () => ({
-    canUseNativeWindowTabTransfers: mocks.canUseNativeWindowTabTransfers,
-    getWindowTabsCapability: () => ({
-        transfer: mocks.transfer,
-        transferAck: mocks.transferAck,
-        closeCurrentWindow: mocks.closeCurrentWindow,
-    }),
+const platformApi = createElectronPlatformApiFixture({windowTabs: {
+    transfer: mocks.transfer,
+    transferAck: mocks.transferAck,
+    closeCurrentWindow: mocks.closeCurrentWindow,
+}});
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    hasElectronAPI: mocks.canUseNativeWindowTabTransfers,
 }));
 
 function createPayload(): Extract<TSplitPayload, {kind: 'pdfSnapshot'}> {

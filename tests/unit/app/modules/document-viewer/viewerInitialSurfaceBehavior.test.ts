@@ -20,7 +20,7 @@ import {
 import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/NativePdfPageContent.vue';
 import PdfInitialSurfacePlaceholder from '@app/modules/pdf-viewer/components/PdfInitialSurfacePlaceholder.vue';
 import { WORKSPACE_VIEWER_ADAPTERS } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IDocumentPreviewPageState } from '@app/modules/document-viewer/pagePreviewSource';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),

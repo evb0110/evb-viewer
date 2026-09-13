@@ -29,7 +29,10 @@ import {
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
-import { parseDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     createExplicitPageSelection,
     materializePageSelection,
@@ -126,6 +129,7 @@ interface IWorkspacePrintDeps {
     selectedPageSelection?: Readonly<Ref<TPageSelection | null>>;
     sourcePdf: Readonly<Ref<TPdfSource | null>>;
     workingCopyPath: Readonly<Ref<string | null>>;
+    printPath?: Readonly<Ref<TDocumentRef | null>>;
     fileName: Readonly<Ref<string | null>>;
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     hasPendingPrintSerializationChanges?: Readonly<Ref<boolean>>;
@@ -914,11 +918,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         const isPathSource = isPathPdfSource(sourcePdf);
         const requiresLayoutComposition = payload.viewMode !== 'single'
             || payload.orientation !== 'auto';
-        const managedPrintPath = isPathSource
-            ? sourcePdf.path
-            : requiresLayoutComposition
-                ? deps.workingCopyPath.value
-                : null;
+        const managedPrintPath = isPathSource || requiresLayoutComposition
+            ? deps.printPath?.value
+                ?? (isPathSource ? sourcePdf.path : deps.workingCopyPath.value)
+            : null;
         if (!managedPrintPath) {
             return false;
         }
@@ -968,8 +971,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     );
                 }
                 printPath = freshPath;
-            } else if (deps.workingCopyPath.value) {
-                printPath = deps.workingCopyPath.value;
+            } else if (deps.printPath?.value ?? deps.workingCopyPath.value) {
+                printPath = deps.printPath?.value ?? deps.workingCopyPath.value!;
             } else {
                 const freshSource = deps.sourcePdf.value;
                 if (!isPathPdfSource(freshSource)) {

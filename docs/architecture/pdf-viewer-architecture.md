@@ -34,10 +34,10 @@ Shared PDF services, serialization helpers, and generic document/workspace
 features stay outside this namespace unless they are truly viewer-owned.
 Reusable pure PDF geometry, serialization, conformance, TIFF, and outline logic
 belongs in `packages/pdf-core` and should be consumed through the `@pdf-core`
-package root. Shared non-PDF viewport helpers belong under
-`app/utils/document-viewer`; viewer-specific integration helpers that depend on
-Vue state, DOM conventions, PDF.js runtime shape, or serialization policy belong
-under `app/modules/pdf-viewer/engine`.
+package root. Shared non-PDF viewport and page-source contracts belong in
+`app/modules/document-viewer`; viewer-specific integration helpers that depend
+on Vue state, DOM conventions, PDF.js runtime shape, or serialization policy
+belong under `app/modules/pdf-viewer/engine`.
 
 ## DOM Contracts
 

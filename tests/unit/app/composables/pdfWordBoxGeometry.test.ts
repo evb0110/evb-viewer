@@ -16,7 +16,7 @@ vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
     STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'},
 }));
 
-const { isOcrDebugEnabled } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled');
+const { isOcrDebugEnabled } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes');
 const { transformOcrWordToViewport } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport');
 const { transformWordBox } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox');
 

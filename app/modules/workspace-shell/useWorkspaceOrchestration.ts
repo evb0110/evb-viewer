@@ -35,7 +35,6 @@ import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPageMutationWriterSave } from '@app/modules/workspace-shell/composables/createPageMutationWriterSave';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -46,12 +45,15 @@ import {
     type IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type {
+    IDocumentOpenSurfaceSession,
     IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+    IDocumentSourceCapabilities, IDocumentSearchMatch,  
+} from '@app/modules/document-viewer/public';
+import type {
+    IWorkspaceViewerLifecycleContext,
+    IWorkspaceViewerLifecycleHooks,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { getErrorMessage } from '@app/utils/error';
@@ -117,8 +119,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     // Every workspace failure that reaches the user goes through this one
     // surface, so save, annotation, and open failures share one toast path.
     const failureSurface = useWorkspaceFailureSurface();
+    let createViewerLifecycleHooks: (
+        context: IWorkspaceViewerLifecycleContext,
+    ) => IWorkspaceViewerLifecycleHooks[] = () => [];
     const fileLifecycle = useWorkspaceFileLifecycleController({
         analyticsDocumentScope: deps.analyticsDocumentScope,
+        createViewerLifecycleHooks: context => createViewerLifecycleHooks(context),
         openSurface: deps.openSurface,
         failureSurface,
     });
@@ -476,6 +482,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             ? {}
             : {pendingDocumentSize: deps.pendingDocumentSize}),
     });
+    createViewerLifecycleHooks = documentDriver.createLifecycleHooks;
     watch(documentDriver.activeDocumentDriver, (driver) => {
         if (driver?.view.defaultSourceCapabilities) {
             deps.sourceCapabilities.value = driver.view.defaultSourceCapabilities;
@@ -632,17 +639,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         )
     ));
     const canMutatePages = computed(() => deps.sourceCapabilities.value.pageEdits);
-    const saveAnnotationsForPageMutation = createPageMutationWriterSave({
-        annotationDirty,
-        hasAnnotationChanges,
-        pendingEmbeddedAnnotationDeleteCount,
-        workingCopyPath,
-        documentRevisionToken,
-        pdfViewerRef,
+    const saveAnnotationsForPageMutation = pageSaveOrchestration.createPageMutationWriterSave({
         currentPage,
         waitForPdfReload,
         loadPdfFromPath,
-        getNativeSaveTransactionOptions,
     });
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
@@ -837,6 +837,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         selectedPageSelection,
         sourcePdf: pdfSrc,
         workingCopyPath,
+        printPath: computed(() => (
+            documentDriver.activeDocumentDriver.value?.operations.print.path ?? null
+        )),
         fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges,

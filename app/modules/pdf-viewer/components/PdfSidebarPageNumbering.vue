@@ -167,7 +167,7 @@ import {
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     parsePageRangeInput,
     type TDocumentPageLabelLookup,
-} from '@app/utils/document-viewer/pageLabels';
+} from '@app/modules/document-viewer/public';
 import { arePageNumberListsEqual } from '@app/utils/pdfPageSelection';
 
 type TNumberingScope = 'all' | 'range' | 'selection';

@@ -1,4 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
 
 import { requireEpochMs } from '@contracts/timestamps';
@@ -24,25 +23,23 @@ import {
     importEmbeddedShapeAnnotationsFromNativePath,
     importEmbeddedShapeAnnotationsFromNativePathResult,
     importEmbeddedShapeAnnotationsFromPathInWorker,
-} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
+} from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
 import {readDocumentBytes} from '@app/utils/documentBytes';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
-const mocks = vi.hoisted(() => ({
-    capabilityOverride: null as Record<string, unknown> | null,
-    files: {
-        beginPdfEmbeddedShapeIndex: vi.fn(),
-        readPdfEmbeddedShapeIndexChunk: vi.fn(),
-        releasePdfEmbeddedShapeIndex: vi.fn(),
-        cancelPdfEmbeddedShapeIndex: vi.fn(),
-        getDocumentRevision: vi.fn(),
-        readFileRange: vi.fn(),
-    },
-}));
+const mocks = vi.hoisted(() => ({files: {
+    beginPdfEmbeddedShapeIndex: vi.fn(),
+    readPdfEmbeddedShapeIndexChunk: vi.fn(),
+    releasePdfEmbeddedShapeIndex: vi.fn(),
+    cancelPdfEmbeddedShapeIndex: vi.fn(),
+    getDocumentRevision: vi.fn(),
+    readFileRange: vi.fn(),
+}}));
 
-vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mocks.capabilityOverride ?? mocks.files,
+const platformApi = createElectronPlatformApiFixture({documentFiles: mocks.files});
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    isDesktopPlatformActive: () => true,
 }));
 vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
@@ -105,7 +102,7 @@ function createDoneChunk(entries: IPdfEmbeddedShapeIndexEntry[]): IPdfEmbeddedSh
 }
 
 beforeEach(() => {
-    mocks.capabilityOverride = null;
+    platformApi.documentFiles.beginPdfEmbeddedShapeIndex = mocks.files.beginPdfEmbeddedShapeIndex;
     Object.values(mocks.files).forEach(mock => mock.mockReset());
     mocks.files.beginPdfEmbeddedShapeIndex.mockResolvedValue(createSession());
     mocks.files.readPdfEmbeddedShapeIndexChunk.mockResolvedValue(createDoneChunk([]));
@@ -267,10 +264,7 @@ describe('native embedded shape index import', () => {
     });
 
     it('returns typed incomplete state when the native index capability is absent', async () => {
-        mocks.capabilityOverride = {
-            ...mocks.files,
-            beginPdfEmbeddedShapeIndex: undefined,
-        };
+        Reflect.deleteProperty(platformApi.documentFiles, 'beginPdfEmbeddedShapeIndex');
 
         const result = await importEmbeddedShapeAnnotationsFromNativePathResult(requireDocumentRef(path), {expectedDocumentRevisionToken: revision});
 

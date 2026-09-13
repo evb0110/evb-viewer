@@ -11,6 +11,7 @@
     },
     "include": [
         "app/types/viteHot.d.ts",
+        "app/types/vueShim.d.ts",
         "app/types/electron.d.ts",
         "types/vendor/utif.d.ts",
         ".nuxt/nuxt.d.ts",

@@ -14,7 +14,7 @@ import type {
     IOcrPreparingJob,
     IOcrQueuedJob,
 } from '@electron/features/ocr/main/jobManager.types';
-import type { IOcrNativeChildProcessIdentity } from '@electron/ocr/worker/types';
+import type { IOcrNativeChildProcessIdentity } from '@electron/features/ocr/worker/types';
 import type { IOcrNativeChildTerminationController } from '@electron/features/ocr/main/ocrNativeChildProcessIdentity';
 import type { createPendingResultFileStore } from '@electron/features/ocr/main/createPendingResultFileStore';
 import { ocrResourceGovernor } from '@electron/features/ocr/main/ocrResourceGovernor';

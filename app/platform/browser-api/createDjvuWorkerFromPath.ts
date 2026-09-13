@@ -16,7 +16,7 @@ import {
     type IDjvuPageSize,
     type IDjvuWorker,
 } from '@app/platform/browser-api/djvujsLoader';
-import type { IPagePreviewOutlineItem } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/public';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,

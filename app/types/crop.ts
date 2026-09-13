@@ -1,4 +1,4 @@
-import type { ILocalRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
+import type { ILocalRect } from '@app/modules/document-viewer/public';
 import type { ICropMargins } from '@contracts/shared';
 import type { TPageSelection } from '@contracts/pageNumbers';
 

@@ -19,7 +19,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 

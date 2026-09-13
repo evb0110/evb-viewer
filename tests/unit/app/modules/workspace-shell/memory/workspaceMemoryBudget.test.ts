@@ -8,7 +8,7 @@ import {
     resolveWorkspaceMemoryDeviceTier,
     resolveWorkspaceMemoryReclaimPlan,
 } from '@app/modules/workspace-shell/memory/workspaceMemoryBudget';
-import type { IViewerReclaimCandidate } from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
+import type { IViewerReclaimCandidate } from '@app/utils/viewerResidencyPolicy';
 
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;

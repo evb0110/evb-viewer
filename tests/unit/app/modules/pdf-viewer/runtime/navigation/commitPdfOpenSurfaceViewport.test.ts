@@ -8,8 +8,8 @@ import {
     commitDocumentOpenSurfaceViewport,
     createDocumentOpenSurfaceSession,
     shouldProjectDocumentViewportCommitPage,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 describe('commitPdfOpenSurfaceViewport', () => {
     it('settles the exact live surface intent instead of copying a PDF-local intent id', () => {
@@ -184,7 +184,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         const emittedPages: number[] = [];
         const completedPages: number[] = [];
         const callbacks = createPdfOpenSurfaceViewportCallbacks(
-            {openSurface: surface} as IDocumentViewerChassisAuthority,
+            {openSurface: surface} as IDocumentViewerRuntime,
             page => emittedPages.push(page),
             page => completedPages.push(page),
         );
@@ -210,7 +210,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         const surface = createReadySurface(20);
         const liveIntentId = surface.viewportSession.value.viewportIntent?.id;
         const callbacks = createPdfOpenSurfaceViewportCallbacks(
-            {openSurface: surface} as IDocumentViewerChassisAuthority,
+            {openSurface: surface} as IDocumentViewerRuntime,
             () => undefined,
             () => undefined,
         );
@@ -240,7 +240,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         const authority = {
             openSurface: surface,
             observePage: (page: number) => surface.observeViewportPage(page),
-        } as IDocumentViewerChassisAuthority;
+        } as IDocumentViewerRuntime;
         const callbacks = createPdfOpenSurfaceViewportCallbacks(
             authority,
             page => emittedPages.push(page),
@@ -273,7 +273,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         const authority = {
             openSurface: surface,
             observePage: (page: number) => surface.observeViewportPage(page),
-        } as IDocumentViewerChassisAuthority;
+        } as IDocumentViewerRuntime;
         const callbacks = createPdfOpenSurfaceViewportCallbacks(
             authority,
             page => emittedPages.push(page),

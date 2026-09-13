@@ -1,4 +1,4 @@
-import type { IWorkerPaths } from '@electron/ocr/worker/types';
+import type { IWorkerPaths } from '@electron/features/ocr/worker/types';
 import { isRecord } from '@contracts/runtimeGuards';
 
 function readRequiredPath(

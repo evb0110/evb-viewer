@@ -7,6 +7,7 @@ interface IDjvuProjectionActionOptions {
     documentViewerRef: Ref<IDocumentViewerExpose | null>;
     ensureProjection: (reason: 'edit' | 'ocr' | 'save-as-pdf') => Promise<boolean>;
     saveAs: () => Promise<boolean>;
+    saveAsThroughDriver?: () => Promise<boolean>;
     exportDocx: (selectedLanguages?: string[]) => Promise<void>;
     isExportingDocx: Ref<boolean>;
     cancelExportDocx: () => void;
@@ -35,6 +36,21 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         return true;
     }
 
+    async function saveAsFromDriver() {
+        if (!options.saveAsThroughDriver) {
+            return ensureProjection('save-as-pdf');
+        }
+        const viewer = options.documentViewerRef.value;
+        const fallbackPage = viewer?.getCurrentPage?.() ?? options.currentPage.value;
+        if (!await options.saveAsThroughDriver()) {
+            return false;
+        }
+        await nextTick();
+        await options.documentViewerRef.value?.waitForViewerLoadSettled?.();
+        options.documentViewerRef.value?.scrollToPage(fallbackPage);
+        return true;
+    }
+
     async function runEdit<T>(action: () => T | Promise<T>) {
         if (await ensureProjection('edit')) {
             return action();
@@ -54,7 +70,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
     return {
         ensureEditProjection: () => ensureProjection('edit'),
         handleSaveAs: () => options.isDjvuMode.value
-            ? ensureProjection('save-as-pdf')
+            ? saveAsFromDriver()
             : options.saveAs(),
         async handleExportDocx(selectedLanguages?: string[]) {
             if (options.isExportingDocx.value) {

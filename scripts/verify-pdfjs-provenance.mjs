@@ -327,7 +327,7 @@ export async function verify(options = {}) {
         force: true,
     }); }
     const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    assert(packageJson.dependencies?.['pdfjs-dist'] === dependencyKey && packageJson.dependencies?.['pdfjs-dist-codex-preview'] === 'npm:pdfjs-dist@5.4.296', 'package dependency mismatch');
+    assert(packageJson.dependencies?.['pdfjs-dist'] === dependencyKey && packageJson.devDependencies?.['pdfjs-dist-codex-preview'] === 'npm:pdfjs-dist@5.4.296', 'package dependency mismatch');
     const lockfile = await readFile(join(root, 'pnpm-lock.yaml'), 'utf8');
     assert(lockfile.includes(`specifier: ${dependencyKey}`) && lockfile.includes(`integrity: ${receipt.evb.lockfilePdfjsIntegrity}`), 'lockfile does not bind the committed tarball');
     assert((await readFile(join(root, receipt.evb.publicVersionStamp), 'utf8')).trim() === expectedPackage.version, 'public version stamp mismatch');

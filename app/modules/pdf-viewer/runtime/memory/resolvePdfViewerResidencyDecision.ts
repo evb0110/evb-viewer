@@ -3,7 +3,7 @@ import {
     resolvePostReclaimResidencyState,
     shouldReclaimViewerResidencyState,
     type TViewerResidencyState,
-} from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
+} from '@app/modules/document-viewer/public';
 
 export interface IResolvePdfViewerResidencyDecisionOptions {
     isActive: boolean;

@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type * as Vue from 'vue';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 function deferred() {
     let resolve: () => void = () => {};
@@ -47,8 +48,11 @@ vi.mock('vue', async (importOriginal) => {
     };
 });
 vi.mock('@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint', () => ({buildWorkspaceCheckpoint: mocks.buildWorkspaceCheckpoint}));
-vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({saveWorkspaceCheckpoint: mocks.saveWorkspaceCheckpoint})}));
-vi.mock('@app/utils/platform', () => ({waitForDesktopPlatformBridge: vi.fn(async () => {})}));
+const platformApi = createElectronPlatformApiFixture({windowTabs: {saveWorkspaceCheckpoint: mocks.saveWorkspaceCheckpoint}});
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    waitForDesktopPlatformBridge: vi.fn(async () => {}),
+}));
 vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => ({tier: mocks.tier})}));
 vi.mock('@app/utils/asyncGuard', () => ({guardAsync: (promise: Promise<unknown>) => {
     void promise.catch(() => {});

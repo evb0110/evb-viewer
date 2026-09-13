@@ -292,7 +292,7 @@ version, or manifest golden JSON for the trusted-root transport.
 
 - Direct native mode remains unrestricted by a root flag.
 - The direct-mode OCR consumer at
-  `electron/ocr/worker/tryPreprocessOcrImage.ts:136-152` remains valid without a
+  `electron/features/ocr/worker/tryPreprocessOcrImage.ts:136-152` remains valid without a
   root.
 - Rootless external `--manifest` calls remain valid.
 - Product sidecar calls must never be rootless after this package.

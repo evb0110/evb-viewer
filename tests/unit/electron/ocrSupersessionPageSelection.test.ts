@@ -19,7 +19,7 @@ import {
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
-import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
+import type { IOcrPdfPageRequest } from '@electron/features/ocr/worker/types';
 
 const probe = vi.hoisted(() => {
     const state = {
@@ -93,7 +93,7 @@ const {
     iterateOcrPageRequestBatches,
     validateCreateSearchablePdfPayload,
 } = await import('@electron/features/ocr/contracts');
-const { writeOcrIndexV3 } = await import('@electron/ocr/worker/indexWriter');
+const { writeOcrIndexV3 } = await import('@electron/features/ocr/worker/indexWriter');
 
 let tempDir: string | null = null;
 

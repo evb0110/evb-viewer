@@ -24,7 +24,7 @@ import {
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
-import type { IDocumentBookmarkTreeItem } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';

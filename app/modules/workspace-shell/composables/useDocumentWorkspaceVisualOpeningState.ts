@@ -6,7 +6,7 @@ import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-
 import type {
     IDocumentPageLabelModel,
     TDocumentPageLabelLookup,
-} from '@app/utils/document-viewer/pageLabels';
+} from '@app/modules/document-viewer/public';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 

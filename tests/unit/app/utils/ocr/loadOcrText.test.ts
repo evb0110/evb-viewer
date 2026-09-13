@@ -6,16 +6,18 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const resolveDocumentTextCatalogMock = vi.hoisted(() => vi.fn());
 const resolveDocumentTextCatalogWindowMock = vi.hoisted(() => vi.fn());
 const cancelOcrMock = vi.hoisted(() => vi.fn(async () => ({canceled: true})));
 
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({
+const platformApi = createElectronPlatformApiFixture({ocr: {
     cancel: cancelOcrMock,
     resolveDocumentTextCatalog: resolveDocumentTextCatalogMock,
     resolveDocumentTextCatalogWindow: resolveDocumentTextCatalogWindowMock,
-})}));
+}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
 const {

@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
-import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+import { createPageLabelModel } from '@app/modules/document-viewer/pageLabels';
 
 describe('useDocumentWorkspaceVisualOpeningState', () => {
     it('keeps mutation surfaces busy while a native opening preview enables viewing controls', () => {

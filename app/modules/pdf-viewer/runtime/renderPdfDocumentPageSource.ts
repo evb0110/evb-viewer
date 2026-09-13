@@ -1,10 +1,10 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { IWorkspaceSurfaceBudgetController } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 import type {
+    IWorkspaceSurfaceBudgetController,
     IDocumentPageRenderRequest,
-    IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import { resolveBoundedRasterDimensions } from '@app/utils/document-viewer/resolveBoundedRasterDimensions';
+    IDocumentRenderLease,
+} from '@app/modules/document-viewer/public';
+import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
 
 const PDF_PAGE_SOURCE_MAX_PIXELS = 16 * 1024 * 1024;
 const PDF_PAGE_SOURCE_MAX_DIMENSION = 32_767;
@@ -14,7 +14,7 @@ export async function renderPdfDocumentPageSource(options: {
     request: IDocumentPageRenderRequest;
     scopeId: string;
     surfaceBudget: IWorkspaceSurfaceBudgetController;
-}): Promise<IDocumentSurfaceLease> {
+}): Promise<IDocumentRenderLease> {
     const {
         document,
         request,

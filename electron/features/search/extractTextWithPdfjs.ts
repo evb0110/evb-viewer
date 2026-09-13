@@ -27,7 +27,7 @@ import {
 import {getErrorMessage} from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
+import { buildOcrTextLayerIndexText } from '@pdf-core';
 import type { IPageText } from '@electron/features/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';

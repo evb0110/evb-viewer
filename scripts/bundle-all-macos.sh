@@ -7,6 +7,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOTAL_STEPS=4
 
+# Fetch the published archives for this target. Exit code 3 means the target
+# has none yet, so the source build below still produces its tools.
+# EVB_RUNTIME_BINARIES_FROM_SOURCE=1 skips the fetch to rebuild the archives.
+if [ "${EVB_RUNTIME_BINARIES_FROM_SOURCE:-0}" != 1 ]; then
+  fetch_status=0
+  node --import tsx "$SCRIPT_DIR/fetchRuntimeBinaries.ts" || fetch_status=$?
+  if [ "$fetch_status" -eq 0 ]; then
+      exit 0
+  elif [ "$fetch_status" -ne 3 ]; then
+      exit "$fetch_status"
+  fi
+fi
+
 echo "=============================================="
 echo "  Bundling all native tools for Electron app"
 echo "=============================================="

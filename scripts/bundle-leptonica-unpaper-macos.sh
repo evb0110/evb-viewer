@@ -16,6 +16,19 @@ case "$ARCH" in
   *)      echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
+# Fetch the published archives for this target. Exit code 3 means the target
+# has none yet, so the source build below still produces its tools.
+# EVB_RUNTIME_BINARIES_FROM_SOURCE=1 skips the fetch to rebuild the archives.
+if [ "${EVB_RUNTIME_BINARIES_FROM_SOURCE:-0}" != 1 ]; then
+  fetch_status=0
+  node --import tsx "$SCRIPT_DIR/fetchRuntimeBinaries.ts" --target "$PLATFORM_ARCH" || fetch_status=$?
+  if [ "$fetch_status" -eq 0 ]; then
+    exit 0
+  elif [ "$fetch_status" -ne 3 ]; then
+    exit "$fetch_status"
+  fi
+fi
+
 DEST="$PROJECT_ROOT/resources/tesseract/$PLATFORM_ARCH"
 UNPAPER_TAG="unpaper-7.0.0"
 UNPAPER_COMMIT="5211a623d48858eae154213a61bccbc368b19ca0"
@@ -250,5 +263,5 @@ echo ""
 echo "Next steps:"
 echo "1. Verify binaries work: otool -L $DEST/bin/unpaper"
 echo "2. Test in dev mode: pnpm run dev"
-echo "3. Update electron/ocr/preprocessing.ts with new handlers"
+echo "3. Update electron/features/ocr/worker/tryPreprocessOcrImage.ts with new handlers"
 echo "4. Add IPC endpoints for preprocessing in electron/platform-ipc/registerIpcHandlers.ts"

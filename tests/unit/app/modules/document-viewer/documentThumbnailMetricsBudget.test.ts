@@ -10,9 +10,9 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IBoundedLruCache} from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
-import type {IDocumentPageMetrics} from '@app/utils/document-viewer/source/documentPageSource';
-import {DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT} from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
+import type {IBoundedLruCache} from '@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache';
+import type {IDocumentPageMetrics} from '@app/modules/document-viewer/source/documentPageSource';
+import {DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT} from '@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache';
 import {
     countDocumentThumbnailCalls,
     createDocumentThumbnailSourceHarness,
@@ -33,7 +33,7 @@ let metricsCacheLimit = DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT;
 
 // The controller owns the shipped budget, so the only way to exercise the
 // eviction path at unit speed is to hand it a smaller cache of the same kind.
-vi.mock('@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache', async (importOriginal) => {
+vi.mock('@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache', async (importOriginal) => {
     const actual = await importOriginal<IMetricsCacheModule>();
     return {
         ...actual,

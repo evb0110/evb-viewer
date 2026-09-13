@@ -12,11 +12,11 @@ import {
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPageSelection } from '@contracts/pageNumbers';
+import {createAllPageSelection} from '@contracts/pageNumbers';
 import {
-    createAllPageSelection,
     createPageMoveRange,
     createPredicatePageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 import { requireDocumentRef } from '@contracts/documentRef';
 
 const operationMocks = vi.hoisted(() => ({

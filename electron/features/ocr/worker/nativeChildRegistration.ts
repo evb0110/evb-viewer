@@ -6,7 +6,7 @@ import { readOcrNativeChildProcessIdentityAtSpawn } from '@electron/features/ocr
 import type {
     TOcrWorkerOutboundMessage,
     TOcrWorkerInboundMessage,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 
 type TOcrNativeChildAck = Extract<
     TOcrWorkerInboundMessage,

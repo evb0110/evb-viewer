@@ -34,8 +34,6 @@ const APPLICATION_SOURCE_ROOTS = new Set([
     'electron',
     'landing',
     'packages',
-    'scan-cleanup-adapters',
-    'scan-cleanup-core',
     'server',
 ]);
 

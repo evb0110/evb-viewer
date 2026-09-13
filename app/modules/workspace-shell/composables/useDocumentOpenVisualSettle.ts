@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
-import type {IDocumentOpenSurfaceSession} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type {IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 
 interface IUseDocumentOpenVisualSettleOptions {
     tabId: string;

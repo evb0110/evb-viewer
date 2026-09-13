@@ -10,6 +10,7 @@ import {
     ref,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
@@ -118,6 +119,13 @@ vi.mock('@app/composables/useRecentFiles', () => ({useRecentFiles: () => ({
 const { useWorkspaceFileLifecycleController } =
     await import('@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController');
 
+function createController() {
+    return useWorkspaceFileLifecycleController({createViewerLifecycleHooks: (context) => {
+        const hooks = getWorkspaceViewerAdapter('djvu').createLifecycleHooks?.(context);
+        return hooks ? [hooks] : [];
+    }});
+}
+
 function createDeferred() {
     let resolve!: () => void;
     const promise = new Promise<void>((promiseResolve) => {
@@ -166,7 +174,7 @@ describe('useWorkspaceFileLifecycleController', () => {
             await openConvertedPdf(requireDocumentRef('/tmp/output.pdf'));
         });
 
-        const controller = useWorkspaceFileLifecycleController();
+        const controller = createController();
         await controller.handleDjvuConvert(2, true, 'compact-djvu-aware');
 
         expect(mocks.convertToPdf).toHaveBeenCalledWith(2, true, 'compact-djvu-aware', expect.any(Function));
@@ -194,7 +202,7 @@ describe('useWorkspaceFileLifecycleController', () => {
             return true;
         });
 
-        const controller = useWorkspaceFileLifecycleController();
+        const controller = createController();
         let settled = false;
         const openPromise = controller.openFileDirectWithViewerLifecycle(path).finally(() => {
             settled = true;
@@ -232,7 +240,7 @@ describe('useWorkspaceFileLifecycleController', () => {
             return false;
         });
 
-        const controller = useWorkspaceFileLifecycleController();
+        const controller = createController();
 
         await expect(controller.openFileDirectWithViewerLifecycle(path)).resolves.toMatchObject({status: 'stale'});
     });
@@ -250,7 +258,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         state.isDjvuMode.value = true;
         mocks.cleanupDjvuTemp.mockImplementation(async () => cleanup.promise);
 
-        const controller = useWorkspaceFileLifecycleController();
+        const controller = createController();
         const closing = controller.closeFileWithViewerLifecycle();
         await vi.waitFor(() => expect(mocks.cleanupDjvuTemp).toHaveBeenCalledWith(olderActivation));
 
@@ -303,7 +311,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         state.djvuSourcePath.value = '/docs/scan.djvu';
         state.isDjvuMode.value = true;
 
-        const controller = useWorkspaceFileLifecycleController();
+        const controller = createController();
         const ensurePromise = controller.ensureDjvuPdfProjection('edit');
         await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));
 
@@ -342,7 +350,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         state.djvuSourcePath.value = '/docs/scan.djvu';
         state.isDjvuMode.value = true;
 
-        const controller = useWorkspaceFileLifecycleController();
+        const controller = createController();
         const ensurePromise = controller.ensureDjvuPdfProjection('save-as-pdf');
         await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));
 
@@ -372,7 +380,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         const scope = effectScope();
         let ensurePromise: Promise<unknown> | undefined;
         scope.run(() => {
-            const controller = useWorkspaceFileLifecycleController();
+            const controller = createController();
             ensurePromise = controller.ensureDjvuPdfProjection('edit');
         });
         await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));

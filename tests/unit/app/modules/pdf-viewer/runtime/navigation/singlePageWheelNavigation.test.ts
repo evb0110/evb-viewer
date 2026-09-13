@@ -12,8 +12,8 @@ import {
     resolveWheelTargetAnchor,
     resolveWheelTargetPage,
     shouldHandleSinglePageWheel,
-} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
-import { resolveDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
+} from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
+import { resolveDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 function createWheelEvent(options?: {
     ctrlKey?: boolean;

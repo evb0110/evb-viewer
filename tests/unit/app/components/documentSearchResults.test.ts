@@ -16,7 +16,7 @@ import {
     nextTick,
     reactive,
 } from 'vue';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 import DocumentSearchResults from '@app/components/document-viewer/DocumentSearchResults.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({

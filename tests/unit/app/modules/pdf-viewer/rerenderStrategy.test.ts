@@ -13,7 +13,7 @@ import {
     normalizePdfRerenderSource,
     shouldUseMinimalPdfRerenderBuffer,
     type TPdfRerenderSource,
-} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+} from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
 interface IExpectedRerenderPolicy {
     anchored: boolean;

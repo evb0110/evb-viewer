@@ -6,7 +6,7 @@ import {
     hasCommittedDocumentOpeningLayout,
     isDocumentOpenEmptySurfaceTransition,
     type IDocumentOpenSurfaceSnapshot,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/public';
 
 function readPositivePixels(value: string | undefined) {
     if (!value?.endsWith('px')) {

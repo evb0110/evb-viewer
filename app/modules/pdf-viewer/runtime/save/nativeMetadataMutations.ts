@@ -2,7 +2,7 @@ import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
-import { normalizePageLabelRanges } from '@app/utils/document-viewer/pageLabels';
+import { normalizePageLabelRanges } from '@app/modules/document-viewer/public';
 
 export function buildNativePageLabelsMutationForSave(opts: {
     pageLabelsDirty: boolean;

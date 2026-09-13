@@ -10,8 +10,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IDocumentThumbnailCommittedState} from '@app/utils/document-viewer/thumbnails/documentThumbnailScheduler';
-import type {IDocumentThumbnailVirtualItem} from '@app/utils/document-viewer/thumbnails/useDocumentThumbnailController';
+import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/documentThumbnailScheduler';
+import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
     documentThumbnailRow,
     installDocumentThumbnailListEnvironment,
@@ -38,7 +38,7 @@ const controller = vi.hoisted(() => ({
 }));
 
 vi.mock(
-    '@app/utils/document-viewer/thumbnails/useDocumentThumbnailController',
+    '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController',
     () => ({useDocumentThumbnailController: () => controller}),
 );
 

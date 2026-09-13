@@ -27,7 +27,7 @@ import {
     resolveDocumentBookmarkRevealRowIndex,
     type IDocumentBookmarkTreeItem,
     type TDocumentBookmarkDisplayMode,
-} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+} from '@app/modules/document-viewer/public';
 import DocumentBookmarkTreeItem from '@app/components/document-viewer/DocumentBookmarkTreeItem.vue';
 
 const props = defineProps<{

@@ -3,22 +3,20 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {fetchVerifiedRuntimeArchive} from '@scripts/runtimeBinaryArchive';
 import {parseNativeResourcePlatformArch} from '@scripts/nativeResourceManifest';
-import {
-    POPPLER_RUNTIME_BINARY_MEMBER_POLICY,
-    QPDF_RUNTIME_BINARY_MEMBER_POLICY,
-    RUNTIME_BINARY_MANIFEST,
-} from '@scripts/runtimeBinaryManifest';
-import {validateRuntimeBinaryArchiveMembers} from '@scripts/validateRuntimeBinaryArchiveMembers';
+import {RUNTIME_BINARY_MANIFEST} from '@scripts/runtimeBinaryManifest';
+import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchiveMembers';
 
 const MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS = 3;
 const RUNTIME_BINARY_DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 const GITHUB_RELEASE_ORIGIN = 'https://github.com';
 const GITHUB_RELEASE_ASSET_ORIGIN = 'https://release-assets.githubusercontent.com';
-const RUNTIME_BINARY_FAMILIES = {
-    poppler: POPPLER_RUNTIME_BINARY_MEMBER_POLICY,
-    qpdf: QPDF_RUNTIME_BINARY_MEMBER_POLICY,
-} as const;
-type TRuntimeBinaryFamily = keyof typeof RUNTIME_BINARY_FAMILIES;
+const RUNTIME_BINARY_FAMILIES = [
+    'djvulibre',
+    'poppler',
+    'qpdf',
+    'tesseract',
+] as const;
+type TRuntimeBinaryFamily = typeof RUNTIME_BINARY_FAMILIES[number];
 export type TRuntimeBinaryArchiveMemberReader = (archivePath: string) => readonly string[];
 
 function usage(): string {
@@ -30,14 +28,19 @@ function usage(): string {
 }
 
 function isRuntimeBinaryFamily(value: string | undefined): value is TRuntimeBinaryFamily {
-    return value === 'qpdf' || value === 'poppler';
+    return value !== undefined && RUNTIME_BINARY_FAMILIES.includes(value as TRuntimeBinaryFamily);
 }
 
 function readRuntimeBinaryArchiveMembers(archivePath: string): readonly string[] {
-    const output = execFileSync('unzip', [
-        '-Z1',
-        archivePath,
-    ], {encoding: 'utf8'});
+    const output = archivePath.endsWith('.zip')
+        ? execFileSync('unzip', [
+            '-Z1',
+            archivePath,
+        ], {encoding: 'utf8'})
+        : execFileSync('tar', [
+            '-tzf',
+            archivePath,
+        ], {encoding: 'utf8'});
     return output.split(/\r?\n/u).filter(Boolean);
 }
 
@@ -68,6 +71,7 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), RUNTIME_BINARY_DOWNLOAD_TIMEOUT_MS);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let readerCompleted = false;
     try {
         let currentUrl = url;
         let response: Response | null = null;
@@ -102,15 +106,16 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
                 done, value,
             } = await reader.read();
             if (done) {
+                readerCompleted = true;
                 return;
             }
             yield value;
         }
     } finally {
-        if (reader) {
+        if (reader && !readerCompleted) {
             await reader.cancel().catch(() => undefined);
-            reader.releaseLock();
         }
+        reader?.releaseLock();
         clearTimeout(timeout);
     }
 }
@@ -169,15 +174,14 @@ export async function runRuntimeBinaryArchiveCli(
         }
 
         const members = readMembers(path.resolve(archivePath));
-        const result = validateRuntimeBinaryArchiveMembers(
-            members,
-            RUNTIME_BINARY_FAMILIES[family],
-        );
+        const normalizedMembers = validateRuntimeBinaryArchivePaths(members);
         if (printPaths) {
-            for (const executableEntry of result.executableEntries) console.log(executableEntry);
-            for (const dllEntry of result.adjacentDllEntries) console.log(dllEntry);
+            for (const member of normalizedMembers) console.log(member);
         } else {
-            console.log(JSON.stringify(result));
+            console.log(JSON.stringify({
+                family,
+                members: normalizedMembers,
+            }));
         }
         return;
     }

@@ -23,6 +23,7 @@ import {useAppShellLifecycle} from '@app/modules/workspace-shell/composables/use
 import {useAppShellUpdatesDialog} from '@app/modules/workspace-shell/composables/useAppShellUpdatesDialog';
 import {createDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import {requireEpochMs} from '@contracts/timestamps';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     logError: vi.fn(),
@@ -31,7 +32,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
-vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({onIncomingTransfer: mocks.onIncomingTransfer})}));
+const platformApi = createElectronPlatformApiFixture({windowTabs: {onIncomingTransfer: mocks.onIncomingTransfer}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/traceRendererStartup', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     traceRendererStartup: mocks.traceRendererStartup,

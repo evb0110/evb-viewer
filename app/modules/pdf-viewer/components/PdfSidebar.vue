@@ -152,11 +152,11 @@ import PdfSidebarPageNumbering from '@app/modules/pdf-viewer/components/PdfSideb
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
-import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
+import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/public';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
+import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 type TPageSelectionInput = number[] | TPageSelection;

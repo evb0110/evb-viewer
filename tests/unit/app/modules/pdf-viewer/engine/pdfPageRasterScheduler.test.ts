@@ -20,7 +20,7 @@ import {
     resetCoordinatedPdfPageRendersForTest,
     runCoordinatedPdfPageOperation,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
-import { createWorkspaceSurfaceBudgetController } from '@app/utils/document-viewer/workspaceSurfaceBudget';
+import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/public/workspaceSurfaceBudget';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisorEvent,

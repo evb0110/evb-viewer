@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 
 import {
     afterEach,
@@ -24,13 +24,14 @@ import type {
     IPagePreviewRenderedObjectUrl,
     IPagePreviewSource,
     TPreviewPageSizes,
-} from '@app/utils/document-viewer/pagePreviewSource';
+} from '@app/modules/document-viewer/pagePreviewSource';
 import NativePdfViewer from '@app/modules/native-pdf-viewer/components/NativePdfViewer.vue';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
-    createDocumentViewerChassisAuthority,
-    documentViewerChassisAuthorityKey,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+    createDocumentViewerRuntime,
+    documentViewerRuntimeKey,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const nativePdfMocks = vi.hoisted(() => ({createSource: vi.fn()}));
 const vueUseMocks = vi.hoisted(() => ({
@@ -40,9 +41,10 @@ const vueUseMocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/public', () => ({createNativePdfPreviewSourceFromPath: nativePdfMocks.createSource}));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+const platformApi = createElectronPlatformApiFixture();
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({}),
+    getDocumentFilesCapability: () => platformApi.documentFiles,
 }));
 
 vi.mock('@vueuse/core', () => ({
@@ -228,14 +230,14 @@ describe('NativePdfViewer revision lifecycle', () => {
         });
         const viewer = ref<IViewerExpose | null>(null);
         const loadErrors: unknown[] = [];
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
             documentRevision: 'drt1:test:wedged',
         });
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 ref: viewer,
                 src: documentPath,
@@ -299,14 +301,14 @@ describe('NativePdfViewer revision lifecycle', () => {
         });
         const viewer = ref<IViewerExpose | null>(null);
         const loadErrors: unknown[] = [];
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
             documentRevision: 'drt1:test:empty',
         });
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 ref: viewer,
                 src: documentPath,
@@ -381,14 +383,14 @@ describe('NativePdfViewer revision lifecycle', () => {
                 value: 800,
             },
         });
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: '/managed/million-pages.pdf',
             documentRevision: 'drt1:test:million-pages',
         });
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 src: '/managed/million-pages.pdf',
                 isActive: true,
@@ -479,7 +481,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         const revision = ref(firstRevision);
         const viewer = ref<IViewerExpose | null>(null);
         const totalPageUpdates: number[] = [];
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
@@ -487,7 +489,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         });
         const commitCanvas = vi.spyOn(authority.openSurface, 'commitCanvas');
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 ref: viewer,
                 src: documentPath,
@@ -628,14 +630,14 @@ describe('NativePdfViewer revision lifecycle', () => {
             },
         });
         const revision = ref(firstRevision);
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
             documentRevision: firstRevision,
         });
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 src: documentPath,
                 documentRevisionToken: revision.value,
@@ -771,14 +773,14 @@ describe('NativePdfViewer revision lifecycle', () => {
             },
         });
         const viewer = ref<IViewerExpose | null>(null);
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
             documentRevision: 'drt1:test:preload-eviction',
         });
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 ref: viewer,
                 src: documentPath,
@@ -855,7 +857,7 @@ describe('NativePdfViewer revision lifecycle', () => {
                 value: 800,
             },
         });
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
@@ -866,7 +868,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         const isInteractionActive = ref(true);
         const currentPageUpdates: number[] = [];
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             return () => h(NativePdfViewer, {
                 src: documentPath,
                 isActive: true,
@@ -1099,7 +1101,7 @@ describe('NativePdfViewer revision lifecycle', () => {
                 value: 800,
             },
         });
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         authority.bindViewportElement(viewport);
         authority.openSurface.begin({
             documentId: documentPath,
@@ -1111,7 +1113,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         >['waitForDocumentOpenSettled'] = () => Promise.reject(new Error('Workspace settle was not bound'));
         let isWorkspaceVisualReady = () => false;
         const Root = defineComponent({setup() {
-            provide(documentViewerChassisAuthorityKey, authority);
+            provide(documentViewerRuntimeKey, authority);
             const settle = useDocumentOpenVisualSettle({
                 tabId: 'eviction-tab',
                 hasPdf: ref(false),

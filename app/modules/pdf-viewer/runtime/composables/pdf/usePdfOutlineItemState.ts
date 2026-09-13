@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type { IPdfOutlineTreeContext } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeContext';
 import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeKey';
-import { isDocumentBookmarkExpanded } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import { isDocumentBookmarkExpanded } from '@app/modules/document-viewer/public';
 
 function requirePdfOutlineTreeContext(): IPdfOutlineTreeContext {
     const treeContext = inject(pdfOutlineTreeKey, null);

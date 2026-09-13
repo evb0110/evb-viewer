@@ -27,14 +27,16 @@ import {
     QPDF_TIMEOUT_MS,
 } from '@electron/pdf/pdfPageCount';
 import {
-    createPageMoveRange,
-    createPageMoveRanges,
     formatPageDeleteRanges,
     formatPageMoveRange,
     formatPageMoveRanges,
     isPageMoveNoOp,
     isPageMoveRangesNoOp,
 } from '@electron/features/page-ops/domain/pageNumbers';
+import {
+    createPageMoveRange,
+    createPageMoveRanges,
+} from '@pdf-core/pdfPageSelection';
 import type {
     IPageMoveRangeSegment,
     IPageMoveRanges,

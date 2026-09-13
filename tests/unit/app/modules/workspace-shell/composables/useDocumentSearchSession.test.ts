@@ -14,7 +14,7 @@ import type {
     IDocumentSearchBackend,
     IDocumentSearchRequest,
     IDocumentSearchResponse,
-} from '@app/utils/document-viewer/search/documentSearch';
+} from '@app/modules/document-viewer/search/documentSearch';
 
 function createDeferred<T>() {
     let resolve!: (value: T) => void;

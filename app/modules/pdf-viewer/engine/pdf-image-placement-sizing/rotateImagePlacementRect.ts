@@ -1,5 +1,4 @@
 import type { IPoint2D } from '@app/types/point2D';
-import { getShortestImagePlacementAngleDelta } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getShortestImagePlacementAngleDelta';
 import { normalizeImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/normalizeImagePlacementRotationDegrees';
 import type { IImagePlacementRectPx } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 import { snapImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
@@ -18,6 +17,14 @@ interface IImagePlacementPointerRotateOptions {
 
 
 const DEFAULT_ROTATION_SNAP_STEP_DEGREES = 15;
+
+export function getShortestImagePlacementAngleDelta(deltaDegrees: number) {
+    let normalized = ((deltaDegrees + 180) % 360 + 360) % 360 - 180;
+    if (normalized === -180 && deltaDegrees > 0) {
+        normalized = 180;
+    }
+    return normalized;
+}
 
 function getRectCenter(rect: IImagePlacementRectPx): IPoint2D {
     return {

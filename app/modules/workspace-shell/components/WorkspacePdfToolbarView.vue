@@ -22,7 +22,7 @@
         :can-toggle-sidebar="toolbarCanToggleSidebar"
         :drag-mode="snapshot.dragMode"
         :continuous-scroll="snapshot.continuousScroll"
-        :is-djvu-mode="snapshot.isDjvuMode"
+        :is-djvu-mode="snapshot.viewerCapabilities.conversionBanner"
         :is-capturing-region="snapshot.isCapturingRegion"
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
@@ -70,7 +70,7 @@
                 :is-exporting-docx="snapshot.isExportingDocx"
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
-                :is-djvu-mode="snapshot.isDjvuMode"
+                :is-djvu-mode="snapshot.viewerCapabilities.conversionBanner"
                 :can-use-djvu="canUseDjvu"
                 :document-busy="toolbarDocumentBusy"
                 @update:open="handleAppMenuOpenUpdate"
@@ -199,7 +199,7 @@
                 :drag-mode="snapshot.dragMode"
                 :continuous-scroll="snapshot.continuousScroll"
                 :view-mode="snapshot.viewMode"
-                :is-djvu-mode="snapshot.isDjvuMode"
+                :is-djvu-mode="snapshot.viewerCapabilities.conversionBanner"
                 :is-fit-width-active="snapshot.isFitWidthActive"
                 :is-fit-height-active="snapshot.isFitHeightActive"
                 :is-capturing-region="snapshot.isCapturingRegion"
@@ -277,7 +277,7 @@ import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
-import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
+import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import {
     formatScanCleanupProgress,
     isScanCleanupRunning,

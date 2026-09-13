@@ -24,6 +24,7 @@ import {
     nativeMarkupIdentityBinding,
     nativeShapeIdentityBinding,
 } from '@tests/unit/app/modules/workspace-shell/composables/createNativeMarkupMutations';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const TEST_DOCUMENT_REVISION_TOKEN = requireDocumentRevisionToken('drt1:test:persistence-base');
 
@@ -74,10 +75,12 @@ const mocks = vi.hoisted(() => {
     };
 });
 
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => createElectronPlatformApiFixture({
+    documentFiles: mocks.documentFilesCapability,
+    documentWorkingCopy: mocks.documentWorkingCopyCapability,
+})}));
 vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mocks.documentFilesCapability,
-    getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopyCapability,
     shouldRefreshWorkingCopyAfterSaveAs: mocks.shouldRefreshWorkingCopyAfterSaveAs,
 }));
 vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({

@@ -1,4 +1,4 @@
-import {roundMetric} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+import {roundMetric} from '@app/modules/document-viewer/public';
 
 export function describeContainerGeometry(container: HTMLElement) {
     const rect = container.getBoundingClientRect();

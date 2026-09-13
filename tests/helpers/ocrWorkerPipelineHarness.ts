@@ -12,7 +12,7 @@ import {
 } from 'node:path';
 import {build} from 'esbuild';
 import {PDFDocument} from 'pdf-lib';
-import type {TOcrWorkerOutboundMessage} from '@electron/ocr/worker/types';
+import type {TOcrWorkerOutboundMessage} from '@electron/features/ocr/worker/types';
 import {resolveTestQpdfBinary} from '@tests/helpers/resolveTestQpdfBinary';
 
 export interface IOcrWorkerPipelineHarness {
@@ -28,7 +28,7 @@ export interface IOcrWorkerPipelineHarness {
 async function buildWorkerBundle(root: string) {
     const result = await build({
         bundle: true,
-        entryPoints: [resolve('electron/ocr/worker/main.ts')],
+        entryPoints: [resolve('electron/features/ocr/worker/main.ts')],
         format: 'cjs',
         platform: 'node',
         target: 'node22',

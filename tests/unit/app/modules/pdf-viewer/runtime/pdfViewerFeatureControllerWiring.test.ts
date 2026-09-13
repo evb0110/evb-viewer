@@ -17,9 +17,9 @@ import {
     ref,
 } from 'vue';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
-import { createDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { TDocumentPageSourceKind } from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import type { TDocumentPageSourceKind } from '@app/modules/document-viewer/source/documentPageSource';
+import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 import type {
     IPdfViewerEmit,
     IPdfViewerProps,
@@ -95,7 +95,7 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
             ...args,
         ]);
     }) as IPdfViewerEmit;
-    const chassisAuthority = createDocumentViewerChassisAuthority(ref<TDocumentPageSourceKind>('pdf'));
+    const chassisAuthority = createDocumentViewerRuntime(ref<TDocumentPageSourceKind>('pdf'));
     let controller: TFeatureController | null = null;
     const app = createApp(defineComponent({setup() {
         controller = usePdfViewerFeatureController(
