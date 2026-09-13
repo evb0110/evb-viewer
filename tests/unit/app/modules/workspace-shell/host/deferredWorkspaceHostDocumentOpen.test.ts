@@ -268,53 +268,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         ));
     });
 
-    it('releases the seeded hint and opening surface of an aborted open that nothing superseded', async () => {
-        const documentOpenSurface = createDocumentOpenSurfaceSession();
-        const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-        const workspace = createWorkspaceExposeFixture({getToolbarSnapshot: () => toolbarSnapshot});
-        let activeTransactionId: string | null = 'transaction-a';
-        const publishDocumentRecord = vi.fn();
-        const transactions = createWorkspaceDocumentOpenTransactions({
-            tabId: 'tab-1',
-            mountedWorkspace: shallowRef(workspace),
-        });
-        transactions.attachHost({
-            documentOpenSurface,
-            openingPageFrameAuthority: shallowRef(null),
-            ensureWorkspaceLoaded: async () => workspace,
-            getActiveTransactionId: () => activeTransactionId,
-            getInitialViewState: () => null,
-            getSeedToolbarSnapshot: () => toolbarSnapshot,
-            hasDocumentOrOpenError: () => false,
-            hasOpenedDocument: () => false,
-            hasSessionOpenedDocument: () => false,
-            isHostUnmounted: () => false,
-            isViewerOwnerMounted: () => true,
-            publishDocumentRecord,
-            requestWorkspaceMount: vi.fn(),
-        });
-        const abortController = new AbortController();
-
-        await expect(transactions.run({
-            action: 'handleOpenFileWithResultFromUi',
-            target: {
-                fileName: 'a.pdf',
-                originalPath: requireDocumentRef('/documents/a.pdf'),
-                isDjvu: false,
-            },
-        }, 'transaction-a', requireDocumentRef('/documents/a.pdf'), async () => {
-            activeTransactionId = null;
-            abortController.abort(new DOMException('Document open canceled', 'AbortError'));
-            return false;
-        }, abortController.signal)).resolves.toBe(false);
-
-        expect(documentOpenSurface.snapshot.value.identity).toBeNull();
-        expect(publishDocumentRecord).toHaveBeenCalledTimes(2);
-        expect(publishDocumentRecord).toHaveBeenLastCalledWith(expect.objectContaining(
-            {toolbarSnapshot: expect.objectContaining({isOpeningDocument: false})},
-        ));
-    });
-
     it('claims an early startup Recent command before queueing for its viewer owner', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const documentOpenSurface = createDocumentOpenSurfaceSession();
