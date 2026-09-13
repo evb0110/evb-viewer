@@ -272,8 +272,7 @@ const PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES = new Set([
     ...PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES,
 ]);
 
-// These modules are the permanent narrow capability getter implementations.
-const PLATFORM_API_RUNTIME_GETTER_FILES = new Set(`
+const PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES = new Set(`
 app/utils/platformDocuments.ts
 app/utils/getShellCapability.ts
 app/utils/getSettingsCapability.ts
@@ -310,8 +309,7 @@ const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
 
 const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
 const PDF_VIEWER_ENGINE_ROOT = `${PDF_VIEWER_MODULE_ROOT}/engine`;
-// Engine code may depend on its own implementation and the PDF viewer DOM layer.
-const PDF_VIEWER_ENGINE_TARGET_ROOTS = [
+const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
     PDF_VIEWER_ENGINE_ROOT,
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
@@ -574,7 +572,7 @@ function checkPdfViewerEngineLayer(edge) {
         return null;
     }
 
-    if (PDF_VIEWER_ENGINE_TARGET_ROOTS.some(root => matchesRoot(edge.target, root))) {
+    if (PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS.some(root => matchesRoot(edge.target, root))) {
         return null;
     }
 
@@ -674,9 +672,7 @@ function collectAnnotationStorageAliases(sourceText) {
 
 /** @param {string} filePath @param {string} [sourceText] @returns {IArchitectureViolation[]} */
 function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
-    if (
-        !matchesRoot(filePath, 'app')
-    ) {
+    if (!matchesRoot(filePath, 'app')) {
         return [];
     }
 
@@ -876,8 +872,7 @@ function parseSourceFiles(filePath, sourceText) {
     ));
 }
 
-// These roots permanently own renderer and PDF.js adapter imports.
-const PDFJS_IMPORT_ROOTS = [
+const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'app/modules/pdf-viewer',
     'app/services/pdfjs',
     'app/utils/document-viewer/source',
@@ -900,7 +895,7 @@ function isPdfjsModuleSpecifier(node) {
 
 /** @param {string} filePath @param {TSourceFile[]} sourceFiles @returns {IArchitectureViolation[]} */
 function checkPdfjsImportBoundary(filePath, sourceFiles) {
-    if (PDFJS_IMPORT_ROOTS.some(root => matchesRoot(filePath, root))) {
+    if (PDFJS_IMPORT_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root))) {
         return [];
     }
     /** @type {IArchitectureViolation[]} */
@@ -956,7 +951,7 @@ function checkPdfjsImportBoundary(filePath, sourceFiles) {
 function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     if (
         !isAppProductionSource(filePath)
-        || PLATFORM_API_RUNTIME_GETTER_FILES.has(filePath)
+        || PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES.has(filePath)
     ) {
         return [];
     }

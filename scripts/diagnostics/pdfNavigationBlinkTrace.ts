@@ -8,6 +8,7 @@ import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
+    type IWorkspaceExposeProbeWindow,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -87,19 +88,6 @@ interface IPageSampleGeometry {
     width: number;
     height: number;
 }
-
-interface IPdfBlinkToolbarSnapshot {
-    continuousScroll?: boolean;
-    fitMode?: string;
-    viewMode?: string;
-}
-
-interface IPdfBlinkTestApi {
-    getActiveToolbarSnapshot: () => IPdfBlinkToolbarSnapshot | null;
-    waitForActiveDocumentOpenSettled: () => Promise<boolean>;
-}
-
-type IPdfBlinkDiagnosticWindow = Window & {__evbTestApi?: IPdfBlinkTestApi;};
 
 export interface IFrameAnalysisSummary {
     canvasObservedAtMs: number | null;
@@ -446,7 +434,7 @@ async function recordTraceEvent(
 async function waitForActiveDocumentOpenSettled(page: Page) {
     await installWorkspaceExposeProbe(page);
     await page.evaluate(async () => {
-        const testApi = (window as IPdfBlinkDiagnosticWindow).__evbTestApi;
+        const testApi = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
         await testApi?.waitForActiveDocumentOpenSettled();
     });
 }
@@ -456,7 +444,7 @@ async function waitForFitHeightMode(
     scrollMode: IPdfNavigationBlinkTraceOptions['scrollMode'],
 ) {
     await page.waitForFunction((continuousScroll) => {
-        const snapshot = (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot() ?? null;
+        const snapshot = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot() ?? null;
         return snapshot?.continuousScroll === continuousScroll
             && snapshot.fitMode === 'height'
             && snapshot.viewMode === 'single';
@@ -1447,7 +1435,7 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
             await configureFitHeightMode(page, options.scrollMode);
             await waitForToolbarPage(page, options.startPage);
             const observedScrollMode = await page.evaluate(() =>
-                (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot()?.continuousScroll === true
+                (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot()?.continuousScroll === true
                     ? 'continuous' : 'paged');
             if (options.waitForStartCanvas) {
                 await context.navigation.waitForPageCanvas(options.startPage);
