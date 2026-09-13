@@ -1,0 +1,76 @@
+app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 3-5,80,105-112,122-129,136-143,185,187-188,191-194
+  s_c2b7952c790c46::t_bf133548ea02b4 2
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 51-55,69-70,259,268-269,278-281,284-285,288-290,325,461-465,467,472,487-491,493-494,510-513,527-529,583-587,605-607,613-616,717,720,762-773,795,820,823,829,835
+  s_c2b7952c790c46::t_4eee17655b8798 50
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_c2b7952c790c46::t_ac89bc1703574d 1200
+app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 12-22,46
+app/modules/workspace-shell/composables/useWorkspaceSplitCache.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 50
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 53-56,123-125,128,486,841-843
+scripts/architecture/formatComparisonRule.mjs
+  s_c2b7952c790c46::t_c49639675e0e0f 31,34,41,59,71,82,97,100,117,122,132,135-139,149,154,170,174,179,208,235
+  s_c2b7952c790c46::t_42282942a48cf6 113,189,228
+  s_c2b7952c790c46::t_01c4f13aa86991 191-192
+  s_c2b7952c790c46::t_ac89bc1703574d 65,211,281
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 206,212-213,220-223,234-235,244-261,263,457
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 33-35,132,921-924,974-975
+  s_c2b7952c790c46::t_40c7a8c3661647 32
+app/modules/workspace-shell/document-sessions/useDocumentSourceSession.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 30-34,43,93
+tests/unit/app/modules/workspace-shell/composables/useDjvuProjectionActions.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 8,58-86
+  s_c2b7952c790c46::t_6d363e9137fd17 87
+app/modules/workspace-shell/composables/useDjvuProjectionActions.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 10,39-53,73
+app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 73-77
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_c2b7952c790c46::t_ac89bc1703574d 25,73,202
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 11-14,25-27,34,58,69,80,211-219,317
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 35-37,54,56-57,66-69
+tests/unit/scripts/depGraph.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 57-79
+app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 127,176-177
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_c2b7952c790c46::t_ac89bc1703574d 169-173,176,178,429,533
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 24,248,286-288,304,1037-1064
+  s_c2b7952c790c46::t_541876cde73502 1065-1067
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 11,30
+tests/unit/scripts/formatComparisonRule.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 115,121,125
+app/types/documentOpenOutcome.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 22-28
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.test.ts
+  s_c2b7952c790c46::t_ac89bc1703574d 13,122-128,177,205,243,261,314,353,383
+scripts/architecture/boundary-check.mjs
+  s_c2b7952c790c46::t_ac89bc1703574d 17,407-409,1662,1666-1678
+  s_c2b7952c790c46::t_5319a6ef815ac5 1679-1680
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cd5e50532af0b384dc424014e82a3aa496104486",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
