@@ -85,6 +85,11 @@ separately. Do not mark that review done from a machine result.
   `~/Library/Application Support/EVBViewerWindowsTests/`, outside every
   checkout. Do not put them under `.devkit`, and do not prune that root as
   part of workspace hygiene.
+- Windows lab images take tens of gigabytes on a shared workstation disk.
+  When a Windows campaign finishes, pass or fail, delete every clone it
+  created and the lab golden image under the test-image root, then confirm
+  the space came back with `df`. The next campaign provisions a fresh image.
+  Keep an image only when the user asks for it in the current request.
 - Diagnostic and provisioning helpers must apply the same existing-process
   guard as the runner before every UTM Apple Event. A raw `utmctl file pull`
   can relaunch UTM after a crash. Never use retry loops that reopen the app.
