@@ -1,0 +1,59 @@
+electron/features/agent/codexMcpIntegration.ts
+  s_100942bad6a5cc::t_856e6ff844445b 442
+  s_100942bad6a5cc::t_44cfb9500d2552 241,248-249,375-384,418,420-421,443-448
+  s_100942bad6a5cc::t_709317c1ac7759 240,247
+  s_100942bad6a5cc::t_cacd046308eed2 246
+tests/unit/electron/agentMcpIntegration.test.ts
+  s_100942bad6a5cc::t_6edf6c22c15430 186-195,201-202,208-223,229-230,236-237,243-275
+  s_100942bad6a5cc::t_67efd1e3889815 196-200,203-207,224-228,231-235,238-242
+electron/features/agent/mcp/createHttpHandler.ts
+  s_100942bad6a5cc::t_bc0fcf2714a07f 5,151-153
+  s_100942bad6a5cc::t_b31f5d6f50e2e6 154-156
+electron/features/agent/assistantService.ts
+  s_100942bad6a5cc::t_592b185594d30d 803,833,1123,1202,1263
+electron/features/agent/codexCli.ts
+  s_100942bad6a5cc::t_4f61856c535c4e 281
+  s_100942bad6a5cc::t_c7709a8a6e3ec4 278-279,282-289,291-296,298
+app/components/settings/SettingsContent.vue
+  s_100942bad6a5cc::t_edb2b39bac069f 875
+  s_100942bad6a5cc::t_9fb8fb0a483be9 779
+electron/features/agent/assistantChatPersistence.ts
+  s_100942bad6a5cc::t_d47420cf330ba0 196,618-619
+  s_100942bad6a5cc::t_67efd1e3889815 48-49
+  s_100942bad6a5cc::t_5ba3cacb397734 5
+  s_100942bad6a5cc::t_89bcd611c76a68 10,620,624-631,635-636,646,650,655,659,666-668,956,973-982,1058-1059,1062,1067-1069,1124,1144-1158
+  s_100942bad6a5cc::t_6f897a65bb05f4 622
+  s_100942bad6a5cc::t_99b6a0ec3b0b98 958,1126
+  s_100942bad6a5cc::t_e19286db3021f0 621,1159
+tests/unit/electron/codexCliTimeout.test.ts
+  s_100942bad6a5cc::t_a9a5012728df57 9-10,22,26
+  s_100942bad6a5cc::t_6115d639478de1 16-17,21,23-25,27-28,43-44,113-121
+  s_100942bad6a5cc::t_6f12e6adefa219 122
+tests/unit/electron/assistantChatSessionStore.test.ts
+  s_100942bad6a5cc::t_fe8ac97b78aa67 173,207,226,297,400,425,472,497,544,565,600,647
+  s_100942bad6a5cc::t_963a425c2884cb 104-117,120-139
+  s_100942bad6a5cc::t_193685b8c10abc 118-119
+  s_100942bad6a5cc::t_f14b80e910d142 319,471,678,716
+electron/features/agent/assistantChatSessionStore.ts
+  s_100942bad6a5cc::t_b0d24cc093319c 40,163,168-189,196,203-206,230,233-237,472,502,555
+  s_100942bad6a5cc::t_080d7bcf814d30 202,232
+  s_100942bad6a5cc::t_3ee480e1e21df5 231
+  s_100942bad6a5cc::t_db2d612f452129 164-167
+  s_100942bad6a5cc::t_b43fa4fcaf18e2 443
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64a5d4271a19b9cf5cdaedea1135fdd7180b5bbe",
+  "prompts": {},
+  "sessions": {
+    "s_100942bad6a5cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098e8-d7ba-7db3-9fe3-055b019a0e84",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
