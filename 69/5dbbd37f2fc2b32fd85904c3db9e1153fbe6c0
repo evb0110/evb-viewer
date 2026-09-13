@@ -1,0 +1,44 @@
+tests/unit/electron/createLoggerBuffering.test.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 13,36,55-56,110-146
+  s_ae757872e5d914::t_b50c2f59ed6f6a 147-148
+tests/unit/electron/workerTask.test.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 968-995
+electron/features/ocr/main/ocrNativeChildProcessIdentity.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 204-209,218,220,230
+app/utils/document-viewer/thumbnails/documentThumbnailScheduler.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 32,51-52,92-95,186-187,190,196-211,259-262
+electron/features/documents/main/buildPrintablePdfPath.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 69,77,135
+electron/utils/workerTask.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 553,563
+electron/utils/createIpcProgressPump.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 40,77-82,228-230,243-245
+electron/utils/createLogger.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 365-367
+tests/unit/electron/buildPrintablePdfPath.test.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 26,176-189
+tests/unit/electron/createIpcProgressPump.test.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 167-189
+tests/unit/app/utils/document-viewer/thumbnails/documentThumbnailScheduler.test.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 100-104,106-117,122-123,125,128-129,131,133-140,142,171
+electron/utils/processTree.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 57,60,66,167-168,174,178,181,184,191,194,204
+tests/unit/electron/utils/processTree.test.ts
+  s_ae757872e5d914::t_46a5c315e5a56d 89-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "695dbbd37f2fc2b32fd85904c3db9e1153fbe6c0",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
