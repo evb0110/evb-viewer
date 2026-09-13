@@ -26,7 +26,7 @@ import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {

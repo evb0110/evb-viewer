@@ -9,11 +9,11 @@ import type {
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TSessionId } from '@contracts/shared';
 import {requireSessionId} from '@contracts/shared';
-import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import {
     assertEmbeddedShapeImportSize,
     EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES,
-} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+} from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { isNativeDocumentRef } from '@app/utils/documentRef';

@@ -43,7 +43,7 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
-import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';

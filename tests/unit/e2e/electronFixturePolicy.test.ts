@@ -22,7 +22,7 @@ import {
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
-import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { getE2ESharedRendererSessionName } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import {
     electronUserDataPath,

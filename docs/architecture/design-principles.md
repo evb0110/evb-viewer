@@ -33,9 +33,9 @@ check, and the commit/push artifact checks enforce the mechanical subset of
 these principles. The remainder are review criteria, not reasons to add more
 one-off gates.
 
-## Boundary exception policy
+## Boundary policy
 
-`scripts/architecture/boundaryExceptionPolicy.mjs` contains the small set of
-permitted diagnostic edges, private-access paths, and one retained PDF viewer
-engine back edge. `boundary-check.mjs` consumes those constants directly. All
-other imports remain subject to the regular boundary rules.
+`scripts/architecture/boundary-check.mjs` contains the permanent ownership rules
+for capability getters, PDF.js adapters, annotation storage members, and the
+PDF viewer engine layers. There is no temporary exception registry. Imports
+outside those rule definitions remain subject to the regular boundary rules.

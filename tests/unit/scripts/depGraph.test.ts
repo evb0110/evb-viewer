@@ -476,7 +476,7 @@ describe('dependency graph', () => {
         }
     });
 
-    it('denies scripts to app imports except approved diagnostic trace type edges', () => {
+    it('denies scripts to app imports while allowing shared contracts', () => {
         expect(checkArchitectureBoundaryEdge({
             source: 'scripts/checkSomething.ts',
             target: 'app/modules/workspace-shell/public.ts',
@@ -486,13 +486,25 @@ describe('dependency graph', () => {
             source: 'scripts/checkSomething.ts',
             target: 'app/modules/workspace-shell/public.ts',
             specifier: '@app/modules/workspace-shell/public',
-            message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+            message: 'scripts/** must not import app runtime code; shared diagnostic contracts belong in packages/contracts.',
         }]);
 
         expect(checkArchitectureBoundaryEdge({
             source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
             target: 'app/utils/logPdfNav.ts',
             specifier: '@app/utils/logPdfNav',
+        })).toEqual([{
+            rule: 'scripts-to-app',
+            source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
+            target: 'app/utils/logPdfNav.ts',
+            specifier: '@app/utils/logPdfNav',
+            message: 'scripts/** must not import app runtime code; shared diagnostic contracts belong in packages/contracts.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
+            target: 'packages/contracts/pdfDiagnostics.ts',
+            specifier: '@contracts/pdfDiagnostics',
         })).toEqual([]);
 
         expect(checkArchitectureBoundaryEdge({
@@ -504,7 +516,7 @@ describe('dependency graph', () => {
             source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
             target: 'app/modules/workspace-shell/public.ts',
             specifier: '@app/modules/workspace-shell/public',
-            message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+            message: 'scripts/** must not import app runtime code; shared diagnostic contracts belong in packages/contracts.',
         }]);
     });
 
@@ -782,7 +794,7 @@ describe('dependency graph', () => {
         expect(violations).toEqual([]);
     });
 
-    it('blocks direct PDF.js annotationStorage dirty-state access outside diagnostics', () => {
+    it('blocks direct PDF.js annotationStorage dirty-state access', () => {
         expect(checkArchitectureBoundarySource(
             'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             'pdfDocument.value?.annotationStorage?.resetModified();',
@@ -791,7 +803,7 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
+            message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
         }]);
 
         expect(checkArchitectureBoundarySource(
@@ -802,7 +814,7 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
+            message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
         }]);
 
         expect(checkArchitectureBoundarySource(
@@ -813,13 +825,19 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
+            message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
         }]);
 
         expect(checkArchitectureBoundarySource(
             'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'const storage = document.annotationStorage;\nreturn storage?.serializable;',
-        )).toEqual([]);
+        )).toEqual([{
+            rule: 'annotation-storage-private-access',
+            source: 'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
+            target: 'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
+            specifier: 'source',
+            message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
+        }]);
 
         expect(checkArchitectureBoundarySource(
             'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',

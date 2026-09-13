@@ -1,5 +1,5 @@
-import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
-import { assertEmbeddedShapeImportSize } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { assertEmbeddedShapeImportSize } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { getErrorMessage } from '@app/utils/error';
 
 type TEmbeddedShapeImportWorkerRequest =
