@@ -209,12 +209,18 @@ describe('guest PowerShell script files', () => {
         expect(policy).toContain('0CmdLine=system-bootstrap-worker.cmd');
         expect(bootstrap).toContain('net user EVBTester');
         expect(bootstrap).toContain('DefaultDomainName');
+        expect(bootstrap).toContain('DevicePasswordLessBuildVersion');
+        expect(bootstrap).toContain('DisablePrivacyExperience');
+        expect(bootstrap).toContain('EnableFirstLogonAnimation');
+        expect(bootstrap).toContain('AutoLogonCount');
         expect(bootstrap).toContain('DisableLockWorkstation');
         expect(bootstrap).toContain('/sc onlogon');
         expect(bootstrap).toContain('/ru EVBTester');
         expect(bootstrap).toContain('/it');
         expect(bootstrap).toContain('cmd.exe /c C:\\EVBViewerTests\\worker\\start-worker.cmd');
         expect(bootstrap).toContain('system-bootstrap.marker');
+        expect(bootstrap).toContain('query user');
+        expect(bootstrap).toContain('user-startup-launcher-copy');
         expect(bootstrap).toContain('call :record');
         expect(launcher).toContain('task-marker.json');
         expect(launcher).toContain('worker-launch-marker.txt');

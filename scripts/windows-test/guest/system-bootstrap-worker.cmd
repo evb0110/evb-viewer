@@ -30,6 +30,14 @@ reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Defa
 call :record default-password %ERRORLEVEL%
 reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName /t REG_SZ /d . /f >nul 2>&1
 call :record default-domain %ERRORLEVEL%
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device" /v DevicePasswordLessBuildVersion /t REG_DWORD /d 0 /f >nul 2>&1
+call :record passwordless-device-disabled %ERRORLEVEL%
+reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\OOBE" /v DisablePrivacyExperience /t REG_DWORD /d 1 /f >nul 2>&1
+call :record oobe-privacy-disabled %ERRORLEVEL%
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v EnableFirstLogonAnimation /t REG_DWORD /d 0 /f >nul 2>&1
+call :record first-logon-animation-disabled %ERRORLEVEL%
+reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonCount /f >nul 2>&1
+call :record auto-logon-count-removed %ERRORLEVEL%
 reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v DisableLockWorkstation /t REG_DWORD /d 1 /f >nul 2>&1
 call :record disable-lock-on-resume %ERRORLEVEL%
 copy /Y "%EVB_STAGE%start-worker.cmd" "%EVB_ROOT%\worker\start-worker.cmd" >nul 2>&1
@@ -45,8 +53,13 @@ copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\worker\guestWorker.cjs" >nul 2>
 call :record worker-copy %ERRORLEVEL%
 copy /Y "%EVB_STAGE%guestWorker.cjs.map" "%EVB_ROOT%\worker\guestWorker.cjs.map" >nul 2>&1
 call :record worker-map-copy %ERRORLEVEL%
+if not exist "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup" mkdir "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup" >nul 2>&1
+copy /Y "%EVB_ROOT%\worker\start-worker.cmd" "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start-worker.cmd" >nul 2>&1
+call :record user-startup-launcher-copy %ERRORLEVEL%
 schtasks.exe /create /sc onlogon /tn "EVB Windows Test Worker" /tr "cmd.exe /c C:\EVBViewerTests\worker\start-worker.cmd" /ru EVBTester /rp "%EVB_SECRET%" /it /f >nul 2>&1
 call :record logon-task-refresh %ERRORLEVEL%
+query user >"%EVB_STATE%\system-session.log" 2>&1
+call :record query-user %ERRORLEVEL%
 >"%EVB_STATE%\test-marker.json" echo {"imageId":"evb-win518-recovery","guestTestMarker":"system-startup"}
 call :record test-marker-write %ERRORLEVEL%
 exit /b 0

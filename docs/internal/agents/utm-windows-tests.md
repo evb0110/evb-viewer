@@ -65,6 +65,10 @@ directory and runs the account and on-logon setup as SYSTEM. Pull the SYSTEM,
 task, launch, and heartbeat markers after every reboot. A marker or a task
 registration is not worker readiness. The guide records the current live gap,
 including the case where the guest agent does not return after reboot.
+The SYSTEM payload disables Windows 11 passwordless-device enforcement and
+first-logon screens, removes `AutoLogonCount`, records `query user` on the
+next startup pass, and installs a profile Startup launcher as the fallback
+when an interactive session exists but the on-logon task does not fire.
 
 Keep one UTM app instance running before invoking doctor, run, or stop. The
 runner checks its executable, PID, and start time before Apple Events commands

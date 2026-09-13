@@ -379,6 +379,14 @@ writes the password to evidence. The standard-user task invokes
 worker. A marker proves only that its stage ran. `state/heartbeat.json` is
 still required for worker readiness.
 
+The SYSTEM script also sets `DevicePasswordLessBuildVersion` to `0`, disables
+the OOBE privacy page and first-logon animation, and removes any
+`AutoLogonCount` limit. It records each registry exit code. On every later
+SYSTEM pass it runs `query user` into `state/system-session.log` and copies
+the same launcher into the standard user's profile Startup directory. The
+profile launcher is the fallback when Windows has an interactive session but
+does not fire the stored-credential on-logon task.
+
 After each reboot, use the bounded file-pull readiness check. If the agent is
 not available, native UTM scan-code input may wake and sign in to the clone;
 do not call the input event a success. Pull the SYSTEM marker, task marker,
@@ -407,6 +415,18 @@ input retry also produced no fresh marker. Therefore the worker never became
 ready and no WIN-SAVE measurement was run. Screen Recording was not used;
 window inspection was separately blocked by missing macOS Accessibility
 consent.
+
+#### Seventh live qualification gap recorded 2026-09-13
+
+The Windows 11 autologon fix was staged on a fresh owned clone. The clone
+never produced an installer marker or a SYSTEM marker. Bounded pulls after
+reboot and after native focus, wake, secure-attention, and credential recovery
+continued to report that the QEMU guest agent was not running. Consequently
+there is no guest evidence that the passwordless-device, OOBE, first-logon,
+or AutoLogonCount settings were applied, and no `query user` result exists.
+The worker heartbeat and WIN-SAVE measurements remain unqualified. This is a
+missing-agent plus unreachable-logon blocker, not evidence that the revised
+registry settings failed.
 
 #### Fifth live qualification gap recorded 2026-09-13
 
