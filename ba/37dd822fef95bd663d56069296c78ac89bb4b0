@@ -1,0 +1,771 @@
+tests/unit/app/modules/document-viewer/documentThumbnailMetricsBudget.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 13-15,36
+tests/unit/app/modules/document-viewer/documentBookmarkReveal.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-163
+app/modules/document-viewer/chassis/createDocumentOpenGenerationErrorLatch.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-24
+app/modules/document-viewer/viewport/createDocumentViewportRenderRequest.ts
+  s_05b486eb07d38a::t_68898c75f77014 1,7
+  s_05b486eb07d38a::t_e87547d85af95f 2-6,8-90
+app/types/crop.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/workspace-shell/tabs/tabSessionStoreTypes.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 7-9
+tests/unit/app/modules/document-viewer/createDocumentPageSourceSearchBackend.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-127
+app/modules/document-viewer/lifecycle/createDocumentViewerActivationRunGuard.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-19
+tests/unit/app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 15
+app/modules/document-viewer/single-page-wheel/createWheelFlipGate.ts
+  s_05b486eb07d38a::t_e87547d85af95f 2-177
+  s_05b486eb07d38a::t_68898c75f77014 1
+app/modules/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-30
+app/modules/document-viewer/viewport/documentViewportTransactionReducer.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-3,5-9,11-312
+  s_05b486eb07d38a::t_68898c75f77014 4,10
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 52
+app/modules/workspace-shell/composables/useDocumentSearchSession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6,13
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 16-18
+app/modules/pdf-viewer/components/PdfCropDialog.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 134
+app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 4
+tests/unit/app/modules/document-viewer/documentSidebarTabs.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-192
+app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 3
+  s_05b486eb07d38a::t_cc8a028dcbad7e 4-6
+app/modules/pdf-viewer/components/PdfViewerViewport.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 90,100
+app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 7
+tests/unit/app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 12
+app/modules/pdf-viewer/search/createPdfDocumentSearchSession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 8
+app/modules/document-viewer/virtualization/resolveVirtualRowRevealScrollTop.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-43
+tsconfig.scripts.json
+  s_05b486eb07d38a::t_c765af05d19caf 14
+app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 16
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarActivationForwarding.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 17
+app/types/pdfUi.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+tests/unit/app/modules/document-viewer/useDocumentViewportLayoutLifecycle.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-705
+app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 8
+app/modules/scan-cleanup/components/preview/PreviewShell.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 445
+tests/unit/app/modules/workspace-shell/composables/useDocumentOpenVisualSettle.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 20
+tests/unit/app/modules/workspace-shell/composables/usePageSearch.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 12
+app/modules/document-viewer/chassis/retargetDocumentOpeningShell.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-79
+app/modules/workspace-shell/document-sessions/useDocumentSourceSession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 1-2,5
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 58
+  s_05b486eb07d38a::t_55dfebf6621c78 59,65
+app/modules/workspace-shell/memory/workspaceMemoryBudget.ts
+  s_05b486eb07d38a::t_b0b1913ad65534 13
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerViewportParity.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 19-20,25
+app/modules/document-viewer/bookmarks/documentBookmarks.ts
+  s_05b486eb07d38a::t_e87547d85af95f 2-234
+  s_05b486eb07d38a::t_68898c75f77014 1
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 34,39
+  s_05b486eb07d38a::t_55dfebf6621c78 38
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 28-29
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 5-13,18-22
+  s_05b486eb07d38a::t_55dfebf6621c78 14
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarThumbnailSelection.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 21,25-28,59
+tests/unit/app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 15
+app/modules/document-viewer/chassis/documentViewportResizeAnchor.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-118
+tests/unit/app/modules/pdf-viewer/runtime/createPdfInitialVisualCommit.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 16-17
+app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 7
+tests/unit/app/modules/workspace-shell/components/documentWorkspaceNavigationCommand.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 26
+tests/unit/app/modules/scan-cleanup/scanCleanupThumbnailRail.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 29
+app/modules/document-viewer/providers/documentSearch.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-10,12-15,17-21,23-87
+  s_05b486eb07d38a::t_68898c75f77014 11,16
+  s_05b486eb07d38a::t_58fec11d320848 22
+tests/unit/app/modules/document-viewer/documentWheelInteraction.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-704
+app/modules/document-viewer/zoomPolicy.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-32
+app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 10
+  s_05b486eb07d38a::t_cc8a028dcbad7e 6,9,12-13
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 25-26,28
+  s_05b486eb07d38a::t_55dfebf6621c78 29,34
+app/modules/workspace-shell/viewers/createDocumentPageMetricPublication.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 3
+  s_05b486eb07d38a::t_55dfebf6621c78 7
+app/modules/document-viewer/search/documentSearch.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-70
+app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+tests/unit/app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 7
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineItemState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+app/modules/document-viewer/session/documentSession.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-94
+  s_05b486eb07d38a::t_68898c75f77014 5
+app/modules/workspace-shell/composables/usePageSearch.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 9
+tests/unit/app/modules/document-viewer/documentPageSource.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-672
+app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+tests/unit/app/modules/document-viewer/documentViewportResizeAnchor.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-92
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_05b486eb07d38a::t_cc8a028dcbad7e 101,106,111-113
+  s_05b486eb07d38a::t_55dfebf6621c78 107,114
+app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+tests/unit/app/modules/document-viewer/resolveDocumentRasterResidencyPlan.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-188
+app/modules/document-viewer/viewport/documentViewportTransactionTypes.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-185
+app/modules/document-viewer/input/documentWheelInteraction.ts
+  s_05b486eb07d38a::t_68898c75f77014 3
+  s_05b486eb07d38a::t_e87547d85af95f 1-2,4-350
+app/modules/pdf-viewer/runtime/memory/resolvePdfViewerResidencyDecision.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 21-23
+app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics.ts
+  s_05b486eb07d38a::t_645a9765bd5b80 1
+docs/architecture/document-viewer-architecture.md
+  s_05b486eb07d38a::t_d4d3bb657bc4b0 1-41
+app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 4
+app/modules/native-pdf-viewer/components/NativePdfViewer.vue
+  s_05b486eb07d38a::t_cc8a028dcbad7e 83-86,89,91
+  s_05b486eb07d38a::t_55dfebf6621c78 90,94
+app/modules/pdf-viewer/components/PdfExportScopeDialog.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 60
+app/modules/pdf-viewer/engine/pdf-region-drag/toClientPoint.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 15,21
+  s_05b486eb07d38a::t_cc8a028dcbad7e 17,20,22-24
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 24
+app/modules/workspace-shell/agent/documentWorkspaceAgentTypes.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 22
+app/modules/workspace-shell/composables/useWorkspaceMetadataHistory.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 10-11
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 16,22
+  s_05b486eb07d38a::t_cc8a028dcbad7e 18,21,23-25
+app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow.ts
+  s_05b486eb07d38a::t_68898c75f77014 5-6
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,7-442
+docs/architecture/pdf-viewer-architecture.md
+  s_05b486eb07d38a::t_ac43761638adbe 37-40
+app/modules/pdf-viewer/thumbnails/createDocumentThumbnailSegmentScroll.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 42
+app/modules/pdf-viewer/engine/pdf-region-capture/buildCanvasCapturePlan.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 3-5
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 280
+tests/unit/app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 15
+tests/unit/app/modules/workspace-shell/composables/useDocumentSearchSession.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 17
+tests/unit/app/modules/document-viewer/createDocumentViewerActivationRunGuard.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-22
+app/modules/document-viewer/single-page-wheel/singlePageWheelTypes.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-8
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 56
+tests/unit/app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 11-12
+app/modules/document-viewer/lifecycle/createDocumentTransitionChannel.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-60
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineBookmarkIdentity.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 27
+app/modules/document-viewer/sidebar/documentSidebarTabs.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-35
+tests/unit/app/modules/workspace-shell/viewers/workspaceDocumentDriver.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1,64
+tests/unit/app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 8
+tests/unit/app/modules/document-viewer/documentThumbnailActivationEvent.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 13-14,43
+app/modules/document-viewer/virtualization/pageVirtualization.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-328
+tests/unit/app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 19,23
+app/modules/document-viewer/thumbnails/documentThumbnailLayout.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-999
+app/modules/document-viewer/chassis/documentOpenSurfaceSessionContract.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1,5-10,12-141
+  s_05b486eb07d38a::t_68898c75f77014 2-4,11
+app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+  s_05b486eb07d38a::t_cc8a028dcbad7e 2-4
+tests/unit/app/modules/document-viewer/documentViewerActivationPresentation.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-69
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 37
+app/modules/document-viewer/region-geometry/toLocalRect.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-2,7
+  s_05b486eb07d38a::t_e87547d85af95f 3-6,8-16
+app/platform/browser-api/createNativePdfPreviewSourceFromPath.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 16
+  s_05b486eb07d38a::t_ac3e440255bb51 15
+tests/unit/app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-142
+app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 6-8
+app/modules/document-viewer/thumbnails/documentThumbnailRenderMetrics.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-142
+app/modules/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-80
+app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 20
+app/modules/document-viewer/pagePreviewSource.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-104
+tests/helpers/viewer-core/createProductionViewportAdapter.ts
+  s_05b486eb07d38a::t_e87547d85af95f 7,11
+app/modules/document-viewer/chassis/documentOpenSurfaceProjection.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-85
+  s_05b486eb07d38a::t_68898c75f77014 5
+app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6-7
+  s_05b486eb07d38a::t_cc8a028dcbad7e 3,5
+tests/unit/app/modules/pdf-viewer/runtime/commitPdfLoadedOpeningPageGeometry.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 14-15
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 435,447
+tests/unit/app/modules/document-viewer/createPdfPageSource.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-40
+tests/unit/app/modules/document-viewer/searchDocumentTextProvider.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-56
+app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 12
+app/modules/document-viewer/chassis/documentOpenSurfaceReducer.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-872
+app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/native-pdf-viewer/runtime/nativePdfPagePresentation.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/document-viewer/chassis/documentOpenSurfaceSession.ts
+  s_05b486eb07d38a::t_58fec11d320848 39,53,61,68-69,75
+  s_05b486eb07d38a::t_68898c75f77014 2,11-12,20,27-28
+  s_05b486eb07d38a::t_e87547d85af95f 1,3-10,13-19,21-26,29-38,40-52,54-60,62-67,70-74,76-1161
+app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 24
+tests/unit/app/modules/pdf-viewer/usePdfViewerWheelZoom.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 16
+app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-118
+tests/unit/app/modules/document-viewer/useDocumentBookmarkSession.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-161
+app/components/document-viewer/DocumentSearchResultItem.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 33
+  s_05b486eb07d38a::t_cc8a028dcbad7e 29-30,32
+app/modules/document-viewer/chassis/documentViewportWritePort.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-161
+app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 170
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 80
+tests/helpers/document-viewer/documentThumbnailListHarness.ts
+  s_05b486eb07d38a::t_e87547d85af95f 12
+app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-55
+  s_05b486eb07d38a::t_68898c75f77014 5
+app/platform/browser-api/createDjvuWorkerFromPath.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 19
+tests/unit/contracts/search.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 75
+tests/unit/app/modules/document-viewer/createPagePreviewDocumentSource.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-227
+app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 54
+tests/unit/app/modules/workspace-shell/composables/usePdfFile.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 12
+tests/unit/app/modules/workspace-shell/memory/workspaceMemoryBudget.test.ts
+  s_05b486eb07d38a::t_8ce1478836d812 11
+app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 8
+app/modules/document-viewer/documentPageRange.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-45
+app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+  s_05b486eb07d38a::t_cc8a028dcbad7e 1-2,4
+app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 15
+app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenVirtualSpacerStyle.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 9
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarCapabilityClamp.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 22-23
+app/modules/document-viewer/chassis/createDocumentOpeningPreviewGate.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-136
+  s_05b486eb07d38a::t_68898c75f77014 5
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 16-18
+  s_05b486eb07d38a::t_55dfebf6621c78 61
+app/modules/document-viewer/chassis/DocumentViewportHost.vue
+  s_05b486eb07d38a::t_68898c75f77014 26
+  s_05b486eb07d38a::t_e87547d85af95f 1-25,27-63
+app/modules/document-viewer/region-geometry/intersectClientRects.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-3
+  s_05b486eb07d38a::t_e87547d85af95f 4-16
+app/modules/document-viewer/region-geometry/toClientRect.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-10
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceMetadataHistory.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 13
+tests/unit/app/modules/document-viewer/createDocumentTransitionChannel.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-57
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 49,51
+  s_05b486eb07d38a::t_55dfebf6621c78 52
+tests/unit/app/modules/document-viewer/thumbnails/documentThumbnailViewport.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-57
+app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionRange.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 10
+app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 11
+  s_05b486eb07d38a::t_55dfebf6621c78 12,16
+tests/unit/app/modules/document-viewer/viewport/documentViewportTransactionReducer.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-290
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 16
+app/modules/document-viewer/workspaceSurfaceBudget.ts
+  s_05b486eb07d38a::t_faced75f6afba5 7
+  s_05b486eb07d38a::t_68898c75f77014 1-6
+tests/unit/app/modules/document-viewer/viewport/documentViewportNavigationMachine.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-107
+app/components/document-viewer/DocumentBookmarkTree.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 30
+app/modules/native-pdf-viewer/components/NativePdfPageContent.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 60
+app/modules/document-viewer/chassis/createDocumentViewerRenderCoordinator.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-171
+tests/unit/app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 13
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 17
+tests/unit/app/modules/document-viewer/createDocumentOpenGenerationErrorLatch.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-24
+app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/workspace-shell/viewers/resolveDocumentPageSourceSearchHighlights.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 3
+app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 273
+app/types/pdfOutline.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 18-19
+app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation.ts
+  s_05b486eb07d38a::t_68898c75f77014 6-7
+  s_05b486eb07d38a::t_e87547d85af95f 1-5,8-112
+app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 7
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 213
+app/modules/document-viewer/search/createDocumentPageSourceSearchBackend.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,8-74
+  s_05b486eb07d38a::t_68898c75f77014 5-7
+app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 8
+app/modules/workspace-shell/agent/createDocumentAgentPageImageCapture.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 11
+  s_05b486eb07d38a::t_cc8a028dcbad7e 8-10
+tests/unit/app/modules/workspace-shell/components/documentSourceSidebarBookmarks.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 24-26
+app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 4
+app/modules/document-viewer/chassis/documentViewerChassisAuthority.ts
+  s_05b486eb07d38a::t_68898c75f77014 10,14,19-20,26-27
+  s_05b486eb07d38a::t_faced75f6afba5 15
+  s_05b486eb07d38a::t_e87547d85af95f 1-9,11-13,16-18,21-25,28-303
+tests/unit/app/modules/document-viewer/thumbnails/documentThumbnailLayout.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-356
+app/modules/document-viewer/resolveBoundedRasterDimensions.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-20
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 23
+app/modules/document-viewer/region-geometry/unionClientRects.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-10
+app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame.ts
+  s_05b486eb07d38a::t_979430fe31884f 1-2,6
+tests/unit/app/modules/document-viewer/documentViewerRenderCoordinator.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-139
+app/modules/document-viewer/region-geometry/normalizeClientRect.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-15
+app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-9,12-312
+  s_05b486eb07d38a::t_68898c75f77014 5,10-11
+app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionPointerDragHandlers.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionRectFromPointerDrag.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 4
+  s_05b486eb07d38a::t_cc8a028dcbad7e 5-7
+app/modules/pdf-viewer/components/PdfThumbnails.vue
+  s_05b486eb07d38a::t_cc8a028dcbad7e 94-98
+  s_05b486eb07d38a::t_55dfebf6621c78 120
+app/composables/useDjvu.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 32-34,38
+  s_05b486eb07d38a::t_55dfebf6621c78 39
+app/modules/workspace-shell/composables/useDocumentSourceSidebarSession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2-3
+tests/unit/app/composables/pdfRegionSnip.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 9-10
+tests/unit/app/modules/pdf-viewer/components/pdfPageDropdownModel.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 12
+tests/unit/app/modules/pdf-viewer/components/pdfSearchResultsSummary.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 7
+app/modules/document-viewer/providers/formatDocumentSearchResultsSummary.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-23
+app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession.ts
+  s_05b486eb07d38a::t_68898c75f77014 10
+  s_05b486eb07d38a::t_e87547d85af95f 1-9,11-52
+app/modules/pdf-viewer/engine/pdf-region-drag/hasActiveSelectionDrag.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+scripts/architecture/boundary-check.mjs
+  s_05b486eb07d38a::t_e87547d85af95f 902
+  s_05b486eb07d38a::t_d5a95e88b094b8 265-278
+app/modules/document-viewer/region-geometry/getRectWidth.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-5
+eslint-plugin-custom.mjs
+  s_05b486eb07d38a::t_e87547d85af95f 1090
+tests/unit/app/modules/pdf-viewer/runtime/navigation/createWheelFlipGate.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 6
+app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache.ts
+  s_05b486eb07d38a::t_e87547d85af95f 2-88
+  s_05b486eb07d38a::t_68898c75f77014 1
+docs/internal/architecture-audit-2026-07-05.md
+  s_05b486eb07d38a::t_e87547d85af95f 53
+tests/unit/app/modules/pdf-viewer/runtime/navigation/singlePageWheelNavigation.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 15-16
+app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 12
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 29-30,33
+tests/unit/app/modules/workspace-shell/viewers/documentWorkspacePageSourceIntegration.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 21,25,32
+app/modules/document-viewer/public.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 36-42
+  s_05b486eb07d38a::t_645a9765bd5b80 20
+  s_05b486eb07d38a::t_0fc17c5d758327 43
+  s_05b486eb07d38a::t_10358277c065d1 1-19,21-35,44-211
+tests/unit/app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-125
+app/modules/document-viewer/source/documentPageSource.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-88
+app/modules/document-viewer/region-geometry/keyboardSelection.ts
+  s_05b486eb07d38a::t_e87547d85af95f 4-85
+  s_05b486eb07d38a::t_68898c75f77014 1-3
+tests/unit/app/modules/pdf-viewer/shouldApplyPdfOpeningPageFrame.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 7
+app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/native-pdf-viewer/runtime/nativePdfSparsePageGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5-6
+app/modules/workspace-shell/agent/createDocumentAgentPageLabels.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 34
+app/modules/pdf-viewer/runtime/viewport/usePdfOpenVirtualSurfaceGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+app/modules/workspace-shell/composables/useDocumentOpenVisualSettle.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 4
+app/modules/document-viewer/region-geometry/clampClientPointToRect.ts
+  s_05b486eb07d38a::t_68898c75f77014 5
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-15
+app/modules/workspace-shell/memory/workspaceSurfaceBudgetController.ts
+  s_05b486eb07d38a::t_b0b1913ad65534 2
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 137
+app/modules/pdf-viewer/components/PdfSidebar.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 155,159
+app/modules/pdf-viewer/components/PdfViewer.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 107
+  s_05b486eb07d38a::t_cc8a028dcbad7e 106
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 7
+app/modules/workspace-shell/types/workspaceOrchestration.types.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 10
+tests/unit/app/modules/document-viewer/documentThumbnailRowSurfacePrecedence.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 13-14,41
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerRevisionLifecycle.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 27,33
+app/modules/document-viewer/source/createPdfPageSource.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-10,12-50
+  s_05b486eb07d38a::t_68898c75f77014 11
+tests/unit/app/modules/pdf-viewer/createPdfDocumentSearchSession.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 9
+tests/unit/app/modules/pdf-viewer/engine/pdfPageRasterScheduler.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 23
+tests/unit/app/modules/pdf-viewer/runtime/commitPdfInitialPageSkeletonGeometry.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 13-14
+tests/unit/app/modules/document-viewer/documentOpenSurfaceSession.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-2099
+tests/unit/app/modules/document-viewer/pageVirtualization.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-182
+app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionReducer.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 10
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+app/modules/document-viewer/chassis/documentOpeningPageFrameAuthority.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-9,11-14,18-221
+  s_05b486eb07d38a::t_68898c75f77014 10,15,17
+  s_05b486eb07d38a::t_faced75f6afba5 16
+tests/unit/app/modules/pdf-viewer/runtime/pdfViewerFeatureControllerWiring.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 20-22
+app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 9
+app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 52
+app/modules/document-viewer/lifecycle/documentViewerActivationPresentation.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-68
+app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 24
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerInitialRenderScheduling.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 20
+app/components/document-viewer/DocumentThumbnailList.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 77
+  s_05b486eb07d38a::t_cc8a028dcbad7e 74-76
+app/modules/document-viewer/thumbnails/useDocumentThumbnailController.ts
+  s_05b486eb07d38a::t_68898c75f77014 6,11,17-18,24-26,32
+  s_05b486eb07d38a::t_e87547d85af95f 1-5,7-10,12-16,19-23,27-31,33-873
+app/modules/pdf-viewer/runtime/lifecycle/prewarmRecentPdfOpeningGeometry.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 12
+app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 9
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerLoadingState.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 17
+tests/unit/app/modules/document-viewer/resolveVirtualRowRevealScrollTop.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-65
+tests/unit/app/modules/document-viewer/zoomPolicy.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-23
+app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/modules/document-viewer/viewport/documentViewportNavigationMachine.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-218
+app/modules/document-viewer/zoomAnchor.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-135
+app/modules/pdf-viewer/runtime/rendering/resolvePdfRasterResidencyPlan.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 8
+docs/internal/navigation-zoom-audit-2026-08-22-implementation-ledger.md
+  s_05b486eb07d38a::t_e87547d85af95f 369,390
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 18
+app/types/workspaceExpose.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 22
+tests/unit/app/modules/document-viewer/pageLabels.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-364
+app/modules/document-viewer/pageLabels.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-239
+tests/unit/app/modules/document-viewer/zoomAnchor.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-211
+tests/unit/app/modules/document-viewer/viewerInitialSurfaceBehavior.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 23
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 131-132
+app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+app/modules/native-pdf-viewer/runtime/revokeNativePdfPageObjectUrl.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/components/document-viewer/DocumentSearchResults.vue
+  s_05b486eb07d38a::t_cc8a028dcbad7e 112-116,121
+  s_05b486eb07d38a::t_55dfebf6621c78 122
+app/modules/pdf-viewer/engine/region-selection/regionRectStyle.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/components/document-viewer/DocumentSearchPanel.vue
+  s_05b486eb07d38a::t_cc8a028dcbad7e 33-35
+app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-2,4-20
+  s_05b486eb07d38a::t_68898c75f77014 3
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 8
+tests/unit/app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 25
+app/modules/workspace-shell/components/DocumentSourceSidebar.vue
+  s_05b486eb07d38a::t_cc8a028dcbad7e 63-68
+tests/unit/app/modules/document-viewer/thumbnails/documentThumbnailScrollRestorer.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-120
+app/modules/document-viewer/thumbnails/documentThumbnailViewport.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-90
+app/modules/workspace-shell/composables/usePdfFile.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 17
+docs/architecture/glossary.md
+  s_05b486eb07d38a::t_ac43761638adbe 82-93
+app/modules/pdf-viewer/runtime/save/nativeMetadataMutations.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 5
+app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+tests/unit/app/modules/document-viewer/viewport/createDocumentViewportRenderList.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-94
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 9
+app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 2
+app/modules/document-viewer/thumbnails/documentThumbnailScheduler.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-355
+  s_05b486eb07d38a::t_68898c75f77014 5
+tests/unit/app/modules/document-viewer/documentViewerChassisAuthority.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-357
+app/modules/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-75
+app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 9
+tests/unit/app/modules/document-viewer/documentViewportSession.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-643
+app/platform/browser-api/createNativeDjvuTextSearchBridge.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 10
+app/modules/workspace-shell/public/workspaceSurfaceBudget.ts
+  s_05b486eb07d38a::t_3041b52a6e9961 1-10
+app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 16
+  s_05b486eb07d38a::t_cc8a028dcbad7e 13,15
+app/modules/document-viewer/thumbnails/documentThumbnailListEmits.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-14
+app/modules/document-viewer/source/createPagePreviewDocumentSource.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-4,6-9,11-172
+  s_05b486eb07d38a::t_68898c75f77014 5,10
+app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6,21
+  s_05b486eb07d38a::t_cc8a028dcbad7e 5
+app/modules/document-viewer/layout/documentPageGutterPx.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-2
+app/components/document-viewer/DocumentBookmarkTreeItem.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 33
+tests/unit/app/modules/document-viewer/documentSourceNavigation.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-89
+app/components/document-viewer/DocumentBookmarkToolbar.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 72
+app/modules/scan-cleanup/composables/useScanCleanupViewportFrame.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 11
+tests/unit/app/modules/document-viewer/resolveDocumentPageDisplayLayout.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-94
+tests/helpers/document-viewer/documentSourceSidebarHarness.ts
+  s_05b486eb07d38a::t_e87547d85af95f 12
+app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/shouldApplyPdfOpeningPageFrame.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+app/modules/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1,3-112
+  s_05b486eb07d38a::t_68898c75f77014 2
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourceConcurrentLifecycle.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 3,28,32-33,42
+tests/unit/app/modules/document-viewer/documentOpeningPageFrameAuthority.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-197
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 43
+app/modules/document-viewer/region-geometry/getRectHeight.ts
+  s_05b486eb07d38a::t_68898c75f77014 1
+  s_05b486eb07d38a::t_e87547d85af95f 2-5
+app/modules/document-viewer/viewport/createDocumentViewportRenderList.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-6,8-76
+  s_05b486eb07d38a::t_68898c75f77014 7
+app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoomSession.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 4
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 34-35
+app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 21
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 54
+tests/unit/app/components/documentBookmarkTree.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 22
+tests/unit/app/modules/document-viewer/thumbnails/documentThumbnailScheduler.test.ts
+  s_05b486eb07d38a::t_2b2c7458dc61c5 1-367
+app/modules/document-viewer/region-geometry/regionGeometryTypes.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-27
+tests/unit/app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame.test.ts
+  s_05b486eb07d38a::t_1c8dd9185c0a7a 6
+app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController.ts
+  s_05b486eb07d38a::t_cc8a028dcbad7e 11,15
+  s_05b486eb07d38a::t_55dfebf6621c78 12,16
+tests/unit/app/components/documentSearchResults.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 19
+app/modules/pdf-viewer/components/PdfPageDropdown.vue
+  s_05b486eb07d38a::t_55dfebf6621c78 106
+app/modules/workspace-shell/memory/viewerResidencyPolicy.ts
+  s_05b486eb07d38a::t_b0b1913ad65534 2
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 15
+app/modules/document-viewer/rendering/resolveDocumentRasterResidencyPlan.ts
+  s_05b486eb07d38a::t_68898c75f77014 1-119
+app/modules/document-viewer/source/createDjvuPageSource.ts
+  s_05b486eb07d38a::t_e87547d85af95f 1-5,7-11,13-311
+  s_05b486eb07d38a::t_68898c75f77014 6,12
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourceSearchHighlights.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 7
+app/modules/pdf-viewer/engine/pdfPageDropdownModel.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 6
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourcePresentationLifecycle.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 17-18,24
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay.ts
+  s_05b486eb07d38a::t_55dfebf6621c78 1
+tests/unit/app/modules/pdf-viewer/runtime/usePdfRenderViewModel.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 17
+app/modules/document-viewer/bookmarks/useDocumentBookmarkSession.ts
+  s_05b486eb07d38a::t_68898c75f77014 3,11
+  s_05b486eb07d38a::t_e87547d85af95f 1-2,4-10,12-122
+tests/unit/app/modules/pdf-viewer/engine/buildPdfCommittedOpenVirtualSpacerStyle.test.ts
+  s_05b486eb07d38a::t_e87547d85af95f 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ba37dd822fef95bd663d56069296c78ac89bb4b0",
+  "prompts": {},
+  "sessions": {
+    "s_05b486eb07d38a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09a30-97bd-7511-9bdc-fd3b0cb9b68a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
