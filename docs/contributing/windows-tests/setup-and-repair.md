@@ -171,6 +171,33 @@ Copying does not remove personal files, credentials, or inherited settings.
    `images/baselines/`. Write `images/baselines/<goldenImageId>.json` with the
    observed identity and configuration below. Set `goldenVmId` and
    `goldenImageId` in the host config.
+
+   Before promotion, verify the Drive entries without printing full paths:
+
+   ```sh
+   plutil -convert json -o - "/absolute/path/to/<golden>.utm/config.plist" \
+     | jq '[.Drive[] | {interface: .Interface, removable: (.Removable // false), imageName: (.ImageName // "" | split("/")[-1] | split("\\\\")[-1])}]'
+   ```
+
+   With every VM stopped and UTM quit normally, back up `config.plist`. Remove
+   only removable or CD entries with no image, or entries whose image is
+   outside the bundle. Delete Drive entries from the highest index first so
+   later indices do not move. For example, this removes two empty CD entries
+   at indices 2 and 0 while preserving the system disk:
+
+   ```sh
+   cp -p "/absolute/path/to/<golden>.utm/config.plist" \
+     "/absolute/path/to/<golden>.utm/config.plist.pre-media-removal.bak"
+   /usr/libexec/PlistBuddy \
+     -c 'Delete :Drive:2' \
+     -c 'Delete :Drive:0' \
+     "/absolute/path/to/<golden>.utm/config.plist"
+   ```
+
+   Run the redacted Drive listing again. Confirm that every remaining
+   `ImageName` is a basename inside the bundle, that the bundle has no
+   symbolic links, and that `pnpm windows:test:doctor` passes before changing
+   the golden-image fields.
 8. Run `pnpm windows:test:doctor` again. The golden VM must be stopped and
    registered.
 
