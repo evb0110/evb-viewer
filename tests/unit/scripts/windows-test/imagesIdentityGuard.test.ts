@@ -274,9 +274,10 @@ describe('destructive VM identity guard', () => {
                     guestFiles.set(request.Destination, Buffer.concat(request.Parts.map(part => guestFiles.get(part) ?? Buffer.alloc(0))));
                     request.Parts.forEach(part => guestFiles.delete(part));
                 }
+                const actual = guestFiles.get(destination) ?? Buffer.alloc(0);
                 return {
                     exitCode: 0,
-                    stdout: options?.input === undefined ? `match ${createHash('sha256').update(contents).digest('hex')}` : '',
+                    stdout: `evb-chunk-sha256=${createHash('sha256').update(actual).digest('hex')}`,
                     stderr: '',
                     timedOut: false,
                     signal: null,

@@ -14,16 +14,22 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { windowsTestGuestLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
+import { windowsTestDefaultDeadlines } from '@scripts/windows-test/contracts/windowsTestContracts';
 import { isFreshInteractiveWorkerHeartbeat } from '@scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat';
 import { GUEST_POWERSHELL_COMMAND } from '@scripts/windows-test/host/guestChannel';
 
 const GUEST_FILE_CHUNK_BYTES = 1024 * 1024;
+const GUEST_TRANSPORT_TIMEOUT_MS = windowsTestDefaultDeadlines.guestTransportSeconds * 1_000;
 const GUEST_REASSEMBLE_COMMAND = [
     '$ErrorActionPreference = \'Stop\'',
     '$request = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+    '$parent = [IO.Path]::GetDirectoryName([string]$request.Destination)',
+    'if (-not [string]::IsNullOrWhiteSpace($parent)) { [IO.Directory]::CreateDirectory($parent) | Out-Null }',
     '$output = [IO.File]::Open([string]$request.Destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)',
     'try { foreach ($part in $request.Parts) { $input = [IO.File]::OpenRead([string]$part); try { $input.CopyTo($output) } finally { $input.Dispose() } } } finally { $output.Dispose() }',
     'foreach ($part in $request.Parts) { Remove-Item -LiteralPath ([string]$part) -Force }',
+    '$hash = (Get-FileHash -LiteralPath ([string]$request.Destination) -Algorithm SHA256).Hash.ToLowerInvariant()',
+    'Write-Output (\'evb-chunk-sha256=\' + $hash)',
 ].join('; ');
 
 export type TNativeInputModifier = 'command' | 'control' | 'option' | 'shift';
@@ -127,17 +133,13 @@ export function createNativeInputProvisioner(options: INativeInputProvisioningOp
                 ...GUEST_POWERSHELL_COMMAND,
                 '-Command',
                 GUEST_REASSEMBLE_COMMAND,
-            ], timeoutMs, JSON.stringify({
+            ], GUEST_TRANSPORT_TIMEOUT_MS, JSON.stringify({
                 Destination: guestPath,
                 Parts: guestChunkPaths,
             }));
-            if (outcome.transportFailure !== null || outcome.exitCode !== 0) {
+            const hashMatch = /(?:^|\r?\n)evb-chunk-sha256=([0-9a-f]{64})(?:\r?\n|$)/iu.exec(outcome.stdout);
+            if (outcome.transportFailure !== null || outcome.exitCode !== 0 || hashMatch?.[1]?.toLowerCase() !== expectedSha256.toLowerCase()) {
                 throw new Error(`Chunk reassembly failed for ${hostPath}.`);
-            }
-            const wholeReadbackPath = path.join(temporaryDirectory, 'whole-readback.bin');
-            if (!await options.guest.pullGuestFile(options.target.vmId, guestPath, wholeReadbackPath, timeoutMs)
-                || createHash('sha256').update(await readFile(wholeReadbackPath)).digest('hex') !== expectedSha256) {
-                throw new Error(`The reassembled guest file ${guestPath} failed hash verification.`);
             }
         } finally {
             await Promise.all(chunkPaths.map(chunkPath => rm(chunkPath, {force: true})));
