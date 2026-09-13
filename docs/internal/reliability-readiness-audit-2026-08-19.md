@@ -293,7 +293,7 @@ The native search service reads and dispatches frames on one stdin loop (`native
 
 ### R-32 and R-33 — Native parsers enforce important limits too late
 
-OCR reads the complete TSV as UTF-8 and then duplicates it into line/field/word structures without a size/row/text cap (`electron/ocr/worker/tesseractRunner.ts:224-228,370-425,473-497`). The worker heap limit helps isolate failure but does not bound buffer/external/transient allocations.
+OCR reads the complete TSV as UTF-8 and then duplicates it into line/field/word structures without a size/row/text cap (`electron/features/ocr/worker/tesseractRunner.ts:224-228,370-425,473-497`). The worker heap limit helps isolate failure but does not bound buffer/external/transient allocations.
 
 PDF page-ops declares encoded, stream, object, and page limits, but calls `Document::load_mem_with_options` before whole-document object/page validation (`native/pdf-page-ops/src/load_policy.rs:8-11,85-120`). A crafted compact PDF can consume substantial memory/CPU before rejection.
 
@@ -327,7 +327,7 @@ The landing configuration has no security route headers (`landing/nuxt.config.ts
 
 ### R-34 — OCR drops low-confidence words from search
 
-Words below confidence 20 are discarded before text construction (`electron/ocr/worker/tesseractRunner.ts:397-425`). The unit test explicitly omits confidence-18 `faint` (`tests/unit/electron/tesseract.test.ts:189-218`), and the index prefers that filtered text (`electron/ocr/worker/indexWriter.ts:208-214`).
+Words below confidence 20 are discarded before text construction (`electron/features/ocr/worker/tesseractRunner.ts:397-425`). The unit test explicitly omits confidence-18 `faint` (`tests/unit/electron/tesseract.test.ts:189-218`), and the index prefers that filtered text (`electron/features/ocr/worker/indexWriter.ts:208-214`).
 
 **Impact:** faint/historical/unusual-font tokens can exist in Tesseract's PDF text but not EVB search. **Fix:** retain structurally valid text with confidence metadata; use confidence to flag geometry, not erase recognition.
 

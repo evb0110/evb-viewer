@@ -1,5 +1,5 @@
 import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
-import type { TOcrPdfPageSelection } from '@electron/ocr/worker/types';
+import type { TOcrPdfPageSelection } from '@electron/features/ocr/worker/types';
 import { getOcrPageSelectionCount } from '@electron/features/ocr/contracts';
 import { getOcrConcurrency } from '@electron/utils/concurrency';
 

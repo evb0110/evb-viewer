@@ -721,18 +721,6 @@ describe('dependency graph', () => {
 
     it('locks Finding 7 native-tool ownership boundaries', () => {
         expect(checkArchitectureBoundaryEdge({
-            source: 'electron/native-tools/resolveNativeToolsBase.ts',
-            target: 'electron/ocr/resolveOcrResourcesBase.ts',
-            specifier: '@electron/ocr/resolveOcrResourcesBase',
-        })).toEqual([{
-            rule: 'native-tools-domain-import',
-            source: 'electron/native-tools/resolveNativeToolsBase.ts',
-            target: 'electron/ocr/resolveOcrResourcesBase.ts',
-            specifier: '@electron/ocr/resolveOcrResourcesBase',
-            message: 'Generic native-tool code must not import OCR, PDF, or DjVu domain modules.',
-        }]);
-
-        expect(checkArchitectureBoundaryEdge({
             source: 'electron/native-tools/getNativeToolBinaryPath.ts',
             target: 'electron/pdf/nativeToolPaths.ts',
             specifier: '@electron/pdf/nativeToolPaths',
@@ -746,20 +734,29 @@ describe('dependency graph', () => {
 
         expect(checkArchitectureBoundaryEdge({
             source: 'electron/features/image-export/main/export.ts',
-            target: 'electron/ocr/worker/dpiDetection.ts',
-            specifier: '@electron/ocr/worker/dpiDetection',
-        })).toEqual([{
-            rule: 'ocr-native-tool-boundary-import',
-            source: 'electron/features/image-export/main/export.ts',
-            target: 'electron/ocr/worker/dpiDetection.ts',
-            specifier: '@electron/ocr/worker/dpiDetection',
-            message: 'Non-OCR Electron code must not import OCR-owned native-tool, resource, or DPI helpers.',
-        }]);
+            target: 'electron/features/ocr/worker/dpiDetection.ts',
+            specifier: '@electron/features/ocr/worker/dpiDetection',
+        })).toEqual([
+            {
+                rule: 'electron-cross-feature-deep-import',
+                source: 'electron/features/image-export/main/export.ts',
+                target: 'electron/features/ocr/worker/dpiDetection.ts',
+                specifier: '@electron/features/ocr/worker/dpiDetection',
+                message: 'Cross-feature imports in electron/features must use public entrypoints only.',
+            },
+            {
+                rule: 'ocr-native-tool-boundary-import',
+                source: 'electron/features/image-export/main/export.ts',
+                target: 'electron/features/ocr/worker/dpiDetection.ts',
+                specifier: '@electron/features/ocr/worker/dpiDetection',
+                message: 'Non-OCR Electron code must not import OCR-owned native-tool, resource, or DPI helpers.',
+            },
+        ]);
 
         expect(checkArchitectureBoundaryEdge({
             source: 'electron/features/ocr/main/ocrOperations.ts',
-            target: 'electron/ocr/paths.ts',
-            specifier: '@electron/ocr/paths',
+            target: 'electron/features/ocr/main/paths.ts',
+            specifier: '@electron/features/ocr/main/paths',
         })).toEqual([]);
 
         expect(checkArchitectureBoundaryEdge({

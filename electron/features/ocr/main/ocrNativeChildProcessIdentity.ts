@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { terminateProcessTree } from '@electron/utils/processTree';
 import { shouldUseDetachedProcessGroup } from '@electron/utils/nativeChildProcess';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
-import type {IOcrNativeChildProcessIdentity} from '@electron/ocr/worker/types';
+import type {IOcrNativeChildProcessIdentity} from '@electron/features/ocr/worker/types';
 import type { IOcrNativeChildRecord } from '@electron/features/ocr/main/jobManager.types';
 
 const OCR_NATIVE_CHILD_KILL_GRACE_MS = parseIntegerEnv(

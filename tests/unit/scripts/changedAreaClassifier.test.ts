@@ -163,7 +163,7 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
         for (const file of [
             '.github/workflows/build-target.yml',
-            'electron/ocr/worker/main.ts',
+            'electron/features/ocr/worker/main.ts',
             'electron-builder.yml',
             'package.json',
             'pnpm-lock.yaml',

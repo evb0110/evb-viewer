@@ -6,7 +6,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IOcrPdfPageRequest,
     TWorkerLog,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import { iterateOcrPageRanges } from '@electron/features/ocr/contracts';
 import {
     classifyOcrPageText,

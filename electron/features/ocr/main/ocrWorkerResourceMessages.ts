@@ -11,7 +11,7 @@ import {
 import type {
     TOcrWorkerInboundMessage,
     TOcrWorkerOutboundMessage,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 
 const log = createLogger('ocr-ipc');
 

@@ -13,7 +13,7 @@ import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
 } from '@electron/features/ocr/worker/popplerStage';
-import type { IWorkerPaths } from '@electron/ocr/worker/types';
+import type { IWorkerPaths } from '@electron/features/ocr/worker/types';
 
 const mocks = vi.hoisted(() => ({
     readPngDimensions: vi.fn(),

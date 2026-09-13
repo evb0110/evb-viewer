@@ -16,7 +16,7 @@ import type {
     TOcrPdfPageSelection,
     IOcrNativeChildProcessIdentity,
     TOcrWorkerCompleteResult,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import type { IMainJobRunContext } from '@electron/operation-lifecycle/createMainJobRegistry';
 
 export interface IOcrRegistryProgress extends IOcrProgress {projection: {

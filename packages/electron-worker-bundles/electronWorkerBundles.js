@@ -44,7 +44,7 @@ export const WORKER_BUNDLES = [
     },
     {
         id: 'ocr',
-        entryPoint: 'electron/ocr/worker/main.ts',
+        entryPoint: 'electron/features/ocr/worker/main.ts',
         fileName: 'ocr-worker.js',
         format: 'esm',
         unpacked: true,

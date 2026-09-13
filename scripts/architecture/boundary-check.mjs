@@ -116,6 +116,11 @@ const RETIRED_ELECTRON_FEATURE_SHIM_PATHS = new Set([
     'electron/djvu/conversion.ts',
     'electron/djvu/convert.ts',
     'electron/djvu/viewing.ts',
+    'electron/ocr/worker/main.ts',
+    'electron/ocr/worker/writeOcrIndexes.ts',
+    'electron/ocr/worker/types.ts',
+    'electron/ocr/worker/runProductionOcrQualityCase.ts',
+    'electron/ocr/worker/indexWriter.ts',
     'electron/search/protocol.ts',
 ]);
 
@@ -319,15 +324,14 @@ const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
 const NATIVE_TOOL_DOMAIN_ROOTS = [
-    'electron/ocr',
     'electron/pdf',
     'electron/features/djvu',
 ];
 const OCR_NATIVE_TOOL_BOUNDARY_TARGETS = new Set(`
-electron/ocr/paths.ts
-electron/ocr/nativeToolPaths.ts
-electron/ocr/resolveOcrResourcesBase.ts
-electron/ocr/worker/dpiDetection.ts
+electron/features/ocr/main/paths.ts
+electron/features/ocr/main/nativeToolPaths.ts
+electron/features/ocr/main/resolveOcrResourcesBase.ts
+electron/features/ocr/worker/dpiDetection.ts
 `.trim().split('\n'));
 
 /** @type {IFeatureBoundaryRule[]} */
@@ -604,8 +608,7 @@ function isTestSource(filePath) {
 
 /** @param {string} filePath @returns {boolean} */
 function isOcrNativeToolBoundaryOwner(filePath) {
-    return matchesRoot(filePath, 'electron/ocr')
-        || matchesRoot(filePath, 'electron/features/ocr');
+    return matchesRoot(filePath, 'electron/features/ocr');
 }
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */

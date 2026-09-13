@@ -38,7 +38,7 @@ describe('resolveOcrResourcesBase', () => {
         mocks.existsSync.mockImplementation((path: string) => path === join('/repo/resources', 'tesseract'));
         const { resolveOcrResourcesBase } = await import('@electron/features/ocr/main/resolveOcrResourcesBase');
 
-        expect(resolveOcrResourcesBase('/repo/electron/ocr', false))
+        expect(resolveOcrResourcesBase('/repo/electron/features/ocr/main', false))
             .toBe('/repo/resources');
     });
 

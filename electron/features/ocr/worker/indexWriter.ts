@@ -24,7 +24,7 @@ import {
 import type {
     IOcrPageWithWords,
     TWorkerLog,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import type {
     IOcrIndexV3Manifest,
     IOcrIndexV3Page,

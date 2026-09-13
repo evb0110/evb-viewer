@@ -71,7 +71,7 @@ Either wire this into the release workflow with a committed fixture (a small syn
 ## [MEDIUM] OCR preprocessing shells out to the same scan-cleanup binary with CleanupOptions::default(), and no oracle covers that path while binarization tuning is in flight
 
 - **kind**: coverage-gap
-- **locations**: electron/ocr/worker/tryPreprocessOcrImage.ts:85-113, native/scan-cleanup/src/adapters/batch_cli.rs:419-450, native/scan-cleanup/src/domain/options.rs:487-531, tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts:16, native/scan-cleanup/tests/page_cli.rs:2297
+- **locations**: electron/features/ocr/worker/tryPreprocessOcrImage.ts:85-113, native/scan-cleanup/src/adapters/batch_cli.rs:419-450, native/scan-cleanup/src/domain/options.rs:487-531, tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts:16, native/scan-cleanup/tests/page_cli.rs:2297
 
 **Evidence**
 
@@ -122,4 +122,3 @@ A PR adds exactly the kind of one-consumer wrapper, duplicate state container, o
 **Recommendation**
 
 Move the durable Design/OCR/UI/Native-CI rules out of the ignored CLAUDE.md into a tracked file (e.g. docs/architecture/design-charter.md), and reference them from `.coderabbit.yaml` path_instructions so the reviewer applies them. Keep only genuinely machine-local agent preferences in the ignored files.
-

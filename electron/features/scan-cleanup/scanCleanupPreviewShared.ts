@@ -56,8 +56,8 @@ import type { atomicReplace } from '@electron/utils/atomicReplace';
 import type {
     renderPdfPageToPng,
     renderPdfPageToPpm,
+    TWorkerLog,
 } from '@electron/features/ocr/publicNative';
-import type { TWorkerLog } from '@electron/ocr/worker/types';
 import type {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 
 import type {

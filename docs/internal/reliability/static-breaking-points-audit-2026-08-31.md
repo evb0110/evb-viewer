@@ -29,7 +29,7 @@ Red test: close a dirty native window through both title-bar close and `closeCur
 
 ### D02. P1: unreadable or partial transaction journals are treated as absent
 
-`electron/file-access/recoverTwoTargetDocumentTransition.ts:41-48`, `electron/file-access/workingCopyContentTransitionJournal.ts:362-385`, and `electron/ocr/recoverPreparedOcrRevisionTransition.ts:96-104` catch every read and JSON error and return no journal. `electron/file-access/documentRevisionStore.ts:244-269` then returns or creates a revision. After a crash between byte publication and sidecar publication, `EACCES`, `EIO`, or truncated JSON bypasses rollback and lets a later mutation overwrite recovery evidence. Static. Closed SAV-002, #122, and #146 tested transition-time failure, not restart-time journal-read failure.
+`electron/file-access/recoverTwoTargetDocumentTransition.ts:41-48`, `electron/file-access/workingCopyContentTransitionJournal.ts:362-385`, and `electron/features/ocr/main/recoverPreparedOcrRevisionTransition.ts:96-104` catch every read and JSON error and return no journal. `electron/file-access/documentRevisionStore.ts:244-269` then returns or creates a revision. After a crash between byte publication and sidecar publication, `EACCES`, `EIO`, or truncated JSON bypasses rollback and lets a later mutation overwrite recovery evidence. Static. Closed SAV-002, #122, and #146 tested transition-time failure, not restart-time journal-read failure.
 
 Red test: make each prepared journal read fail with `EACCES` and with truncated JSON. Recovery must fail closed, preserve backups, and block a new transition.
 
