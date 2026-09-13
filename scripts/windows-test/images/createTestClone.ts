@@ -96,9 +96,13 @@ export async function createTestClone(options: {
         throw new Error('Golden image identity or bundle location does not match the configured lab image.');
     }
     const registered = await utmctl.list();
-    const retained = new Set(registered.filter(entry => entry.name.startsWith('evb-win-test-')).map(entry => entry.name));
+    const retained = new Set(registered
+        .filter(entry => entry.uuid.toLowerCase() !== config.goldenVmId
+            && entry.name.startsWith('evb-win-test-'))
+        .map(entry => entry.name));
     for (const entry of await readdir(root)) {
-        if (entry.startsWith('evb-win-test-') && entry.endsWith('.utm')) {
+        if (entry.startsWith('evb-win-test-') && entry.endsWith('.utm')
+            && path.resolve(root, entry) !== source) {
             retained.add(entry.slice(0, -4));
         }
     }

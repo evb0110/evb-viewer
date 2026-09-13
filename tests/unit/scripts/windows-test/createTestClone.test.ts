@@ -3,6 +3,7 @@ import {
     mkdtemp,
     readFile,
     realpath,
+    rename,
     rm,
     symlink,
     writeFile,
@@ -202,6 +203,15 @@ it('counts a preserved unregistered clone against the retention limit', async ()
     await mkdir(path.join(harness.root, 'evb-win-test-20260904T000000Z-0123456789ab.utm'));
     await expect(createTestClone(harness.options)).rejects.toThrow('Retained test clones');
     expect(harness.commands).toEqual([]);
+});
+
+it('does not count the promoted golden bundle as a retained clone', async () => {
+    const harness = await fixture();
+    const promoted = path.join(harness.root, 'evb-win-test-promoted.utm');
+    await rename(harness.source, promoted);
+    harness.options.manifest.bundlePath = promoted;
+    await createTestClone(harness.options);
+    expect(harness.commands.some(entry => entry.args.includes(cloneName))).toBe(true);
 });
 
 it('copies input media into the clone and inserts only a read-only USB CD drive in the clone config', async () => {
