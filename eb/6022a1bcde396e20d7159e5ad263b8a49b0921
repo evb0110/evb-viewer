@@ -1,0 +1,86 @@
+app/platform/browser-api/browserSettingsCapability.ts
+  s_145ae2bbe19ba9::t_3b574247f81ffb 12,110,167,196
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_145ae2bbe19ba9::t_26943ca3d7e669 471
+tests/unit/contracts/settingsPlatformFeature.test.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 27-33
+packages/i18n-app/messages/de.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1631
+packages/contracts/settings.ts
+  s_145ae2bbe19ba9::t_6a35d1d25bb07e 282-287,301-304
+  s_145ae2bbe19ba9::t_3b574247f81ffb 56-59,130-133,279-281,288-300,305-312,334
+  s_145ae2bbe19ba9::t_feac2928c2ad5b 313-331,333
+  s_145ae2bbe19ba9::t_684e18e10bbca4 17,97,332
+app/app.vue
+  s_145ae2bbe19ba9::t_3b574247f81ffb 640-641,645-647
+packages/i18n-app/messages/pt.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1642
+packages/i18n-app/messages/fr.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1642
+electron/features/settings/createSettingsMainBindings.ts
+  s_145ae2bbe19ba9::t_3b574247f81ffb 162
+electron/settings.ts
+  s_145ae2bbe19ba9::t_7223714562df67 139
+  s_145ae2bbe19ba9::t_3b574247f81ffb 11,125,127,137-138,140,172,245,266,288,300,313
+  s_145ae2bbe19ba9::t_0c8bfd3e858f89 237-238,277-282,331-336,341-342
+  s_145ae2bbe19ba9::t_f3a4a4e9e47ccc 343
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceNetZeroAnnotationSave.test.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 12,19,120-151
+  s_145ae2bbe19ba9::t_1c6f61b11184e1 152-154
+tests/unit/app/shared/settingsSanitizer.test.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 8,46-55
+  s_145ae2bbe19ba9::t_8b2714d6621eed 56-57
+packages/i18n-app/messages/es.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1631
+tests/unit/electron/settingsSingleFlight.test.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 192-193,196-198,200-213,215,220-227
+  s_145ae2bbe19ba9::t_6a35d1d25bb07e 194-195,199,214,216-219
+packages/i18n-app/messages/ptBr.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1642
+tests/unit/electron/settingsQuarantine.test.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 96-99,103-127
+  s_145ae2bbe19ba9::t_0665a20ffa1a76 55-58,66-69
+  s_30cfa78526c1ce::t_ceb29e7ffa83c9 128-129
+tests/unit/electron/recentFiles.test.ts
+  s_145ae2bbe19ba9::t_6a35d1d25bb07e 293
+  s_145ae2bbe19ba9::t_013a592b9f3653 269-292,294-297
+packages/i18n-app/messages/it.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1631
+electron/recentFiles.ts
+  s_145ae2bbe19ba9::t_55233a803117d6 166
+  s_145ae2bbe19ba9::t_3b574247f81ffb 195,197
+  s_145ae2bbe19ba9::t_6a35d1d25bb07e 161-164
+packages/i18n-app/messages/nl.ts
+  s_145ae2bbe19ba9::t_dbef9a8deb3e6a 1631
+packages/i18n-app/messages/en.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 1631
+packages/i18n-app/messages/ru.ts
+  s_145ae2bbe19ba9::t_013a592b9f3653 1671
+app/utils/browserSettingsPersistence.ts
+  s_145ae2bbe19ba9::t_3b574247f81ffb 5,147,164
+  s_145ae2bbe19ba9::t_99227b7e49c3b1 171,261,283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "eb6022a1bcde396e20d7159e5ad263b8a49b0921",
+  "prompts": {},
+  "sessions": {
+    "s_145ae2bbe19ba9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098c5-45de-7743-af82-0bd3692b9dfb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_30cfa78526c1ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098ca-900f-7ac2-8ab0-4ab184f30132",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
