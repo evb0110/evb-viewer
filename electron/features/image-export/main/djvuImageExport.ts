@@ -44,6 +44,7 @@ interface IDjvuImageExportOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
     onProgress?: (progress: Pick<IImageExportProgress, 'phase' | 'processed' | 'total' | 'percent'>) => void;
+    beforePublish?: () => Promise<void> | void;
     scratch?: {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;};
 }
 
@@ -179,6 +180,7 @@ async function renderDjvuImagePages(
             if (stagedFiles.length === 0) {
                 return;
             }
+            await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal, publicationLedger);
             stagedFiles.length = 0;
             stagedBytes = 0;
@@ -463,6 +465,7 @@ export async function exportDjvuAsMultiPageTiff(
         let promoted = false;
         try {
             throwIfAborted(options.signal);
+            await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal);
             promoted = true;
         } finally {

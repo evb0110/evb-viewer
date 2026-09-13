@@ -1123,6 +1123,7 @@ export default {
             one: '{count} file non supportato è stato ignorato.',
             other: '{count} file non supportati sono stati ignorati.',
         }),
+        'discardPending': 'Scarta il risultato in attesa',
     },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
@@ -1565,6 +1566,7 @@ export default {
         'export': {
             'images': 'Esportazione immagini non riuscita',
             'multiPageTiff': 'Esportazione TIFF non riuscita',
+            'alreadyRunning': 'Un’esportazione è già in corso',
         },
         'browser': {
             'filePickerSetupDenied': 'L’accesso del browser ai file è stato negato. Scegli di nuovo Apri per usare il selettore compatibile.',

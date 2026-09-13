@@ -12,6 +12,7 @@ import type {IDocumentsBatchProgress} from '@contracts/electronApiDocuments';
 import type {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {SerializableError} from '@contracts/serializableError';
 
 interface IMenuProgress {
     operation: 'document-open';
@@ -44,7 +45,10 @@ const mocks = vi.hoisted(() => {
             cancelOpenDocumentDirectBatch: vi.fn(async () => true),
             onOpenDocumentDirectBatchProgress,
         },
-        documentWorkingCopy: { createWorkingCopyFromData: vi.fn() },
+        documentWorkingCopy: {
+            createWorkingCopyFromData: vi.fn(),
+            cleanupFile: vi.fn(async () => undefined),
+        },
         failure: {
             eventId: '0123456789abcdef0123456789abcdef',
             code: 'UNCLASSIFIED_RENDERER_ERROR',
@@ -324,6 +328,65 @@ describe('combinePdfFiles', () => {
 
         await expect(pending).rejects.toMatchObject({code: 'canceled'});
         expect(mocks.documentOpen.cancelOpenDocumentDirectBatch).toHaveBeenCalledWith('pdf-combine-combine-request-1');
+    });
+
+    it('does not classify an unrelated aborted error as cancellation', async () => {
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
+        mocks.documentOpen.openDocumentDirectBatch.mockRejectedValue(new Error('native operation aborted unexpectedly'));
+
+        const error = await combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+        }).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({
+            code: 'open-failed',
+            failure: mocks.failure,
+        });
+        expect(mocks.logError).toHaveBeenCalledOnce();
+    });
+
+    it('classifies a typed native limit without inspecting its message', async () => {
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
+        mocks.documentOpen.openDocumentDirectBatch.mockRejectedValue(new SerializableError({
+            code: 'too-large',
+            message: 'The native combine limit was reached',
+        }));
+
+        await expect(combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+        })).rejects.toMatchObject({code: 'limit'});
+        expect(mocks.logError).not.toHaveBeenCalled();
+    });
+
+    it('cleans up a browser working copy when cancellation lands during materialization', async () => {
+        mocks.hasElectronAPI.mockReturnValue(false);
+        const controller = new AbortController();
+        const workingCopyDeferred: { resolve?: (path: string) => void; } = {};
+        mocks.documentWorkingCopy.createWorkingCopyFromData.mockImplementationOnce(() => new Promise((resolve) => {
+            workingCopyDeferred.resolve = resolve;
+        }));
+
+        const pending = combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+            signal: controller.signal,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.documentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledOnce();
+        });
+
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+        workingCopyDeferred.resolve?.('browser://documents/working/combined.pdf');
+
+        await expect(pending).rejects.toMatchObject({code: 'canceled'});
+        expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith(
+            'browser://documents/working/combined.pdf',
+        );
     });
 
     it('rejects oversized browser inputs with a structured limit code before starting work', async () => {

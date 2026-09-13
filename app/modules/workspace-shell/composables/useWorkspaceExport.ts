@@ -252,6 +252,13 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         });
     }
 
+    function showExportAlreadyRunningToast() {
+        toast.add({
+            color: 'warning',
+            title: t('errors.export.alreadyRunning'),
+        });
+    }
+
     function normalizeExportSelectedPages(selectedPages: number[]) {
         return uniq(selectedPages)
             .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages.value)
@@ -425,12 +432,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         task: (generation: number, selectedPageCount: number) => Promise<void>,
         handleFailure: (error: unknown) => void,
     ) {
-        if (!targetRef.value || isExportInProgress.value) {
+        if (!targetRef.value) {
+            isExportInProgress.value = false;
             return;
         }
         const selectedPageCount = getSelectedPageCount(pageNumbers);
         const generation = ++exportGeneration;
-        isExportInProgress.value = true;
         try {
             const preflight = beginRasterExportPreflight(generation, targetRef.value);
             if (!preflight) {
@@ -566,52 +573,54 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         );
     }
 
-    async function handleExportImages(selectedPages: TPageSelectionInput = []) {
-        if (!exportTargets.imageTarget.value) {
+    async function handleRasterExport(
+        target: Ref<unknown>,
+        kind: 'images' | 'multipage-tiff',
+        run: (pageNumbers: number[] | undefined) => Promise<void>,
+        selectedPages: TPageSelectionInput,
+    ) {
+        if (isExportInProgress.value) {
+            showExportAlreadyRunningToast();
             return;
         }
-        const resolvedSelection = resolveExportSelection(selectedPages);
-        if (resolvedSelection.kind === 'refused') {
-            showExportSelectionRefusalToast();
+        if (!target.value) {
             return;
         }
-        const initialSelection = resolvedSelection.kind === 'all'
-            ? createAllPageSelection(totalPages.value)
-            : resolvedSelection.selection;
-        const selection = await openExportScopeDialog('images', initialSelection);
-        if (selection === null) {
-            return;
+        isExportInProgress.value = true;
+        let exportStarted = false;
+        try {
+            const resolvedSelection = resolveExportSelection(selectedPages);
+            if (resolvedSelection.kind === 'refused') {
+                showExportSelectionRefusalToast();
+                return;
+            }
+            const initialSelection = resolvedSelection.kind === 'all'
+                ? createAllPageSelection(totalPages.value)
+                : resolvedSelection.selection;
+            const selection = await openExportScopeDialog(kind, initialSelection);
+            if (selection === null) {
+                return;
+            }
+            const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
+            if (pageNumbers === null) {
+                showExportSelectionRefusalToast();
+                return;
+            }
+            exportStarted = true;
+            await run(pageNumbers);
+        } finally {
+            if (!exportStarted) {
+                isExportInProgress.value = false;
+            }
         }
-        const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
-        if (pageNumbers === null) {
-            showExportSelectionRefusalToast();
-            return;
-        }
-        await runImageExport(pageNumbers);
     }
 
-    async function handleExportMultiPageTiff(selectedPages: TPageSelectionInput = []) {
-        if (!exportTargets.multiPageTiffTarget.value) {
-            return;
-        }
-        const resolvedSelection = resolveExportSelection(selectedPages);
-        if (resolvedSelection.kind === 'refused') {
-            showExportSelectionRefusalToast();
-            return;
-        }
-        const initialSelection = resolvedSelection.kind === 'all'
-            ? createAllPageSelection(totalPages.value)
-            : resolvedSelection.selection;
-        const selection = await openExportScopeDialog('multipage-tiff', initialSelection);
-        if (selection === null) {
-            return;
-        }
-        const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
-        if (pageNumbers === null) {
-            showExportSelectionRefusalToast();
-            return;
-        }
-        await runMultiPageTiffExport(pageNumbers);
+    function handleExportImages(selectedPages: TPageSelectionInput = []) {
+        return handleRasterExport(exportTargets.imageTarget, 'images', runImageExport, selectedPages);
+    }
+
+    function handleExportMultiPageTiff(selectedPages: TPageSelectionInput = []) {
+        return handleRasterExport(exportTargets.multiPageTiffTarget, 'multipage-tiff', runMultiPageTiffExport, selectedPages);
     }
 
     onScopeDispose(() => {

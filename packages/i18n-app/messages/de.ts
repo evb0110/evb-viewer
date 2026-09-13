@@ -1123,6 +1123,7 @@ export default {
             one: '{count} nicht unterstützte Datei wurde übersprungen.',
             other: '{count} nicht unterstützte Dateien wurden übersprungen.',
         }),
+        'discardPending': 'Ausstehendes Ergebnis verwerfen',
     },
     'noteWindow': {
         'popUpNote': 'Seite {page}',
@@ -1565,6 +1566,7 @@ export default {
         'export': {
             'images': 'Bilderexport fehlgeschlagen',
             'multiPageTiff': 'TIFF-Export fehlgeschlagen',
+            'alreadyRunning': 'Ein Export läuft bereits',
         },
         'browser': {
             'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',

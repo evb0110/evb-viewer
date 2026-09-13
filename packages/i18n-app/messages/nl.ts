@@ -1123,6 +1123,7 @@ export default {
             one: '{count} niet-ondersteund bestand is overgeslagen.',
             other: '{count} niet-ondersteunde bestanden zijn overgeslagen.',
         }),
+        'discardPending': 'Wachtend resultaat verwijderen',
     },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
@@ -1565,6 +1566,7 @@ export default {
         'export': {
             'images': 'Afbeeldingsexport mislukt',
             'multiPageTiff': 'TIFF-export mislukt',
+            'alreadyRunning': 'Er wordt al geëxporteerd',
         },
         'browser': {
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',

@@ -18,6 +18,11 @@ import {
     createRequestId,
     type TRequestId,
 } from '@contracts/shared';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {
+    hasNativeErrorCode,
+    isNativeErrorEnvelope,
+} from '@contracts/nativeErrors';
 
 export type TCombinePdfErrorCode = 'canceled' | 'invalid-input' | 'limit' | 'unsupported' | 'open-failed';
 
@@ -44,24 +49,41 @@ function getOwnedFailure(error: unknown) {
     return decodeFailureReceipt(error.failure) ?? undefined;
 }
 
-function classifyCombineError(error: unknown): TCombinePdfErrorCode {
-    if (error instanceof DOMException && error.name === 'AbortError') {
+function getCombineAbortReason(signal: AbortSignal): Error {
+    return signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException('PDF combine was canceled.', 'AbortError');
+}
+
+function throwIfCombineAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+        throw getCombineAbortReason(signal);
+    }
+}
+
+function classifyCombineError(error: unknown, signal?: AbortSignal): TCombinePdfErrorCode {
+    if (signal?.aborted) {
         return 'canceled';
     }
-    const message = getErrorMessage(error).toLowerCase();
-    if (message.includes('cancel') || message.includes('abort')) {
-        return 'canceled';
+    const envelope = findSerializableErrorEnvelope(error, isNativeErrorEnvelope);
+    const code = envelope?.code ?? (hasNativeErrorCode(error) ? error.code : undefined);
+    switch (code) {
+        case 'too-large':
+            return 'limit';
+        case 'unsupported-filter':
+            return 'unsupported';
+        case 'corrupt-xref':
+        case 'invalid-request':
+            return 'invalid-input';
+        case undefined:
+        case 'encrypted':
+        case 'needs-password':
+        case 'io':
+        case 'timeout':
+        case 'panic':
+        case 'native-failure':
+            return 'open-failed';
     }
-    if (message.includes('limit') || message.includes('too large') || message.includes('too many') || message.includes('capped')) {
-        return 'limit';
-    }
-    if (message.includes('unsupported') || message.includes('unreadable')) {
-        return 'unsupported';
-    }
-    if (message.includes('invalid') || message.includes('no input')) {
-        return 'invalid-input';
-    }
-    return 'open-failed';
 }
 
 export interface ICombinePdfInputFile {file: File;}
@@ -104,6 +126,11 @@ export function getCombinePdfCapabilities(): ICombinePdfCapabilities {
         maxInputBytes: 32 * 1024 * 1024,
         maxTotalInputBytes: 64 * 1024 * 1024,
     };
+}
+
+export function isCombineCancellationSupported() {
+    return !hasElectronAPI()
+        || typeof getDocumentOpenCapability().cancelOpenDocumentDirectBatch === 'function';
 }
 
 function assertCombineInputsWithinCapabilities(options: ICombinePdfFilesOptions) {
@@ -189,7 +216,10 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
         options.onProgress?.(latestProgress);
     });
     const abort = () => {
-        void documentOpen.cancelOpenDocumentDirectBatch?.(requestId).catch(() => undefined);
+        const cancel = documentOpen.cancelOpenDocumentDirectBatch;
+        if (cancel) {
+            void cancel(requestId).catch(() => undefined);
+        }
     };
     options.signal?.addEventListener('abort', abort, {once: true});
 
@@ -224,10 +254,16 @@ async function combineBrowserFiles(options: ICombinePdfFilesOptions): Promise<TO
             ...(options.signal ? {signal: options.signal} : {}),
         },
     );
-    const workingPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromData(
+    throwIfCombineAborted(options.signal);
+    const documentWorkingCopy = getDocumentWorkingCopyCapability();
+    const workingPath = await documentWorkingCopy.createWorkingCopyFromData(
         options.outputName,
         combinedPdf,
     );
+    if (options.signal?.aborted) {
+        await documentWorkingCopy.cleanupFile(workingPath).catch(() => undefined);
+        throw getCombineAbortReason(options.signal);
+    }
     emitCompleteProgress(options, latestProgress);
     return {
         kind: 'pdf',
@@ -239,18 +275,14 @@ async function combineBrowserFiles(options: ICombinePdfFilesOptions): Promise<TO
 
 export async function combinePdfFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {
     assertCombineInputsWithinCapabilities(options);
-    if (options.signal?.aborted) {
-        throw options.signal.reason instanceof Error
-            ? options.signal.reason
-            : new DOMException('PDF combine was canceled.', 'AbortError');
-    }
+    throwIfCombineAborted(options.signal);
     try {
         return await (hasElectronAPI()
             ? combineElectronFiles(options)
             : combineBrowserFiles(options));
     } catch (error) {
         if (error instanceof CombinePdfError) throw error;
-        const code = classifyCombineError(error);
+        const code = classifyCombineError(error, options.signal);
         if (code === 'canceled' || code === 'invalid-input' || code === 'limit' || code === 'unsupported') {
             throw new CombinePdfError(code, {cause: error});
         }

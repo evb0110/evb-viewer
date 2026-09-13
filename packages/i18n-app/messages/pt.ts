@@ -1124,6 +1124,7 @@ export default {
             one: '{count} ficheiro não suportado foi ignorado.',
             other: '{count} ficheiros não suportados foram ignorados.',
         }),
+        'discardPending': 'Descartar resultado pendente',
     },
     'noteWindow': {
         'popUpNote': 'Página {page}',
@@ -1576,6 +1577,7 @@ export default {
         'export': {
             'images': 'Falha ao exportar imagens',
             'multiPageTiff': 'Falha ao exportar TIFF',
+            'alreadyRunning': 'Já existe uma exportação em curso',
         },
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos ficheiros foi negado. Escolha Abrir novamente para usar o seletor compatível.',
