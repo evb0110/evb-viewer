@@ -1,0 +1,24 @@
+.github/workflows/ci.yml
+  s_c2b7952c790c46::t_af28564be25230 55
+  s_c2b7952c790c46::t_6fd395b09575dd 453
+docs/contributing/release-guardrails.md
+  s_c2b7952c790c46::t_af28564be25230 89,91
+scripts/check-publication-policy.mjs
+  s_c2b7952c790c46::t_6fd395b09575dd 403-404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "61453799c5c7619ee542ec15035949b0c357de5c",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
