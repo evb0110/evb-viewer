@@ -659,17 +659,25 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     // that place stable across per-frame geometry changes, so re-derive it
     // from the committed position. The authority applies its scroll before it
     // publishes the page, so the capture below reads the new position.
-    watch(currentPage, (page) => {
-        if (!dragResizeAnchor || dragResizeAnchor.page === page) {
-            return;
+    // A ResizeObserver burst (sidebar open, scrollbar admission) keeps its
+    // first anchor across packets for the same reason, and needs the same
+    // re-derivation.
+    function followCommittedPage(anchor: IResizeAnchorContext | null, page: number) {
+        if (!anchor || anchor.page === page) {
+            return anchor;
         }
-        dragResizeAnchor = {
+        return {
             ...buildResizeAnchorContext({
                 preferredAnchorPage: page,
                 trustPreferredAnchorPage: true,
             }),
-            transitionToken: dragResizeAnchor.transitionToken,
+            transitionToken: anchor.transitionToken,
         };
+    }
+
+    watch(currentPage, (page) => {
+        dragResizeAnchor = followCommittedPage(dragResizeAnchor, page);
+        pendingResizeAnchor = followCommittedPage(pendingResizeAnchor, page);
     }, {flush: 'sync'});
 
     watch(isResizing, async (value, previous) => {
