@@ -251,39 +251,6 @@ watch(() => currentPage, page => {
     setActiveScrollSegmentForPage(page);
 }, {immediate: true});
 
-watch(() => pageGeometry?.version, () => {
-    if (pageGeometry) {
-        applyThumbnailPageMetrics(pageGeometry.metrics);
-    }
-}, {immediate: true});
-
-// The rail lays out pages the viewer may never have measured. Ask the
-// session for each contiguous run it still lacks; the session dedupes
-// in-flight loads, so repeated requests cost one array scan.
-watch([
-    virtualPages,
-    () => pageGeometry?.version,
-], ([pages]) => {
-    if (!pageGeometry) {
-        return;
-    }
-    let runStart: number | null = null;
-    let runEnd = 0;
-    for (const page of pages) {
-        if (getExactThumbnailAspectRatio(page) !== undefined) {
-            continue;
-        }
-        if (runStart !== null && page !== runEnd + 1) {
-            void pageGeometry.ensureRange(runStart, runEnd);
-            runStart = null;
-        }
-        runStart ??= page;
-        runEnd = page;
-    }
-    if (runStart !== null) {
-        void pageGeometry.ensureRange(runStart, runEnd);
-    }
-}, {immediate: true});
 function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
 }
@@ -523,6 +490,42 @@ function scheduleThumbnailLayoutReaction(
         }
     });
 }
+
+// Applying metrics captures and schedules a layout anchor, so this immediate
+// watcher must run after the anchor lifecycle and pending anchor exist.
+watch(() => pageGeometry?.version, () => {
+    if (pageGeometry) {
+        applyThumbnailPageMetrics(pageGeometry.metrics);
+    }
+}, {immediate: true});
+
+// The rail lays out pages the viewer may never have measured. Ask the
+// session for each contiguous run it still lacks; the session dedupes
+// in-flight loads, so repeated requests cost one array scan.
+watch([
+    virtualPages,
+    () => pageGeometry?.version,
+], ([pages]) => {
+    if (!pageGeometry) {
+        return;
+    }
+    let runStart: number | null = null;
+    let runEnd = 0;
+    for (const page of pages) {
+        if (getExactThumbnailAspectRatio(page) !== undefined) {
+            continue;
+        }
+        if (runStart !== null && page !== runEnd + 1) {
+            void pageGeometry.ensureRange(runStart, runEnd);
+            runStart = null;
+        }
+        runStart ??= page;
+        runEnd = page;
+    }
+    if (runStart !== null) {
+        void pageGeometry.ensureRange(runStart, runEnd);
+    }
+}, {immediate: true});
 
 function scrollPageIntoKeyboardView(page: number): void | Promise<void> {
     const container = resolveVisibleContainer('keyboard-selection');
