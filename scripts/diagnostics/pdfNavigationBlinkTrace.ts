@@ -10,7 +10,6 @@ import {
     installWorkspaceExposeProbe,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IEvbTestApi } from '@app/types/evbTestApi';
 import {
     type IPdfDiagnosticsContext,
     runPdfDiagnosticScenario,
@@ -89,7 +88,18 @@ interface IPageSampleGeometry {
     height: number;
 }
 
-interface IPdfBlinkDiagnosticWindow extends Window {__evbTestApi?: IEvbTestApi;}
+interface IPdfBlinkToolbarSnapshot {
+    continuousScroll?: boolean;
+    fitMode?: string;
+    viewMode?: string;
+}
+
+interface IPdfBlinkTestApi {
+    getActiveToolbarSnapshot: () => IPdfBlinkToolbarSnapshot | null;
+    waitForActiveDocumentOpenSettled: () => Promise<boolean>;
+}
+
+type IPdfBlinkDiagnosticWindow = Window & {__evbTestApi?: IPdfBlinkTestApi;};
 
 export interface IFrameAnalysisSummary {
     canvasObservedAtMs: number | null;

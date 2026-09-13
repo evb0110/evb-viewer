@@ -14,11 +14,6 @@ import {
 } from './architectureCliArgs.mjs';
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 import { RUNTIME_TOOL_BOUNDARY_RULES } from './runtimeToolBoundaryRules.mjs';
-import {
-    ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES,
-    PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES,
-    SCRIPTS_TO_APP_ALLOWED_EDGES,
-} from './boundaryExceptionPolicy.mjs';
 
 /** @typedef {import('./dep-graph.mjs').IDependencyEdge} IDependencyEdge */
 /** @typedef {import('./dep-graph.mjs').IDependencyGraph} IDependencyGraph */
@@ -185,7 +180,7 @@ const ROOT_BOUNDARY_RULES = [
         sourceRoot: 'scripts',
         targetRoot: 'app',
         rule: 'scripts-to-app',
-        message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+        message: 'scripts/** must not import app runtime code; shared diagnostic contracts belong in packages/contracts.',
     },
     ...RUNTIME_TOOL_BOUNDARY_RULES,
 ];
@@ -277,7 +272,8 @@ const PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES = new Set([
     ...PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES,
 ]);
 
-const PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES = new Set(`
+// These modules are the permanent narrow capability getter implementations.
+const PLATFORM_API_RUNTIME_GETTER_FILES = new Set(`
 app/utils/platformDocuments.ts
 app/utils/getShellCapability.ts
 app/utils/getSettingsCapability.ts
@@ -314,7 +310,8 @@ const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
 
 const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
 const PDF_VIEWER_ENGINE_ROOT = `${PDF_VIEWER_MODULE_ROOT}/engine`;
-const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
+// Engine code may depend on its own implementation and the PDF viewer DOM layer.
+const PDF_VIEWER_ENGINE_TARGET_ROOTS = [
     PDF_VIEWER_ENGINE_ROOT,
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
@@ -577,14 +574,7 @@ function checkPdfViewerEngineLayer(edge) {
         return null;
     }
 
-    if (PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS.some(root => matchesRoot(edge.target, root))) {
-        return null;
-    }
-
-    if (PDF_VIEWER_ENGINE_RETAINED_BACK_EDGES.some(exception => (
-        exception.source === edge.source
-        && exception.targetRoots.some(root => matchesRoot(edge.target, root))
-    ))) {
+    if (PDF_VIEWER_ENGINE_TARGET_ROOTS.some(root => matchesRoot(edge.target, root))) {
         return null;
     }
 
@@ -686,7 +676,6 @@ function collectAnnotationStorageAliases(sourceText) {
 function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
     if (
         !matchesRoot(filePath, 'app')
-        || ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES.includes(filePath)
     ) {
         return [];
     }
@@ -702,7 +691,7 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
         source: filePath,
         target: filePath,
         specifier: 'source',
-        message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
+        message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
     })];
 }
 
@@ -887,7 +876,8 @@ function parseSourceFiles(filePath, sourceText) {
     ));
 }
 
-const PDFJS_IMPORT_ALLOWED_ROOTS = [
+// These roots permanently own renderer and PDF.js adapter imports.
+const PDFJS_IMPORT_ROOTS = [
     'app/modules/pdf-viewer',
     'app/services/pdfjs',
     'app/utils/document-viewer/source',
@@ -910,7 +900,7 @@ function isPdfjsModuleSpecifier(node) {
 
 /** @param {string} filePath @param {TSourceFile[]} sourceFiles @returns {IArchitectureViolation[]} */
 function checkPdfjsImportBoundary(filePath, sourceFiles) {
-    if (PDFJS_IMPORT_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root))) {
+    if (PDFJS_IMPORT_ROOTS.some(root => matchesRoot(filePath, root))) {
         return [];
     }
     /** @type {IArchitectureViolation[]} */
@@ -966,7 +956,7 @@ function checkPdfjsImportBoundary(filePath, sourceFiles) {
 function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     if (
         !isAppProductionSource(filePath)
-        || PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES.has(filePath)
+        || PLATFORM_API_RUNTIME_GETTER_FILES.has(filePath)
     ) {
         return [];
     }
@@ -1515,13 +1505,6 @@ function checkRootBoundaryRule(edge, boundaryRule) {
     if (!matchesRoot(source, boundaryRule.sourceRoot) || !matchesRoot(target, boundaryRule.targetRoot)) {
         return null;
     }
-    if (
-        boundaryRule.rule === 'scripts-to-app'
-        && SCRIPTS_TO_APP_ALLOWED_EDGES.includes(`${source} -> ${target}`)
-    ) {
-        return null;
-    }
-
     return createViolation({
         rule: boundaryRule.rule,
         source,

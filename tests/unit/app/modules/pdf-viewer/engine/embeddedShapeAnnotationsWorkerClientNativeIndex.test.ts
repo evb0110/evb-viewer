@@ -24,7 +24,7 @@ import {
     importEmbeddedShapeAnnotationsFromNativePath,
     importEmbeddedShapeAnnotationsFromNativePathResult,
     importEmbeddedShapeAnnotationsFromPathInWorker,
-} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
+} from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
 import {readDocumentBytes} from '@app/utils/documentBytes';
 
 const mocks = vi.hoisted(() => ({

@@ -11,7 +11,7 @@ import {
 import {
     documentHasEmbeddedShapeCandidates,
     hasEmbeddedShapeCandidateBytes,
-} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/scanDocumentForEmbeddedShapeCandidates';
+} from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/scanDocumentForEmbeddedShapeCandidates';
 
 const mockDocuments = {readFileChunks: vi.fn()};
 

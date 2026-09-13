@@ -36,9 +36,6 @@ const RUNTIME_SAVE_ROOT = 'app/modules/pdf-viewer/runtime/save';
 const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
 const ANNOTATION_SESSION = 'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts';
 
-/** @type {Set<string>} */
-const RUNTIME_TOOLS_ALLOWED_EDGES = new Set();
-
 // The deleted PDF.js editor bridge no longer contributes late-bound edges.
 /** @type {ILateBoundDependencyEdge[]} */
 export const ANNOTATION_LATE_BOUND_EDGES = [];
@@ -192,7 +189,6 @@ export function checkAnnotationDependencyEdge(edge) {
     if (
         matchesRoot(edge.source, RUNTIME_ANNOTATION_ROOT)
         && matchesRoot(edge.target, ANNOTATION_TOOLS_ROOT)
-        && !RUNTIME_TOOLS_ALLOWED_EDGES.has(annotationEdgeKey(edge))
     ) {
         return [createViolation({
             rule: 'annotation-runtime-to-tools',
