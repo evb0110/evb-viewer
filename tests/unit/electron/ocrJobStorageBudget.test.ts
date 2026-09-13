@@ -239,7 +239,7 @@ describe('OCR aggregate job storage budget', () => {
         const budget = createOcrJobStorageBudget({
             abortController,
             checkpointDir,
-            maxBytes: 100,
+            maxBytes: 30,
             minFreeBytes: 10,
             sessionId: 'ocr-test',
             tempDir: root,
@@ -259,7 +259,8 @@ describe('OCR aggregate job storage budget', () => {
             await rm(removedPath);
             await expect(budget.reconcileCheckpoints()).resolves.toBeUndefined();
             await expect(budget.assertWithinBudget()).resolves.toMatchObject({usedBytes: 0});
-            expect(abortController.signal.aborted).toBe(false);
+            await expect(budget.reserve(1)).rejects.toMatchObject({code: 'OCR_STORAGE_QUOTA_EXCEEDED'});
+            expect(abortController.signal.aborted).toBe(true);
         } finally {
             await budget.stop();
             await rm(root, {
@@ -267,5 +268,70 @@ describe('OCR aggregate job storage budget', () => {
                 recursive: true,
             });
         }
+    });
+
+    it('updates committed totals by path without counting a replacement twice', async () => {
+        const {
+            abortController,
+            budget,
+        } = createBudget({
+            inspect: async () => ({
+                availableBytes: 1_000,
+                usedBytes: 0,
+            }),
+            maxBytes: 40,
+        });
+        const checkpointFiles = [
+            {
+                path: '/tmp/checkpoints/page-1.pdf',
+                bytes: 20,
+            },
+            {
+                path: '/tmp/checkpoints/page-1.json',
+                bytes: 10,
+            },
+        ];
+
+        const firstReservation = await budget.reserve(30);
+        budget.commitCheckpoint([firstReservation], checkpointFiles);
+        await expect(budget.assertWithinBudget()).resolves.toMatchObject({usedBytes: 0});
+
+        const replacementReservation = await budget.reserve(10);
+        budget.commitCheckpoint([replacementReservation], checkpointFiles.map((file, index) => ({
+            ...file,
+            bytes: index === 0 ? 6 : 4,
+        })));
+        await expect(budget.assertWithinBudget()).resolves.toMatchObject({usedBytes: 0});
+
+        const finalReservation = await budget.reserve(30);
+        expect(finalReservation).toMatchObject({bytes: 30});
+        finalReservation.release();
+        expect(abortController.signal.aborted).toBe(false);
+        await budget.stop();
+    });
+
+    it('keeps repeated page assertions independent of completed checkpoint history', async () => {
+        const {
+            abortController,
+            budget,
+        } = createBudget({
+            inspect: async () => ({
+                availableBytes: 10_000,
+                usedBytes: 0,
+            }),
+            maxBytes: 10_000,
+        });
+        for (let page = 1; page <= 2_000; page += 1) {
+            const reservation = await budget.reserve(2);
+            const checkpointFiles = [{
+                path: `/tmp/checkpoints/page-${page}.pdf`,
+                bytes: 2,
+            }];
+            budget.commitCheckpoint([reservation], checkpointFiles);
+            await budget.assertWithinBudget();
+        }
+
+        expect(abortController.signal.aborted).toBe(false);
+        await budget.stop();
     });
 });

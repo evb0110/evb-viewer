@@ -47,9 +47,18 @@ export async function persistOcrPageCheckpoint(options: IPersistOcrPageCheckpoin
         await rename(checkpointTempPdf, options.checkpointPdfPath);
         if (isAborted()) throw abortErrorFromSignal(options.signal);
         await rename(checkpointTempJson, options.checkpointJsonPath);
-        options.storageBudget.commitCheckpoint(checkpointPdfStat.size + Buffer.byteLength(checkpointJson), [
+        options.storageBudget.commitCheckpoint([
             pdfReservation,
             jsonReservation,
+        ], [
+            {
+                path: options.checkpointPdfPath,
+                bytes: checkpointPdfStat.size,
+            },
+            {
+                path: options.checkpointJsonPath,
+                bytes: Buffer.byteLength(checkpointJson),
+            },
         ]);
     } finally {
         pdfReservation.release();
