@@ -1,0 +1,21 @@
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_2acae313224a5b 63-66
+scripts/windows-test/host/runCoordinator.ts
+  s_71b08669d92876::t_05276e56149169 711-720
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1366a9b233a55bcbb5b01e91d5a249b806948371",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
