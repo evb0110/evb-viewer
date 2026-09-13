@@ -16,6 +16,19 @@ case "$ARCH" in
   *)      echo "Error: Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
+# Fetch the published archives for this target. Exit code 3 means the target
+# has none yet, so the source build below still produces its tools.
+# EVB_RUNTIME_BINARIES_FROM_SOURCE=1 skips the fetch to rebuild the archives.
+if [ "${EVB_RUNTIME_BINARIES_FROM_SOURCE:-0}" != 1 ]; then
+  fetch_status=0
+  node --import tsx "$SCRIPT_DIR/fetchRuntimeBinaries.ts" --target "$PLATFORM_ARCH" || fetch_status=$?
+  if [ "$fetch_status" -eq 0 ]; then
+    exit 0
+  elif [ "$fetch_status" -ne 3 ]; then
+    exit "$fetch_status"
+  fi
+fi
+
 DEST="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
 
 echo "=========================================="

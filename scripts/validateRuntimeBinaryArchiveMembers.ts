@@ -42,14 +42,19 @@ function parentDirectory(member: string) {
     return separator < 0 ? '' : member.slice(0, separator);
 }
 
-export function validateRuntimeBinaryArchiveMembers(
-    members: readonly string[],
-    policy: IRuntimeBinaryArchiveMemberPolicy,
-): IRuntimeBinaryArchiveMembers {
+export function validateRuntimeBinaryArchivePaths(members: readonly string[]) {
     const normalizedMembers = members.map(normalizeMember);
     if (new Set(normalizedMembers).size !== normalizedMembers.length) {
         throw new Error('Runtime archive contains duplicate members.');
     }
+    return normalizedMembers;
+}
+
+export function validateRuntimeBinaryArchiveMembers(
+    members: readonly string[],
+    policy: IRuntimeBinaryArchiveMemberPolicy,
+): IRuntimeBinaryArchiveMembers {
+    const normalizedMembers = validateRuntimeBinaryArchivePaths(members);
     const executableEntry = normalizeMember(policy.executableEntry);
     const executableEntries = [
         executableEntry,

@@ -10,6 +10,13 @@ dist/
 coverage/
 /release/
 
+# Third-party runtime archives are fetched into these roots during install or
+# packaging. Keep only the small checked-in resource assets and notices.
+/resources/djvulibre/
+/resources/poppler/
+/resources/qpdf/
+/resources/tesseract/
+
 .idea/
 .vscode/
 
@@ -84,3 +91,4 @@ tests/fixtures/electron/large-pdf-fixtures/*
 # writes the final AppX package into release/.
 /store-appx-win-x64/
 /store-appx-win-arm64/
+/store-artifacts/

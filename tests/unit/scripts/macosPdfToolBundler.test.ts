@@ -78,6 +78,7 @@ function runBundler(host: ReturnType<typeof createFakeMacBundlingHost>) {
         env: {
             ...process.env,
             EVB_PDF_TOOLS_RESOURCES_DIR: host.resourcesDir,
+            EVB_RUNTIME_BINARIES_FROM_SOURCE: '1',
             FAKE_BREW_PREFIX: host.brewPrefix,
             PATH: `${host.binDir}${delimiter}${process.env.PATH ?? ''}`,
         },

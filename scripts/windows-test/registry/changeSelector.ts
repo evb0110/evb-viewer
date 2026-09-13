@@ -114,6 +114,8 @@ export const windowsTestChangeAreas: readonly IWindowsTestChangeArea[] = [
             'native/**',
             'resources/**',
             'scripts/bundle-tools-windows.sh',
+            'scripts/fetchRuntimeBinaries.ts',
+            'scripts/runtimeBinaryManifest.ts',
         ],
     },
     {
