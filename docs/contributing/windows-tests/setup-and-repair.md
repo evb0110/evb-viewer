@@ -236,7 +236,8 @@ inventory. The personal VM named Windows is never an owned target. A one-time
 campaign authorization to copy it does not change this reusable policy.
 
 Create a local-only plan under .devkit with vmId, bundlePath, beforeVmIds, and
-steps. The step kinds are scanCodes, keystroke, and mouseClick. Keep the plan
+steps. The step kinds are scanCodes, keystroke, mouseClick, pushFile, and
+pullEvidence. Keep the plan
 out of commits and logs. Run:
 
 ~~~sh
@@ -246,7 +247,10 @@ pnpm windows:test:provision --plan /absolute/path/to/.devkit/windows-provision-p
 The command rechecks the existing identity guard before every event. It sends
 only UTM's QEMU native AppleScript input commands, using an exact claimed UUID.
 keystroke text must be ASCII. The command prints step numbers and two readiness
-fields only. It never prints input text, UUIDs, bundle paths, or passwords.
+fields only. A pushFile step stages a command or secret through the guest file
+channel. A later keystroke runs the pushed script with all output redirected to
+a guest result file, and pullEvidence retrieves that file. It never prints
+input text, UUIDs, bundle paths, passwords, or evidence payloads.
 
 guestAgentAvailable is true only when the existing guest channel can read the
 lab marker through QEMU guest agent transport. workerReady is true only when
@@ -324,6 +328,15 @@ guest `exec` probe timed out before service metadata or System event IDs could
 be read. The QEMU guest-agent service repair helper was therefore not live
 qualified on this clone. The clone was stopped and deleted, free space was
 rechecked, and the original Windows VM remained stopped.
+
+#### Third live qualification gap recorded 2026-09-13
+
+On a retained clone, the new plan steps successfully pushed the service script,
+sent native input, and pulled the result file. The result file was empty, so
+the input sequence did not reach an elevated PowerShell prompt. Repeating the
+Win+R and elevation scan-code sequence still produced no guest result. This
+qualifies the pushed-script transport and evidence pull only. It does not
+qualify service repair, worker startup, or any save case.
 
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.

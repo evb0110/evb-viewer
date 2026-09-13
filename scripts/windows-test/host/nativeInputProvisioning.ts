@@ -26,6 +26,8 @@ export interface INativeInputProvisioner {
     keystroke(text: string, modifiers?: readonly TNativeInputModifier[]): Promise<void>;
     scanCodes(codes: readonly number[]): Promise<void>;
     mouseClick(x: number, y: number): Promise<void>;
+    pushFile(hostPath: string, guestPath: string): Promise<void>;
+    pullEvidence(guestPath: string, hostPath: string): Promise<boolean>;
     waitForWorker(timeoutMs?: number): Promise<void>;
 }
 
@@ -95,6 +97,14 @@ export function createNativeInputProvisioner(options: INativeInputProvisioningOp
                 throw new Error('Native UTM mouse coordinates must be non-negative numbers.');
             }
             await send(`input mouse click (targetVm) at {${x}, ${y}} with mouse button left`);
+        },
+        pushFile: async (hostPath, guestPath) => {
+            await assertTarget();
+            await options.guest.stageFile(options.target.vmId, hostPath, guestPath, timeoutMs);
+        },
+        pullEvidence: async (guestPath, hostPath) => {
+            await assertTarget();
+            return options.guest.pullGuestFile(options.target.vmId, guestPath, hostPath, timeoutMs);
         },
         waitForWorker: async (deadlineMs = 180_000) => {
             const deadline = Date.now() + deadlineMs;

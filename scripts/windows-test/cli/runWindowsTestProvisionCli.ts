@@ -93,6 +93,16 @@ export async function runWindowsTestProvisionCli(argv: readonly string[]) {
                 await provisioner.scanCodes(step.codes as number[]);
             } else if (step.kind === 'mouseClick' && typeof step.x === 'number' && typeof step.y === 'number') {
                 await provisioner.mouseClick(step.x, step.y);
+            } else if (step.kind === 'pushFile' && typeof step.hostPath === 'string' && typeof step.guestPath === 'string') {
+                await provisioner.pushFile(step.hostPath, step.guestPath);
+                process.stdout.write(`step ${index + 1}: guest file staged\n`);
+                continue;
+            } else if (step.kind === 'pullEvidence' && typeof step.guestPath === 'string' && typeof step.hostPath === 'string') {
+                if (!await provisioner.pullEvidence(step.guestPath, step.hostPath)) {
+                    throw new Error('Guest evidence file was not available.');
+                }
+                process.stdout.write(`step ${index + 1}: guest evidence pulled\n`);
+                continue;
             } else {
                 throw new Error('The provisioning plan contains an invalid input step.');
             }

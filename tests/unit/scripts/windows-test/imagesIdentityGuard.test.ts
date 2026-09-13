@@ -142,6 +142,10 @@ describe('destructive VM identity guard', () => {
         });
 
         await expect(provisioner.scanCodes([28])).rejects.toMatchObject({ refusal: 'vm-id-denied' });
+        await expect(provisioner.pushFile('/tmp/command.ps1', 'C:\\EVBViewerTests\\worker\\command.ps1'))
+            .rejects.toMatchObject({ refusal: 'vm-id-denied' });
+        await expect(provisioner.pullEvidence('C:\\EVBViewerTests\\state\\result.json', '/tmp/result.json'))
+            .rejects.toMatchObject({ refusal: 'vm-id-denied' });
         expect(calls).toEqual([]);
     });
 
