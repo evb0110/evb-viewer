@@ -61,17 +61,29 @@ export function onWorkingCopyMutationStarting(
 // replacement have been released. Settled listeners run after the operation,
 // so they cannot provide this ordering guarantee.
 function notifyWorkingCopyMutationStarting(workingCopyPath: string, signal: AbortSignal) {
+    const logListenerFailure = (error: unknown) => {
+        log.debug(`Failed to notify working copy mutation starting listener: ${getErrorMessage(error)}`);
+    };
+    const notifyListener = (listener: (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>) => {
+        try {
+            const result = listener(workingCopyPath, signal);
+            return result ? result.catch(logListenerFailure) : undefined;
+        } catch (error) {
+            logListenerFailure(error);
+            return undefined;
+        }
+    };
     let pending: Promise<void> | undefined;
     for (const listener of workingCopyMutationStartingListeners) {
         if (pending) {
             pending = pending
-                .then(() => listener(workingCopyPath, signal))
+                .then(() => notifyListener(listener))
                 .then(() => undefined);
             continue;
         }
-        const result = listener(workingCopyPath, signal);
-        if (result) {
-            pending = Promise.resolve(result).then(() => undefined);
+        const result = notifyListener(listener);
+        if (result !== undefined) {
+            pending = result;
         }
     }
     return pending;
@@ -118,12 +130,22 @@ function getWorkingCopyQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
 }
 
+const MUTATION_ORIGIN_STACK_TRACE_LIMIT = 8;
+
 function getMutationOrigin() {
-    const stack = new Error().stack?.split('\n') ?? [];
-    return stack
-        .map(line => line.trim())
-        .find(line => line.startsWith('at ') && !line.includes('workingCopyMutationQueue'))
-        ?? null;
+    const previousStackTraceLimit = Error.stackTraceLimit;
+    Error.stackTraceLimit = MUTATION_ORIGIN_STACK_TRACE_LIMIT;
+    try {
+        const error = new Error();
+        Error.captureStackTrace(error, getMutationOrigin);
+        const stack = error.stack?.split('\n', MUTATION_ORIGIN_STACK_TRACE_LIMIT) ?? [];
+        return stack
+            .map(line => line.trim())
+            .find(line => line.startsWith('at ') && !line.includes('workingCopyMutationQueue'))
+            ?? null;
+    } finally {
+        Error.stackTraceLimit = previousStackTraceLimit;
+    }
 }
 
 function getMutationKind(kind: string | undefined) {
