@@ -136,6 +136,10 @@ function combineAbortSignals(
 }
 
 export async function handleOcrGetLanguages() {
+    if (process.env.EVB_OCR_INVENTORY_FAILURE === '1') {
+        throw new Error('OCR language data availability could not be checked.');
+    }
+
     const modelStates = new Map(
         (await getOcrLanguageModelStates()).map(item => [
             item.code,
