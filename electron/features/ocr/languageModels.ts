@@ -58,6 +58,7 @@ const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
 const MIN_TRAINEDDATA_BYTES = 1024;
 const TESSDATA_SEED_MARKER_PREFIX = '.evb-seeded-';
+const TESSERACT_PDF_FONT_FILE_NAME = 'pdf.ttf';
 const NON_RETRYABLE_HTTP_STATUSES = new Set([
     400,
     401,
@@ -612,6 +613,17 @@ async function seedBundledModels(
         const stagingPath = `${destinationPath}.seed-${randomUUID()}`;
         try {
             await publishVerifiedModel(languageCode, sourcePath, destinationPath, stagingPath);
+        } finally {
+            await rm(stagingPath, { force: true }).catch(() => {});
+        }
+    }
+    const bundledPdfFontPath = join(bundledDir, TESSERACT_PDF_FONT_FILE_NAME);
+    const runtimePdfFontPath = join(runtimeDir, TESSERACT_PDF_FONT_FILE_NAME);
+    if (existsSync(bundledPdfFontPath) && !existsSync(runtimePdfFontPath)) {
+        const stagingPath = `${runtimePdfFontPath}.seed-${randomUUID()}`;
+        try {
+            await copyFile(bundledPdfFontPath, stagingPath);
+            await rename(stagingPath, runtimePdfFontPath);
         } finally {
             await rm(stagingPath, { force: true }).catch(() => {});
         }

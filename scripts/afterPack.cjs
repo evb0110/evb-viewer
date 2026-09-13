@@ -87,6 +87,11 @@ function requiredExtraResourcesForContext(context, {
     const tag = platformArchTagForContext(context);
     const entries = RELEASE_TARGET_MANIFEST.globalResources.map(entry => ({
         label: entry.label,
+        ...(entry.requiredFiles === undefined ? {} : {packagedEntries: entry.requiredFiles.map(relativePath => ({
+            label: `${entry.label} file`,
+            relativePath,
+            type: 'file',
+        }))}),
         sourcePath: path.join(root, ...entry.sourceSegments),
         stagedPath: path.join(resourcesDir, ...entry.stagedSegments),
         tag,
