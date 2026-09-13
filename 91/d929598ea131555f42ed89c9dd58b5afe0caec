@@ -1,0 +1,68 @@
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_cefa2c10eb4eea::t_831c426864fdfb 764,770,772,890-893,902
+app/assets/css/pdf-viewer.scss
+  s_cefa2c10eb4eea::t_94af23eb941318 759
+  s_cefa2c10eb4eea::t_0c791454791443 796-803,806
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_cefa2c10eb4eea::t_af91c3bbac142a 304,870,916-921
+  s_cefa2c10eb4eea::t_ed8aeb8834006f 28-30,64,162-163,296-303,305-331,871-872,900-915,922-923
+  s_cefa2c10eb4eea::t_f79a6c1c579ae4 952
+  s_cefa2c10eb4eea::t_41b5ffe28992a1 27
+  s_cefa2c10eb4eea::t_4cb9e408891323 332
+tests/unit/app/modules/pdf-viewer/components/pdfViewerViewport.test.ts
+  s_cefa2c10eb4eea::t_e056a1b1ae7588 18-21,201-247
+  s_ae757872e5d914::t_8b7da9c8a1227f 248-272
+app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics.ts
+  s_cefa2c10eb4eea::t_ddef4792722474 5,68-71,74-89,92-97,99-131,133,135-151,154-176,180
+  s_cefa2c10eb4eea::t_ef69143cf9a56e 132,134,152-153
+  s_cefa2c10eb4eea::t_2ab195e2a39f04 63-67,72,98
+  s_cefa2c10eb4eea::t_fd42cbf2f71c7b 73
+  s_cefa2c10eb4eea::t_7c98880deb97a5 90-91
+  s_cefa2c10eb4eea::t_676c296d7556c2 3
+  s_ae757872e5d914::t_e0258c4a39b00f 177-179
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_cefa2c10eb4eea::t_347b17ea431445 105,600-622
+  s_3236e5ea9fc926::t_9679fea6128af2 623-627
+app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments.ts
+  s_cefa2c10eb4eea::t_623411efcfad48 15-17,19-20,72-106,112-120
+  s_cefa2c10eb4eea::t_c75461f730b6db 18,107-111
+  s_ae757872e5d914::t_271c43b2719e3c 121
+tests/unit/app/modules/pdf-viewer/pdfViewportGeometry.test.ts
+  s_cefa2c10eb4eea::t_e056a1b1ae7588 17-22,87-171
+  s_cefa2c10eb4eea::t_21425bb47303de 172
+app/modules/pdf-viewer/components/PdfViewerViewport.vue
+  s_cefa2c10eb4eea::t_4966c67d425a2d 20,26-47,86-89,174-181
+  s_ae757872e5d914::t_25c973702840e8 182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "91d929598ea131555f42ed89c9dd58b5afe0caec",
+  "prompts": {},
+  "sessions": {
+    "s_3236e5ea9fc926": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09858-a309-76c0-8b74-31f9f9b5f53e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cefa2c10eb4eea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09856-1f59-74c1-a241-076dfc0e4d21",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
