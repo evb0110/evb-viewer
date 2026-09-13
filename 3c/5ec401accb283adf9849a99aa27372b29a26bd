@@ -1,0 +1,19 @@
+tests/unit/electron/ipcRegistrySecurity.test.ts
+  s_ae757872e5d914::t_1e6295302e57a9 106,595
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3c5ec401accb283adf9849a99aa27372b29a26bd",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
