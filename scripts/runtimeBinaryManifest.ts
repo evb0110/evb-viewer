@@ -13,8 +13,8 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: 'd1d15fb133cc885fb48bb952b42c7f3488cd340a532c595a99a4c7adea92d4d9',
     },
     'djvulibre-linux-x64': {
-        archiveBytes: 2232144,
-        archiveSha256: 'fefe5412c56bb97d1b4349ad022fba28437ed96bd337052d827ac56ab92fae31',
+        archiveBytes: 1982130,
+        archiveSha256: '45279beb3d88ff4e1b8785313a2f5ad3ab6e277599828c6c51645128704a24fa',
     },
     'djvulibre-win32-x64': {
         archiveBytes: 743966,
@@ -25,8 +25,8 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '6af16714ed6ff3b81c806c0f225cbb0f27028c4ce9429aecb5985a9d85379304',
     },
     'poppler-linux-x64': {
-        archiveBytes: 15494364,
-        archiveSha256: 'bd6d36375d18fd4bd32669105e8fded23fb886cffc245817a61a5f4e2f34cd91',
+        archiveBytes: 8820348,
+        archiveSha256: '88ed8ec41ba1e230eef7a0657237c907d00380a9b7fdfba5c1c9b3d2af034f07',
     },
     'poppler-win32-x64': {
         archiveBytes: 13375476,
@@ -37,8 +37,8 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '8031fb1f62b159179bc38ba80bc3ee478141d2b511357db63f880c5edab60aa0',
     },
     'qpdf-linux-x64': {
-        archiveBytes: 3958419,
-        archiveSha256: '9e94819f38366a8e5b73886e0c533d8094ac07608231b262ebfe8ce5af1902c4',
+        archiveBytes: 3733364,
+        archiveSha256: '6c822969fdb2c87c9ae0cff6823c4b0bf0aeada898e7aefb113537caad93e43a',
     },
     'qpdf-win32-x64': {
         archiveBytes: 3205447,
@@ -49,8 +49,8 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '0544ed3014ac8cb8cc21166037d45b2b2c7fe6cb3683b166d16eb8e59570adda',
     },
     'tesseract-linux-x64': {
-        archiveBytes: 70734477,
-        archiveSha256: '5ce0e22bf79807d9b79badb768e0bcc1b4037b6044fc4f3d23bb2914698eac39',
+        archiveBytes: 19091562,
+        archiveSha256: '98b5376a330b784c2f220971c7e7222873f926dc4c4a135b298f432e34c365a1',
     },
     'tesseract-win32-x64': {
         archiveBytes: 56140942,
@@ -106,5 +106,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '51e8244fede9bf9577b6d3b00d3c4deedd622a94100767222a9b3dae197beeb9',
+    manifestSha256: 'a5cea06116ea81b37310fa468d1aa74530c518c8d1003b42639df0cdceb204b6',
 };
