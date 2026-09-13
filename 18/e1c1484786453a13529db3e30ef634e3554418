@@ -1,0 +1,22 @@
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_71b08669d92876::t_409c71f09c15fa 208-209,212-216
+  s_71b08669d92876::t_4b0c5d5a2b2de9 6,210-211
+scripts/windows-test/images/createTestClone.ts
+  s_71b08669d92876::t_409c71f09c15fa 99-102,104-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "18e1c1484786453a13529db3e30ef634e3554418",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
