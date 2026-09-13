@@ -1,0 +1,19 @@
+scripts/diagnostics/project8-process-proof/project8ProcessProofHarness.ts
+  s_c2b7952c790c46::t_4a8023ef342d5a 240-258,437-439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51961aff33fa5c7762515d1c3806db13580f7c91",
+  "prompts": {},
+  "sessions": {
+    "s_c2b7952c790c46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bac52af-3eb4-4bfb-af5d-877f0c71bf83",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
