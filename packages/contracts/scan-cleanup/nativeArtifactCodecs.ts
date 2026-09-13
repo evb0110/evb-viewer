@@ -930,8 +930,8 @@ export function decodeNativeScanCleanupOutputMetadata(
     }
     // Absence is how an artifact written before the structured channel existed
     // reports its conditions: those runs left the same sentences in `warnings`,
-    // which stays readable and logged. Live runs always carry the array,
-    // because the bundled sidecar's compatibility revision requires it.
+    // which stays readable and logged. Live runs carry the array when the
+    // sidecar advertises the structured-warning-events capability.
     const warningEvents = source.warningEvents === undefined
         ? undefined
         : rewrittenWarningEvents(source.warningEvents, artifact);
