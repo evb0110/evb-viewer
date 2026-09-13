@@ -50,6 +50,12 @@ function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined, hasWork
     return Boolean(target && !hasWorkspaceOpenedDocument && !hasWorkspaceSessionOpenedDocument);
 }
 
+// The seeded hint belongs to its transaction until a newer transaction claims
+// the session. An aborted open with no successor still has to release it.
+function isDocumentOpenPresentationOwner(activeTransactionId: string | null, transaction: IDocumentOpenTransactionRun) {
+    return activeTransactionId === null || activeTransactionId === transaction.transactionId;
+}
+
 export function resolveOpenSurfaceDocumentId(target: TTabUpdate | null, transactionDocumentRef: TDocumentRef | null, fallbackId: string) {
     return String(target?.originalPath ?? transactionDocumentRef ?? fallbackId);
 }
@@ -352,7 +358,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             !opened
             && transaction.seededTabHint
             && !transaction.preserveDirtyOnFailure
-            && openHost.getActiveTransactionId() === transaction.transactionId
+            && isDocumentOpenPresentationOwner(openHost.getActiveTransactionId(), transaction)
             && !openHost.hasDocumentOrOpenError()
         ) {
             openHost.publishDocumentRecord(createWorkspaceDocumentRecord());
@@ -503,12 +509,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             return settledResult;
         } finally {
             pendingPreOwnerGoToPage = null;
-            if (
-                !signal.aborted.valueOf()
-                || (signal.reason instanceof DOMException && signal.reason.name === 'TimeoutError')
-            ) {
-                finishDocumentOpenPresentation(openHost, transaction, opened);
-            }
+            finishDocumentOpenPresentation(openHost, transaction, opened);
         }
     }
 
