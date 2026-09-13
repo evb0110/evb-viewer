@@ -1,0 +1,19 @@
+tests/unit/app/components/toolbarAndOcrExportCoverage.test.ts
+  s_5b1d96d82f944a::t_8217976100fddf 85-93,259,338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1a1d9cad1bc828abfd10dc19563ab1a39e015a2c",
+  "prompts": {},
+  "sessions": {
+    "s_5b1d96d82f944a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "079c4b7d-c6bb-4706-ada6-4ec6bc4d1d3f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
