@@ -1,0 +1,50 @@
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_5a446af5c4f928::t_c0e492443bd90e 86
+  s_5a446af5c4f928::t_cf17a08739a94d 36
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_5a446af5c4f928::t_3a82602e81a133 201
+  s_5a446af5c4f928::t_d0e20329eaf56a 207,223-224,226
+  s_5a446af5c4f928::t_fff37f0bc80cc6 216,220
+  s_5a446af5c4f928::t_0c9c2f68d3ab55 225
+  s_5a446af5c4f928::t_f0b237e88e94bd 204-206,208-215,217-219,221-222
+  s_247a07a16a61fa::t_f6d857012ed053 202-203
+scripts/windows-test/guest/machine-startup-scripts.ini
+  s_5a446af5c4f928::t_f0b237e88e94bd 2
+docs/internal/agents/utm-windows-tests.md
+  s_5a446af5c4f928::t_b0c818be1be140 59-68
+scripts/windows-test/guest/start-worker.cmd
+  s_5a446af5c4f928::t_f0b237e88e94bd 1-4,6-9,11
+  s_5a446af5c4f928::t_fff37f0bc80cc6 5,10
+scripts/windows-test/guest/install-system-bootstrap.cmd
+  s_5a446af5c4f928::t_d0e20329eaf56a 1-6,9-18
+  s_5a446af5c4f928::t_0c9c2f68d3ab55 7-8
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_5a446af5c4f928::t_f0b237e88e94bd 1-36,38-47,50-56
+  s_5a446af5c4f928::t_fff37f0bc80cc6 37,48-49
+docs/contributing/windows-tests/setup-and-repair.md
+  s_5a446af5c4f928::t_6864f9cdb09a23 361-410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "082a01e9d60e5585b626f584a4ea7bdedca5fef7",
+  "prompts": {},
+  "sessions": {
+    "s_247a07a16a61fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45be0aa1-c12f-4a17-924d-3fc8de96f5d5",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5a446af5c4f928": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-eeda-7b21-8785-ed198c57c18e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
