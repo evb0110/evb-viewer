@@ -48,7 +48,13 @@ function createDriver(
             kind: 'pdf',
             path: null as TDocumentRef | null,
         },
+        lifecycle: {createHooks: () => null},
         operations: {
+            open: {
+                strategy: 'pdf-working-copy' as const,
+                acceptsDocumentType: () => true,
+            },
+            restore: {supportsWorkingCopyRecovery: true},
             save: {
                 strategy: 'pdf-working-copy' as const,
                 execute: async () => false,

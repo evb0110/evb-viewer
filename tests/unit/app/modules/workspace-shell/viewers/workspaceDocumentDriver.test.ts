@@ -203,11 +203,14 @@ describe('WorkspaceDocumentDriver', () => {
         }).activeDocumentDriver.value;
         expect(djvu).toMatchObject({
             id: 'djvu',
+            lifecycle: {createHooks: expect.any(Function)},
             source: {
                 kind: 'djvu',
                 path: '/managed/source.djvu',
             },
             operations: {
+                open: {strategy: 'djvu-activation'},
+                restore: {supportsWorkingCopyRecovery: false},
                 save: {strategy: 'djvu-pdf-projection'},
                 export: {imageTarget: {
                     sourceKind: 'djvu',
@@ -225,6 +228,11 @@ describe('WorkspaceDocumentDriver', () => {
             workingCopyPath: ref<TDocumentRef | null>(null),
         });
         expect(pdf.operations).toEqual({
+            open: {
+                strategy: 'pdf-working-copy',
+                acceptsDocumentType: expect.any(Function),
+            },
+            restore: {supportsWorkingCopyRecovery: true},
             save: {
                 strategy: 'pdf-working-copy',
                 execute: expect.any(Function),
@@ -235,6 +243,9 @@ describe('WorkspaceDocumentDriver', () => {
             },
             print: {strategy: 'pdf'},
         });
+        expect(pdf.operations.open.acceptsDocumentType('pdf')).toBe(true);
+        expect(pdf.operations.open.acceptsDocumentType('image')).toBe(true);
+        expect(pdf.operations.open.acceptsDocumentType('djvu')).toBe(false);
 
         const save = vi.fn(async () => true);
         const saveAs = vi.fn(async () => true);

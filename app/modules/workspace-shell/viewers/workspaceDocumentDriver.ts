@@ -47,7 +47,12 @@ import {
     resolveWorkspaceViewerViewMode,
     resolveWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import type {
+    IWorkspaceViewerAdapter,
+    IWorkspaceViewerLifecycleContext,
+    IWorkspaceViewerLifecycleHooks,
+    TWorkspaceViewerDocumentType,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type {
     IDocumentPageSource,
     IDocumentSourceCapabilities,
@@ -250,6 +255,7 @@ export interface IWorkspaceDocumentDriverSource {
 export type TWorkspaceDocumentSaveStrategy = 'pdf-working-copy' | 'djvu-pdf-projection';
 export type TWorkspaceDocumentSaveAction = 'save' | 'save-as';
 export type TWorkspaceDocumentPrintStrategy = 'pdf' | 'djvu-pdf-projection';
+export type TWorkspaceDocumentOpenStrategy = 'pdf-working-copy' | 'djvu-activation';
 
 export interface IWorkspaceDocumentDriverExportTarget {
     sourceKind: TDocumentImageExportSourceKind;
@@ -258,6 +264,11 @@ export interface IWorkspaceDocumentDriverExportTarget {
 }
 
 export interface IWorkspaceDocumentDriverOperations {
+    open: {
+        strategy: TWorkspaceDocumentOpenStrategy;
+        acceptsDocumentType: (documentType: TWorkspaceViewerDocumentType) => boolean
+    };
+    restore: {supportsWorkingCopyRecovery: boolean};
     save: {
         strategy: TWorkspaceDocumentSaveStrategy;
         execute: (action: TWorkspaceDocumentSaveAction) => Promise<boolean>;
@@ -268,6 +279,8 @@ export interface IWorkspaceDocumentDriverOperations {
     };
     print: { strategy: TWorkspaceDocumentPrintStrategy | null };
 }
+
+export interface IWorkspaceDocumentDriverLifecycle {createHooks: (context: IWorkspaceViewerLifecycleContext) => IWorkspaceViewerLifecycleHooks | null;}
 
 export interface IWorkspaceDocumentDriverView {
     component: Component;
@@ -305,6 +318,7 @@ export interface IWorkspaceDocumentDriver {
     readonly id: TWorkspaceDocumentDriverId;
     readonly capabilities: Readonly<IWorkspaceViewerCapabilities>;
     readonly canPreparePrint: boolean;
+    readonly lifecycle: IWorkspaceDocumentDriverLifecycle;
     readonly operations: IWorkspaceDocumentDriverOperations;
     readonly source: IWorkspaceDocumentDriverSource;
     readonly view: IWorkspaceDocumentDriverView;
@@ -449,6 +463,7 @@ export function createWorkspaceDocumentDriverForAdapter(
         get canPreparePrint() {
             return isDjvu && sources.djvuSourcePath.value !== null;
         },
+        lifecycle: {createHooks: context => adapter.createLifecycleHooks?.(context) ?? null},
         get operations(): IWorkspaceDocumentDriverOperations {
             const sourcePath = isDjvu
                 ? sources.djvuSourcePath.value
@@ -464,6 +479,11 @@ export function createWorkspaceDocumentDriverForAdapter(
                 ? null
                 : {...imageTarget};
             return {
+                open: {
+                    strategy: isDjvu ? 'djvu-activation' : 'pdf-working-copy',
+                    acceptsDocumentType: documentType => adapter.documentTypes.includes(documentType),
+                },
+                restore: {supportsWorkingCopyRecovery: !isDjvu && adapter.capabilities.pdfDocument},
                 save: {
                     strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf-working-copy',
                     execute: action => {
@@ -546,6 +566,11 @@ export const useWorkspaceDocumentDriver = (
         nativePdf: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('native-pdf'), sources),
         pdfjs: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), sources),
     };
+    const driverList = [
+        drivers.djvu,
+        drivers.nativePdf,
+        drivers.pdfjs,
+    ] as const;
     const activeDocumentDriver = computed(() => {
         const adapter = resolveWorkspaceViewerAdapter({
             djvuSourcePath: options.djvuSourcePath.value
@@ -575,6 +600,10 @@ export const useWorkspaceDocumentDriver = (
     return {
         activeDocumentDriver,
         mountedDocumentDriver: computed(() => activeDocumentDriver.value ?? drivers.pdfjs),
+        createLifecycleHooks: (context: IWorkspaceViewerLifecycleContext) => driverList.flatMap((driver) => {
+            const hooks = driver.lifecycle.createHooks(context);
+            return hooks ? [hooks] : [];
+        }),
     };
 };
 
