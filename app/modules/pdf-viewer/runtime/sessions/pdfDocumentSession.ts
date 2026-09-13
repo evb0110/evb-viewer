@@ -192,7 +192,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     const isLoading = computed(() => loadState.value.status === 'loading');
     const basePageWidth = ref<number | null>(null);
     const basePageHeight = ref<number | null>(null);
-    const pageMetrics = ref<IPdfPageMetric[]>([]);
+    const pageMetrics = shallowRef<IPdfPageMetric[]>([]);
     const pageMetricsVersion = ref(0);
     const loadError = computed(() => loadState.value.status === 'failed'
         ? loadState.value.error
@@ -1203,10 +1203,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         onMounted(() => {
             scheduleLoad();
         });
-        onUnmounted(() => {
-            void dispose();
-        });
     }
+    onScopeDispose(() => {
+        void dispose();
+    }, true);
 
     return {
         loadState,

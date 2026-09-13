@@ -532,6 +532,54 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('coalesces mounted visibility projection requests queued before next tick', async () => {
+        const pendingFrames = new Map<number, (time: number) => void>();
+        let nextFrameId = 0;
+        const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+            const frameId = ++nextFrameId;
+            pendingFrames.set(frameId, callback);
+            return frameId;
+        });
+        const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(frameId => {
+            pendingFrames.delete(frameId);
+        });
+        const runPendingFrames = () => {
+            while (pendingFrames.size > 0) {
+                const frames = [...pendingFrames.entries()];
+                pendingFrames.clear();
+                frames.forEach(([
+                    ,
+                    callback,
+                ]) => callback(0));
+            }
+        };
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 30,
+            zoomMode: 'custom',
+        });
+        try {
+            await nextTick();
+            await nextTick();
+            runPendingFrames();
+            await nextTick();
+            runPendingFrames();
+            requestFrame.mockClear();
+
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(2));
+
+            await nextTick();
+            expect(requestFrame).toHaveBeenCalledOnce();
+            runPendingFrames();
+        } finally {
+            fixture.app.unmount();
+            requestFrame.mockRestore();
+            cancelFrame.mockRestore();
+        }
+    });
+
     it('recomputes the mounted geometry window from the active scroll offset', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,

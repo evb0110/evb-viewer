@@ -610,7 +610,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     let mountedVisibilityFrameId: number | null = null;
     let mountedVisibilityProjectionDisposed = false;
+    let mountedVisibilityProjectionGeneration = 0;
     function cancelMountedVisibilityProjection() {
+        mountedVisibilityProjectionGeneration += 1;
         if (mountedVisibilityFrameId !== null) {
             window.cancelAnimationFrame(mountedVisibilityFrameId);
             mountedVisibilityFrameId = null;
@@ -621,18 +623,21 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         cancelMountedVisibilityProjection();
+        const generation = mountedVisibilityProjectionGeneration;
         void nextTick(() => {
-            if (mountedVisibilityProjectionDisposed) {
+            if (
+                mountedVisibilityProjectionDisposed
+                || generation !== mountedVisibilityProjectionGeneration
+            ) {
                 return;
             }
             mountedVisibilityFrameId = window.requestAnimationFrame(() => {
-                if (mountedVisibilityProjectionDisposed) {
-                    mountedVisibilityFrameId = null;
+                if (mountedVisibilityProjectionDisposed || generation !== mountedVisibilityProjectionGeneration) {
                     return;
                 }
                 mountedVisibilityFrameId = window.requestAnimationFrame(() => {
                     mountedVisibilityFrameId = null;
-                    if (mountedVisibilityProjectionDisposed) {
+                    if (mountedVisibilityProjectionDisposed || generation !== mountedVisibilityProjectionGeneration) {
                         return;
                     }
                     projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
