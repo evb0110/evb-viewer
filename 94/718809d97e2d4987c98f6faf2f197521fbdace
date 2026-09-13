@@ -1,0 +1,34 @@
+electron/platform-ipc/registerFeatureIpcAdapters.ts
+  s_e3a057d8c8bfde::t_57087f3936491f 98-100
+  s_e3a057d8c8bfde::t_c4671ec5ec4626 82,91-96,106,109,177-178
+tests/unit/helpers/createElectronPlatformApiFixture.test.ts
+  s_e3a057d8c8bfde::t_52419404039bc2 163,165-175
+  s_e3a057d8c8bfde::t_6e7534e877e74f 164
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearch.test.ts
+  s_e3a057d8c8bfde::t_6e7534e877e74f 1100
+  s_e3a057d8c8bfde::t_a4ed679f9ff218 1130
+tests/helpers/createDefaultPlatformApiFixtureMethod.ts
+  s_e3a057d8c8bfde::t_8e56a4d4842e1f 15,17-21,23-24,33-54,57,69-73,75-79,81-85
+  s_e3a057d8c8bfde::t_6e7534e877e74f 22,61-64
+  s_e3a057d8c8bfde::t_045b0f7a19c892 56
+tests/unit/electron/ipcRegistrySecurity.test.ts
+  s_e3a057d8c8bfde::t_5ca0d85539c1fd 346,387-388,409
+  s_e3a057d8c8bfde::t_5b57ea9e88336e 410
+  s_e3a057d8c8bfde::t_1712b8739cbdea 389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "94718809d97e2d4987c98f6faf2f197521fbdace",
+  "prompts": {},
+  "sessions": {
+    "s_e3a057d8c8bfde": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0989d-825c-7e60-86f4-cbf1123d3ab7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
