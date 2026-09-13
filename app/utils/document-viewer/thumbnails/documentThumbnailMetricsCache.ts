@@ -18,28 +18,26 @@ import type {IDocumentPageMetrics} from '@app/utils/document-viewer/source/docum
  */
 export const DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT = 256;
 
-export interface IDocumentThumbnailMetricsCache {
+export interface IBoundedLruCache<TKey, TValue> {
     clear(): void;
-    delete(pageNumber: number): void;
-    /** Reads and marks the page as most recently used. */
-    get(pageNumber: number): Promise<IDocumentPageMetrics> | undefined;
+    delete(key: TKey): void;
+    /** Reads and marks the key as most recently used. */
+    get(key: TKey): TValue | undefined;
     readonly limit: number;
     /** Reads without changing eviction order. */
-    peek(pageNumber: number): Promise<IDocumentPageMetrics> | undefined;
-    set(pageNumber: number, metrics: Promise<IDocumentPageMetrics>): void;
+    peek(key: TKey): TValue | undefined;
+    set(key: TKey, value: TValue): void;
     readonly size: number;
 }
 
-export function createDocumentThumbnailMetricsCache(
-    limit: number = DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT,
-): IDocumentThumbnailMetricsCache {
+export function createBoundedLruCache<TKey, TValue>(limit: number): IBoundedLruCache<TKey, TValue> {
     const maxEntries = Math.max(1, Math.trunc(limit));
     // Map insertion order is the eviction order: oldest key first.
-    const entries = new Map<number, Promise<IDocumentPageMetrics>>();
+    const entries = new Map<TKey, TValue>();
 
-    function touch(pageNumber: number, metrics: Promise<IDocumentPageMetrics>) {
-        entries.delete(pageNumber);
-        entries.set(pageNumber, metrics);
+    function touch(key: TKey, value: TValue) {
+        entries.delete(key);
+        entries.set(key, value);
     }
 
     function evictToBudget() {
@@ -56,29 +54,35 @@ export function createDocumentThumbnailMetricsCache(
         clear() {
             entries.clear();
         },
-        delete(pageNumber) {
-            entries.delete(pageNumber);
+        delete(key) {
+            entries.delete(key);
         },
-        get(pageNumber) {
-            const metrics = entries.get(pageNumber);
-            if (metrics === undefined) {
+        get(key) {
+            const value = entries.get(key);
+            if (value === undefined) {
                 return undefined;
             }
-            touch(pageNumber, metrics);
-            return metrics;
+            touch(key, value);
+            return value;
         },
         get limit() {
             return maxEntries;
         },
-        peek(pageNumber) {
-            return entries.get(pageNumber);
+        peek(key) {
+            return entries.get(key);
         },
-        set(pageNumber, metrics) {
-            touch(pageNumber, metrics);
+        set(key, value) {
+            touch(key, value);
             evictToBudget();
         },
         get size() {
             return entries.size;
         },
     };
+}
+
+export function createDocumentThumbnailMetricsCache(
+    limit: number = DOCUMENT_THUMBNAIL_METRICS_CACHE_LIMIT,
+): IBoundedLruCache<number, Promise<IDocumentPageMetrics>> {
+    return createBoundedLruCache<number, Promise<IDocumentPageMetrics>>(limit);
 }

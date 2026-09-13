@@ -87,4 +87,34 @@ describe('document thumbnail scroll restoration', () => {
         expect(applied).toEqual([500]);
         restorer.cancel();
     });
+
+    it('retries while the rail is detached and restores after it remounts', async () => {
+        const {
+            container,
+            setMaxScrollTop,
+        } = createClampedContainer();
+        setMaxScrollTop(600);
+        let containerReads = 0;
+        const restorer = createDocumentThumbnailScrollRestorer({
+            applyScrollTop: (targetContainer, target) => {
+                targetContainer.scrollTop = target;
+            },
+            getContainer: () => containerReads++ === 0 ? null : container,
+        });
+
+        restorer.schedule(500);
+        await nextTick();
+        await nextTick();
+        flushFrame();
+        await nextTick();
+        await nextTick();
+        flushFrame();
+        await nextTick();
+        await nextTick();
+        flushFrame();
+        await nextTick();
+
+        expect(container.scrollTop).toBe(500);
+        restorer.cancel();
+    });
 });

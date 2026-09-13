@@ -85,6 +85,7 @@ export async function runPostReadyRecentGeometryPrewarm(
                         settleRecentOpenGeometryPrewarm(
                             file.originalPath,
                             geometry ? 'ready' : 'cold-fallback',
+                            geometry,
                         );
                     },
                 },
@@ -131,6 +132,7 @@ export async function runPostReadyRecentGeometryPrewarm(
                         settleRecentOpenGeometryPrewarm(
                             file.originalPath,
                             geometry ? 'ready' : 'cold-fallback',
+                            geometry,
                         );
                     },
                 },
