@@ -1,0 +1,45 @@
+packages/i18n-app/messages/ptBr.ts
+  s_eb896515a42b08::t_7a017ee0160565 1610
+packages/i18n-app/messages/ru.ts
+  s_eb896515a42b08::t_7a017ee0160565 1639
+packages/i18n-app/messages/it.ts
+  s_eb896515a42b08::t_7a017ee0160565 1599
+packages/contracts/electronApiOcr.ts
+  s_eb896515a42b08::t_7a017ee0160565 19,27
+app/utils/ocr/ocrErrorMessageKeys.ts
+  s_eb896515a42b08::t_7a017ee0160565 24,33
+packages/i18n-app/messages/nl.ts
+  s_eb896515a42b08::t_7a017ee0160565 1599
+packages/i18n-app/messages/de.ts
+  s_eb896515a42b08::t_7a017ee0160565 1599
+packages/i18n-app/messages/fr.ts
+  s_eb896515a42b08::t_7a017ee0160565 1610
+packages/i18n-app/messages/en.ts
+  s_eb896515a42b08::t_7a017ee0160565 1599
+electron/features/ocr/main/jobManager.ts
+  s_eb896515a42b08::t_1467ccf19915e0 504-519
+packages/i18n-app/messages/pt.ts
+  s_eb896515a42b08::t_7a017ee0160565 1610
+tests/unit/electron/ocrJobManager.test.ts
+  s_eb896515a42b08::t_0b217395780ce9 1018-1056
+packages/i18n-app/messages/es.ts
+  s_eb896515a42b08::t_7a017ee0160565 1599
+tests/unit/app/composables/ocrErrorLocalization.test.ts
+  s_eb896515a42b08::t_7a017ee0160565 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a7f9549ed6812facdb61d7be81df5ac93f9be6c9",
+  "prompts": {},
+  "sessions": {
+    "s_eb896515a42b08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098e2-1546-7be1-846e-bde89ffd4dcf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
