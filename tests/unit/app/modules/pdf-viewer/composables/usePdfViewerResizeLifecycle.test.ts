@@ -357,6 +357,46 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(submitResizeIntent).toHaveBeenCalledOnce();
     });
 
+    it('follows a page the authority commits during a resize burst instead of replaying the first anchor', async () => {
+        vi.useFakeTimers();
+        const currentPage = ref(1);
+        const viewerContainer = ref({
+            clientWidth: 1_200,
+            clientHeight: 800,
+        } as HTMLElement);
+        const {applyResizeAnchorPreview} = createResizeLifecycle(ref(true), {
+            captureViewportAnchor: () => ({
+                affinity: 'center' as const,
+                page: currentPage.value,
+                pageXFraction: 0.5,
+                pageYFraction: 0.1,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+            }),
+            currentPage,
+            numPages: 1_200,
+            viewerContainer,
+        });
+
+        resizeObserverMock.callback?.();
+        await nextTick();
+        await Promise.resolve();
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(
+            expect.objectContaining({page: 1}),
+        );
+
+        // A toolbar jump to page 500 commits while the sidebar is still
+        // opening; a later packet of the same burst must not scroll back.
+        currentPage.value = 500;
+        (viewerContainer.value as {clientHeight: number}).clientHeight = 815;
+        resizeObserverMock.callback?.();
+        await nextTick();
+
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(
+            expect.objectContaining({page: 500}),
+        );
+    });
+
     it('retains the prior page snapshot when a rapid zoom rerender has no source bitmap', () => {
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
         const viewer = document.createElement('div');
