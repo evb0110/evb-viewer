@@ -1,0 +1,24 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_10ba974ce27666::t_f3b8144a382a42 18-21
+  s_10ba974ce27666::t_0a6e6e44bcfa89 22
+app/modules/document-viewer/public.ts
+  s_10ba974ce27666::t_f3b8144a382a42 54
+app/modules/workspace-shell/components/EditorPanesHost.vue
+  s_10ba974ce27666::t_0a6e6e44bcfa89 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8bdc763dcb06ece829e4bf57957a373b22005537",
+  "prompts": {},
+  "sessions": {
+    "s_10ba974ce27666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c61-c9e7-7902-b082-91b5a9762630",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
