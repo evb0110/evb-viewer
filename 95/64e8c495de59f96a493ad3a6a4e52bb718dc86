@@ -1,0 +1,47 @@
+package.json
+  s_5a446af5c4f928::t_3de889bebe8f76 139
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_5a446af5c4f928::t_97c5e06c6c1476 45-46,50
+  s_5a446af5c4f928::t_5360ea284b0a7a 67-69,71
+  s_5a446af5c4f928::t_9946a299a47bb7 8,70,83
+  s_5a446af5c4f928::t_d3957f29a59305 5,7,9,81-82,84,86-89
+  s_5a446af5c4f928::t_b19258c08b580c 16,113
+  s_5a446af5c4f928::t_3de889bebe8f76 1-4,6,15,17-25,28-32,34-44,47-49,51-65,77-79,85,90-112,114-115
+  s_5a446af5c4f928::t_c37f5a0c0bd576 10-14,26-27,33,66,72-76,80
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_5a446af5c4f928::t_ce60e2c22741f6 27,129-133,149,156-160,183-198
+  s_5a446af5c4f928::t_5a33e4de0eb7b6 120,170,176,181,201
+  s_5a446af5c4f928::t_aa68855be42113 28,110-112,123-128,134-145
+  s_5a446af5c4f928::t_3de889bebe8f76 146,148,150-155,161-164,172-173,178,203-204
+  s_5a446af5c4f928::t_d3957f29a59305 113-119,121-122,165-169,171,174-175,177,179-180,182,199-200,202
+  s_5a446af5c4f928::t_e5ddd11ce72324 147
+docs/contributing/windows-tests/setup-and-repair.md
+  s_5a446af5c4f928::t_34d5454ef52cc3 218-271
+  s_5a446af5c4f928::t_0762f99a5d6506 272-289
+AGENTS.md
+  s_5a446af5c4f928::t_068dee80592e5c 95-99
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_5a446af5c4f928::t_d3957f29a59305 72-73,75,91-94
+  s_5a446af5c4f928::t_c46fb5606a2045 48
+  s_5a446af5c4f928::t_aa68855be42113 1-36,41-47,49-71,76-90,95-110
+  s_5a446af5c4f928::t_9946a299a47bb7 74
+  s_5a446af5c4f928::t_97c5e06c6c1476 37-40
+docs/internal/agents/utm-windows-tests.md
+  s_5a446af5c4f928::t_34d5454ef52cc3 31-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9564e8c495de59f96a493ad3a6a4e52bb718dc86",
+  "prompts": {},
+  "sessions": {
+    "s_5a446af5c4f928": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-eeda-7b21-8785-ed198c57c18e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
