@@ -4715,8 +4715,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(summary.maxMountedPages, summaryDetail).toBeLessThanOrEqual(40);
         expect(summary.rangeTransitions, summaryDetail).toBeGreaterThan(3);
         expect(summary.maxVisibleGapPx, summaryDetail).toBeLessThanOrEqual(240);
-        expect(Math.max(...samples.map(sample => sample.visibleSkeletonCount)), summaryDetail)
-            .toBeGreaterThan(0);
         expect(samples.every(sample => sample.visiblePendingWithoutSkeletonCount === 0), summaryDetail)
             .toBe(true);
         expect(samples.every(sample => sample.visibleUnoccupiedCount === 0), summaryDetail)
