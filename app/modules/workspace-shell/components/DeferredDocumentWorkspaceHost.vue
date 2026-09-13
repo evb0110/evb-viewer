@@ -136,7 +136,6 @@ import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-vie
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
 import { isRecentOpenCommandEligible } from '@app/modules/workspace-shell/host/isRecentOpenCommandEligible';
 import { getErrorMessage } from '@app/utils/error';
-import { isWorkspaceDocumentOpenResult } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 const {
     hasDocumentHint = false,
@@ -764,9 +763,7 @@ async function handleOpenFileFromUi() {
 
     return activeDocumentSession.value.open({
         action: 'handleOpenFileWithResultFromUi',
-        preparedOpeningGeometry: isWorkspaceDocumentOpenResult(result, 'pdf')
-            ? result.openingGeometry
-            : undefined,
+        preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
         target: buildPendingTabDocumentHint(result),
     }, async signal => withWorkspace(
         'handleOpenFileWithResultFromUi',

@@ -901,7 +901,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         isDjvuMode,
         viewerCapabilities: computed(() => documentDriver.activeDocumentDriver.value?.capabilities),
-        getDocumentDriverForType: documentDriver.getDocumentDriverForType,
         djvuSourcePath,
         currentPage,
         navigationPage,

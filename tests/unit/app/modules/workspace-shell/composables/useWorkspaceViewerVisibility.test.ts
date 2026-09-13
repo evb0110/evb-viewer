@@ -53,10 +53,7 @@ function createDriver(
         },
         lifecycle: {createHooks: () => null},
         operations: {
-            open: {
-                strategy: 'pdf-working-copy' as const,
-                acceptsDocumentType: () => true,
-            },
+            open: {strategy: 'pdf-working-copy' as const},
             restore: {supportsWorkingCopyRecovery: true},
             save: {
                 strategy: 'pdf-working-copy' as const,

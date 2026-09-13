@@ -231,10 +231,7 @@ describe('WorkspaceDocumentDriver', () => {
             workingCopyPath: ref<TDocumentRef | null>(null),
         });
         expect(pdf.operations).toEqual({
-            open: {
-                strategy: 'pdf-working-copy',
-                acceptsDocumentType: expect.any(Function),
-            },
+            open: {strategy: 'pdf-working-copy'},
             restore: {supportsWorkingCopyRecovery: true},
             save: {
                 strategy: 'pdf-working-copy',
@@ -249,9 +246,6 @@ describe('WorkspaceDocumentDriver', () => {
                 path: null,
             },
         });
-        expect(pdf.operations.open.acceptsDocumentType('pdf')).toBe(true);
-        expect(pdf.operations.open.acceptsDocumentType('image')).toBe(true);
-        expect(pdf.operations.open.acceptsDocumentType('djvu')).toBe(false);
 
         const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/managed/working.pdf'));
         const pdfWithPrintPath = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), {

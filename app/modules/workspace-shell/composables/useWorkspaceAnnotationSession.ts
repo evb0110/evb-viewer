@@ -12,8 +12,7 @@ import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composabl
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
-import {requiresEmbeddedAnnotationSave} from '@app/types/annotations';
-import type {AnnotationId} from '@app/modules/pdf-viewer/public';
+import type { AnnotationId } from '@app/modules/pdf-viewer/public';
 
 interface IWorkspaceAnnotationSessionOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
@@ -151,7 +150,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
                 ? pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false
                 : false;
         },
-        requiresEmbeddedSave: requiresEmbeddedAnnotationSave,
         isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value) && annotationCommentsStatus.value === 'ready',
         getDeletedCanonicalAnnotationIds: () => pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [],
     });

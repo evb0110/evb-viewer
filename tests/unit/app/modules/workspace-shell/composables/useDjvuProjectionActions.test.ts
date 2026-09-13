@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 
 describe('useDjvuProjectionActions', () => {
@@ -66,7 +67,7 @@ describe('useDjvuProjectionActions', () => {
                 getCurrentPage: () => 17,
                 scrollToPage,
                 waitForViewerLoadSettled,
-            }),
+            } as Partial<IDocumentViewerExpose> as IDocumentViewerExpose),
             ensureProjection: vi.fn(async () => true),
             saveAs: vi.fn(async () => true),
             saveAsThroughDriver,

@@ -48,7 +48,6 @@ export interface IAnnotationNoteWindowDeps {
         annotationId: AnnotationId,
         text: string,
     ) => boolean | Promise<boolean>;
-    requiresEmbeddedSave: (comment: IAnnotationCommentSummary) => boolean;
     isAnnotationCommentSyncReady?: () => boolean;
     getDeletedCanonicalAnnotationIds?: () => readonly string[];
 }
@@ -224,7 +223,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
     function applyCommentSnapshot(metadata: IAnnotationNoteWindowRuntime, comment: IAnnotationCommentSummary) {
         metadata.canonicalText = comment.text;
-        metadata.requiresEmbeddedSave = deps.requiresEmbeddedSave(comment);
+        metadata.requiresEmbeddedSave = comment.source === 'pdf' || Boolean(comment.annotationId);
         metadata.pageIndex = comment.pageIndex;
         metadata.pageNumber = comment.pageNumber;
         metadata.author = comment.author ?? null;
@@ -265,7 +264,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             position: ensureDefaultPosition(),
         });
         runtime.set(annotationId, {
-            requiresEmbeddedSave: deps.requiresEmbeddedSave(comment),
+            requiresEmbeddedSave: comment.source === 'pdf' || Boolean(comment.annotationId),
             canonicalText: comment.text,
             pageIndex: comment.pageIndex,
             pageNumber: comment.pageNumber,

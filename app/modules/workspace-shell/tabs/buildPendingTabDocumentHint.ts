@@ -3,7 +3,6 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import { isWorkspaceDocumentOpenResult } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 type TPendingTabDocumentHintTarget = TDocumentRef | TOpenFileResult | IRecentFile;
 
@@ -39,13 +38,11 @@ export function buildPendingTabDocumentHint(target: TPendingTabDocumentHintTarge
     }
 
     if (isOpenFileResult(target)) {
-        const sourcePath = target.originalPath || (
-            isWorkspaceDocumentOpenResult(target, 'pdf') ? target.workingPath : null
-        );
+        const sourcePath = target.originalPath || (target.kind === 'pdf' ? target.workingPath : null);
         return {
             fileName: getDocumentRefBaseName(sourcePath),
             originalPath: target.originalPath,
-            isDjvu: isWorkspaceDocumentOpenResult(target, 'djvu'),
+            isDjvu: target.kind === 'djvu',
         };
     }
 

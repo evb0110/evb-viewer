@@ -40,14 +40,10 @@ import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-import type {
-    TDocumentImageExportSourceKind,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
+import type {TDocumentImageExportSourceKind} from '@contracts/electronApiDocuments';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
-    getWorkspaceViewerAdapterForDocumentType,
     resolveWorkspaceViewerViewMode,
     resolveWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -56,7 +52,6 @@ import type {
     IWorkspaceViewerLifecycleContext,
     IWorkspaceViewerLifecycleHooks,
     TWorkspaceDocumentDriverId,
-    TWorkspaceViewerDocumentType,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type {
     IDocumentPageSource,
@@ -74,22 +69,6 @@ import { getDocumentRefBaseName } from '@app/utils/documentRef';
 export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
-
-export function isWorkspaceDocumentOpenResult<T extends TWorkspaceViewerDocumentType>(
-    result: TOpenFileResult,
-    documentType: T,
-): result is Extract<TOpenFileResult, {kind: T}> {
-    return result.kind === documentType
-        && getWorkspaceViewerAdapterForDocumentType(documentType).documentTypes.includes(documentType);
-}
-
-export function isWorkspaceDocumentType(
-    documentType: string,
-    expectedDocumentType: TWorkspaceViewerDocumentType,
-) {
-    return documentType === expectedDocumentType
-        && getWorkspaceViewerAdapterForDocumentType(expectedDocumentType).documentTypes.includes(expectedDocumentType);
-}
 
 /**
  * Handler for the viewer's annotation-inventory event.
@@ -286,10 +265,7 @@ export interface IWorkspaceDocumentDriverExportTarget {
 }
 
 export interface IWorkspaceDocumentDriverOperations {
-    open: {
-        strategy: TWorkspaceDocumentOpenStrategy;
-        acceptsDocumentType: (documentType: TWorkspaceViewerDocumentType) => boolean
-    };
+    open: {strategy: TWorkspaceDocumentOpenStrategy};
     restore: {supportsWorkingCopyRecovery: boolean};
     save: {
         strategy: TWorkspaceDocumentSaveStrategy;
@@ -515,10 +491,7 @@ export function createWorkspaceDocumentDriverForAdapter(
                     ? sources.nativePdfSourcePath.value
                     : sourcePath;
             return {
-                open: {
-                    strategy: isDjvu ? 'djvu-activation' : 'pdf-working-copy',
-                    acceptsDocumentType: documentType => adapter.documentTypes.includes(documentType),
-                },
+                open: {strategy: isDjvu ? 'djvu-activation' : 'pdf-working-copy'},
                 restore: {supportsWorkingCopyRecovery: !isDjvu && adapter.capabilities.pdfDocument},
                 save: {
                     strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf-working-copy',
@@ -584,9 +557,6 @@ export const useWorkspaceDocumentDriver = (
 ) => {
     const nativePdfSourcePath = computed<TDocumentRef | null>(() => null);
     const pendingDocumentKind = computed(() => getDocumentKindFromPath(options.pendingDocumentPath?.value ?? ''));
-    const pendingDocumentPathByKind = computed<Record<string, TDocumentRef | null>>(
-        () => ({[pendingDocumentKind.value]: options.pendingDocumentPath?.value ?? null}),
-    );
     const sources = {
         djvuSourcePath: options.djvuSourcePath,
         nativePdfSourcePath,
@@ -616,22 +586,18 @@ export const useWorkspaceDocumentDriver = (
         drivers.pdfjs,
         drivers.nativePdf,
     ] as const;
-    const getDocumentDriverForType = (documentType: TWorkspaceViewerDocumentType) => (
-        driverList.find(driver => driver.operations.open.acceptsDocumentType(documentType)) ?? null
-    );
     const activeDocumentDriver = computed(() => {
-        const pendingPaths = pendingDocumentPathByKind.value;
         const adapter = resolveWorkspaceViewerAdapter({
             djvuSourcePath: options.djvuSourcePath.value
-                ?? pendingPaths.djvu
-                ?? null,
-            isDjvuMode: options.isDjvuMode.value || pendingPaths.djvu !== null,
+                ?? (pendingDocumentKind.value === 'djvu' ? options.pendingDocumentPath?.value ?? null : null),
+            isDjvuMode: options.isDjvuMode.value || pendingDocumentKind.value === 'djvu',
             pdfSourcePath: isPathPdfSource(options.pdfSrc.value)
                 ? options.pdfSrc.value.path
                 : options.pdfSrc.value
                     ? parseDocumentRef('browser://documents/in-memory-pdf')
-                    : pendingPaths.pdf
-                        ?? null,
+                    : pendingDocumentKind.value === 'pdf'
+                        ? options.pendingDocumentPath?.value ?? null
+                        : null,
             // Native PDF rendering owns only the staged opening preview. The
             // document driver remains PDF.js so selection, annotations, page
             // edits, save, and the full sidebar become available at handoff.
@@ -645,7 +611,6 @@ export const useWorkspaceDocumentDriver = (
     return {
         activeDocumentDriver,
         mountedDocumentDriver: computed(() => activeDocumentDriver.value ?? drivers.pdfjs),
-        getDocumentDriverForType,
         createLifecycleHooks: (context: IWorkspaceViewerLifecycleContext) => driverList.flatMap((driver) => {
             const hooks = driver.lifecycle.createHooks(context);
             return hooks ? [hooks] : [];

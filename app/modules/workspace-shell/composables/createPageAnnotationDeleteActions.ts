@@ -1,8 +1,5 @@
 import type { Ref } from 'vue';
-import {
-    isPdfAnnotationComment,
-    type IAnnotationCommentSummary,
-} from '@app/types/annotations';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import * as pdfAnnotationRefs from '@app/utils/pdfAnnotationRefs';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -61,7 +58,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
 
     function shouldUseEmbeddedDeletePath(comment: IAnnotationCommentSummary) {
         return comment.source !== 'shape'
-            && (isPdfAnnotationComment(comment) || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
+            && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
     }
 
     function shouldRemoveLiveEditorBeforeEmbeddedDelete(comment: IAnnotationCommentSummary) {

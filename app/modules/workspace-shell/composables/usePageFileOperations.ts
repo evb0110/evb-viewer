@@ -14,7 +14,6 @@ import { getErrorMessage } from '@app/utils/error';
 import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import { isWorkspaceDocumentOpenResult } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
@@ -229,7 +228,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
         if (
             options.openGeneratedInNewTab
-            && isWorkspaceDocumentOpenResult(result, 'pdf')
+            && result.kind === 'pdf'
             && result.isGenerated
             && hasDocument.value
         ) {
@@ -330,7 +329,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         const outcome = await open();
         if (
             outcome.status === 'opened'
-            && isWorkspaceDocumentOpenResult(outcome.result, 'pdf')
+            && outcome.result.kind === 'pdf'
             && outcome.result.recoveryDirtyBaseline === true
         ) {
             if (recoveryDirtyBaseline) {

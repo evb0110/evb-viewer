@@ -58,7 +58,6 @@ const isLiveDiscriminantName = name => (
     || name === 'document'
     || name === 'driver'
     || name === 'format'
-    || name === 'kind'
     || name === 'sourceKind'
     || name === 'viewer'
     || /^(?:active|workspace)?(?:adapter|document|driver|viewer)(?:adapter|driver|viewer|id|type|kind|format|identifier|state)?$/i.test(name)

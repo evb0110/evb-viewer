@@ -10,7 +10,6 @@ import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/b
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import {isWorkspaceDocumentOpenResult} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -73,7 +72,7 @@ const COLD_OPEN_GEOMETRY_TIMEOUT_MS = 750;
 const COLD_OPEN_GEOMETRY_TIMEOUT = Symbol('cold-open-geometry-timeout');
 
 async function resolveColdOpenGeometry(result: TOpenFileResult) {
-    if (!isWorkspaceDocumentOpenResult(result, 'pdf') || result.openingGeometry) {
+    if (result.kind !== 'pdf' || result.openingGeometry) {
         return result;
     }
     const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
@@ -164,7 +163,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     ) {
         const expected = buildPendingTabDocumentHint(pathOrResult);
         const matchesManagedPdf = typeof pathOrResult !== 'string'
-            && isWorkspaceDocumentOpenResult(pathOrResult, 'pdf')
+            && pathOrResult.kind === 'pdf'
             && record.documentIdentity?.documentRef === pathOrResult.workingPath;
         const matchesOriginalPath = Boolean(
             expected.originalPath
@@ -211,7 +210,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         const documentState = workspace.getAutomationStateSnapshot();
         const targetMatches = typeof pathOrResult === 'string'
             ? documentState.originalPath === pathOrResult
-            : isWorkspaceDocumentOpenResult(pathOrResult, 'pdf')
+            : pathOrResult.kind === 'pdf'
                 ? documentState.workingCopyPath === pathOrResult.workingPath
                 : documentState.originalPath === pathOrResult.originalPath;
         return Boolean(
@@ -570,9 +569,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             path,
             elapsedMs: performance.now() - routeStartedAt,
             failed: false,
-            hasOpeningGeometry: result !== null
-                && isWorkspaceDocumentOpenResult(result, 'pdf')
-                && result.openingGeometry !== undefined,
+            hasOpeningGeometry: result?.kind === 'pdf' && result.openingGeometry !== undefined,
             resultKind: result?.kind ?? null,
             warmGeometry,
         });

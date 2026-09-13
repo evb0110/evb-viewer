@@ -1,6 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
-import {isWorkspaceDocumentType} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 export const usePendingWorkspaceDocumentOpen = (options: {
     isPending: () => boolean;
@@ -12,10 +11,9 @@ export const usePendingWorkspaceDocumentOpen = (options: {
     ));
     const pendingDjvuDocumentOpen = computed(() => {
         const path = options.path();
-        const documentKind = typeof path === 'string' ? getDocumentKindFromPath(path) : null;
         return pendingDocumentOpen.value
-            && documentKind !== null
-            && isWorkspaceDocumentType(documentKind, 'djvu');
+            && typeof path === 'string'
+            && getDocumentKindFromPath(path) === 'djvu';
     });
     return {
         pendingDjvuDocumentOpen,

@@ -1,9 +1,6 @@
 import {ref} from 'vue';
 import {vi} from 'vitest';
-import {
-    requiresEmbeddedAnnotationSave,
-    type IAnnotationCommentSummary,
-} from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {useAnnotationNoteWindows} from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 
@@ -36,7 +33,6 @@ export function createHarness(comment = createComment()) {
         updateAnnotationCommentInViewer: vi.fn<
             (annotationId: AnnotationId, text: string) => boolean
         >(() => true),
-        requiresEmbeddedSave: requiresEmbeddedAnnotationSave,
         isAnnotationCommentSyncReady: vi.fn(() => true),
     };
 
