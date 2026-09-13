@@ -1,6 +1,5 @@
 import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
-import type * as TViMockOriginalModule3 from '@app/utils/platformDocuments';
 
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
@@ -47,10 +46,14 @@ vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
     readDocumentBytes: vi.fn(),
 }));
-vi.mock('@app/utils/platformDocuments', async (importOriginal_2) => ({
-    ...(await importOriginal_2<typeof TViMockOriginalModule3>()),
-    getDocumentFilesCapability: () => documentMocks,
-}));
+vi.mock('@app/utils/platform', async () => {
+    const {createElectronPlatformApiFixture} = await import('@tests/helpers/createElectronPlatformApiFixture');
+    const platformApi = createElectronPlatformApiFixture({documentFiles: {
+        ...documentMocks,
+        beginPdfEmbeddedShapeIndex: undefined,
+    }});
+    return {getPlatformAPI: () => platformApi};
+});
 
 describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
     beforeEach(() => {

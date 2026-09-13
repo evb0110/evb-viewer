@@ -11,6 +11,7 @@ import {
 import type { IHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
 import type { TRefStore } from '@tests/unit/app/composables/installNuxtStateTestStubs';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 /**
  * Windows reports its own display scaling and then scales the app on top of it,
@@ -26,13 +27,14 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/getHostCapability', () => ({getHostCapability: () => ({
+const platformApi = createElectronPlatformApiFixture({host: {
     getEnvironment: mocks.getEnvironment,
     onEnvironmentChange: (listener: (snapshot: IHostEnvironmentSnapshot) => void) => {
         mocks.environmentListeners.push(listener);
         return mocks.stopEnvironmentListener;
     },
-})}));
+}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     debug: vi.fn(),

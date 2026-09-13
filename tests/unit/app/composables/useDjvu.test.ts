@@ -1,5 +1,4 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
-import type * as TViMockOriginalModule2 from '@app/utils/platformDocuments';
 
 import {
     beforeEach,
@@ -101,11 +100,6 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
     useTypedI18n: () => ({t: (key: string) => key}),
 }));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal_2) => ({
-    ...(await importOriginal_2<typeof TViMockOriginalModule2>()),
-    getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
-    getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
-}));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
 vi.mock('@app/modules/workspace-shell/document-sessions/useDocumentSourceSession', () => {

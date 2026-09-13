@@ -33,6 +33,7 @@ import {
     WORKSPACE_VIEWER_ADAPTERS,
     getWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const driverMocks = vi.hoisted(() => ({
     cancel: vi.fn(async () => true),
@@ -53,14 +54,12 @@ const driverMocks = vi.hoisted(() => ({
     })),
 }));
 
-vi.mock('@app/utils/getDjvuCapability', () => {
-    const getDjvuCapability = () => ({
-        cancel: driverMocks.cancel,
-        getJobState: driverMocks.getJobState,
-        printDjvuPath: driverMocks.printDjvuPath,
-    });
-    return {getDjvuCapability};
-});
+const platformApi = createElectronPlatformApiFixture({djvu: {
+    cancel: driverMocks.cancel as never,
+    getJobState: driverMocks.getJobState as never,
+    printDjvuPath: driverMocks.printDjvuPath as never,
+}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/document-viewer/session/documentSession', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     createDocumentSession: driverMocks.createDocumentSession,

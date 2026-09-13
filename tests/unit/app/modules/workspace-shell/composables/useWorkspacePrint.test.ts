@@ -29,6 +29,7 @@ import {
     createRangePageSelection,
     type TPageSelection,
 } from '@contracts/pageNumbers';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TShouldPrintPageMetricsDirectly = (
     metrics: Array<{
@@ -106,13 +107,14 @@ vi.mock('@app/utils/pdfPrintShared', async (importOriginal) => ({
     },
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal_1) => ({
-    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
-    getDocumentPdfCapability: () => documentsCapabilityMock,
+const platformApi = createElectronPlatformApiFixture({documentPdf: documentsCapabilityMock as never});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalModule2>()),
     isNativePrintCapabilityUnavailable: (result: {
         success: boolean;
         canceled?: boolean;
-        error?: string;
+        error?: string
     }) => (
         result.success !== true
         && result.canceled !== true

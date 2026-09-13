@@ -1,4 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/utils/documentBytes';
 
 import {
@@ -18,6 +17,7 @@ import { requireLeaseId } from '@contracts/shared';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     createWorkingCopyFromPath: vi.fn(),
@@ -36,14 +36,13 @@ const mocks = vi.hoisted(() => ({
     readDocumentBytes: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentWorkingCopyCapability: () => ({
+const platformApi = createElectronPlatformApiFixture({
+    documentWorkingCopy: {
         cleanupFile: mocks.cleanupFile,
         createWorkingCopyFromPath: mocks.createWorkingCopyFromPath,
         createWorkingCopyFromData: mocks.createWorkingCopyFromData,
-    }),
-    getDocumentFilesCapability: () => ({
+    },
+    documentFiles: {
         getDocumentRevision: mocks.getDocumentRevision,
         createManagedTempFileHandle: mocks.createManagedTempFileHandle,
         releaseManagedTempFileHandle: mocks.releaseManagedTempFileHandle,
@@ -51,8 +50,9 @@ vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
         cloneStagedPdfNativeMutationToWorkingCopy: mocks.cloneStagedPdfNativeMutationToWorkingCopy,
         replaceWorkingCopyFromStagedPdfNativeMutation: mocks.replaceWorkingCopyFromStagedPdfNativeMutation,
         savePdfData: mocks.savePdfData,
-    }),
-}));
+    },
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 vi.mock('@app/utils/documentBytes', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),

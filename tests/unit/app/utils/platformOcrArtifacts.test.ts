@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -8,16 +6,15 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const documentsMock = vi.hoisted(() => ({
     fileExists: vi.fn(),
     readTextFile: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => documentsMock,
-}));
+const platformApi = createElectronPlatformApiFixture({documentFiles: documentsMock});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 describe('platform OCR artifacts', () => {
     beforeEach(() => {

@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     createApp,
     defineComponent,
@@ -22,6 +20,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
@@ -54,10 +53,8 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
         maxTotalInputBytes: 64 * 1024 * 1024,
     }),
 }));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({ savePdfAs: mocks.savePdfAs }),
-}));
+const platformApi = createElectronPlatformApiFixture({documentFiles: {savePdfAs: mocks.savePdfAs}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
 const ButtonStub = defineComponent({

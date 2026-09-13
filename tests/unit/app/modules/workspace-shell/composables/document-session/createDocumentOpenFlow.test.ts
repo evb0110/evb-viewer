@@ -1,4 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 import type * as TViMockOriginalModule2 from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
 
 import {
@@ -41,6 +40,7 @@ import {
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
@@ -66,14 +66,14 @@ const mocks = vi.hoisted(() => ({
     nativePreview: {createSource: vi.fn()},
 }));
 
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mocks.documentFiles,
-    getDocumentOpenCapability: () => mocks.documentOpen,
-    getDocumentPdfCapability: () => mocks.documentPdf,
-    getDocumentPickerCapability: () => mocks.documentPicker,
-    getDocumentRecentFilesCapability: () => mocks.documentRecentFiles,
-}));
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: mocks.documentFiles,
+    documentOpen: mocks.documentOpen,
+    documentPdf: mocks.documentPdf,
+    documentPicker: mocks.documentPicker,
+    documentRecentFiles: mocks.documentRecentFiles,
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
 vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),

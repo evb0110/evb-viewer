@@ -11,6 +11,7 @@ import {
     type TRendererDiagnosticSender,
 } from '@app/utils/failureReporter';
 import type {DiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 function eventId(value: number) {
     return value.toString(16).padStart(32, '0') as DiagnosticEventId;
@@ -567,7 +568,7 @@ describe('renderer failure reporter', () => {
         vi.resetModules();
         const sendRecord = vi.fn();
         const localSink = vi.fn();
-        vi.stubGlobal('window', {electronAPI: {diagnostics: {sendRecord}}});
+        vi.stubGlobal('window', {electronAPI: createElectronPlatformApiFixture({diagnostics: {sendRecord}})});
 
         try {
             const module = await import('@app/utils/failureReporter');

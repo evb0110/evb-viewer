@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     beforeEach,
@@ -17,6 +15,7 @@ import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composabl
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const saveMocks = vi.hoisted(() => ({
     capturedDeps: null as unknown,
@@ -48,10 +47,8 @@ vi.mock(
         };
     })}),
 );
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({statFile: platformMocks.statFile}),
-}));
+const platformApi = createElectronPlatformApiFixture({documentFiles: {statFile: platformMocks.statFile}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock(
     '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader',
     () => ({createPdfSourceDataReader: () => vi.fn(async () => new Uint8Array([1]))}),
