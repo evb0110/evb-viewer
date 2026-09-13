@@ -310,12 +310,13 @@ function addUserMessageAndPublish(
     text: string,
     attachments: NonNullable<IAgentAssistantSendMessageRequest['attachments']>,
 ) {
-    sessionStore.addMessage(session, {
+    const message = sessionStore.addMessage(session, {
         role: 'user',
         text,
         ...(attachments.length > 0 ? {attachments} : {}),
     });
     publishState(session.scope, session);
+    return message;
 }
 
 function setProviderError(provider: TAgentAssistantProviderId, error: string) {
@@ -908,6 +909,14 @@ export async function sendAgentAssistantMessage(
         if (selection.provider === 'claude') {
             let claudeSession: NonNullable<IAssistantChatSession['claudeSession']> | null = null;
             let createdClaudeSession = false;
+            let claudeUserMessageId: string | null = null;
+            let claudeMessageSubmitted = false;
+            const discardCanceledClaudeMessage = () => {
+                if (!claudeMessageSubmitted && claudeUserMessageId) {
+                    sessionStore.removeMessage(session, claudeUserMessageId);
+                    publishState(session.scope, session);
+                }
+            };
             try {
                 const ensuredClaudeSession = await ensureClaudeAssistantSession(
                     session,
@@ -925,8 +934,9 @@ export async function sendAgentAssistantMessage(
                 }
                 claudeProviderRuntime.runtimeState = 'busy';
                 delete session.lastError;
-                addUserMessageAndPublish(session, text, attachments);
+                claudeUserMessageId = addUserMessageAndPublish(session, text, attachments).id;
                 await claudeSession.sendMessage(modelText, attachments, selection.model);
+                claudeMessageSubmitted = true;
                 await assertClaimCurrent();
                 publishState(session.scope, session);
                 return createAssistantSuccessResult(session);
@@ -938,12 +948,19 @@ export async function sendAgentAssistantMessage(
                     session.claudeSession = undefined;
                 }
                 if (error instanceof AssistantTurnSupersededError) {
+                    discardCanceledClaudeMessage();
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);
                     return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
                 }
                 if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
+                    discardCanceledClaudeMessage();
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);
                     return createAssistantDisabledResult(currentState(session.scope, session));
+                }
+                if (!isClaimCurrent()) {
+                    discardCanceledClaudeMessage();
+                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
+                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
                 }
                 const message = getErrorMessage(error);
                 markClaudeTurnError(session, null, message);
@@ -968,6 +985,7 @@ export async function sendAgentAssistantMessage(
             createdThread = ensuredThread.created;
             await assertClaimCurrent();
             await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
+            await assertClaimCurrent();
             session.providerThreadId = currentThreadId;
             sessionStore.setActiveSession(session);
             codexProviderRuntime.runtimeState = 'busy';
@@ -1106,14 +1124,28 @@ export async function interruptAgentAssistant(
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
     if (session?.provider === 'claude') {
         if (session.claudeSession && isAssistantTurnActive(session.turnOwner)) {
+            const claudeSession = session.claudeSession;
+            const setupPending = session.turnOwner.phase === 'starting';
             claudeProviderRuntime.runtimeState = 'busy';
             interruptSessionTurn(session);
             publishState(session.scope, session);
-            await waitForBoundedAssistantInterrupt(session.claudeSession.interrupt()).catch((error: unknown) => {
+            await waitForBoundedAssistantInterrupt(claudeSession.interrupt()).catch((error: unknown) => {
                 logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
                 session.turnPresentation.phase = 'stalled';
                 session.turnPresentation.lastEventAtMs = Date.now();
             });
+            if (setupPending && isAssistantTurnActive(session.turnOwner)) {
+                await waitForBoundedAssistantInterrupt(claudeSession.close()).catch((error: unknown) => {
+                    logger.warn(`Failed to close canceled Claude assistant setup: ${getErrorMessage(error)}`);
+                });
+                if (!claudeSession.isRetiring) {
+                    session.claudeSession = undefined;
+                }
+                supersedeSessionTurn(session);
+                claudeProviderRuntime.runtimeState = claudeProviderRuntime.authState === 'signed-in'
+                    ? 'ready'
+                    : 'stopped';
+            }
             // interrupt() -> completeTurn() -> markClaudeTurnCompleted already resets
             // runtimeState and emits the turn-completed event.
             return currentState(session.scope, session);

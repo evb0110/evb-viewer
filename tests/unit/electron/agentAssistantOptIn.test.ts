@@ -693,6 +693,35 @@ describe('agent assistant opt-in gating', () => {
         expect(process.kill).toHaveBeenCalled();
     });
 
+    it('does not bind a Codex thread after Reset wins the final setup check', async () => {
+        const documentScope = createDocumentScope('reset-after-thread-setup.pdf');
+        const process = enableAssistantRuntime();
+        const {
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        let postThreadSettingsReads = 0;
+        mocks.loadSettings.mockImplementation(async () => {
+            if (process.requestMethods.includes('thread/start')) {
+                postThreadSettingsReads += 1;
+                if (postThreadSettingsReads === 3) {
+                    await resetAgentAssistantChat({scope: documentScope});
+                }
+            }
+            return {assistantPanelEnabled: true};
+        });
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Do not bind this reset thread',
+            scope: documentScope,
+        })).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        expect(postThreadSettingsReads).toBeGreaterThanOrEqual(3);
+        expect(process.requestMethods).not.toContain('turn/start');
+    });
+
     it('does not resurrect a reset turn after Codex runtime initialization returns', async () => {
         configureEnabledAssistantRuntime();
         mocks.initializeGate = createInitializeGate();
@@ -892,6 +921,77 @@ describe('agent assistant opt-in gating', () => {
         const state = await getAgentAssistantState({scope: documentScope});
         expect(state.messages).toEqual([]);
         expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it('cancels a Claude send that is pending after session setup', async () => {
+        configureEnabledAssistantRuntime();
+        const documentScope = createDocumentScope('stop-during-claude-send.pdf');
+        const sendGate = createInitializeGate();
+        let resolveSendStarted: (() => void) | undefined;
+        const sendStarted = new Promise<void>(resolve => {
+            resolveSendStarted = resolve;
+        });
+        let sendCanceled = false;
+        const claudeSession = {
+            effort: 'low' as const,
+            fastMode: false,
+            isUsable: true,
+            isRetiring: false,
+            sendMessage: vi.fn(async () => {
+                resolveSendStarted?.();
+                await sendGate.promise;
+                if (sendCanceled) {
+                    throw new Error('Claude assistant session is closed.');
+                }
+                return 'claude-turn-1';
+            }),
+            interrupt: vi.fn(async () => {
+                sendCanceled = true;
+            }),
+            close: vi.fn(async () => {
+                sendCanceled = true;
+            }),
+        };
+        mocks.claudeSessionConstructor.mockImplementation(function createPendingClaudeSession() {
+            return claudeSession;
+        });
+
+        const {
+            getAgentAssistantState,
+            interruptAgentAssistant,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not submit after stop',
+            scope: documentScope,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.startEmbeddedMcpServer).toHaveBeenCalled();
+        });
+        mocks.claudeRuntimeLoadGate?.resolve();
+        await settleAsyncTicks();
+        await sendStarted;
+
+        const stoppedState = await interruptAgentAssistant({
+            provider: 'claude',
+            scope: documentScope,
+        });
+        expect(stoppedState.status.turn.phase).toBe('cancelled');
+
+        sendGate.resolve();
+        await expect(sendPromise).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        const state = await getAgentAssistantState({
+            provider: 'claude',
+            scope: documentScope,
+        });
+        expect(state.messages).toEqual([]);
+        expect(claudeSession.sendMessage).toHaveBeenCalledOnce();
+        expect(claudeSession.close).toHaveBeenCalled();
     });
 
     it('completes through each selected backend with provider-specific drivers', async () => {
