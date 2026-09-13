@@ -1,0 +1,52 @@
+tests/unit/electron/documentRevisionStore.test.ts
+  s_4cb4d0bade7448::t_2567485693a2f8 138-158
+electron/file-access/recoverTwoTargetDocumentTransition.ts
+  s_4cb4d0bade7448::t_3a77f72268f566 29-37
+  s_4cb4d0bade7448::t_8e4fae4a31cf54 3,38-54
+  s_4cb4d0bade7448::t_84b60df403636e 6-10
+  s_ae757872e5d914::t_4bf5c88f862583 55
+electron/workspaceCheckpointStore.ts
+  s_4cb4d0bade7448::t_1ed61db7c5b8fc 1654
+electron/file-access/documentRevisionStore.ts
+  s_4cb4d0bade7448::t_ce6787235b34f4 63-66,356-357
+  s_4cb4d0bade7448::t_f747db3ca7b356 359,446-447,449
+  s_4cb4d0bade7448::t_981d6cd1d188de 46
+  s_4cb4d0bade7448::t_3a77f72268f566 358,448
+  s_30cfa78526c1ce::t_abe3148d81e45c 360
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_4cb4d0bade7448::t_1ed61db7c5b8fc 814-816,821
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_4cb4d0bade7448::t_6a173d6539571b 35,37-42,612-629
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3cf56bd344f5c5329ee5f0e3f98d94e116756aa0",
+  "prompts": {},
+  "sessions": {
+    "s_30cfa78526c1ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098ca-900f-7ac2-8ab0-4ab184f30132",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_4cb4d0bade7448": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098c7-77b2-7090-838d-5757cde77958",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
