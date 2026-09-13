@@ -55,6 +55,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     isNativePdfImageCombineDisabled,
@@ -574,7 +575,7 @@ export async function promoteStagedFiles(
             pendingBackupPath = backupPath;
             pendingReplacementAttempted = false;
             if (backupPath) {
-                await copyFile(stagedFile.targetPath, backupPath);
+                await copyFileAtomic(stagedFile.targetPath, backupPath, {durable: true});
                 backupPaths.push(backupPath);
             }
             throwIfAborted(signal);

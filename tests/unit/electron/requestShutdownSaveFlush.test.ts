@@ -255,6 +255,41 @@ describe('requestShutdownSaveFlush', () => {
         expect(isTrustedSender).toHaveBeenCalledWith(expect.anything(), state.senderFrame);
     });
 
+    it('keeps the shutdown safety timeout referenced until it resolves', async () => {
+        vi.useFakeTimers();
+        const originalSetTimeout = globalThis.setTimeout;
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+        const timers: Array<{unref: ReturnType<typeof vi.fn>}> = [];
+        setTimeoutSpy.mockImplementation((handler, timeout) => {
+            const timer = originalSetTimeout(handler, timeout) as {unref: () => void};
+            const unref = vi.fn(timer.unref.bind(timer));
+            timer.unref = unref;
+            timers.push({unref});
+            return timer as ReturnType<typeof setTimeout>;
+        });
+        const probeTimer = setTimeout(() => undefined, 1_000);
+        clearTimeout(probeTimer);
+        state.senderFrame = {id: 'subframe'};
+        const logger = {
+            debug: vi.fn(),
+            error: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+        };
+        const flush = requestShutdownSaveFlush({
+            getWindows: () => [createWindow(() => ({flushedWorkingCopyPaths: ['/tmp/ignored.pdf']}))],
+            logger,
+            timeoutMs: 10,
+            isTrustedSender: () => false,
+        });
+
+        await vi.advanceTimersByTimeAsync(10);
+        await expect(flush).resolves.toMatchObject({timedOutWindowIds: [1]});
+        expect(timers.at(-1)?.unref).not.toHaveBeenCalled();
+        setTimeoutSpy.mockRestore();
+        vi.useRealTimers();
+    });
+
     it.each([
         {
             dirtyWorkingCopyPaths: ['/tmp/dirty.pdf'],
