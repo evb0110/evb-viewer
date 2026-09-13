@@ -214,6 +214,92 @@ describe('no-core-correctness-timers rule', () => {
     });
 });
 
+describe('no-raw-red-presentation rule', () => {
+    it('rejects raw red failure presentation outside shared presenters', () => {
+        tester.run('no-raw-red-presentation', rules['no-raw-red-presentation'] as Parameters<typeof tester.run>[1], {
+            valid: [
+                {
+                    code: 'toast.add({color: \'error\', failure});',
+                    filename: 'app/components/AppFailureAlert.vue',
+                },
+                {
+                    code: '<template><UAlert color="primary" /></template>',
+                    filename: 'app/components/FailurePanel.vue',
+                },
+            ],
+            invalid: [{
+                code: 'useToast().add({color: \'error\'});',
+                filename: 'app/components/FailurePanel.ts',
+                errors: [{message: 'Route red failure presentation through the shared receipt-aware presenter.'}],
+            }],
+        });
+    });
+});
+
+describe('no-direct-console-error rule', () => {
+    it('rejects direct application console.error calls', () => {
+        tester.run('no-direct-console-error', rules['no-direct-console-error'] as Parameters<typeof tester.run>[1], {
+            valid: [{
+                code: 'console.warn(error);',
+                filename: 'app/components/FailurePanel.ts',
+            }],
+            invalid: [{
+                code: 'console.error(error);',
+                filename: 'app/components/FailurePanel.ts',
+                errors: [{message: 'Use the approved diagnostic logger or observer instead of direct console.error.'}],
+            }],
+        });
+    });
+});
+
+describe('require-failure-receipt rule', () => {
+    it('requires receipt-bearing runtime failure presentation', () => {
+        tester.run('require-failure-receipt', rules['require-failure-receipt'] as Parameters<typeof tester.run>[1], {
+            valid: [{
+                code: 'reportRuntimeError({failure});',
+                filename: 'app/utils/failureBoundary.ts',
+            }],
+            invalid: [{
+                code: 'reportRuntimeError({message: \'failed\'});',
+                filename: 'app/utils/failureBoundary.ts',
+                errors: [{message: 'Runtime and fatal failure presentation requires a FailureReceipt.'}],
+            }],
+        });
+    });
+});
+
+describe('require-classified-error-log rule', () => {
+    it('requires closed diagnostic input for application error logs', () => {
+        tester.run('require-classified-error-log', rules['require-classified-error-log'] as Parameters<typeof tester.run>[1], {
+            valid: [{
+                code: 'BrowserLogger.error(message, source, error, {code: \'PDF_RENDER\', context: {}});',
+                filename: 'app/utils/failureBoundary.ts',
+            }],
+            invalid: [{
+                code: 'BrowserLogger.error(message, source, error, {code: \'PDF_RENDER\'});',
+                filename: 'app/utils/failureBoundary.ts',
+                errors: [{message: 'Error logging requires a closed diagnostic code and context or an existing FailureReceipt.'}],
+            }],
+        });
+    });
+});
+
+describe('no-unclassified-diagnostic-code rule', () => {
+    it('rejects generic diagnostic codes at application capture sites', () => {
+        tester.run('no-unclassified-diagnostic-code', rules['no-unclassified-diagnostic-code'] as Parameters<typeof tester.run>[1], {
+            valid: [{
+                code: 'captureFailure({code: \'PDF_RENDER\'});',
+                filename: 'app/utils/failureBoundary.ts',
+            }],
+            invalid: [{
+                code: 'captureFailure({code: \'UNCLASSIFIED_RENDERER_ERROR\'});',
+                filename: 'app/utils/failureBoundary.ts',
+                errors: [{message: 'Application-owned failures require a subsystem-specific diagnostic code.'}],
+            }],
+        });
+    });
+});
+
 describe('migrated core ESLint and Stylelint rules', () => {
     async function lintStyle(ruleName: string, code: string, codeFilename: string) {
         const result = await stylelint.lint({
