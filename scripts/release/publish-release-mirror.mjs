@@ -17,6 +17,7 @@ import {
     CompleteMultipartUploadCommand,
     CreateMultipartUploadCommand,
     DeleteObjectsCommand,
+    DeleteObjectCommand,
     GetObjectCommand,
     HeadObjectCommand,
     ListObjectsV2Command,
@@ -66,8 +67,9 @@ const TRANSIENT_TRANSFER_ERROR_CODES = new Set([
 /** @typedef {{channelKey: string, releasePrefix: string}} IMirrorPaths */
 /** @typedef {{sha256: string, size: number}} IObjectDigest */
 /** @typedef {{body: string, etag?: string | undefined, sha256: string, size: number, tag: string}} IStableChannel */
+/** @typedef {{schemaVersion: 1, releaseTag: string, artifactIdentity: string, previousChannel: IStableChannel | null, activatedChannel: IStableChannel | null, promotion: 'pending' | 'public'}} IReleaseTransaction */
 /** @typedef {{Key?: string | undefined}} IMirrorObject */
-/** @typedef {{artifactDirectory?: string | undefined, drill?: boolean | undefined, releaseTag?: string | undefined, publishChannel?: boolean | undefined, environment?: NodeJS.ProcessEnv | undefined, client?: TMirrorClient | undefined, uploadRetryDelayMs?: number | undefined, partBytes?: number | undefined}} IPublishMirrorOptions */
+/** @typedef {{artifactDirectory?: string | undefined, drill?: boolean | undefined, releaseTag?: string | undefined, publishChannel?: boolean | undefined, durableTransaction?: boolean | undefined, environment?: NodeJS.ProcessEnv | undefined, client?: TMirrorClient | undefined, uploadRetryDelayMs?: number | undefined, partBytes?: number | undefined}} IPublishMirrorOptions */
 /** @typedef {{drill?: boolean | undefined, files?: string[] | undefined, releaseTag?: string | undefined, environment?: NodeJS.ProcessEnv | undefined, client?: TMirrorClient | undefined, uploadRetryDelayMs?: number | undefined, partBytes?: number | undefined}} IPublishSupplementalMirrorOptions */
 /** @typedef {{environment?: NodeJS.ProcessEnv | undefined, prefix?: string | undefined, client?: TMirrorClient | undefined}} ICleanupMirrorOptions */
 /** @typedef {{[Symbol.asyncIterator]?: () => AsyncIterator<unknown>, transformToByteArray?: () => Promise<Uint8Array>, transformToString?: () => Promise<string>}} IMirrorBody */
@@ -85,6 +87,7 @@ export async function publishReleaseMirror({
     drill = false,
     releaseTag,
     publishChannel = true,
+    durableTransaction = false,
     environment = process.env,
     client: providedClient,
     uploadRetryDelayMs = 5_000,
@@ -163,6 +166,17 @@ export async function publishReleaseMirror({
             mirrorPaths.channelKey,
             releaseTagPattern,
         );
+        const transaction = durableTransaction
+            ? await prepareReleaseTransaction(
+                client,
+                bucket,
+                mirrorPaths.releasePrefix,
+                releaseTag,
+                manifest,
+                previousChannel,
+                uploadRetryDelayMs,
+            )
+            : null;
         let stableChannelMutationAttempted = false;
         try {
             stableChannelMutationAttempted = await publishStableChannel(
@@ -175,6 +189,20 @@ export async function publishReleaseMirror({
                 releaseTagPattern,
                 uploadRetryDelayMs,
             );
+            if (transaction) {
+                await updateReleaseTransaction(
+                    client,
+                    bucket,
+                    transaction,
+                    {
+                        body: manifest,
+                        etag: undefined,
+                        sha256: createHash('sha256').update(manifest).digest('hex'),
+                        size: Buffer.byteLength(manifest),
+                        tag: releaseTag,
+                    },
+                );
+            }
             prunedTags = await pruneOldReleases(
                 client,
                 bucket,
@@ -814,6 +842,224 @@ async function putImmutableJson(client, bucket, key, body, cacheControl, retryDe
     })), size, sha256, retryDelayMs);
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @param {string} manifest @param {IStableChannel | null} previousChannel @param {number} retryDelayMs @returns {Promise<{key: string, etag: string, transaction: IReleaseTransaction}>} */
+async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseTag, manifest, previousChannel, retryDelayMs) {
+    const key = transactionKey(releasePrefix, releaseTag);
+    const artifactIdentity = createHash('sha256').update(manifest).digest('hex');
+    const existing = await readReleaseTransaction(client, bucket, releasePrefix, releaseTag);
+    if (existing) {
+        if (existing.transaction.artifactIdentity !== artifactIdentity) {
+            throw new Error(`Release transaction artifact identity changed for ${releaseTag}`);
+        }
+        return existing;
+    }
+    const transaction = {
+        schemaVersion: 1,
+        releaseTag,
+        artifactIdentity,
+        previousChannel,
+        activatedChannel: null,
+        promotion: 'pending',
+    };
+    const response = await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: JSON.stringify(transaction),
+        ContentType: 'application/json; charset=utf-8',
+        CacheControl: 'no-cache, no-store, must-revalidate',
+        IfNoneMatch: '*',
+    })).catch(async error => {
+        if (!isConditionalWriteConflict(error)) {
+            throw error;
+        }
+        const concurrent = await readReleaseTransaction(client, bucket, releasePrefix, releaseTag);
+        if (!concurrent || concurrent.transaction.artifactIdentity !== artifactIdentity) {
+            throw new Error(`Release transaction changed while publishing ${releaseTag}`, {cause: error});
+        }
+        return {ETag: concurrent.etag};
+    });
+    if (!response.ETag) {
+        throw new Error('Release transaction object response has no ETag');
+    }
+    void retryDelayMs;
+    return {
+        key,
+        etag: response.ETag,
+        transaction,
+    };
+}
+
+/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @returns {Promise<{key: string, etag: string, transaction: IReleaseTransaction} | null>} */
+async function readReleaseTransaction(client, bucket, releasePrefix, releaseTag) {
+    const key = transactionKey(releasePrefix, releaseTag);
+    try {
+        const response = await client.send(new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        }));
+        const raw = await response.Body?.transformToString();
+        if (typeof raw !== 'string' || !response.ETag) {
+            throw new Error('Release transaction object is incomplete');
+        }
+        const transaction = JSON.parse(raw);
+        if (transaction?.schemaVersion !== 1 || transaction.releaseTag !== releaseTag) {
+            throw new Error('Release transaction object is invalid');
+        }
+        return {
+            key,
+            etag: response.ETag,
+            transaction,
+        };
+    } catch (error) {
+        if (isMirrorError(error) && (error.$metadata?.httpStatusCode === 404 || error.name === 'NoSuchKey')) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+/** @param {TMirrorClient} client @param {string} bucket @param {{key: string, etag: string, transaction: IReleaseTransaction}} current @param {IStableChannel} activatedChannel @returns {Promise<void>} */
+async function updateReleaseTransaction(client, bucket, current, activatedChannel) {
+    let response;
+    try {
+        response = await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: current.key,
+            Body: JSON.stringify({
+                ...current.transaction,
+                activatedChannel,
+            }),
+            ContentType: 'application/json; charset=utf-8',
+            CacheControl: 'no-cache, no-store, must-revalidate',
+            IfMatch: current.etag,
+        }));
+    } catch (error) {
+        if (!isConditionalWriteConflict(error)) {
+            throw error;
+        }
+        const concurrent = await readReleaseTransaction(
+            client,
+            bucket,
+            current.key.replace(/transactions\/[^/]+\.json$/u, 'releases/'),
+            current.transaction.releaseTag,
+        );
+        if (concurrent?.transaction.activatedChannel?.sha256 !== activatedChannel.sha256) {
+            throw error;
+        }
+        return;
+    }
+    if (!response.ETag) {
+        throw new Error('Release transaction activation update returned no ETag');
+    }
+}
+
+/** @param {TMirrorClient} client @param {string} bucket @param {{key: string, etag: string, transaction: IReleaseTransaction}} current @returns {Promise<void>} */
+async function markReleaseTransactionPublic(client, bucket, current) {
+    let response;
+    try {
+        response = await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: current.key,
+            Body: JSON.stringify({
+                ...current.transaction,
+                promotion: 'public',
+            }),
+            ContentType: 'application/json; charset=utf-8',
+            CacheControl: 'no-cache, no-store, must-revalidate',
+            IfMatch: current.etag,
+        }));
+    } catch (error) {
+        if (!isConditionalWriteConflict(error)) {
+            throw error;
+        }
+        const concurrent = await readReleaseTransaction(
+            client,
+            bucket,
+            current.key.replace(/transactions\/[^/]+\.json$/u, 'releases/'),
+            current.transaction.releaseTag,
+        );
+        if (concurrent?.transaction.promotion === 'public') {
+            return;
+        }
+        throw error;
+    }
+    if (!response.ETag) {
+        throw new Error('Release transaction promotion update returned no ETag');
+    }
+}
+
+/** @param {unknown} value @param {string} releaseTag @returns {'public' | 'draft' | 'unresolved'} */
+function parseGithubReleaseState(value, releaseTag) {
+    if (typeof value !== 'object' || value === null) {
+        return 'public';
+    }
+    const state = /** @type {{tagName?: unknown, isDraft?: unknown, assets?: unknown}} */ (value);
+    if (state.tagName !== releaseTag || typeof state.isDraft !== 'boolean' || !Array.isArray(state.assets)) {
+        return 'unresolved';
+    }
+    if (!state.assets.some(asset => typeof asset === 'object' && asset !== null && asset.name === 'SHA256SUMS')) {
+        return 'unresolved';
+    }
+    return state.isDraft ? 'draft' : 'public';
+}
+
+/** @param {{releaseTag: string, githubState: unknown, drill?: boolean, environment?: NodeJS.ProcessEnv, client?: TMirrorClient, uploadRetryDelayMs?: number}} options @returns {Promise<'public' | 'draft-restored' | 'unresolved' | 'missing'>} */
+export async function reconcileReleasePromotion({
+    releaseTag,
+    githubState,
+    drill = false,
+    environment = process.env,
+    client: providedClient,
+    uploadRetryDelayMs = 5_000,
+}) {
+    const mirrorPaths = resolveMirrorPaths(environment, {drill});
+    const releaseTagPattern = drill ? DRILL_TAG_PATTERN : RELEASE_TAG_PATTERN;
+    const {
+        bucket, client,
+    } = createMirrorClient(environment, providedClient);
+    const current = await readReleaseTransaction(client, bucket, mirrorPaths.releasePrefix, releaseTag);
+    if (!current) {
+        return 'missing';
+    }
+    const state = parseGithubReleaseState(githubState, releaseTag);
+    if (state === 'unresolved') {
+        return 'unresolved';
+    }
+    if (state === 'public') {
+        await markReleaseTransactionPublic(client, bucket, current);
+        return 'public';
+    }
+    const channel = await readStableChannel(client, bucket, mirrorPaths.channelKey, releaseTagPattern);
+    const activated = current.transaction.activatedChannel ?? channel;
+    if (!channel || !activated || activated.tag !== releaseTag
+        || channel.sha256 !== activated.sha256
+        || channel.sha256 !== current.transaction.artifactIdentity) {
+        return 'unresolved';
+    }
+    if (current.transaction.previousChannel) {
+        await restoreStableChannel(
+            client,
+            bucket,
+            current.transaction.previousChannel,
+            mirrorPaths.channelKey,
+            releaseTagPattern,
+            uploadRetryDelayMs,
+        );
+    } else {
+        await client.send(new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: mirrorPaths.channelKey,
+            IfMatch: channel.etag,
+        }));
+    }
+    return 'draft-restored';
+}
+
+/** @param {string} releasePrefix @param {string} releaseTag @returns {string} */
+function transactionKey(releasePrefix, releaseTag) {
+    return `${releasePrefix.replace(/releases\/$/u, 'transactions/')}${releaseTag}.json`;
+}
+
 /** @param {TMirrorClient} client @param {string} bucket @param {string} body @param {string} releaseTag @param {NodeJS.ProcessEnv} environment @param {string} channelKey @param {RegExp} releaseTagPattern @param {number} retryDelayMs @returns {Promise<boolean>} */
 async function publishStableChannel(
     client,
@@ -1104,6 +1350,28 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             throw new Error('Usage: publish-release-mirror.mjs cleanup <evb-viewer/drill/.../>');
         }
         await cleanupMirrorPrefix({prefix: args[1]});
+    } else if (args[0] === 'reconcile') {
+        const [
+            , releaseTag,
+            statePath,
+            ...modes
+        ] = args;
+        if (!releaseTag || !statePath || modes.some(mode => mode !== '--drill')) {
+            throw new Error('Usage: publish-release-mirror.mjs reconcile <release-tag> <github-state.json> [--drill]');
+        }
+        const result = await reconcileReleasePromotion({
+            releaseTag,
+            githubState: JSON.parse(await readFile(statePath, 'utf8')),
+            drill: modes.includes('--drill'),
+        });
+        console.log(`Release reconciliation: ${result}`);
+        if (result === 'draft-restored') {
+            process.exitCode = 2;
+        } else if (result === 'unresolved') {
+            process.exitCode = 3;
+        } else if (result === 'missing') {
+            process.exitCode = 4;
+        }
     } else if (args[0] === 'supplemental') {
         const [
             ,
@@ -1129,6 +1397,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const allowedModes = new Set([
             '--drill',
             '--stage',
+            '--transaction',
         ]);
         if (modes.some(mode => !allowedModes.has(mode))) {
             throw new Error(`Unknown mirror publish mode: ${modes.find(mode => !allowedModes.has(mode))}`);
@@ -1138,6 +1407,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             drill: modes.includes('--drill'),
             releaseTag,
             publishChannel: !modes.includes('--stage'),
+            durableTransaction: modes.includes('--transaction'),
         });
     }
 }
