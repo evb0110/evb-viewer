@@ -1,0 +1,63 @@
+app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 26,278-279,285-287
+scripts/architecture/boundary-check.mjs
+  s_1f5857c6c42e58::t_09cfefdd63a358 400
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_1f5857c6c42e58::t_09cfefdd63a358 74,487-490,587-589,804-806
+  s_1f5857c6c42e58::t_511ffe17923b36 58,312-314,486,492,555-557,623,626-628,633-634,640-642,753,798-803,807-809,831,856,859,865,871
+  s_1f5857c6c42e58::t_cd19fa4f8523b7 75
+app/types/documentOpenOutcome.ts
+  s_1f5857c6c42e58::t_6ee0161a656d9e 22-28
+app/modules/workspace-shell/tabs/buildPendingTabDocumentHint.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 6,42-44,48
+app/modules/workspace-shell/composables/createPageAnnotationDeleteActions.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 2-5,64
+scripts/architecture/formatComparisonRule.mjs
+  s_1f5857c6c42e58::t_45ea30daa5c2f4 193
+  s_1f5857c6c42e58::t_09cfefdd63a358 266
+tests/unit/scripts/formatComparisonRule.test.ts
+  s_1f5857c6c42e58::t_45ea30daa5c2f4 115,121,125
+app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts
+  s_1f5857c6c42e58::t_6ee0161a656d9e 3-5,80,105-112,122-129,136-143
+  s_22de641c7110dd::t_e4ee844b6a6282 2
+app/modules/workspace-shell/composables/useWorkspaceSplitCache.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 50
+app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes.ts
+  s_1f5857c6c42e58::t_6ee0161a656d9e 12-22,46
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_1f5857c6c42e58::t_c23cca0cc4240f 169-173,178
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.test.ts
+  s_1f5857c6c42e58::t_681cca3fa0990d 35-37
+app/modules/workspace-shell/composables/useScanCleanupRunCoordinator.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 20,79,134
+app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 73-77
+app/types/annotations.ts
+  s_1f5857c6c42e58::t_e9bd7a1a6a0e24 249-252,254
+tests/unit/scripts/depGraph.test.ts
+  s_1f5857c6c42e58::t_fea85d730670e9 57,71-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8eddd7a231b9dcbf1445f6073f9db17546195648",
+  "prompts": {},
+  "sessions": {
+    "s_1f5857c6c42e58": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a099de-e0ca-7031-a8cc-d6bd239e76f1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_22de641c7110dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09a1a-fbc8-7311-8f2e-a065d23cbf01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
