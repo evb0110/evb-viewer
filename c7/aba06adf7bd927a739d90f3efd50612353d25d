@@ -1,0 +1,63 @@
+electron/features/scan-cleanup/createScanCleanupSettingsStore.ts
+  s_d456e21efd394e::t_724ea3c8eb1a51 111-114,119-122,124-134,136
+  s_d456e21efd394e::t_25b64d00da3407 239,454-457
+  s_d456e21efd394e::t_f9d32db8b2c015 453,458-464
+  s_d456e21efd394e::t_0592ae67fd61ef 227
+  s_d456e21efd394e::t_9c85e2de30c5fc 258
+  s_d456e21efd394e::t_dd6786c97119d9 31-34,108-110,115-118,123,135,137
+  s_d456e21efd394e::t_fcf7119e875e62 140
+  s_d456e21efd394e::t_1e6e0c78a42b8b 12,204,215,241-242,251-257,259-260,314,431
+packages/contracts/scan-cleanup/inputLimits.ts
+  s_d456e21efd394e::t_c11b36b441af63 18
+native/scan-cleanup/src/domain/options_tests.rs
+  s_d456e21efd394e::t_4089f98717fd48 51-76,81-82
+  s_d456e21efd394e::t_d9b06291cd3bd8 77-80
+  s_d9ac980c002ef4::t_d2b6c3d94fce81 50
+packages/contracts/scan-cleanup/ipcRequestCodecs.ts
+  s_d456e21efd394e::t_700dc2ebe9d624 552,562-566
+  s_d456e21efd394e::t_c11b36b441af63 49
+packages/contracts/electronApiScanCleanup.ts
+  s_d456e21efd394e::t_33e03da91c03a8 23
+tests/unit/contracts/scanCleanupIpcRequestCodecs.test.ts
+  s_d456e21efd394e::t_00f153d21f0a15 774-776
+  s_d456e21efd394e::t_311cd3d9e779f1 755-772,777-781
+  s_d456e21efd394e::t_d9b06291cd3bd8 773
+native/scan-cleanup/src/domain/options.rs
+  s_d456e21efd394e::t_9c0dc50bc91183 227
+packages/scan-cleanup/core/provenanceStamp.ts
+  s_d456e21efd394e::t_c11b36b441af63 19
+  s_d456e21efd394e::t_4089f98717fd48 1037-1045,1057,1062,1103
+tests/unit/electron/scanCleanupSettingsStore.test.ts
+  s_d456e21efd394e::t_fbacb5a526e779 418
+  s_d456e21efd394e::t_d99acff1af5c81 434-437
+  s_d456e21efd394e::t_1e6e0c78a42b8b 394,419
+  s_d456e21efd394e::t_724ea3c8eb1a51 445-457,465-466,485-493,496-504
+  s_d456e21efd394e::t_7e467eb6cf9ca9 424-433,438
+  s_d456e21efd394e::t_66998d44da0baa 440-444,458-464,467-484,494-495
+  s_d456e21efd394e::t_25b64d00da3407 404-407
+  s_d456e21efd394e::t_6da0c375926a9e 439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c7aba06adf7bd927a739d90f3efd50612353d25d",
+  "prompts": {},
+  "sessions": {
+    "s_d456e21efd394e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0982a-e141-7542-8168-0a5cbed87f83",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d9ac980c002ef4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0980e-8ed9-7c93-8bed-958b8cc531ab",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
