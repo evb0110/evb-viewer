@@ -338,6 +338,18 @@ Win+R and elevation scan-code sequence still produced no guest result. This
 qualifies the pushed-script transport and evidence pull only. It does not
 qualify service repair, worker startup, or any save case.
 
+#### Fourth live qualification gap recorded 2026-09-13
+
+One clone was kept alive while four input hypotheses were tested in order.
+Wake/Enter followed by the ordinary Windows-key shortcut produced no marker.
+An extended Windows-key scan-code sequence also produced no marker. A trivial
+`cmd.exe` echo command produced no marker, ruling out a successful command with
+only a keyboard-layout error. Repeating the trivial command after a mouse click
+inside the display produced no marker. Each native input call returned success,
+but every guest-created marker remained absent. The clone was stopped and
+deleted only after these checks. The worker heartbeat and WIN-SAVE measurements
+remain unqualified.
+
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.
 The copy path does not use `utmctl clone`, which writes into UTM's own storage.
