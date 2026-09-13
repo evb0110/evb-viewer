@@ -1,0 +1,52 @@
+scripts/verify-packaged-native-tools.sh
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 150-166,243
+scripts/check-native-tools-source-matrix.sh
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 244-249
+scripts/generateElectronBuilderResources.ts
+  s_a66d63e5f2ea7e::t_df8d7097884271 16,63-66,113-114,120,123
+scripts/nativeResourceManifest.ts
+  s_a66d63e5f2ea7e::t_df8d7097884271 8,79,276
+tests/unit/scripts/buildArtifactGeneration.test.ts
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 121
+scripts/fetchRuntimeBinaries.ts
+  s_a66d63e5f2ea7e::t_3bdbad7a40780b 3-5,9,12,31-34,135-147
+  s_a66d63e5f2ea7e::t_2c8a35b08487fb 186,188
+scripts/generateReleaseTargetManifest.ts
+  s_a66d63e5f2ea7e::t_df8d7097884271 42,92
+scripts/tesseractPdfFont.ts
+  s_a66d63e5f2ea7e::t_a5472b16d5960e 1-9
+electron/features/ocr/languageModels.ts
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 61,620-626
+THIRD_PARTY_NOTICES.md
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 12
+scripts/afterPack.cjs
+  s_a66d63e5f2ea7e::t_c08e05bd4e909d 90
+  s_a66d63e5f2ea7e::t_8ce893a77ae8e0 91-94
+tests/unit/scripts/afterPackExtraResources.test.ts
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 408-412
+  s_a66d63e5f2ea7e::t_ae3fedfa32f0e5 144-148
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 152,156
+scripts/release/generated-release-targets.cjs
+  s_a66d63e5f2ea7e::t_f8ce1ad464b05a 362-364,451,501
+resources/third-party-notices/THIRD-PARTY-NOTICES.md
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 19-25
+resources/third-party-notices/Tesseract-pdf-source.txt
+  s_a66d63e5f2ea7e::t_2c1c71426d1027 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b73ec532efb51b3cb2e74e292f3051568bc80a59",
+  "prompts": {},
+  "sessions": {
+    "s_a66d63e5f2ea7e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09cd6-dbba-7470-b635-2f977e6aa778",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
