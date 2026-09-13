@@ -128,6 +128,9 @@ export function createDocumentPageSourcePresentation(options: {
 }) {
     const pageStates = shallowReactive(new Map<number, IDocumentPageSourceVisualState>());
     const renderControllers = new Map<number, AbortController>();
+    // An <img> finishing its load is invisible to Vue; this map makes getVisual re-derive when the
+    // opening-shell handoff remounts an already-ready page with a fresh image element.
+    const loadedSurfaceImages = shallowReactive(new Map<number, HTMLImageElement>());
     let nextViewportRenderRequestId = 0;
     const beginPending = (_pageNumber: number, state: IDocumentPageSourceVisualState) => {
         state.error = null;
@@ -190,6 +193,7 @@ export function createDocumentPageSourcePresentation(options: {
     };
     const getVisual = (pageNumber: number): TDocumentPageSourceVisual => {
         const state = pageStates.get(pageNumber);
+        loadedSurfaceImages.get(pageNumber);
         const connected = Boolean(state && getConnectedImage(pageNumber, state));
         const pending: TDocumentPageSourceVisual = options.readFence().src === null ? 'none' : 'skeleton';
         if (state?.error) {
@@ -602,6 +606,7 @@ export function createDocumentPageSourcePresentation(options: {
         if (!target) {
             return;
         }
+        loadedSurfaceImages.set(pageNumber, markRaw(target.image));
         const controller = renderControllers.get(pageNumber) ?? new AbortController();
         if (!await waitForDocumentPageImagePaint(target.image, controller.signal)) {
             return;
@@ -660,6 +665,7 @@ export function createDocumentPageSourcePresentation(options: {
         state?.lease?.release();
         if (image?.dataset.pageSourceCandidate) image.remove();
         pageStates.delete(pageNumber);
+        loadedSurfaceImages.delete(pageNumber);
         options.renderSession?.releasePage(pageNumber);
     }
     async function restore(

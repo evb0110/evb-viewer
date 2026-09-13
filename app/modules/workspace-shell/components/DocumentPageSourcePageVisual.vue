@@ -5,7 +5,7 @@
         data-document-page-visual="pending"
     />
     <div
-        v-if="(visual === 'skeleton' || !surface) && visual !== 'error'"
+        v-if="(visual === 'skeleton' || !surface) && visual !== 'error' && !hostOwnsSkeleton"
         class="document-source-viewer__skeleton"
         data-document-page-visual="skeleton"
         aria-hidden="true"
@@ -62,6 +62,7 @@ const {
     documentLoadGeneration,
     errorMessage,
     errorPresentation = null,
+    hostOwnsSkeleton = false,
     openSurfaceGeneration,
     pageNumber,
     renderGeneration,
