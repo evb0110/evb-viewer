@@ -1,0 +1,53 @@
+tests/unit/app/composables/useOcr.test.ts
+  s_bae79cb1955ef5::t_6f7d25fb66190f 205,222
+  s_bae79cb1955ef5::t_ddb5600ce22cdd 291-364
+packages/scan-cleanup/core/detection.ts
+  s_bae79cb1955ef5::t_7edc13569ed674 1844-1849
+  s_bae79cb1955ef5::t_a3476d73399175 1822
+  s_bae79cb1955ef5::t_861afd8c7c0c3e 1860-1864
+  s_bae79cb1955ef5::t_613abe3c725410 1793-1800,1827-1840
+app/composables/useOcr.ts
+  s_bae79cb1955ef5::t_45f7952212bb54 283-285
+  s_bae79cb1955ef5::t_7d96507de4687e 202-215,226-228,230-239,254-256
+  s_bae79cb1955ef5::t_801c42198cd9bc 103,106,121,125-126,133
+  s_bae79cb1955ef5::t_3d7c94ef342b0c 229
+  s_bae79cb1955ef5::t_f78d2d0a7e8d9e 855
+  s_bae79cb1955ef5::t_bed7cc3912f9b3 489-499
+  s_bae79cb1955ef5::t_922520ffe2e472 697,703
+  s_bae79cb1955ef5::t_798bc65057f419 128-129,138,147-150
+  s_bae79cb1955ef5::t_8a32c4a8ee1ce6 261
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_bae79cb1955ef5::t_ea56f1aa62fcfb 685
+  s_bae79cb1955ef5::t_9dacba2cf2e340 678,681-684,686-687,692-694
+tests/unit/app/components/toolbarAndOcrExportCoverage.test.ts
+  s_bae79cb1955ef5::t_1ee5da9ff8b625 243
+  s_bae79cb1955ef5::t_b19094d22cf065 259-320,322-337
+  s_bae79cb1955ef5::t_fe287e6e828253 321
+app/utils/ocr/ocrRunLifecycle.ts
+  s_bae79cb1955ef5::t_18199c9921ce93 28,31-32,41,89-96,104,108-110
+  s_bae79cb1955ef5::t_cab89615ad54d9 111-113
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_bae79cb1955ef5::t_6939f68c73a595 5,138,152
+  s_bae79cb1955ef5::t_21e70dec744a3a 366-390
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_bae79cb1955ef5::t_80471dd0cd96a3 618-665,667-693
+  s_bae79cb1955ef5::t_9bf440c9e64d8e 666
+  s_bae79cb1955ef5::t_78355f0f54e692 560-564,566-588,590-605
+  s_bae79cb1955ef5::t_3b1a1862eac2ee 335-338,387,565,589
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "938ce09362b9670b74257c9d46cee2bbf43f1173",
+  "prompts": {},
+  "sessions": {
+    "s_bae79cb1955ef5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09825-e558-7a53-abb0-8a0155683795",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
