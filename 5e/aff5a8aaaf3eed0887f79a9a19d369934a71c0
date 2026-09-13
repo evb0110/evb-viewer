@@ -1,0 +1,32 @@
+docs/contributing/windows-tests/setup-and-repair.md
+  s_5a446af5c4f928::t_2bb7bd62f1f4d3 153-161,273-280
+  s_5a446af5c4f928::t_1dee9a6a2eb9dd 296-301,305-306
+  s_5a446af5c4f928::t_d5cd176977f92c 281
+scripts/windows-test/guest/powershell/ensure-standard-test-user.ps1
+  s_5a446af5c4f928::t_2bb7bd62f1f4d3 2-22,25-29,31-32,40,46-58
+  s_5a446af5c4f928::t_e4f9eda5040745 23-24,30,33-39
+  s_5a446af5c4f928::t_dc5440d8f5cf3b 1
+  s_5a446af5c4f928::t_9e0785fd572d2a 41-45
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_5a446af5c4f928::t_e4f9eda5040745 180-186
+docs/internal/agents/utm-windows-tests.md
+  s_5a446af5c4f928::t_dc5440d8f5cf3b 44-51
+scripts/windows-test/guest/guestPowerShell.ts
+  s_5a446af5c4f928::t_e4f9eda5040745 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5eaff5a8aaaf3eed0887f79a9a19d369934a71c0",
+  "prompts": {},
+  "sessions": {
+    "s_5a446af5c4f928": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-eeda-7b21-8785-ed198c57c18e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
