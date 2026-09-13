@@ -1,0 +1,68 @@
+tests/unit/electron/pdfAnnotationIndex.test.ts
+  s_a5408b343b6cd5::t_09b3db63e0deef 228-243
+electron/features/documents/main/pdfAnnotationIndex.ts
+  s_a5408b343b6cd5::t_ab2e0edbb74251 95,262-269,493-506
+  s_a5408b343b6cd5::t_df75b691909862 362
+tests/unit/electron/ocrJobWorkerLifecycle.test.ts
+  s_a5408b343b6cd5::t_ad162ad34e19d8 213-215,224-257,262-264,266-267
+  s_a5408b343b6cd5::t_3d514d2ce1ade3 216-223
+  s_a5408b343b6cd5::t_d5065d0a55ccff 260-261
+  s_a5408b343b6cd5::t_d8767fe7b9c1cf 258-259
+  s_a5408b343b6cd5::t_6dbb0cabad2f45 265
+tests/unit/electron/pdfEmbeddedShapeIndex.test.ts
+  s_a5408b343b6cd5::t_09b3db63e0deef 254-269
+electron/features/ocr/main/ocrJobWorkerLifecycle.ts
+  s_a5408b343b6cd5::t_76ffa95661d581 315,335
+  s_a5408b343b6cd5::t_9b7d8343f99924 345
+  s_a5408b343b6cd5::t_274dc5b35c2409 73,172-177,271-282,297,308-312,316,322-324,334,336,342-344,495,715,817-821
+  s_a5408b343b6cd5::t_d5065d0a55ccff 317-321,337-341
+tests/unit/electron/pdfAnnotationParse.test.ts
+  s_a5408b343b6cd5::t_09b3db63e0deef 226-241
+electron/resources/jobBroker.ts
+  s_a5408b343b6cd5::t_27ad4c4d34e2d0 256-257,260-261
+  s_a5408b343b6cd5::t_bfe77ec8673117 126-134,166-167,292,307-308,325,329,366,469-470
+  s_ae757872e5d914::t_fb7801be2f2cb3 330-331,358,367-375,416,423,466-468
+electron/features/documents/main/pdfAnnotationParse.ts
+  s_a5408b343b6cd5::t_ab2e0edbb74251 98,186-193,489-502
+  s_a5408b343b6cd5::t_df75b691909862 286
+tests/unit/electron/jobBroker.test.ts
+  s_a5408b343b6cd5::t_ad162ad34e19d8 437-443,451-461
+  s_a5408b343b6cd5::t_59700bc75428c5 445-448
+  s_a5408b343b6cd5::t_4433bbce58fe4a 444,449-450
+  s_a5408b343b6cd5::t_878619a1451a6e 5
+tests/unit/app/utils/document-viewer/thumbnails/documentThumbnailScheduler.test.ts
+  s_a5408b343b6cd5::t_ad162ad34e19d8 101-121
+app/utils/document-viewer/thumbnails/documentThumbnailScheduler.ts
+  s_a5408b343b6cd5::t_cb5c6c56eb0c3d 134-149
+electron/features/documents/main/pdfEmbeddedShapeIndex.ts
+  s_a5408b343b6cd5::t_ab2e0edbb74251 98,312-319,539-552
+  s_a5408b343b6cd5::t_df75b691909862 409
+electron/features/ocr/main/jobManager.types.ts
+  s_a5408b343b6cd5::t_274dc5b35c2409 66,74
+tests/unit/electron/project8ProcessProofPlatform.test.ts
+  s_a5408b343b6cd5::t_805e329fd6bdda 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cb04741d67ca9d651e07d822a5cf27a2b32ce690",
+  "prompts": {},
+  "sessions": {
+    "s_a5408b343b6cd5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098d9-b858-7240-805d-4ae9caec15d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
