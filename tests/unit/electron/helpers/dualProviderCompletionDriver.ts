@@ -1,30 +1,56 @@
 import type {
     IAgentAssistantChatScope,
+    IAgentAssistantImageAttachment,
     IAgentAssistantSendMessageRequest,
     IAgentAssistantSendMessageResult,
 } from '@contracts/agent';
 import type {IClaudeAgentAssistantSessionOptions} from '@electron/features/agent/claudeAgentSdkAssistant';
+import {shouldUseClaudeAssistantFastMode} from '@electron/features/agent/claudeProviderMetadata';
 
 export class FakeClaudeAssistantSession {
+    private static nextSessionNumber = 0;
+
+    private readonly sessionNumber = ++FakeClaudeAssistantSession.nextSessionNumber;
+    private readonly sendGate: Promise<void> | null;
+    private closed = false;
     readonly effort: IClaudeAgentAssistantSessionOptions['effort'];
-    readonly fastMode = false;
+    readonly fastMode: boolean;
+    readonly isRetiring = false;
     readonly callbacks: IClaudeAgentAssistantSessionOptions['callbacks'];
     readonly completedMessages: string[] = [];
+    readonly sentTexts: string[] = [];
+    readonly sentAttachments: IAgentAssistantImageAttachment[][] = [];
 
-    constructor(options: IClaudeAgentAssistantSessionOptions) {
+    constructor(
+        options: IClaudeAgentAssistantSessionOptions,
+        sessionId: string | null = 'claude-session-1',
+        sendGate: Promise<void> | null = null,
+    ) {
+        this.sendGate = sendGate;
         this.effort = options.effort;
+        this.fastMode = shouldUseClaudeAssistantFastMode(options.model, options.speedMode);
         this.callbacks = options.callbacks;
         this.callbacks.onInitialized({
-            sessionId: 'claude-session-1',
+            sessionId,
             model: options.model,
             toolCount: 0,
             account: null,
         });
     }
 
-    async sendMessage(text: string) {
-        const turnId = 'claude-turn-1';
-        const messageId = 'claude-message-1';
+    get isUsable() {
+        return !this.closed;
+    }
+
+    async sendMessage(text: string, attachments: IAgentAssistantImageAttachment[] = []) {
+        await this.sendGate;
+        if (this.closed) {
+            throw new Error('Claude assistant session is closed.');
+        }
+        this.sentTexts.push(text);
+        this.sentAttachments.push(attachments.map(attachment => ({...attachment})));
+        const turnId = `claude-turn-${this.sessionNumber}`;
+        const messageId = `claude-message-${this.sessionNumber}`;
         const answer = `Claude completed: ${text}`;
         this.callbacks.onTurnStarted(turnId);
         this.callbacks.onAssistantDelta(turnId, messageId, 'Claude ');
@@ -36,7 +62,9 @@ export class FakeClaudeAssistantSession {
 
     async interrupt() {}
 
-    async close() {}
+    async close() {
+        this.closed = true;
+    }
 }
 
 export interface IDualProviderCompletionDriverOptions {

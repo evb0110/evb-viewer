@@ -85,6 +85,7 @@ import {
 import { runAssistantShutdownStep } from '@electron/features/agent/runAssistantShutdownStep';
 import {
     createAssistantBusyResult,
+    createClaudeContextUnavailableError,
     createAssistantDisabledError,
     createAssistantDisabledResult,
     getAssistantTurnBusyError,
@@ -104,7 +105,6 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('agent-assistant-service');
 const ASSISTANT_TURN_CANCELLED_ERROR = 'Assistant turn was canceled before provider setup completed.';
-const CLAUDE_CONTEXT_UNAVAILABLE_ERROR = 'Claude cannot continue this chat because its provider context is unavailable. Start a new chat to continue.';
 
 class AssistantTurnSupersededError extends Error {
     readonly subsystem = 'agent';
@@ -224,7 +224,6 @@ async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean }
             closePromises.push(session.claudeSession.close());
         }
         session.claudeSession = undefined;
-        session.providerThreadId = null;
     }
     await Promise.allSettled(closePromises);
     claudeProviderRuntime.runtimeState = 'stopped';
@@ -615,7 +614,10 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
     });
     return {
         onInitialized: (info: IClaudeAgentAssistantInit) => {
-            session.providerThreadId = info.sessionId;
+            const providerThreadId = info.sessionId?.trim();
+            if (providerThreadId) {
+                session.providerThreadId = providerThreadId;
+            }
             session.model = normalizeClaudeAssistantModel(info.model ?? session.model);
             if (info.models && info.models.length > 0) {
                 claudeAssistantModels = info.models;
@@ -748,7 +750,7 @@ async function ensureClaudeAssistantSession(
     if (shouldRefuseClaudeContextContinuation(session.messages.length, session.providerThreadId)) {
         // Display history alone cannot recreate hidden preset instructions,
         // assistant turns, tool history, or image content for Claude.
-        throw new Error(CLAUDE_CONTEXT_UNAVAILABLE_ERROR);
+        throw new Error(createClaudeContextUnavailableError());
     }
     claudeProviderRuntime.runtimeState = 'starting';
     delete claudeProviderRuntime.lastError;
@@ -937,6 +939,10 @@ export async function sendAgentAssistantMessage(
                     });
                     session.claudeSession = undefined;
                 }
+                if (!isClaimCurrent()) {
+                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
+                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
+                }
                 if (error instanceof AssistantTurnSupersededError) {
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);
                     return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
@@ -1106,6 +1112,7 @@ export async function interruptAgentAssistant(
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
     if (session?.provider === 'claude') {
         if (session.claudeSession && isAssistantTurnActive(session.turnOwner)) {
+            const wasStarting = session.turnOwner.phase === 'starting';
             claudeProviderRuntime.runtimeState = 'busy';
             interruptSessionTurn(session);
             publishState(session.scope, session);
@@ -1114,6 +1121,13 @@ export async function interruptAgentAssistant(
                 session.turnPresentation.phase = 'stalled';
                 session.turnPresentation.lastEventAtMs = Date.now();
             });
+            if (wasStarting && isAssistantTurnActive(session.turnOwner)) {
+                await waitForBoundedAssistantInterrupt(session.claudeSession.close()).catch((error: unknown) => {
+                    logger.warn(`Failed to close starting Claude assistant session: ${getErrorMessage(error)}`);
+                });
+                session.claudeSession = undefined;
+                supersedeSessionTurn(session);
+            }
             // interrupt() -> completeTurn() -> markClaudeTurnCompleted already resets
             // runtimeState and emits the turn-completed event.
             return currentState(session.scope, session);

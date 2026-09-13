@@ -17,9 +17,15 @@ import {
     shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeProviderMetadata';
 
-const sdkMocks = vi.hoisted(() => ({query: vi.fn()}));
+const sdkMocks = vi.hoisted(() => ({
+    getSessionInfo: vi.fn(),
+    query: vi.fn(),
+}));
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdkMocks.query }));
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+    getSessionInfo: sdkMocks.getSessionInfo,
+    query: sdkMocks.query,
+}));
 
 vi.mock('electron', () => ({ app: { getVersion: () => 'test' } }));
 
@@ -89,6 +95,12 @@ async function settleAsyncTicks(count = 3) {
 
 describe('claudeAgentSdkAssistant', () => {
     beforeEach(() => {
+        sdkMocks.getSessionInfo.mockReset();
+        sdkMocks.getSessionInfo.mockResolvedValue({
+            sessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            summary: 'Existing Claude session',
+            lastModified: 1,
+        });
         sdkMocks.query.mockReset();
     });
 
@@ -163,6 +175,7 @@ describe('claudeAgentSdkAssistant', () => {
     it('refuses continuation when display history has no provider-owned context', () => {
         expect(shouldRefuseClaudeContextContinuation(1, null)).toBe(true);
         expect(shouldRefuseClaudeContextContinuation(1, '')).toBe(true);
+        expect(shouldRefuseClaudeContextContinuation(1, '   ')).toBe(true);
         expect(shouldRefuseClaudeContextContinuation(1, 'provider-session')).toBe(false);
         expect(shouldRefuseClaudeContextContinuation(0, null)).toBe(false);
     });
@@ -386,11 +399,79 @@ describe('claudeAgentSdkAssistant', () => {
     it('resumes the provider-owned transcript when a replacement query is created', async () => {
         const fakeQuery = new FakeClaudeQuery();
         sdkMocks.query.mockReturnValue(fakeQuery);
+        const resumeSessionId = '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e';
         const session = new ClaudeAgentAssistantSession({
             cwd: '/tmp',
             model: 'opus',
             effort: 'medium',
             speedMode: 'fast',
+            resumeSessionId,
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted: vi.fn(),
+                onError: vi.fn(),
+            },
+        });
+
+        await session.sendMessage('Continue', [{
+            type: 'image',
+            id: 'image-1',
+            name: 'context.png',
+            mimeType: 'image/png',
+            sizeBytes: 1,
+            dataUrl: 'data:image/png;base64,AA==',
+        }], 'opus');
+
+        const queryOptions = sdkMocks.query.mock.calls[0]?.[0]?.options;
+        expect(queryOptions).toMatchObject({
+            resume: resumeSessionId,
+            persistSession: true,
+            effort: 'medium',
+            settings: {fastMode: true},
+            systemPrompt: {
+                type: 'preset',
+                preset: 'claude_code',
+                append: expect.any(String),
+            },
+        });
+        const prompt = sdkMocks.query.mock.calls[0]?.[0]?.prompt;
+        const promptMessage = await prompt[Symbol.asyncIterator]().next();
+        expect(promptMessage.value).toMatchObject({message: {
+            role: 'user',
+            content: [
+                {
+                    type: 'text',
+                    text: 'Continue',
+                },
+                {
+                    type: 'image',
+                    source: {
+                        type: 'base64',
+                        media_type: 'image/png',
+                        data: 'AA==',
+                    },
+                },
+            ],
+        }});
+    });
+
+    it('refuses an unavailable provider transcript before starting the SDK query', async () => {
+        sdkMocks.getSessionInfo.mockResolvedValueOnce(undefined);
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'medium',
+            speedMode: 'standard',
             resumeSessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
             mcpServerName: 'evb_viewer_embedded',
             mcpServerUrl: 'http://127.0.0.1:3000',
@@ -409,12 +490,96 @@ describe('claudeAgentSdkAssistant', () => {
             },
         });
 
-        await session.sendMessage('Continue', [], 'opus');
+        await expect(session.sendMessage('Do not submit', [], 'opus'))
+            .rejects.toThrow('Claude could not restore this chat context. Start a new chat to continue.');
+        expect(sdkMocks.getSessionInfo).toHaveBeenCalledWith('2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e');
+        expect(sdkMocks.query).not.toHaveBeenCalled();
+    });
 
-        expect(sdkMocks.query).toHaveBeenCalledWith(expect.objectContaining({options: expect.objectContaining({
-            resume: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
-            persistSession: true,
-        })}));
+    it('does not create a resumed query after close wins during context verification', async () => {
+        let resolveSessionInfo: ((value: unknown) => void) | undefined;
+        sdkMocks.getSessionInfo.mockReturnValueOnce(new Promise(resolve => {
+            resolveSessionInfo = resolve;
+        }));
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'medium',
+            speedMode: 'standard',
+            resumeSessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted: vi.fn(),
+                onError: vi.fn(),
+            },
+        });
+
+        const sendPromise = session.sendMessage('Do not submit after close', [], 'opus');
+        await vi.waitFor(() => {
+            expect(sdkMocks.getSessionInfo).toHaveBeenCalledOnce();
+        });
+        await session.close();
+        resolveSessionInfo?.({
+            sessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            summary: 'Existing Claude session',
+            lastModified: 1,
+        });
+
+        await expect(sendPromise).rejects.toThrow('Claude assistant session is closed.');
+        expect(sdkMocks.query).not.toHaveBeenCalled();
+    });
+
+    it('does not create a resumed query after interrupt wins during context verification', async () => {
+        let resolveSessionInfo: ((value: unknown) => void) | undefined;
+        sdkMocks.getSessionInfo.mockReturnValueOnce(new Promise(resolve => {
+            resolveSessionInfo = resolve;
+        }));
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'medium',
+            speedMode: 'standard',
+            resumeSessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted: vi.fn(),
+                onError: vi.fn(),
+            },
+        });
+
+        const sendPromise = session.sendMessage('Do not submit after interrupt', [], 'opus');
+        await vi.waitFor(() => {
+            expect(sdkMocks.getSessionInfo).toHaveBeenCalledOnce();
+        });
+        await session.interrupt();
+        resolveSessionInfo?.({
+            sessionId: '2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e',
+            summary: 'Existing Claude session',
+            lastModified: 1,
+        });
+
+        await expect(sendPromise).rejects.toThrow('Claude assistant session is closed.');
+        expect(sdkMocks.query).not.toHaveBeenCalled();
     });
 
     it('retires a query when interruption fails before accepting another turn', async () => {
