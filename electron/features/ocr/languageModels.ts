@@ -51,7 +51,9 @@ import { OCR_LANGUAGE_MODEL_SHA256 } from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
 export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
-const DOWNLOAD_BASE_URL = `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}`;
+const configuredDownloadBaseUrl = process.env.EVB_OCR_DOWNLOAD_BASE_URL?.trim();
+const DOWNLOAD_BASE_URL = configuredDownloadBaseUrl
+    ?? `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}`;
 const DOWNLOAD_TIMEOUT_MS = 90_000;
 const DOWNLOAD_RETRIES = 3;
 const RETRY_DELAY_MS = 1_500;
@@ -392,6 +394,11 @@ function getBundledTessdataDir() {
 }
 
 export function getRuntimeTessdataDir() {
+    const configuredTessdataDir = process.env.EVB_TESSDATA_PATH?.trim();
+    if (configuredTessdataDir) {
+        return configuredTessdataDir;
+    }
+
     if (isElectronAppPackaged()) {
         return join(getElectronUserDataPath(), 'tessdata');
     }
@@ -511,6 +518,27 @@ export function validateTraineddataFile(path: string): {
 
 async function removeInvalidModelIfPresent(languageCode: string, modelPath: string) {
     return verifyInstalledLanguageModel(languageCode, modelPath);
+}
+
+async function ensureTessdataInventoryReadable(runtimeDir: string) {
+    try {
+        statSync(runtimeDir);
+    } catch (error) {
+        if (getErrorCode(error) === 'ENOENT') {
+            return;
+        }
+        throw new Error(
+            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
+        );
+    }
+
+    try {
+        await readdir(runtimeDir);
+    } catch (error) {
+        throw new Error(
+            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
+        );
+    }
 }
 
 async function verifyInstalledLanguageModel(
@@ -1104,6 +1132,7 @@ export async function ensureTessdataLanguages(
 export async function getOcrLanguageModelStates() {
     await ensureRuntimeTessdataSeeded();
     const runtimeDir = getRuntimeTessdataDir();
+    await ensureTessdataInventoryReadable(runtimeDir);
     return Promise.all(Array.from(AVAILABLE_OCR_LANGUAGE_CODES, async languageCode => ({
         code: languageCode,
         state: inFlightDownloads.has(languageCode)
