@@ -587,6 +587,13 @@ describe('utmctl client commands', () => {
         )).rejects.toMatchObject({kind: 'transport-failed'});
     });
 
+    it('rejects a zero-exit command when UTM reports that the guest agent is unavailable', () => {
+        expect(classifyUtmctlTransportFailure({
+            ...result(),
+            stderr: 'Error from event: The operation couldn’t be completed. (OSStatus error -2700.)\nThe QEMU guest agent is not running or not installed on the guest.\n',
+        })).toBe('transport-failed');
+    });
+
     it('creates run-scoped guest directories with the path supplied as stdin data', async () => {
         const {
             calls,

@@ -253,7 +253,8 @@ export function detectsAutomationConsentFailure(text: string) {
 export function detectsUtmctlEventFailure(text: string) {
     if (/(?:^|\r?\n)\s*error\b/imu.test(text)
         || /failed to (?:open|read|write) file/iu.test(text)
-        || /process cannot access the file/iu.test(text)) {
+        || /process cannot access the file/iu.test(text)
+        || (text.includes('-2700') && /guest agent is not running|not installed on the guest/iu.test(text))) {
         return true;
     }
     for (const line of text.split(/\r?\n/u)) {
