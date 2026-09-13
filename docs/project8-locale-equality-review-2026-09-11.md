@@ -1,5 +1,46 @@
 # Project 8 locale equality review
 
+## Continuation review
+
+Review date: 2026-09-14
+
+Source under review: `c0e5164e7` (`origin/project8/integration`)
+
+The current integration tip added OCR catalog recovery, Claude context
+recovery, pending-result dismissal, export-busy, OCR worker, settings recovery,
+and update-build messages after the earlier review. The corresponding entries
+in `nl.ts`, `pt.ts`, `ptBr.ts`, and `ru.ts` are translated. Recomputed equality
+counts are `nl=40`, `pt=37`, `ptBr=38`, and `ru=32`; the remaining equal leaves
+are the same categories already accepted below: product and format names,
+units, short shared UI terms, and numeric diagnostic templates.
+
+The four locale files are the only owned source inputs changed between the
+earlier reviewed source and this tip. No ordinary English assistant or OCR
+sentence was introduced by that delta.
+
+The existing focused checks pass on this tip. The locale checker is invoked
+without the historical `tsconfig.workspace-paths.json` argument because that
+file no longer exists in the current repository:
+
+```text
+pnpm exec tsx scripts/checkLocales.ts --target=app
+Locale parity check passed for desktop package locales.
+
+pnpm exec vitest run tests/unit/scripts/checkLocales.test.ts tests/unit/i18n/localeRegistry.test.ts tests/unit/i18n/messageFormat.test.ts tests/unit/i18n/privacyPageLocalization.test.ts tests/unit/i18n/aboutPageLocalization.test.ts --reporter=dot
+5 test files passed, 22 tests passed
+```
+
+The release-policy checks also pass: 4 files and 98 tests covering the
+publisher, release policy, release status, and CI topology. The source audit
+found no `max-lines` directive, both executable audit scripts passed
+`node --check`, and `git diff --check` passed.
+
+This continuation does not claim fresh headed production rendering. That proof
+would enter the assistant/OCR/browser lanes excluded from this assignment.
+The earlier synthetic production-component rendering evidence remains recorded
+below, while current source parity, message formatting, and catalog coverage
+are requalified at `c0e5164e7`.
+
 Review date: 2026-09-11
 
 Source under review: `876be7914` (`origin/project8/integration`)
