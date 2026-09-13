@@ -17,10 +17,6 @@ export function normalizeFaithfulOcrText(value) {
 }
 
 /** Compatibility score normalization retained for existing benchmark consumers. */
-export function normalizeOcrText(value) {
-    return normalizeCompatibilityOcrText(value);
-}
-
 export function normalizeCompatibilityOcrText(value) {
     return normalizeWhitespace(value
         .normalize('NFKC')
@@ -29,7 +25,7 @@ export function normalizeCompatibilityOcrText(value) {
 }
 
 export function tokenizeOcrWords(value) {
-    return normalizeOcrText(value).match(WORD_PATTERN) ?? [];
+    return normalizeCompatibilityOcrText(value).match(WORD_PATTERN) ?? [];
 }
 
 export function tokenizeFaithfulOcrWords(value) {
@@ -71,18 +67,8 @@ export function measureOcrQuality(expected, actual) {
         COMPATIBILITY_NORMALIZATION,
     );
     return {
-        // The short names are the existing consumer contract. They now mean
-        // the primary faithful score, while the compatibility score has names
-        // that make its normalization explicit.
-        cer: faithful.cer,
-        wer: faithful.wer,
-        normalizedActual: compatibility.normalizedActual,
         faithful,
         compatibility,
-        faithfulCer: faithful.cer,
-        faithfulWer: faithful.wer,
-        compatibilityCer: compatibility.cer,
-        compatibilityWer: compatibility.wer,
     };
 }
 

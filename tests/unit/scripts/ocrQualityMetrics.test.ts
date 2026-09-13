@@ -7,7 +7,7 @@ import {
     editDistance,
     measureOcrQuality,
     normalizeFaithfulOcrText,
-    normalizeOcrText,
+    normalizeCompatibilityOcrText,
     retainsCriticalToken,
     tokenizeFaithfulOcrWords,
     tokenizeOcrWords,
@@ -15,7 +15,7 @@ import {
 
 describe('OCR quality metrics', () => {
     it('normalizes multilingual whitespace and dash variants without dropping identifiers', () => {
-        expect(normalizeOcrText('  СЧЁТ\nQ7\u20112026  ')).toBe('счёт q7-2026');
+        expect(normalizeCompatibilityOcrText('  СЧЁТ\nQ7\u20112026  ')).toBe('счёт q7-2026');
         expect(tokenizeOcrWords('СЧЁТ Q7-2026 / 73.45')).toEqual([
             'счёт',
             'q7-2026',
@@ -25,7 +25,7 @@ describe('OCR quality metrics', () => {
 
     it('calculates character and word edit rates over Unicode code points', () => {
         expect(editDistance(Array.from('счёт'), Array.from('счет'))).toBe(1);
-        expect(measureOcrQuality('alpha beta', 'alpha zeta')).toMatchObject({
+        expect(measureOcrQuality('alpha beta', 'alpha zeta').faithful).toMatchObject({
             cer: 0.1,
             wer: 0.5,
         });
@@ -44,7 +44,7 @@ describe('OCR quality metrics', () => {
             },
             referenceEmpty: false,
         });
-        expect(result.faithfulCer).toBeGreaterThan(0);
+        expect(result.faithful.cer).toBeGreaterThan(0);
         expect(result.compatibility).toMatchObject({
             cer: 0,
             wer: 0,
@@ -54,16 +54,16 @@ describe('OCR quality metrics', () => {
                 wer: 2,
             },
         });
-        expect(result.compatibilityCer).toBe(0);
+        expect(result.compatibility.cer).toBe(0);
     });
 
     it('treats canonically equivalent text as equal while preserving marks, digits and punctuation errors', () => {
         expect(normalizeFaithfulOcrText('e\u0301lan')).toBe('élan');
-        expect(measureOcrQuality('e\u0301lan', 'élan').faithfulCer).toBe(0);
-        expect(measureOcrQuality('Version １２３.', 'Version 123').faithfulCer).toBeGreaterThan(0);
-        expect(measureOcrQuality('Version 123.', 'Version 124.').faithfulCer).toBeGreaterThan(0);
-        expect(measureOcrQuality('Total: 42.', 'Total 42').faithfulCer).toBeGreaterThan(0);
-        expect(measureOcrQuality('قَالَ', 'قَال').faithfulCer).toBeGreaterThan(0);
+        expect(measureOcrQuality('e\u0301lan', 'élan').faithful.cer).toBe(0);
+        expect(measureOcrQuality('Version １２３.', 'Version 123').faithful.cer).toBeGreaterThan(0);
+        expect(measureOcrQuality('Version 123.', 'Version 124.').faithful.cer).toBeGreaterThan(0);
+        expect(measureOcrQuality('Total: 42.', 'Total 42').faithful.cer).toBeGreaterThan(0);
+        expect(measureOcrQuality('قَالَ', 'قَال').faithful.cer).toBeGreaterThan(0);
         expect(measureOcrQuality('A😀', 'A😀').faithful.denominator.cer).toBe(2);
     });
 
@@ -103,7 +103,7 @@ describe('OCR quality metrics', () => {
                     'Tieng Viet',
                 ],
             ]) {
-            expect(measureOcrQuality(expected, actual).faithfulCer).toBeGreaterThan(0);
+            expect(measureOcrQuality(expected, actual).faithful.cer).toBeGreaterThan(0);
         }
     });
 
@@ -128,8 +128,8 @@ describe('OCR quality metrics', () => {
         const wrongReference = measureOcrQuality('Deliberately wrong text', actual);
 
         expect(correctReference.faithful.normalizedActual).toBe(wrongReference.faithful.normalizedActual);
-        expect(correctReference.faithfulCer).toBe(0);
-        expect(wrongReference.faithfulCer).toBeGreaterThan(0);
+        expect(correctReference.faithful.cer).toBe(0);
+        expect(wrongReference.faithful.cer).toBeGreaterThan(0);
     });
 
     it('requires exact normalized critical-token retention', () => {
