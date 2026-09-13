@@ -14,6 +14,7 @@ import {
 } from './architectureCliArgs.mjs';
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 import { RUNTIME_TOOL_BOUNDARY_RULES } from './runtimeToolBoundaryRules.mjs';
+import { findFormatComparisonViolations } from './formatComparisonRule.mjs';
 
 /** @typedef {import('./dep-graph.mjs').IDependencyEdge} IDependencyEdge */
 /** @typedef {import('./dep-graph.mjs').IDependencyGraph} IDependencyGraph */
@@ -402,6 +403,9 @@ const SENTRY_EVENT_FACTORY_NAMES = new Set([
     'makeSentryEvent',
 ]);
 const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
+
+/** @type {readonly string[]} */
+const FORMAT_COMPARISON_CHECK_ROOTS = Object.freeze(['app/modules/workspace-shell']);
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation | null} */
 function checkElectronFeatureMainPrivacy(edge) {
@@ -1655,7 +1659,23 @@ function checkSource(filePath, sourceText) {
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
         ...checkContractsRuntimeBoundary(filePath, sourceFiles),
+        ...checkFormatComparisonSource(filePath, sourceText),
     ];
+}
+
+/** @param {string} filePath @param {string} sourceText @returns {IArchitectureViolation[]} */
+function checkFormatComparisonSource(filePath, sourceText) {
+    if (!FORMAT_COMPARISON_CHECK_ROOTS.some(root => matchesRoot(filePath, root))) {
+        return [];
+    }
+
+    return findFormatComparisonViolations(filePath, sourceText).map(violation => ({
+        rule: 'workspace-format-comparison',
+        source: violation.sourcePath,
+        target: `${violation.sourcePath}:${violation.line}:${violation.column}`,
+        specifier: violation.discriminant ?? '',
+        message: violation.message,
+    }));
 }
 
 /** @param {IDependencyEdge} edge @returns {IArchitectureViolation[]} */

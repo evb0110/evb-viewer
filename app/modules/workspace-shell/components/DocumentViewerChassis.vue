@@ -166,13 +166,16 @@ const featurePacks: Record<TDocumentViewerRendererKind, Component> = {
     'native-pdf': NativePdfFeaturePack,
     'page-source': DocumentPageSourceFeaturePack,
 };
+const viewportIds: Record<TDocumentViewerRendererKind, string | undefined> = {
+    pdfjs: 'pdf-viewer',
+    'native-pdf': undefined,
+    'page-source': undefined,
+};
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
 const rendererKind = computed<TDocumentViewerRendererKind>(() => (
-    props.rendererKind ?? (sourceKind.value === 'djvu' ? 'page-source' : 'pdfjs')
+    props.rendererKind ?? 'pdfjs'
 ));
-const viewportId = computed(() => (
-    rendererKind.value === 'pdfjs' ? 'pdf-viewer' : undefined
-));
+const viewportId = computed(() => viewportIds[rendererKind.value]);
 const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
 const sourceViewerRef = computed(() => activeFeaturePackRef.value);
 const openingFrameLayoutRevision = ref(0);
@@ -423,7 +426,7 @@ const chassisOpeningPageShell = computed(() => {
     void openingFrameLayoutRevision.value;
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const frame = snapshot.openingPageFrame;
-    const isPdf = sourceKind.value === 'pdf';
+    const isPdf = rendererKind.value !== 'page-source';
     const isOpening = snapshot.phase === 'pending'
         || snapshot.phase === 'geometry-committed'
         || snapshot.phase === 'canvas-committed'
@@ -527,7 +530,7 @@ watch(
             if (phase !== 'pending') {
                 return;
             }
-            const geometry = sourceKind.value === 'djvu'
+            const geometry = rendererKind.value === 'page-source'
                 ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value, null)
                 : readPrevalidatedTrustedPdfOpenGeometry(
                     documentId,

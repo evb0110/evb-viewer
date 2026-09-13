@@ -9,6 +9,17 @@ import type { IDocumentSourceActivation } from '@app/modules/workspace-shell/doc
 
 export type TWorkspaceViewerAdapterId = 'pdf' | 'native-pdf' | 'djvu';
 export type TWorkspaceViewerDocumentType = 'pdf' | 'image' | 'djvu';
+export type TWorkspaceDocumentDriverId = 'pdfjs' | 'native-pdf' | 'djvu';
+export type TWorkspaceViewerRendererKind = 'pdfjs' | 'native-pdf' | 'page-source';
+
+export interface IWorkspaceViewerDriverProfile {
+    id: TWorkspaceDocumentDriverId;
+    isDjvu: boolean;
+    isNativePdf: boolean;
+    isPdfjs: boolean;
+    rendererKind: TWorkspaceViewerRendererKind;
+    sourceKind: 'pdf' | 'djvu';
+}
 
 export interface IWorkspaceViewerOpenLifecycleState { previousWorkingCopyPath: TDocumentRef | null; }
 
@@ -32,6 +43,7 @@ export interface IWorkspaceViewerLifecycleHooks {
 
 export interface IWorkspaceViewerAdapter {
     id: TWorkspaceViewerAdapterId;
+    driverProfile: IWorkspaceViewerDriverProfile;
     component: Component;
     documentTypes: readonly TWorkspaceViewerDocumentType[];
     capabilities: IWorkspaceViewerCapabilities;

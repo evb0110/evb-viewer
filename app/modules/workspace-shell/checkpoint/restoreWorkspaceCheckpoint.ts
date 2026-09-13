@@ -8,7 +8,7 @@ import type {
 } from '@contracts/workspaceCheckpoint';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {getWorkspaceViewerAdapterForDocumentType} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type {
     TWorkspaceViewerDocumentType,
     IWorkspaceViewerAdapter,
@@ -27,7 +27,7 @@ const WORKSPACE_RESTORE_CONCURRENCY = 2;
 const PDF_DOCUMENT_TYPE: TWorkspaceViewerDocumentType = 'pdf';
 
 export function getRegisteredPdfOpenKind(
-    adapter: Pick<IWorkspaceViewerAdapter, 'documentTypes' | 'capabilities'> = getWorkspaceViewerAdapter('pdf'),
+    adapter: Pick<IWorkspaceViewerAdapter, 'documentTypes' | 'capabilities'> = getWorkspaceViewerAdapterForDocumentType('pdf'),
 ) {
     const kind = adapter.documentTypes.find((documentType): documentType is 'pdf' => documentType === PDF_DOCUMENT_TYPE);
     return adapter.capabilities.pdfDocument ? kind ?? null : null;

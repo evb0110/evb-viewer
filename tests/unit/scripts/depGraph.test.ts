@@ -54,6 +54,29 @@ afterEach(async () => {
 });
 
 describe('dependency graph', () => {
+    it('runs the workspace format-comparison rule for the whole workspace shell', () => {
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/viewers/legacyDriver.ts',
+            'const usesDjvu = driver.id === \'djvu\';\n',
+        )).toEqual([{
+            rule: 'workspace-format-comparison',
+            source: 'app/modules/workspace-shell/viewers/legacyDriver.ts',
+            target: 'app/modules/workspace-shell/viewers/legacyDriver.ts:1:18',
+            specifier: 'driver.id',
+            message: 'Format comparison on driver.id uses "djvu".',
+        }]);
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/composables/useWorkspaceShell.ts',
+            'const usesDjvu = driver.id === \'djvu\';\n',
+        )).toEqual([{
+            rule: 'workspace-format-comparison',
+            source: 'app/modules/workspace-shell/composables/useWorkspaceShell.ts',
+            target: 'app/modules/workspace-shell/composables/useWorkspaceShell.ts:1:18',
+            specifier: 'driver.id',
+            message: 'Format comparison on driver.id uses "djvu".',
+        }]);
+    });
+
     it('blocks pdfjs-dist imports outside renderer and adapter roots', () => {
         expect(checkArchitectureBoundarySource(
             'app/utils/exportTextAsDocx.ts',
