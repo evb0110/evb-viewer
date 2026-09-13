@@ -279,6 +279,14 @@ The first file records account, desktop, marker, and policy failures. A
 heartbeat is the only evidence that the worker is ready. A successful task
 registration or a delivered input event does not count.
 
+Before any account change or reboot, run the allowlisted
+`ensure-guest-agent-service.ps1` helper through `utmctl exec`. It checks the
+installed service, sets `qemu-ga` to Automatic, applies restart actions for
+failures, and returns bounded service metadata plus event IDs from the System
+log. Do not copy event message text into host output. If the service is not
+installed, return to the missing-agent native-input branch and install it
+before continuing.
+
 Successful evidence consists of the redacted provisioning output, fresh
 screenshots for each input step, the guest marker read, a fresh heartbeat with
 the Windows build and architecture, and the normal run evidence under
@@ -308,6 +316,14 @@ deleted after the attempt, free space was rechecked, and the original Windows
 VM remained stopped. This result qualifies the native input transport only; it
 does not qualify the worker, candidate app, cold reset, or any Windows save
 case.
+
+#### Second live qualification gap recorded 2026-09-13
+
+A fresh clone reached file-pull evidence for the guest marker, but the bounded
+guest `exec` probe timed out before service metadata or System event IDs could
+be read. The QEMU guest-agent service repair helper was therefore not live
+qualified on this clone. The clone was stopped and deleted, free space was
+rechecked, and the original Windows VM remained stopped.
 
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.

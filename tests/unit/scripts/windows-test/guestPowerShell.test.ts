@@ -184,6 +184,14 @@ describe('guest PowerShell script files', () => {
         expect(source).toContain('Add-LocalGroupMember -Group Users');
     });
 
+    it('repairs the guest-agent service without copying event messages', () => {
+        const source = sources.get('ensure-guest-agent-service.ps1') ?? '';
+        expect(source).toContain('Set-Service -Name qemu-ga -StartupType Automatic');
+        expect(source).toContain('sc.exe failure qemu-ga');
+        expect(source).toContain('eventIds');
+        expect(source).not.toContain('Message');
+    });
+
     it('registers a hidden PowerShell startup action with the worker paths and account', () => {
         const source = sources.get('register-worker-logon-task.ps1') ?? '';
         expect(source).toContain('\'start-worker-logon.ps1\'');

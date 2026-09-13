@@ -24,6 +24,7 @@ export const guestPowerShellScriptNames = [
     'install-nsis-per-user.ps1',
     'register-worker-logon-task.ps1',
     'ensure-standard-test-user.ps1',
+    'ensure-guest-agent-service.ps1',
     'disable-test-audio.ps1',
     'configure-test-printer.ps1',
     'start-worker-logon.ps1',
