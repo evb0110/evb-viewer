@@ -1,0 +1,46 @@
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_30cfa78526c1ce::t_f06ac563fec999 267
+  s_30cfa78526c1ce::t_cbb37c5fe13949 288
+  s_30cfa78526c1ce::t_86e96c30bac4a8 260
+  s_30cfa78526c1ce::t_20c3f11302072b 259,261-262,264-266,268,287
+  s_30cfa78526c1ce::t_29d5c90ee8ebfd 257-258,269-286,289-291
+  s_30cfa78526c1ce::t_9af5af86656cbb 263
+tests/unit/app/modules/workspace-shell/composables/useDirtyTabCloseDialog.test.ts
+  s_30cfa78526c1ce::t_95699d43419d5b 55,70,94,100,116,143,163,166-174
+  s_30cfa78526c1ce::t_cbb37c5fe13949 69
+  s_30cfa78526c1ce::t_2206169f8034b3 175
+electron/features/image-export/main/export.ts
+  s_30cfa78526c1ce::t_ae78ee874bfc15 58
+  s_30cfa78526c1ce::t_ea774e98b29b68 578
+tests/unit/electron/imageExport.test.ts
+  s_30cfa78526c1ce::t_4146428f4369d4 16,56,311-314,1315-1334
+  s_30cfa78526c1ce::t_9af5af86656cbb 236
+  s_30cfa78526c1ce::t_1339c868b33561 1335-1336
+app/modules/workspace-shell/composables/useAppShellTabLifecycle.ts
+  s_30cfa78526c1ce::t_8ce7638d84afe8 448-452
+  s_30cfa78526c1ce::t_8c0ead61056c91 15,41
+app/modules/workspace-shell/composables/useDirtyTabCloseDialog.ts
+  s_30cfa78526c1ce::t_8c0ead61056c91 6,53,62-63
+app/modules/workspace-shell/components/DirtyTabCloseDialog.vue
+  s_30cfa78526c1ce::t_cbb37c5fe13949 28,30-37
+tests/unit/app/modules/workspace-shell/composables/useAppShellTabLifecycle.test.ts
+  s_30cfa78526c1ce::t_8206d9f0ef72c4 230,285
+  s_30cfa78526c1ce::t_f06ac563fec999 198,242-243,340,451,595
+  s_30cfa78526c1ce::t_76f1c0c5a2a260 248,280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f3e03c61f0d4a41d2d8aa16cf0eb0317885aae25",
+  "prompts": {},
+  "sessions": {
+    "s_30cfa78526c1ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098ca-900f-7ac2-8ab0-4ab184f30132",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
