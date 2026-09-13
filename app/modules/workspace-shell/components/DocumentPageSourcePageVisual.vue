@@ -5,7 +5,7 @@
         data-document-page-visual="pending"
     />
     <div
-        v-if="(visual === 'skeleton' || !surface) && visual !== 'error' && !hostOwnsSkeleton"
+        v-if="visual !== 'fresh' && visual !== 'error' && !hostOwnsSkeleton"
         class="document-source-viewer__skeleton"
         data-document-page-visual="skeleton"
         aria-hidden="true"
