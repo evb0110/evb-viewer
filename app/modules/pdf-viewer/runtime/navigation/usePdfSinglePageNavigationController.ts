@@ -761,15 +761,15 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : liveAnchor;
     }
 
-    function observeNativeUserScroll() {
+    function observeNativeUserScroll(anchorOverride?: IPdfSemanticAnchor) {
         if (queuedNavigation !== null || retainedNavigationAnchorPage.value !== null) {
             clearQueuedNavigation();
         }
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
-        const anchor = container && snapshot
+        const anchor = anchorOverride ?? (container && snapshot
             ? resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value))
-            : getRequestAnchor(undefined, options.currentPage.value);
+            : getRequestAnchor(undefined, options.currentPage.value));
         viewportAuthority.observeUserScroll(anchor);
         if (container) options.viewportWritePort.observeUserScroll(container);
         return anchor.page;
@@ -887,7 +887,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         };
     }
 
-    function cancelProgrammaticNavigation(reason = 'explicit-cancel') {
+    function cancelProgrammaticNavigation(
+        reason = 'explicit-cancel',
+        anchorOverride?: IPdfSemanticAnchor,
+    ) {
         wheelFlipGate.reset();
         logPdfRenderTrace('navigation-retained-anchor-cleared', () => ({
             reason,
@@ -896,7 +899,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             currentPage: viewportAuthority.currentPage.value,
         }));
         clearQueuedNavigation();
-        const page = observeNativeUserScroll();
+        const page = observeNativeUserScroll(anchorOverride);
         // Physical input is authoritative even when the browser cannot move
         // the viewport (for example, while a programmatic scroll and canvas
         // commit are still settling). Publish the live anchor at the input
