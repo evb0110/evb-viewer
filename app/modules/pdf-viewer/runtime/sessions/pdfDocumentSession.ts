@@ -455,6 +455,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             }
 
             pageMetrics.value[pageNumber - 1] = metric;
+            triggerRef(pageMetrics);
             if (trustedGeometrySeedPageNumber === pageNumber) {
                 // Native opening geometry is a shell seed, not a permanent
                 // document maximum. Once PDF.js measures that exact page,
