@@ -8,10 +8,38 @@ import {
     PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT,
     parsePdfInfoPageSizes,
     parsePdfOpeningGeometryMetadata,
+    parseNativePdfPageLabelRanges,
     readJpegDimensions,
 } from '@electron/features/documents/main/nativePdfPreview';
 
 describe('native PDF preview metadata parsing', () => {
+    it('converts bounded native catalog page-label ranges to renderer ranges', () => {
+        expect(parseNativePdfPageLabelRanges({pageLabels: [
+            {
+                pageIndex: 0,
+                style: 'r',
+            },
+            {
+                pageIndex: 2,
+                prefix: 'Appendix ',
+                start: 4,
+            },
+        ]})).toEqual([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 3,
+                style: null,
+                prefix: 'Appendix ',
+                startNumber: 4,
+            },
+        ]);
+    });
+
     it('reads dimensions from the final JPEG raster', () => {
         const bytes = Uint8Array.of(
             0xff, 0xd8,

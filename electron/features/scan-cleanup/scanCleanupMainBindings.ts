@@ -30,6 +30,8 @@ export function disposeScanCleanupMainBindings(): Promise<void> {
 
 const featureBindings = {
     preview: (context, request) => previewService.preview(context.sender, request),
+    resolvePlacementAnchorCalibration: (context, request) =>
+        previewService.resolvePlacementAnchorCalibration(context.sender, request),
     cancelPreview: (context, request) => previewService.cancel(context.sender, request),
     detectAll: (context, request) => previewService.detectAll(context.sender, request),
     cancelDetection: (context, jobId, owner) =>

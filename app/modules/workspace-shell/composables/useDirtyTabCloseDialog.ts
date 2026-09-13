@@ -3,7 +3,7 @@ import type { ITab } from '@app/types/tabs';
 
 interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
 
-type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
+export type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
 export type TDirtyCloseDialogMode = 'tab' | 'window';
 
 interface IDirtyTabCloseTarget {
@@ -44,19 +44,13 @@ export const useDirtyTabCloseDialog = (
         }
     }
 
-    function confirmDirtyTabClose() {
-        const target = dirtyTabCloseTarget.value;
-        const tab = target ? tabs.value.find(candidate => candidate.id === target.id) : undefined;
-        resolveDirtyTabCloseDialog(isCurrentTarget(tab));
-    }
-
     function requestDirtyTabCloseConfirmation(tabId: string) {
         if (dirtyTabCloseDialogResolver) {
             resolveDirtyTabCloseDialog(false);
         }
         const tab = tabs.value.find(candidate => candidate.id === tabId);
         if (!tab) {
-            return Promise.resolve(false);
+            return Promise.resolve<TDirtyCloseDecision>('cancel');
         }
         dirtyTabCloseTarget.value = {
             id: tab.id,
@@ -65,8 +59,8 @@ export const useDirtyTabCloseDialog = (
         };
         dirtyTabCloseTargetId.value = tabId;
         dirtyTabCloseDialogMode.value = 'tab';
-        const confirmation = new Promise<boolean>((resolve) => {
-            dirtyTabCloseDialogResolver = decision => resolve(decision === 'discard');
+        const confirmation = new Promise<TDirtyCloseDecision>((resolve) => {
+            dirtyTabCloseDialogResolver = resolve;
         });
         dirtyTabCloseDialogOpen.value = true;
         return confirmation;
@@ -123,7 +117,6 @@ export const useDirtyTabCloseDialog = (
         dirtyTabCloseDialogMode,
         dirtyTabCloseTargetId,
         dirtyTabCloseTargetName,
-        confirmDirtyTabClose,
         requestDirtyTabCloseConfirmation,
         requestDirtyWindowCloseConfirmation,
         resolveDirtyTabCloseDialog,

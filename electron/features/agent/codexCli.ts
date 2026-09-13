@@ -275,13 +275,27 @@ async function findCodexInLoginShell() {
     return candidate;
 }
 
+let codexCliPathPromise: Promise<string | null> | null = null;
+
 export async function resolveCodexCliPath() {
-    for (const candidate of buildCodexPathCandidates()) {
-        if (await isExecutable(candidate)) {
-            return candidate;
-        }
+    if (codexCliPathPromise) {
+        return codexCliPathPromise;
     }
-    return findCodexInLoginShell();
+
+    const lookup = (async () => {
+        for (const candidate of buildCodexPathCandidates()) {
+            if (await isExecutable(candidate)) {
+                return candidate;
+            }
+        }
+        return findCodexInLoginShell();
+    })();
+    codexCliPathPromise = lookup;
+    const resolvedPath = await lookup;
+    if (resolvedPath === null) {
+        codexCliPathPromise = null;
+    }
+    return resolvedPath;
 }
 
 export function runCodexCli(

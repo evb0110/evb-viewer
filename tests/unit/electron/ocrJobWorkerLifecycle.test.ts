@@ -210,6 +210,61 @@ describe('OCR worker lifecycle physical ownership', () => {
         expect(fixture.release).toHaveBeenCalledTimes(1);
     });
 
+    it('abandons an unkillable native child after a bounded cleanup sequence', async () => {
+        vi.useFakeTimers();
+        const fixture = createFixture();
+        let attempts = 0;
+        const terminate = vi.fn(async () => {
+            attempts += 1;
+            if (attempts === 3) {
+                throw new Error('termination unavailable');
+            }
+            return false;
+        });
+        const cleanupTimers = new Map<string, NodeJS.Timeout>();
+        cleanupTimerMaps.add(cleanupTimers);
+        const controller = createOcrJobWorkerLifecycleController({
+            activeJobs: fixture.activeJobs,
+            workerCleanupTimersByScopedJobId: new Map(),
+            nativeChildCleanupTimersByScopedJobId: cleanupTimers,
+            nativeChildTermination: {terminate},
+            pendingResultFileStore: createPendingResultFileStore({
+                logger: fixture.logger,
+                ttlMs: 60_000,
+                removeResultFile: vi.fn(async () => true),
+            }),
+            logger: fixture.logger,
+            publishProgress: vi.fn(),
+            getJobWindow: vi.fn(() => null),
+            onFinalizeActiveJob: fixture.onFinalizeActiveJob,
+            removeResultFile: vi.fn(async () => true),
+            safeSendToWindow: vi.fn(),
+        });
+
+        controller.handleNativeChildIntent(fixture.job.scopedJobId, fixture.worker, 'job-1', 'child-1', 'tesseract');
+        controller.handleNativeChildRegister(
+            fixture.job.scopedJobId,
+            fixture.worker,
+            'job-1',
+            'child-1',
+            123,
+            childIdentity,
+        );
+        fixture.job.cleanupCompleteReceived = true;
+        controller.markWorkerExit(fixture.job.scopedJobId, fixture.worker, 1);
+        await flushBarriers();
+
+        expect(terminate).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(terminate).toHaveBeenCalledTimes(3);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(terminate).toHaveBeenCalledTimes(3);
+        expect(fixture.activeJobs.has(fixture.job.scopedJobId)).toBe(false);
+        expect(fixture.releaseJob).toHaveBeenCalledWith(fixture.job.scopedJobId);
+        expect(fixture.onFinalizeActiveJob).toHaveBeenCalledTimes(1);
+        expect(fixture.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Abandoned'));
+    });
+
     it('fails closed when registration handoff crashes before a child identity is registered', () => {
         const fixture = createFixture();
 

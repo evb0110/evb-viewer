@@ -85,7 +85,7 @@ const storageBudget = {
         release: () => undefined,
     }),
     reconcileCheckpoints: async () => undefined,
-    commitCheckpoint: (_bytes, reservations) => {
+    commitCheckpoint: (reservations) => {
         reservations.forEach(reservation => reservation.release());
     },
     withReservation: async <T>(_bytes: number, task: () => Promise<T>) => task(),

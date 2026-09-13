@@ -45,9 +45,16 @@ import type {
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
+import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {
+    claimScanCleanupDetectionResultStore,
+    registerScanCleanupDetectionResultStore,
+    releaseScanCleanupDetectionResultStoreOwner,
+} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
@@ -1830,6 +1837,39 @@ export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequ
 
 }
 
+export async function scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart(): Promise<void> {
+
+    const {deps} = await previewDependencies();
+    deps.acquireDetectionLease = vi.fn(async (_ownerId, signal) => {
+        await new Promise<never>((_resolve, reject) => {
+            if (signal.aborted) {
+                reject(signal.reason);
+                return;
+            }
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+        });
+        return {release: vi.fn(() => true)};
+    });
+    const service = createDetectionScenarioOwner(deps);
+    const owner = sender();
+    const firstPromise = service.detectAll(owner, detectionRequest);
+    const secondPromise = service.detectAll(owner, detectionRequest);
+    try {
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            firstPromise,
+            secondPromise,
+        ]);
+        expect(second).toEqual(first);
+        expect(deps.acquireDetectionLease).toHaveBeenCalledOnce();
+    } finally {
+        await service.dispose();
+    }
+
+}
+
 export async function scenarioStartsFreshIdenticalDetectionAfterCancellationIsAcknowledgedButNotTerminal(): Promise<void> {
 
     const {deps} = await previewDependencies();
@@ -1943,6 +1983,143 @@ export async function scenarioDoesNotDeliverTerminalDetectionStateAfterARenderer
         detectionRequest,
     )?.status).toBe('canceled'));
     expect(owner.send.mock.calls.length).toBe(sendsBeforeDestroy);
+    await service.dispose();
+
+}
+
+export async function scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOwnerCloses(): Promise<void> {
+
+    const {deps} = await previewDependencies();
+    const entered = Promise.withResolvers<undefined>();
+    deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
+        entered.resolve(undefined);
+        await new Promise<void>((_resolve, reject) => {
+            if (signal.aborted) {
+                reject(signal.reason);
+                return;
+            }
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+        });
+    });
+    const service = createDetectionScenarioOwner(deps);
+    const owner = lifecycleSender();
+    const started = await service.detectAll(owner, detectionRequest);
+    await entered.promise;
+
+    const createResultStore = (close: () => Promise<void>): IScanCleanupDetectionResultStore => ({
+        pageCount: 1_025,
+        resultCount: 1_025,
+        append: async () => undefined,
+        replace: async () => undefined,
+        getPage: async () => undefined,
+        readRange: async () => [],
+        forEachChunk: async () => undefined,
+        close,
+    });
+    const close = vi.fn(async () => undefined);
+    const oldStoreId = registerScanCleanupDetectionResultStore({
+        detectionSignature: createScanCleanupDetectionSignature(detectionRequest.options),
+        documentRevision: detectionRequest.documentRevision,
+        ownerId: detectionRequest.ownerId,
+        ownerKey: 'owner-key',
+        resultStore: createResultStore(close),
+        sourcePdfPath: detectionRequest.sourcePdfPath,
+    });
+    const borrow = claimScanCleanupDetectionResultStore(oldStoreId, {
+        detectionSignature: createScanCleanupDetectionSignature(detectionRequest.options),
+        documentRevision: detectionRequest.documentRevision,
+        ownerId: detectionRequest.ownerId,
+        sourcePdfPath: detectionRequest.sourcePdfPath,
+    });
+    expect(borrow).not.toBeNull();
+
+    const freshClose = vi.fn(async () => undefined);
+    registerScanCleanupDetectionResultStore({
+        detectionSignature: createScanCleanupDetectionSignature(detectionRequest.options),
+        documentRevision: detectionRequest.documentRevision,
+        ownerId: detectionRequest.ownerId,
+        ownerKey: 'owner-key',
+        resultStore: createResultStore(freshClose),
+        sourcePdfPath: detectionRequest.sourcePdfPath,
+    });
+    expect(close).not.toHaveBeenCalled();
+
+    owner.emit('destroyed');
+
+    await vi.waitFor(() => expect(freshClose).toHaveBeenCalledOnce());
+    expect(close).not.toHaveBeenCalled();
+    await borrow!.release();
+    expect(close).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(service.getDetectionJobState(
+        owner,
+        started.jobId,
+        detectionRequest,
+    )?.status).toBe('canceled'));
+    await service.dispose();
+
+}
+
+export async function scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeated(): Promise<void> {
+
+    const {deps} = await previewDependencies();
+    deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+        await writeDetectionMetadata(manifestPath);
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+        for (const [
+            index,
+            page,
+        ] of manifest.pages.entries()) {
+            onProgress({
+                stage: 'page-complete',
+                completedPages: index + 1,
+                totalPages: manifest.pages.length,
+                pageNumber: page.sourcePageIndex + 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+            });
+        }
+    });
+    const service = createDetectionScenarioOwner(deps);
+    const owner = lifecycleSender();
+    const started = await service.detectAll(owner, detectionRequest);
+    await vi.waitFor(() => expect(service.getDetectionJobState(
+        owner,
+        started.jobId,
+        detectionRequest,
+    )?.status).toBe('completed'));
+
+    const close = vi.fn(async () => undefined);
+    const storeId = registerScanCleanupDetectionResultStore({
+        detectionSignature: createScanCleanupDetectionSignature(detectionRequest.options),
+        documentRevision: detectionRequest.documentRevision,
+        ownerId: detectionRequest.ownerId,
+        ownerKey: `${detectionRequest.ownerId}-cancel`,
+        resultStore: {
+            pageCount: 1_025,
+            resultCount: 1_025,
+            append: async () => undefined,
+            replace: async () => undefined,
+            getPage: async () => undefined,
+            readRange: async () => [],
+            forEachChunk: async () => undefined,
+            close,
+        },
+        sourcePdfPath: detectionRequest.sourcePdfPath,
+    });
+
+    expect(service.cancelDetection(owner, started.jobId, detectionRequest)).toBe(false);
+    await Promise.resolve();
+    expect(close).not.toHaveBeenCalled();
+    const borrow = claimScanCleanupDetectionResultStore(storeId, {
+        detectionSignature: createScanCleanupDetectionSignature(detectionRequest.options),
+        documentRevision: detectionRequest.documentRevision,
+        ownerId: detectionRequest.ownerId,
+        sourcePdfPath: detectionRequest.sourcePdfPath,
+    });
+    expect(borrow).not.toBeNull();
+    await borrow!.release();
+    await releaseScanCleanupDetectionResultStoreOwner(detectionRequest.ownerId);
+    expect(close).toHaveBeenCalledOnce();
     await service.dispose();
 
 }

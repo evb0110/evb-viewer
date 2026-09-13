@@ -1056,6 +1056,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Aktivieren Sie EVB Assistant in den Einstellungen, um den Assistenten-Chat zu verwenden.',
             'turnBusy': 'EVB Assistant arbeitet noch an der vorherigen Nachricht für dieses Dokument.',
+            'contextUnavailable': 'Der Claude-Chatkontext konnte nicht wiederhergestellt werden. Starten Sie einen neuen Chat, um fortzufahren.',
         },
     },
     'optimizePdf': {
@@ -1122,6 +1123,7 @@ export default {
             one: '{count} nicht unterstützte Datei wurde übersprungen.',
             other: '{count} nicht unterstützte Dateien wurden übersprungen.',
         }),
+        'discardPending': 'Ausstehendes Ergebnis verwerfen',
     },
     'noteWindow': {
         'popUpNote': 'Seite {page}',
@@ -1564,6 +1566,7 @@ export default {
         'export': {
             'images': 'Bilderexport fehlgeschlagen',
             'multiPageTiff': 'TIFF-Export fehlgeschlagen',
+            'alreadyRunning': 'Ein Export läuft bereits',
         },
         'browser': {
             'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',
@@ -1595,6 +1598,7 @@ export default {
                 'internal': 'OCR ist unerwartet fehlgeschlagen',
                 'queueBackpressure': 'Die OCR-Warteschlange ist voll',
                 'workerUnavailable': 'Der OCR-Worker ist nicht verfügbar',
+                'workerMessageError': 'Der OCR-Worker konnte kein Ergebnis liefern',
                 'toolsValidationFailed': 'Die OCR-Tools sind nicht bereit',
             },
         },
@@ -1627,6 +1631,7 @@ export default {
         'settings': {
             'load': 'Einstellungen konnten nicht geladen werden',
             'recovered': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde, wenn möglich, als Wiederherstellungskopie behalten.',
+            'recoveredWithPath': 'Die gespeicherten Einstellungen konnten nicht verwendet werden. Die Standardeinstellungen wurden wiederhergestellt. Die vorherige Datei wurde unter {path} unter Quarantäne gestellt.',
         },
         'runtime': {
             'title': 'Etwas ist schiefgelaufen',

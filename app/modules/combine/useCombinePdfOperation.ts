@@ -6,6 +6,7 @@ import type {
 import {
     combinePdfFiles,
     CombinePdfError,
+    isCombineCancellationSupported,
 } from '@app/services/pdf/combinePdfFiles';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
@@ -28,6 +29,7 @@ export const useCombinePdfOperation = <T extends {
     const combineFailure = ref<FailureReceipt | null>(null);
     const combineErrorIsExpected = ref(false);
     const pendingCombinedResult = ref<TOpenFileResult | null>(null);
+    const canCancel = ref(isCombineCancellationSupported());
     const queueMutationLocked = computed(() => (
         isCombining.value || pendingCombinedResult.value !== null
     ));
@@ -128,6 +130,8 @@ export const useCombinePdfOperation = <T extends {
                 combineError.value = null;
                 combineFailure.value = null;
                 combineErrorIsExpected.value = false;
+                pendingCombinedResult.value = null;
+                progress.value = null;
             }
         } catch (error) {
             combineError.value = options.translate('errors.file.save');
@@ -144,6 +148,14 @@ export const useCombinePdfOperation = <T extends {
         }
     }
 
+    function discardPendingResult() {
+        pendingCombinedResult.value = null;
+        progress.value = null;
+        combineError.value = null;
+        combineFailure.value = null;
+        combineErrorIsExpected.value = false;
+    }
+
     return {
         isCombining,
         progress,
@@ -152,8 +164,10 @@ export const useCombinePdfOperation = <T extends {
         combineErrorIsExpected,
         pendingCombinedResult,
         queueMutationLocked,
+        canCancel,
         combine,
         cancel,
         savePendingAs,
+        discardPendingResult,
     };
 };

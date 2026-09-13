@@ -46,10 +46,12 @@ import {
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
     SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE,
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
 } from '@contracts/scan-cleanup/inputLimits';
 import type {
     IScanCleanupDetectionRequest,
+    IScanCleanupPlacementAnchorCalibrationRequest,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRequest,
@@ -305,7 +307,7 @@ export function decodeScanCleanupPagePlanEvidence(
     };
 }
 
-function decodeScanCleanupPlacementAnchors(
+export function decodeScanCleanupPlacementAnchors(
     value: unknown,
     label: string,
 ): Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> {
@@ -548,6 +550,7 @@ function decodeManualZones(
         throw new Error('too many scan-cleanup manual zones on one page');
     }
     consumeScanCleanupZones(budget, zoneCount, 'manual zones');
+    let pageVertexCount = 0;
     const decodePolygon = (polygon: unknown, label: string) => {
         if (
             !isRecord(polygon)
@@ -557,6 +560,11 @@ function decodeManualZones(
         ) {
             throw new Error(`invalid scan-cleanup ${label}`);
         }
+        const nextPageVertexCount = pageVertexCount + polygon.points.length;
+        if (nextPageVertexCount > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) {
+            throw new Error('too many scan-cleanup manual-zone vertices on one page');
+        }
+        pageVertexCount = nextPageVertexCount;
         consumeScanCleanupVertices(budget, polygon.points.length, 'manual-zone vertices');
         const decoded = {
             points: polygon.points.map((point, index) => {
@@ -1190,12 +1198,46 @@ function decodeDetectionRequest(value: unknown): IScanCleanupDetectionRequest {
     };
 }
 
+function decodePlacementAnchorCalibrationRequest(
+    value: unknown,
+): IScanCleanupPlacementAnchorCalibrationRequest {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup placement anchor calibration request');
+    const sourcePdfPath = decodeBoundedScanCleanupString(
+        value.sourcePdfPath,
+        'placement anchor calibration source PDF path',
+        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    );
+    const detectionResultStoreId = decodeBoundedScanCleanupString(
+        value.detectionResultStoreId,
+        'placement anchor calibration result store id',
+        SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    );
+    const pageNumber = value.pageNumber === undefined
+        ? undefined
+        : decodeScanCleanupPageNumber(value.pageNumber, 'placement anchor calibration page number');
+    return {
+        sourcePdfPath,
+        ...decodeOwnerContext(value),
+        detectionResultStoreId,
+        options: decodeOptions(value.options),
+        ...(pageNumber === undefined ? {} : {pageNumber}),
+    };
+}
+
 export function decodeDetectionArgs(args: readonly unknown[]) {
     requireIpcArgumentCount(args, {
         min: 1,
         max: 1,
     });
     return [decodeDetectionRequest(args[0])] as [IScanCleanupDetectionRequest];
+}
+
+export function decodePlacementAnchorCalibrationArgs(args: readonly unknown[]) {
+    requireIpcArgumentCount(args, {
+        min: 1,
+        max: 1,
+    });
+    return [decodePlacementAnchorCalibrationRequest(args[0])] as [IScanCleanupPlacementAnchorCalibrationRequest];
 }
 
 export function decodePreviewArgs(args: readonly unknown[]) {

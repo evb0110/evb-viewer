@@ -1057,6 +1057,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Ative o EVB Assistant nas Configurações para usar o chat do assistente.',
             'turnBusy': 'O EVB Assistant ainda está processando a mensagem anterior deste documento.',
+            'contextUnavailable': 'Não foi possível restaurar o contexto deste chat do Claude. Inicie um novo chat para continuar.',
         },
     },
     'optimizePdf': {
@@ -1123,6 +1124,7 @@ export default {
             one: '{count} arquivo não suportado foi ignorado.',
             other: '{count} arquivos não suportados foram ignorados.',
         }),
+        'discardPending': 'Descartar resultado pendente',
     },
     'noteWindow': {
         'popUpNote': 'Página {page}',
@@ -1575,6 +1577,7 @@ export default {
         'export': {
             'images': 'Falha ao exportar imagens',
             'multiPageTiff': 'Falha ao exportar TIFF',
+            'alreadyRunning': 'Já existe uma exportação em andamento',
         },
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos arquivos foi negado. Escolha Abrir novamente para usar o seletor compatível.',
@@ -1606,6 +1609,7 @@ export default {
                 'internal': 'O OCR falhou inesperadamente',
                 'queueBackpressure': 'A fila de OCR está cheia',
                 'workerUnavailable': 'O worker de OCR está indisponível',
+                'workerMessageError': 'O worker de OCR não conseguiu entregar um resultado',
                 'toolsValidationFailed': 'As ferramentas de OCR não estão prontas',
             },
         },
@@ -1638,6 +1642,7 @@ export default {
         'settings': {
             'load': 'Não foi possível carregar as configurações',
             'recovered': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi mantido como cópia de recuperação quando possível.',
+            'recoveredWithPath': 'Não foi possível usar as configurações salvas, então os padrões foram restaurados. O arquivo anterior foi colocado em quarentena em {path}.',
         },
         'runtime': {
             'title': 'Algo deu errado',

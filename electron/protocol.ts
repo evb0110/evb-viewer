@@ -69,6 +69,7 @@ const MIME_TYPES = new Map([
 let isSchemeRegistered = false;
 let isHandlerRegistered = false;
 const packagedPathResolutionCache = new Map<string, string | null>();
+const PACKAGED_PATH_RESOLUTION_CACHE_MAX_ENTRIES = 4_096;
 
 export function registerAppProtocolScheme() {
     if (isSchemeRegistered) {
@@ -94,12 +95,18 @@ function createResponse(body: BodyInit | null, init: ResponseInit = {}) {
 
 function resolveStaticFilePath(url: URL) {
     const cacheKey = `${url.hostname}\0${url.pathname}`;
-    const cachedPath = packagedPathResolutionCache.get(cacheKey);
-    if (cachedPath !== undefined || packagedPathResolutionCache.has(cacheKey)) {
-        return cachedPath ?? null;
+    if (packagedPathResolutionCache.has(cacheKey)) {
+        const cachedPath = packagedPathResolutionCache.get(cacheKey) ?? null;
+        packagedPathResolutionCache.delete(cacheKey);
+        packagedPathResolutionCache.set(cacheKey, cachedPath);
+        return cachedPath;
     }
 
     const resolvedPath = resolveUncachedStaticFilePath(url);
+    const oldestKey = packagedPathResolutionCache.keys().next().value;
+    if (oldestKey !== undefined && packagedPathResolutionCache.size >= PACKAGED_PATH_RESOLUTION_CACHE_MAX_ENTRIES) {
+        packagedPathResolutionCache.delete(oldestKey);
+    }
     packagedPathResolutionCache.set(cacheKey, resolvedPath);
     return resolvedPath;
 }

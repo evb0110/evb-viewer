@@ -320,13 +320,17 @@ fn read_png_page_from_reader<R: std::io::Read>(
         bytes.as_slice(),
         PassthroughLimits {
             max_pixels,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     )?;
     let color_type = metadata.color_type;
 
     if metadata.transparency.is_some()
-        || matches!(color_type, PngColorType::GrayAlpha8 | PngColorType::Rgba8)
+        || matches!(
+            color_type,
+            PngColorType::Indexed | PngColorType::GrayAlpha8 | PngColorType::Rgba8
+        )
     {
         return png_composited_flate_page(&bytes, metadata, max_pixels, default_dpi);
     }
@@ -335,6 +339,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
         bytes.as_slice(),
         PassthroughLimits {
             max_pixels,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     ) {
@@ -525,6 +530,7 @@ fn read_png_jpeg_page(
         bytes,
         PassthroughLimits {
             max_pixels,
+            max_dimension: u32::MAX,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     )?;
@@ -1191,9 +1197,9 @@ mod tests {
     use super::*;
     use crc32fast::Hasher;
     use evb_raster_io::{encode_png, PixelBuffer};
-    use flate2::read::ZlibDecoder;
+    use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
     use std::{
-        io::Read,
+        io::{Read, Write},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, Barrier,
@@ -1346,6 +1352,42 @@ mod tests {
                 .unwrap();
             assert_eq!(decoded, [2].into_iter().chain(expected).collect::<Vec<_>>());
         }
+    }
+
+    #[test]
+    fn indexed_png_color_key_pixels_composite_to_white_in_the_pdf_writer() {
+        let mut scanlines = ZlibEncoder::new(Vec::new(), Compression::default());
+        scanlines.write_all(&[0, 0, 1]).unwrap();
+        let idat = scanlines.finish().unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&2u32.to_be_bytes());
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 3, 0, 0, 0]);
+        append_test_chunk(&mut png, b"IHDR", &ihdr);
+        append_test_chunk(&mut png, b"PLTE", &[0, 0, 0, 7, 8, 9]);
+        append_test_chunk(&mut png, b"tRNS", &[0, 255]);
+        append_test_chunk(&mut png, b"IDAT", &idat);
+        append_test_chunk(&mut png, b"IEND", &[]);
+
+        let page = read_image_page_from_bytes(
+            "keyed-indexed.png",
+            &png,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
+        let ImagePayload::RawFlate { data, .. } = page.payload else {
+            panic!("expected composited flate payload")
+        };
+        let mut decoded = Vec::new();
+        ZlibDecoder::new(data.as_slice())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, [2, 255, 255, 255, 7, 8, 9]);
     }
 
     fn append_test_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {

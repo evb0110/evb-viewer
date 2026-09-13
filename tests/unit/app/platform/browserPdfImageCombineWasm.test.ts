@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {PDFDocument} from 'pdf-lib';
 import {
     beforeEach,
     describe,
@@ -7,10 +8,18 @@ import {
     it,
     vi,
 } from 'vitest';
+import * as utifModule from 'utif';
+import {
+    buildTiffImageIfd,
+    encodeTiffIfds,
+} from '@pdf-core';
+import type {ITiffEncoderModule} from '@pdf-core/tiffEncoding';
 
 const NativeWebAssembly = WebAssembly;
 const wasmGlobalMockBase = {Memory: NativeWebAssembly.Memory};
 const loggerWarn = vi.hoisted(() => vi.fn());
+
+const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: loggerWarn}}));
 
@@ -19,6 +28,110 @@ function createFetchMock() {
         ok: true,
         arrayBuffer: async () => new ArrayBuffer(8),
     }));
+}
+
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+    const copy = new ArrayBuffer(data.byteLength);
+    new Uint8Array(copy).set(data);
+    return copy;
+}
+
+async function stubSuccessfulImageCombineWasmFetch() {
+    vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+    vi.stubGlobal('WebAssembly', NativeWebAssembly);
+    const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
+    const fetchMock = vi.fn(async () => ({
+        ok: true,
+        headers: {get: () => null},
+        arrayBuffer: async () => toArrayBuffer(wasmBytes),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+}
+
+function createPgmBytes(value: number) {
+    const header = new TextEncoder().encode('P5\n1 1\n255\n');
+    const bytes = new Uint8Array(header.byteLength + 1);
+    bytes.set(header);
+    bytes[header.byteLength] = value;
+    return bytes;
+}
+
+function createTwoFrameTiffBytes() {
+    const pages = [
+        {
+            width: 1,
+            height: 1,
+            dataLength: 3,
+        },
+        {
+            width: 2,
+            height: 1,
+            dataLength: 6,
+        },
+    ];
+    const buildRgbTiffImageIfd = (page: typeof pages[number], dataOffset: number) => {
+        const {
+            t338: _extraSamples, ...ifd
+        } = buildTiffImageIfd(page, dataOffset);
+        return {
+            ...ifd,
+            t258: [
+                8,
+                8,
+                8,
+            ],
+            t262: [2],
+            t277: [3],
+        };
+    };
+    const header = encodeTiffIfds(
+        pages.map(page => buildRgbTiffImageIfd(page, 0)),
+        UTIF,
+    );
+    const encoded = encodeTiffIfds(
+        pages.map((page, index) => buildRgbTiffImageIfd(
+            page,
+            header.byteLength + pages
+                .slice(0, index)
+                .reduce((total, previous) => total + previous.dataLength, 0),
+        )),
+        UTIF,
+    );
+    const bytes = new Uint8Array(encoded.byteLength + 9);
+    bytes.set(encoded);
+    bytes.set(Uint8Array.of(255, 0, 0), encoded.byteLength);
+    bytes.set(Uint8Array.of(0, 255, 0, 0, 0, 255), encoded.byteLength + 3);
+    return bytes;
+}
+
+async function runBrowserPdfCombineWorker(inputs: Array<{
+    fileName: string;
+    data: Uint8Array;
+}>) {
+    let messageListener: ((event: MessageEvent<unknown>) => void | Promise<void>) | undefined;
+    const postedMessages: unknown[] = [];
+    vi.stubGlobal('self', {
+        addEventListener: vi.fn((
+            _type: string,
+            listener: (event: MessageEvent<unknown>) => void | Promise<void>,
+        ) => {
+            messageListener = listener;
+        }),
+        postMessage: vi.fn((message: unknown) => {
+            postedMessages.push(message);
+        }),
+    });
+    await import('@app/platform/browser-api/browserPdfCombine.worker');
+    if (!messageListener) {
+        throw new Error('Browser PDF combine worker did not register its message listener');
+    }
+    await messageListener({data: {
+        id: 1,
+        type: 'combinePdfs',
+        payload: {inputs},
+    }} as MessageEvent<unknown>);
+    return postedMessages.at(-1);
 }
 
 function decodeRequestNameAndData(request: Uint8Array) {
@@ -218,6 +331,129 @@ describe('tryCombineImageInputsWithWasm', () => {
             new Uint8Array(memory.buffer, pointer >>> 0, length).fill(0xa5);
             free(pointer, length);
         }
+    });
+
+    it('admits 500 one-page inputs through the browser combine worker', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        const inputs = Array.from({length: 500}, (_value, index) => ({
+            fileName: `page-${index + 1}.pgm`,
+            data: createPgmBytes(index % 256),
+        }));
+
+        const response = await runBrowserPdfCombineWorker(inputs);
+
+        expect(response).toMatchObject({
+            id: 1,
+            type: 'combinePdfs',
+            ok: true,
+        });
+        if (!response || typeof response !== 'object' || !('data' in response) || !(response.data instanceof Uint8Array)) {
+            throw new Error('Expected the browser combine worker to return PDF bytes');
+        }
+        const combined = await PDFDocument.load(response.data);
+        expect(combined.getPageCount()).toBe(500);
+        expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('rejects 501 image pages before loading combine WASM', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const inputs = Array.from({length: 501}, (_value, index) => ({
+            fileName: `page-${index + 1}.pgm`,
+            data: createPgmBytes(index % 256),
+        }));
+        const sourceSnapshot = inputs.map(input => input.data.slice());
+
+        await expect(tryCombineImageInputsWithWasm(inputs)).resolves.toMatchObject({
+            status: 'fatal',
+            error: {code: 'too-large'},
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(inputs.map(input => input.data)).toEqual(sourceSnapshot);
+
+        await expect(runBrowserPdfCombineWorker(inputs)).resolves.toEqual({
+            id: 1,
+            ok: false,
+            error: 'Invalid browser PDF combine worker request',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('turns a valid two-frame TIFF into ordered worker PDF pages', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        const tiff = createTwoFrameTiffBytes();
+        const response = await runBrowserPdfCombineWorker([{
+            fileName: 'scan.tiff',
+            data: tiff,
+        }]);
+        expect(response).toMatchObject({
+            id: 1,
+            type: 'combinePdfs',
+            ok: true,
+        });
+        if (!response || typeof response !== 'object' || !('data' in response) || !(response.data instanceof Uint8Array)) {
+            throw new Error('Expected the browser combine worker to return TIFF PDF bytes');
+        }
+        const combined = await PDFDocument.load(response.data);
+        expect(combined.getPages().map(page => ({
+            height: page.getHeight(),
+            width: page.getWidth(),
+        }))).toEqual([
+            {
+                height: 1,
+                width: 1,
+            },
+            {
+                height: 1,
+                width: 2,
+            },
+        ]);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(tiff).toEqual(createTwoFrameTiffBytes());
+    });
+
+    it('counts TIFF frames toward the 500-page worker budget', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        const inputs = [
+            {
+                fileName: 'scan.tiff',
+                data: createTwoFrameTiffBytes(),
+            },
+            ...Array.from({length: 499}, (_value, index) => ({
+                fileName: 'page-' + (index + 1) + '.pgm',
+                data: createPgmBytes(index % 256),
+            })),
+        ];
+
+        const response = await runBrowserPdfCombineWorker(inputs);
+
+        expect(response).toMatchObject({
+            id: 1,
+            ok: false,
+            errorEnvelope: {code: 'too-large'},
+        });
+        expect(response).not.toHaveProperty('data');
+        expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('returns a worker decode error without loading WASM for malformed TIFF input', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        const tiff = Uint8Array.of(1, 2, 3);
+        const sourceSnapshot = tiff.slice();
+
+        const response = await runBrowserPdfCombineWorker([{
+            fileName: 'malformed.tiff',
+            data: tiff,
+        }]);
+
+        expect(response).toMatchObject({
+            id: 1,
+            ok: false,
+            error: expect.any(String),
+        });
+        expect(response).not.toHaveProperty('data');
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(tiff).toEqual(sourceSnapshot);
     });
 
     it('combines supported image inputs through the WASM export', async () => {

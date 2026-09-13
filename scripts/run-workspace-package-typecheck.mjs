@@ -12,6 +12,13 @@ export const TYPECHECK_EXEMPT_WORKSPACE_PACKAGES = {
     'packages/electron-worker-bundles': 'JavaScript-only worker bundle manifest package with checked-in type declarations.',
     'packages/node-runtime': 'Node runtime helpers are typechecked through root TypeScript projects.',
 };
+export const FULL_TYPECHECK_PROJECTS = [
+    'electron/tsconfig.json',
+    'tests/tsconfig.json',
+    'tsconfig.scripts.json',
+    'tsconfig.scripts-js.json',
+    'server/tsconfig.json',
+];
 
 /** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => void} TRunCommand */
 /** @typedef {{args: string[], command: string}} ITypecheckCommand */
@@ -120,12 +127,12 @@ const isDirectCliRun = process.argv[1]
 if (isDirectCliRun) {
     const args = process.argv.slice(2);
     const cold = args.includes('--cold');
-    const projectArgs = args.filter(argument => argument !== '--cold');
-    const projects = [];
+    const projectArgs = args.filter(argument => argument !== '--cold' && argument !== '--all');
+    const projects = args.includes('--all') ? [...FULL_TYPECHECK_PROJECTS] : [];
     for (let index = 0; index < projectArgs.length; index += 2) {
         const project = projectArgs[index + 1];
         if (projectArgs[index] !== '-p' || project === undefined) {
-            throw new Error('Usage: node scripts/run-workspace-package-typecheck.mjs [--cold] [-p <tsconfig> ...]');
+            throw new Error('Usage: node scripts/run-workspace-package-typecheck.mjs [--cold] [--all] [-p <tsconfig> ...]');
         }
         projects.push(project);
     }

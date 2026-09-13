@@ -25,6 +25,7 @@ import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
 
 const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
+    isCombineCancellationSupported: vi.fn(),
     savePdfAs: vi.fn(),
     logError: vi.fn(),
     failure: {
@@ -45,6 +46,7 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
         }
     },
     combinePdfFiles: mocks.combinePdfFiles,
+    isCombineCancellationSupported: mocks.isCombineCancellationSupported,
     getCombinePdfCapabilities: () => ({
         supportedExtensions: ['.pdf'],
         maxInputs: 500,
@@ -150,6 +152,18 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
                     onClick: operation.savePendingAs,
                 }, 'Save As')
                 : null,
+            operation.pendingCombinedResult.value && !operation.isCombining.value
+                ? h('button', {
+                    class: 'discard',
+                    onClick: operation.discardPendingResult,
+                }, 'Discard')
+                : null,
+            operation.canCancel.value && operation.isCombining.value
+                ? h('button', {
+                    class: 'cancel',
+                    onClick: operation.cancel,
+                }, 'Cancel')
+                : null,
             h('button', {
                 class: 'combine',
                 onClick: operation.combine,
@@ -176,6 +190,7 @@ describe('mounted Combine PDF page state machine', () => {
         vi.clearAllMocks();
         mocks.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
         mocks.logError.mockReturnValue(mocks.failure);
+        mocks.isCombineCancellationSupported.mockReturnValue(true);
     });
 
     it('executes the page component with the queue controls unlocked', async () => {
@@ -202,7 +217,7 @@ describe('mounted Combine PDF page state machine', () => {
         }
     });
 
-    it('locks queue mutations, retains a failed-open result, then saves or retries without recombining', async () => {
+    it('unlocks queue mutations after saving a failed-open result', async () => {
         const combined = deferred<TOpenFileResult>();
         const result: TOpenFileResult = {
             kind: 'pdf',
@@ -244,14 +259,61 @@ describe('mounted Combine PDF page state machine', () => {
         await flushUpdates();
         expect(mocks.savePdfAs).toHaveBeenCalledWith('/tmp/combined-working.pdf', undefined);
 
-        (page.host.querySelector('.combine') as HTMLButtonElement).click();
-        await flushUpdates();
-        expect(openResult).toHaveBeenCalledTimes(2);
-        expect(mocks.combinePdfFiles).toHaveBeenCalledTimes(1);
-        expect(page.host.querySelectorAll('.queue-row')).toHaveLength(0);
         expect(page.host.querySelector('.save-as')).toBeNull();
+        expect(page.host.querySelector('.combine')?.textContent).not.toContain('Retry');
+        expect((page.host.querySelector('.clear') as HTMLButtonElement).disabled).toBe(false);
+        expect((page.host.querySelector('.remove') as HTMLButtonElement).disabled).toBe(false);
+        (page.host.querySelector('.clear') as HTMLButtonElement).click();
+        await nextTick();
+        expect(page.host.querySelectorAll('.queue-row')).toHaveLength(0);
+        expect(openResult).toHaveBeenCalledTimes(1);
+        expect(mocks.combinePdfFiles).toHaveBeenCalledTimes(1);
         expect(mocks.logError).toHaveBeenCalledOnce();
 
+        page.unmount();
+    });
+
+    it('hides cancel when the native batch cancel capability is unavailable', async () => {
+        mocks.isCombineCancellationSupported.mockReturnValue(false);
+        const combined = deferred<TOpenFileResult>();
+        mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await nextTick();
+
+        expect(page.host.querySelector('.cancel')).toBeNull();
+
+        combined.resolve({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        await flushUpdates();
+        page.unmount();
+    });
+
+    it('discards a failed-open result without changing the queued files', async () => {
+        const combined = deferred<TOpenFileResult>();
+        mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(false));
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        combined.resolve({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        await flushUpdates();
+
+        (page.host.querySelector('.discard') as HTMLButtonElement).click();
+        await nextTick();
+
+        expect(page.host.querySelector('.discard')).toBeNull();
+        expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
+        expect((page.host.querySelector('.clear') as HTMLButtonElement).disabled).toBe(false);
         page.unmount();
     });
 });

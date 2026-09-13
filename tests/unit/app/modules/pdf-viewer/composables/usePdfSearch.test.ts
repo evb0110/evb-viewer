@@ -1097,7 +1097,7 @@ describe('usePdfSearch', () => {
     });
 
     it('drives a real search consumer with replay, cancellation, late events and typed failure controls', async () => {
-        const operation = createPlatformApiFixtureOperation<IPdfSearchResponse, [string, string, IPdfSearchRequestOptions?]>();
+        const operation = createPlatformApiFixtureOperation<IPdfSearchResponse, [string, string, IPdfSearchRequestOptions?], string>({operationKey: (...args) => String(args[2]?.requestId ?? '')});
         const fixture = createElectronPlatformApiFixture({search: {run: operation.method}});
         const event = fixture.search.onProgress as typeof fixture.search.onProgress & IPlatformApiFixtureEventMethod<IPdfSearchTestProgress>;
         mockSearch.onProgress.mockImplementation(listener => fixture.search.onProgress(progress => listener({
@@ -1127,7 +1127,7 @@ describe('usePdfSearch', () => {
             };
         });
         mockSearch.cancel.mockImplementation(() => {
-            operation.cancel();
+            operation.cancel(requestId);
         });
         const search = await createPdfSearch();
 

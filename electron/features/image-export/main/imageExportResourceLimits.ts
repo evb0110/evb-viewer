@@ -1,8 +1,11 @@
-import { stat } from 'fs/promises';
+import {
+    stat,
+    statfs,
+} from 'fs/promises';
 import { clampDpi } from '@electron/image/imageDpi';
 
 const IMAGE_EXPORT_MAX_PAGE_FILE_BYTES = 512 * 1024 * 1024;
-const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
+export const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
 const POINTS_PER_INCH = 72;
 const DEFAULT_EXPORT_RENDER_DPI = 300;
 const PPM_HEADER_AND_ROUNDING_RESERVE_BYTES = 64 * 1024;
@@ -40,6 +43,48 @@ export interface IExportPageSize {
     heightPts: number;
 }
 
+export function estimateImageExportStagedBytes(
+    pageCount: number,
+    renderDpi: number,
+    pageSizes: readonly IExportPageSize[],
+) {
+    const longestSidePts = pageSizes.reduce(
+        (longestSide, pageSize) => Math.max(longestSide, pageSize.widthPts, pageSize.heightPts),
+        0,
+    );
+    if (
+        !Number.isSafeInteger(pageCount)
+        || pageCount < 1
+        || !Number.isFinite(renderDpi)
+        || renderDpi <= 0
+        || longestSidePts <= 0
+    ) {
+        return IMAGE_EXPORT_MAX_STAGED_BYTES;
+    }
+
+    const pixelsPerSide = Math.max(1, Math.ceil(longestSidePts * renderDpi / POINTS_PER_INCH));
+    const pageBytes = pixelsPerSide * pixelsPerSide * 4;
+    if (!Number.isSafeInteger(pageBytes)) {
+        return IMAGE_EXPORT_MAX_STAGED_BYTES;
+    }
+    return Math.min(IMAGE_EXPORT_MAX_STAGED_BYTES, pageBytes * pageCount);
+}
+
+export async function assertImageExportFreeSpace(directory: string, projectedBytes: number) {
+    let availableBytes: number;
+    try {
+        const filesystem = await statfs(directory);
+        availableBytes = Number(filesystem.bavail) * Number(filesystem.bsize);
+    } catch {
+        return;
+    }
+    if (Number.isFinite(availableBytes) && availableBytes < projectedBytes) {
+        throw new RangeError(
+            `Image export does not have enough free space for projected staging: requires ${projectedBytes} bytes, but only ${availableBytes} bytes are available`,
+        );
+    }
+}
+
 export function resolveExportRenderDpi(detectedDpi: number | null, pageSizes: readonly IExportPageSize[]) {
     const requestedDpi = clampDpi(detectedDpi ?? DEFAULT_EXPORT_RENDER_DPI);
     let longestSidePts = 0;
@@ -72,7 +117,7 @@ export async function validateRenderedImagePageFiles(pageFiles: Array<{
     }
 }
 
-/** Add one rendered window's staged bytes. Callers reset the accumulator per window. */
+/** Add one staged file to an accumulator shared by the required scope. */
 export async function addStagedImageFileBytes(
     currentBytes: number,
     path: string,

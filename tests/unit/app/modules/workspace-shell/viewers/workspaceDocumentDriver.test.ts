@@ -326,6 +326,39 @@ describe('WorkspaceDocumentDriver', () => {
             .toBeLessThan(onNativePrintHandoffStart.mock.invocationCallOrder[0]!);
     });
 
+    it('does not invent an abort signal when DjVu print has no cancellation source', async () => {
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/source.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        }).activeDocumentDriver.value!;
+
+        await expect(driver.run({
+            kind: 'prepare-print',
+            request: {
+                orientation: 'portrait',
+                viewMode: 'single',
+            },
+            fileName: null,
+            sourceCapabilities: {
+                annotations: false,
+                directImageExport: true,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            },
+        })).resolves.toEqual({status: 'completed'});
+
+        expect(driverMocks.ensurePdfProjection).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({build: expect.any(Function)}),
+            'print',
+            undefined,
+        );
+    });
+
     it('keeps the compatibility registry complete with capability and lifecycle parity', () => {
         const documentTypes = new Set(WORKSPACE_VIEWER_ADAPTERS.flatMap(adapter => adapter.documentTypes));
         expect(documentTypes).toEqual(new Set([

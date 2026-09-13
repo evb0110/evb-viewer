@@ -59,6 +59,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     },
     documentFiles: {
         readFile: {kind: 'async', path: ["documentFiles","readFile"]},
+        readPdfPageLabelRanges: {kind: 'async', path: ["documentFiles","readPdfPageLabelRanges"]},
         statFile: {kind: 'async', path: ["documentFiles","statFile"]},
         readFileRange: {kind: 'async', path: ["documentFiles","readFileRange"]},
         readFileChunks: {kind: 'async', path: ["documentFiles","readFileChunks"]},
@@ -202,6 +203,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     },
     scanCleanup: {
         preview: {kind: 'async', path: ["scanCleanup","preview"]},
+        resolvePlacementAnchorCalibration: {kind: 'async', path: ["scanCleanup","resolvePlacementAnchorCalibration"]},
         cancelPreview: {kind: 'async', path: ["scanCleanup","cancelPreview"]},
         detectAll: {kind: 'async', path: ["scanCleanup","detectAll"]},
         cancelDetection: {kind: 'async', path: ["scanCleanup","cancelDetection"]},

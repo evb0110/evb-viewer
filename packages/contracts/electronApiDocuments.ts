@@ -966,6 +966,7 @@ export interface IDocumentsFileCapability {
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
+    readPdfPageLabelRanges: (path: TDocumentRef) => Promise<IPdfPageLabelRange[]>;
     statFile: (path: TDocumentRef) => Promise<{
         size: number;
         modifiedAt?: TEpochMs
@@ -1205,6 +1206,7 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
 export interface IDocumentsReadCapability extends Pick<
     IDocumentsFileCapability,
     | 'readFile'
+    | 'readPdfPageLabelRanges'
     | 'statFile'
     | 'readFileRange'
     | 'createManagedTempFileHandle'

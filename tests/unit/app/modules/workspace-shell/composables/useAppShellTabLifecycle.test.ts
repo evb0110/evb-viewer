@@ -195,7 +195,7 @@ describe('useAppShellTabLifecycle', () => {
                 transitionStates.closePane = lifecycle.isTabTransitionBusy.value;
                 panes.value = panes.value.filter(pane => pane.paneId !== paneId);
             }),
-            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'discard' as const),
         });
         let publishedBusyState = false;
         const stopWatchingBusyState = watch(lifecycle.isTabTransitionBusy, (isBusy) => {
@@ -227,12 +227,7 @@ describe('useAppShellTabLifecycle', () => {
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
-            initialRecord: createWorkspaceDocumentRecord({tab: {
-                fileName: tab.fileName,
-                originalPath: tab.originalPath,
-                isDirty: tab.isDirty,
-                isDjvu: tab.isDjvu,
-            }}),
+            initialRecord: createReadyRecord('sample.pdf', '/tmp/sample.pdf'),
             createTransactionId: () => 'close-transaction-1',
         });
         const workspace = createWorkspaceExposeFixture({
@@ -244,18 +239,13 @@ describe('useAppShellTabLifecycle', () => {
                     closeableDocument: true,
                 },
             })),
-            handleCloseFileFromUi: vi.fn(async () => {
-                expect(session.snapshot.value.phase).toBe('closing');
-                expect(session.snapshot.value.activeTransaction).toMatchObject({
-                    id: 'close-transaction-1',
-                    kind: 'close',
-                    documentRef: '/tmp/sample.pdf',
-                    persist: true,
-                });
+            handleCloseFileFromUi: vi.fn(async (options?: {persist?: boolean}) => {
+                expect(options?.persist).toBe(true);
                 return true;
             }),
         });
         session.attachWorkspace(workspace);
+        const requestDirtyTabCloseConfirmation = vi.fn(async () => 'save' as const);
 
         const lifecycle = useAppShellTabLifecycle({
             panes: ref([pane]),
@@ -287,17 +277,16 @@ describe('useAppShellTabLifecycle', () => {
             activateTab: vi.fn(),
             closeTab: vi.fn(),
             closePane: vi.fn(),
-            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+            requestDirtyTabCloseConfirmation,
         });
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-1');
         expect(workspace.handleCloseFileFromUi).toHaveBeenCalledWith({
             persist: true,
             onCloseCommit: expect.any(Function),
         });
-        expect(session.snapshot.value.activeTransaction).toBeNull();
-        expect(session.snapshot.value.phase).toBe('empty');
     });
 
     it('returns the retained singleton tab to the empty-tab shape after close', async () => {
@@ -348,7 +337,7 @@ describe('useAppShellTabLifecycle', () => {
             activateTab: vi.fn(),
             closeTab,
             closePane: vi.fn(),
-            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'discard' as const),
         });
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
@@ -459,7 +448,7 @@ describe('useAppShellTabLifecycle', () => {
             }),
             closeTab,
             closePane: vi.fn(),
-            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'discard' as const),
         });
         const shellState = useWorkspaceShellState({
             activeDocumentRecord: sessions.activeDocumentRecord,
@@ -603,7 +592,7 @@ describe('useAppShellTabLifecycle', () => {
             activateTab: vi.fn(),
             closeTab: vi.fn(),
             closePane: vi.fn(),
-            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'discard' as const),
         });
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');

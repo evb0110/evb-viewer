@@ -283,6 +283,7 @@ export function createPlatformFeaturePreloadClient<
     );
     const eventSubscriber = createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
     const requestedSubscriptions = new Set<string>();
+    const pendingSubscriptions = new Set<string>();
     const client: Record<string, unknown> = {};
     const untypedDirectBindings = directBindings as Record<string, ((...args: unknown[]) => unknown)> | undefined;
 
@@ -325,9 +326,22 @@ export function createPlatformFeaturePreloadClient<
                 callback,
             );
             const subscription = spec.subscription;
-            if (subscription && !requestedSubscriptions.has(spec.channel)) {
-                requestedSubscriptions.add(spec.channel);
-                void invoke(subscription.channel);
+            if (
+                subscription
+                && !requestedSubscriptions.has(spec.channel)
+                && !pendingSubscriptions.has(spec.channel)
+            ) {
+                pendingSubscriptions.add(spec.channel);
+                void invoke(subscription.channel)
+                    .then(() => {
+                        requestedSubscriptions.add(spec.channel);
+                    })
+                    .catch(error => {
+                        console.warn(`IPC event subscription failed for ${spec.channel}: ${getErrorMessage(error)}`);
+                    })
+                    .finally(() => {
+                        pendingSubscriptions.delete(spec.channel);
+                    });
             }
             return unsubscribe;
         };

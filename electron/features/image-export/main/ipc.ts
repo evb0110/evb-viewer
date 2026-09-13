@@ -368,10 +368,15 @@ export async function handlePdfExportImages(
             onProgress: reportProgress,
         };
         const outputPaths = sourceKind === 'djvu'
-            ? await exportDjvuPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
-                ...exportOptions,
-                format: imageFormat,
-            })
+            ? await runWithWorkingCopyReadBacking(
+                normalizedWorkingCopyPath,
+                (physicalReadPath, assertOriginalUnchanged) => exportDjvuPagesAsImages(physicalReadPath, normalizedPath, {
+                    ...exportOptions,
+                    format: imageFormat,
+                    beforePublish: assertOriginalUnchanged,
+                }),
+                {ownerWebContentsId: context.senderId},
+            )
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
                 (physicalReadPath, assertOriginalUnchanged) => exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
@@ -441,7 +446,14 @@ export async function handlePdfExportMultiPageTiff(
             onProgress: reportProgress,
         };
         const outputPaths = sourceKind === 'djvu'
-            ? await exportDjvuAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions)
+            ? await runWithWorkingCopyReadBacking(
+                normalizedWorkingCopyPath,
+                (physicalReadPath, assertOriginalUnchanged) => exportDjvuAsMultiPageTiff(physicalReadPath, result.filePath, {
+                    ...exportOptions,
+                    beforePublish: assertOriginalUnchanged,
+                }),
+                {ownerWebContentsId: context.senderId},
+            )
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
                 (physicalReadPath, assertOriginalUnchanged) => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, {

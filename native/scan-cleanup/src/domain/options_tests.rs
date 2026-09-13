@@ -48,6 +48,39 @@ fn manual_zone_polygons_must_be_simple_and_non_degenerate() {
 }
 
 #[test]
+fn manual_zone_polygon_limit_matches_the_renderer_contract() {
+    let polygon_points = |count: usize| {
+        (0..count)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / count as f64;
+                (0.5 + 0.2 * angle.cos(), 0.5 + 0.2 * angle.sin())
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let accepted = CleanupOptions {
+        manual_zones: ManualZones {
+            picture: vec![],
+            fill: vec![zone_polygon(&polygon_points(64))],
+        },
+        ..CleanupOptions::default()
+    };
+    accepted.validate().unwrap();
+
+    let rejected = CleanupOptions {
+        manual_zones: ManualZones {
+            picture: vec![],
+            fill: vec![zone_polygon(&polygon_points(65))],
+        },
+        ..CleanupOptions::default()
+    };
+    assert!(rejected
+        .validate()
+        .unwrap_err()
+        .contains("Manual zone polygons"));
+}
+
+#[test]
 fn page_alignment_covers_all_nine_anchor_positions() {
     let width = 20;
     let height = 30;

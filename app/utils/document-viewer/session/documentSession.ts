@@ -33,7 +33,7 @@ export interface IDocumentSession {
 export interface IPdfProjectionBuilder {build(options: {
     session: IDocumentSession;
     reason: TPdfProjectionReason;
-    signal: AbortSignal;
+    signal?: AbortSignal;
 }): Promise<{
     documentRef: TDocumentRef;
     source: IDocumentPageSource;
@@ -57,7 +57,7 @@ export async function ensurePdfProjection(
     session: IDocumentSession,
     builder: IPdfProjectionBuilder,
     reason: TPdfProjectionReason,
-    signal: AbortSignal,
+    signal?: AbortSignal,
 ) {
     if (session.source.kind === 'pdf') {
         return session.source;
@@ -70,9 +70,9 @@ export async function ensurePdfProjection(
         const projection = await builder.build({
             session,
             reason,
-            signal,
+            ...(signal === undefined ? {} : {signal}),
         });
-        signal.throwIfAborted();
+        signal?.throwIfAborted();
         const previousSource = session.source;
         session.source = projection.source;
         session.capabilities = projection.capabilities;

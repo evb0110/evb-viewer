@@ -63,7 +63,7 @@ export interface IOcrPreparingJob extends IOcrRegistryJob {
     startedAtMs: number;
 }
 
-export type TOcrNativeChildState = 'intent' | 'registered' | 'unproven' | 'exited' | 'no-child';
+export type TOcrNativeChildState = 'intent' | 'registered' | 'unproven' | 'exited' | 'no-child' | 'abandoned';
 
 export interface IOcrNativeChildRecord {
     childId: string;
@@ -71,6 +71,7 @@ export interface IOcrNativeChildRecord {
     pid: number | null;
     processIdentity: IOcrNativeChildProcessIdentity | null;
     state: TOcrNativeChildState;
+    cleanupAttempts: number;
     cleanupAttemptInFlight: boolean;
 }
 

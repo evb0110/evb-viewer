@@ -24,15 +24,25 @@ export function beginRecentOpenGeometryPrewarm(paths: Iterable<string>) {
     }
 }
 
-function readCachedExactGeometry(path: string) {
+function readCachedExactGeometry(path: string, sourceRevision?: {
+    modifiedAt: number | undefined;
+    size: number | undefined;
+}) {
     if (/\.pdf$/iu.test(path)) {
         return readPrevalidatedTrustedPdfOpenGeometry(path, requirePageNumber(1));
     }
     if (/\.djvu?$/iu.test(path)) {
-        return readPrevalidatedTrustedDjvuOpenGeometry(path, 1);
+        return sourceRevision?.size !== undefined && sourceRevision.modifiedAt !== undefined
+            ? readPrevalidatedTrustedDjvuOpenGeometry(path, 1, {
+                size: sourceRevision.size,
+                modifiedAt: sourceRevision.modifiedAt,
+            })
+            : null;
     }
     return null;
 }
+
+type TRecentOpenGeometry = NonNullable<ReturnType<typeof readCachedExactGeometry>>;
 
 function getGeometryFingerprint(geometry: NonNullable<ReturnType<typeof readCachedExactGeometry>>) {
     return [
@@ -50,8 +60,9 @@ function getGeometryFingerprint(geometry: NonNullable<ReturnType<typeof readCach
 export function settleRecentOpenGeometryPrewarm(
     path: string,
     state: Exclude<TRecentOpenGeometryState, 'pending'>,
+    preparedGeometry?: TRecentOpenGeometry | null,
 ) {
-    const geometry = state === 'ready' ? readCachedExactGeometry(path) : null;
+    const geometry = state === 'ready' ? preparedGeometry ?? readCachedExactGeometry(path) : null;
     if (!geometry) {
         exactGeometryFingerprints.delete(path);
         writeState(path, 'cold-fallback');
@@ -68,7 +79,7 @@ export function readRecentOpenExactGeometry(path: string, sourceRevision?: {
     if (readRecentOpenGeometryState(path) !== 'ready') {
         return null;
     }
-    const geometry = readCachedExactGeometry(path);
+    const geometry = readCachedExactGeometry(path, sourceRevision);
     const preparedFingerprint = exactGeometryFingerprints.get(path);
     if (!geometry || preparedFingerprint !== getGeometryFingerprint(geometry)) {
         return null;

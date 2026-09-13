@@ -37,8 +37,23 @@ run_stroke_weight_oracle() {
   mkdir -p "$stroke_output"
   mkdir -p .devkit/tmp/stroke-weight-oracle
   node --test scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.test.mjs
+  node --input-type=module -e '
+    import { readFileSync, writeFileSync } from "node:fs";
+    import path from "node:path";
+    const manifest = JSON.parse(readFileSync("scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json", "utf8"));
+    const absolute = value => path.resolve(value);
+    for (const page of manifest.pages) {
+      page.inputPath = absolute(page.inputPath);
+      page.pageMetadataPath = absolute(page.pageMetadataPath);
+      for (const output of page.outputs) {
+        output.outputPath = absolute(output.outputPath);
+        output.metadataPath = absolute(output.metadataPath);
+      }
+    }
+    writeFileSync(".devkit/tmp/stroke-weight-oracle/render-manifest.json", JSON.stringify(manifest));
+  '
   "$scan_cleanup_tool" \
-    --manifest scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json
+    --manifest "$PWD/.devkit/tmp/stroke-weight-oracle/render-manifest.json"
   node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
     --image .devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png \
     --image .devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png \

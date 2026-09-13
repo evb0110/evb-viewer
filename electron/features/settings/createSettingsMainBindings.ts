@@ -159,7 +159,7 @@ export function createSettingsMainBindings(shutdownAssistant: () => Promise<void
     return {
         async get() {
             const startedAt = Date.now();
-            const settings = await loadSettings();
+            const settings = sanitizeSettings(await loadSettings());
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC settings:get resolved (+${Date.now() - startedAt}ms)`);
             }

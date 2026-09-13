@@ -2,24 +2,12 @@ import {
     createHash,
     randomBytes,
 } from 'node:crypto';
-import {
-    closeSync,
-    constants as fsConstants,
-    existsSync,
-    fsyncSync,
-    mkdirSync,
-    openSync,
-    readdirSync,
-    readFileSync,
-    renameSync,
-    statSync,
-    unlinkSync,
-    writeFileSync,
-} from 'fs';
+import {mkdirSync} from 'fs';
 import {
     appendFile,
     mkdir,
     open,
+    readFile,
     readdir,
     rename,
     rm,
@@ -57,14 +45,8 @@ import {
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
 import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
-import {
-    pruneAssistantChatSnapshotBlobs,
-    pruneAssistantChatSnapshotBlobsSync,
-} from '@electron/features/agent/assistantChatSnapshotBlobMaintenance';
-import {
-    pruneAssistantChatArchives,
-    pruneAssistantChatArchivesSync,
-} from '@electron/features/agent/pruneAssistantChatArchives';
+import {pruneAssistantChatSnapshotBlobs} from '@electron/features/agent/assistantChatSnapshotBlobMaintenance';
+import {pruneAssistantChatArchives} from '@electron/features/agent/pruneAssistantChatArchives';
 
 const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;
 const ASSISTANT_CHAT_STORAGE_DIR = 'assistant-chat';
@@ -211,7 +193,7 @@ export function readBoundedIntegerEnv(name: string, fallback: number, minimum: n
     return maximum === undefined ? parsed : Math.min(parsed, maximum);
 }
 
-function readAssistantChatMaxSessionBytes() {
+export function readAssistantChatMaxSessionBytes() {
     return readBoundedIntegerEnv(
         'EVB_ASSISTANT_CHAT_MAX_SESSION_BYTES',
         DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES,
@@ -266,42 +248,6 @@ function randomSuffix() {
     return randomBytes(8).toString('hex');
 }
 
-function safeCloseSync(fd: number | null) {
-    if (fd === null) {
-        return;
-    }
-
-    try {
-        closeSync(fd);
-    } catch {
-        // best effort
-    }
-}
-
-function fsyncParentDirectorySync(filePath: string) {
-    if (process.platform === 'win32') {
-        return;
-    }
-
-    let fd: number | null = null;
-    try {
-        fd = openSync(dirname(filePath), fsConstants.O_RDONLY);
-        fsyncSyncBestEffort(fd);
-    } catch {
-        return;
-    } finally {
-        safeCloseSync(fd);
-    }
-}
-
-function fsyncSyncBestEffort(fd: number) {
-    try {
-        fsyncSync(fd);
-    } catch {
-        // best effort
-    }
-}
-
 async function atomicWriteJsonFile(filePath: string, payload: unknown) {
     await mkdir(dirname(filePath), { recursive: true });
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
@@ -314,21 +260,6 @@ async function atomicWriteJsonFile(filePath: string, payload: unknown) {
     }
     await rename(tempPath, filePath);
     await fsyncParentDirectory(filePath);
-}
-
-function atomicWriteJsonFileSync(filePath: string, payload: unknown) {
-    mkdirSync(dirname(filePath), { recursive: true });
-    const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    let fd: number | null = null;
-    try {
-        fd = openSync(tempPath, 'r');
-        fsyncSyncBestEffort(fd);
-    } finally {
-        safeCloseSync(fd);
-    }
-    renameSync(tempPath, filePath);
-    fsyncParentDirectorySync(filePath);
 }
 
 function clonePersistedSession(session: IAssistantChatPersistenceSession): IPersistedAssistantChatSession {
@@ -684,14 +615,25 @@ export class AssistantChatPersistence {
         return join(this.sessionsDir, createPersistenceSessionFileName(key));
     }
 
-    // fallow-ignore-next-line unused-class-member
-    recoverSessions(): IRecoveredAssistantChatSession[] {
+    getMaxSessionBytes() {
+        return this.maxSessionBytes;
+    }
+
+    async recoverSessions(): Promise<IRecoveredAssistantChatSession[]> {
         const recovered: IRecoveredAssistantChatSession[] = [];
-        if (!existsSync(this.sessionsDir)) {
+        let sessionEntries;
+        try {
+            sessionEntries = await readdir(this.sessionsDir, {withFileTypes: true});
+        } catch (error) {
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                return recovered;
+            }
+            this.onError('Failed to enumerate assistant chat sessions', error);
             return recovered;
         }
 
-        for (const entry of readdirSync(this.sessionsDir, { withFileTypes: true })) {
+        for (const entry of sessionEntries) {
+            await new Promise<void>(resolve => setImmediate(resolve));
             if (!entry.isFile()) {
                 continue;
             }
@@ -701,28 +643,29 @@ export class AssistantChatPersistence {
             }
             const filePath = join(this.sessionsDir, entry.name);
             try {
-                const recoveredFile = this.recoverSessionFile(filePath, key ?? undefined);
+                const recoveredFile = await this.recoverSessionFileAsync(filePath, key ?? undefined);
                 if (!recoveredFile) {
                     continue;
                 }
+                const fileStat = await stat(filePath);
                 recovered.push({
                     key: recoveredFile.key,
                     session: interruptRecoveredSession(recoveredFile.session),
                     filePath,
-                    sizeBytes: statSync(filePath).size,
+                    sizeBytes: fileStat.size,
                 });
             } catch (error) {
                 try {
-                    this.quarantineCorruptSessionSync(filePath);
+                    await this.quarantineCorruptSession(filePath);
                 } catch (quarantineError) {
                     this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
                 }
                 this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
             }
         }
-        this.pruneRecoveredSessionsSync(recovered);
-        pruneAssistantChatArchivesSync(this.archiveDir, this.maxArchives, this.onError);
-        this.pruneSnapshotBlobsSync();
+        await this.pruneRecoveredSessionsAsync(recovered);
+        await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
+        await this.pruneSnapshotBlobs();
         return recovered;
     }
 
@@ -1010,9 +953,9 @@ export class AssistantChatPersistence {
 
         let recovered: IRecoveredAssistantChatSessionFile | null;
         try {
-            recovered = this.recoverSessionFile(filePath, key);
+            recovered = await this.recoverSessionFileAsync(filePath, key);
         } catch (error) {
-            this.quarantineCorruptSessionSync(filePath);
+            await this.quarantineCorruptSession(filePath);
             this.onError(`Quarantined corrupt assistant chat session "${key}" during compaction`, error);
             return;
         }
@@ -1027,10 +970,18 @@ export class AssistantChatPersistence {
         );
     }
 
-    private recoverSessionFile(filePath: string, expectedKey?: string): IRecoveredAssistantChatSessionFile | null {
+    private async recoverSessionFileAsync(filePath: string, expectedKey?: string) {
+        const contents = await readFile(filePath, 'utf8');
+        return this.recoverSessionContents(filePath, expectedKey, contents);
+    }
+
+    private recoverSessionContents(
+        filePath: string,
+        expectedKey: string | undefined,
+        contents: string,
+    ): IRecoveredAssistantChatSessionFile | null {
         let key: string | null = null;
         let lastSession: IPersistedAssistantChatSession | null = null;
-        const contents = readFileSync(filePath, 'utf8');
         const lines = contents.split(/\r?\n/u);
         const lastContentLineIndex = lines.reduce(
             (lastIndex, line, index) => line.trim() ? index : lastIndex,
@@ -1104,18 +1055,18 @@ export class AssistantChatPersistence {
             : null;
     }
 
-    private quarantineCorruptSessionSync(filePath: string) {
-        if (!existsSync(filePath)) {
+    private async quarantineCorruptSession(filePath: string) {
+        if (!await this.pathExists(filePath)) {
             return;
         }
-        mkdirSync(this.archiveDir, {recursive: true});
+        await mkdir(this.archiveDir, {recursive: true});
         const archivedPath = join(
             this.archiveDir,
             `${basename(filePath, '.jsonl')}.corrupt.${this.now()}.${randomSuffix()}.jsonl`,
         );
-        renameSync(filePath, archivedPath);
-        fsyncParentDirectorySync(filePath);
-        fsyncParentDirectorySync(archivedPath);
+        await rename(filePath, archivedPath);
+        await fsyncParentDirectory(filePath);
+        await fsyncParentDirectory(archivedPath);
     }
 
     private async pruneSessions() {
@@ -1141,34 +1092,6 @@ export class AssistantChatPersistence {
             parsePersistedRecord,
             this.onError,
         );
-    }
-
-    private pruneSnapshotBlobsSync() {
-        pruneAssistantChatSnapshotBlobsSync(
-            [
-                this.sessionsDir,
-                this.archiveDir,
-            ],
-            this.blobsDir,
-            parsePersistedRecord,
-            this.onError,
-        );
-    }
-
-    private pruneRecoveredSessionsSync(recovered: IRecoveredAssistantChatSession[]) {
-        if (recovered.length <= this.maxSessions) {
-            return;
-        }
-        const removable = [...recovered].sort((left, right) => left.session.lastAccessedAtMs - right.session.lastAccessedAtMs);
-        for (const entry of removable.slice(0, recovered.length - this.maxSessions)) {
-            try {
-                unlinkSync(entry.filePath);
-                recovered.splice(recovered.indexOf(entry), 1);
-            } catch (error) {
-                this.onError(`Failed to prune recovered assistant chat session "${entry.key}"`, error);
-            }
-        }
-        this.writeIndexSync();
     }
 
     private async readSessionEntries() {
@@ -1198,9 +1121,9 @@ export class AssistantChatPersistence {
             const filePath = join(this.sessionsDir, entry.name);
             let recovered: IRecoveredAssistantChatSessionFile | null;
             try {
-                recovered = this.recoverSessionFile(filePath, key ?? undefined);
+                recovered = await this.recoverSessionFileAsync(filePath, key ?? undefined);
             } catch (error) {
-                this.quarantineCorruptSessionSync(filePath);
+                await this.quarantineCorruptSession(filePath);
                 this.onError(`Quarantined corrupt assistant chat session "${key ?? entry.name}" during maintenance`, error);
                 continue;
             }
@@ -1218,6 +1141,22 @@ export class AssistantChatPersistence {
         return entries;
     }
 
+    private async pruneRecoveredSessionsAsync(recovered: IRecoveredAssistantChatSession[]) {
+        if (recovered.length <= this.maxSessions) {
+            return;
+        }
+        const removable = [...recovered].sort((left, right) => left.session.lastAccessedAtMs - right.session.lastAccessedAtMs);
+        for (const entry of removable.slice(0, recovered.length - this.maxSessions)) {
+            try {
+                await rm(entry.filePath, {force: true});
+                recovered.splice(recovered.indexOf(entry), 1);
+            } catch (error) {
+                this.onError(`Failed to prune recovered assistant chat session "${entry.key}"`, error);
+            }
+        }
+        await this.writeIndex();
+    }
+
     private async writeIndex() {
         await atomicWriteJsonFile(this.indexPath, {
             schemaVersion: ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION,
@@ -1227,39 +1166,6 @@ export class AssistantChatPersistence {
                 lastAccessedAtMs: entry.lastAccessedAtMs,
                 sizeBytes: entry.sizeBytes,
             })),
-        });
-    }
-
-    private writeIndexSync() {
-        const sessions: Array<{
-            key: string;
-            file: string;
-            lastAccessedAtMs: number;
-            sizeBytes: number;
-        }> = [];
-        for (const entry of readdirSync(this.sessionsDir, { withFileTypes: true })) {
-            if (!entry.isFile()) {
-                continue;
-            }
-            const key = decodePersistenceSessionFileName(entry.name);
-            if (key === null && !entry.name.endsWith('.jsonl')) {
-                continue;
-            }
-            const filePath = join(this.sessionsDir, entry.name);
-            const recovered = this.recoverSessionFile(filePath, key ?? undefined);
-            if (!recovered) {
-                continue;
-            }
-            sessions.push({
-                key: recovered.key,
-                file: entry.name,
-                lastAccessedAtMs: recovered.session.lastAccessedAtMs,
-                sizeBytes: statSync(filePath).size,
-            });
-        }
-        atomicWriteJsonFileSync(this.indexPath, {
-            schemaVersion: ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION,
-            sessions,
         });
     }
 

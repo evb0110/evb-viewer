@@ -69,7 +69,6 @@ interface ICreateExternalOpenManagerOptions {
     getMainWindow: () => IWindowLike | null;
     hasWindows: () => boolean;
     createWindow: () => Promise<unknown>;
-    grantOpenPaths?: (paths: string[]) => void;
     dispatchOpenPaths: (paths: string[]) => boolean;
 }
 
@@ -85,7 +84,7 @@ type TExternalOpenBatchPhase =
     };
 
 function isSupportedExternalOpenPath(filePath: string) {
-    return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
+    return SUPPORTED_EXTENSIONS.has(extname(filePath.trimEnd()).toLowerCase());
 }
 
 function doesExternalOpenPathExist(filePath: string) {
@@ -94,6 +93,13 @@ function doesExternalOpenPathExist(filePath: string) {
     } catch {
         return false;
     }
+}
+
+function normalizeExistingExternalOpenPath(filePath: string) {
+    if (doesExternalOpenPathExist(filePath)) {
+        return filePath;
+    }
+    return filePath.trim();
 }
 
 /**
@@ -111,7 +117,7 @@ export function createMacOpenFileRouter(options: { logger: ILogger; }) {
     let externalOpenManager: IExternalOpenManagerSink | null = null;
 
     function handleOpenFile(filePath: string) {
-        const normalizedPath = filePath.trim();
+        const normalizedPath = normalizeExistingExternalOpenPath(filePath);
         if (!normalizedPath) {
             options.logger.warn('Ignoring empty macOS open-file path');
             return;
@@ -167,7 +173,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let startupEmptyClaimGracePromise: Promise<void> | null = null;
 
     function normalizeCommandLineArg(arg: string) {
-        let normalized = arg.trim();
+        let normalized = normalizeExistingExternalOpenPath(arg);
         if (!normalized || normalized.startsWith('-')) {
             return null;
         }
@@ -189,13 +195,13 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         if (normalized.startsWith('file://')) {
             try {
-                return fileURLToPath(normalized);
+                normalized = fileURLToPath(normalized);
             } catch {
                 return null;
             }
         }
 
-        return normalized;
+        return normalizeExistingExternalOpenPath(normalized);
     }
 
     function findJoinedSupportedPath(args: string[], startIndex: number, firstToken: string) {
@@ -241,7 +247,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     function normalizeOpenRequestPaths(paths: string[]) {
         return uniq(paths
-            .map(path => path.trim())
+            .map(normalizeExistingExternalOpenPath)
             .filter(path => path.length > 0)
             .map(normalizeExternalOpenPath));
     }
@@ -537,7 +543,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
 
         options.logger.info(`Flushing ${paths.length} batched external open path(s)`);
-        options.grantOpenPaths?.(paths);
         const dispatched = options.dispatchOpenPaths(paths);
         if (!dispatched) {
             dispatchFailureCount += 1;

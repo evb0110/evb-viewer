@@ -986,6 +986,11 @@ describe('scan-cleanup-core conversion coverage', () => {
                     referenceHeightPoints: 72,
                     toleranceNormalized: 0,
                     topEdgeNormalized: 0.1,
+                    identity: {
+                        documentRevision: 'revision-1',
+                        detectionSignature: 'detection-1',
+                        calibrationSignature: 'calibration-1',
+                    },
                     clusters: [
                         {
                             startNormalized: 0.1,

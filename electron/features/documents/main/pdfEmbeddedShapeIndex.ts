@@ -95,6 +95,7 @@ interface IShapeIndexSessionState {
 }
 
 const sessions = new Map<string, IShapeIndexSessionState>();
+let shapeIndexTtlTimer: ReturnType<typeof setInterval> | null = null;
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
@@ -308,7 +309,14 @@ function cleanupWhenOperationSettles(session: IShapeIndexSessionState) {
 function cleanupSession(session: IShapeIndexSessionState) {
     return cleanupPdfSidecarSession(sessions, session, (error: unknown) => {
         logger.warn(`Failed to remove embedded shape index sidecar: ${String(error)}`);
-    });
+    }).finally(clearShapeIndexTtlTimerIfIdle);
+}
+
+function clearShapeIndexTtlTimerIfIdle() {
+    if (sessions.size === 0 && shapeIndexTtlTimer) {
+        clearInterval(shapeIndexTtlTimer);
+        shapeIndexTtlTimer = null;
+    }
 }
 
 /** Keep the native verb and argument order in one helper for CLI alignment. */
@@ -398,6 +406,7 @@ export async function beginPdfEmbeddedShapeIndex(
             'Renderer navigation canceled embedded shape indexing',
         ),
     });
+    ensureShapeIndexTtlTimer();
     const {abortController} = session;
     const {sidecarPath} = session;
     const handleMainAbort = () => cancel('Embedded shape indexing canceled');
@@ -527,15 +536,17 @@ export async function sweepStalePdfEmbeddedShapeIndexArtifacts(
     });
 }
 
-const shapeIndexTtlTimer = setInterval(() => {
-    const cutoff = Date.now() - SHAPE_INDEX_DEFAULT_TTL_MS;
-    expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
-        session.released = true;
-        cancelPdfSidecarSession(session, 'Embedded shape index session expired');
-        cleanupWhenOperationSettles(session);
-    });
-    void sweepStalePdfEmbeddedShapeIndexArtifacts().catch((error: unknown) => {
-        logger.debug(`Embedded shape index TTL sweep failed: ${String(error)}`);
-    });
-}, 30_000);
-shapeIndexTtlTimer.unref?.();
+function ensureShapeIndexTtlTimer() {
+    shapeIndexTtlTimer ??= setInterval(() => {
+        const cutoff = Date.now() - SHAPE_INDEX_DEFAULT_TTL_MS;
+        expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
+            session.released = true;
+            cancelPdfSidecarSession(session, 'Embedded shape index session expired');
+            cleanupWhenOperationSettles(session);
+        });
+        void sweepStalePdfEmbeddedShapeIndexArtifacts().catch((error: unknown) => {
+            logger.debug(`Embedded shape index TTL sweep failed: ${String(error)}`);
+        });
+    }, 30_000);
+    shapeIndexTtlTimer.unref?.();
+}

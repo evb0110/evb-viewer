@@ -1,4 +1,5 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
+import type * as TPendingResultFileStore from '@electron/features/ocr/public/index';
 
 import {
     afterEach,
@@ -19,6 +20,8 @@ const mocks = vi.hoisted(() => ({
         registrationId: 1,
         role: 'current' as const,
     },
+    cleanupWorkingCopy: vi.fn(),
+    discardPendingOcrResultsForDocument: vi.fn(),
     progressListener: null as null | ((progress: {
         bytesCopied: number;
         documentRef: string;
@@ -39,6 +42,12 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
         mocks.progressListener = listener;
         return vi.fn();
     },
+}));
+
+vi.mock('@electron/file-access/workingCopyCleanup', () => ({cleanupWorkingCopy: (...args: unknown[]) => mocks.cleanupWorkingCopy(...args)}));
+vi.mock('@electron/features/ocr/public/index', async importOriginal => ({
+    ...(await importOriginal<typeof TPendingResultFileStore>()),
+    discardPendingOcrResultsForDocument: (...args: unknown[]) => mocks.discardPendingOcrResultsForDocument(...args),
 }));
 
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
@@ -146,5 +155,19 @@ describe('documents service working-copy backing status', () => {
             '/tmp/managed.pdf',
             {expectedDocumentRevisionToken: revision},
         );
+    });
+
+    it('discards pending OCR results only after the working copy is retired', async () => {
+        const service = createDocumentsService();
+        const context = {senderId: 7};
+        mocks.cleanupWorkingCopy.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+        await service.cleanupFile(context, '/tmp/managed.pdf');
+        await service.cleanupFile(context, '/tmp/retained.pdf');
+
+        expect(mocks.cleanupWorkingCopy).toHaveBeenNthCalledWith(1, '/tmp/managed.pdf', 7);
+        expect(mocks.cleanupWorkingCopy).toHaveBeenNthCalledWith(2, '/tmp/retained.pdf', 7);
+        expect(mocks.discardPendingOcrResultsForDocument).toHaveBeenCalledOnce();
+        expect(mocks.discardPendingOcrResultsForDocument).toHaveBeenCalledWith('/tmp/managed.pdf');
     });
 });

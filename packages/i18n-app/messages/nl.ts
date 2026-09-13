@@ -1056,6 +1056,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Schakel EVB Assistant in bij Instellingen om assistentchat te gebruiken.',
             'turnBusy': 'EVB Assistant werkt nog aan het vorige bericht voor dit document.',
+            'contextUnavailable': 'De context van deze Claude-chat kon niet worden hersteld. Start een nieuwe chat om verder te gaan.',
         },
     },
     'optimizePdf': {
@@ -1122,6 +1123,7 @@ export default {
             one: '{count} niet-ondersteund bestand is overgeslagen.',
             other: '{count} niet-ondersteunde bestanden zijn overgeslagen.',
         }),
+        'discardPending': 'Wachtend resultaat verwijderen',
     },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
@@ -1564,6 +1566,7 @@ export default {
         'export': {
             'images': 'Afbeeldingsexport mislukt',
             'multiPageTiff': 'TIFF-export mislukt',
+            'alreadyRunning': 'Er wordt al geëxporteerd',
         },
         'browser': {
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
@@ -1595,6 +1598,7 @@ export default {
                 'internal': 'OCR is onverwacht mislukt',
                 'queueBackpressure': 'De OCR-wachtrij is vol',
                 'workerUnavailable': 'De OCR-worker is niet beschikbaar',
+                'workerMessageError': 'De OCR-worker kon geen resultaat leveren',
                 'toolsValidationFailed': 'OCR-tools zijn niet gereed',
             },
         },
@@ -1627,6 +1631,7 @@ export default {
         'settings': {
             'load': 'Instellingen konden niet worden geladen',
             'recovered': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is indien mogelijk als herstelkopie bewaard.',
+            'recoveredWithPath': 'De opgeslagen instellingen konden niet worden gebruikt. De standaardinstellingen zijn hersteld. Het vorige bestand is in quarantaine geplaatst op {path}.',
         },
         'runtime': {
             'title': 'Er is iets misgegaan',

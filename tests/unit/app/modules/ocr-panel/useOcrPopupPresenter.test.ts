@@ -2,6 +2,7 @@ import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
+import type {IOcrCancelResult} from '@contracts/electronApiOcr';
 import type { IOcrLanguage } from '@contracts/shared';
 import {requireRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -134,6 +135,7 @@ function createOcrMock() {
         lastCompletedRunSettings.value = null;
     });
 
+    const cancelOcr = vi.fn<() => Promise<IOcrCancelResult>>(async () => ({canceled: true}));
     return {
         availableLanguages: languages,
         settings,
@@ -147,7 +149,7 @@ function createOcrMock() {
         progressPercent: computed(() => 0),
         loadLanguages: vi.fn(async () => {}),
         runOcr: vi.fn(async () => {}),
-        cancelOcr: vi.fn(async () => ({canceled: true})),
+        cancelOcr,
         clearResults,
         clearRunSettingsHistory,
         toggleLanguage: vi.fn(),
@@ -356,6 +358,31 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.isOpen.value).toBe(false);
             expect(harness.ocr.clearResults).toHaveBeenCalled();
             expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalled();
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('keeps source tracking when cancellation is unconfirmed so a late result is applied', async () => {
+        const harness = createPresenterHarness();
+        harness.ocr.cancelOcr.mockResolvedValueOnce({
+            canceled: false,
+            reason: 'failed',
+            error: 'cancel transport down',
+        });
+
+        try {
+            harness.presenter.handleRunOcr();
+            await harness.presenter.handleCancel();
+            setSearchableResult(harness.ocr, 'req-late-success', '/tmp/late-success.pdf');
+            await nextTick();
+
+            expect(harness.events.onOcrComplete).toHaveBeenCalledWith(expect.objectContaining({
+                requestId: 'req-late-success',
+                pdfPath: '/tmp/late-success.pdf',
+                sourceWorkingCopyPath: '/tmp/source.pdf',
+                sourcePageToRestore: 3,
+            }));
         } finally {
             stopHarness(harness.scope);
         }

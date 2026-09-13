@@ -675,16 +675,23 @@ export const useOcrPopupPresenter = ({
         };
     }
 
-    function handleCancel() {
+    function clearActiveOcrSource() {
         activeOcrSourcePath.value = null;
         activeOcrSourcePage.value = null;
-        void cancelOcr();
+    }
+
+    async function handleCancel() {
+        const cancelResult = await cancelOcr();
+        if (cancelResult.canceled || cancelResult.reason !== 'failed') {
+            clearActiveOcrSource();
+        }
     }
 
     async function cancelOcrForAgent() {
-        activeOcrSourcePath.value = null;
-        activeOcrSourcePage.value = null;
         const cancelResult = await cancelOcr();
+        if (cancelResult.canceled || cancelResult.reason !== 'failed') {
+            clearActiveOcrSource();
+        }
         return {
             ok: cancelResult.canceled,
             cancel: cancelResult,

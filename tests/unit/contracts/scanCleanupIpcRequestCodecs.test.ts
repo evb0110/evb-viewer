@@ -329,6 +329,11 @@ describe('scan-cleanup IPC request codecs', () => {
             referenceHeightPoints: 792,
             toleranceNormalized: 0.014,
             topEdgeNormalized: 0.1,
+            identity: {
+                documentRevision: 'revision-1',
+                detectionSignature: 'detection-1',
+                calibrationSignature: 'calibration-1',
+            },
             clusters: [{
                 startNormalized: 0.1,
                 endNormalized: 0.101,
@@ -360,6 +365,10 @@ describe('scan-cleanup IPC request codecs', () => {
             placementAnchorSummary,
         }])[0].placementAnchorSummary).toEqual(placementAnchorSummary);
         for (const malformed of [
+            {
+                ...placementAnchorSummary,
+                identity: undefined,
+            },
             {
                 ...placementAnchorSummary,
                 schemaVersion: 2,
@@ -751,5 +760,32 @@ describe('scan-cleanup IPC request codecs', () => {
             picture: [],
             fill: [triangle],
         })}, vertexBudget)).toThrow('too many scan-cleanup manual-zone vertices');
+    });
+
+    it('enforces the native per-page manual-zone vertex ceiling', () => {
+        const polygon = (index: number) => {
+            const column = index % 16;
+            const row = Math.floor(index / 16);
+            const centerX = 0.08 + column * 0.055;
+            const centerY = 0.08 + row * 0.105;
+            return {
+                points: Array.from({length: SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON}, (_unused, pointIndex) => {
+                    const angle = pointIndex * 2 * Math.PI / SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON;
+                    return {
+                        xNormalized: centerX + 0.02 * Math.cos(angle),
+                        yNormalized: centerY + 0.02 * Math.sin(angle),
+                    };
+                }),
+                rotationDegrees: 0 as const,
+            };
+        };
+        const pageOverrides = (polygonCount: number) => ({'1': pageOverride({
+            picture: [],
+            fill: Array.from({length: polygonCount}, (_unused, index) => polygon(index)),
+        })});
+
+        expect(() => decodeScanCleanupPageOverrides(pageOverrides(128))).not.toThrow();
+        expect(() => decodeScanCleanupPageOverrides(pageOverrides(129)))
+            .toThrow('too many scan-cleanup manual-zone vertices on one page');
     });
 });

@@ -89,6 +89,7 @@ const {
     computeWasmSourceFingerprint: (artifact: IWasmFreshnessArtifact, options: {
         projectRoot: string;
         rustflags: string;
+        rustcCommitHash?: string;
     }) => Promise<string>;
     getWasmArtifactFingerprint: (wasmBytes: Uint8Array) => string | null;
     stampWasmArtifact: (wasmBytes: Uint8Array, fingerprint: string) => Buffer;
@@ -220,15 +221,42 @@ describe('WASM freshness check', () => {
             const firstFingerprint = await computeWasmSourceFingerprint(artifact, {
                 projectRoot: tempRoot,
                 rustflags: '',
+                rustcCommitHash: 'test-rustc',
             });
             writeFileSync(sourcePath, 'const VALUE: u8 = 2;\n');
             const secondFingerprint = await computeWasmSourceFingerprint(artifact, {
                 projectRoot: tempRoot,
                 rustflags: '',
+                rustcCommitHash: 'test-rustc',
             });
 
             expect(firstFingerprint).toMatch(/^[0-9a-f]{64}$/u);
             expect(secondFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+            expect(secondFingerprint).not.toBe(firstFingerprint);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('changes the source fingerprint when the rustc commit changes', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-fingerprint-'));
+        const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
+
+        try {
+            const firstFingerprint = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+                rustcCommitHash: 'commit-a',
+            });
+            const secondFingerprint = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+                rustcCommitHash: 'commit-b',
+            });
+
             expect(secondFingerprint).not.toBe(firstFingerprint);
         } finally {
             await rm(tempRoot, {
@@ -249,11 +277,13 @@ describe('WASM freshness check', () => {
             const beforeGeneratedTypes = await computeWasmSourceFingerprint(artifact, {
                 projectRoot: tempRoot,
                 rustflags: '',
+                rustcCommitHash: 'test-rustc',
             });
             writeFileSync(path.join(sourceRoot, 'auto-imports.d.ts'), 'declare const generated: true;\n');
             const afterGeneratedTypes = await computeWasmSourceFingerprint(artifact, {
                 projectRoot: tempRoot,
                 rustflags: '',
+                rustcCommitHash: 'test-rustc',
             });
 
             expect(afterGeneratedTypes).toBe(beforeGeneratedTypes);
@@ -291,6 +321,7 @@ describe('WASM freshness check', () => {
                 artifacts: [artifact],
                 mode: 'portable',
                 projectRoot: tempRoot,
+                computeFingerprint: async () => 'a'.repeat(64),
                 runCommand,
             })).resolves.toEqual([expect.objectContaining({
                 fresh: false,

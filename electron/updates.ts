@@ -224,15 +224,18 @@ async function ensureUpdaterSupported() {
 
     codeSignatureCheckPromise ??= checkMacCodeSignature()
         .then((valid) => {
-            codeSignatureValid = valid;
-            if (!valid) {
-                logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+            if (valid !== null) {
+                codeSignatureValid = valid;
             }
-            return valid;
+            if (valid === false) {
+                logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+            } else if (valid === null) {
+                logger.info('Unable to validate macOS code signature; will retry updater support check');
+            }
+            return valid === true;
         })
         .catch(() => {
-            codeSignatureValid = false;
-            logger.info('Unable to validate macOS code signature; updater disabled');
+            logger.info('Unable to validate macOS code signature; will retry updater support check');
             return false;
         })
         .finally(() => {
@@ -961,6 +964,9 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                 if (supported) {
                     return;
                 }
+                if (codeSignatureValid === null) {
+                    return;
+                }
                 if (pollTimer) {
                     clearTimeout(pollTimer);
                     pollTimer = null;
@@ -1101,7 +1107,20 @@ export async function installDownloadedUpdate() {
         try {
             await markUpdateInstallPending(candidateVersion);
         } catch (error) {
-            logger.warn(`Failed to write update health marker before install: ${getErrorMessage(error)}`);
+            const message = `Update installation aborted: failed to write update health marker: ${getErrorMessage(error)}`;
+            logger.error(message, {
+                code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+                context: {},
+                cause: error,
+            });
+            updateStatus({
+                phase: 'error',
+                origin: 'manual',
+                version: candidateVersion,
+                percent: null,
+                message,
+            });
+            return;
         }
         autoUpdater.quitAndInstall(false, true);
     });

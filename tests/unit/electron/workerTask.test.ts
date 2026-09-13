@@ -965,4 +965,32 @@ describe('workerTask', () => {
 
         await rejection;
     });
+
+    it('unrefs overall and inactivity timers while a worker is running', async () => {
+        vi.useFakeTimers();
+        mocks.throwConstructorError = false;
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+        const {startStreamingWorkerTask} = await import('@electron/utils/workerTask');
+
+        const task = startStreamingWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createStartupError: message => new Error(`startup: ${message}`),
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            timeoutMs: 10_000,
+            inactivityTimeoutMs: 20_000,
+        });
+
+        const timers = setTimeoutSpy.mock.results.map(result => result.value as NodeJS.Timeout);
+        expect(timers).toHaveLength(2);
+        expect(timers.every(timer => timer.hasRef() === false)).toBe(true);
+
+        mocks.workerRecords[0]?.emit('message', {
+            type: 'result',
+            ok: true,
+            data: 'done',
+        });
+        await expect(task.promise).resolves.toBe('done');
+    });
 });

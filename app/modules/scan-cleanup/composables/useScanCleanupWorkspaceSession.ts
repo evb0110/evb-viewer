@@ -97,6 +97,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         : `${sourceSha256.value ?? legacyDocumentKey.value}\u0000${documentRevision.value}`);
 
     const settings = useScanCleanupDocumentSettings({
+        documentRevision,
         documentLifecycleKey: lifecycleDocumentKey,
         sourceSha256,
         legacyDocumentKey,
@@ -212,7 +213,9 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         ownerId,
         pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,
         placementAnchorSummary: detection.placementAnchorSummary,
+        placementAnchorCalibrationPending: detection.placementAnchorCalibrationPending,
         placementAnchorsByPage,
+        resolvePlacementAnchorsForPage: detection.resolvePlacementAnchorsForPage,
         previewPage: selection.leader,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         resolvedOptions,
@@ -270,6 +273,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         detectionEvidenceComplete: detection.detectionEvidenceComplete,
         detectionResultStoreId: detection.detectionResultStoreId,
         placementAnchorSummary: detection.placementAnchorSummary,
+        placementAnchorCalibrationPending: detection.placementAnchorCalibrationPending,
+        placementAnchorCalibrationError: detection.placementAnchorCalibrationError,
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
         documentSettingsReady: computed(() => settings.documentSettingsReady.value),
@@ -297,6 +302,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         settings: settings.values,
         sourcePath,
         totalPages,
+        refreshDetection: detection.refreshDetection,
         waitForDetectionBeforeRun: detection.waitForTerminal,
     });
     // The final renderer reports a source page only after every output leaf

@@ -49,6 +49,7 @@ const defaultDocumentsService = {
     printPdfPath: unimplementedDocumentsServiceMethod,
     readFile: unimplementedDocumentsServiceMethod,
     readFileRange: unimplementedDocumentsServiceMethod,
+    readPdfPageLabelRanges: unimplementedDocumentsServiceMethod,
     readPdfAnnotationParseChunk: unimplementedDocumentsServiceMethod,
     releasePdfAnnotationParse: unimplementedDocumentsServiceMethod,
     cancelPdfAnnotationParse: unimplementedDocumentsServiceMethod,

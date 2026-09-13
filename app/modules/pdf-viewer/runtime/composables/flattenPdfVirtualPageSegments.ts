@@ -12,6 +12,12 @@ export type TPdfVirtualPageItem = {
     style: Record<string, string>;
 };
 
+export interface IPdfVirtualPageRowItem {
+    key: `row:${number}`;
+    kind: 'row';
+    pages: Array<Extract<TPdfVirtualPageItem, {kind: 'page'}>>;
+}
+
 /**
  * Keeps pages as globally keyed siblings so a virtual-window boundary change
  * cannot remount an overlapping page and discard its freshly rendered canvas.
@@ -62,4 +68,54 @@ export function flattenPdfVirtualPageSegments(
         kind: 'page',
         page,
     }];
+}
+
+export function groupPdfVirtualPageItems(
+    items: readonly TPdfVirtualPageItem[],
+    options: {
+        isFacingMode: boolean;
+        isSpreadSingle: (page: TPageNumber) => boolean;
+    },
+): Array<TPdfVirtualPageItem | IPdfVirtualPageRowItem> {
+    if (!options.isFacingMode) {
+        return [...items];
+    }
+    const grouped: Array<TPdfVirtualPageItem | IPdfVirtualPageRowItem> = [];
+    let rowPages: IPdfVirtualPageRowItem['pages'] = [];
+    const flushRow = () => {
+        if (rowPages.length === 0) {
+            return;
+        }
+        const firstPage = rowPages[0]?.page;
+        if (firstPage !== undefined) {
+            grouped.push({
+                key: `row:${firstPage}`,
+                kind: 'row',
+                pages: rowPages,
+            });
+        }
+        rowPages = [];
+    };
+    for (const item of items) {
+        if (item.kind === 'spacer') {
+            flushRow();
+            grouped.push(item);
+            continue;
+        }
+        if (
+            rowPages.length === 0
+            || (
+                rowPages.length < 2
+                && !options.isSpreadSingle(rowPages[0]!.page)
+                && !options.isSpreadSingle(item.page)
+            )
+        ) {
+            rowPages.push(item);
+            continue;
+        }
+        flushRow();
+        rowPages.push(item);
+    }
+    flushRow();
+    return grouped;
 }

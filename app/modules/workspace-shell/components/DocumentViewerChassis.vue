@@ -528,7 +528,7 @@ watch(
                 return;
             }
             const geometry = sourceKind.value === 'djvu'
-                ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value)
+                ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value, null)
                 : readPrevalidatedTrustedPdfOpenGeometry(
                     documentId,
                     requirePageNumber(chassisAuthority.currentPage.value),

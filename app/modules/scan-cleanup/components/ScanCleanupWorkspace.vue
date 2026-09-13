@@ -50,6 +50,11 @@
             :aria-busy="isRunning"
         >
             <fieldset class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced" :disabled="isRunning">
+                <AppFailureAlert
+                    v-if="documentSettingsLoadFailure"
+                    role="alert"
+                    :presentation="documentSettingsLoadFailure"
+                />
                 <ScanCleanupSettingsPanel
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
@@ -176,6 +181,7 @@
 </template>
 
 <script setup lang="ts">
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -278,6 +284,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
 });
 const {
     alignmentItems,
+    documentSettingsLoadFailure,
     handleThicknessInput,
     layoutItems,
     marginsLinked: documentMarginsLinked,

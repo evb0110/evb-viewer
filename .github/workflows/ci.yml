@@ -703,6 +703,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
 
+      - name: Install PDF test tools
+        run: brew install qpdf
+
       - name: Electron E2E regression
         run: pnpm run test:e2e:electron:regression
 

@@ -56,6 +56,29 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         await expect(handle.terminal).resolves.toMatchObject({status: 'canceled', error: {message: 'already canceled'}});
         expect(run).not.toHaveBeenCalled(); await handle.settled; expect(snapshotMainOperations()).toEqual([]); await jobs.clearForTests();
     });
+    it('settles the operation even when signal cleanup throws', async () => {
+        vi.useFakeTimers();
+        const jobs = registry(); const actor = {sender: sender(14)};
+        const cleanupSignal = new AbortController().signal;
+        vi.spyOn(cleanupSignal, 'removeEventListener').mockImplementation(() => {
+            throw new Error('signal cleanup failed');
+        });
+        const handle = jobs.start({
+            jobId: 'throwing-cleanup', owner: actor, operation: {kind: 'abortable-work'},
+            initialProgress: initial('throwing-cleanup'), signals: [cleanupSignal], run: async () => ({value: 'done'}),
+        });
+
+        await expect(handle.terminal).resolves.toMatchObject({status: 'completed'});
+        const settled = Promise.race([
+            handle.settled.then(() => 'settled' as const),
+            new Promise<'timed-out'>(resolve => setTimeout(() => resolve('timed-out'), 25)),
+        ]);
+        await vi.advanceTimersByTimeAsync(25);
+
+        await expect(settled).resolves.toBe('settled');
+        expect(snapshotMainOperations()).toEqual([]);
+        await jobs.clearForTests();
+    });
     it('requires the complete owner tuple and multiplexes renderer listeners', async () => {
         const jobs = registry(); const ownerSender = sender(2); const runner = deferred<IResult>();
         const actor: IMainJobActor = {sender: ownerSender, ownerId: 'tab-a', documentInstanceId: 'document-a' as TDocumentInstanceId, documentRevision: 'revision-a'};

@@ -100,8 +100,10 @@ export const useOcr = () => {
     let completeCleanup: (() => void) | null = null;
     let timeoutRunToken: symbol | null = null;
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
+    let pendingCanceledResult: TOcrCompleteResult | null = null;
     let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelRequestPromise: Promise<IOcrCancelResult> | null = null;
+    let cancelingRunSettings: IOcrSettings | null = null;
     let disposed = false;
     let activeDocxAbortController: AbortController | null = null;
 
@@ -116,19 +118,24 @@ export const useOcr = () => {
         }
     }
 
-    function finishCancelCompletionWatch(requestId: TRequestId) {
+    function finishCancelCompletionWatch(requestId: TRequestId, status: 'cancelled' | 'idle' = 'cancelled') {
         if (!ocrRunLifecycle.finishCancelingRequest(requestId)) {
             return;
         }
+        pendingCanceledResult = null;
+        cancelingRunSettings = null;
         clearCancelCleanupTimer();
+        progressCleanup?.();
+        progressCleanup = null;
         completeCleanup?.();
         completeCleanup = null;
         progress.value.isRunning = false;
-        progress.value.status = 'cancelled';
+        progress.value.status = status;
     }
 
     function cleanupRunState(options: {
         keepCompleteListener?: boolean;
+        keepProgressListener?: boolean;
         keepActiveRequestId?: boolean
     } = {}) {
         if (options.keepActiveRequestId !== true) {
@@ -137,8 +144,10 @@ export const useOcr = () => {
         progress.value.isRunning = false;
         progress.value.status = 'idle';
         activeRunSettings.value = null;
-        progressCleanup?.();
-        progressCleanup = null;
+        if (options.keepProgressListener !== true) {
+            progressCleanup?.();
+            progressCleanup = null;
+        }
         if (options.keepCompleteListener !== true) {
             completeCleanup?.();
             completeCleanup = null;
@@ -190,6 +199,20 @@ export const useOcr = () => {
         }, OCR_CANCEL_COMPLETION_GRACE_MS);
     }
 
+    function applyCancelOutcome(requestId: TRequestId, cancelResult: IOcrCancelResult) {
+        const outcome = !cancelResult.canceled && cancelResult.reason === 'failed'
+            ? 'unconfirmed'
+            : 'confirmed';
+        if (!ocrRunLifecycle.markCancelOutcome(requestId, outcome)) {
+            return;
+        }
+        if (pendingCanceledResult?.requestId === requestId) {
+            const result = pendingCanceledResult;
+            pendingCanceledResult = null;
+            cleanupLateCanceledResult(result);
+        }
+    }
+
     function cleanupLateCanceledResult(result: TOcrCompleteResult) {
         if (!ocrRunLifecycle.shouldHandleLateCanceledResult(result.requestId)) {
             return;
@@ -200,6 +223,20 @@ export const useOcr = () => {
             success: result.success,
             requiresCleanupAck: result.requiresCleanupAck === true,
         });
+        if (ocrRunLifecycle.shouldApplyLateResult(result.requestId)) {
+            const runSettings = cancelingRunSettings;
+            if (runSettings !== null) {
+                error.value = null;
+                try {
+                    handleOcrResponse(result.requestId, result, null, runSettings);
+                } catch (caughtError) {
+                    logOcrRunFailure(result.requestId, caughtError);
+                    error.value = localizeOcrError(caughtError, 'errors.ocr.createSearchablePdf');
+                }
+                finishCancelCompletionWatch(result.requestId, 'idle');
+                return;
+            }
+        }
         if (result.requiresCleanupAck === true && result.pdfPath) {
             void getOcrCapability().acknowledgeResultFile(result.requestId, result.pdfPath)
                 .catch((ackError) => {
@@ -214,10 +251,14 @@ export const useOcr = () => {
     }
 
     function beginCancelingRequest(requestId: TRequestId) {
+        if (cancelingRunSettings === null && activeRunSettings.value !== null) {
+            cancelingRunSettings = cloneOcrSettings(activeRunSettings.value);
+        }
         ocrRunLifecycle.beginCancelingRequest(requestId);
         scheduleCancelCompletionWatch(requestId);
         cleanupRunState({
             keepCompleteListener: true,
+            keepProgressListener: true,
             keepActiveRequestId: true,
         });
         progress.value.isRunning = true;
@@ -239,7 +280,9 @@ export const useOcr = () => {
         if (requestIdToCancel) {
             ocrRunLifecycle.cancelActiveRun();
             beginCancelingRequest(requestIdToCancel);
-            void cancelBackendRequest(requestIdToCancel, 'timeout');
+            void cancelBackendRequest(requestIdToCancel, 'timeout').then(cancelResult => {
+                applyCancelOutcome(requestIdToCancel, cancelResult);
+            });
         }
         rejectPending?.(new Error(t('errors.ocr.timeout')));
     }, OCR_TIMEOUT_MS, { immediate: false });
@@ -443,6 +486,17 @@ export const useOcr = () => {
                     return;
                 }
                 if (!ocrRunLifecycle.isRunTokenActive(runToken)) {
+                    if (didResolve) {
+                        BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
+                        return;
+                    }
+                    didResolve = true;
+                    pendingOcrReject = null;
+                    clearOcrTimeout();
+                    if (!ocrRunLifecycle.isCancelOutcomeKnown(requestId)) {
+                        pendingCanceledResult = result;
+                        return;
+                    }
                     cleanupLateCanceledResult(result);
                     return;
                 }
@@ -640,13 +694,13 @@ export const useOcr = () => {
     function handleOcrResponse(
         requestId: TRequestId,
         response: TOcrCompleteResult,
-        ensureRunActive: TOcrRunGuard,
+        ensureRunActive: TOcrRunGuard | null,
         runSettings: IOcrSettings,
     ) {
         applyOcrResponseErrors(response, requestId);
 
         if (response.pdfPath) {
-            ensureRunActive();
+            ensureRunActive?.();
             storeOcrPdfResult(requestId, response, runSettings);
         } else if (response.success) {
             throw new Error(t('errors.ocr.noPdfData'));
@@ -798,6 +852,7 @@ export const useOcr = () => {
 
         beginCancelingRequest(requestIdToCancel);
         const requestPromise = cancelBackendRequest(requestIdToCancel, 'manual').then((cancelResult) => {
+            applyCancelOutcome(requestIdToCancel, cancelResult);
             if (ocrRunLifecycle.getCancelingRequestId() === requestIdToCancel) {
                 if (cancelResult.canceled) {
                     error.value = null;

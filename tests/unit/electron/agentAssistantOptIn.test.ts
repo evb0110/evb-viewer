@@ -21,6 +21,7 @@ import type {
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
 import {
+    FakeClaudeAssistantSession,
     runDualProviderCompletionDriver,
     waitForCodexRequest,
     waitForCodexRequestCount,
@@ -48,6 +49,7 @@ const mocks = vi.hoisted(() => ({
     installManagedCodex: vi.fn(),
     spawn: vi.fn(),
     assistantDisabledMessage: 'Enable EVB Assistant in Settings to use assistant chat.',
+    assistantContextUnavailableMessage: 'Claude could not restore this chat context. Start a new chat to continue.',
     startEmbeddedMcpServer: vi.fn(),
     abortActiveEmbeddedMcpRequests: vi.fn(),
     shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
@@ -69,6 +71,10 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    loginOpenGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
     processKillGate: null as null | {
         promise: Promise<void>;
         resolve: () => void;
@@ -80,6 +86,9 @@ const mocks = vi.hoisted(() => ({
     claudeSessionConstructor: vi.fn(),
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
+    loginCancelMode: 'success',
+    turnStartResponseId: undefined as unknown,
+    malformedTurnStartResponse: false,
     logger: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -186,6 +195,13 @@ class FakeCodexAppServerProcess extends EventEmitter {
                 respondToLogin();
                 return;
             }
+            case 'account/login/cancel':
+                if (mocks.loginCancelMode === 'error') {
+                    this.respondError(request.id, 'login cancellation failed.');
+                    return;
+                }
+                this.respond(request.id, {});
+                return;
             case 'mcpServerStatus/list':
                 this.respond(request.id, {data: [{
                     name: 'evb_viewer_embedded',
@@ -253,7 +269,12 @@ class FakeCodexAppServerProcess extends EventEmitter {
                             turnId,
                         });
                     }
-                    this.respond(request.id!, { turn: { id: turnId } });
+                    this.respond(request.id!, mocks.malformedTurnStartResponse
+                        ? {turn: {id: mocks.turnStartResponseId}}
+                        : {turn: {id: turnId}});
+                    if (mocks.malformedTurnStartResponse) {
+                        return;
+                    }
                     mocks.turnStartResponseHook?.();
                     this.notify('turn/started', {
                         threadId: request.params?.threadId,
@@ -350,6 +371,9 @@ vi.mock('@electron/te', () => ({te: (key: string) => {
     }
     if (key === 'dialogs.agentAssistant.turnBusy') {
         return mocks.assistantTurnBusyMessage;
+    }
+    if (key === 'dialogs.agentAssistant.contextUnavailable') {
+        return mocks.assistantContextUnavailableMessage;
     }
     return key;
 }}));
@@ -460,11 +484,15 @@ describe('agent assistant opt-in gating', () => {
         mocks.turnStartResponseHook = null;
         mocks.threadStartGate = null;
         mocks.loginStartGate = null;
+        mocks.loginOpenGate = null;
         mocks.processKillGate = null;
         mocks.claudeRuntimeLoadGate = createInitializeGate();
         mocks.claudeSessionConstructor.mockReset();
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
+        mocks.loginCancelMode = 'success';
+        mocks.turnStartResponseId = undefined;
+        mocks.malformedTurnStartResponse = false;
         mocks.runCodexCli.mockResolvedValue({ok: true});
     });
 
@@ -684,6 +712,35 @@ describe('agent assistant opt-in gating', () => {
         expect(process.kill).toHaveBeenCalled();
     });
 
+    it('does not bind a Codex thread after Reset wins the final setup check', async () => {
+        const documentScope = createDocumentScope('reset-after-thread-setup.pdf');
+        const process = enableAssistantRuntime();
+        const {
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        let postThreadSettingsReads = 0;
+        mocks.loadSettings.mockImplementation(async () => {
+            if (process.requestMethods.includes('thread/start')) {
+                postThreadSettingsReads += 1;
+                if (postThreadSettingsReads === 3) {
+                    await resetAgentAssistantChat({scope: documentScope});
+                }
+            }
+            return {assistantPanelEnabled: true};
+        });
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Do not bind this reset thread',
+            scope: documentScope,
+        })).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        expect(postThreadSettingsReads).toBeGreaterThanOrEqual(3);
+        expect(process.requestMethods).not.toContain('turn/start');
+    });
+
     it('does not resurrect a reset turn after Codex runtime initialization returns', async () => {
         configureEnabledAssistantRuntime();
         mocks.initializeGate = createInitializeGate();
@@ -792,6 +849,46 @@ describe('agent assistant opt-in gating', () => {
         expect(process.requestMethods).toContain('thread/archive');
     });
 
+    it.each([
+        undefined,
+        null,
+        42,
+        '',
+        '   ',
+    ])('settles a malformed Codex turn-start success without leaving a stale claim (%s)', async (turnStartResponseId) => {
+        const documentScope = createDocumentScope(`malformed-turn-${String(turnStartResponseId)}.pdf`);
+        const process = enableAssistantRuntime();
+        mocks.turnStartResponseId = turnStartResponseId;
+        mocks.malformedTurnStartResponse = true;
+
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const failed = await sendAgentAssistantMessage({
+            text: 'Malformed turn response',
+            scope: documentScope,
+        });
+
+        expect(failed).toMatchObject({
+            ok: false,
+            error: 'Codex returned an invalid turn/start response.',
+        });
+        const failedState = await getAgentAssistantState({scope: documentScope});
+        expect(failedState.status.turn.phase).toBe('failed');
+
+        mocks.turnStartResponseId = undefined;
+        mocks.malformedTurnStartResponse = false;
+        const recovered = await sendAgentAssistantMessage({
+            text: 'Valid replacement turn',
+            scope: documentScope,
+        });
+
+        expect(recovered.ok).toBe(true);
+        expect(process.requestMethods.filter(method => method === 'turn/start')).toHaveLength(2);
+    });
+
     it('does not create a Claude session when opt-out wins during adapter loading', async () => {
         configureEnabledAssistantRuntime();
         const documentScope = createDocumentScope('disable-during-claude-load.pdf');
@@ -805,8 +902,9 @@ describe('agent assistant opt-in gating', () => {
             text: 'Do not create this session',
             scope: documentScope,
         });
-        await settleAsyncTicks();
-        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        await vi.waitFor(() => {
+            expect(mocks.startEmbeddedMcpServer).toHaveBeenCalled();
+        });
         expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
 
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
@@ -826,23 +924,103 @@ describe('agent assistant opt-in gating', () => {
             sendAgentAssistantMessage,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
+        const mcpStartGate = createInitializeGate();
+        const mcpStart = await mocks.startEmbeddedMcpServer();
+        mocks.startEmbeddedMcpServer.mockClear();
+        mocks.startEmbeddedMcpServer.mockImplementationOnce(async () => {
+            await mcpStartGate.promise;
+            return mcpStart;
+        });
         const sendPromise = sendAgentAssistantMessage({
             provider: 'claude',
             text: 'Do not create this session after reset',
             scope: documentScope,
         });
-        await settleAsyncTicks();
-        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        await vi.waitFor(() => {
+            expect(mocks.startEmbeddedMcpServer).toHaveBeenCalled();
+        });
         await resetAgentAssistantChat({
             provider: 'claude',
             scope: documentScope,
         });
+        mcpStartGate.resolve();
         mocks.claudeRuntimeLoadGate?.resolve();
 
         await expect(sendPromise).resolves.toMatchObject({ok: false});
         const state = await getAgentAssistantState({scope: documentScope});
         expect(state.messages).toEqual([]);
         expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it('cancels a Claude send that is pending after session setup', async () => {
+        configureEnabledAssistantRuntime();
+        const documentScope = createDocumentScope('stop-during-claude-send.pdf');
+        const sendGate = createInitializeGate();
+        let resolveSendStarted: (() => void) | undefined;
+        const sendStarted = new Promise<void>(resolve => {
+            resolveSendStarted = resolve;
+        });
+        let sendCanceled = false;
+        const claudeSession = {
+            effort: 'low' as const,
+            fastMode: false,
+            isUsable: true,
+            isRetiring: false,
+            sendMessage: vi.fn(async () => {
+                resolveSendStarted?.();
+                await sendGate.promise;
+                if (sendCanceled) {
+                    throw new Error('Claude assistant session is closed.');
+                }
+                return 'claude-turn-1';
+            }),
+            interrupt: vi.fn(async () => {
+                sendCanceled = true;
+            }),
+            close: vi.fn(async () => {
+                sendCanceled = true;
+            }),
+        };
+        mocks.claudeSessionConstructor.mockImplementation(function createPendingClaudeSession() {
+            return claudeSession;
+        });
+
+        const {
+            getAgentAssistantState,
+            interruptAgentAssistant,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not submit after stop',
+            scope: documentScope,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.startEmbeddedMcpServer).toHaveBeenCalled();
+        });
+        mocks.claudeRuntimeLoadGate?.resolve();
+        await settleAsyncTicks();
+        await sendStarted;
+
+        const stoppedState = await interruptAgentAssistant({
+            provider: 'claude',
+            scope: documentScope,
+        });
+        expect(stoppedState.status.turn.phase).toBe('cancelled');
+
+        sendGate.resolve();
+        await expect(sendPromise).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        const state = await getAgentAssistantState({
+            provider: 'claude',
+            scope: documentScope,
+        });
+        expect(state.messages).toEqual([]);
+        expect(claudeSession.sendMessage).toHaveBeenCalledOnce();
+        expect(claudeSession.close).toHaveBeenCalled();
     });
 
     it('completes through each selected backend with provider-specific drivers', async () => {
@@ -864,6 +1042,223 @@ describe('agent assistant opt-in gating', () => {
         expect(driver.claudeSessions).toHaveLength(1);
         expect(driver.claudeSessions[0]?.completedMessages).toEqual(['Claude completed: claude completion']);
         expect(mocks.spawn).toHaveBeenCalledOnce();
+    });
+
+    it('retains Claude provider context when the runtime is restarted', async () => {
+        const {
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await runDualProviderCompletionDriver({
+            startCodex: () => enableAssistantRuntime(),
+            installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
+            resolveClaudeRuntime: () => mocks.claudeRuntimeLoadGate?.resolve(),
+            send: sendAgentAssistantMessage,
+            createScope: createDocumentScope,
+        });
+
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        await shutdownAgentAssistant();
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+
+        const result = await sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Continue after the runtime restart',
+            scope: createDocumentScope('dual-provider-claude.pdf'),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(mocks.claudeSessionConstructor).toHaveBeenCalledTimes(2);
+        expect(mocks.claudeSessionConstructor.mock.calls[1]?.[0]).toMatchObject({resumeSessionId: 'claude-session-1'});
+        const messageTexts = result.state.messages.map(message => message.text);
+        expect(messageTexts.filter(text => text === 'claude completion')).toHaveLength(1);
+        expect(messageTexts.filter(text => text === 'Claude completed: claude completion')).toHaveLength(1);
+        expect(messageTexts).toContain('Continue after the runtime restart');
+        expect(messageTexts).toContain('Claude completed: Continue after the runtime restart');
+    });
+
+    it('resumes Claude context across effort and effective Fast changes', async () => {
+        configureEnabledAssistantRuntime();
+        const scope = createDocumentScope('claude-settings-change.pdf');
+        const sessions: FakeClaudeAssistantSession[] = [];
+        mocks.claudeSessionConstructor.mockImplementation(function createClaudeSession(options) {
+            const session = new FakeClaudeAssistantSession(options, sessions.length === 0 ? 'claude-session-1' : null);
+            sessions.push(session);
+            return session;
+        });
+        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        const first = await sendAgentAssistantMessage({
+            provider: 'claude',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            text: 'Unique fact from the first Claude turn',
+            presetId: 'check-ocr-readiness',
+            attachments: [{
+                type: 'image',
+                id: 'settings-change-image',
+                name: 'context.png',
+                mimeType: 'image/png',
+                sizeBytes: 1,
+                dataUrl: 'data:image/png;base64,AA==',
+            }],
+            scope,
+        });
+        const fast = await sendAgentAssistantMessage({
+            provider: 'claude',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'fast',
+            text: 'Ask about the unique fact after Fast mode',
+            scope,
+        });
+        const deeper = await sendAgentAssistantMessage({
+            provider: 'claude',
+            model: 'opus',
+            effort: 'high',
+            speedMode: 'standard',
+            text: 'Ask again after the effort change',
+            scope,
+        });
+
+        expect(first.ok).toBe(true);
+        expect(fast.ok).toBe(true);
+        expect(deeper.ok).toBe(true);
+        expect(sessions).toHaveLength(3);
+        expect(mocks.claudeSessionConstructor.mock.calls.map(([options]) => options)).toEqual([
+            expect.objectContaining({
+                effort: 'low',
+                speedMode: 'standard',
+            }),
+            expect.objectContaining({
+                effort: 'low',
+                speedMode: 'fast',
+                resumeSessionId: 'claude-session-1',
+            }),
+            expect.objectContaining({
+                effort: 'high',
+                speedMode: 'standard',
+                resumeSessionId: 'claude-session-1',
+            }),
+        ]);
+        expect(sessions[0]?.sentTexts[0]).toContain('Unique fact from the first Claude turn');
+        expect(sessions[0]?.sentTexts[0]).toContain('Check whether the active EVB Viewer document is ready for agent analysis.');
+        expect(sessions[0]?.sentAttachments[0]).toEqual([expect.objectContaining({
+            id: 'settings-change-image',
+            dataUrl: 'data:image/png;base64,AA==',
+        })]);
+        const userMessages = deeper.state.messages.filter(message => message.role === 'user');
+        expect(userMessages.map(message => message.text)).toEqual([
+            'Unique fact from the first Claude turn',
+            'Ask about the unique fact after Fast mode',
+            'Ask again after the effort change',
+        ]);
+        expect(new Set(deeper.state.messages.map(message => message.id)).size).toBe(deeper.state.messages.length);
+    });
+
+    it('cancels Claude startup when interrupted before provider setup completes', async () => {
+        configureEnabledAssistantRuntime();
+        const scope = createDocumentScope('claude-interrupt-during-startup.pdf');
+        const sendGate = createInitializeGate();
+        let session: FakeClaudeAssistantSession | undefined;
+        mocks.claudeSessionConstructor.mockImplementation(function createClaudeSession(options) {
+            session = new FakeClaudeAssistantSession(options, 'claude-session-1', sendGate.promise);
+            return session;
+        });
+        const {
+            interruptAgentAssistant,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        const send = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not submit after interrupt',
+            scope,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.claudeSessionConstructor).toHaveBeenCalledOnce();
+        });
+        await interruptAgentAssistant({
+            provider: 'claude',
+            scope,
+        });
+        sendGate.resolve();
+
+        await expect(send).resolves.toMatchObject({
+            ok: false,
+            error: 'Assistant turn was canceled before provider setup completed.',
+        });
+        expect(session?.sentTexts).toEqual([]);
+    });
+
+    it('refuses contextless Claude history while keeping it available for New chat', async () => {
+        configureEnabledAssistantRuntime();
+        const scope = createDocumentScope('contextless-claude.pdf');
+        mocks.claudeSessionConstructor.mockImplementation(function createContextlessClaudeSession(options) {
+            return new FakeClaudeAssistantSession(options, null);
+        });
+        const {
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        const first = await sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Unique contextless fact',
+            scope,
+        });
+        expect(first.ok).toBe(true);
+
+        const refused = await sendAgentAssistantMessage({
+            provider: 'claude',
+            effort: 'high',
+            text: 'Do not submit without context',
+            scope,
+        });
+
+        expect(refused).toMatchObject({
+            ok: false,
+            error: mocks.assistantContextUnavailableMessage,
+        });
+        expect(mocks.claudeSessionConstructor).toHaveBeenCalledOnce();
+        expect(refused.state.messages.map(message => message.text)).toContain('Unique contextless fact');
+
+        const reset = await resetAgentAssistantChat({
+            provider: 'claude',
+            scope,
+        });
+        expect(reset.messages).toEqual([]);
+    });
+
+    it('recovers Claude provider context from durable state after a process restart', async () => {
+        const firstModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const driver = await runDualProviderCompletionDriver({
+            startCodex: () => enableAssistantRuntime(),
+            installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
+            resolveClaudeRuntime: () => mocks.claudeRuntimeLoadGate?.resolve(),
+            send: firstModule.sendAgentAssistantMessage,
+            createScope: createDocumentScope,
+        });
+        await firstModule.preserveAssistantStateForShutdown();
+
+        vi.resetModules();
+        const restartedModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const result = await restartedModule.sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Continue after process restart',
+            scope: createDocumentScope('dual-provider-claude.pdf'),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(driver.claudeResult.state.messages.map(message => message.text)).toContain('Claude completed: claude completion');
+        expect(result.state.messages.map(message => message.text)).toContain('Claude completed: claude completion');
+        expect(result.state.messages.map(message => message.text)).toContain('Claude completed: Continue after process restart');
+        expect(mocks.claudeSessionConstructor).toHaveBeenCalledTimes(2);
+        expect(mocks.claudeSessionConstructor.mock.calls[1]?.[0]).toMatchObject({resumeSessionId: 'claude-session-1'});
     });
 
     it('does not turn an idle Claude stream exit into a duplicate failed chat turn', async () => {
@@ -1010,6 +1405,94 @@ describe('agent assistant opt-in gating', () => {
         });
         expect(mocks.openExternal).not.toHaveBeenCalled();
         await shutdownAgentAssistant();
+    });
+
+    it('shares one pending provider login start across concurrent callers', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginStartGate = createInitializeGate();
+        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const first = startAgentAssistantLogin({mode: 'chatgpt'});
+        await waitForCodexRequest(process, 'account/login/start');
+        const second = startAgentAssistantLogin({mode: 'device-code'});
+
+        await settleAsyncTicks();
+        expect(process.requestMethods.filter(method => method === 'account/login/start')).toHaveLength(1);
+
+        mocks.loginStartGate.resolve();
+        const [
+            firstResult,
+            secondResult,
+        ] = await Promise.all([
+            first,
+            second,
+        ]);
+
+        expect(firstResult).toMatchObject({
+            ok: true,
+            loginId: 'login-1',
+        });
+        expect(secondResult).toEqual(firstResult);
+        expect(mocks.openExternal).toHaveBeenCalledOnce();
+    });
+
+    it('cancels a provider flow when opening its browser fails and allows a retry', async () => {
+        const process = enableAssistantRuntime();
+        mocks.openExternal.mockRejectedValueOnce(new Error('browser unavailable'));
+        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({
+            ok: false,
+            error: 'browser unavailable',
+        });
+        expect(process.requestMethods).toContain('account/login/cancel');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({
+            ok: true,
+            loginId: 'login-1',
+        });
+        expect(process.requestMethods.filter(method => method === 'account/login/start')).toHaveLength(2);
+    });
+
+    it('does not let a completed login race overwrite its settled authentication state', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginOpenGate = createInitializeGate();
+        mocks.openExternal.mockImplementationOnce(() => mocks.loginOpenGate!.promise);
+        const {
+            getAgentAssistantState,
+            startAgentAssistantLogin,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const login = startAgentAssistantLogin({mode: 'chatgpt'});
+        await waitForCodexRequest(process, 'account/login/start');
+        await vi.waitFor(() => expect(mocks.openExternal).toHaveBeenCalledOnce());
+        process.notifyAppServer('account/login/completed', {
+            loginId: 'login-1',
+            success: true,
+        });
+        mocks.loginOpenGate.resolve();
+
+        await expect(login).resolves.toMatchObject({ok: true});
+        await expect(getAgentAssistantState()).resolves.toMatchObject({status: {authState: 'signed-in'}});
+    });
+
+    it('reconciles a failed provider cancellation before releasing login ownership', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginCancelMode = 'error';
+        const {
+            cancelAgentAssistantLogin,
+            startAgentAssistantLogin,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({ok: true});
+        const canceled = await cancelAgentAssistantLogin();
+
+        expect(process.requestMethods).toContain('account/login/cancel');
+        expect(process.requestMethods).toContain('account/read');
+        expect(canceled.status.authState).toBe('signed-in');
+
+        await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({ok: true});
+        expect(process.requestMethods.filter(method => method === 'account/login/start')).toHaveLength(2);
     });
 
     it('drops a turn response that arrives after opt-out', async () => {

@@ -98,10 +98,7 @@ import {
     shouldKeepWorkspacePendingDocumentHint,
     shouldShowWorkspacePlaceholder,
 } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
-import {
-    isRecentOpenGeometryExactFrameReady,
-    readRecentOpenExactGeometry,
-} from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
+import {readRecentOpenExactGeometry} from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import {
     createWorkspaceRestoreAttemptState,
     finishWorkspaceRestoreAttempt,
@@ -276,9 +273,6 @@ function isRecentFileOpenReady(file: IRecentFile) {
     });
 }
 function isRecentFileExactFrameReady(file: IRecentFile) {
-    if (!isRecentOpenGeometryExactFrameReady(file.originalPath)) {
-        return false;
-    }
     const geometry = readRecentOpenExactGeometry(file.originalPath, {
         modifiedAt: file.modifiedAt,
         size: file.fileSize,

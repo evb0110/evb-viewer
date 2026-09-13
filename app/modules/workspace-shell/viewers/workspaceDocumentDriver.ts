@@ -394,7 +394,6 @@ async function prepareDjvuPrint(
             source: createPrintProjectionSource('djvu', sourcePath),
             capabilities: command.sourceCapabilities,
         });
-        const projectionSignal = command.signal ?? new AbortController().signal;
         await ensurePdfProjection(printSession, {build: async () => {
             const {
                 pageNumbers,
@@ -429,7 +428,7 @@ async function prepareDjvuPrint(
                 source: createPrintProjectionSource('pdf', outputState.artifactPath),
                 capabilities: PDF_SOURCE_CAPABILITIES,
             };
-        }}, 'print', projectionSignal);
+        }}, 'print', command.signal);
         command.onNativePrintHandoffStart?.();
         return {status: 'completed'};
     } finally {

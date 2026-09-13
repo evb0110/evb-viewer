@@ -53,6 +53,10 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
+import {
+    PDF_PAGE_LABEL_STYLE_VALUES,
+    type IPdfPageLabelRange,
+} from '@contracts/pdfPageLabels';
 import type { TPlatformUnsupportedReason } from '@contracts/platformUnsupported';
 import {
     decodePdfDataPrintOptions,
@@ -742,6 +746,40 @@ const pathArgs = (fieldName: string) => s.fromParser<[TDocumentRef]>(
 const readFileArgs = s.declared<TDocumentMethodArgs<'readFile'>>()(
     pathArgs('path'),
 );
+const pdfPageLabelRangesResult = documentResult<'readPdfPageLabelRanges'>(
+    value => {
+        if (!Array.isArray(value)) {
+            fail('expected PDF page-label ranges');
+        }
+        return value.map((rawRange, index) => {
+            const range = decodeRequiredObject(rawRange, `pageLabels[${index}]`);
+            const startPage = decodeSafeIntegerValue(range.startPage, `pageLabels[${index}].startPage`);
+            const startNumber = decodeSafeIntegerValue(range.startNumber, `pageLabels[${index}].startNumber`);
+            if (startPage < 1 || startNumber < 1) {
+                fail(`pageLabels[${index}] must use positive page numbers`);
+            }
+            const style = range.style;
+            if (style !== null && !isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, style)) {
+                fail(`pageLabels[${index}].style is invalid`);
+            }
+            if (typeof range.prefix !== 'string') {
+                fail(`pageLabels[${index}].prefix must be a string`);
+            }
+            return {
+                startPage,
+                style,
+                prefix: range.prefix,
+                startNumber,
+            } satisfies IPdfPageLabelRange;
+        });
+    },
+    () => [{
+        startPage: 1,
+        style: null,
+        prefix: '',
+        startNumber: 1,
+    }],
+);
 const statFileArgs = s.declared<TDocumentMethodArgs<'statFile'>>()(
     pathArgs('path'),
 );
@@ -1282,6 +1320,7 @@ export {
     pagePreviewResult,
     pageSizesArgs,
     pageSizesResult,
+    pdfPageLabelRangesResult,
     pathArgs,
     pdfDataArgs,
     pdfPathArgs,

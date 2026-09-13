@@ -70,6 +70,17 @@ describe('updateHealthMarker', () => {
             .toMatchObject({installationApplied: true});
     });
 
+    it('does not suppress the running pending version when its marker uses a release tag', async () => {
+        const marker = await import('@electron/updateHealthMarker');
+
+        await marker.markUpdateInstallPending(`v2.0.0+${'a'.repeat(40)}`);
+        await marker.recordPendingUpdateStartup('1.0.0');
+        await marker.recordPendingUpdateStartup('1.0.0');
+        await marker.recordPendingUpdateStartup('1.0.0');
+
+        await expect(marker.getSuppressedUpdateVersion('2.0.0')).resolves.toBeNull();
+    });
+
     it('expires suppression so a transient installer failure can be retried', async () => {
         const marker = await import('@electron/updateHealthMarker');
         const installedAt = Date.now();

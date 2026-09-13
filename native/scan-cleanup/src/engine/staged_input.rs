@@ -4,13 +4,12 @@ use crate::engine::resource_planning::{
 };
 use crate::io::MAX_STREAM_INPUT_BYTES;
 use crate::io::{copy_bounded_cancelable, raster, BoundedIoError};
-use crate::protocol::manifest_v3::{ManifestV3, Operation, Page};
-use evb_native_support::{NativeError, NativeErrorCode};
+use crate::protocol::manifest_v3::{normalized_path, ManifestV3, Operation, Page};
+use evb_native_support::{output::existing_file_identity, NativeError, NativeErrorCode};
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
-use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -233,32 +232,6 @@ pub(crate) fn finish_staged_rerun<T>(
     }
 }
 
-fn normalized_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if matches!(
-                    normalized.components().next_back(),
-                    Some(Component::Normal(_))
-                ) {
-                    normalized.pop();
-                } else if !normalized.has_root() {
-                    normalized.push(component.as_os_str());
-                }
-            }
-            _ => normalized.push(component.as_os_str()),
-        }
-    }
-    #[cfg(windows)]
-    {
-        return PathBuf::from(normalized.to_string_lossy().to_lowercase());
-    }
-    #[cfg(not(windows))]
-    normalized
-}
-
 pub(crate) fn invalid(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::InvalidRequest, message.into())
 }
@@ -334,7 +307,12 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
     let mut input_files = HashSet::new();
     for path in &paths.input_paths {
         input_paths.insert(resolved_manifest_path(path));
-        if let Some(identity) = existing_file_identity(path) {
+        if let Some(identity) = existing_file_identity(path).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::Io,
+                format!("Unable to inspect input path {}: {error}", path.display()),
+            )
+        })? {
             input_files.insert(identity);
         }
     }
@@ -343,7 +321,14 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
     for path in &paths.destination_paths {
         let resolved = resolved_manifest_path(path);
         if input_paths.contains(&resolved)
-            || existing_file_identity(path).is_some_and(|identity| input_files.contains(&identity))
+            || existing_file_identity(path)
+                .map_err(|error| {
+                    NativeError::new(
+                        NativeErrorCode::Io,
+                        format!("Unable to inspect output path {}: {error}", path.display()),
+                    )
+                })?
+                .is_some_and(|identity| input_files.contains(&identity))
         {
             return Err(invalid(format!(
                 "Output destination aliases an input file: {}",
@@ -371,6 +356,12 @@ pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError>
         }
         if !destination_paths.insert(resolved)
             || existing_file_identity(path)
+                .map_err(|error| {
+                    NativeError::new(
+                        NativeErrorCode::Io,
+                        format!("Unable to inspect output path {}: {error}", path.display()),
+                    )
+                })?
                 .is_some_and(|identity| !destination_files.insert(identity))
         {
             return Err(invalid(format!(
@@ -408,33 +399,6 @@ fn resolved_manifest_path(path: &Path) -> PathBuf {
         };
         ancestor = parent;
     }
-}
-
-#[cfg(unix)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ExistingFileIdentity {
-    device: u64,
-    inode: u64,
-}
-
-#[cfg(unix)]
-fn existing_file_identity(path: &Path) -> Option<ExistingFileIdentity> {
-    use std::os::unix::fs::MetadataExt;
-    fs::metadata(path)
-        .ok()
-        .map(|metadata| ExistingFileIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        })
-}
-
-#[cfg(not(unix))]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ExistingFileIdentity;
-
-#[cfg(not(unix))]
-fn existing_file_identity(_path: &Path) -> Option<ExistingFileIdentity> {
-    None
 }
 
 pub(crate) fn stream_materialized_path(page: &StagedPageDescriptor, index: usize) -> PathBuf {
@@ -492,6 +456,7 @@ pub(crate) fn materialize_stream_page(
     if let Err(error) = copy_result {
         let _ = fs::remove_file(&temporary_input);
         let code = match &error {
+            BoundedIoError::ConnectTimeout => NativeErrorCode::Timeout,
             BoundedIoError::TooLarge { .. } => NativeErrorCode::TooLarge,
             BoundedIoError::Canceled | BoundedIoError::Io(_) => NativeErrorCode::Io,
         };
@@ -892,9 +857,12 @@ mod tests {
             3,
         );
         let producer_paths = fifo_paths.clone();
+        let (producer_signal, producer_receiver) = std::sync::mpsc::channel();
+        let producer_signaled = Mutex::new(producer_receiver);
         let producer = std::thread::spawn(move || {
             for (index, path) in producer_paths.iter().enumerate() {
                 fs::write(path, format!("page-{index}")).unwrap();
+                producer_signal.send(()).unwrap();
             }
         });
         let observed_lookahead = AtomicBool::new(false);
@@ -912,20 +880,16 @@ mod tests {
 
         let processed = run_stream_page_jobs(&batch, |(index, page)| {
             if index == 0 {
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                loop {
-                    let live = count_materializations();
-                    peak_materializations.fetch_max(live, Ordering::AcqRel);
-                    if live == batch.raster_window {
-                        observed_lookahead.store(true, Ordering::Release);
-                        break;
-                    }
-                    assert!(
-                        std::time::Instant::now() < deadline,
-                        "reader did not fill the promised raster window"
-                    );
-                    std::thread::yield_now();
+                let producer_signaled = producer_signaled.lock().unwrap();
+                for _ in 0..batch.raster_window {
+                    producer_signaled
+                        .recv()
+                        .expect("producer did not publish a lookahead page");
                 }
+                let live = count_materializations();
+                peak_materializations.fetch_max(live, Ordering::AcqRel);
+                assert_eq!(live, batch.raster_window);
+                observed_lookahead.store(true, Ordering::Release);
             }
             let live = count_materializations();
             peak_materializations.fetch_max(live, Ordering::AcqRel);

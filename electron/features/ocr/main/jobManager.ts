@@ -501,6 +501,22 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         handleWorkerMessage(job.scopedJobId, job.requestId, job.webContentsId, worker, parsedMessage);
     });
 
+    worker.on('messageerror', (err: Error) => {
+        const message = `OCR worker message deserialization failed: ${getErrorMessage(err)}`;
+        log.error(`Worker messageerror for job ${job.requestId}: ${getErrorMessage(err)}`, {
+            code: 'MAIN_OCR_OPERATION_FAILED',
+            context: {},
+            cause: err,
+        });
+        const active = activeJobs.get(job.scopedJobId);
+        if (!active || active.completed || active.terminatedByUs || active.terminalResultSent) {
+            return;
+        }
+        sendJobFailure(active, message, {code: 'OCR_WORKER_MESSAGE_ERROR'});
+        active.terminalResultSent = true;
+        terminateAndFinalizeActiveJob(job.scopedJobId, {reason: 'worker message deserialization failure'});
+    });
+
     worker.on('error', (err: Error) => {
         log.error(`Worker error for job ${job.requestId}: ${err.message}`, {
             code: 'MAIN_OCR_OPERATION_FAILED',

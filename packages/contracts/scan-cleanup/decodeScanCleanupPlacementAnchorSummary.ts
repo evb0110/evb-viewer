@@ -1,9 +1,14 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import type {IScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/ipc';
+import type {
+    IScanCleanupPlacementAnchorSummary,
+    IScanCleanupPlacementAnchorSummaryIdentity,
+} from '@contracts/scan-cleanup/ipc';
 import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/domain';
 import type {IScanCleanupPlacementAnchor} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
+    decodeBoundedScanCleanupString,
     decodeScanCleanupPageNumber,
+    SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
     SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS,
     SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_SAMPLES,
 } from '@contracts/scan-cleanup/inputLimits';
@@ -44,6 +49,38 @@ function decodeScanCleanupOutputHalf(value: unknown): TScanCleanupOutputHalf {
     throw new Error('invalid scan-cleanup placement anchor summary sample half');
 }
 
+function decodeScanCleanupPlacementAnchorSummaryIdentity(
+    value: unknown,
+): IScanCleanupPlacementAnchorSummaryIdentity {
+    if (
+        !isRecord(value)
+        || Object.keys(value).some(key => ![
+            'documentRevision',
+            'detectionSignature',
+            'calibrationSignature',
+        ].includes(key))
+    ) {
+        throw new Error('invalid scan-cleanup placement anchor summary identity');
+    }
+    return {
+        documentRevision: decodeBoundedScanCleanupString(
+            value.documentRevision,
+            'placement anchor summary document revision',
+            SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+        ),
+        detectionSignature: decodeBoundedScanCleanupString(
+            value.detectionSignature,
+            'placement anchor summary detection signature',
+            SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+        ),
+        calibrationSignature: decodeBoundedScanCleanupString(
+            value.calibrationSignature,
+            'placement anchor summary calibration signature',
+            SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+        ),
+    };
+}
+
 export function decodeScanCleanupPlacementAnchorSummary(
     value: unknown,
 ): IScanCleanupPlacementAnchorSummary {
@@ -74,6 +111,7 @@ export function decodeScanCleanupPlacementAnchorSummary(
         value.topEdgeNormalized,
         'placement anchor summary top edge',
     );
+    const identity = decodeScanCleanupPlacementAnchorSummaryIdentity(value.identity);
     const clusters = value.clusters.map((cluster, index) => {
         if (
             !isRecord(cluster)
@@ -142,6 +180,7 @@ export function decodeScanCleanupPlacementAnchorSummary(
         referenceHeightPoints,
         toleranceNormalized,
         topEdgeNormalized,
+        identity,
         clusters,
         samples,
     };

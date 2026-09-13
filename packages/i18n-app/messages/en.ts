@@ -1056,6 +1056,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Enable EVB Assistant in Settings to use assistant chat.',
             'turnBusy': 'EVB Assistant is still working on the previous message for this document.',
+            'contextUnavailable': 'Claude could not restore this chat context. Start a new chat to continue.',
         },
     },
     'optimizePdf': {
@@ -1122,6 +1123,7 @@ export default {
             one: '{count} unsupported file was skipped.',
             other: '{count} unsupported files were skipped.',
         }),
+        'discardPending': 'Discard pending result',
     },
     'noteWindow': {
         'popUpNote': 'Page {page}',
@@ -1564,6 +1566,7 @@ export default {
         'export': {
             'images': 'Failed to export images',
             'multiPageTiff': 'Failed to export TIFF',
+            'alreadyRunning': 'An export is already running',
         },
         'browser': {
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
@@ -1595,6 +1598,7 @@ export default {
                 'internal': 'OCR failed unexpectedly',
                 'queueBackpressure': 'OCR queue is full',
                 'workerUnavailable': 'OCR worker is unavailable',
+                'workerMessageError': 'OCR worker could not deliver a result',
                 'toolsValidationFailed': 'OCR tools are not ready',
             },
         },
@@ -1627,6 +1631,7 @@ export default {
         'settings': {
             'load': 'Failed to load settings',
             'recovered': 'Saved settings could not be used, so defaults were restored. The previous file was kept as a recovery copy when possible.',
+            'recoveredWithPath': 'Saved settings could not be used, so defaults were restored. The previous file was quarantined at {path}.',
         },
         'runtime': {
             'title': 'Something went wrong',

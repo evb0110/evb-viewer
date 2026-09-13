@@ -1057,6 +1057,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Activez EVB Assistant dans les paramètres pour utiliser la discussion avec l’assistant.',
             'turnBusy': 'EVB Assistant traite encore le message précédent pour ce document.',
+            'contextUnavailable': 'Impossible de restaurer le contexte de cette discussion Claude. Démarrez une nouvelle discussion pour continuer.',
         },
     },
     'optimizePdf': {
@@ -1123,6 +1124,7 @@ export default {
             one: '{count} fichier non pris en charge a été ignoré.',
             other: '{count} fichiers non pris en charge ont été ignorés.',
         }),
+        'discardPending': 'Ignorer le résultat en attente',
     },
     'noteWindow': {
         'popUpNote': 'Page {page}',
@@ -1575,6 +1577,7 @@ export default {
         'export': {
             'images': 'Échec de l’export des images',
             'multiPageTiff': 'Échec de l’export TIFF',
+            'alreadyRunning': 'Un export est déjà en cours',
         },
         'browser': {
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',
@@ -1606,6 +1609,7 @@ export default {
                 'internal': 'L’OCR a échoué de manière inattendue',
                 'queueBackpressure': 'La file d’attente OCR est pleine',
                 'workerUnavailable': 'Le processus OCR n’est pas disponible',
+                'workerMessageError': 'Le processus OCR n’a pas pu transmettre le résultat',
                 'toolsValidationFailed': 'Les outils OCR ne sont pas prêts',
             },
         },
@@ -1638,6 +1642,7 @@ export default {
         'settings': {
             'load': 'Impossible de charger les paramètres',
             'recovered': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. Le fichier précédent a été conservé comme copie de récupération lorsque cela était possible.',
+            'recoveredWithPath': 'Les paramètres enregistrés n\'ont pas pu être utilisés. Les valeurs par défaut ont été restaurées. L\'ancien fichier a été placé en quarantaine à l\'emplacement {path}.',
         },
         'runtime': {
             'title': 'Une erreur est survenue',

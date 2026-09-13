@@ -1,5 +1,6 @@
 import { getErrorMessage } from '@electron/utils/error';
 import {
+    opendir,
     readdir,
     rm,
     stat,
@@ -14,6 +15,7 @@ import {parseIntegerEnv} from '@electron/utils/parseIntegerEnv';
 const DEFAULT_MAX_JOB_BYTES = parseIntegerEnv('EVB_OCR_JOB_MAX_TEMP_MB', 4_096, 1, 65_536) * 1024 * 1024;
 const DEFAULT_MIN_FREE_BYTES = parseIntegerEnv('EVB_OCR_MIN_FREE_SPACE_MB', 512, 1, 65_536) * 1024 * 1024;
 const DEFAULT_POLL_INTERVAL_MS = parseIntegerEnv('EVB_OCR_STORAGE_POLL_MS', 250, 50, 5_000);
+const CHECKPOINT_RECONCILIATION_BATCH_SIZE = 64;
 
 interface IOcrJobStorageBudgetOptions {
     abortController: AbortController;
@@ -31,6 +33,21 @@ export interface IOcrStorageReservation {
     readonly bytes: number;
     release: () => void;
 }
+
+interface IOcrCommittedCheckpointFile {
+    path: string;
+    bytes: number;
+}
+
+interface ICheckpointDirectoryCursor {
+    epoch: number;
+    stack: Array<{
+        directory: TCheckpointDirectory;
+        path: string;
+    }>;
+}
+
+type TCheckpointDirectory = Awaited<ReturnType<typeof opendir>>;
 
 interface IOcrStorageSnapshot {
     availableBytes: number;
@@ -145,42 +162,144 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
     let checkInFlight: Promise<void> | null = null;
     let reservationTail = Promise.resolve();
     let initialized = false;
+    let reconciliationEpoch = 0;
+    let reconciliationCursor: ICheckpointDirectoryCursor | null = null;
+    let reconciliationStepInFlight: Promise<boolean> | null = null;
+    const committedCheckpointFiles = new Map<string, {
+        bytes: number;
+        epoch: number;
+    }>();
 
-    const reconcileCheckpoints = async () => {
-        const files = await readdir(options.checkpointDir, {
-            recursive: true,
-            withFileTypes: true,
-        }).catch((error: unknown) => {
-            if (isMissingPathError(error)) {
-                return [];
+    const closeReconciliationCursor = async () => {
+        const cursor = reconciliationCursor;
+        reconciliationCursor = null;
+        if (!cursor) {
+            return;
+        }
+        await Promise.all(cursor.stack.map(({directory}) => directory.close().catch(() => undefined)));
+    };
+
+    const finishReconciliation = async (cursor: ICheckpointDirectoryCursor) => {
+        for (const [
+            filePath,
+            file,
+        ] of committedCheckpointFiles) {
+            if (file.epoch !== cursor.epoch) {
+                committedCheckpointFiles.delete(filePath);
+                committedBytes -= file.bytes;
             }
-            throw error;
-        });
-        const nextBytes = new Map<string, number>();
-        const batchSize = 64;
-        const filePaths = files
-            .filter(entry => entry.isFile())
-            .map(entry => join(entry.parentPath ?? options.checkpointDir, entry.name));
-        for (let offset = 0; offset < filePaths.length; offset += batchSize) {
-            const batch = filePaths.slice(offset, offset + batchSize);
-            const sizes = await Promise.all(batch.map(async filePath => stat(filePath)
-                .catch((error: unknown) => {
+        }
+        initialized = true;
+        await closeReconciliationCursor();
+    };
+
+    const reconcileCheckpointBatch = async (): Promise<boolean> => {
+        if (reconciliationStepInFlight) {
+            return reconciliationStepInFlight;
+        }
+        reconciliationStepInFlight = (async () => {
+            if (!reconciliationCursor) {
+                const directory = await opendir(options.checkpointDir).catch((error: unknown) => {
+                    if (isMissingPathError(error)) {
+                        committedCheckpointFiles.clear();
+                        committedBytes = 0;
+                        initialized = true;
+                        return null;
+                    }
+                    throw error;
+                });
+                if (!directory) {
+                    return true;
+                }
+                reconciliationCursor = {
+                    epoch: reconciliationEpoch += 1,
+                    stack: [{
+                        directory,
+                        path: options.checkpointDir,
+                    }],
+                };
+            }
+
+            const cursor = reconciliationCursor;
+            if (!cursor) {
+                return true;
+            }
+            let operations = 0;
+            while (operations < CHECKPOINT_RECONCILIATION_BATCH_SIZE) {
+                const current = cursor.stack.at(-1);
+                if (!current) {
+                    await finishReconciliation(cursor);
+                    return true;
+                }
+                let entry;
+                try {
+                    entry = await current.directory.read();
+                } catch (error) {
+                    if (!isMissingPathError(error)) {
+                        throw error;
+                    }
+                    entry = null;
+                }
+                operations++;
+                if (!entry) {
+                    await current.directory.close().catch(() => undefined);
+                    cursor.stack.pop();
+                    continue;
+                }
+
+                const entryPath = join(current.path, entry.name);
+                if (entry.isDirectory()) {
+                    const directory = await opendir(entryPath).catch((error: unknown) => {
+                        if (isMissingPathError(error)) {
+                            return null;
+                        }
+                        throw error;
+                    });
+                    if (directory) {
+                        cursor.stack.push({
+                            directory,
+                            path: entryPath,
+                        });
+                    }
+                    continue;
+                }
+                if (!entry.isFile()) {
+                    continue;
+                }
+
+                const fileStat = await stat(entryPath).catch((error: unknown) => {
                     if (isMissingPathError(error)) {
                         return null;
                     }
                     throw error;
-                })));
-            sizes.forEach((fileStat, index) => {
-                if (fileStat?.isFile()) {
-                    const filePath = batch[index];
-                    if (filePath) {
-                        nextBytes.set(filePath, fileStat.size);
+                });
+                if (!fileStat?.isFile()) {
+                    const previous = committedCheckpointFiles.get(entryPath);
+                    if (previous) {
+                        committedCheckpointFiles.delete(entryPath);
+                        committedBytes -= previous.bytes;
                     }
+                    continue;
                 }
-            });
+                const previous = committedCheckpointFiles.get(entryPath);
+                committedBytes += fileStat.size - (previous?.bytes ?? 0);
+                committedCheckpointFiles.set(entryPath, {
+                    bytes: fileStat.size,
+                    epoch: cursor.epoch,
+                });
+            }
+            return false;
+        })().finally(() => {
+            reconciliationStepInFlight = null;
+        });
+        return reconciliationStepInFlight;
+    };
+
+    const reconcileAllCheckpoints = async () => {
+        let complete = false;
+        while (!complete) {
+            complete = await reconcileCheckpointBatch();
         }
-        committedBytes = [...nextBytes.values()].reduce((total, size) => total + size, 0);
-        initialized = true;
     };
 
     const fail = (error: unknown) => {
@@ -201,7 +320,7 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
         if (violation) throw violation;
         if (!initialized) {
             try {
-                await reconcileCheckpoints();
+                await reconcileAllCheckpoints();
             } catch (error) {
                 throw fail(error);
             }
@@ -232,7 +351,14 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
         if (stopped || checkInFlight) {
             return;
         }
-        checkInFlight = inspectAndAssert()
+        checkInFlight = (async () => {
+            try {
+                await reconcileCheckpointBatch();
+                await inspectAndAssert();
+            } catch (error) {
+                fail(error);
+            }
+        })()
             .then(() => undefined)
             .catch(() => undefined)
             .finally(() => {
@@ -280,28 +406,42 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
         async reconcileCheckpoints() {
             if (violation) throw violation;
             try {
-                await reconcileCheckpoints();
+                await reconcileAllCheckpoints();
                 await inspectAndAssert();
             } catch (error) {
                 throw error instanceof OcrStorageBudgetError ? error : fail(error);
             }
         },
-        commitCheckpoint(bytes: number, reservations: readonly IOcrStorageReservation[]) {
-            if (!Number.isSafeInteger(bytes) || bytes < 0) {
+        commitCheckpoint(
+            reservations: readonly IOcrStorageReservation[],
+            checkpointFiles: readonly IOcrCommittedCheckpointFile[],
+        ) {
+            const bytes = checkpointFiles.reduce((total, file) => total + file.bytes, 0);
+            if (!Number.isSafeInteger(bytes) || checkpointFiles.some(file => file.bytes < 0)) {
                 throw new Error(`Invalid OCR committed checkpoint size: ${bytes}`);
             }
-            if (reservations.some(reservation => !reservation || typeof reservation.release !== 'function')) {
-                throw new Error('Invalid OCR storage reservation');
+            if (new Set(checkpointFiles.map(file => file.path)).size !== checkpointFiles.length) {
+                throw new Error('OCR checkpoint publication repeated a file');
             }
             if (reservations.length === 0) {
                 throw new Error('OCR checkpoint publication requires a storage reservation');
+            }
+            if (new Set(reservations).size !== reservations.length) {
+                throw new Error('OCR checkpoint publication repeated a storage reservation');
             }
             const reservedBytesForCheckpoint = reservations.reduce((total, reservation) => total + reservation.bytes, 0);
             if (bytes > reservedBytesForCheckpoint) {
                 throw new Error(`OCR checkpoint bytes exceed reservations: ${bytes} > ${reservedBytesForCheckpoint}`);
             }
+            for (const file of checkpointFiles) {
+                const previous = committedCheckpointFiles.get(file.path);
+                committedBytes += file.bytes - (previous?.bytes ?? 0);
+                committedCheckpointFiles.set(file.path, {
+                    bytes: file.bytes,
+                    epoch: reconciliationCursor?.epoch ?? 0,
+                });
+            }
             reservations.forEach(reservation => reservation.release());
-            committedBytes += bytes;
         },
         async assertFailureWithinBudget(message: string | undefined) {
             if (violation) throw violation;
@@ -324,6 +464,8 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             stopped = true;
             clearInterval(interval);
             await checkInFlight;
+            await reconciliationStepInFlight;
+            await closeReconciliationCursor();
             if (violation) {
                 await cleanupCheckpoint().catch(() => undefined);
             }

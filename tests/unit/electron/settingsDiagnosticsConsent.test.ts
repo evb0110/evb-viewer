@@ -169,4 +169,53 @@ describe('Electron diagnostics consent persistence ordering', () => {
             vi.useRealTimers();
         }
     });
+
+    it('does not reopen after revocation is admitted during the final explicit grant write', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-consent-grant-interleave-'));
+            mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
+                mocks.events.push('persist');
+                await rename(source, target);
+            });
+            const settings = await import('@electron/settings');
+            await settings.updateSettings(() => ({clientDiagnosticsPreference: 'denied'}));
+            mocks.events.length = 0;
+
+            const finalGrantWrite = deferred<undefined>();
+            let atomicWriteCount = 0;
+            let denialSave: Promise<void> | undefined;
+            const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
+            const grantBindings = createSettingsMainBindings(async () => undefined);
+            const denialBindings = createSettingsMainBindings(async () => undefined);
+            mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
+                atomicWriteCount += 1;
+                mocks.events.push(`persist:${atomicWriteCount}`);
+                if (atomicWriteCount === 2) {
+                    denialSave = denialBindings.save(
+                        {senderId: 22} as never,
+                        {clientDiagnosticsPreference: 'denied'},
+                    );
+                    await finalGrantWrite.promise;
+                }
+                await rename(source, target);
+            });
+
+            const grantSave = grantBindings.save(
+                {senderId: 21} as never,
+                {clientDiagnosticsPreference: 'granted'},
+            );
+            await vi.waitFor(() => expect(atomicWriteCount).toBe(2));
+            finalGrantWrite.resolve(undefined);
+            await Promise.all([
+                grantSave,
+                denialSave,
+            ]);
+
+            expect(mocks.events).not.toContain('preference:granted');
+            expect(mocks.events.at(-1)).toBe('preference:denied');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

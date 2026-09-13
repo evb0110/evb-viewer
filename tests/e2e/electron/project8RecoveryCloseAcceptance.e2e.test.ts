@@ -506,11 +506,16 @@ describe('Project 8 recovered close decisions', () => {
         await expect.poll(async () => (await appPages()).length, {timeout: 60_000}).toBe(2);
 
         const recoveredPages = await appPages();
-        const recoveredFileNames = await Promise.all(recoveredPages.map(page => page.evaluate(() => (
-            document.querySelector('.tab-list .tab[data-tab-id]')?.textContent?.trim() ?? ''
-        ))));
-        expect(recoveredFileNames.some(name => name.includes('project8-owner-a-'))).toBe(true);
-        expect(recoveredFileNames.some(name => name.includes('project8-owner-b-'))).toBe(true);
+        await expect.poll(async () => {
+            const recoveredFileNames = await Promise.all(recoveredPages.map(page => page.evaluate(() => (
+                document.querySelector('.tab-list .tab[data-tab-id]')?.textContent?.trim() ?? ''
+            ))));
+            return [
+                'project8-owner-a-',
+                'project8-owner-b-',
+            ]
+                .every(owner => recoveredFileNames.some(name => name.includes(owner)));
+        }, {timeout: 60_000}).toBe(true);
         await expect.poll(async () => {
             const recoveredDirtyStates = await Promise.all(recoveredPages.map(page => (
                 readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(page, ['dirtyState'])

@@ -92,6 +92,7 @@ function requireDocumentRef(value: unknown): TDocumentRef {
 }
 
 const sessions = new Map<string, IAnnotationIndexSessionState>();
+let annotationIndexTtlTimer: ReturnType<typeof setInterval> | null = null;
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
@@ -258,7 +259,14 @@ function cleanupWhenOperationSettles(session: IAnnotationIndexSessionState) {
 function cleanupSession(session: IAnnotationIndexSessionState) {
     return cleanupPdfSidecarSession(sessions, session, (error: unknown) => {
         logger.warn(`Failed to remove PDF annotation index sidecar: ${String(error)}`);
-    });
+    }).finally(clearAnnotationIndexTtlTimerIfIdle);
+}
+
+function clearAnnotationIndexTtlTimerIfIdle() {
+    if (sessions.size === 0 && annotationIndexTtlTimer) {
+        clearInterval(annotationIndexTtlTimer);
+        annotationIndexTtlTimer = null;
+    }
 }
 
 /** Build the native command in one place so the native operation can rename its verb. */
@@ -351,6 +359,7 @@ export async function beginPdfAnnotationIndex(
             'Renderer navigation canceled PDF annotation indexing',
         ),
     });
+    ensureAnnotationIndexTtlTimer();
     const {abortController} = session;
     const {sidecarPath} = session;
     const handleMainAbort = () => cancel('PDF annotation indexing canceled');
@@ -481,15 +490,17 @@ export async function sweepStalePdfAnnotationIndexArtifacts(
     });
 }
 
-const annotationIndexTtlTimer = setInterval(() => {
-    const cutoff = Date.now() - ANNOTATION_INDEX_DEFAULT_TTL_MS;
-    expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
-        session.released = true;
-        cancelPdfSidecarSession(session, 'PDF annotation index session expired');
-        cleanupWhenOperationSettles(session);
-    });
-    void sweepStalePdfAnnotationIndexArtifacts().catch((error: unknown) => {
-        logger.debug(`PDF annotation index TTL sweep failed: ${String(error)}`);
-    });
-}, 30_000);
-annotationIndexTtlTimer.unref?.();
+function ensureAnnotationIndexTtlTimer() {
+    annotationIndexTtlTimer ??= setInterval(() => {
+        const cutoff = Date.now() - ANNOTATION_INDEX_DEFAULT_TTL_MS;
+        expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
+            session.released = true;
+            cancelPdfSidecarSession(session, 'PDF annotation index session expired');
+            cleanupWhenOperationSettles(session);
+        });
+        void sweepStalePdfAnnotationIndexArtifacts().catch((error: unknown) => {
+            logger.debug(`PDF annotation index TTL sweep failed: ${String(error)}`);
+        });
+    }, 30_000);
+    annotationIndexTtlTimer.unref?.();
+}

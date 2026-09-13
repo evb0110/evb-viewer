@@ -1,7 +1,7 @@
 use evb_native_support::{
-    generated_native_tool_protocols::PDF_SEARCH, NativeError, NativeErrorCode, NativeErrorEnvelope,
+    bounded_io::read_open_file_bounded, generated_native_tool_protocols::PDF_SEARCH, NativeError,
+    NativeErrorCode, NativeErrorEnvelope,
 };
-use memmap2::{Mmap, MmapOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::env;
@@ -9,7 +9,7 @@ use std::error::Error;
 #[cfg(test)]
 use std::fs;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::process;
@@ -122,16 +122,12 @@ struct SearchIndex {
 
 #[derive(Debug)]
 enum SearchIndexData {
-    Mapped(Mmap),
-    #[cfg(test)]
     Owned(Vec<u8>),
 }
 
 impl AsRef<[u8]> for SearchIndexData {
     fn as_ref(&self) -> &[u8] {
         match self {
-            Self::Mapped(data) => data,
-            #[cfg(test)]
             Self::Owned(data) => data,
         }
     }
@@ -231,10 +227,10 @@ fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Bo
             SEARCH_INDEX_LIMITS.max_index_bytes
         ))));
     }
-    // SAFETY: the mapping is read-only and retained by SearchIndex. Index files
-    // are immutable revision-keyed sidecars and are replaced atomically.
-    let mapped = unsafe { MmapOptions::new().map(&file)? };
-    load_index_data(SearchIndexData::Mapped(mapped), expected_revision)
+    file.seek(SeekFrom::Start(0))?;
+    let bytes = read_open_file_bounded(file, file_len, "Native search index")
+        .map_err(|error| Box::new(error) as Box<dyn Error>)?;
+    load_index_data(SearchIndexData::Owned(bytes), expected_revision)
 }
 
 fn load_index_data(
@@ -2172,6 +2168,7 @@ mod tests {
         .expect("write temp native search index");
 
         let index = load_index(&path, TEST_DOCUMENT_REVISION).expect("load native search index");
+        assert!(matches!(index.data, SearchIndexData::Owned(_)));
         fs::remove_file(&path).ok();
 
         let mut search_options = options("alpha");

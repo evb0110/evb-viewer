@@ -316,29 +316,7 @@ async function executeNativeMutationSave(
         };
 
     if (Object.keys(nativeMutations).length === 0) {
-        saveTransaction.commitAnnotationSave?.();
-        return {
-            status: 'saved',
-            persisted: {
-                success: true,
-                outPath: plan.target.expectedWorkingPath ?? null,
-                saveMode: getSaveMode(plan),
-                didSaveAs: false,
-            },
-            serializedChanges: false,
-            reloadWaiter: null,
-            completion: {
-                markAnnotationStateSaved: false,
-                markBookmarksStateSaved: false,
-                markPageLabelsStateSaved: false,
-                allowAnnotationSaveStateRefresh: false,
-                allowBookmarksSaveStateRefresh: false,
-                allowPageLabelsSaveStateRefresh: false,
-                markShapeStateSaved: false,
-                preserveLivePdfjsSession: true,
-                resetAnnotationStorage: false,
-            },
-        };
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
 
     let persisted: IPdfPersistResult | null;
@@ -664,16 +642,15 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
 
     // A save that failed keeps its state until the workspace adopts a different
     // document or a fresh attempt supersedes it, so the status bar cannot
-    // present an unsaved document as clean. The revision belongs in the key
-    // beside the paths: reopening the same file leaves both paths untouched,
-    // and the reopened document has not earned the previous one's red dot.
+    // present an unsaved document as clean. The session and original path form
+    // the document identity. Revision changes also happen during resync and
+    // failed writes, so they must not clear the indicator.
     // The reset is synchronous: a queued one could land after the next attempt
     // has already reported its own failure and wipe it.
     watch(
         () => [
+            deps.document.sessionKey.value,
             deps.document.originalPath.value,
-            deps.document.workingCopyPath.value,
-            deps.document.revisionToken.value,
         ],
         () => failureSurface.clearSaveFailure(),
         {flush: 'sync'},

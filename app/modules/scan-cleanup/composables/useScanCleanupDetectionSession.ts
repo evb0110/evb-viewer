@@ -4,6 +4,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupPageOverride,
+    IScanCleanupPlacementAnchorCalibration,
     IScanCleanupPlacementAnchorSummary,
     IScanCleanupPreviewResult,
     TScanCleanupErrorCode,
@@ -16,7 +17,9 @@ import {
     getScanCleanupPageOverrideDefaults,
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
+    usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
+import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
@@ -148,6 +151,31 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const detectionEvidenceComplete = ref(false);
     const detectionResultStoreId = shallowRef<string | null>(null);
     const placementAnchorSummary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(null);
+    const placementAnchorCalibrationInFlight = ref(false);
+    const placementAnchorCalibrationError = ref('');
+    let placementAnchorCalibrationGeneration = 0;
+
+    function currentPlacementAnchorCalibrationSignature() {
+        return createScanCleanupPlacementAnchorCalibrationSignature(
+            toPlainScanCleanupOptions(options.settings),
+        );
+    }
+
+    const placementAnchorCalibrationPending = computed(() => {
+        const capability = getScanCleanupCapability();
+        return placementAnchorCalibrationInFlight.value || Boolean(
+            capability?.resolvePlacementAnchorCalibration
+            && jobState.value?.status === 'completed'
+            && detectionResultStoreId.value !== null
+            && usesScanCleanupInkAlignment(options.settings)
+            && placementAnchorCalibrationError.value === ''
+            && (
+                placementAnchorSummary.value === null
+                || placementAnchorSummary.value.identity.calibrationSignature
+                    !== currentPlacementAnchorCalibrationSignature()
+            ),
+        );
+    });
     let jobId: TJobId | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
@@ -287,12 +315,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // page frames alive.
     const pending = computed(() => starting.value
         || isDetecting.value
+        || placementAnchorCalibrationPending.value
         || (autoPending.value && terminalStatus.value === null));
-    const canStart = computed(() => Boolean(options.sourcePath.value)
-        && !options.isRunning.value
+    const canStartDetection = computed(() => Boolean(options.sourcePath.value)
         && !isDetecting.value
         && !starting.value
         && getScanCleanupCapability() !== null);
+    const canStart = computed(() => canStartDetection.value && !options.isRunning.value);
     const canDetectAll = computed(() => canStart.value && !autoPending.value);
     const progress = computed(() => jobState.value?.progress ?? {
         stage: 'detecting' as const,
@@ -520,6 +549,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function clearDetectionEvidence() {
+        placementAnchorCalibrationGeneration += 1;
         signatures.clear();
         retainedDetectionPages.clear();
         detectionResultCount.value = 0;
@@ -527,6 +557,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectionEvidenceComplete.value = false;
         detectionResultStoreId.value = null;
         placementAnchorSummary.value = null;
+        placementAnchorCalibrationInFlight.value = false;
+        placementAnchorCalibrationError.value = '';
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
@@ -537,10 +569,51 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         clearOutputModeRecommendations();
     }
 
-    function clearDetectionEvidenceForPage(pageNumber: number) {
-        // A page edit can change the document top edge. Do not reuse the
-        // previous xlarge calibration while replacement detection is pending.
-        placementAnchorSummary.value = null;
+    function invalidateDetectionEvidence() {
+        const previousJobId = jobId;
+        const previousJobState = jobState.value;
+        releaseCompletedDetectionEvidence();
+        requestGeneration += 1;
+        if (previousJobId && previousJobState && !detectionIsTerminal(previousJobState)) {
+            void enqueueDetectionRetirement(
+                previousJobId,
+                jobDocumentRevision ?? options.documentRevision.value,
+            );
+        }
+        if (scheduledAutoDetection !== null) {
+            clearTimeout(scheduledAutoDetection);
+            scheduledAutoDetection = null;
+        }
+        autoPending.value = false;
+        jobId = null;
+        jobState.value = null;
+        documentCanvasSignature.value = '';
+        error.value = '';
+        errorCode.value = null;
+        clearDetectionEvidence();
+        const key = options.lifecycleDocumentKey.value;
+        if (key !== null) detectionSessionCache.delete(key);
+    }
+
+    function releaseCompletedDetectionEvidence() {
+        if (!jobId || jobState.value?.status !== 'completed') {
+            return;
+        }
+        void getScanCleanupCapability()?.cancelDetection(jobId, {
+            ownerId: options.ownerId,
+            documentRevision: jobDocumentRevision ?? options.documentRevision.value,
+        }).catch(() => undefined);
+    }
+
+    function clearDetectionEvidenceForPage(pageNumber: number, invalidatePlacementCalibration = true) {
+        if (invalidatePlacementCalibration) {
+            // A page edit can change the document top edge. Do not reuse the
+            // previous xlarge calibration while replacement detection is pending.
+            placementAnchorCalibrationGeneration += 1;
+            placementAnchorSummary.value = null;
+            placementAnchorCalibrationInFlight.value = false;
+            placementAnchorCalibrationError.value = '';
+        }
         retainedDetectionPages.delete(pageNumber);
         signatures.delete(pageNumber);
         detectedLayoutByPage.delete(pageNumber);
@@ -570,7 +643,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (oldest === undefined) {
                 return;
             }
-            clearDetectionEvidenceForPage(oldest);
+            clearDetectionEvidenceForPage(oldest, false);
         }
     }
 
@@ -704,6 +777,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             detectionResultStoreId.value = state.detectionResultStoreId;
         }
         placementAnchorSummary.value = state.placementAnchorSummary ?? null;
+        placementAnchorCalibrationError.value = '';
         for (const pageNumber of state.progress.completedPageNumbers ?? []) {
             retainSettledPage(pageNumber, documentPageCount);
         }
@@ -766,7 +840,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     async function detectAllPages(automatic = false) {
-        if (!options.sourcePath.value || !canStart.value) {
+        if (!options.sourcePath.value || !canStartDetection.value) {
             return;
         }
         const capability = getScanCleanupCapability();
@@ -895,6 +969,117 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         if (state) applyState(state);
+    }
+
+    async function refreshDetection() {
+        invalidateDetectionEvidence();
+        await waitForDetectionRetirements();
+        await detectAllPages(false);
+        await waitForTerminal();
+    }
+
+    async function refreshPlacementAnchorCalibration() {
+        const capability = getScanCleanupCapability();
+        const storeId = detectionResultStoreId.value;
+        const sourcePdfPath = options.sourcePath.value;
+        if (
+            !capability?.resolvePlacementAnchorCalibration
+            || storeId === null
+            || sourcePdfPath === null
+            || jobState.value?.status !== 'completed'
+            || !usesScanCleanupInkAlignment(options.settings)
+        ) {
+            return;
+        }
+        const generation = ++placementAnchorCalibrationGeneration;
+        const signature = currentPlacementAnchorCalibrationSignature();
+        placementAnchorCalibrationInFlight.value = true;
+        placementAnchorCalibrationError.value = '';
+        error.value = '';
+        errorCode.value = null;
+        placementAnchorSummary.value = null;
+        try {
+            const calibration = await capability.resolvePlacementAnchorCalibration(
+                toBridgeSafeScanCleanupPayload({
+                    sourcePdfPath,
+                    ownerId: options.ownerId,
+                    documentRevision: options.documentRevision.value,
+                    detectionResultStoreId: storeId,
+                    options: toPlainScanCleanupOptions(options.settings),
+                }),
+            );
+            if (
+                lifecycle.isDisposed()
+                || generation !== placementAnchorCalibrationGeneration
+                || storeId !== detectionResultStoreId.value
+                || signature !== currentPlacementAnchorCalibrationSignature()
+            ) {
+                return;
+            }
+            if (
+                calibration.summary.identity.calibrationSignature !== signature
+            ) {
+                throw new Error('Scan cleanup placement calibration returned a stale identity');
+            }
+            placementAnchorSummary.value = calibration.summary;
+        } catch (caught) {
+            if (
+                lifecycle.isDisposed()
+                || generation !== placementAnchorCalibrationGeneration
+                || storeId !== detectionResultStoreId.value
+            ) {
+                return;
+            }
+            placementAnchorCalibrationError.value = formatScanCleanupErrorMessage(
+                t('scanCleanup.detectAll.failed'),
+                caught,
+            );
+            error.value = placementAnchorCalibrationError.value;
+            errorCode.value = 'internal';
+            placementAnchorSummary.value = null;
+        } finally {
+            if (!lifecycle.isDisposed() && generation === placementAnchorCalibrationGeneration) {
+                placementAnchorCalibrationInFlight.value = false;
+            }
+        }
+    }
+
+    async function resolvePlacementAnchorsForPage(
+        pageNumber: number,
+    ): Promise<IScanCleanupPlacementAnchorCalibration | undefined> {
+        const capability = getScanCleanupCapability();
+        const storeId = detectionResultStoreId.value;
+        const sourcePdfPath = options.sourcePath.value;
+        const signature = currentPlacementAnchorCalibrationSignature();
+        if (
+            !capability?.resolvePlacementAnchorCalibration
+            || storeId === null
+            || sourcePdfPath === null
+            || placementAnchorSummary.value === null
+            || placementAnchorSummary.value.identity.calibrationSignature !== signature
+            || !usesScanCleanupInkAlignment(options.settings)
+        ) {
+            return undefined;
+        }
+        const calibration = await capability.resolvePlacementAnchorCalibration(
+            toBridgeSafeScanCleanupPayload({
+                sourcePdfPath,
+                ownerId: options.ownerId,
+                documentRevision: options.documentRevision.value,
+                detectionResultStoreId: storeId,
+                options: toPlainScanCleanupOptions(options.settings),
+                pageNumber: requirePageNumber(pageNumber),
+            }),
+        );
+        if (
+            lifecycle.isDisposed()
+            || storeId !== detectionResultStoreId.value
+            || signature !== currentPlacementAnchorCalibrationSignature()
+            || calibration.summary.identity.calibrationSignature !== signature
+        ) {
+            return undefined;
+        }
+        return calibration;
     }
 
     async function cancel() {
@@ -1129,6 +1314,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobState.value = structuredClone(cached.state);
         documentCanvasSignature.value = cached.state.documentCanvasSignature ?? '';
         placementAnchorSummary.value = cached.state.placementAnchorSummary ?? null;
+        placementAnchorCalibrationError.value = '';
         detectionResultCount.value = cached.state.resultCount ?? cached.results.length;
         detectionDocumentPageCount.value = cached.totalPages;
         detectionEvidenceComplete.value = detectionResultCount.value >= cached.totalPages;
@@ -1258,6 +1444,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         }
+        if (previousKey !== undefined && previousKey !== key) {
+            releaseCompletedDetectionEvidence();
+        }
         if (key === null) {
             // The workspace can stay mounted while its document is closed.
             // This is the actual lifecycle boundary for detection state; a
@@ -1304,6 +1493,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // observe a null transition of its own.
         discardScanCleanupDetectionStateForAliases([...documentAliases]);
         documentAliases.clear();
+        releaseCompletedDetectionEvidence();
         clearDetectionEvidence();
     });
     watch(options.active, active => {
@@ -1362,12 +1552,31 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (!documentChanged && !pageCountChanged && changedPages.size === 0) {
                 return;
             }
+            releaseCompletedDetectionEvidence();
             const key = options.lifecycleDocumentKey.value;
             if (key !== null) detectionSessionCache.delete(key);
             if (!isDetecting.value) {
                 jobState.value = null;
                 documentCanvasSignature.value = '';
                 scheduleAutoDetect();
+            }
+        },
+    );
+    watch(
+        [
+            () => currentPlacementAnchorCalibrationSignature(),
+            detectionResultStoreId,
+            () => jobState.value?.status,
+        ],
+        () => {
+            const currentSignature = currentPlacementAnchorCalibrationSignature();
+            if (
+                jobState.value?.status === 'completed'
+                && detectionResultStoreId.value !== null
+                && usesScanCleanupInkAlignment(options.settings)
+                && placementAnchorSummary.value?.identity.calibrationSignature !== currentSignature
+            ) {
+                void refreshPlacementAnchorCalibration();
             }
         },
     );
@@ -1395,11 +1604,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         cancelRequested,
         confidenceByPage,
         detectAllPages,
+        invalidateDetectionEvidence,
         documentCanvasSignature,
         documentPriorByPage,
         detectionEvidenceComplete: computed(() => detectionEvidenceComplete.value),
         detectionResultStoreId: computed(() => detectionResultStoreId.value),
         placementAnchorSummary: computed(() => placementAnchorSummary.value),
+        placementAnchorCalibrationError,
+        placementAnchorCalibrationPending,
+        resolvePlacementAnchorsForPage,
         error,
         errorCode,
         isDetecting,
@@ -1417,6 +1630,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         progressPhaseText,
         progressText,
         progressWidestText,
+        refreshDetection,
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,
         recommendedOutputModeReasonByPage,

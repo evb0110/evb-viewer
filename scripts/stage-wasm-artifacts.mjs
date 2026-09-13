@@ -10,11 +10,12 @@ import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
 import {
     computeWasmSourceFingerprint,
     getWasmArtifactFingerprint,
+    readWasmFingerprintSources,
 } from './wasm-fingerprint.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export async function stageWasmArtifacts(inputDir, outputDir = path.join(projectRoot, 'public', 'wasm')) {
+export async function stageWasmArtifacts(inputDir, outputDir = path.join(projectRoot, 'public', 'wasm'), {rustcCommitHash} = {}) {
     const manifest = JSON.parse(await readFile(path.join(inputDir, 'manifest.json'), 'utf8'));
     if (manifest?.schemaVersion !== 1 || !Array.isArray(manifest.artifacts)) throw new Error('WASM artifact manifest is invalid');
     const manifestByName = new Map(manifest.artifacts.map(entry => [
@@ -26,6 +27,7 @@ export async function stageWasmArtifacts(inputDir, outputDir = path.join(project
         throw new Error('WASM artifact manifest does not contain exactly the expected artifacts');
     }
     const validatedArtifacts = [];
+    const sources = await readWasmFingerprintSources(projectRoot);
     for (const artifact of WASM_ARTIFACTS) {
         const fileName = path.basename(artifact.publicRelativePath);
         const sourcePath = path.join(inputDir, fileName);
@@ -34,6 +36,8 @@ export async function stageWasmArtifacts(inputDir, outputDir = path.join(project
         const expectedFingerprint = await computeWasmSourceFingerprint(artifact, {
             projectRoot,
             rustflags: artifact.rustflags.join(' '),
+            sources,
+            rustcCommitHash,
         });
         const entry = manifestByName.get(fileName);
         if (!entry || entry.byteLength !== bytes.byteLength || entry.fingerprint !== actualFingerprint) throw new Error(`WASM artifact manifest does not match ${fileName}`);

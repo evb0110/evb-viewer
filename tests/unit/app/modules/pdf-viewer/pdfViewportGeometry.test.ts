@@ -14,7 +14,12 @@ import {
     vi,
 } from 'vitest';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
-import { getLayoutContentHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutContentHeight,
+    getLayoutPhysicalScrollSegmentTransition,
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import { getViewportVisibilityFromLayout } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
@@ -77,6 +82,92 @@ describe('pdfViewportGeometry', () => {
             clamped,
             intendedAnchor,
         ))).toEqual(resolveScrollForAnchor(wide, intendedAnchor));
+    });
+
+    it('resolves the exact page and anchor inside the second physical segment', () => {
+        const pageMetrics = Array.from({length: 20_000}, () => ({
+            width: 600,
+            height: 1_000,
+        }));
+        const layout = buildPageLayoutMetrics({
+            pageMetrics,
+            totalPages: pageMetrics.length,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected segmented page layout');
+        }
+
+        const visibility = getViewportVisibilityFromLayout(
+            {
+                clientHeight: 1_000,
+                clientWidth: 1_000,
+                scrollTop: 10_200_020 - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+                scrollLeft: 0,
+            } as HTMLElement,
+            pageMetrics.length,
+            layout,
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+        );
+
+        expect(visibility).toEqual({
+            range: {
+                start: 10_001,
+                end: 10_001,
+            },
+            mostVisiblePage: 10_001,
+        });
+    });
+
+    it('crosses a physical segment boundary once in either direction', () => {
+        const pageMetrics = Array.from({length: 20_000}, () => ({
+            width: 600,
+            height: 1_000,
+        }));
+        const layout = buildPageLayoutMetrics({
+            pageMetrics,
+            totalPages: pageMetrics.length,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected segmented page layout');
+        }
+
+        const viewportHeight = 1_000;
+        const firstSegmentBottom = PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - viewportHeight;
+        const forward = getLayoutPhysicalScrollSegmentTransition(
+            layout,
+            firstSegmentBottom,
+            firstSegmentBottom - 100,
+            viewportHeight,
+            0,
+        );
+        expect(forward).toEqual({
+            origin: PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+            page: 8_226,
+            scrollTop: 912,
+        });
+
+        const backward = getLayoutPhysicalScrollSegmentTransition(
+            layout,
+            0,
+            100,
+            viewportHeight,
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+        );
+        expect(backward).toEqual({
+            origin: 0,
+            page: 8_224,
+            scrollTop: firstSegmentBottom,
+        });
     });
 
     it('is pure and preserves a semantic anchor across corrected geometry', () => {

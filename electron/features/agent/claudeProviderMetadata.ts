@@ -500,5 +500,5 @@ export function shouldUseClaudeAssistantFastMode(
 }
 
 export function shouldRefuseClaudeContextContinuation(messageCount: number, providerThreadId: string | null) {
-    return messageCount > 0 && !providerThreadId;
+    return messageCount > 0 && !providerThreadId?.trim();
 }

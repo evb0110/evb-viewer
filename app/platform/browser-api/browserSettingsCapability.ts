@@ -9,6 +9,7 @@ import type {
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     DEFAULT_SETTINGS,
+    migrateSettings,
     normalizeLocale,
     normalizeTheme,
     sanitizeSettings,
@@ -106,7 +107,7 @@ function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } 
     if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
         return null;
     }
-    return sanitizeSettings(JSON.parse(rawSettings));
+    return migrateSettings(JSON.parse(rawSettings));
 }
 
 function readLatestBrowserSettingsForSave() {
@@ -163,7 +164,7 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
             lockRead.onsuccess = () => {
                 try {
                     const currentSettings = readLatestBrowserSettingsForSave();
-                    const nextSettings = sanitizeSettings({
+                    const nextSettings = migrateSettings({
                         ...currentSettings,
                         ...settings,
                     });
@@ -192,7 +193,7 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
     }
 
     const currentSettings = readLatestBrowserSettingsForSave();
-    const nextSettings = sanitizeSettings({
+    const nextSettings = migrateSettings({
         ...currentSettings,
         ...settings,
     });

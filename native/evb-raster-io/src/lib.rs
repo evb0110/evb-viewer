@@ -9,6 +9,7 @@ const METERS_PER_INCH: f64 = 0.0254;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PassthroughLimits {
     pub max_pixels: u64,
+    pub max_dimension: u32,
     pub max_icc_profile_bytes: usize,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1041,6 +1042,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
     let mut icc_profile = None;
     let mut palette = None;
     let mut indexed_transparency = None;
+    let mut indexed_transparency_seen = false;
     let mut transparency = None;
     loop {
         let mut chunk_header = [0u8; 8];
@@ -1075,7 +1077,11 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 palette = Some(data);
             }
             b"tRNS" if matches!(mode, WalkMode::Decode(_)) => {
-                if transparency.is_some() || length > 256 {
+                if transparency.is_some()
+                    || indexed_transparency.is_some()
+                    || length == 0
+                    || length > 256
+                {
                     return Err(RasterError::invalid("Invalid PNG transparency table"));
                 }
                 let mut data = vec![0; length];
@@ -1114,26 +1120,33 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 if idat_len != 0 {
                     return Err(RasterError::invalid("PNG tRNS appeared after IDAT"));
                 }
-                if matches!(parsed_header.color_type, PngColorType::Indexed) {
-                    return Err(RasterError::invalid(
-                        "Indexed PNG transparency requires decode mode",
-                    ));
-                }
-                if transparency.is_some() {
+                if transparency.is_some()
+                    || (matches!(parsed_header.color_type, PngColorType::Indexed)
+                        && indexed_transparency_seen)
+                {
                     return Err(RasterError::invalid("Duplicate PNG tRNS chunk"));
                 }
-                let expected_length = match parsed_header.color_type {
-                    PngColorType::Gray8 => 2,
-                    PngColorType::Rgb8 => 6,
-                    PngColorType::GrayAlpha8 | PngColorType::Rgba8 => 0,
-                    PngColorType::Indexed => unreachable!(),
-                };
-                if length != expected_length {
-                    return Err(RasterError::invalid("Invalid PNG tRNS length"));
+                if matches!(parsed_header.color_type, PngColorType::Indexed) {
+                    if length == 0 || length > 256 {
+                        return Err(RasterError::invalid("Invalid PNG transparency table"));
+                    }
+                    let mut data = vec![0; length];
+                    read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
+                    indexed_transparency_seen = true;
+                } else {
+                    let expected_length = match parsed_header.color_type {
+                        PngColorType::Gray8 => 2,
+                        PngColorType::Rgb8 => 6,
+                        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => 0,
+                        PngColorType::Indexed => unreachable!(),
+                    };
+                    if length != expected_length {
+                        return Err(RasterError::invalid("Invalid PNG tRNS length"));
+                    }
+                    let mut data = vec![0; length];
+                    read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
+                    transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
                 }
-                let mut data = vec![0; length];
-                read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
-                transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
             }
             b"IDAT" => {
                 let parsed_header =
@@ -1252,9 +1265,11 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
         }
     };
     let (max_pixels, max_dimension) = match mode {
-        WalkMode::Metadata(limits) | WalkMode::Passthrough(limits) => (limits.max_pixels, None),
+        WalkMode::Metadata(limits) | WalkMode::Passthrough(limits) => {
+            (limits.max_pixels, limits.max_dimension)
+        }
         WalkMode::Dimensions(limits) | WalkMode::Decode(limits) => {
-            (limits.max_pixels, Some(limits.max_dimension))
+            (limits.max_pixels, limits.max_dimension)
         }
     };
     if width == 0 || height == 0 {
@@ -1265,12 +1280,10 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
             "PNG dimensions exceed pixel guardrails: {width}x{height}"
         )));
     }
-    if let Some(max_dimension) = max_dimension {
-        if width > max_dimension || height > max_dimension {
-            return Err(RasterError::too_large(format!(
-                "PNG dimensions exceed cleanup guardrails: {width}x{height}"
-            )));
-        }
+    if width > max_dimension || height > max_dimension {
+        return Err(RasterError::too_large(format!(
+            "PNG dimensions exceed cleanup guardrails: {width}x{height}"
+        )));
     }
     let legal_depth = match data[9] {
         0 => matches!(data[8], 1 | 2 | 4 | 8 | 16),

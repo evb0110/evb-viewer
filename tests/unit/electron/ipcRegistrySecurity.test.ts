@@ -103,7 +103,7 @@ const mocks = vi.hoisted(() => {
         registeredWindowsById: new Map<number, unknown>(),
         browserWindowFromWebContents: vi.fn(),
         getWindowByIdFromRegistry: vi.fn(),
-        loadSettings: vi.fn(async () => ({theme: 'system'})),
+        loadSettings: vi.fn(async () => ({theme: 'dark'})),
         updateSettings: vi.fn(),
         setElectronLocale: vi.fn(async () => {}),
         updateRecentFilesMenu: vi.fn(),
@@ -343,7 +343,7 @@ describe('IPC registry sender trust', () => {
         expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
     }, ipcRegistrySecurityImportTimeoutMs);
 
-    it('retries a failed generation and reuses its released handler for a fresh generation', async () => {
+    it('keeps a failed generation deterministic and retries only in a fresh generation', async () => {
         const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
         let attempts = 0;
         const handlers = new Map<string, TRegisteredHandler>();
@@ -384,8 +384,9 @@ describe('IPC registry sender trust', () => {
         await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
             .rejects.toThrow('first lazy load failed');
         await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .resolves.toBe(0);
-        await expect(firstDispose()).resolves.toBeUndefined();
+            .rejects.toThrow('first lazy load failed');
+        expect(attempts).toBe(1);
+        await expect(firstDispose()).rejects.toThrow('first lazy load failed');
         await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
             .rejects.toThrow('no longer active');
 
@@ -405,8 +406,8 @@ describe('IPC registry sender trust', () => {
             0,
         ]);
         await expect(secondDispose()).resolves.toBeUndefined();
-        expect(attempts).toBe(3);
-        expect(mocks.scanCleanupDispose).toHaveBeenCalledTimes(2);
+        expect(attempts).toBe(2);
+        expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('fences held requests and shares concurrent disposal completion', async () => {
@@ -591,7 +592,7 @@ describe('IPC registry sender trust', () => {
         const handler = await getSettingsHandler();
 
         await expect(handler(createEvent('http://127.0.0.1:41001/electron/settings')))
-            .resolves.toEqual({theme: 'system'});
+            .resolves.toMatchObject({theme: 'dark'});
 
         expect(mocks.loadSettings).toHaveBeenCalledOnce();
     });
