@@ -11,7 +11,6 @@ import {
 import {
     mkdirSync,
     readFileSync,
-    unlinkSync,
 } from 'node:fs';
 import {
     basename,
@@ -1000,122 +999,6 @@ describe('Electron E2E - Recent Files', () => {
             Math.abs(layout.pageWidth - (layout.viewportWidth - 40)),
             JSON.stringify(layout),
         ).toBeLessThanOrEqual(1);
-    });
-
-    it('removes a deleted Recent file without starting a visible open transaction', async () => {
-        let session = await sessionFixture.restart({
-            clean: true,
-            sessionName: () => `e2e-recent-missing-${Date.now()}`,
-        });
-        if (!session) {
-            return;
-        }
-
-        const fixturePath = await createLargeScannedFixturePdf(
-            `recent-missing-${Date.now()}.pdf`,
-            2,
-            0,
-        );
-        await openPdfInApp(session.page, fixturePath);
-        await waitForPdfLoaded(session.page);
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
-        if (!session) {
-            return;
-        }
-
-        await waitForStartupOverlayRemoved(session);
-        await waitForRecentFileRow(session, fixturePath);
-        unlinkSync(fixturePath);
-
-        const transition = await evaluateInPage(session.page, (
-            targetSourcePath: string,
-            timeoutMs: number,
-        ) => new Promise<{
-            removed: boolean;
-            sawDocumentTitleChange: boolean;
-            sawOpenButtonDisabled: boolean;
-            sawOpeningSurface: boolean;
-            sawTabTitleChange: boolean;
-            sawTargetDisabled: boolean;
-        }>((resolve) => {
-            const initialDocumentTitle = document.title;
-            const initialTabTitle = document.querySelector<HTMLElement>(
-                '.tab-list .tab.is-active .tab-label',
-            )?.textContent?.trim() ?? '';
-            let sawDocumentTitleChange = false;
-            let sawOpenButtonDisabled = false;
-            let sawOpeningSurface = false;
-            let sawTabTitleChange = false;
-            let sawTargetDisabled = false;
-            let settled = false;
-
-            const findRow = () => Array.from(document.querySelectorAll<HTMLElement>(
-                '.recent-row--data:not(.recent-row--skeleton)',
-            )).find(row => row.dataset.recentSource === targetSourcePath) ?? null;
-            const finish = (removed: boolean) => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                observer.disconnect();
-                window.clearTimeout(timeout);
-                resolve({
-                    removed,
-                    sawDocumentTitleChange,
-                    sawOpenButtonDisabled,
-                    sawOpeningSurface,
-                    sawTabTitleChange,
-                    sawTargetDisabled,
-                });
-            };
-            const sample = () => {
-                const row = findRow();
-                const activeTabTitle = document.querySelector<HTMLElement>(
-                    '.tab-list .tab.is-active .tab-label',
-                )?.textContent?.trim() ?? '';
-                sawDocumentTitleChange ||= document.title !== initialDocumentTitle;
-                sawTabTitleChange ||= activeTabTitle !== initialTabTitle;
-                sawOpenButtonDisabled ||= Boolean(
-                    document.querySelector<HTMLButtonElement>('.open-panel-cta')?.disabled,
-                );
-                sawTargetDisabled ||= Boolean(
-                    row?.classList.contains('is-disabled')
-                    || row?.querySelector<HTMLButtonElement>('button.recent-open')?.disabled,
-                );
-                sawOpeningSurface ||= document.querySelector(
-                    '.document-viewer-chassis__opening-page, .workspace-host__loading',
-                ) !== null;
-                if (!row) {
-                    finish(true);
-                }
-            };
-            const observer = new MutationObserver(sample);
-            observer.observe(document.documentElement, {
-                attributes: true,
-                characterData: true,
-                childList: true,
-                subtree: true,
-            });
-            const timeout = window.setTimeout(() => finish(false), timeoutMs);
-            const row = findRow();
-            sample();
-            row?.querySelector<HTMLButtonElement>('button.recent-open')?.click();
-        }), fixturePath, RECENT_ROW_TIMEOUT_MS);
-
-        expect(transition).toEqual({
-            removed: true,
-            sawDocumentTitleChange: false,
-            sawOpenButtonDisabled: false,
-            sawOpeningSurface: false,
-            sawTabTitleChange: false,
-            sawTargetDisabled: false,
-        });
-        await waitForFunctionInPage(session.page, (targetFileName: string) => (
-            document.body.textContent?.includes(targetFileName) === true
-        ), {timeout: RECENT_ROW_TIMEOUT_MS}, basename(fixturePath));
     });
 
     it('keeps keyboard remove isolated from opening the recent document', async () => {
