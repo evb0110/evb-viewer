@@ -76,9 +76,12 @@ run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
   tesseract-ocr \
   poppler-utils \
-  qpdf \
   djvulibre-bin \
   build-essential \
+  cmake \
+  curl \
+  libjpeg-turbo8-dev \
+  zlib1g-dev \
   git \
   meson \
   ninja-build \
@@ -238,9 +241,29 @@ echo "=========================================="
 echo "3. Bundling qpdf..."
 echo "=========================================="
 
+# Ubuntu 22.04 ships qpdf 10.6, but the MRC extractor and the word-loss audit
+# use qpdf 11 JSON v2 options, so build a pinned release against this glibc.
+QPDF_VERSION="11.9.1"
+QPDF_SHA256="2ba4d248f9567a27c146b9772ef5dc93bd9622317978455ffe91b259340d13d1"
+QPDF_BUILD_DIR="$(mktemp -d /tmp/evb-qpdf-linux-XXXXXX)"
+curl -fsSL -o "$QPDF_BUILD_DIR/qpdf.tar.gz" \
+  "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VERSION/qpdf-$QPDF_VERSION.tar.gz"
+echo "$QPDF_SHA256  $QPDF_BUILD_DIR/qpdf.tar.gz" | sha256sum -c -
+tar -xzf "$QPDF_BUILD_DIR/qpdf.tar.gz" -C "$QPDF_BUILD_DIR"
+cmake -S "$QPDF_BUILD_DIR/qpdf-$QPDF_VERSION" -B "$QPDF_BUILD_DIR/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DREQUIRE_CRYPTO_NATIVE=ON \
+  -DUSE_IMPLICIT_CRYPTO=OFF \
+  -DBUILD_STATIC_LIBS=OFF \
+  -DBUILD_DOC=OFF \
+  -DINSTALL_EXAMPLES=OFF
+cmake --build "$QPDF_BUILD_DIR/build" --parallel "$(nproc)" --target qpdf
+
 QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
 reset_bundle_dir "$QPDF_DIR"
+PATH="$QPDF_BUILD_DIR/build/qpdf:$PATH" \
 bundle_tool "qpdf" "$QPDF_DIR"
+rm -rf "$QPDF_BUILD_DIR"
 bundle_lib_deps "$QPDF_DIR/lib"
 fix_lib_rpaths "$QPDF_DIR/lib"
 
