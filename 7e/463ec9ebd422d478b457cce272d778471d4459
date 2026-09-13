@@ -1,0 +1,33 @@
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_10ba974ce27666::t_c5c880adb7a927 920-924
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_10ba974ce27666::t_c5c880adb7a927 60,881-888,890
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_10ba974ce27666::t_c5c880adb7a927 1062,1065-1184
+  s_10ba974ce27666::t_bbe814afbb24c2 1063-1064
+app/modules/workspace-shell/components/EditorPanesHost.vue
+  s_10ba974ce27666::t_c5c880adb7a927 92-95,294-300
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_10ba974ce27666::t_c5c880adb7a927 31,649-722
+  s_10ba974ce27666::t_e8d3d6dc34f5df 723
+app/modules/document-viewer/runtime/documentViewportWritePort.ts
+  s_10ba974ce27666::t_c5c880adb7a927 27-53
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_10ba974ce27666::t_c5c880adb7a927 4718-4720
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7e463ec9ebd422d478b457cce272d778471d4459",
+  "prompts": {},
+  "sessions": {
+    "s_10ba974ce27666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c61-c9e7-7902-b082-91b5a9762630",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

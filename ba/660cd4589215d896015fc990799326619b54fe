@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/splitPaneCloseContinuity.ts
+  s_10ba974ce27666::t_b5f34984022e13 285,459,463-465,617-620,622-625,644-656,658-662,664-668
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba660cd4589215d896015fc990799326619b54fe",
+  "prompts": {},
+  "sessions": {
+    "s_10ba974ce27666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c61-c9e7-7902-b082-91b5a9762630",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

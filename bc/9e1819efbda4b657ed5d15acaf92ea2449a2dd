@@ -1,0 +1,21 @@
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_71b08669d92876::t_d0f6715e904a09 277,280
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_71b08669d92876::t_f12086fb0fa18d 17,22,26-27,31-32,136,140-141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bc9e1819efbda4b657ed5d15acaf92ea2449a2dd",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
