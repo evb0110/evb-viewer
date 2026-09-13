@@ -1,0 +1,21 @@
+scripts/windows-test/host/utmctlClient.ts
+  s_71b08669d92876::t_ed90b9a370d7cb 256-257
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_71b08669d92876::t_ed90b9a370d7cb 590-596
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c5f1ac63b0dd7ea08461683f0de916dd4c669277",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
