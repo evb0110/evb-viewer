@@ -1,0 +1,19 @@
+tests/e2e/electron/rapidPdfNavigation.e2e.test.ts
+  s_10ba974ce27666::t_6fd05898beac58 1587-1593
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d93dcc0eadcdccf5165ba01cf7539af123ba62d0",
+  "prompts": {},
+  "sessions": {
+    "s_10ba974ce27666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c61-c9e7-7902-b082-91b5a9762630",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
