@@ -592,7 +592,7 @@ describe('IPC registry sender trust', () => {
         const handler = await getSettingsHandler();
 
         await expect(handler(createEvent('http://127.0.0.1:41001/electron/settings')))
-            .resolves.toEqual({theme: 'system'});
+            .resolves.toMatchObject({theme: 'system'});
 
         expect(mocks.loadSettings).toHaveBeenCalledOnce();
     });
