@@ -3,7 +3,7 @@ use crate::cache::{ByteLru, PageCache, SourceFingerprint, DEFAULT_CACHE_BUDGET_B
 use crate::domain::options::OutputMode;
 use crate::engine::staged_input::{invalid, map_raster_error};
 use crate::io::raster;
-use evb_native_support::NativeError;
+use evb_native_support::{NativeError, MAX_WORKER_THREADS};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -86,8 +86,16 @@ where
         return manifest.run_stream_page_jobs(task);
     }
     let worker_threads = page_worker_threads(manifest)?;
-    let processing_threads = std::thread::available_parallelism().map_or(1, usize::from);
+    let processing_threads = processing_worker_threads();
     run_regular_page_jobs(manifest, task, worker_threads, processing_threads)
+}
+
+pub(crate) fn processing_worker_threads() -> usize {
+    capped_worker_threads(std::thread::available_parallelism().map_or(1, usize::from))
+}
+
+fn capped_worker_threads(available: usize) -> usize {
+    available.clamp(1, MAX_WORKER_THREADS)
 }
 
 pub(crate) fn run_regular_page_jobs<M, T, F>(
@@ -564,6 +572,15 @@ mod tests {
         assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
         let _ = fs::remove_file(fifo);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn processing_worker_threads_share_the_native_worker_ceiling() {
+        assert_eq!(
+            capped_worker_threads(32),
+            evb_native_support::MAX_WORKER_THREADS
+        );
+        assert_eq!(capped_worker_threads(0), 1);
     }
 
     #[test]

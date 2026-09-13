@@ -101,6 +101,42 @@ afterEach(() => {
 });
 
 describe('assistant chat session store persistence', () => {
+    it('hydrates persisted sessions asynchronously after construction', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const writer = createAssistantChatSessionStore({persistence});
+        const session = writer.getSession(scope, selection, {create: true});
+        writer.addMessage(session, {
+            role: 'user',
+            text: 'async history',
+        });
+        await writer.flushPersistenceForTests();
+
+        const recoverSessions = vi.spyOn(persistence, 'recoverSessions');
+        const recoveredStore = createAssistantChatSessionStore({persistence});
+
+        expect(recoverSessions).toHaveBeenCalledOnce();
+        expect(recoverSessions.mock.results[0]?.value).toBeInstanceOf(Promise);
+        await recoveredStore.ready;
+        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['async history']);
+    });
+
+    it('bounds the live transcript to the persistence byte budget', () => {
+        const persistence = createPersistence(createTempRoot(), {maxSessionBytes: 1_024});
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+
+        for (let index = 0; index < 20; index += 1) {
+            store.addMessage(session, {
+                role: 'user',
+                text: `message-${index} ${'x'.repeat(180)}`,
+            });
+        }
+
+        expect(session.messages.length).toBeLessThan(20);
+        expect(session.messages.at(-1)?.text).toContain('message-19');
+    });
+
     it('keeps visible history after the old inactivity window passes', () => {
         const store = createAssistantChatSessionStore({
             persistence: false,
@@ -134,6 +170,7 @@ describe('assistant chat session store persistence', () => {
         await store.flushPersistenceForTests();
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         const messages = recoveredStore.getMessages(scope, selection);
 
         expect(messages).toHaveLength(2);
@@ -152,6 +189,25 @@ describe('assistant chat session store persistence', () => {
         ]);
     });
 
+    it('persists removing a canceled message before a restart', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        const message = store.addMessage(session, {
+            role: 'user',
+            text: 'canceled before submission',
+        });
+
+        expect(store.removeMessage(session, message.id)).toBe(true);
+        expect(store.removeMessage(session, message.id)).toBe(false);
+        await store.flushPersistenceForTests();
+
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
+        expect(recoveredStore.getMessages(scope, selection)).toEqual([]);
+    });
+
     it('coalesces rapid deltas and persists the newest snapshot', async () => {
         const rootDir = createTempRoot();
         const persistence = createPersistence(rootDir);
@@ -167,6 +223,7 @@ describe('assistant chat session store persistence', () => {
         const transcriptPath = persistence.sessionPath(store.keyForSession(session));
         expect(persistedRecordCount(transcriptPath)).toBeLessThan(deltaCount);
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection)[0]?.text).toBe('01234567890123456789');
     });
 
@@ -237,6 +294,7 @@ describe('assistant chat session store persistence', () => {
         await store.flushPersistenceForTests();
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
 
         expect(recoveredStore.getMessages(scope, selection)).toEqual([]);
         expect(readdirSync(join(rootDir, 'archive')).some(entry => entry.includes('.corrupt.'))).toBe(true);
@@ -258,6 +316,7 @@ describe('assistant chat session store persistence', () => {
         writeFileSync(transcriptPath, '{"type":"session-snapshot"', {flag: 'a'});
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
 
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['durable message']);
         expect(readFileSync(transcriptPath, 'utf8')).toMatch(/\n$/u);
@@ -338,6 +397,7 @@ describe('assistant chat session store persistence', () => {
             mutateLastPersistedSnapshot(transcriptPath, corruption.mutate);
             const recoveredPersistence = createPersistence(rootDir, {onError});
             const recoveredStore = createAssistantChatSessionStore({persistence: recoveredPersistence});
+            await recoveredStore.ready;
 
             expect(recoveredStore.getMessages(scope, selection), corruption.name).toEqual([]);
             expect(readdirSync(join(rootDir, 'archive')).some(entry => entry.includes('.corrupt.')), corruption.name).toBe(true);
@@ -362,6 +422,7 @@ describe('assistant chat session store persistence', () => {
         await store.flushPersistenceForTests();
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         const recovered = recoveredStore.getSession(scope, selection);
 
         expect(recovered?.turnOwner).toMatchObject({
@@ -407,6 +468,8 @@ describe('assistant chat session store persistence', () => {
             persistence: createPersistence(rootDir, { maxSessions: 2 }),
             maxEntries: 10,
         });
+        await recoveredStore.ready;
+        await recoveredStore.ready;
 
         expect(recoveredStore.listSessions().map(session => session.scope.key).sort()).toEqual([
             'document:/tmp/2.pdf',
@@ -431,6 +494,7 @@ describe('assistant chat session store persistence', () => {
         const archiveRoot = join(rootDir, 'archive');
         const archiveEntries = readdirSync(archiveRoot);
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
 
         expect(archiveEntries.some(entry => entry.includes('.reset.'))).toBe(true);
         const archivedTranscript = archiveEntries.find(entry => entry.includes('.reset.'));
@@ -477,6 +541,7 @@ describe('assistant chat session store persistence', () => {
         expect(basename(transcriptPath).length).toBeLessThan(80);
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(longScope, selection).map(message => message.text)).toEqual(['long key']);
     });
 
@@ -497,6 +562,7 @@ describe('assistant chat session store persistence', () => {
         expect(statSync(transcriptPath).size).toBeLessThanOrEqual(64 * 1024);
         expect(readFileSync(transcriptPath, 'utf8')).toContain('session-snapshot-ref');
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual([largeText]);
     });
 
@@ -531,6 +597,7 @@ describe('assistant chat session store persistence', () => {
         expect(readdirSync(blobsDir).filter(entry => entry.endsWith('.json'))).toHaveLength(1);
         expect(directoryFileBytes(blobsDir)).toBeLessThan(2 * 64 * 1024);
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection)[0]).toMatchObject({
             text: 'image history 31',
             attachments: [{dataUrl: attachmentData}],
@@ -577,6 +644,7 @@ describe('assistant chat session store persistence', () => {
         writeFileSync(transcriptPath, `${JSON.stringify(previousReference)}\n${JSON.stringify(corruptReference)}\n`);
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection)[0]?.text).toBe('prior generation '.repeat(10_000));
     });
 
@@ -607,6 +675,7 @@ describe('assistant chat session store persistence', () => {
         });
         await store.flushPersistenceForTests();
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['retry me']);
     });
 
@@ -644,6 +713,7 @@ describe('assistant chat session store persistence', () => {
         await store.flushPersistence();
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text))
             .toEqual(['flush the newest pending state']);
     });

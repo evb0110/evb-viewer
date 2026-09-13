@@ -22,6 +22,7 @@ function createChildRecord(child: ChildProcess, processIdentity: NonNullable<Awa
         childId: 'ocr-child:platform-proof',
         commandLabel: 'project8-platform-proof',
         state: 'registered',
+        cleanupAttempts: 0,
         pid: child.pid ?? null,
         processIdentity,
         cleanupAttemptInFlight: false,

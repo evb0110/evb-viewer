@@ -15,6 +15,7 @@ import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
 import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/utils/document-viewer/pageLabels';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 function createDeferred<T>() {
     let resolve!: (value: T) => void;
@@ -350,6 +351,55 @@ describe('usePageLabelState', () => {
             String(totalPages - 1),
             String(totalPages),
         ]);
+    });
+
+    it('uses compact catalog ranges when PDF.js cannot read dense labels', async () => {
+        const totalPages = PAGE_LABEL_DENSE_READ_MAX_PAGES + 1;
+        const readPageLabelRanges = vi.fn(async (): Promise<IPdfPageLabelRange[]> => [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: totalPages,
+                style: 'D',
+                prefix: 'Appendix ',
+                startNumber: 1,
+            },
+        ]);
+        const pdfDocument = createPdfDocumentRef(totalPages, vi.fn(async () => {
+            throw new Error('dense PDF.js page-label reads must stay skipped');
+        }));
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(totalPages),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            markDirty: vi.fn(),
+            readPageLabelRanges,
+        });
+
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(readPageLabelRanges).toHaveBeenCalled();
+        expect(state.pageLabelsResolved.value).toBe(true);
+        expect(state.pageLabelRanges.value).toEqual([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: totalPages,
+                style: 'D',
+                prefix: 'Appendix ',
+                startNumber: 1,
+            },
+        ]);
+        expect(state.labelAt(1)).toBe('i');
+        expect(state.labelAt(totalPages)).toBe('Appendix 1');
     });
 
     it('keeps the last successful labels unresolved after a transient read failure', async () => {

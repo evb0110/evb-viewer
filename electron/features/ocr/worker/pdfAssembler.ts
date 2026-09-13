@@ -46,11 +46,9 @@ const XOBJECT_DRAW_LINE_RE = /^[^\r\n]*\/[A-Za-z0-9._-]+\s+Do\b[^\r\n]*(?:\r?\n)
 const OCR_LAYER_MARKER = 'EVB_VIEWER_OCR_LAYER';
 const MAX_OCR_OUTPUT_ABSOLUTE_GROWTH_BYTES = 100 * 1024 * 1024;
 const MAX_OCR_OUTPUT_GROWTH_MULTIPLIER = 4;
-const INVISIBLE_TEXT_RENDERING_RE = /(?:^|\s)3(?:\.0+)?\s+Tr\b/;
 const TEXT_RENDERING_MODE_RE = /(^|\s)[0-7](?:\.0+)?\s+Tr\b/gm;
 const TEXT_OBJECT_BEGIN_RE = /\bBT\b/g;
 const TESSERACT_HIDDEN_TEXT_OBJECT_RE = /BT[\s\S]*?(?:^|\s)3(?:\.0+)?\s+Tr\b[\s\S]*?ET\s*/gm;
-const TEXT_SHOW_OPERATOR_RE = /\b(?:Tj|TJ)\b|(?:^|\s)['"](?=\s|$)/m;
 const TESSERACT_EMPTY_TEXT_ONLY_PREAMBLE_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+Q\s*$/;
 const CONTENTS_NAME = PDFName.of('Contents');
 const RESOURCES_NAME = PDFName.of('Resources');
@@ -59,6 +57,76 @@ const XOBJECT_NAME = PDFName.of('XObject');
 const EXT_G_STATE_NAME = PDFName.of('ExtGState');
 const EXT_G_STATE_TYPE_NAME = PDFName.of('ExtGState');
 const IMAGE_OR_FORM_DRAW_TEST_RE = /\/[^\s]+\s+Do\b/;
+const PDF_CONTENT_OPERATORS = new Set([
+    'b',
+    'B',
+    'B*',
+    'BDC',
+    'BI',
+    'BMC',
+    'BT',
+    'BX',
+    'c',
+    'cm',
+    'CS',
+    'cs',
+    'd',
+    'Do',
+    'DP',
+    'EI',
+    'EMC',
+    'ET',
+    'EX',
+    'f',
+    'F',
+    'f*',
+    'G',
+    'g',
+    'gs',
+    'h',
+    'ID',
+    'j',
+    'J',
+    'l',
+    'm',
+    'M',
+    'MP',
+    'n',
+    'q',
+    'Q',
+    're',
+    'RG',
+    'rg',
+    'ri',
+    's',
+    'S',
+    'SC',
+    'sc',
+    'SCN',
+    'scn',
+    'sh',
+    'T*',
+    'Tc',
+    'Td',
+    'TD',
+    'Tf',
+    'Tj',
+    'TJ',
+    'TL',
+    'Tm',
+    'Tr',
+    'Ts',
+    'Tw',
+    'Tz',
+    'v',
+    'w',
+    'W',
+    'W*',
+    'y',
+    '\'',
+    '"',
+]);
+
 export type TOcrPageEntryValue = string | {
     path: string;
     pageGeometry?: IOcrPageGeometry;
@@ -89,6 +157,19 @@ export class OcrPageGeometryError extends TypeError {
     constructor(detail: string) {
         super(`OCR page geometry is invalid: ${detail}`);
         this.name = 'OcrPageGeometryError';
+    }
+}
+
+export type TOcrPageReplacementUnsupportedReason = 'mixed-text' | 'text-clipping';
+
+export class OcrPageReplacementUnsupportedError extends Error {
+    readonly code = 'OCR_PAGE_REPLACEMENT_UNSUPPORTED' as const;
+    readonly reason: TOcrPageReplacementUnsupportedReason;
+
+    constructor(reason: TOcrPageReplacementUnsupportedReason, detail: string) {
+        super(`OCR page replacement is unsupported: ${detail}`);
+        this.name = 'OcrPageReplacementUnsupportedError';
+        this.reason = reason;
     }
 }
 
@@ -437,19 +518,427 @@ function isTextOnlyOcrStream(streamText: string, strippedText: string) {
     return strippedText.trim().replace(TESSERACT_EMPTY_TEXT_ONLY_PREAMBLE_RE, '').trim() === '';
 }
 
-function removeSupportedHiddenTextObjects(streamText: string) {
-    let removedText = '';
-    const sanitizedText = streamText.replace(TESSERACT_HIDDEN_TEXT_OBJECT_RE, (textObject) => {
-        const hiddenModeIndex = textObject.search(INVISIBLE_TEXT_RENDERING_RE);
-        const textShowIndex = textObject.search(TEXT_SHOW_OPERATOR_RE);
-        if (hiddenModeIndex < 0 || textShowIndex < hiddenModeIndex) {
-            return textObject;
+type TPdfContentTokenKind = 'atom' | 'string' | 'array' | 'inline-image';
+
+interface IPdfContentToken {
+    kind: TPdfContentTokenKind;
+    start: number;
+    end: number;
+    text: string;
+}
+
+interface IPdfContentTokenization {
+    complete: boolean;
+    tokens: IPdfContentToken[];
+}
+
+interface IHiddenTextRemovalResult {
+    finalRenderingMode: number;
+    removedText: string;
+    sanitizedText: string;
+    unsupportedReason?: {
+        detail: string;
+        reason: TOcrPageReplacementUnsupportedReason;
+    };
+}
+
+function skipPdfHexString(source: string, start: number) {
+    for (let index = start + 1; index < source.length; index += 1) {
+        if (source[index] === '>') {
+            return {
+                end: index + 1,
+                complete: true,
+            };
         }
-        removedText += textObject;
-        return '';
-    });
+    }
     return {
-        removedText,
+        end: source.length,
+        complete: false,
+    };
+}
+
+function skipPdfDictionary(source: string, start: number) {
+    let depth = 1;
+    let index = start + 2;
+    while (index < source.length) {
+        if (source[index] === '(') {
+            const string = skipPdfString(source, index);
+            index = string.end;
+            if (!string.complete) {
+                return string;
+            }
+            continue;
+        }
+        if (source[index] === '<' && source[index + 1] === '<') {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if (source[index] === '>' && source[index + 1] === '>') {
+            depth -= 1;
+            index += 2;
+            if (depth === 0) {
+                return {
+                    end: index,
+                    complete: true,
+                };
+            }
+            continue;
+        }
+        if (source[index] === '%') {
+            const lineEnd = source.indexOf('\n', index + 1);
+            index = lineEnd === -1 ? source.length : lineEnd + 1;
+            continue;
+        }
+        index += 1;
+    }
+    return {
+        end: source.length,
+        complete: false,
+    };
+}
+
+function skipPdfArray(source: string, start: number) {
+    let depth = 1;
+    let index = start + 1;
+    while (index < source.length) {
+        if (source[index] === '(') {
+            const string = skipPdfString(source, index);
+            index = string.end;
+            if (!string.complete) {
+                return string;
+            }
+            continue;
+        }
+        if (source[index] === '<' && source[index + 1] === '<') {
+            const dictionary = skipPdfDictionary(source, index);
+            index = dictionary.end;
+            if (!dictionary.complete) {
+                return dictionary;
+            }
+            continue;
+        }
+        if (source[index] === '<') {
+            const hexString = skipPdfHexString(source, index);
+            index = hexString.end;
+            if (!hexString.complete) {
+                return hexString;
+            }
+            continue;
+        }
+        if (source[index] === '[') {
+            depth += 1;
+            index += 1;
+            continue;
+        }
+        if (source[index] === ']') {
+            depth -= 1;
+            index += 1;
+            if (depth === 0) {
+                return {
+                    end: index,
+                    complete: true,
+                };
+            }
+            continue;
+        }
+        if (source[index] === '%') {
+            const lineEnd = source.indexOf('\n', index + 1);
+            index = lineEnd === -1 ? source.length : lineEnd + 1;
+            continue;
+        }
+        index += 1;
+    }
+    return {
+        end: source.length,
+        complete: false,
+    };
+}
+
+function findInlineImageEnd(source: string, start: number) {
+    const idPattern = /(?:^|\s)ID(?=\s)/gu;
+    idPattern.lastIndex = start;
+    const idMatch = idPattern.exec(source);
+    if (!idMatch) {
+        return null;
+    }
+    const idStart = source[idMatch.index] === 'I' ? idMatch.index : idMatch.index + 1;
+    const imageEndPattern = /(?:^|\s)EI(?=\s|$)/gu;
+    imageEndPattern.lastIndex = idStart + 2;
+    const imageEndMatch = imageEndPattern.exec(source);
+    if (!imageEndMatch) {
+        return null;
+    }
+    const imageEndStart = source[imageEndMatch.index] === 'E'
+        ? imageEndMatch.index
+        : imageEndMatch.index + 1;
+    return imageEndStart + 2;
+}
+
+function tokenizePdfContent(source: string): IPdfContentTokenization {
+    const tokens: IPdfContentToken[] = [];
+    let index = 0;
+    while (index < source.length) {
+        const code = source.charCodeAt(index);
+        if (isPdfWhitespace(code)) {
+            index += 1;
+            continue;
+        }
+        if (source[index] === '%') {
+            const lineEnd = source.indexOf('\n', index + 1);
+            index = lineEnd === -1 ? source.length : lineEnd + 1;
+            continue;
+        }
+
+        const start = index;
+        let end = index + 1;
+        let kind: TPdfContentTokenKind = 'atom';
+        if (source[index] === '(') {
+            const string = skipPdfString(source, index);
+            end = string.end;
+            kind = 'string';
+            if (!string.complete) {
+                return {
+                    complete: false,
+                    tokens,
+                };
+            }
+        } else if (source[index] === '<' && source[index + 1] === '<') {
+            const dictionary = skipPdfDictionary(source, index);
+            end = dictionary.end;
+            kind = 'array';
+            if (!dictionary.complete) {
+                return {
+                    complete: false,
+                    tokens,
+                };
+            }
+        } else if (source[index] === '<') {
+            const hexString = skipPdfHexString(source, index);
+            end = hexString.end;
+            kind = 'string';
+            if (!hexString.complete) {
+                return {
+                    complete: false,
+                    tokens,
+                };
+            }
+        } else if (source[index] === '[') {
+            const array = skipPdfArray(source, index);
+            end = array.end;
+            kind = 'array';
+            if (!array.complete) {
+                return {
+                    complete: false,
+                    tokens,
+                };
+            }
+        } else if (source[index] === ']' || source[index] === '>') {
+            return {
+                complete: false,
+                tokens,
+            };
+        } else if (source[index] === '\'' || source[index] === '"') {
+            end = index + 1;
+        } else if (source[index] === '/') {
+            const name = decodePdfNameToken(source, index);
+            end = name.end;
+            if (!name.complete) {
+                return {
+                    complete: false,
+                    tokens,
+                };
+            }
+        } else {
+            end = skipPdfToken(source, index);
+        }
+
+        if (end <= index) {
+            return {
+                complete: false,
+                tokens,
+            };
+        }
+
+        const token: IPdfContentToken = {
+            kind,
+            start,
+            end,
+            text: source.slice(start, end),
+        };
+        if (token.text === 'BI') {
+            const inlineImageEnd = findInlineImageEnd(source, end);
+            if (inlineImageEnd === null) {
+                return {
+                    complete: false,
+                    tokens,
+                };
+            }
+            tokens.push({
+                kind: 'inline-image',
+                start,
+                end: inlineImageEnd,
+                text: source.slice(start, inlineImageEnd),
+            });
+            index = inlineImageEnd;
+            continue;
+        }
+        tokens.push(token);
+        index = end;
+    }
+    return {
+        complete: true,
+        tokens,
+    };
+}
+
+function isPdfContentOperator(token: IPdfContentToken) {
+    return token.kind === 'atom' && PDF_CONTENT_OPERATORS.has(token.text);
+}
+
+function isPdfNumberToken(token: IPdfContentToken | undefined) {
+    if (!token || token.kind !== 'atom' || token.text.length === 0) {
+        return false;
+    }
+    const value = Number(token.text);
+    return Number.isFinite(value);
+}
+
+function getTextShowingOperandStart(
+    operator: string,
+    operands: readonly IPdfContentToken[],
+) {
+    const requiredCount = operator === '"' ? 3 : 1;
+    const required = operands.slice(-requiredCount);
+    const textOperand = required.at(-1);
+    const hasTextOperand = operator === 'TJ'
+        ? textOperand?.kind === 'array'
+        : textOperand?.kind === 'string';
+    if (
+        operands.length !== requiredCount
+        || !hasTextOperand
+        || operator === '"' && (
+            !isPdfNumberToken(required[0])
+            || !isPdfNumberToken(required[1])
+        )
+    ) {
+        return null;
+    }
+    return required[0]?.start ?? null;
+}
+
+function removeSupportedHiddenTextObjects(streamText: string, initialRenderingMode = 0): IHiddenTextRemovalResult {
+    const unchanged = (unsupportedReason?: IHiddenTextRemovalResult['unsupportedReason']): IHiddenTextRemovalResult => ({
+        finalRenderingMode: initialRenderingMode,
+        removedText: '',
+        sanitizedText: streamText,
+        ...(unsupportedReason ? { unsupportedReason } : {}),
+    });
+    const tokenization = tokenizePdfContent(streamText);
+    if (!tokenization.complete) {
+        return unchanged();
+    }
+
+    let renderingMode = initialRenderingMode;
+    let inTextObject = false;
+    let hasHiddenText = false;
+    let hasVisibleText = false;
+    let pendingOperands: IPdfContentToken[] = [];
+    const removals: Array<readonly [number, number]> = [];
+    const removedText: string[] = [];
+
+    for (const token of tokenization.tokens) {
+        if (token.kind === 'inline-image') {
+            pendingOperands = [];
+            continue;
+        }
+        if (!isPdfContentOperator(token)) {
+            pendingOperands.push(token);
+            continue;
+        }
+
+        if (token.text === 'BT') {
+            if (inTextObject) {
+                return unchanged();
+            }
+            inTextObject = true;
+            hasHiddenText = false;
+            hasVisibleText = false;
+            pendingOperands = [];
+            continue;
+        }
+        if (token.text === 'ET') {
+            if (!inTextObject || pendingOperands.length > 0) {
+                return unchanged();
+            }
+            inTextObject = false;
+            pendingOperands = [];
+            continue;
+        }
+        if (token.text === 'Tr') {
+            const modeToken = pendingOperands.at(-1);
+            const mode = modeToken !== undefined && isPdfNumberToken(modeToken)
+                ? Number(modeToken.text)
+                : Number.NaN;
+            if (!Number.isInteger(mode) || mode < 0 || mode > 7) {
+                return unchanged();
+            }
+            renderingMode = mode;
+            pendingOperands = [];
+            continue;
+        }
+
+        if (token.text === 'Tj' || token.text === 'TJ' || token.text === '\'' || token.text === '"') {
+            if (inTextObject && renderingMode >= 4 && renderingMode <= 7) {
+                return unchanged({
+                    detail: `text clipping rendering mode ${String(renderingMode)} cannot be replaced safely`,
+                    reason: 'text-clipping', 
+                });
+            }
+            if (inTextObject && renderingMode === 3) {
+                if (hasVisibleText) {
+                    return unchanged({
+                        detail: 'hidden and visible text share one text object',
+                        reason: 'mixed-text', 
+                    });
+                }
+                hasHiddenText = true;
+                const start = getTextShowingOperandStart(token.text, pendingOperands);
+                if (start === null) {
+                    return unchanged();
+                }
+                removals.push([
+                    start,
+                    token.end,
+                ]);
+                removedText.push(streamText.slice(start, token.end));
+            } else if (inTextObject && renderingMode <= 2) {
+                if (hasHiddenText) {
+                    return unchanged({
+                        detail: 'hidden and visible text share one text object',
+                        reason: 'mixed-text', 
+                    });
+                }
+                hasVisibleText = true;
+            }
+        }
+        pendingOperands = [];
+    }
+
+    if (inTextObject || pendingOperands.length > 0) {
+        return unchanged();
+    }
+
+    let sanitizedText = streamText;
+    for (const [
+        start,
+        end,
+    ] of removals.toReversed()) {
+        sanitizedText = `${sanitizedText.slice(0, start)}${sanitizedText.slice(end)}`;
+    }
+    return {
+        finalRenderingMode: renderingMode,
+        removedText: removedText.join('\n'),
         sanitizedText,
     };
 }
@@ -470,8 +959,12 @@ function removePreviousOcrLayer(page: PDFPage) {
     const removedFontNames = new Set<string>();
     const removedXObjectNames = new Set<string>();
     const removedExtGStateNames = new Set<string>();
+    const contentIndexesToRemove = new Set<number>();
+    const contentReplacements = new Map<number, string>();
+    const contentRefsToDelete = new Map<number, PDFRef>();
     let canProveKeptContent = true;
-    for (let index = contents.size() - 1; index >= 0; index -= 1) {
+    let renderingMode = 0;
+    for (let index = 0; index < contents.size(); index += 1) {
         const contentRef = contents.get(index);
         const contentStream = lookupPageContentStream(page, contentRef);
         if (!contentStream) {
@@ -484,9 +977,9 @@ function removePreviousOcrLayer(page: PDFPage) {
             const markedXObjects = scanResourceReferences(streamText, 'Do');
             const markedFonts = scanResourceReferences(streamText, 'Tf');
             const markedExtGStates = scanResourceReferences(streamText, 'gs');
-            contents.remove(index);
+            contentIndexesToRemove.add(index);
             if (contentRef instanceof PDFRef) {
-                context.delete(contentRef);
+                contentRefsToDelete.set(index, contentRef);
             }
             if (markedXObjects.complete && markedFonts.complete && markedExtGStates.complete) {
                 markedXObjects.names.forEach(name => removedXObjectNames.add(name));
@@ -496,43 +989,42 @@ function removePreviousOcrLayer(page: PDFPage) {
             continue;
         }
 
-        if (!INVISIBLE_TEXT_RENDERING_RE.test(streamText)) {
-            keptContentText.push(streamText);
-            continue;
+        const removal = removeSupportedHiddenTextObjects(streamText, renderingMode);
+        if (removal.unsupportedReason !== undefined) {
+            throw new OcrPageReplacementUnsupportedError(
+                removal.unsupportedReason.reason,
+                removal.unsupportedReason.detail,
+            );
         }
-
+        renderingMode = removal.finalRenderingMode;
         const {
             removedText,
             sanitizedText,
-        } = removeSupportedHiddenTextObjects(streamText);
+        } = removal;
         if (removedText.length > 0) {
             addProvenResourceNames(removedFontNames, scanResourceReferences(removedText, 'Tf'));
             addProvenResourceNames(removedXObjectNames, scanResourceReferences(removedText, 'Do'));
             addProvenResourceNames(removedExtGStateNames, scanResourceReferences(removedText, 'gs'));
             if (sanitizedText.trim().length === 0) {
-                contents.remove(index);
+                contentIndexesToRemove.add(index);
                 if (contentRef instanceof PDFRef) {
-                    context.delete(contentRef);
+                    contentRefsToDelete.set(index, contentRef);
                 }
             } else {
-                const sanitizedRef = context.register(context.flateStream(sanitizedText));
-                contents.set(index, sanitizedRef);
-                if (contentRef instanceof PDFRef) {
-                    context.delete(contentRef);
-                }
+                contentReplacements.set(index, sanitizedText);
                 keptContentText.push(sanitizedText);
             }
             continue;
         }
 
         const strippedText = streamText.replace(TESSERACT_HIDDEN_TEXT_OBJECT_RE, '');
-        if (isTextOnlyOcrStream(streamText, strippedText)) {
+        if (removal.finalRenderingMode === 0 && isTextOnlyOcrStream(streamText, strippedText)) {
             addProvenResourceNames(removedFontNames, scanResourceReferences(streamText, 'Tf'));
             addProvenResourceNames(removedXObjectNames, scanResourceReferences(streamText, 'Do'));
             addProvenResourceNames(removedExtGStateNames, scanResourceReferences(streamText, 'gs'));
-            contents.remove(index);
+            contentIndexesToRemove.add(index);
             if (contentRef instanceof PDFRef) {
-                context.delete(contentRef);
+                contentRefsToDelete.set(index, contentRef);
             }
             continue;
         }
@@ -541,6 +1033,25 @@ function removePreviousOcrLayer(page: PDFPage) {
         // preamble to keep all following text invisible. Removing just that
         // preamble makes the original OCR layer paint over the scanned page.
         keptContentText.push(streamText);
+    }
+
+    for (const [
+        index,
+        sanitizedText,
+    ] of contentReplacements) {
+        const contentRef = contents.get(index);
+        const sanitizedRef = context.register(context.flateStream(sanitizedText));
+        contents.set(index, sanitizedRef);
+        if (contentRef instanceof PDFRef) {
+            context.delete(contentRef);
+        }
+    }
+    for (const index of [...contentIndexesToRemove].toReversed()) {
+        contents.remove(index);
+        const contentRef = contentRefsToDelete.get(index);
+        if (contentRef !== undefined) {
+            context.delete(contentRef);
+        }
     }
 
     const keptText = keptContentText.join('\n');

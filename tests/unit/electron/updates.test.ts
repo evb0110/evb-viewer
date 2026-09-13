@@ -70,6 +70,7 @@ const mocks = vi.hoisted(() => {
     autoUpdater.downloadUpdate = vi.fn();
     autoUpdater.quitAndInstall = vi.fn();
     autoUpdater.setFeedURL = vi.fn();
+    const checkMacCodeSignature = vi.fn(async () => true as boolean | null);
     const sessionCookies = {
         get: vi.fn(async (): Promise<Array<{value: string}>> => []),
         set: vi.fn(async () => undefined),
@@ -82,6 +83,7 @@ const mocks = vi.hoisted(() => {
         },
         CancellationToken: TestCancellationToken,
         autoUpdater,
+        checkMacCodeSignature,
         fetch: vi.fn(),
         session: {defaultSession: {cookies: sessionCookies}},
         loadSettings: vi.fn(async () => ({})),
@@ -133,7 +135,7 @@ vi.mock('@electron/updateHealthMarker', () => ({
     recordPendingUpdateStartup: mocks.recordPendingUpdateStartup,
     UPDATE_STARTUP_FAILURE_THRESHOLD: 3,
 }));
-vi.mock('@electron/updates/checkMacCodeSignature', () => ({checkMacCodeSignature: vi.fn(async () => true)}));
+vi.mock('@electron/updates/checkMacCodeSignature', () => ({checkMacCodeSignature: mocks.checkMacCodeSignature}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
@@ -146,12 +148,13 @@ function createMetadataResponse(version: string, setCookie?: string) {
     if (setCookie) {
         headers.set('set-cookie', setCookie);
     }
+    const body = JSON.stringify({release: {tag: version}});
     return {
         headers,
         ok: true,
         status: 200,
+        body: {getReader: () => new Response(body).body!.getReader()},
         json: async () => ({release: {tag: version}}),
-        text: async () => `version: ${version}\n`,
     };
 }
 
@@ -210,6 +213,8 @@ describe('updates robustness', () => {
         mocks.autoUpdater.downloadUpdate.mockResolvedValue([]);
         mocks.autoUpdater.quitAndInstall.mockReset();
         mocks.autoUpdater.setFeedURL.mockReset();
+        mocks.checkMacCodeSignature.mockReset();
+        mocks.checkMacCodeSignature.mockResolvedValue(true);
         mocks.fetch.mockReset();
         mocks.session.defaultSession.cookies.get.mockReset();
         mocks.session.defaultSession.cookies.set.mockReset();
@@ -254,6 +259,25 @@ describe('updates robustness', () => {
             phase: 'idle',
             version: '1.0.0',
         });
+    });
+
+    it('retries updater support after a transient macOS signature-check result', async () => {
+        mocks.checkMacCodeSignature
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(true);
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.0.0'));
+
+        const updates = await loadUpdatesModule();
+
+        updates.initializeUpdates(() => {});
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledOnce();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledTimes(2);
+        expect(mocks.fetch).toHaveBeenCalledOnce();
     });
 
     it('redacts endpoint credentials and URL values from updater status messages', async () => {
@@ -1125,7 +1149,7 @@ describe('updates robustness', () => {
         );
     });
 
-    it('does not block installation when the diagnostic health marker cannot be written', async () => {
+    it('aborts installation when the diagnostic health marker cannot be written', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.markUpdateInstallPending.mockRejectedValueOnce(new Error('disk is read-only'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
@@ -1141,10 +1165,33 @@ describe('updates robustness', () => {
         await flushPromises();
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            'Failed to write update health marker before install: disk is read-only',
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            'Update installation aborted: failed to write update health marker: disk is read-only',
+            {
+                code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+                context: {},
+                cause: expect.any(Error),
+            },
         );
-        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    });
+
+    it('rejects oversized release metadata before reading its body', async () => {
+        vi.resetModules();
+        const metadata = await import('@electron/updates/fetchLatestReleaseMetadataVersion');
+        const response = new Response('{"release":{"tag":"1.1.0"}}', {headers: {'content-length': String(16 * 1024 + 1)}});
+        mocks.fetch.mockResolvedValue(response);
+
+        await expect(metadata.fetchLatestReleaseMetadataVersion(
+            'https://updates.example.test/latest',
+            mocks.logger,
+        )).rejects.toThrow('maximum allowed response size');
+
+        mocks.fetch.mockResolvedValue(new Response(new Uint8Array(16 * 1024 + 1)));
+        await expect(metadata.fetchLatestReleaseMetadataVersion(
+            'https://updates.example.test/latest',
+            mocks.logger,
+        )).rejects.toThrow('maximum allowed response size');
     });
 
     it('throttles download progress and installs after the approved download completes', async () => {

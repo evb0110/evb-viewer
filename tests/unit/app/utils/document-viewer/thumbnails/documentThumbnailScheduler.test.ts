@@ -97,7 +97,51 @@ function cappedLeaseRender(widthPx: number, cap: number, release = vi.fn()) {
     };
 }
 
+interface IRenderRequest {
+    pageNumber: number;
+    signal: AbortSignal;
+}
+
 describe('createDocumentThumbnailScheduler', () => {
+    it('frees a slot when a render ignores its abort signal', async () => {
+        vi.useFakeTimers();
+        const schedulerHolder: {scheduler: ReturnType<typeof createDocumentThumbnailScheduler> | null} = {scheduler: null};
+        const aborted = vi.fn(() => schedulerHolder.scheduler?.reconcile([demand(2, 128)]));
+        const render = vi.fn((request: IRenderRequest) => {
+            const pageNumber = request.pageNumber;
+            const signal = request.signal;
+            signal.addEventListener('abort', aborted, {once: true});
+            return pageNumber === 1
+                ? new Promise<IDocumentSurfaceLease>(() => undefined)
+                : Promise.resolve(lease(128));
+        });
+        const scheduler = createDocumentThumbnailScheduler({
+            maxConcurrency: 1,
+            onStateChange: vi.fn(),
+            prepareSurface: vi.fn(async () => undefined),
+            render,
+            renderTimeoutMs: 100,
+        });
+        schedulerHolder.scheduler = scheduler;
+
+        scheduler.reconcile([
+            demand(1, 128),
+            demand(2, 128),
+        ]);
+        const idle = scheduler.whenIdle();
+
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(idle).resolves.toBeUndefined();
+        expect(aborted).toHaveBeenCalledOnce();
+        expect(render.mock.calls.map(([request]) => request.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+        expect(scheduler.getSnapshot().activeCount).toBe(0);
+        scheduler.dispose();
+        vi.useRealTimers();
+    });
+
     it('schedules navigation before nearby work and respects the concurrency limit', async () => {
         const pending: Array<IDeferred<IDocumentSurfaceLease>> = [];
         const started: number[] = [];
@@ -122,6 +166,7 @@ describe('createDocumentThumbnailScheduler', () => {
         expect(scheduler.getSnapshot().activeCount).toBe(1);
 
         pending[0]!.resolve(lease(128));
+        await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
         expect(started[1]).toBe(13);

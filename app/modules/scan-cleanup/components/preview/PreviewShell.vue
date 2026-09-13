@@ -221,7 +221,7 @@
                             @set-canvas="setOutputCanvas"
                             @set-fit-area="setOutputFitArea"
                         >
-                            <template v-if="!disabled" #paper-overlay="{output}">
+                            <template v-if="previewEditsEnabled" #paper-overlay="{output}">
                                 <PlacementOverlay
                                     :anchors="placementAnchors"
                                     :enabled="matchPageSize"
@@ -340,7 +340,7 @@
                 </div>
             </div>
             <div
-                v-if="presentationResult && !disabled && !requestedPageLoadingVisible"
+                v-if="previewEditsEnabled"
                 class="drag-overlay-layer"
                 :style="[dragOverlayStyle, previewTransformStyle]"
             >
@@ -381,7 +381,7 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="presentationResult && zoneEditing && !disabled && !requestedPageLoadingVisible && outputMode !== undefined"
+                v-if="previewEditsEnabled && zoneEditing && outputMode !== undefined"
                 :output-mode="outputMode"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
@@ -634,6 +634,12 @@ const effectiveError = computed(() => cleanedFrameError.value || props.error);
 const displayedPresentation = computed(
     () => displayedCleanedFrame.value?.presentation ?? captureFramePresentation(),
 );
+const displayedFrameIdentityCurrent = computed(() => props.resultPresentationKey === undefined
+    || displayedCleanedFrame.value?.transitionKey === props.resultPresentationKey);
+const previewEditsEnabled = computed(() => presentationResult.value?.pageNumber === props.pageNumber
+    && displayedFrameIdentityCurrent.value
+    && effectiveError.value === ''
+    && !props.disabled);
 const {
     canPanPreview,
     canZoomIn,
@@ -755,7 +761,7 @@ const isStalePage = computed(() => props.stalePage
 // available only through Original mode. This prevents an unsplit landscape
 // raster from ever masquerading as the first portrait output.
 const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
-    && effectiveError.value === ''
+    && props.error === ''
     && presentationResult.value?.pageNumber !== props.pageNumber);
 const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
     effectiveViewMode.value === 'original'

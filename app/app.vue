@@ -637,11 +637,14 @@ onMounted(async () => {
         hostEnvironmentUnsubscribers.push(unsubscribeHostEnvironment);
         void refreshHostSnapshot();
         await loadSettings();
-        if (await getSettingsCapability().getRecoveryNotice()) {
+        const settingsRecoveryNotice = await getSettingsCapability().getRecoveryNotice();
+        if (settingsRecoveryNotice) {
             toast.add({
                 color: 'warning',
                 title: t('settings.title'),
-                description: t('errors.settings.recovered'),
+                description: settingsRecoveryNotice.quarantinePath
+                    ? t('errors.settings.recoveredWithPath', {path: settingsRecoveryNotice.quarantinePath})
+                    : t('errors.settings.recovered'),
             });
         }
         setPreferenceFromSettings(settings.value);

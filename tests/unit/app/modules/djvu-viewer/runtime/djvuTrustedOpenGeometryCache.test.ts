@@ -38,7 +38,10 @@ describe('DjVu trusted opening geometry cache', () => {
             readSourceInfo,
         });
 
-        expect(readPrevalidatedTrustedDjvuOpenGeometry('/docs/scan.djvu', 1)).toEqual({
+        expect(readPrevalidatedTrustedDjvuOpenGeometry('/docs/scan.djvu', 1, {
+            size: 28_000_000,
+            modifiedAt: 42,
+        })).toEqual({
             documentId: '/docs/scan.djvu',
             pageNumber: 1,
             pageCount: 431,
@@ -50,6 +53,61 @@ describe('DjVu trusted opening geometry cache', () => {
         });
         expect(readStat).not.toHaveBeenCalled();
         expect(readSourceInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a cached seed when the current source revision differs', async () => {
+        const path = requireDocumentRef('/docs/replaced.djvu');
+        await prewarmRecentDjvuOpeningGeometry([{
+            fileName: 'replaced.djvu',
+            originalPath: path,
+            timestamp: requireEpochMs(3),
+        }], {readSourceInfo: vi.fn().mockResolvedValue({
+            pageCount: 2,
+            pageNumber: requirePageNumber(1),
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+            sourceSize: 100,
+            sourceModifiedAt: requireEpochMs(10),
+        })});
+
+        expect(readPrevalidatedTrustedDjvuOpenGeometry(path, 1, {
+            size: 101,
+            modifiedAt: 10,
+        })).toBeNull();
+    });
+
+    it('evicts the least recently used geometry after the bounded limit', async () => {
+        const files: IRecentFile[] = Array.from({length: 257}, (_, index) => ({
+            fileName: `bounded-${String(index + 1)}.djvu`,
+            originalPath: requireDocumentRef(`/docs/bounded-${String(index + 1)}.djvu`),
+            timestamp: requireEpochMs(index + 1),
+        }));
+        await prewarmRecentDjvuOpeningGeometry(files, {readSourceInfo: vi.fn().mockResolvedValue({
+            pageCount: 2,
+            pageNumber: requirePageNumber(1),
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+            sourceSize: 100,
+            sourceModifiedAt: requireEpochMs(10),
+        })}, {
+            limit: files.length,
+            concurrency: 32,
+        });
+
+        expect(readPrevalidatedTrustedDjvuOpenGeometry(files[0]!.originalPath, 1, {
+            size: 100,
+            modifiedAt: 10,
+        })).toBeNull();
+        expect(readPrevalidatedTrustedDjvuOpenGeometry(files.at(-1)!.originalPath, 1, {
+            size: 100,
+            modifiedAt: 10,
+        })).not.toBeNull();
     });
 
     it('fails a stalled Recent probe open without blocking a ready sibling', async () => {
@@ -117,9 +175,9 @@ describe('DjVu trusted opening geometry cache', () => {
         });
 
         expect(readSourceInfo).toHaveBeenCalledTimes(2);
-        expect([...results.entries()]).toEqual(files.slice(0, 2).map(file => [
-            file.originalPath,
-            null,
-        ]));
+        expect(results.size).toBe(files.length);
+        files.forEach(file => {
+            expect(results.get(file.originalPath)).toBeNull();
+        });
     });
 });

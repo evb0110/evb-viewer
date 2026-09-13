@@ -66,6 +66,7 @@ function runPdfPrintLayoutUtility(
             execArgv: [`--max-old-space-size=${String(childMaxOldSpaceMib)}`],
         });
         let settled = false;
+        let childExited = false;
         const stopChild = async () => {
             const pid = child.pid;
             if (pid === undefined) {
@@ -73,7 +74,7 @@ function runPdfPrintLayoutUtility(
             }
             return terminateProcessTree(pid, {
                 graceMs: 2_500,
-                isTargetAlive: () => child.pid !== undefined,
+                isTargetAlive: () => child.pid === pid && !childExited,
                 preferProcessGroup: false,
             });
         };
@@ -131,6 +132,7 @@ function runPdfPrintLayoutUtility(
             void finish(new Error(`PDF print layout utility failed at ${location}`));
         });
         child.once('exit', code => {
+            childExited = true;
             if (!settled) {
                 const detail = `with exit code ${code}`;
                 void finish(new Error(

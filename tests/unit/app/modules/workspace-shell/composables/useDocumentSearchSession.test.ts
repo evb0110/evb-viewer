@@ -170,6 +170,39 @@ describe('useDocumentSearchSession', () => {
         harness.stop();
     });
 
+    it('clears state and fences results when the document revision changes', async () => {
+        const staleResponse = createDeferred<IDocumentSearchResponse>();
+        const staleRequest = {current: null as IDocumentSearchRequest | null};
+        const backend: IDocumentSearchBackend = {
+            minQueryLength: 1,
+            search: request => {
+                staleRequest.current = request;
+                return staleResponse.promise;
+            },
+        };
+        const documentRevision = ref<string | null>('revision-1');
+        const harness = withSession(() => useDocumentSearchSession({
+            backend,
+            documentRevision,
+        }));
+
+        harness.session.setQuery('document');
+        const run = harness.session.run();
+        documentRevision.value = 'revision-2';
+
+        expect(staleRequest.current?.signal.aborted).toBe(true);
+        expect(harness.session.query.value).toBe('');
+        expect(harness.session.results.value).toEqual([]);
+        staleResponse.resolve({
+            results: [createMatch(8, 0)],
+            truncated: false,
+        });
+
+        await expect(run).resolves.toBe(false);
+        expect(harness.session.results.value).toEqual([]);
+        harness.stop();
+    });
+
     it('submits short queries for presentation without invoking the backend', async () => {
         const backend: IDocumentSearchBackend = {
             minQueryLength: 3,

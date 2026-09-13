@@ -23,6 +23,15 @@ import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';
 
+interface IPendingLoginOperation {
+    cancelPromise: Promise<boolean> | null;
+    cancelProvider: (() => Promise<void>) | null;
+    cancelRequested: boolean;
+    invalidated: boolean;
+    loginId: string | null;
+    promise: Promise<IAgentAssistantLoginResult> | null;
+}
+
 export function createCodexAssistantAdapter(options: {
     featureLifecycle: ReturnType<typeof createAssistantFeatureLifecycle>;
     runtimeLifecycle: ReturnType<typeof createAssistantRuntimeLifecycle>;
@@ -36,12 +45,12 @@ export function createCodexAssistantAdapter(options: {
     }): void;
     createDisabledResult(state: IAgentAssistantState): IAgentAssistantLoginResult;
     stopForDisabledFeature(): Promise<string>;
-    getPendingLoginId(): string | null;
-    setPendingLoginId(value: string | null): void;
-    setAuthReturnWindow(value: TAssistantReturnWindow): void;
     logger: {warn(message: string): void};
 }) {
     let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
+    let pendingLoginOperation: IPendingLoginOperation | null = null;
+    let pendingLoginId: string | null = null;
+    let authReturnWindow: TAssistantReturnWindow = null;
 
     function decodeRecordResponse(value: unknown) {
         return isRecord(value) ? value : null;
@@ -101,13 +110,54 @@ export function createCodexAssistantAdapter(options: {
         return installPromise;
     }
 
-    async function startLogin(
+    function retirePendingLogin(operation: IPendingLoginOperation) {
+        if (pendingLoginOperation !== operation) {
+            return;
+        }
+        pendingLoginOperation = null;
+        pendingLoginId = null;
+        authReturnWindow = null;
+    }
+
+    async function cancelProviderLogin(operation: IPendingLoginOperation) {
+        if (operation.cancelPromise) {
+            return operation.cancelPromise;
+        }
+
+        operation.cancelPromise = (async () => {
+            if (!operation.cancelProvider) {
+                return false;
+            }
+            try {
+                await operation.cancelProvider();
+                return false;
+            } catch (error: unknown) {
+                options.logger.warn(`Failed to cancel assistant login: ${getErrorMessage(error)}`);
+                await options.runtimeLifecycle.refreshAuthState();
+                return true;
+            }
+        })();
+        return operation.cancelPromise;
+    }
+
+    async function throwIfCancelRequested(operation: IPendingLoginOperation) {
+        if (!operation.cancelRequested) {
+            return;
+        }
+        if (!(await cancelProviderLogin(operation))) {
+            options.providerRuntime.authState = 'signed-out';
+        }
+        throw new Error('Assistant sign-in was canceled.');
+    }
+
+    async function runLogin(
+        operation: IPendingLoginOperation,
         request: IAgentAssistantLoginRequest,
         parentWindow?: BrowserWindow | null,
     ): Promise<IAgentAssistantLoginResult> {
-        await options.featureLifecycle.waitForShutdown();
         const operationGeneration = options.featureLifecycle.captureGeneration();
         try {
+            await options.featureLifecycle.waitForShutdown();
             const currentRuntime = await options.runtimeLifecycle.ensureRuntime();
             await options.featureLifecycle.assertEnabled(operationGeneration);
             await options.runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
@@ -120,14 +170,25 @@ export function createCodexAssistantAdapter(options: {
             const response = await currentRuntime.client.requestDecoded('account/login/start', params, decodeRecordResponse);
             await options.featureLifecycle.assertEnabled(operationGeneration);
             await options.runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
+            if (operation.invalidated) {
+                return {
+                    ok: true,
+                    state: options.getState(),
+                };
+            }
             if (typeof response.type !== 'string') {
                 throw new Error('Codex did not return a login flow.');
             }
 
-            const pendingLoginId = typeof response.loginId === 'string' ? response.loginId : null;
-            options.setPendingLoginId(pendingLoginId);
-            options.setAuthReturnWindow(rememberAssistantReturnWindow(parentWindow));
+            const responseLoginId = typeof response.loginId === 'string' ? response.loginId : null;
+            operation.loginId = responseLoginId;
+            operation.cancelProvider = responseLoginId
+                ? () => currentRuntime.client.request('account/login/cancel', {loginId: responseLoginId}).then(() => undefined)
+                : null;
+            pendingLoginId = responseLoginId;
+            authReturnWindow = rememberAssistantReturnWindow(parentWindow);
             options.providerRuntime.authState = 'login-pending';
+            await throwIfCancelRequested(operation);
             const authUrl = typeof response.authUrl === 'string' ? response.authUrl : undefined;
             const verificationUrl = typeof response.verificationUrl === 'string' ? response.verificationUrl : undefined;
             const urlToOpen = authUrl ?? verificationUrl;
@@ -136,22 +197,40 @@ export function createCodexAssistantAdapter(options: {
                 await options.featureLifecycle.assertEnabled(operationGeneration);
                 await options.runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
             }
+            if (operation.invalidated) {
+                return {
+                    ok: true,
+                    state: options.getState(),
+                };
+            }
+            await throwIfCancelRequested(operation);
             options.publishState();
             return {
                 ok: true,
                 state: options.getState(),
-                ...(pendingLoginId ? {loginId: pendingLoginId} : {}),
+                ...(responseLoginId ? {loginId: responseLoginId} : {}),
                 ...(authUrl ? {authUrl} : {}),
                 ...(verificationUrl ? {verificationUrl} : {}),
                 ...(typeof response.userCode === 'string' ? {userCode: response.userCode} : {}),
             };
         } catch (error) {
+            if (operation.invalidated) {
+                return {
+                    ok: true,
+                    state: options.getState(),
+                };
+            }
+            const cancellationFailed = operation.loginId !== null
+                ? await cancelProviderLogin(operation)
+                : false;
+            retirePendingLogin(operation);
             if (!(await options.featureLifecycle.isEnabled(operationGeneration))) {
                 return options.createDisabledResult(options.getState());
             }
-            options.setAuthReturnWindow(null);
             options.providerRuntime.lastError = getErrorMessage(error);
-            options.providerRuntime.authState = 'signed-out';
+            if (!cancellationFailed) {
+                options.providerRuntime.authState = 'signed-out';
+            }
             options.publishEvent({
                 type: 'error',
                 error: options.providerRuntime.lastError,
@@ -164,23 +243,62 @@ export function createCodexAssistantAdapter(options: {
         }
     }
 
-    async function cancelLogin(): Promise<IAgentAssistantState> {
-        options.setAuthReturnWindow(null);
-        const currentRuntime = options.runtimeLifecycle.getRuntime();
-        const pendingLoginId = options.getPendingLoginId();
-        if (currentRuntime && pendingLoginId) {
-            await currentRuntime.client.request('account/login/cancel', {loginId: pendingLoginId}).catch((error: unknown) => {
-                options.logger.warn(`Failed to cancel assistant login: ${getErrorMessage(error)}`);
-            });
+    async function startLogin(
+        request: IAgentAssistantLoginRequest,
+        parentWindow?: BrowserWindow | null,
+    ): Promise<IAgentAssistantLoginResult> {
+        if (pendingLoginOperation?.promise) {
+            return pendingLoginOperation.promise;
         }
-        options.setPendingLoginId(null);
-        await options.runtimeLifecycle.refreshAuthState();
+
+        const operation: IPendingLoginOperation = {
+            cancelPromise: null,
+            cancelProvider: null,
+            cancelRequested: false,
+            invalidated: false,
+            loginId: null,
+            promise: null,
+        };
+        pendingLoginOperation = operation;
+        operation.promise = runLogin(operation, request, parentWindow);
+        return operation.promise;
+    }
+
+    async function cancelLogin(): Promise<IAgentAssistantState> {
+        const operation = pendingLoginOperation;
+        if (operation) {
+            operation.cancelRequested = true;
+            authReturnWindow = null;
+            await operation.promise;
+            const cancellationFailed = await cancelProviderLogin(operation);
+            if (!cancellationFailed) {
+                options.providerRuntime.authState = 'signed-out';
+            }
+            retirePendingLogin(operation);
+        } else {
+            authReturnWindow = null;
+            pendingLoginId = null;
+            await options.runtimeLifecycle.refreshAuthState();
+        }
         options.publishState();
         return options.getState();
     }
 
+    function clearLoginState() {
+        if (pendingLoginOperation) {
+            pendingLoginOperation.cancelRequested = true;
+            pendingLoginOperation.invalidated = true;
+            pendingLoginOperation = null;
+        }
+        pendingLoginId = null;
+        authReturnWindow = null;
+    }
+
     return {
         cancelLogin,
+        clearLoginState,
+        getAuthReturnWindow: () => authReturnWindow,
+        getPendingLoginId: () => pendingLoginId,
         install,
         startLogin,
     };

@@ -225,6 +225,22 @@ describe('PDF annotation index main session', () => {
             .rejects.toThrow('session is not available');
     });
 
+    it('starts the stale-artifact sweep only while a session exists', async () => {
+        const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+        const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+        const session = await beginPdfAnnotationIndex(
+            context,
+            requireDocumentRef('/tmp/document.pdf'),
+            {expectedDocumentRevisionToken: revisionToken},
+        );
+
+        expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+        await releasePdfAnnotationIndex(context, session.sessionId);
+        expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+        setIntervalSpy.mockRestore();
+        clearIntervalSpy.mockRestore();
+    });
+
     it('preserves a direct-annotation page marker with reserved object zero', async () => {
         sidecarText = `${JSON.stringify({
             format: 'evb-pdf-annotation-name-index',

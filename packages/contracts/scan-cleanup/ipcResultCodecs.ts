@@ -9,6 +9,7 @@ import {
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type {
     IScanCleanupPreviewMetadata,
+    IScanCleanupPlacementAnchorCalibration,
     IScanCleanupRawPreviewEvent,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
@@ -30,6 +31,7 @@ import {
     decodeDocumentPrior,
     decodeFiniteNumber,
     decodeScanCleanupPagePlanEvidence,
+    decodeScanCleanupPlacementAnchors,
     decodeSourcePageMetadata,
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
@@ -51,6 +53,27 @@ import {
 } from '@contracts/shared';
 import {parseEpochMs} from '@contracts/timestamps';
 export {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
+
+export function decodeScanCleanupPlacementAnchorCalibration(
+    value: unknown,
+): IScanCleanupPlacementAnchorCalibration {
+    if (
+        !isRecord(value)
+        || Object.keys(value).some(key => ![
+            'summary',
+            'placementAnchors',
+        ].includes(key))
+    ) {
+        throw new Error('invalid scan-cleanup placement anchor calibration');
+    }
+    return {
+        summary: decodeScanCleanupPlacementAnchorSummary(value.summary),
+        placementAnchors: decodeScanCleanupPlacementAnchors(
+            value.placementAnchors,
+            'placement anchor calibration result',
+        ),
+    };
+}
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;

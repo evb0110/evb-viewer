@@ -457,16 +457,8 @@ export async function handleSerializedPdfSave(
                 tempPath => writeFile(tempPath, payload),
                 { optimize: 'large' },
             );
-            if (queuedSave.validation.isValid) {
-                return queuedSave.validation;
-            }
-
             return queuedSave.validation;
         });
-        if (!validation.isValid) {
-            return validation;
-        }
-
         return validation;
     } catch (err) {
         if (err instanceof WorkingCopyMaterializationError) {

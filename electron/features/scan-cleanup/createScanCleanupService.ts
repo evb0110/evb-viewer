@@ -78,13 +78,19 @@ import {
     getScanCleanupPageOverride,
     usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
-import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {
+    claimScanCleanupDetectionResultStore,
+    isScanCleanupDetectionResultStoreRegistered,
+} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     persistScanCleanupDetectionResultStore,
     removeScanCleanupDetectionResultStoreDescriptor,
     type IScanCleanupDetectionResultStoreDescriptor,
 } from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
-import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
@@ -606,12 +612,33 @@ export function createScanCleanupService(
                     request.options.pageOverrideDefaults,
                     request.options.marginsMm,
                 );
+                const detectionSignature = createScanCleanupDetectionSignature(request.options);
+                if (
+                    request.detectionResultStoreId !== undefined
+                    && usesScanCleanupInkAlignment(request.options)
+                    && request.placementAnchorSummary !== undefined
+                ) {
+                    const identity = request.placementAnchorSummary.identity;
+                    const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
+                    if (
+                        identity.documentRevision !== request.documentRevision
+                        || identity.detectionSignature !== detectionSignature
+                        || identity.calibrationSignature !== calibrationSignature
+                    ) {
+                        return {
+                            started: false,
+                            jobId,
+                            error: 'Placement calibration is stale for this document',
+                            errorCode: 'invalid-request',
+                        };
+                    }
+                }
                 detectionResultStoreLease = request.detectionResultStoreId === undefined
                     ? null
                     : claimScanCleanupDetectionResultStore(
                         request.detectionResultStoreId,
                         {
-                            detectionSignature: createScanCleanupDetectionSignature(request.options),
+                            detectionSignature,
                             documentRevision: request.documentRevision,
                             ownerId: request.ownerId,
                             sourcePdfPath: request.sourcePdfPath,
@@ -622,7 +649,9 @@ export function createScanCleanupService(
                         started: false,
                         jobId,
                         error: 'Detection results are no longer available for this document',
-                        errorCode: 'invalid-request',
+                        errorCode: isScanCleanupDetectionResultStoreRegistered(request.detectionResultStoreId)
+                            ? 'invalid-request'
+                            : 'detection-results-unavailable',
                     };
                 }
                 if (

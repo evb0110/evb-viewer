@@ -164,6 +164,29 @@ describe('createIpcProgressPump replay', () => {
         expect(replaySend).not.toHaveBeenCalled();
     });
 
+    it('delivers keyed progress to every subscriber and unsubscribes independently', () => {
+        const firstSend = vi.fn();
+        const secondSend = vi.fn();
+        const pump = createIpcProgressPump<ITestProgress>({
+            channel: 'test:progress',
+            getTarget: () => null,
+            getKey: progress => progress.requestId,
+            isTerminal: progress => progress.phase === 'complete',
+        });
+
+        const unsubscribeFirst = pump.subscribe({key: 'sender:1', send: firstSend});
+        pump.subscribe({key: 'sender:1', send: secondSend});
+
+        pump.enqueue({requestId: 'operation-a', phase: 'active', value: 1});
+        expect(firstSend).toHaveBeenCalledOnce();
+        expect(secondSend).toHaveBeenCalledOnce();
+
+        unsubscribeFirst?.();
+        pump.enqueue({requestId: 'operation-a', phase: 'complete', value: 100});
+        expect(firstSend).toHaveBeenCalledOnce();
+        expect(secondSend).toHaveBeenCalledTimes(2);
+    });
+
     it('delegates replay retention to an external owner', () => {
         const replaySend = vi.fn();
         let replay = [{requestId: 'external', phase: 'active', value: 7}] satisfies ITestProgress[];

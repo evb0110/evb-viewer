@@ -123,6 +123,15 @@ function addResources(left: IJobResourceVector, right: IJobResourceVector): IJob
     };
 }
 
+function subtractResources(left: IJobResourceVector, right: IJobResourceVector): IJobResourceVector {
+    return {
+        cpuTokens: left.cpuTokens - right.cpuTokens,
+        estimatedResidentBytes: left.estimatedResidentBytes - right.estimatedResidentBytes,
+        nativeProcesses: left.nativeProcesses - right.nativeProcesses,
+        ioWeight: left.ioWeight - right.ioWeight,
+    };
+}
+
 function isNonNegativeFinite(value: number) {
     return Number.isFinite(value) && value >= 0;
 }
@@ -154,6 +163,8 @@ export class JobBroker {
     private readonly maxQueuedJobsPerOwner: number;
     private readonly maxInteractiveJobResources: IJobResourceVector;
     private readonly interactiveReserve: IJobResourceVector;
+    private usedResources: IJobResourceVector = {...ZERO_RESOURCES};
+    private usedBulkResources: IJobResourceVector = {...ZERO_RESOURCES};
 
     constructor(
         private capacity: IJobResourceVector,
@@ -242,9 +253,12 @@ export class JobBroker {
     }
 
     release(token: string) {
-        if (!this.active.delete(token)) {
+        const active = this.active.get(token);
+        if (!active) {
             return false;
         }
+        this.active.delete(token);
+        this.accountLease(active, subtractResources);
         this.dispatch();
         return true;
     }
@@ -275,6 +289,7 @@ export class JobBroker {
                 continue;
             }
             this.active.delete(token);
+            this.accountLease(active, subtractResources);
             releasedLeaseCount += 1;
         }
         if (releasedLeaseCount > 0) {
@@ -289,8 +304,8 @@ export class JobBroker {
             interactiveReserve: {...this.interactiveReserve},
             active: this.active.size,
             queued: this.queue.length,
-            used: this.getUsedResources(),
-            usedBulk: this.getUsedBulkResources(),
+            used: {...this.usedResources},
+            usedBulk: {...this.usedBulkResources},
         };
     }
 
@@ -307,11 +322,13 @@ export class JobBroker {
             }
             next.removeAbortListener();
             const token = `job-${next.id}`;
-            this.active.set(token, {
+            const active = {
                 ...next.request,
                 token,
                 grantedAt: this.now(),
-            });
+            };
+            this.active.set(token, active);
+            this.accountLease(active, addResources);
             let released = false;
             next.resolve({
                 token,
@@ -338,10 +355,21 @@ export class JobBroker {
                 continue;
             }
             this.active.delete(token);
+            this.accountLease(active, subtractResources);
             logger.warn(
                 `Reclaimed expired job broker lease token=${token} owner=${active.ownerId} `
                 + `kind=${active.kind} heldMs=${heldMs}`,
             );
+        }
+    }
+
+    private accountLease(
+        lease: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>,
+        apply: (left: IJobResourceVector, right: IJobResourceVector) => IJobResourceVector,
+    ) {
+        this.usedResources = apply(this.usedResources, lease.resources);
+        if (lease.admissionClass !== 'interactive') {
+            this.usedBulkResources = apply(this.usedBulkResources, lease.resources);
         }
     }
 
@@ -385,14 +413,14 @@ export class JobBroker {
         ) {
             return false;
         }
-        const proposedTotal = addResources(this.getUsedResources(), request.resources);
+        const proposedTotal = addResources(this.usedResources, request.resources);
         if (!this.fitsWithin(proposedTotal, addResources(this.capacity, this.interactiveReserve))) {
             return false;
         }
         if (request.admissionClass === 'interactive') {
             return true;
         }
-        const proposedBulk = addResources(this.getUsedBulkResources(), request.resources);
+        const proposedBulk = addResources(this.usedBulkResources, request.resources);
         return this.fitsWithin(proposedBulk, this.capacity);
     }
 
@@ -409,21 +437,6 @@ export class JobBroker {
             .length;
     }
 
-    private getUsedResources() {
-        return Array.from(this.active.values()).reduce(
-            (total, active) => addResources(total, active.resources),
-            {...ZERO_RESOURCES},
-        );
-    }
-
-    private getUsedBulkResources() {
-        return Array.from(this.active.values()).reduce(
-            (total, active) => active.admissionClass === 'interactive'
-                ? total
-                : addResources(total, active.resources),
-            {...ZERO_RESOURCES},
-        );
-    }
 }
 
 export function resolveMainJobBrokerCapacity(
@@ -450,9 +463,11 @@ export function resolveMainJobBrokerCapacity(
             MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes,
             totalMemoryBytes - freeReserveBytes,
         ),
-        // DjVu export/print nests a conversion lease inside its output-slot
-        // lease (pdfExport.runDjvuConversionJobWithSlot), so any capacity
-        // below 2 deadlocks that workflow.
+        // DjVu export/print nests a conversion lease inside an output-slot
+        // lease with an all-zero resource vector. The outer lease still owns
+        // the workflow and counts toward its per-owner limit, but consumes no
+        // capacity, so nested admission cannot deadlock below any process
+        // capacity.
         nativeProcesses: profile.tier === 'low'
             ? 2
             : Math.max(nativeProcesses, profile.tier === 'medium' ? 2 : 3),

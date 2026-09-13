@@ -25,6 +25,13 @@ export function shutdownSaveFlushRequiresRecoveryPreservation(
         || summary.timedOutWindowIds.length > 0;
 }
 
+export function shutdownSaveFlushRequiresRetryableQuit(
+    summary: IShutdownSaveFlushSummary,
+) {
+    return summary.failedWindowIds.length > 0
+        || summary.timedOutWindowIds.length > 0;
+}
+
 function normalizePathList(value: unknown): string[] {
     return Array.isArray(value)
         ? (value as unknown[]).filter((path): path is string => typeof path === 'string' && path.trim().length > 0)
@@ -41,10 +48,16 @@ interface IShutdownSaveWindow {
     };
 }
 
+type TIsTrustedShutdownSaveSender = (
+    sender: Electron.WebContents,
+    senderFrame: Electron.WebFrameMain | null | undefined,
+) => boolean;
+
 export async function requestShutdownSaveFlush(options: {
     getWindows: () => IShutdownSaveWindow[];
     logger: ILogger;
     timeoutMs: number;
+    isTrustedSender: TIsTrustedShutdownSaveSender;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }): Promise<IShutdownSaveFlushSummary> {
     const windows = options.getWindows()
@@ -102,8 +115,6 @@ export async function requestShutdownSaveFlush(options: {
                 timedOutWindowIds,
             });
         }, options.timeoutMs);
-        timeout.unref();
-
         const cleanup = () => {
             clearTimeout(timeout);
             ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, handleResponse);
@@ -127,6 +138,9 @@ export async function requestShutdownSaveFlush(options: {
             event: Electron.IpcMainEvent,
             rawPayload: unknown,
         ) => {
+            if (!options.isTrustedSender(event.sender, event.senderFrame)) {
+                return;
+            }
             if (!pendingBySenderId.has(event.sender.id)) {
                 return;
             }

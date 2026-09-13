@@ -42,6 +42,7 @@ describe('checkMacCodeSignature', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+        vi.useRealTimers();
     });
 
     it('requires a verified Developer ID application signature', async () => {
@@ -77,5 +78,29 @@ describe('checkMacCodeSignature', () => {
         const { checkMacCodeSignature } = await import('@electron/updates/checkMacCodeSignature');
 
         await expect(checkMacCodeSignature()).resolves.toBe(false);
+    });
+
+    it('reports an incomplete verification without treating it as an invalid signature', async () => {
+        vi.useFakeTimers();
+        const child = new EventEmitter() as EventEmitter & {
+            kill: ReturnType<typeof vi.fn>;
+            stderr: EventEmitter;
+        };
+        child.stderr = new EventEmitter();
+        child.kill = vi.fn();
+        mocks.spawn.mockReturnValue(child);
+
+        const { checkMacCodeSignature } = await import('@electron/updates/checkMacCodeSignature');
+        let settled = false;
+        const result = checkMacCodeSignature().finally(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(25_000);
+        await expect(result).resolves.toBeNull();
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
     });
 });

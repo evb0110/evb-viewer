@@ -1,7 +1,7 @@
 # Husky runs this with `sh -e`, so it must stay POSIX: no bashisms.
 # Git sends the ref-update lines once on stdin; both checks need them, so they
 # are captured to a file rather than read from the already-drained fd.
-refs_file="$(mktemp -t evb-pre-push)"
+refs_file="$(mktemp "${TMPDIR:-/tmp}/evb-pre-push.XXXXXX")"
 trap 'rm -f "$refs_file"' EXIT
 cat >"$refs_file"
 

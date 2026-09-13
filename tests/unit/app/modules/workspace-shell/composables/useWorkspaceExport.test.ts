@@ -286,6 +286,46 @@ describe('useWorkspaceExport', () => {
         }
     });
 
+    it('refuses a second image export while the first export is running', async () => {
+        const exportDeferred: { resolve?: (value: {
+            success: boolean;
+            outputPaths: string[];
+        }) => void; } = {};
+        exportImagesMock.mockImplementationOnce(() => new Promise((resolve) => {
+            exportDeferred.resolve = resolve;
+        }));
+
+        const {
+            scope,
+            state,
+        } = createComposable();
+
+        try {
+            const firstExport = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await Promise.resolve();
+
+            expect(state.isExportInProgress.value).toBe(true);
+
+            const secondExport = state.handleExportImages([2]);
+            await secondExport;
+
+            expect(exportImagesMock).toHaveBeenCalledOnce();
+            expect(toastAddMock).toHaveBeenCalledWith({
+                color: 'warning',
+                title: 'errors.export.alreadyRunning',
+            });
+
+            exportDeferred.resolve?.({
+                success: true,
+                outputPaths: ['/tmp/export-page-001.jpg'],
+            });
+            await firstExport;
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('cleans up browser output refs after image export', async () => {
         exportImagesMock.mockResolvedValueOnce({
             success: true,

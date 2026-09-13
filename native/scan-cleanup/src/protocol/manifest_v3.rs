@@ -816,6 +816,18 @@ impl ManifestV3 {
     /// it again.
     pub(crate) fn validate_for_execution(&self) -> Result<(), NativeError> {
         self.validate()?;
+        for path in self
+            .input_paths()
+            .into_iter()
+            .chain(self.destination_paths())
+        {
+            if !path.is_absolute() {
+                return Err(invalid(format!(
+                    "Manifest path must be absolute: {}",
+                    path.display()
+                )));
+            }
+        }
         if self.operation == Operation::Analyze && self.staged_input_window.is_none() {
             for page in &self.pages {
                 validate_required_regular_path(
@@ -956,14 +968,6 @@ pub(crate) fn normalized_path(path: &Path) -> PathBuf {
             _ => normalized.push(component.as_os_str()),
         }
     }
-    #[cfg(windows)]
-    {
-        // Windows paths are case-insensitive for the desktop filesystems we
-        // support. Canonical/inode checks in the adapter provide the stronger
-        // check for paths which already exist.
-        return PathBuf::from(normalized.to_string_lossy().to_lowercase());
-    }
-    #[cfg(not(windows))]
     normalized
 }
 
@@ -1379,12 +1383,14 @@ mod tests {
     /// is the one documented exception to it.
     #[test]
     fn only_a_staged_window_admits_an_analyze_input_that_is_not_on_disk_yet() {
-        let json = r#"{
-            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
-            "pages":[{"inputPath":"absent-page.png","sourcePageIndex":0,
-              "pageMetadataPath":"page.json","outputs":[],"options":{}}]
-        }"#;
-        let direct: ManifestV3 = serde_json::from_str(json).unwrap();
+        let root = std::env::temp_dir().join(format!("evb-absent-page-{}", std::process::id()));
+        let json = serde_json::json!({
+            "version": 3, "operation": "analyze", "renderMode": "preview", "canvasScope": "page",
+            "pages": [{"inputPath": root.join("absent-page.png"), "sourcePageIndex": 0,
+              "pageMetadataPath": root.join("page.json"), "outputs": [], "options": {}}]
+        })
+        .to_string();
+        let direct: ManifestV3 = serde_json::from_str(&json).unwrap();
         assert!(direct
             .validate_for_execution()
             .unwrap_err()
@@ -1395,6 +1401,20 @@ mod tests {
             serde_json::from_str(&json.replace("\"pages\"", "\"stagedInputWindow\":2,\"pages\""))
                 .unwrap();
         staged.validate_for_execution().unwrap();
+    }
+
+    #[test]
+    fn execution_rejects_relative_manifest_paths() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].input_path = PathBuf::from("relative-input.png");
+
+        let error = manifest.validate_for_execution().unwrap_err();
+        assert!(error.message.contains("must be absolute"));
     }
 
     #[test]

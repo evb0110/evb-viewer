@@ -5,6 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import type {
     IDocumentsFileCapability,
@@ -162,9 +164,9 @@ vi.mock('utif', () => {
 });
 vi.mock('pdfjs-dist', () => pdfjsModule);
 
-async function createPdfBytes() {
+async function createPdfBytes(pageSize?: [number, number]) {
     const document = await PDFDocument.create();
-    document.addPage();
+    document.addPage(pageSize);
     return new Uint8Array(await document.save());
 }
 
@@ -400,6 +402,55 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 dedicated: true,
                 signal: undefined,
             },
+        );
+    });
+
+    it('reads compact page-label ranges through the browser catalog worker', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'page-labels.pdf',
+            await createPdfBytes(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            bookmarks: [],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    style: 'r',
+                },
+                {
+                    pageIndex: 1,
+                    prefix: 'Appendix ',
+                    start: 3,
+                },
+            ],
+        });
+
+        await expect(capability.readPdfPageLabelRanges(workingRef)).resolves.toEqual([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: null,
+                prefix: 'Appendix ',
+                startNumber: 3,
+            },
+        ]);
+        expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
+            'readCatalog',
+            {data: expect.any(Uint8Array)},
+            {dedicated: true},
         );
     });
 
@@ -686,23 +737,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         readRangeSpy.mockRestore();
     });
 
-    it.skip('enforces the 500-page limit on the browser main-thread fallback', async () => {
-        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
-        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const source = await PDFDocument.create();
-        for (let page = 0; page < 501; page += 1) {
-            source.addPage();
-        }
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'too-many-pages.pdf',
-            new Uint8Array(await source.save()),
-            {...PDF_SOURCE_OPTIONS},
-        );
-
-        await expect(createCombinedPdfFromPaths([sourceRef]))
-            .rejects.toThrow('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
-    });
-
     it('emits browser batch-open progress while combining multiple inputs', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const [
@@ -805,10 +839,59 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         ]});
     });
 
-    it('converts DjVu files before combining mixed browser batches', async () => {
-        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
+    it('does not publish a direct batch when the browser combine worker is unavailable', async () => {
+        const {
+            browserDocumentStore, capability,
+        } = await loadBrowserDocumentsFileCapability();
         const pdfBytes = await createPdfBytes();
+        const pdfRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            pdfBytes,
+            {
+                ...PDF_SOURCE_OPTIONS,
+                retention: 'transient',
+            },
+        );
+        const imageBytes = Uint8Array.of(1, 2, 3);
+        const imageRef = await browserDocumentStore.createStoredDocument(
+            'photo.png',
+            imageBytes,
+            {
+                mimeType: 'image/png',
+                kind: 'source',
+                saveKind: 'generic',
+                retention: 'transient',
+            },
+        );
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(false);
+
+        await expect(capability.openDocumentDirectBatch([
+            pdfRef,
+            imageRef,
+        ])).rejects.toThrow('Browser PDF combine worker is unavailable');
+
+        expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
+        await expect(browserDocumentStore.read(pdfRef)).resolves.toEqual(pdfBytes);
+        await expect(browserDocumentStore.read(imageRef)).resolves.toEqual(imageBytes);
+        await expect(capability.recentFiles.get()).resolves.toEqual([]);
+    });
+
+    it('converts DjVu files before combining mixed browser batches', async () => {
+        const {
+            browserDocumentStore, capability,
+        } = await loadBrowserDocumentsFileCapability();
+        const pdfBytes = await createPdfBytes([
+            100,
+            100,
+        ]);
+        const convertedPdfBytes = await createPdfBytes([
+            200,
+            100,
+        ]);
+        const djvuBytes = new Uint8Array(await readFile(join(
+            process.cwd(),
+            'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
+        )));
         const pdfRef = await browserDocumentStore.createStoredDocument(
             'first.pdf',
             pdfBytes,
@@ -816,35 +899,61 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
         const djvuRef = await browserDocumentStore.createStoredDocument(
             'scan.djvu',
-            Uint8Array.of(1, 2, 3),
+            djvuBytes,
             {
-                mimeType: 'application/octet-stream',
+                mimeType: 'image/vnd.djvu',
                 kind: 'source',
                 saveKind: 'generic',
             },
         );
+        const existingRecentRef = await browserDocumentStore.createStoredDocument(
+            'existing.pdf',
+            await createPdfBytes(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                retention: 'durable',
+            },
+        );
+        await browserDocumentStore.touchRecentFile(existingRecentRef);
         let convertedRef: string | null = null;
         browserDjvuCapabilityMock.runConversion.mockImplementation(async (_djvuPath: string, outputPath: string) => {
             convertedRef = outputPath;
-            await browserDocumentStore.write(outputPath, pdfBytes);
+            await browserDocumentStore.write(outputPath, convertedPdfBytes);
             return {
                 success: true,
                 pdfPath: outputPath,
             };
         });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        const combinedDocument = await PDFDocument.create();
-        combinedDocument.addPage();
-        combinedDocument.addPage();
-        browserPdfCombineWorkerMock.run.mockResolvedValue({data: new Uint8Array(await combinedDocument.save())});
+        browserPdfCombineWorkerMock.run.mockImplementation(async (_type, payload) => {
+            const combinedDocument = await PDFDocument.create();
+            const inputs = (payload as {inputs: Array<{data: Uint8Array;}>}).inputs;
+            for (const input of inputs) {
+                const sourceDocument = await PDFDocument.load(input.data);
+                const pages = await combinedDocument.copyPages(
+                    sourceDocument,
+                    sourceDocument.getPageIndices(),
+                );
+                pages.forEach(page => combinedDocument.addPage(page));
+            }
+            return {data: new Uint8Array(await combinedDocument.save())};
+        });
 
-        const result = await createCombinedPdfFromPaths([
+        const result = await capability.openDocumentDirectBatch([
             pdfRef,
             djvuRef,
         ]);
-        const combinedPdf = await PDFDocument.load(result);
+        if (!result || !result.originalPath) {
+            throw new Error('Expected a generated PDF result for the mixed browser batch');
+        }
 
-        expect(combinedPdf.getPageCount()).toBe(2);
+        const generatedPdf = await PDFDocument.load(
+            await browserDocumentStore.read(result.originalPath),
+        );
+        expect(generatedPdf.getPages().map(page => page.getWidth())).toEqual([
+            100,
+            200,
+        ]);
         expect(browserDjvuCapabilityMock.runConversion).toHaveBeenCalledWith(
             djvuRef,
             expect.stringMatching(/^browser:\/\/documents\//u),
@@ -857,6 +966,63 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
         expect(convertedRef).not.toBeNull();
         await expect(browserDocumentStore.exists(convertedRef!)).resolves.toBe(false);
+        await expect(browserDocumentStore.read(djvuRef)).resolves.toEqual(djvuBytes);
+
+        const recentFiles = await capability.recentFiles.get();
+        expect(recentFiles).toHaveLength(2);
+        expect(recentFiles).toEqual(expect.arrayContaining([
+            expect.objectContaining({originalPath: result.originalPath}),
+            expect.objectContaining({originalPath: existingRecentRef}),
+        ]));
+        expect(recentFiles.map(file => file.originalPath)).not.toContain(pdfRef);
+        expect(recentFiles.map(file => file.originalPath)).not.toContain(djvuRef);
+        expect(recentFiles.map(file => file.originalPath)).not.toContain(convertedRef);
+    });
+
+    it('cleans converted DjVu inputs when the browser worker combine fails', async () => {
+        const {
+            browserDocumentStore, capability,
+        } = await loadBrowserDocumentsFileCapability();
+        const pdfRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            await createPdfBytes(),
+            {...PDF_SOURCE_OPTIONS},
+        );
+        const djvuBytes = new Uint8Array(await readFile(join(
+            process.cwd(),
+            'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
+        )));
+        const djvuRef = await browserDocumentStore.createStoredDocument(
+            'scan.djvu',
+            djvuBytes,
+            {
+                mimeType: 'image/vnd.djvu',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        let convertedRef: string | null = null;
+        browserDjvuCapabilityMock.runConversion.mockImplementation(async (_djvuPath: string, outputPath: string) => {
+            convertedRef = outputPath;
+            await browserDocumentStore.write(outputPath, await createPdfBytes());
+            return {
+                success: true,
+                pdfPath: outputPath,
+            };
+        });
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockRejectedValue(new Error('browser worker failed'));
+
+        await expect(capability.openDocumentDirectBatch([
+            pdfRef,
+            djvuRef,
+        ]))
+            .rejects.toThrow('browser worker failed');
+
+        expect(convertedRef).not.toBeNull();
+        await expect(browserDocumentStore.exists(convertedRef!)).resolves.toBe(false);
+        await expect(browserDocumentStore.read(djvuRef)).resolves.toEqual(djvuBytes);
+        await expect(capability.recentFiles.get()).resolves.toEqual([]);
     });
 
     it('cancels browser DjVu pre-conversion when the combine signal aborts', async () => {
@@ -898,7 +1064,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(browserDjvuCapabilityMock.cancel).toHaveBeenCalledWith(jobId);
     });
 
-    it('keeps unsupported image combine formats on the direct fallback path', async () => {
+    it('rejects unsupported image combine formats before worker admission', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
         const svgRef = await browserDocumentStore.createStoredDocument(
@@ -930,89 +1096,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         await expect(capability.openCombineDialog()).rejects.toThrow();
         await expect(browserDocumentStore.exists(failedRef)).resolves.toBe(false);
-    });
-
-    it.skip('creates one PDF page per TIFF frame on the direct browser fallback path', async () => {
-        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const tinyPngBytes = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 160, 90, 111, 167, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130);
-        const tiffRef = await browserDocumentStore.createStoredDocument(
-            'scan.tif',
-            Uint8Array.of(1, 2, 3),
-            {
-                mimeType: 'image/tiff',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
-
-        utifMock.decode.mockReturnValue([
-            {
-                width: 2,
-                height: 2,
-            },
-            {
-                width: 1,
-                height: 3,
-            },
-        ] as never);
-        utifMock.toRGBA8
-            .mockReturnValueOnce(new Uint8Array(2 * 2 * 4).fill(255))
-            .mockReturnValueOnce(new Uint8Array(1 * 3 * 4).fill(128));
-
-        const putImageData = vi.fn();
-        vi.stubGlobal('ImageData', class {
-            public constructor(
-                public readonly data: Uint8ClampedArray,
-                public readonly width: number,
-                public readonly height: number,
-            ) {}
-        });
-        vi.stubGlobal('document', {
-            cookie: '',
-            body: {
-                append() {},
-                appendChild() {},
-                removeChild() {},
-            },
-            createElement(tagName: string) {
-                if (tagName === 'canvas') {
-                    return {
-                        width: 0,
-                        height: 0,
-                        getContext() {
-                            return { putImageData };
-                        },
-                        toBlob(callback: (blob: Blob | null) => void) {
-                            callback(new Blob([tinyPngBytes], { type: 'image/png' }));
-                        },
-                    };
-                }
-
-                return createMockElement(tagName);
-            },
-            createElementNS(_namespace: string, tagName: string) {
-                return createMockElement(tagName);
-            },
-            createTextNode(text: string) {
-                return { nodeValue: text };
-            },
-            createComment(text: string) {
-                return { nodeValue: text };
-            },
-            querySelector() {
-                return null;
-            },
-        });
-
-        const result = await createCombinedPdfFromPaths([tiffRef]);
-        const document = await PDFDocument.load(result);
-
-        expect(document.getPageCount()).toBe(2);
-        expect(utifMock.decode).toHaveBeenCalledTimes(1);
-        expect(utifMock.decodeImage).toHaveBeenCalledTimes(2);
-        expect(putImageData).toHaveBeenCalledTimes(2);
-        expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
     });
 
     it('publishes only the generated PDF to recents when opening a direct-batch PDF and DjVu', async () => {

@@ -1046,7 +1046,10 @@ function handleDocumentInitialVisualReadyWithAutomationEvent() {
     notifyPdfInitialVisualReady();
     return handleDocumentInitialVisualReadyWithAutomationEventBase();
 }
-const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageIndex => handleGoToPage(pageIndex + 1, {navigationSource: 'search'})});
+const documentSourceSidebar = useDocumentSourceSidebarSession({
+    documentRevision: documentRevisionToken,
+    onNavigate: pageIndex => handleGoToPage(pageIndex + 1, {navigationSource: 'search'}),
+});
 /**
  * The source sidebar also reports the click a thumbnail row was activated
  * with, for consumers that resolve multi-select intent from its modifiers.

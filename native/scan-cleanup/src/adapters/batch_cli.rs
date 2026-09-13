@@ -19,7 +19,8 @@ use crate::engine::page_statistics::{
 use crate::engine::render::{CleanupRaster, CleanupResult};
 use crate::engine::render::{CleanupWarningEvent, WarningExtentUnit};
 use crate::engine::resource_planning::{
-    manifest_cache, page_cache_for, page_worker_threads, run_page_jobs, run_regular_page_jobs,
+    manifest_cache, page_cache_for, page_worker_threads, processing_worker_threads, run_page_jobs,
+    run_regular_page_jobs,
 };
 use crate::engine::resource_planning::{
     CleanupOptionsView, PageDescriptor, PlanningManifest, PlanningOperation,
@@ -1132,7 +1133,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         let planning_pages = manifest.pages.iter().map(planning_page).collect::<Vec<_>>();
         let samples = if planning_pages.iter().any(page_needs_ink_sample) {
             let worker_threads = page_worker_threads(manifest)?;
-            let processing_threads = std::thread::available_parallelism().map_or(1, usize::from);
+            let processing_threads = processing_worker_threads();
             run_regular_page_jobs(
                 manifest,
                 |(_, page)| derive_page_ink_sample(page),

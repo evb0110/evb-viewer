@@ -83,7 +83,8 @@ interface IValidationGateModule {
     };
     getValidationBuildMarkerPath: (root?: string) => string;
     getValidationInputFingerprint: (options: {
-        inputPaths: string[];
+        inputPaths?: string[];
+        inputScope?: string;
         root: string;
     }) => string;
     isValidationBuildFresh: (options: {
@@ -1325,6 +1326,61 @@ describe('validation gate policy', () => {
 
             await writeFile(join(root, 'tests', 'fixtures', 'release', 'fixture.json'), '{"changed":true}\n');
             expect(fingerprint()).not.toBe(afterScriptChange);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('fingerprints every configured workspace typecheck root', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-typecheck-input-fingerprint-'));
+        try {
+            await mkdir(join(root, 'packages', 'scan-cleanup', 'adapters'), {recursive: true});
+            await mkdir(join(root, 'packages', 'scan-cleanup', 'core'), {recursive: true});
+            await mkdir(join(root, 'types', 'vendor'), {recursive: true});
+            await writeFile(join(root, 'packages', 'scan-cleanup', 'core', 'source.ts'), 'export const source = 1;\n');
+            await writeFile(join(root, 'packages', 'scan-cleanup', 'adapters', 'adapter.ts'), 'export const adapter = 1;\n');
+            await writeFile(join(root, 'types', 'vendor', 'utif.d.ts'), 'declare module "utif";\n');
+            await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - .\n  - landing\n  - packages/*\n');
+
+            const fingerprint = () => validationGates.getValidationInputFingerprint({
+                inputScope: 'typecheck',
+                root,
+            });
+            const initial = fingerprint();
+
+            await writeFile(join(root, 'packages', 'scan-cleanup', 'core', 'source.ts'), 'export const source = 2;\n');
+            const afterCoreChange = fingerprint();
+            expect(afterCoreChange).not.toBe(initial);
+
+            await writeFile(join(root, 'packages', 'scan-cleanup', 'adapters', 'adapter.ts'), 'export const adapter = 2;\n');
+            const afterAdapterChange = fingerprint();
+            expect(afterAdapterChange).not.toBe(afterCoreChange);
+
+            await writeFile(join(root, 'types', 'vendor', 'utif.d.ts'), 'declare module "utif" { export const decode: unknown; }\n');
+            const afterDeclarationChange = fingerprint();
+            expect(afterDeclarationChange).not.toBe(afterAdapterChange);
+
+            await mkdir(join(root, 'landing'), {recursive: true});
+            await writeFile(join(root, 'landing', 'tsconfig.json'), '{"include":["src.ts"]}\n');
+            await writeFile(join(root, 'landing', 'src.ts'), 'export const landing = 1;\n');
+            const afterLandingChange = fingerprint();
+            expect(afterLandingChange).not.toBe(afterDeclarationChange);
+
+            await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - .\n  - landing\n  - packages/*\n  - tools/*\n');
+            const afterWorkspaceChange = fingerprint();
+            expect(afterWorkspaceChange).not.toBe(afterLandingChange);
+
+            await mkdir(join(root, 'tools', 'new-project'), {recursive: true});
+            await writeFile(join(root, 'tools', 'new-project', 'tsconfig.json'), '{"include":["src.ts"]}\n');
+            await writeFile(join(root, 'tools', 'new-project', 'src.ts'), 'export const tool = 1;\n');
+            const afterNewProject = fingerprint();
+            expect(afterNewProject).not.toBe(afterWorkspaceChange);
+
+            await writeFile(join(root, 'tools', 'new-project', 'src.ts'), 'export const tool = 2;\n');
+            expect(fingerprint()).not.toBe(afterNewProject);
         } finally {
             await rm(root, {
                 force: true,

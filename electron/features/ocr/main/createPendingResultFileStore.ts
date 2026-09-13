@@ -24,6 +24,7 @@ interface IPendingResultFileOwnershipRegistry {
         entry?: IOcrPendingResultFile;
     };
     releaseClaim: (webContentsId: number, requestId: TRequestId) => void;
+    discardForDocument: (documentRef: TDocumentRef) => Promise<void>;
 }
 
 let activeOwnershipRegistry: IPendingResultFileOwnershipRegistry | null = null;
@@ -74,6 +75,10 @@ export function claimPendingOcrResultForDocument(
 
 export function releasePendingOcrResultClaim(webContentsId: number, requestId: TRequestId) {
     activeOwnershipRegistry?.releaseClaim(webContentsId, requestId);
+}
+
+export function discardPendingOcrResultsForDocument(documentRef: TDocumentRef) {
+    return activeOwnershipRegistry?.discardForDocument(documentRef) ?? Promise.resolve();
 }
 
 export function createPendingResultFileStore(options: ICreatePendingResultFileStoreOptions) {
@@ -225,6 +230,14 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
         async cleanupForSender(webContentsId: number) {
             const pendingEntries = Array.from(pendingResultFiles.values())
                 .filter(entry => entry.webContentsId === webContentsId && entry.claimedByWebContentsId === undefined);
+            for (const pendingEntry of pendingEntries) {
+                await removeTrackedEntry(pendingEntry);
+            }
+        },
+        async discardForDocument(documentRef: TDocumentRef) {
+            const normalizedDocumentRef = normalizeDocumentRef(documentRef);
+            const pendingEntries = Array.from(pendingResultFiles.values())
+                .filter(entry => entry.documentRef === normalizedDocumentRef);
             for (const pendingEntry of pendingEntries) {
                 await removeTrackedEntry(pendingEntry);
             }

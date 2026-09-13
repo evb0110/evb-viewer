@@ -8,6 +8,8 @@ pub mod output;
 pub mod pdf_catalog;
 pub mod wasm_request_allocation;
 
+pub const MAX_WORKER_THREADS: usize = 8;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeToolCapability {
     pub name: &'static str,
@@ -71,6 +73,8 @@ pub enum NativeErrorCode {
     InvalidRequest,
     #[error("io")]
     Io,
+    #[error("timeout")]
+    Timeout,
     #[error("panic")]
     Panic,
     #[error("native-failure")]

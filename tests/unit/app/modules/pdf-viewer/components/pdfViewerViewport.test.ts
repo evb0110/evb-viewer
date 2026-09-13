@@ -15,7 +15,10 @@ import {
     onBeforeUnmount,
     ref,
 } from 'vue';
-import { flattenPdfVirtualPageSegments } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
+import {
+    flattenPdfVirtualPageSegments,
+    groupPdfVirtualPageItems,
+} from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
 import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 
 describe('PdfViewerViewport virtual page identity', () => {
@@ -194,5 +197,77 @@ describe('PdfViewerViewport virtual page identity', () => {
         expect(host.querySelector('[data-spacer="spacer:0"]')).toBe(targetSpacer);
 
         app.unmount();
+    });
+
+    it('groups each facing spread independently of unrelated mounted page widths', () => {
+        const items = flattenPdfVirtualPageSegments([{
+            start: 1,
+            end: 5,
+            key: '1:5',
+            pages: [
+                1,
+                2,
+                3,
+                4,
+                5,
+            ],
+            spacerBeforeStyle: null,
+        }]);
+
+        const rows = groupPdfVirtualPageItems(items, {
+            isFacingMode: true,
+            isSpreadSingle: () => false,
+        });
+
+        expect(rows.map(item => item.kind === 'row'
+            ? item.pages.map(page => page.page)
+            : item.kind)).toEqual([
+            [
+                1,
+                2,
+            ],
+            [
+                3,
+                4,
+            ],
+            [5],
+        ]);
+    });
+
+    it('keeps facing-first-single standalone pages out of adjacent rows', () => {
+        const items = flattenPdfVirtualPageSegments([{
+            start: 1,
+            end: 6,
+            key: '1:6',
+            pages: [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+            ],
+            spacerBeforeStyle: null,
+        }]);
+
+        const rows = groupPdfVirtualPageItems(items, {
+            isFacingMode: true,
+            isSpreadSingle: page => page === 1 || page === 6,
+        });
+
+        expect(rows.map(item => item.kind === 'row'
+            ? item.pages.map(page => page.page)
+            : item.kind)).toEqual([
+            [1],
+            [
+                2,
+                3,
+            ],
+            [
+                4,
+                5,
+            ],
+            [6],
+        ]);
     });
 });

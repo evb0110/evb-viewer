@@ -119,7 +119,7 @@ export async function getSuppressedUpdateVersion(currentVersion: string) {
         const marker = await readMarker();
         if (
             !marker
-            || marker.pendingVersion === currentVersion
+            || normalizeVersion(marker.pendingVersion) === normalizeVersion(currentVersion)
             || marker.startupAttempts < UPDATE_STARTUP_FAILURE_THRESHOLD
         ) {
             return null;

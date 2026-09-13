@@ -450,16 +450,26 @@ export function createMainJobRegistry<
             .then(result => finish(record, 'completed', result))
             .catch(error => finish(record, controller.signal.aborted ? 'canceled' : 'failed', error))
             .finally(async () => {
-                await record.cancelPromise; for (const cleanup of record.cleanupSignals.splice(0)) cleanup();
-                operation.complete(); record.settled = true; resolveSettled();
-                if (options.unbindOnSettlement === true) {
-                    // Terminal records remain queryable for replay. This
-                    // instance no longer needs renderer listeners at settle.
-                    unbind(record);
+                try {
+                    await record.cancelPromise;
+                    for (const cleanup of record.cleanupSignals.splice(0)) cleanup();
+                } finally {
+                    try {
+                        operation.complete();
+                    } finally {
+                        record.settled = true;
+                        resolveSettled();
+                    }
+                    if (options.unbindOnSettlement === true) {
+                        // Terminal records remain queryable for replay. This
+                        // instance no longer needs renderer listeners at settle.
+                        unbind(record);
+                    }
+                    if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) remove(record);
+                    prune();
                 }
-                if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) remove(record);
-                prune();
-            });
+            })
+            .catch(() => undefined);
         return record.handle;
     }
     const authorized = (jobId: string, actor: IMainJobActor<TSender>) => {

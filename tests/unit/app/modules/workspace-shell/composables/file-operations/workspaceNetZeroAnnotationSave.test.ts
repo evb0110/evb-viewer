@@ -9,12 +9,14 @@ import {ref} from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import type {IPdfViewerSaveTransactionResult} from '@app/modules/pdf-viewer/public';
 import {
     createDeps,
     createShapeAnnotation,
     useWorkspaceSaveServiceForTest,
     expectWorkspaceSaveNotMarked,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
+import {cast} from '@tests/helpers/cast';
 
 describe('net-zero annotation save', () => {
     afterEach(() => vi.restoreAllMocks());
@@ -112,6 +114,41 @@ describe('net-zero annotation save', () => {
         const service = useWorkspaceSaveServiceForTest(deps);
         await expect(service.handleSave()).resolves.toBe(false);
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expectWorkspaceSaveNotMarked(deps);
+    });
+
+    it('rejects an empty native mutation projection without reporting a write', async () => {
+        const commitAnnotationSave = vi.fn();
+        const {deps} = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            annotationDirty: ref(true),
+            hasAnnotationChanges: vi.fn(() => true),
+            trySavePdfNativeMutations: vi.fn(),
+            runSaveTransaction: vi.fn(async () => cast<IPdfViewerSaveTransactionResult>({
+                nativeMutationProjection: {
+                    canonicalAnnotationProgram: [],
+                    mutations: {},
+                    noteTextUpdates: [],
+                    noteGeometryUpdates: [],
+                    freeTextNotes: [],
+                    freeTextEditors: [],
+                    textBoxes: [],
+                    annotationDeletes: [],
+                    hasMetadataMutations: false,
+                    hasShapeMutations: false,
+                    hasMarkupMutations: false,
+                    phase: 'test-empty-projection',
+                },
+                commitAnnotationSave,
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(false);
+        expect(deps.trySavePdfNativeMutations).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(commitAnnotationSave).not.toHaveBeenCalled();
         expectWorkspaceSaveNotMarked(deps);
     });
 

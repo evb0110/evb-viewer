@@ -679,9 +679,11 @@ describe('pdfPrint', () => {
         expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getViewerAssetResolver().pdfWorkerUrl());
         expect(root.replaceChildren).toHaveBeenCalledTimes(1);
         expect(root.append).toHaveBeenCalledTimes(2);
-        expect(head.appendChild).toHaveBeenCalledWith(expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
-        expect(createdSections[0]?.className).toBe('browser-print-page');
-        expect(createdSections[1]?.className).toBe('browser-print-page');
+        expect(head.appendChild).toHaveBeenCalledTimes(2);
+        expect(head.appendChild).toHaveBeenNthCalledWith(1, expect.objectContaining({textContent: expect.stringContaining('@page browser-print-page-1')}));
+        expect(head.appendChild).toHaveBeenNthCalledWith(2, expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
+        expect(createdSections[0]?.className).toBe('browser-print-page browser-print-page-1');
+        expect(createdSections[1]?.className).toBe('browser-print-page browser-print-page-2');
         expect(firstPage.render).toHaveBeenCalledWith(expect.objectContaining({
             canvas: firstCanvas,
             canvasContext: expect.any(Object),
@@ -815,7 +817,7 @@ describe('pdfPrint', () => {
         expect(page.cleanup).toHaveBeenCalledTimes(1);
     });
 
-    it('rejects browser printing for mixed page sizes or orientations', async () => {
+    it('prints mixed page sizes and orientations with per-page rules', async () => {
         const root = {
             append: vi.fn(),
             replaceChildren: vi.fn(),
@@ -863,9 +865,11 @@ describe('pdfPrint', () => {
         });
 
         await expect(renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3)))
-            .rejects
-            .toThrow('Browser printing does not support mixed page sizes or orientations');
-        expect(secondPage.render).not.toHaveBeenCalled();
+            .resolves.toBeUndefined();
+        expect(secondPage.render).toHaveBeenCalledTimes(1);
+        expect(root.append).toHaveBeenCalledTimes(2);
+        expect(targetDocument.head.appendChild).toHaveBeenNthCalledWith(1, expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
+        expect(targetDocument.head.appendChild).toHaveBeenNthCalledWith(2, expect.objectContaining({textContent: expect.stringContaining('size: 200pt 100pt')}));
     });
 
     it('renders print bitmaps on host-document canvases before appending them to the print frame', async () => {

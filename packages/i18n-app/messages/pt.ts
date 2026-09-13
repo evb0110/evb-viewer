@@ -1057,6 +1057,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Ative o EVB Assistant nas Definições para usar a conversa do assistente.',
             'turnBusy': 'O EVB Assistant ainda está a processar a mensagem anterior deste documento.',
+            'contextUnavailable': 'Não foi possível restaurar o contexto desta conversa do Claude. Inicie uma nova conversa para continuar.',
         },
     },
     'optimizePdf': {
@@ -1123,6 +1124,7 @@ export default {
             one: '{count} ficheiro não suportado foi ignorado.',
             other: '{count} ficheiros não suportados foram ignorados.',
         }),
+        'discardPending': 'Descartar resultado pendente',
     },
     'noteWindow': {
         'popUpNote': 'Página {page}',
@@ -1575,6 +1577,7 @@ export default {
         'export': {
             'images': 'Falha ao exportar imagens',
             'multiPageTiff': 'Falha ao exportar TIFF',
+            'alreadyRunning': 'Já existe uma exportação em curso',
         },
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos ficheiros foi negado. Escolha Abrir novamente para usar o seletor compatível.',
@@ -1606,6 +1609,7 @@ export default {
                 'internal': 'O OCR falhou inesperadamente',
                 'queueBackpressure': 'A fila do OCR está cheia',
                 'workerUnavailable': 'O worker do OCR não está disponível',
+                'workerMessageError': 'O worker do OCR não conseguiu entregar um resultado',
                 'toolsValidationFailed': 'As ferramentas de OCR não estão prontas',
             },
         },
@@ -1638,6 +1642,7 @@ export default {
         'settings': {
             'load': 'Não foi possível carregar as definições',
             'recovered': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi guardado como cópia de recuperação quando possível.',
+            'recoveredWithPath': 'Não foi possível usar as definições guardadas, por isso foram restaurados os valores predefinidos. O ficheiro anterior foi colocado em quarentena em {path}.',
         },
         'runtime': {
             'title': 'Algo correu mal',

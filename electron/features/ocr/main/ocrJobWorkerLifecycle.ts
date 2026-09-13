@@ -70,6 +70,7 @@ const OCR_NATIVE_CHILD_CLEANUP_RETRY_MS = (() => {
     }
     return Math.min(parsed, 60_000);
 })();
+const OCR_NATIVE_CHILD_CLEANUP_MAX_ATTEMPTS = 3;
 
 type TOcrPendingResultFileStore = ReturnType<typeof createPendingResultFileStore>;
 
@@ -168,6 +169,12 @@ export function createOcrJobWorkerLifecycleController(
         nativeChildCleanupTimersByScopedJobId.delete(scopedJobId);
     }
 
+    function hasUnresolvedNativeChildCleanup(activeJob: IOcrActiveJob) {
+        return [...activeJob.nativeChildren.values()].some(child => (
+            child.state === 'registered' || child.state === 'unproven'
+        ));
+    }
+
     /**
      * Worker admission ends at proven worker exit. OCR page leases stay with
      * the quarantined job until its native children are proven dead, because
@@ -261,6 +268,18 @@ export function createOcrJobWorkerLifecycleController(
         nativeChildCleanupTimersByScopedJobId.set(activeJob.scopedJobId, timer);
     }
 
+    function abandonNativeChild(activeJob: IOcrActiveJob, child: IOcrNativeChildRecord, detail: string) {
+        if (child.state === 'abandoned') {
+            return;
+        }
+        child.state = 'abandoned';
+        child.cleanupAttemptInFlight = false;
+        logger.warn(
+            `[${activeJob.scopedJobId}] Abandoned OCR native child ${child.childId} after `
+            + `${child.cleanupAttempts} cleanup attempts: ${detail}; releasing job resources`,
+        );
+    }
+
     function beginNativeChildCleanup(
         activeJob: IOcrActiveJob,
         child: IOcrNativeChildRecord,
@@ -275,6 +294,7 @@ export function createOcrJobWorkerLifecycleController(
             return;
         }
         child.cleanupAttemptInFlight = true;
+        child.cleanupAttempts += 1;
         void Promise.resolve()
             .then(() => nativeChildTermination.terminate(child, reason))
             .then((proven) => {
@@ -285,10 +305,23 @@ export function createOcrJobWorkerLifecycleController(
                 child.cleanupAttemptInFlight = false;
                 if (proven === true) {
                     child.state = 'exited';
-                    clearNativeChildCleanupTimer(activeJob.scopedJobId);
+                    if (hasUnresolvedNativeChildCleanup(current)) {
+                        scheduleNativeChildCleanupRetry(current);
+                    } else {
+                        clearNativeChildCleanupTimer(activeJob.scopedJobId);
+                    }
                 } else {
                     child.state = 'unproven';
-                    scheduleNativeChildCleanupRetry(activeJob);
+                    if (child.cleanupAttempts >= OCR_NATIVE_CHILD_CLEANUP_MAX_ATTEMPTS) {
+                        abandonNativeChild(activeJob, child, 'termination remained unproven');
+                        if (hasUnresolvedNativeChildCleanup(activeJob)) {
+                            scheduleNativeChildCleanupRetry(activeJob);
+                        } else {
+                            clearNativeChildCleanupTimer(activeJob.scopedJobId);
+                        }
+                    } else {
+                        scheduleNativeChildCleanupRetry(activeJob);
+                    }
                 }
                 tryPhysicalFinalize(activeJob.scopedJobId);
             }, (error: unknown) => {
@@ -298,8 +331,18 @@ export function createOcrJobWorkerLifecycleController(
                 }
                 child.cleanupAttemptInFlight = false;
                 child.state = 'unproven';
-                logger.warn(`[${activeJob.scopedJobId}] Native-child cleanup failed: ${getErrorMessage(error)}`);
-                scheduleNativeChildCleanupRetry(activeJob);
+                const detail = getErrorMessage(error);
+                if (child.cleanupAttempts >= OCR_NATIVE_CHILD_CLEANUP_MAX_ATTEMPTS) {
+                    abandonNativeChild(activeJob, child, detail);
+                    if (hasUnresolvedNativeChildCleanup(activeJob)) {
+                        scheduleNativeChildCleanupRetry(activeJob);
+                    } else {
+                        clearNativeChildCleanupTimer(activeJob.scopedJobId);
+                    }
+                } else {
+                    scheduleNativeChildCleanupRetry(activeJob);
+                }
+                tryPhysicalFinalize(activeJob.scopedJobId);
             });
     }
 
@@ -449,7 +492,7 @@ export function createOcrJobWorkerLifecycleController(
             }
         }
         if (activeJob.nativeChildProtocolUnsafe || [...activeJob.nativeChildren.values()].some(child => (
-            child.state !== 'exited' && child.state !== 'no-child'
+            child.state !== 'exited' && child.state !== 'no-child' && child.state !== 'abandoned'
         ))) {
             return;
         }
@@ -669,6 +712,7 @@ export function createOcrJobWorkerLifecycleController(
             pid: null,
             processIdentity: null,
             state: 'intent',
+            cleanupAttempts: 0,
             cleanupAttemptInFlight: false,
         });
         postNativeChildAck(activeJob, worker, 'native-child-intent-ack', childId, true);
@@ -770,7 +814,11 @@ export function createOcrJobWorkerLifecycleController(
         }
         child.state = 'exited';
         child.cleanupAttemptInFlight = false;
-        clearNativeChildCleanupTimer(scopedJobId);
+        if (hasUnresolvedNativeChildCleanup(activeJob)) {
+            scheduleNativeChildCleanupRetry(activeJob);
+        } else {
+            clearNativeChildCleanupTimer(scopedJobId);
+        }
         postNativeChildAck(activeJob, worker, 'native-child-exit-ack', childId, true);
         tryPhysicalFinalize(scopedJobId);
     }

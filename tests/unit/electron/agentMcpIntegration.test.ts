@@ -183,6 +183,96 @@ describe('codexMcpIntegration', () => {
             expect.stringMatching(/[\\/]\.codex[\\/]config\.toml$/u),
         );
         expect(state.settings.agentMcpEnabled).toBe(true);
+        expect(mocks.updateSettings.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.startLocalMcpServer.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('keeps the setting enabled when Codex refuses to remove its registration', async () => {
+        state.settings = {agentMcpEnabled: true};
+        state.serverRunning = true;
+        mocks.runCodexCli.mockImplementation(async (_codexPath: string, args: string[]) => {
+            if (args[0] === 'mcp' && args[1] === 'remove') {
+                return {
+                    ok: false,
+                    stdout: '',
+                    stderr: 'config is locked',
+                };
+            }
+            if (args[0] === 'mcp' && args[1] === 'get') {
+                return {
+                    ok: false,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            throw new Error(`Unexpected Codex args: ${args.join(' ')}`);
+        });
+
+        const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
+        const result = await setAgentMcpIntegrationEnabled(false);
+
+        expect(result.ok).toBe(false);
+        expect(result.error).toBe('config is locked');
+        expect(state.settings.agentMcpEnabled).toBe(true);
+        expect(mocks.shutdownLocalMcpServer).not.toHaveBeenCalled();
+    });
+
+    it('persists enable intent before starting the server and rolls it back on a registration failure', async () => {
+        mocks.runCodexCli.mockImplementation(async (_codexPath: string, args: string[]) => {
+            if (args[0] === 'mcp' && args[1] === 'remove') {
+                return {
+                    ok: true,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            if (args[0] === 'mcp' && args[1] === 'add') {
+                return {
+                    ok: false,
+                    stdout: '',
+                    stderr: 'registration failed',
+                };
+            }
+            if (args[0] === 'mcp' && args[1] === 'get') {
+                return {
+                    ok: false,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            throw new Error(`Unexpected Codex args: ${args.join(' ')}`);
+        });
+
+        const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
+        const result = await setAgentMcpIntegrationEnabled(true);
+
+        expect(result.ok).toBe(false);
+        expect(result.error).toBe('registration failed');
+        expect(state.settings.agentMcpEnabled).toBe(false);
+        expect(state.serverRunning).toBe(false);
+        expect(mocks.shutdownLocalMcpServer).toHaveBeenCalledOnce();
+        expect(mocks.updateSettings.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.startLocalMcpServer.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('does not start or register when saving the enable intent fails', async () => {
+        mocks.updateSettings.mockRejectedValueOnce(new Error('settings database unavailable'));
+
+        const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
+        const result = await setAgentMcpIntegrationEnabled(true);
+
+        expect(result.ok).toBe(false);
+        expect(result.error).toBe('settings database unavailable');
+        expect(state.settings.agentMcpEnabled).toBe(false);
+        expect(mocks.startLocalMcpServer).not.toHaveBeenCalled();
+        expect(mocks.runCodexCli).toHaveBeenCalledWith('/usr/bin/codex', [
+            'mcp',
+            'get',
+            descriptor.name,
+            '--json',
+        ]);
     });
 
     it('classifies a failed integration action with its bounded action context', async () => {

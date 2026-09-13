@@ -189,4 +189,40 @@ describe('settings single-flight loading', () => {
         expect(readFileSync(settingsPath, 'utf-8')).toBe(originalContent);
         expect(consumeSettingsRecoveryNotice()).toEqual({reason: 'unreadable'});
     });
+
+    it('does not let a queued update write or repopulate the cache for an old profile', async () => {
+        const firstStarted = deferred<undefined>();
+        const releaseFirst = deferred<undefined>();
+        const oldPath = mocks.userDataPath;
+        const settingsModule = await import('@electron/settings');
+        const first = settingsModule.updateSettings(async settings => {
+            firstStarted.resolve(undefined);
+            await releaseFirst.promise;
+            settings.theme = 'dark';
+            return undefined;
+        });
+        await firstStarted.promise;
+
+        const second = settingsModule.updateSettings(settings => {
+            settings.authorName = 'New profile user';
+            return undefined;
+        });
+        const newPath = await mkdtemp(join(tmpdir(), 'evb-settings-single-flight-generation-'));
+        paths.push(newPath);
+        mocks.userDataPath = newPath;
+        settingsModule.resetSettingsCacheAfterUserDataPathChange();
+        releaseFirst.resolve(undefined);
+
+        await Promise.all([
+            first,
+            second,
+        ]);
+
+        expect(readFileSync(join(oldPath, 'settings.json'), 'utf-8')).toContain('"theme": "dark"');
+        expect(readFileSync(join(newPath, 'settings.json'), 'utf-8')).toMatch(/New profile user/u);
+        await expect(settingsModule.loadSettings()).resolves.toMatchObject({
+            authorName: 'New profile user',
+            theme: 'light',
+        });
+    });
 });

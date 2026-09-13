@@ -691,13 +691,13 @@ async function retireAndDeleteWorkingCopy(
 export async function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: number) {
     const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedPath) {
-        return;
+        return false;
     }
 
     const originalEntry = workingCopyMap.get(normalizedPath);
     if (!originalEntry) {
         logger.warn(`Rejected cleanup for unmanaged working copy path "${normalizedPath}"`);
-        return;
+        return false;
     }
     const workingCopyPath = getWorkingCopyLogicalPath(normalizedPath, originalEntry);
     const ownerWebContentsId = getWorkingCopyOwnerWebContentsId(normalizedPath);
@@ -706,14 +706,14 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         && ownerWebContentsId !== senderWebContentsId
     ) {
         logger.warn(`Rejected cleanup for working copy path owned by another sender "${normalizedPath}"`);
-        return;
+        return false;
     }
 
     if (hasWorkingCopyRecoveryClaim(normalizedPath)) {
         logger.warn(
             `Retained recovery working copy while its checkpoint adoption is unresolved "${normalizedPath}"`,
         );
-        return;
+        return false;
     }
 
     // Mutations already in flight own the bytes too. Draining before the
@@ -731,7 +731,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         logger.warn(
             `Skipped cleanup for a working copy re-registered while its dependents settled "${workingCopyPath}"`,
         );
-        return;
+        return false;
     }
     if (settlement.outcome === 'unsettled') {
         reportRetainedWorkingCopy(
@@ -742,7 +742,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
                 DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
             ),
         );
-        return;
+        return false;
     }
 
     await drainWorkingCopyMutations(workingCopyPath);
@@ -752,7 +752,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         && currentOwnerWebContentsId !== senderWebContentsId
     ) {
         logger.warn(`Rejected cleanup for working copy path whose owner changed while waiting "${workingCopyPath}"`);
-        return;
+        return false;
     }
 
     await settleWorkingCopyMaterialization(workingCopyPath, originalEntry);
@@ -767,7 +767,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         logger.warn(
             `Skipped cleanup for a working copy re-registered while its dependents settled "${workingCopyPath}"`,
         );
-        return;
+        return false;
     }
     if (postMaterializationSettlement.outcome === 'unsettled') {
         reportRetainedWorkingCopy(
@@ -778,17 +778,18 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
                 DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
             ),
         );
-        return;
+        return false;
     }
 
     const retirement = await retireAndDeleteWorkingCopy(workingCopyPath, originalEntry);
     if (retirement.status === 'skipped') {
         logger.warn(`Skipped cleanup for a working copy: ${retirement.reason} "${workingCopyPath}"`);
-        return;
+        return false;
     }
     if (retirement.status === 'retained') {
         reportRetainedWorkingCopy(workingCopyPath, retirement.reason);
     }
+    return retirement.status === 'deleted';
 }
 
 export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<string>} = {}) {

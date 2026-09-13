@@ -99,6 +99,14 @@
                         @click="savePendingAs"
                     />
                     <UButton
+                        v-if="pendingCombinedResult && !isCombining"
+                        color="neutral"
+                        variant="ghost"
+                        icon="i-ph-trash"
+                        :label="t('combinePdf.discardPending')"
+                        @click="discardPendingResult"
+                    />
+                    <UButton
                         v-if="files.length > 0"
                         color="neutral"
                         variant="outline"
@@ -216,7 +224,7 @@
                 <footer class="combine-actions">
                     <p>{{ t('combinePdf.outputHint') }}</p>
                     <UButton
-                        v-if="isCombining"
+                        v-if="isCombining && canCancel"
                         color="neutral"
                         variant="outline"
                         icon="i-ph-x"
@@ -320,9 +328,11 @@ const {
     combineErrorIsExpected,
     pendingCombinedResult,
     queueMutationLocked,
+    canCancel,
     combine: combineFiles,
     cancel: cancelCombine,
     savePendingAs,
+    discardPendingResult,
 } = useCombinePdfOperation({
     files,
     ...(openResult ? {openResult} : {}),

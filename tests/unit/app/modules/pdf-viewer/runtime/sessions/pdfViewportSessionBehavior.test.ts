@@ -102,6 +102,7 @@ function createDocumentFixture(pageCount = 100) {
             documentRevision: 'revision-1',
             openSurfaceGeneration: 1,
         }),
+        isCurrent: () => true,
         loadToken,
         getRenderVersion: () => 1,
         subscribe(callback: (transition: IPdfDocumentTransition) => void | Promise<void>) {
@@ -531,6 +532,54 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('coalesces mounted visibility projection requests queued before next tick', async () => {
+        const pendingFrames = new Map<number, (time: number) => void>();
+        let nextFrameId = 0;
+        const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+            const frameId = ++nextFrameId;
+            pendingFrames.set(frameId, callback);
+            return frameId;
+        });
+        const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(frameId => {
+            pendingFrames.delete(frameId);
+        });
+        const runPendingFrames = () => {
+            while (pendingFrames.size > 0) {
+                const frames = [...pendingFrames.entries()];
+                pendingFrames.clear();
+                frames.forEach(([
+                    ,
+                    callback,
+                ]) => callback(0));
+            }
+        };
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 30,
+            zoomMode: 'custom',
+        });
+        try {
+            await nextTick();
+            await nextTick();
+            runPendingFrames();
+            await nextTick();
+            runPendingFrames();
+            requestFrame.mockClear();
+
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(2));
+
+            await nextTick();
+            expect(requestFrame).toHaveBeenCalledOnce();
+            runPendingFrames();
+        } finally {
+            fixture.app.unmount();
+            requestFrame.mockRestore();
+            cancelFrame.mockRestore();
+        }
+    });
+
     it('recomputes the mounted geometry window from the active scroll offset', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,
@@ -591,6 +640,34 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
             expect(fixture.emittedPages.at(-1)).toBe(fixture.viewport.currentPage.value);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('rebases a continuous scrollbar at the physical segment boundary', async () => {
+        const fixture = createViewportFixture({
+            pageCount: 20_000,
+            zoomMode: 'custom',
+        });
+        try {
+            fixture.documentSession.pageMetrics.value = Array.from({length: 20_000}, () => ({
+                width: 600,
+                height: 1_000,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            fixture.container.scrollTop = 8_388_608 - fixture.container.clientHeight;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            await nextTick();
+
+            expect(fixture.viewport.currentPage.value).toBe(8_226);
+            expect(fixture.container.scrollTop).toBe(912);
+            expect(fixture.viewport.visibleRange.value).toEqual({
+                start: 8_226,
+                end: 8_226,
+            });
         } finally {
             fixture.app.unmount();
         }

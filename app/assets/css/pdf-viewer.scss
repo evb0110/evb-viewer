@@ -34,12 +34,6 @@
     opacity: 0;
 }
 
-.pdf-viewer-page-track.pdfViewer--mode-facing .pdf-viewer-virtual-spacer,
-.pdf-viewer-page-track.pdfViewer--mode-facing-first-single .pdf-viewer-virtual-spacer {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-}
-
 .pdfViewer .page_container--rendered .document-page-skeleton {
     display: none;
 }
@@ -762,7 +756,7 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
 
 /*
  * This is the sole physical owner of PDF page layout. In chassis mode the
- * outer .pdfViewer is only the scroll root; keeping the page nodes and virtual
+ * outer .pdfViewer is only the scroll root; keeping spread rows and virtual
  * spacers as direct children of this track makes CSS gaps match analytical
  * viewport geometry and prevents padding from inflating the scroll root.
  */
@@ -787,14 +781,6 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
         pointer-events: none;
     }
 
-    &.pdfViewer--mode-facing,
-    &.pdfViewer--mode-facing-first-single {
-        width: max-content;
-        display: grid;
-        grid-template-columns: repeat(2, max-content);
-        place-content: flex-start safe center;
-    }
-
     /*
      * Single-page mode is driven entirely by the viewport authority.
      * CSS scroll-snap was previously enabled here but collided with the JS
@@ -807,22 +793,20 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
 
 }
 
-/* Without a chassis the track is also the scroll root, so it must retain the
- * viewport width and let safe grid alignment keep oversized spreads reachable. */
-.pdf-viewer-page-track.pdfViewer.pdfViewer--mode-facing,
-.pdf-viewer-page-track.pdfViewer.pdfViewer--mode-facing-first-single {
-    width: 100%;
+.pdf-viewer-page-row {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: flex-start;
+    justify-content: center;
+    gap: inherit;
+    width: max-content;
+    min-width: 100%;
 }
 
-.pdf-viewer-page-track.pdfViewer--mode-facing .page_container,
-.pdf-viewer-page-track.pdfViewer--mode-facing-first-single .page_container {
+.pdf-viewer-page-row .page_container {
     margin: 0;
 }
 
-.pdfViewer .page_container--spread-single {
-    grid-column: 1 / -1;
-    justify-self: center;
-}
 
 .pdfViewer .page_container--buffered {
     position: absolute;

@@ -489,6 +489,52 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
+    it('stops every zoom orchestration watcher during cleanup', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const zoomMode = ref<'fit-width' | 'fit-height' | 'custom'>('fit-width');
+        const viewMode = ref<'single' | 'facing'>('single');
+        const viewRotation = ref<0 | 90>(0);
+        const currentPage = ref(1);
+        const continuousScroll = ref(false);
+        const zoom = ref(1);
+        const computeFitWidthScale = vi.fn(() => true);
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const resetContinuousScrollState = vi.fn();
+        const scrollToPage = vi.fn();
+        const enqueueZoomSync = vi.fn();
+        const coordinator = usePdfViewerRerenderCoordinator(createDeps({
+            fitMode: computed(() => fitMode.value),
+            zoomMode: computed(() => zoomMode.value),
+            viewMode: computed(() => viewMode.value),
+            viewRotation: computed(() => viewRotation.value),
+            currentPage,
+            continuousScroll: computed(() => continuousScroll.value),
+            zoom: computed(() => zoom.value),
+            computeFitWidthScale,
+            reRenderAllVisiblePages,
+            resetContinuousScrollState,
+            scrollToPage,
+            enqueueZoomSync,
+        }));
+
+        coordinator.cleanupZoomOrchestration();
+        fitMode.value = 'height';
+        zoomMode.value = 'custom';
+        viewMode.value = 'facing';
+        viewRotation.value = 90;
+        currentPage.value = 2;
+        continuousScroll.value = true;
+        zoom.value = 2;
+        await nextTick();
+        await Promise.resolve();
+
+        expect(computeFitWidthScale).not.toHaveBeenCalled();
+        expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
+        expect(resetContinuousScrollState).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(enqueueZoomSync).not.toHaveBeenCalled();
+    });
+
     it('fences queued zoom orchestration from a replacement document', async () => {
         vi.useFakeTimers();
         try {

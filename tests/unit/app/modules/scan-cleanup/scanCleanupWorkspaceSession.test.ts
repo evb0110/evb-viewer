@@ -8,6 +8,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -22,10 +23,18 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
+import * as platform from '@app/utils/platform';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
+    IScanCleanupPlacementAnchorCalibration,
+    IScanCleanupPlacementAnchorCalibrationRequest,
     IScanCleanupPagePlanEvidence,
     IScanCleanupPlacementAnchorSummary,
     IScanCleanupPreviewResult,
@@ -106,10 +115,11 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
 function previewResult(
     pageNumber: number,
     classification: IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
+    totalPages = 3,
 ): IScanCleanupPreviewResult {
     return {
         pageNumber: requirePageNumber(pageNumber),
-        totalPages: 3,
+        totalPages,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 1,
         rawHeightPx: 1,
@@ -149,6 +159,12 @@ function scanCleanupOptions(): IScanCleanupOptions {
         skipBlankPages: false,
         pageOverrides: {},
     };
+}
+
+function inkPlacementOptions() {
+    const options = scanCleanupOptions();
+    options.pageAlignment = 'ink';
+    return options;
 }
 
 function detectionState(
@@ -201,6 +217,70 @@ function failedDetectionState(
         error: 'uniform detection failed',
         errorCode,
     };
+}
+
+function placementAnchorSummary(
+    anchorY: number,
+    options: IScanCleanupOptions = inkPlacementOptions(),
+): IScanCleanupPlacementAnchorSummary {
+    return {
+        schemaVersion: 1,
+        sampleCount: 1_025,
+        referenceHeightPoints: 792,
+        toleranceNormalized: 0.014,
+        topEdgeNormalized: 0.1,
+        identity: placementAnchorIdentity(options),
+        clusters: [{
+            startNormalized: 0.1,
+            endNormalized: 0.1,
+            valueNormalized: 0.1,
+        }],
+        samples: [{
+            pageNumber: requirePageNumber(1),
+            half: 'full',
+            yNormalized: 0.1,
+            anchor: {yNormalized: anchorY},
+        }],
+    };
+}
+
+function placementAnchorIdentity(options: IScanCleanupOptions = inkPlacementOptions()) {
+    return {
+        documentRevision: 'revision-1',
+        detectionSignature: createScanCleanupDetectionSignature(options),
+        calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(options),
+    };
+}
+
+function placementAnchorCalibration(
+    anchorY: number,
+    options: IScanCleanupOptions = inkPlacementOptions(),
+): IScanCleanupPlacementAnchorCalibration {
+    return {
+        summary: placementAnchorSummary(anchorY, options),
+        placementAnchors: {full: {yNormalized: anchorY}},
+    };
+}
+
+function setPlacementAnchorCalibrationCapability(
+    capabilityValue: IScanCleanupCapability,
+    resolve: NonNullable<IScanCleanupCapability['resolvePlacementAnchorCalibration']>,
+) {
+    Reflect.set(capabilityValue, 'resolvePlacementAnchorCalibration', resolve);
+}
+
+function completedLargeDetectionState(summary = placementAnchorSummary(0)): TScanCleanupDetectionJobState {
+    const state = detectionState('detect-1', 'completed', 1_025);
+    state.progress = {
+        ...state.progress,
+        completedUnits: 1_025,
+        totalUnits: 1_025,
+        percent: 100,
+    };
+    state.resultCount = 1_025;
+    state.detectionResultStoreId = 'calibration-store';
+    state.placementAnchorSummary = summary;
+    return state;
 }
 
 function capabilityHarness() {
@@ -310,6 +390,77 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = null;
     });
 
+    it('admits cleanup only after pending settings merge and sends the merged options', async () => {
+        const desktop = vi.spyOn(platform, 'isDesktopPlatformActive').mockReturnValue(true);
+        onTestFinished(() => desktop.mockRestore());
+        const harness = capabilityHarness();
+        const stored = createDefaultScanCleanupSettingsFile();
+        const sourceSha256 = 'a'.repeat(64);
+        stored.settings.pageAlignment = 'center';
+        stored.documentOverrides[sourceSha256] = {
+            outputMode: 'grayscale',
+            marginsMm: {
+                leftMm: 11,
+                topMm: 12,
+                rightMm: 13,
+                bottomMm: 14,
+            },
+            lastUsedAtMs: Date.now(),
+        };
+        let resolveRead!: (value: typeof stored) => void;
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: requireJobId('coherent-settings'),
+            outputPdfPath: '/managed/coherent-settings.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: requireJobId('coherent-settings'),
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        });
+        capability.value = {
+            ...harness.value,
+            getSettings: vi.fn(() => new Promise<typeof stored>(resolve => { resolveRead = resolve; })),
+            updateSettings: vi.fn(async () => stored),
+        };
+        vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(request.pageNumber, 'single-uncut-page'));
+        const mounted = mountSession('coherent-settings', {sourceSha256: () => sourceSha256});
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.setMarginsLinked(false);
+        mounted.session.settings.updateMargin('topMm', 18);
+        mounted.session.settings.values.outputMode = 'color';
+        mounted.session.settings.values.pageAlignment = 'center';
+        await nextTick();
+        expect(mounted.session.run.canRun.value).toBe(false);
+        await mounted.session.run.run();
+        expect(harness.value.start).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce());
+        resolveRead(stored);
+        await vi.waitFor(() => expect(mounted.session.settings.documentSettingsReady.value).toBe(true));
+        const completedRun = mounted.session.run.run();
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledTimes(2));
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await completedRun;
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({options: expect.objectContaining({
+            outputMode: 'color',
+            marginsMm: {
+                leftMm: 11,
+                topMm: 18,
+                rightMm: 13,
+                bottomMm: 14,
+            },
+        })}));
+    });
+
     it('accumulates settled pages across the reading and detecting stages of one job', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
@@ -380,7 +531,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('refuses a 20,001-page run when the bounded detection-store handoff is missing', async () => {
+    it('refreshes once and keeps a 20,001-page run actionable when the handoff stays missing', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`missing-detection-store-${Date.now()}`, {totalPages: () => 20_001});
@@ -402,13 +553,108 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBe(0);
-        await mounted.session.run.run();
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        harness.emitDetection({
+            ...detectionState('detect-2', 'completed'),
+            progress: {
+                stage: 'detecting',
+                completedUnits: 20_001,
+                totalUnits: 20_001,
+                percent: 100,
+                completedPageNumbers: [],
+            },
+            resultCount: 20_001,
+            results: [],
+            updatedAtMs: requireEpochMs(Date.now() + 2_000),
+        });
+        await run;
 
         expect(harness.value.start).not.toHaveBeenCalled();
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         expect(mounted.session.run.error.value).toMatch(
             /^scanCleanup\.detectAll\.evidenceMissing\nError ID: [0-9a-f]{8}$/u,
         );
         mounted.unmount();
+    });
+
+    it('refreshes stale xlarge evidence once and retries cleanup with the new store', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`refresh-detection-store-${Date.now()}`, {totalPages: () => 20_001});
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.values.pageAlignment = 'top-center';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const stale = detectionState('detect-1', 'completed');
+        stale.progress = {
+            ...stale.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+            completedPageNumbers: [],
+        };
+        stale.resultCount = 20_001;
+        stale.detectionResultStoreId = 'stale-detection-store';
+        harness.emitDetection(stale);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        vi.mocked(harness.value.start)
+            .mockResolvedValueOnce({
+                started: false,
+                jobId: requireJobId('missing-store-start'),
+                error: 'Detection results are no longer available for this document',
+                errorCode: 'detection-results-unavailable',
+            })
+            .mockResolvedValueOnce({
+                started: true,
+                jobId: requireJobId('cleanup-after-store-refresh'),
+                outputPdfPath: '/managed/cleanup-after-store-refresh.pdf',
+            });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: requireJobId('cleanup-after-store-refresh'),
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 20_001,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: requireEpochMs(Date.now() + 1),
+        });
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        const duplicateRun = mounted.session.run.run();
+
+        const fresh = detectionState('detect-2', 'completed');
+        fresh.progress = {
+            ...fresh.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+            completedPageNumbers: [],
+        };
+        fresh.resultCount = 20_001;
+        fresh.detectionResultStoreId = 'fresh-detection-store';
+        harness.emitDetection(fresh);
+        await Promise.all([
+            run,
+            duplicateRun,
+        ]);
+
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
+        expect(harness.value.start).toHaveBeenCalledTimes(2);
+        expect(harness.value.start).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({detectionResultStoreId: 'stale-detection-store'}),
+        );
+        expect(harness.value.start).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({detectionResultStoreId: 'fresh-detection-store'}),
+        );
+        expect(mounted.session.run.error.value).toBe('');
     });
 
     it('bounds xlarge page evidence and refuses full-document ink placement above the IPC capacity', async () => {
@@ -444,6 +690,282 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        mounted.unmount();
+    });
+
+    it('uses the document calibration for retained preview pages beyond the renderer window', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            previewResult(request.pageNumber, 'single-uncut-page', 1_025)
+        ));
+        const calibration = vi.fn(async (request: IScanCleanupPlacementAnchorCalibrationRequest) => placementAnchorCalibration(
+            request.pageNumber === 1 ? 0 : 0.1,
+            request.options,
+        ));
+        setPlacementAnchorCalibrationCapability(
+            harness.value,
+            calibration,
+        );
+        const mounted = mountSession(`ink-window-calibration-${Date.now()}`, {
+            currentPage: () => 1_025,
+            totalPages: () => 1_025,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const state = detectionState('detect-1', 'completed', 1_025);
+        state.resultCount = 1_025;
+        state.detectionResultStoreId = 'ink-window-store';
+        state.progress = {
+            ...state.progress,
+            completedUnits: 1_025,
+            totalUnits: 1_025,
+            percent: 100,
+        };
+        state.placementAnchorSummary = {
+            schemaVersion: 1,
+            sampleCount: 1_025,
+            referenceHeightPoints: 792,
+            toleranceNormalized: 0.014,
+            topEdgeNormalized: 0.1,
+            identity: placementAnchorIdentity(),
+            clusters: [
+                {
+                    startNormalized: 0.1,
+                    endNormalized: 0.1,
+                    valueNormalized: 0.1,
+                },
+                {
+                    startNormalized: 0.2,
+                    endNormalized: 0.2,
+                    valueNormalized: 0.2,
+                },
+            ],
+            samples: [
+                {
+                    pageNumber: requirePageNumber(1),
+                    half: 'full',
+                    yNormalized: 0.1,
+                    anchor: {yNormalized: 0},
+                },
+                {
+                    pageNumber: requirePageNumber(1_025),
+                    half: 'full',
+                    yNormalized: 0.2,
+                    anchor: {yNormalized: 0.1},
+                },
+            ],
+        };
+        state.results = state.results.map((result, index) => ({
+            ...result,
+            sourcePageMetadata: {
+                pageNumber: result.pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+            pagePlanEvidence: {
+                ...result.pagePlanEvidence!,
+                outputs: {full: {contentBox: {
+                    xNormalized: 0.1,
+                    yNormalized: index === 0 ? 0.1 : 0.2,
+                    widthNormalized: 0.7,
+                    heightNormalized: 0.6,
+                    rotationDegrees: 0,
+                }}},
+            },
+        }));
+        harness.emitDetection(state);
+
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 1_025
+            && request.placementAnchors?.full?.yNormalized === 0.1
+        ))).toBe(true));
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 1_024
+            && request.placementAnchors?.full?.yNormalized === 0.1
+        ))).toBe(true));
+        const prefetchedPageCalls = vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.pageNumber === 1_024);
+        const prefetchedPageCalibrationCalls = calibration.mock.calls.filter(([request]) => request.pageNumber === 1_024);
+        mounted.session.selection.selectPage(1_024, 'single', [
+            1,
+            1_024,
+            1_025,
+        ]);
+        await vi.waitFor(() => expect(mounted.session.preview.result.value?.pageNumber).toBe(1_024));
+        expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.pageNumber === 1_024))
+            .toHaveLength(prefetchedPageCalls.length);
+        expect(calibration.mock.calls.filter(([request]) => request.pageNumber === 1_024))
+            .toHaveLength(prefetchedPageCalibrationCalls.length);
+        expect(mounted.session.detection.pagePlanEvidenceByPage.has(1)).toBe(false);
+        mounted.session.selection.selectPage(1, 'single', [
+            1,
+            1_025,
+        ]);
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 1
+            && request.placementAnchors?.full?.yNormalized === 0
+        ))).toBe(true));
+        mounted.unmount();
+    });
+
+    it('recalibrates ink placement for option-only edits without rerunning native detection', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            previewResult(request.pageNumber, 'single-uncut-page')
+        ));
+        const calibration = vi.fn(async (request: IScanCleanupPlacementAnchorCalibrationRequest) => {
+            const override = request.options.pageOverrides['1'];
+            const anchorY = override?.manualContentBoxes?.full?.yNormalized
+                ?? (override?.excluded === true ? 0.3 : 0.1);
+            return placementAnchorCalibration(anchorY, request.options);
+        });
+        const recalculationCalls = () => calibration.mock.calls.filter(([request]) => request.pageNumber === undefined);
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-option-calibration-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 1_025,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(completedLargeDetectionState());
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        expect(calibration).not.toHaveBeenCalled();
+        setPlacementAnchorCalibrationCapability(harness.value, calibration);
+
+        const updateAndAssert = async (override: IScanCleanupOptions['pageOverrides'][string], anchorY: number) => {
+            const callsBefore = recalculationCalls().length;
+            mounted.session.selection.updatePageOverride(1, override);
+            await vi.waitFor(() => expect(recalculationCalls().length).toBeGreaterThan(callsBefore));
+            await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+                .toBe(anchorY));
+            expect(harness.value.detectAll).toHaveBeenCalledOnce();
+            expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
+            expect(mounted.session.detection.placementAnchorCalibrationError.value).toBe('');
+        };
+
+        await updateAndAssert({
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        }, 0.3);
+        await updateAndAssert({
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        }, 0.2);
+        await updateAndAssert({
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            placementOverrides: {full: 'top-center'},
+        }, 0.1);
+        mounted.unmount();
+    });
+
+    it('fences stale calibration and keeps a failed recalculation explicit', async () => {
+        const harness = capabilityHarness();
+        const first = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
+        const second = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
+        let recalculation = 0;
+        const calibration = vi.fn((request: IScanCleanupPlacementAnchorCalibrationRequest) => {
+            if (request.pageNumber !== undefined) {
+                return Promise.resolve(placementAnchorCalibration(0, request.options));
+            }
+            recalculation += 1;
+            return recalculation === 1 ? first.promise : second.promise;
+        });
+        const recalculationCalls = () => calibration.mock.calls.filter(([request]) => request.pageNumber === undefined);
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-stale-calibration-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 1_025,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(completedLargeDetectionState());
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        setPlacementAnchorCalibrationCapability(harness.value, calibration);
+
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        });
+        await vi.waitFor(() => expect(recalculationCalls()).toHaveLength(1));
+        expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(true);
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.3,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        });
+        await vi.waitFor(() => expect(recalculationCalls()).toHaveLength(2));
+
+        first.resolve(placementAnchorCalibration(0.2));
+        await Promise.resolve();
+        expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
+        expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(true);
+        second.resolve(placementAnchorCalibration(0.3, mounted.session.settings.values));
+        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+            .toBe(0.3));
+        expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+
+        const failedCalibration = vi.fn(async (request: IScanCleanupPlacementAnchorCalibrationRequest) => {
+            if (request.pageNumber !== undefined) {
+                return placementAnchorCalibration(0.4, request.options);
+            }
+            throw new Error('result store read failed');
+        });
+        setPlacementAnchorCalibrationCapability(harness.value, failedCalibration);
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        });
+        await vi.waitFor(() => expect(failedCalibration.mock.calls.filter(([request]) => request.pageNumber === undefined))
+            .toHaveLength(1));
+        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false));
+        expect(mounted.session.detection.placementAnchorCalibrationError.value).toContain('result store read failed');
+        expect(mounted.session.detection.error.value).toContain('result store read failed');
+        expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
+        expect(mounted.session.run.runDisabledReason.value).toContain('result store read failed');
+        await mounted.session.run.run();
+        expect(harness.value.start).not.toHaveBeenCalled();
         mounted.unmount();
     });
 
@@ -542,6 +1064,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             referenceHeightPoints: 792,
             toleranceNormalized: 0.014,
             topEdgeNormalized: 0.1,
+            identity: placementAnchorIdentity(),
             clusters: [{
                 startNormalized: 0.1,
                 endNormalized: 0.1,
@@ -2912,6 +3435,26 @@ describe('scan cleanup workspace session detection guidance', () => {
         const reopened = mountSession(documentKey);
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         reopened.unmount();
+    });
+
+    it('releases completed detection evidence when the source closes', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/closed-detection.pdf'));
+        capability.value = harness.value;
+        const mounted = mountSession(`closed-detection-${Date.now()}`, {sourcePath: () => sourcePath.value});
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        vi.mocked(harness.value.cancelDetection).mockClear();
+        sourcePath.value = null;
+        await nextTick();
+
+        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-1', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: expect.any(String),
+        });
+        mounted.unmount();
     });
 
     it('stores text-axis results and clears them before a fresh detection pass', async () => {

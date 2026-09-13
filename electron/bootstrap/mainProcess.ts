@@ -29,10 +29,13 @@ import {
 import {
     requestShutdownSaveFlush,
     shutdownSaveFlushRequiresRecoveryPreservation,
+    shutdownSaveFlushRequiresRetryableQuit,
 } from '@electron/bootstrap/requestShutdownSaveFlush';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
+import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
+import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createRawIpcRegistrationAudit } from '@electron/platform-ipc/rawIpcRegistration';
 import {
     clearAllWorkingCopies,
@@ -475,8 +478,11 @@ const externalOpenManager = createExternalOpenManager({
             return true;
         }
 
-        allowOpenPaths(validPaths, window.webContents);
-        return sendToWindow(window, 'menu:openExternalPaths', documentRefs);
+        const dispatched = sendToWindow(window, 'menu:openExternalPaths', documentRefs);
+        if (dispatched) {
+            allowOpenPaths(validPaths, window.webContents);
+        }
+        return dispatched;
     },
 });
 macOpenFileRouter.attachExternalOpenManager(externalOpenManager);
@@ -543,14 +549,10 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         return [
             {
                 label: 'assistant-history-preservation',
-                run: async () => {
-                    try {
-                        await preserveAssistantStateForShutdownIfLoaded();
-                    } catch (error) {
-                        context.retryablePreservationFailure = true;
-                        throw error;
-                    }
+                onFailure: () => {
+                    context.retryablePreservationFailure = true;
                 },
+                run: () => preserveAssistantStateForShutdownIfLoaded(),
             },
             {
                 label: 'renderer-save-flush',
@@ -560,6 +562,11 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                         getWindows: getAllRegisteredAppWindows,
                         logger,
                         timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS,
+                        isTrustedSender: (sender, senderFrame) => isTrustedWebContentsSender(
+                            sender,
+                            senderFrame,
+                            CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult,
+                        ),
                         rawIpcRegistrationAudit,
                     });
                     if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
@@ -568,6 +575,9 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                             code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
                             context: {},
                         });
+                    }
+                    if (shutdownSaveFlushRequiresRetryableQuit(result)) {
+                        context.retryablePreservationFailure = true;
                     }
                     for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
                         workingCopyCleanupSkipPaths.add(workingCopyPath);

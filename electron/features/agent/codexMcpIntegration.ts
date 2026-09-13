@@ -237,11 +237,16 @@ async function getCodexRegistrationState(codexPath: string) {
 }
 
 async function removeCodexRegistration(codexPath: string) {
-    await runCodexCli(codexPath, [
+    const {token} = await getLocalMcpCodexRegistrationTransport();
+    const result = await runCodexCli(codexPath, [
         'mcp',
         'remove',
         getLocalMcpServerDescriptor().name,
     ]);
+    if (!result.ok) {
+        const detail = `${redactMcpToken(result.stderr, token)}\n${redactMcpToken(result.stdout, token)}`.trim();
+        throw new Error(detail || 'Codex MCP registration removal failed.');
+    }
 }
 
 async function registerCodexMcp(codexPath: string) {
@@ -367,6 +372,16 @@ async function setAgentMcpSetting(enabled: boolean) {
     });
 }
 
+async function restoreExternalMcpIntegration(codexPath: string, enabled: boolean) {
+    if (enabled) {
+        await startExternalMcpServer();
+        await registerCodexMcp(codexPath);
+        return;
+    }
+    await removeCodexRegistration(codexPath);
+    await disableExternalMcpServer();
+}
+
 export async function setAgentMcpIntegrationEnabled(
     enabled: boolean,
     parentWindow?: BrowserWindow | null,
@@ -400,15 +415,16 @@ export async function setAgentMcpIntegrationEnabled(
         };
     }
 
+    let settingChanged = false;
     try {
+        await setAgentMcpSetting(enabled);
+        settingChanged = true;
         if (enabled) {
             await startExternalMcpServer();
             await registerCodexMcp(codexPath);
-            await setAgentMcpSetting(true);
         } else {
             await removeCodexRegistration(codexPath);
             await disableExternalMcpServer();
-            await setAgentMcpSetting(false);
         }
         return {
             ok: true,
@@ -423,8 +439,13 @@ export async function setAgentMcpIntegrationEnabled(
                 cause: error,
             },
         );
-        if (enabled && !previousSettings.agentMcpEnabled) {
-            await shutdownLocalMcpServer();
+        if (settingChanged) {
+            await restoreExternalMcpIntegration(codexPath, previousSettings.agentMcpEnabled).catch((rollbackError: unknown) => {
+                logger.warn(`Failed to restore Codex MCP integration after update failure: ${getErrorMessage(rollbackError)}`);
+            });
+            await setAgentMcpSetting(previousSettings.agentMcpEnabled).catch((rollbackError: unknown) => {
+                logger.warn(`Failed to restore persisted Codex MCP setting after update failure: ${getErrorMessage(rollbackError)}`);
+            });
         }
         return {
             ok: false,

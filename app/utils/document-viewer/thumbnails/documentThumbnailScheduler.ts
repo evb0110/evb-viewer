@@ -29,6 +29,7 @@ interface IDocumentThumbnailSchedulerOptions {
     onStateChange: (pageNumber: number, state: IDocumentThumbnailCommittedState | null) => void;
     prepareSurface: (lease: IDocumentSurfaceLease, signal: AbortSignal) => Promise<void>;
     render: (request: IDocumentPageRenderRequest) => Promise<IDocumentSurfaceLease>;
+    renderTimeoutMs?: number;
     /** Reports a render or surface-preparation failure. Cancellations never reach it. */
     onError?: ((error: unknown, demand: IDocumentThumbnailDemand) => void) | undefined;
 }
@@ -46,6 +47,8 @@ interface IActiveEntry {
     generation: number;
     key: string;
 }
+
+const DEFAULT_DOCUMENT_THUMBNAIL_RENDER_TIMEOUT_MS = 30_000;
 
 function createReleaseOnce(lease: IDocumentSurfaceLease): IReleaseOnce {
     let released = false;
@@ -86,6 +89,10 @@ function isAbortError(error: unknown) {
 
 export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSchedulerOptions) {
     const maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency));
+    const renderTimeoutMs = Math.max(
+        0,
+        Math.trunc(options.renderTimeoutMs ?? DEFAULT_DOCUMENT_THUMBNAIL_RENDER_TIMEOUT_MS),
+    );
     const active = new Map<number, IActiveEntry>();
     const committed = new Map<number, ICommittedEntry>();
     const desired = new Map<number, IDocumentThumbnailDemand>();
@@ -131,11 +138,22 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
     }
 
     function nextQueuedDemand() {
-        return [...queued.values()].sort((left, right) => (
-            left.rank - right.rank
-            || left.distance - right.distance
-            || left.pageNumber - right.pageNumber
-        ))[0] ?? null;
+        let next: IDocumentThumbnailDemand | null = null;
+        for (const demand of queued.values()) {
+            if (
+                !next
+                || demand.rank < next.rank
+                || (demand.rank === next.rank && demand.distance < next.distance)
+                || (
+                    demand.rank === next.rank
+                    && demand.distance === next.distance
+                    && demand.pageNumber < next.pageNumber
+                )
+            ) {
+                next = demand;
+            }
+        }
+        return next;
     }
 
     function handleInvalidation(entry: ICommittedEntry) {
@@ -165,14 +183,32 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
             lease: IDocumentSurfaceLease;
             releaseOnce: IReleaseOnce;
         } | null = null;
+        let renderTimedOut = false;
+        let renderTimer: ReturnType<typeof setTimeout> | null = null;
 
         try {
-            const lease = await options.render({
+            const renderPromise = options.render({
                 pageNumber,
                 widthPx: demand.widthPx,
                 priority: demand.priority,
                 signal: controller.signal,
             });
+            void renderPromise.then((lease) => {
+                if (renderTimedOut) {
+                    lease.release();
+                }
+            }, () => undefined);
+            const timeoutPromise = new Promise<never>((_resolve, reject) => {
+                renderTimer = setTimeout(() => {
+                    renderTimedOut = true;
+                    controller.abort();
+                    reject(new Error(`Thumbnail render timed out after ${String(renderTimeoutMs)}ms`));
+                }, renderTimeoutMs);
+            });
+            const lease = await Promise.race([
+                renderPromise,
+                timeoutPromise,
+            ]);
             pendingLease = {
                 lease,
                 releaseOnce: createReleaseOnce(lease),
@@ -220,6 +256,10 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         } catch (error) {
             if (!controller.signal.aborted && !isAbortError(error)) options.onError?.(error, demand);
         } finally {
+            if (renderTimer !== null) {
+                clearTimeout(renderTimer);
+                renderTimer = null;
+            }
             pendingLease?.releaseOnce.release();
             if (active.get(pageNumber) === activeEntry) active.delete(pageNumber);
             activeCount -= 1;

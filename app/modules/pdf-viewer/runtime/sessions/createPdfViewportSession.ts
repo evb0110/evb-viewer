@@ -24,7 +24,10 @@ import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutPhysicalScrollOrigin,
+    getLayoutPhysicalScrollSegmentTransition,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
     getViewportVisibilityFromDom,
     getViewportVisibilityFromLayout,
@@ -58,6 +61,7 @@ import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/r
 import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createPdfViewportUserNavigationEpochs } from '@app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs';
+import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
@@ -155,6 +159,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     const viewportPin = useViewportPagePin({summarizeViewerStateForLog: options.summarizeViewerStateForLog});
     let getActivePhysicalScrollOrigin = () => 0;
+    let lastPhysicalScrollTop = 0;
+    let physicalScrollTransitionSequence = 0;
     const scroll = usePdfScroll({
         getPinnedMostVisiblePage: () => viewportPin.getPinnedViewportPage(),
         getPhysicalScrollOrigin: () => getActivePhysicalScrollOrigin(),
@@ -286,6 +292,43 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ) ?? domVisibility;
         visibleRange.value = visibility.range ?? visibleRange.value;
         return visibleRange.value;
+    }
+    function schedulePhysicalScrollSegmentTransition(
+        container: HTMLElement,
+        layout: IPdfPageLayoutMetrics,
+        transition: {
+            origin: number;
+            page: TPageNumber;
+            scrollTop: number;
+        },
+        sequence: number,
+    ) {
+        const documentFence = documentSession.captureFence();
+        const geometryRevision = pageMetricsVersion.value;
+        void nextTick(() => {
+            if (
+                sequence !== physicalScrollTransitionSequence
+                || !documentSession.isCurrent(documentFence)
+                || viewportLayoutMetrics.value !== layout
+                || pageMetricsVersion.value !== geometryRevision
+                || getActivePhysicalScrollOrigin() !== transition.origin
+            ) {
+                return;
+            }
+            const applied = viewportWritePort.apply(container, {
+                intent: viewportWritePort.beginIntent(`pdf-scroll-segment-transition-${sequence}`),
+                reason: 'pdf-scroll-segment-transition',
+                left: container.scrollLeft,
+                top: transition.scrollTop,
+            });
+            if (!applied) {
+                return;
+            }
+            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
+            lastPhysicalScrollTop = container.scrollTop;
+            projectViewportVisibleRange(container, numPages.value);
+            options.emitCurrentPage(singlePageScroll.viewportAuthority.currentPage.value);
+        });
     }
     function getVisibleRange(): IPageRange {
         if (!options.continuousScroll.value && numPages.value > 0) {
@@ -567,7 +610,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     let mountedVisibilityFrameId: number | null = null;
     let mountedVisibilityProjectionDisposed = false;
+    let mountedVisibilityProjectionGeneration = 0;
     function cancelMountedVisibilityProjection() {
+        mountedVisibilityProjectionGeneration += 1;
         if (mountedVisibilityFrameId !== null) {
             window.cancelAnimationFrame(mountedVisibilityFrameId);
             mountedVisibilityFrameId = null;
@@ -578,18 +623,21 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         cancelMountedVisibilityProjection();
+        const generation = mountedVisibilityProjectionGeneration;
         void nextTick(() => {
-            if (mountedVisibilityProjectionDisposed) {
+            if (
+                mountedVisibilityProjectionDisposed
+                || generation !== mountedVisibilityProjectionGeneration
+            ) {
                 return;
             }
             mountedVisibilityFrameId = window.requestAnimationFrame(() => {
-                if (mountedVisibilityProjectionDisposed) {
-                    mountedVisibilityFrameId = null;
+                if (mountedVisibilityProjectionDisposed || generation !== mountedVisibilityProjectionGeneration) {
                     return;
                 }
                 mountedVisibilityFrameId = window.requestAnimationFrame(() => {
                     mountedVisibilityFrameId = null;
-                    if (mountedVisibilityProjectionDisposed) {
+                    if (mountedVisibilityProjectionDisposed || generation !== mountedVisibilityProjectionGeneration) {
                         return;
                     }
                     projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
@@ -824,6 +872,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (!container) {
             return;
         }
+        const scrollEventSequence = ++physicalScrollTransitionSequence;
+        const previousScrollTop = lastPhysicalScrollTop;
+        lastPhysicalScrollTop = container.scrollTop;
         viewModel.syncHorizontalScrollForZoomMode();
         const authority = singlePageScroll.viewportAuthority;
         if (
@@ -851,7 +902,30 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         // retained navigation row at the scroll boundary so virtualization
         // follows the live offset instead of remaining pinned to an already
         // settled destination.
-        singlePageScroll.cancelProgrammaticNavigation('viewer-scroll-interaction');
+        const layout = viewportLayoutMetrics.value;
+        const physicalScrollOrigin = getActivePhysicalScrollOrigin();
+        const transition = layout
+            ? getLayoutPhysicalScrollSegmentTransition(
+                layout,
+                container.scrollTop,
+                previousScrollTop,
+                container.clientHeight,
+                physicalScrollOrigin,
+            )
+            : null;
+        singlePageScroll.cancelProgrammaticNavigation(
+            'viewer-scroll-interaction',
+            transition ? getRequestAnchor(undefined, transition.page) : undefined,
+        );
+        if (transition && layout) {
+            schedulePhysicalScrollSegmentTransition(
+                container,
+                layout,
+                transition,
+                scrollEventSequence,
+            );
+            return;
+        }
         projectViewportVisibleRange(container, numPages.value);
     }
     watch(
@@ -880,6 +954,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
     });
     onBeforeUnmount(() => {
+        physicalScrollTransitionSequence += 1;
         mountedVisibilityProjectionDisposed = true;
         cancelMountedVisibilityProjection();
         viewportPin.clearPinnedViewportPage('before-unmount');

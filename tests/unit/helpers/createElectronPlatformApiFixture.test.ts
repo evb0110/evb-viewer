@@ -160,6 +160,19 @@ describe('createElectronPlatformApiFixture', () => {
         await expect(failed).rejects.toThrow('fixture failure');
     });
 
+    it('settles keyed operations independently', async () => {
+        const operation = createPlatformApiFixtureOperation<number, [string], string>({operationKey: requestId => requestId});
+        const first = operation.method('first');
+        const second = operation.method('second');
+
+        operation.cancel('first');
+        operation.resolve(2, 'second');
+
+        await expect(first).rejects.toThrow('Fixture operation canceled');
+        await expect(second).resolves.toBe(2);
+        expect(operation.method).toHaveBeenCalledTimes(2);
+    });
+
     it('resolves valid undefined results without consuming examples during construction', async () => {
         const api = createElectronPlatformApiFixture();
 

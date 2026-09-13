@@ -55,28 +55,33 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
 import {
     addStagedImageFileBytes,
+    assertImageExportFreeSpace,
     assertImageExportOutputPathBudget,
     type IExportPageSize,
     IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
     resolveExportRenderDpi,
+    estimateImageExportStagedBytes,
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
     buildOutputPathWithSuffix,
     buildMultiPageTiffOutputPaths,
     resolveOutputPathConflicts,
+    resolveSuffixedOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
 import {addPngPhysicalResolution} from '@electron/features/image-export/main/addPngPhysicalResolution';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
@@ -490,12 +495,13 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
             size: target.size,
             mtimeMs: target.mtimeMs,
         })).catch(() => null);
-        const targetStillOwned = promotedFile.targetIdentity !== null
-            && currentTargetIdentity !== null
-            && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
-            && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
-            && promotedFile.targetIdentity.size === currentTargetIdentity.size
-            && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
+        const targetStillOwned = promotedFile.targetIdentity === null
+            ? currentTargetIdentity !== null
+            : currentTargetIdentity !== null
+                && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
+                && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
+                && promotedFile.targetIdentity.size === currentTargetIdentity.size
+                && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
         if (promotedFile.backupPath) {
             if (!targetStillOwned) {
                 rollbackFailures.push(new Error(`Refusing to restore ${promotedFile.targetPath} after external modification`));
@@ -555,6 +561,14 @@ export async function promoteStagedFiles(
     let pendingBackupPath: string | null = null;
     let pendingReplacementAttempted = false;
     try {
+        const targetPaths = new Set(ledger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
+        for (const file of stagedFiles) {
+            const targetPath = normalizePathForLookup(file.targetPath);
+            if (targetPaths.has(targetPath)) {
+                throw new Error(`Duplicate image export target: ${file.targetPath}`);
+            }
+            targetPaths.add(targetPath);
+        }
         for (const stagedFile of stagedFiles) {
             throwIfAborted(signal);
             const targetExistsAtPromotion = existsSync(stagedFile.targetPath);
@@ -564,7 +578,7 @@ export async function promoteStagedFiles(
             pendingBackupPath = backupPath;
             pendingReplacementAttempted = false;
             if (backupPath) {
-                await copyFile(stagedFile.targetPath, backupPath);
+                await copyFileAtomic(stagedFile.targetPath, backupPath, {durable: true});
                 backupPaths.push(backupPath);
             }
             throwIfAborted(signal);
@@ -587,6 +601,7 @@ export async function promoteStagedFiles(
             pendingBackupPath = null;
             pendingReplacementAttempted = false;
         }
+        throwIfAborted(signal);
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
         if (pendingBackupPath && !pendingReplacementAttempted) {
@@ -736,7 +751,10 @@ async function detectExportRenderDpi(
         ),
     ]);
 
-    return resolveExportRenderDpi(detection.documentDpi, pageSizes);
+    return {
+        renderDpi: resolveExportRenderDpi(detection.documentDpi, pageSizes),
+        pageSizes,
+    };
 }
 
 export async function getPdfPageCount(
@@ -956,13 +974,13 @@ async function planExportRender(preparedSourcePdf: string, options: IExportPdfOp
 
     return {
         pageCount,
-        renderDpi: await detectExportRenderDpi(
+        ...(await detectExportRenderDpi(
             preparedSourcePdf,
             getPdfNativeToolPaths(),
             pageCount,
             options.signal,
             options.cancelGroup,
-        ),
+        )),
     };
 }
 
@@ -1008,9 +1026,17 @@ export async function exportPdfPagesAsImages(
         const {
             pageCount,
             renderDpi,
+            pageSizes,
         } = await planExportRender(preparedSourcePdf, options);
         assertImageExportOutputPathBudget(pageCount);
-        const exportedPaths: string[] = [];
+        await assertImageExportFreeSpace(
+            outputDirectory,
+            estimateImageExportStagedBytes(pageCount, renderDpi, pageSizes),
+        );
+        const exportedPaths = resolveSuffixedOutputPathConflicts(Array.from({length: pageCount}, (_, index) => ({
+            path: pageCount === 1 ? normalizedPath : join(outputDirectory, `${outputStem}${outputExtension}`),
+            suffix: pageCount === 1 ? '' : `-${String(index + 1).padStart(3, '0')}`,
+        })));
 
         const stagedFiles: Array<{
             stagedPath: string;
@@ -1042,21 +1068,10 @@ export async function exportPdfPagesAsImages(
                         options.cancelGroup,
                     );
                     for (const source of pageFiles) {
-                        const outputIndex = processedPages;
-                        const plannedPath = pageCount === 1
-                            ? normalizedPath
-                            : buildOutputPathWithSuffix(
-                                join(outputDirectory, `${outputStem}${outputExtension}`),
-                                `-${String(outputIndex + 1).padStart(3, '0')}`,
-                            );
-                        const targetPath = resolveOutputPathConflicts(
-                            [plannedPath],
-                            pageCount === 1,
-                        )[0];
+                        const targetPath = exportedPaths[processedPages];
                         if (!targetPath) {
                             throw new Error('Image export target path is missing');
                         }
-                        exportedPaths.push(targetPath);
                         const stagedPath = makeSiblingTempPath(targetPath);
 
                         throwIfAborted(options.signal);
@@ -1078,6 +1093,9 @@ export async function exportPdfPagesAsImages(
                 });
             }
             throwIfAborted(options.signal);
+            if (processedPages !== pageCount) {
+                throw new Error('PDF image export did not render every planned page');
+            }
             await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal);
         } catch (error) {
@@ -1238,7 +1256,12 @@ export async function exportPdfAsMultiPageTiff(
             const {
                 pageCount,
                 renderDpi,
+                pageSizes,
             } = await planExportRender(preparedSourcePdf, options);
+            await assertImageExportFreeSpace(
+                outputDirectory,
+                estimateImageExportStagedBytes(pageCount, renderDpi, pageSizes),
+            );
             let renderedPageCount = 0;
             emitExportProgress(options, {
                 phase: 'rendering',

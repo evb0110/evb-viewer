@@ -1056,6 +1056,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Attiva EVB Assistant nelle Impostazioni per usare la chat dell’assistente.',
             'turnBusy': 'EVB Assistant sta ancora elaborando il messaggio precedente per questo documento.',
+            'contextUnavailable': 'Non è stato possibile ripristinare il contesto di questa chat Claude. Avvia una nuova chat per continuare.',
         },
     },
     'optimizePdf': {
@@ -1122,6 +1123,7 @@ export default {
             one: '{count} file non supportato è stato ignorato.',
             other: '{count} file non supportati sono stati ignorati.',
         }),
+        'discardPending': 'Scarta il risultato in attesa',
     },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
@@ -1564,6 +1566,7 @@ export default {
         'export': {
             'images': 'Esportazione immagini non riuscita',
             'multiPageTiff': 'Esportazione TIFF non riuscita',
+            'alreadyRunning': 'Un’esportazione è già in corso',
         },
         'browser': {
             'filePickerSetupDenied': 'L’accesso del browser ai file è stato negato. Scegli di nuovo Apri per usare il selettore compatibile.',
@@ -1595,6 +1598,7 @@ export default {
                 'internal': 'L’OCR ha avuto un errore imprevisto',
                 'queueBackpressure': 'La coda OCR è piena',
                 'workerUnavailable': 'Il worker OCR non è disponibile',
+                'workerMessageError': 'Il worker OCR non ha potuto consegnare il risultato',
                 'toolsValidationFailed': 'Gli strumenti OCR non sono pronti',
             },
         },
@@ -1627,6 +1631,7 @@ export default {
         'settings': {
             'load': 'Impossibile caricare le impostazioni',
             'recovered': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato conservato come copia di recupero quando possibile.',
+            'recoveredWithPath': 'Non è stato possibile usare le impostazioni salvate, quindi sono stati ripristinati i valori predefiniti. Il file precedente è stato messo in quarantena in {path}.',
         },
         'runtime': {
             'title': 'Qualcosa è andato storto',

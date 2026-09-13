@@ -204,7 +204,45 @@ jobs:
           mkdir artifacts
           gh release download "$RELEASE_TAG" --dir artifacts
 
+      - name: Reconcile interrupted publication
+        if: ${{ !inputs.drill }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+          MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}
+          MIRROR_CHANNEL_KEY: ${{ inputs.channel_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_file="$RUNNER_TEMP/release-state.json"
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,assets > "$state_file"
+          set +e
+          node scripts/release/publish-release-mirror.mjs reconcile "$RELEASE_TAG" "$state_file"
+          reconciliation_status=$?
+          set -e
+          case "$reconciliation_status" in
+            0)
+              echo 'RELEASE_RECONCILED=true' >> "$GITHUB_ENV"
+              ;;
+            2)
+              echo '::error::The previous publication is still a draft; its mirror channel was restored. Start a fresh publication attempt after reviewing the draft.'
+              exit 1
+              ;;
+            4)
+              ;;
+            *)
+              echo '::error::The previous publication transaction is unresolved; no mirror channel mutation was authorized.'
+              exit 1
+              ;;
+          esac
+
       - name: Activate verified mirror channel
+        if: ${{ env.RELEASE_RECONCILED != 'true' }}
         env:
           MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
           MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
@@ -217,7 +255,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(artifacts "$RELEASE_TAG")
+          args=(artifacts "$RELEASE_TAG" --transaction)
           if [ "$DRILL" = 'true' ]; then
             args+=(--drill)
           fi
@@ -234,35 +272,41 @@ jobs:
           done
 
       - name: Promote verified GitHub draft
-        if: ${{ !inputs.drill }}
+        if: ${{ !inputs.drill && env.RELEASE_RECONCILED != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+          MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}
+          MIRROR_CHANNEL_KEY: ${{ inputs.channel_key }}
         shell: bash
         run: |
           set -euo pipefail
           promotion_error="$RUNNER_TEMP/release-promotion-error.txt"
-          if gh release edit "$RELEASE_TAG" --draft=false 2> "$promotion_error"; then
-            exit 0
-          fi
-
-          # GitHub can commit the promotion and lose the response. Read its
-          # authoritative state before reporting failure so a retry cannot
-          # mistake a public release for an unsuccessful promotion.
+          gh release edit "$RELEASE_TAG" --draft=false 2> "$promotion_error" || true
           release_state_error="$RUNNER_TEMP/release-promotion-state-error.txt"
-          if release_json="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish 2> "$release_state_error")"; then
-            if [ "$(jq -r '.isDraft' <<< "$release_json")" = 'false' ]; then
-              echo "::notice::GitHub promotion response was lost, but $RELEASE_TAG is public at $(jq -r '.targetCommitish' <<< "$release_json")."
-              exit 0
-            fi
-            echo "::error::GitHub promotion did not complete; release $RELEASE_TAG remains a draft."
-            printf '%s\n' "$release_json"
-          else
+          if ! gh release view "$RELEASE_TAG" --json tagName,isDraft,assets > "$RUNNER_TEMP/release-promotion-state.json" 2> "$release_state_error"; then
             echo "::error::GitHub promotion outcome is unresolved; authoritative release state could not be read."
             cat "$release_state_error"
+            exit 1
+          fi
+          set +e
+          node scripts/release/publish-release-mirror.mjs reconcile "$RELEASE_TAG" "$RUNNER_TEMP/release-promotion-state.json"
+          reconciliation_status=$?
+          set -e
+          if [ "$reconciliation_status" -eq 0 ]; then
+            exit 0
           fi
           cat "$promotion_error"
+          if [ "$reconciliation_status" -eq 2 ]; then
+            echo '::error::GitHub release remains a draft; the mirror channel was conditionally restored.'
+          else
+            echo '::error::GitHub promotion outcome is unresolved; the mirror channel was not changed.'
+          fi
           exit 1
 
       - name: Assert drill release remains a draft

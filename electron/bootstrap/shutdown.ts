@@ -11,6 +11,11 @@ import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 const SHUTDOWN_CLEANUP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
 const SHUTDOWN_STEP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_CLEANUP_TIMEOUT_MS);
 const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntegerEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
+// This covers the 30.5s critical-write drain and the other bounded preservation steps.
+const SHUTDOWN_PRESERVATION_TIMEOUT_MS = 90_000;
+const FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS = SHUTDOWN_PRESERVATION_TIMEOUT_MS
+    + SHUTDOWN_CLEANUP_TIMEOUT_MS
+    + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS;
 const SYSTEM_SHUTDOWN_TIMEOUT_MS = parseIntegerEnv('EVB_SYSTEM_SHUTDOWN_TIMEOUT_MS', 4_500, 1_000, 15_000);
 
 interface IAppLike {
@@ -22,6 +27,7 @@ interface IShutdownStep {
     label: string;
     run: () => Promise<void> | void;
     timeoutMs?: number;
+    onFailure?: () => void;
     /**
      * Runs after the cleanup deadline instead of competing for it. Only the log
      * flush qualifies: it is what makes every other step's timeout visible in
@@ -67,6 +73,7 @@ async function runStep(
         return {failed: false};
     } catch (error) {
         const timeout = isTimeoutError(error);
+        step.onFailure?.();
         logger.error(
             timeout
                 ? `Shutdown step timed out (${step.label}, ${timeoutMs}ms)`
@@ -166,6 +173,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
     let isGracefulQuitRequested = false;
     let isQuittingAfterCleanup = false;
     let isFatalShutdownInProgress = false;
+    let fatalShutdownForceTimer: NodeJS.Timeout | null = null;
     let systemShutdownForceTimer: NodeJS.Timeout | null = null;
 
     function clearGracefulQuitForceTimer() {
@@ -182,6 +190,30 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         }
         clearTimeout(systemShutdownForceTimer);
         systemShutdownForceTimer = null;
+    }
+
+    function clearFatalShutdownForceTimer() {
+        if (!fatalShutdownForceTimer) {
+            return;
+        }
+        clearTimeout(fatalShutdownForceTimer);
+        fatalShutdownForceTimer = null;
+    }
+
+    function startFatalShutdownForceDeadline(exitCode: number) {
+        if (fatalShutdownForceTimer) {
+            return;
+        }
+        fatalShutdownForceTimer = setTimeout(() => {
+            options.logger.error(`Fatal shutdown exceeded deadline (${FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS}ms); forcing exit`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+            });
+            fatalShutdownForceTimer = null;
+            isQuittingAfterCleanup = true;
+            options.app.exit(exitCode);
+        }, FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS);
+        fatalShutdownForceTimer.unref();
     }
 
     function startBestEffortCleanupDeadline() {
@@ -213,13 +245,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
 
         if (context.retryablePreservationFailure === true && !isFatalShutdownInProgress) {
             isGracefulQuitRequested = false;
-            shutdownPromise = null;
-            shutdownContext = null;
             options.logger.warn('Graceful quit was held for a retryable preservation failure');
-            return;
         }
 
-        if (armForceExit) {
+        if (armForceExit && context.retryablePreservationFailure !== true) {
             startBestEffortCleanupDeadline();
         }
         try {
@@ -253,6 +282,22 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         }
         if (quitOptions?.afterCleanup) {
             gracefulQuitAfterCleanup = quitOptions.afterCleanup;
+        }
+        if (shutdownPromise && shutdownContext?.retryablePreservationFailure === true) {
+            const pendingShutdown = shutdownPromise;
+            void pendingShutdown.then(() => {
+                if (
+                    shutdownPromise !== pendingShutdown
+                    || isQuittingAfterCleanup
+                    || isFatalShutdownInProgress
+                ) {
+                    return;
+                }
+                shutdownPromise = null;
+                shutdownContext = null;
+                requestGracefulQuit(quitOptions);
+            });
+            return;
         }
         isGracefulQuitRequested = true;
         const cleanupPromise = shutdownPromise ?? startShutdown({
@@ -327,9 +372,14 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                 reason: 'fatal',
             }, false);
             void shutdownPromise.finally(() => {
+                clearFatalShutdownForceTimer();
                 clearSystemShutdownForceTimer();
-                options.app.exit(exitCode);
+                if (!isQuittingAfterCleanup) {
+                    isQuittingAfterCleanup = true;
+                    options.app.exit(exitCode);
+                }
             });
+            startFatalShutdownForceDeadline(exitCode);
         },
         requestGracefulQuit,
         requestSystemShutdown() {

@@ -43,6 +43,7 @@ export const DOCUMENTS_CHANNELS = {
     savePdfDialog: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
     saveDocxAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
     fileRead: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile,
+    pdfPageLabelRangesRead: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfPageLabelRanges,
     fileStat: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile,
     fileReadRange: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange,
     fileCreateManagedHandle: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.createManagedTempFileHandle,

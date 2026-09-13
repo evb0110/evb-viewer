@@ -144,4 +144,47 @@ describe('scan cleanup sidecar protocol failures', () => {
             await expect(run).rejects.toBe(progressError);
         }
     });
+
+    it('rejects an NDJSON line that exceeds the byte limit before readline buffers it', async () => {
+        const child = new MockSidecarProcess();
+        const lines = new MockLineReader();
+        const onProtocolError = vi.fn();
+        mocks.createInterface.mockReturnValue(lines);
+        const {createScanCleanupSidecarProtocolHandler} = await import(
+            '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler'
+        );
+        createScanCleanupSidecarProtocolHandler({
+            stdout: child.stdout,
+            stderr: child.stderr,
+            onProtocolError,
+            log: vi.fn(),
+        });
+
+        child.stdout.end(Buffer.alloc(4 * 1024 * 1024 + 1, 0x61));
+        await vi.waitFor(() => expect(onProtocolError).toHaveBeenCalledOnce());
+        const error = onProtocolError.mock.calls[0]?.[0];
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('exceeds 4194304 bytes');
+        expect(lines.close).toHaveBeenCalledOnce();
+    });
+
+    it('keeps stderr bounded by UTF-8 bytes without splitting the retained buffer operation', async () => {
+        const child = new MockSidecarProcess();
+        const lines = new MockLineReader();
+        mocks.createInterface.mockReturnValue(lines);
+        const {createScanCleanupSidecarProtocolHandler} = await import(
+            '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler'
+        );
+        const protocol = createScanCleanupSidecarProtocolHandler({
+            stdout: child.stdout,
+            stderr: child.stderr,
+            onProtocolError: vi.fn(),
+            log: vi.fn(),
+        });
+
+        child.stderr.end(Buffer.from('ошибка'.repeat(20_000), 'utf8'));
+        await vi.waitFor(() => expect(Buffer.byteLength(protocol.stderr, 'utf8')).toBeLessThanOrEqual(64 * 1024));
+        expect(protocol.stderr).not.toMatch(/^�/u);
+    });
+
 });

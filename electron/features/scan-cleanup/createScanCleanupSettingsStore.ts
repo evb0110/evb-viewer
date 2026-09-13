@@ -9,6 +9,7 @@ import {
     assertScanCleanupLegacyStorageByteLimit,
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
+    DEFAULT_SCAN_CLEANUP_PREFERENCES,
     decodeScanCleanupGlobalPreferences,
     decodeScanCleanupMarginsMm,
     decodeScanCleanupSettingsFile,
@@ -27,6 +28,10 @@ import {
     createScanCleanupInputBudget,
     type IScanCleanupInputBudget,
 } from '@contracts/scan-cleanup/inputLimits';
+import {
+    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+} from '@contracts/scan-cleanup/geometry';
 import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
 import type {TScanCleanupOutputModeSetting} from '@contracts/scan-cleanup/domain';
 import {
@@ -100,9 +105,39 @@ function decodeLegacyDocumentEntry(
     if (!stored) {
         return null;
     }
+    const legacyOverrides = scanCleanupPreferenceRecord(stored.overrides);
+    const migratedOverrides = legacyOverrides === null
+        ? stored.overrides
+        : Object.fromEntries(Object.entries(legacyOverrides).map(([
+            page,
+            override,
+        ]) => {
+            const pageOverride = scanCleanupPreferenceRecord(override);
+            const manualSplit = scanCleanupPreferenceRecord(pageOverride?.manualSplit);
+            const xNormalized = manualSplit?.xNormalized;
+            if (typeof xNormalized !== 'number' || !Number.isFinite(xNormalized)) {
+                return [
+                    page,
+                    override,
+                ];
+            }
+            return [
+                page,
+                {
+                    ...pageOverride,
+                    manualSplit: {
+                        ...manualSplit,
+                        xNormalized: Math.min(
+                            SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+                            Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, xNormalized),
+                        ),
+                    },
+                },
+            ];
+        }));
     const overrides = stored.overrides === undefined
         ? undefined
-        : decodeScanCleanupPageOverrides(stored.overrides, budget);
+        : decodeScanCleanupPageOverrides(migratedOverrides, budget);
     const outputMode = [
         'auto',
         'bw',
@@ -166,6 +201,7 @@ function readLegacyCandidates(
     now: number,
 ): {
     settings: ReturnType<typeof decodeScanCleanupGlobalPreferences> | null;
+    settingsPatch: Partial<ReturnType<typeof decodeScanCleanupGlobalPreferences>>;
     documentCandidates: Map<string, ILegacyCandidate>;
     documentCandidatesByLegacyKey: Map<string, IScanCleanupDocumentOverrideEntry>;
     diagnostics: ILegacyMigrationDiagnostics;
@@ -176,6 +212,7 @@ function readLegacyCandidates(
     if (!legacyStorage) {
         return {
             settings: null,
+            settingsPatch: {},
             documentCandidates,
             documentCandidatesByLegacyKey,
             diagnostics,
@@ -187,6 +224,7 @@ function readLegacyCandidates(
         recordLegacyMigrationFailure(diagnostics, 'invalidEnvelopes', error);
         return {
             settings: null,
+            settingsPatch: {},
             documentCandidates,
             documentCandidatesByLegacyKey,
             diagnostics,
@@ -198,8 +236,10 @@ function readLegacyCandidates(
     const settingsRecord = scanCleanupPreferenceRecord(rawSettings);
     const settingsValue = settingsRecord?.settings ?? rawSettings;
     let settings: ReturnType<typeof decodeScanCleanupGlobalPreferences> | null = null;
+    const settingsPatch: Partial<ReturnType<typeof decodeScanCleanupGlobalPreferences>> = {};
     if (settingsValue !== null) {
-        if (scanCleanupPreferenceRecord(settingsValue) === null) {
+        const storedSettings = scanCleanupPreferenceRecord(settingsValue);
+        if (storedSettings === null) {
             recordLegacyMigrationFailure(
                 diagnostics,
                 'invalidGlobals',
@@ -208,6 +248,16 @@ function readLegacyCandidates(
         } else {
             try {
                 settings = decodeScanCleanupGlobalPreferences(settingsValue, {preInkAlignment: true});
+                for (const key of Object.keys(storedSettings)) {
+                    if (key === 'marginMm') {
+                        settingsPatch.marginsMm = settings.marginsMm;
+                    } else if (key === 'despeckle') {
+                        settingsPatch.despeckleLevel = settings.despeckleLevel;
+                    } else if (Object.hasOwn(DEFAULT_SCAN_CLEANUP_PREFERENCES, key)) {
+                        const preferenceKey = key as keyof typeof DEFAULT_SCAN_CLEANUP_PREFERENCES;
+                        Object.assign(settingsPatch, {[preferenceKey]: settings[preferenceKey]});
+                    }
+                }
             } catch (error) {
                 recordLegacyMigrationFailure(diagnostics, 'invalidGlobals', error);
             }
@@ -261,6 +311,7 @@ function readLegacyCandidates(
     }
     return {
         settings,
+        settingsPatch,
         documentCandidates,
         documentCandidatesByLegacyKey,
         diagnostics,
@@ -377,6 +428,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
     ) {
         const {
             settings,
+            settingsPatch,
             documentCandidates,
             documentCandidatesByLegacyKey,
             diagnostics,
@@ -398,6 +450,18 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         if (initialRead && settings) {
             state.settings = settings;
             changed = true;
+        } else if (!initialRead) {
+            for (const [
+                key,
+                value,
+            ] of Object.entries(settingsPatch)) {
+                const preferenceKey = key as keyof typeof state.settings;
+                const defaultValue = DEFAULT_SCAN_CLEANUP_PREFERENCES[preferenceKey];
+                if (JSON.stringify(state.settings[preferenceKey]) === JSON.stringify(defaultValue)) {
+                    Object.assign(state.settings, {[preferenceKey]: value});
+                    changed = true;
+                }
+            }
         }
         if (initialRead) {
             for (const [

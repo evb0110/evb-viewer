@@ -360,10 +360,16 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
         if (runtimeShutdownPromise) {
             await runtimeShutdownPromise;
+            if (runtimeStartPromise) {
+                return runtimeStartPromise;
+            }
         }
 
         if (runtime?.client.isClosed()) {
             await shutdownCodexRuntime();
+            if (runtimeStartPromise) {
+                return runtimeStartPromise;
+            }
         }
 
         if (runtime) {

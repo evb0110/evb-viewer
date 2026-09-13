@@ -430,26 +430,26 @@ pub(crate) fn read_page_label_ranges(
         }
         previous_page_index = Some(page_index);
         let dictionary = resolve_catalog_dictionary(document, &value, "PageLabel")?;
-        let style = dictionary
-            .get(b"S")
-            .ok()
-            .and_then(|value| document.resolved(value).ok())
-            .and_then(|value| value.as_name().ok())
-            .map(|value| String::from_utf8_lossy(value).into_owned());
-        let prefix = dictionary
-            .get(b"P")
-            .ok()
-            .and_then(|value| document.resolved(value).ok())
-            .and_then(|value| match value {
-                Object::String(_, _) => lopdf::decode_text_string(value).ok(),
-                _ => None,
-            });
-        let start = dictionary
-            .get(b"St")
-            .ok()
-            .and_then(|value| document.resolved(value).ok())
-            .and_then(|value| value.as_i64().ok())
-            .and_then(|value| u32::try_from(value).ok());
+        let style = match dictionary.get(b"S") {
+            Ok(value) => {
+                Some(String::from_utf8_lossy(document.resolved(value)?.as_name()?).into_owned())
+            }
+            Err(_) => None,
+        };
+        let prefix = match dictionary.get(b"P") {
+            Ok(value) => Some(lopdf::decode_text_string(document.resolved(value)?)?),
+            Err(_) => None,
+        };
+        let start = match dictionary.get(b"St") {
+            Ok(value) => {
+                let start = document.resolved(value)?.as_i64()?;
+                Some(
+                    u32::try_from(start)
+                        .map_err(|_| "PageLabels start number is outside the supported bounds")?,
+                )
+            }
+            Err(_) => None,
+        };
         output.push(PdfCombinePageLabelRange {
             page_index,
             style,

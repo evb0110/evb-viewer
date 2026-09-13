@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     JobBroker,
@@ -431,6 +432,31 @@ describe('JobBroker', () => {
             'background',
         ]);
         backgroundLease.release();
+    });
+
+    it('uses cached resource totals while releasing a burst of queued work', async () => {
+        const broker = new JobBroker({
+            cpuTokens: 4,
+            estimatedResidentBytes: 400,
+            nativeProcesses: 4,
+            ioWeight: 4,
+        });
+        const blocker = await broker.acquire(createRequest({resources: {
+            cpuTokens: 4,
+            estimatedResidentBytes: 400,
+            nativeProcesses: 4,
+            ioWeight: 4,
+        }}));
+        const queued = Array.from({length: 4}, (_, index) => broker.acquire(createRequest({ownerId: `queued-owner-${String(index)}`})));
+        const reduce = vi.spyOn(Array.prototype, 'reduce');
+
+        blocker.release();
+
+        expect(broker.getSnapshot().active).toBe(4);
+        expect(reduce).not.toHaveBeenCalled();
+        const leases = await Promise.all(queued);
+        leases.forEach(lease => lease.release());
+        reduce.mockRestore();
     });
 
     it('enforces per-owner feature caps while allowing another renderer through', async () => {

@@ -251,6 +251,22 @@ describe('PDF embedded shape index main session', () => {
             .rejects.toThrow('session is not available');
     });
 
+    it('starts the stale-artifact sweep only while a session exists', async () => {
+        const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+        const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+        const session = await beginPdfEmbeddedShapeIndex(
+            context,
+            requireDocumentRef('/tmp/document.pdf'),
+            {expectedDocumentRevisionToken: revisionToken},
+        );
+
+        expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+        await releasePdfEmbeddedShapeIndex(context, session.sessionId);
+        expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+        setIntervalSpy.mockRestore();
+        clearIntervalSpy.mockRestore();
+    });
+
     it('rejects a requested chunk size smaller than one sidecar line', async () => {
         const session = await beginPdfEmbeddedShapeIndex(
             context,

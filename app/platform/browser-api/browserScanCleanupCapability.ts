@@ -12,6 +12,9 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     preview() {
         return Promise.reject(new Error(BROWSER_SCAN_CLEANUP_UNAVAILABLE));
     },
+    resolvePlacementAnchorCalibration() {
+        return Promise.reject(new Error(BROWSER_SCAN_CLEANUP_UNAVAILABLE));
+    },
     cancelPreview() {
         return Promise.resolve(false);
     },

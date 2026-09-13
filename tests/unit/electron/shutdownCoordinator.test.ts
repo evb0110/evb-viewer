@@ -151,6 +151,7 @@ describe('shutdown coordinator', () => {
         expect(fixture.app.exit).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(1);
+        await vi.runOnlyPendingTimersAsync();
         expect(fixture.app.exit).toHaveBeenCalledWith(0);
         expect(fixture.app.quit).not.toHaveBeenCalled();
 
@@ -346,13 +347,105 @@ describe('shutdown coordinator', () => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
-        expect(cleanup).not.toHaveBeenCalled();
+        expect(cleanup).toHaveBeenCalledOnce();
 
         fixture.coordinator.requestGracefulQuit();
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
-        expect(cleanup).toHaveBeenCalledOnce();
+        expect(cleanup).toHaveBeenCalledTimes(2);
+        expect(fixture.app.exit).not.toHaveBeenCalled();
+    });
+
+    it('holds graceful quit when assistant preservation times out while cleanup still runs', async () => {
+        vi.useFakeTimers();
+        const logger = createLogger();
+        const cleanup = vi.fn();
+        const phases = createShutdownPhaseRunners(logger, {
+            createPreservationSteps: context => [{
+                label: 'assistant-history-preservation',
+                timeoutMs: 1,
+                onFailure: () => {
+                    context.retryablePreservationFailure = true;
+                },
+                run: () => new Promise<void>(() => undefined),
+            }],
+            createBestEffortCleanupSteps: () => [{
+                label: 'safe-cleanup',
+                run: cleanup,
+            }],
+        });
+        const fixture = createCoordinator({
+            runBestEffortCleanupSteps: phases.runBestEffortCleanupSteps,
+            runPreservationSteps: phases.runPreservationSteps,
+        });
+
+        fixture.coordinator.requestGracefulQuit();
+        await vi.advanceTimersByTimeAsync(1);
+        await vi.waitFor(() => {
+            expect(cleanup).toHaveBeenCalledOnce();
+        });
+
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+        expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
+    });
+
+    it('does not force exit while retryable preservation cleanup is pending', async () => {
+        vi.useFakeTimers();
+        const cleanup = createDeferred();
+        const fixture = createCoordinator({
+            runBestEffortCleanupSteps: () => cleanup.promise,
+            runPreservationSteps: async context => {
+                context.retryablePreservationFailure = true;
+            },
+        });
+
+        fixture.coordinator.requestGracefulQuit();
+        await vi.waitFor(() => {
+            expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
+        });
+        await vi.advanceTimersByTimeAsync(23_000);
+
+        expect(fixture.app.exit).not.toHaveBeenCalled();
+        cleanup.resolve();
+        await fixture.coordinator.performCleanup();
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+    });
+
+    it('serializes repeated quit requests behind retryable cleanup', async () => {
+        const cleanup = createDeferred();
+        let cleanupCalls = 0;
+        let preservationAttempts = 0;
+        const fixture = createCoordinator({
+            runBestEffortCleanupSteps: async () => {
+                cleanupCalls += 1;
+                if (cleanupCalls === 1) {
+                    await cleanup.promise;
+                }
+            },
+            runPreservationSteps: async context => {
+                preservationAttempts += 1;
+                if (preservationAttempts === 1) {
+                    context.retryablePreservationFailure = true;
+                }
+            },
+        });
+
+        fixture.coordinator.requestGracefulQuit();
+        await vi.waitFor(() => {
+            expect(cleanupCalls).toBe(1);
+            expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
+        });
+        fixture.coordinator.requestGracefulQuit();
+        fixture.coordinator.requestGracefulQuit();
+        expect(preservationAttempts).toBe(1);
+
+        cleanup.resolve();
+        await vi.waitFor(() => {
+            expect(fixture.app.quit).toHaveBeenCalledOnce();
+        });
+        expect(cleanupCalls).toBe(2);
+        expect(preservationAttempts).toBe(2);
         expect(fixture.app.exit).not.toHaveBeenCalled();
     });
 
@@ -463,5 +556,19 @@ describe('shutdown coordinator', () => {
             expect(fixture.app.exit).toHaveBeenCalledWith(1);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
+    });
+
+    it('forces a fatal shutdown when preservation never settles', async () => {
+        vi.useFakeTimers();
+        const fixture = createCoordinator({runPreservationSteps: () => new Promise<void>(() => undefined)});
+
+        fixture.coordinator.requestFatalShutdown('fatal shutdown is wedged', 9);
+        await vi.advanceTimersByTimeAsync(112_999);
+        expect(fixture.app.exit).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await vi.runOnlyPendingTimersAsync();
+        expect(fixture.app.exit).toHaveBeenCalledOnce();
+        expect(fixture.app.exit).toHaveBeenCalledWith(9);
     });
 });

@@ -1056,6 +1056,7 @@ export default {
         'agentAssistant': {
             'disabledMessage': 'Activa EVB Assistant en Ajustes para usar el chat del asistente.',
             'turnBusy': 'EVB Assistant aún está trabajando en el mensaje anterior de este documento.',
+            'contextUnavailable': 'No se pudo restaurar el contexto de este chat de Claude. Inicia un chat nuevo para continuar.',
         },
     },
     'optimizePdf': {
@@ -1122,6 +1123,7 @@ export default {
             one: 'Se omitió {count} archivo no compatible.',
             other: 'Se omitieron {count} archivos no compatibles.',
         }),
+        'discardPending': 'Descartar resultado pendiente',
     },
     'noteWindow': {
         'popUpNote': 'Página {page}',
@@ -1564,6 +1566,7 @@ export default {
         'export': {
             'images': 'No se pudieron exportar las imágenes',
             'multiPageTiff': 'No se pudo exportar el TIFF',
+            'alreadyRunning': 'Ya hay una exportación en curso',
         },
         'browser': {
             'filePickerSetupDenied': 'Se denegó el acceso del navegador a los archivos. Vuelve a elegir Abrir para usar el selector compatible.',
@@ -1595,6 +1598,7 @@ export default {
                 'internal': 'El OCR falló inesperadamente',
                 'queueBackpressure': 'La cola de OCR está llena',
                 'workerUnavailable': 'El trabajador de OCR no está disponible',
+                'workerMessageError': 'El trabajador de OCR no pudo entregar un resultado',
                 'toolsValidationFailed': 'Las herramientas de OCR no están listas',
             },
         },
@@ -1627,6 +1631,7 @@ export default {
         'settings': {
             'load': 'No se pudieron cargar los ajustes',
             'recovered': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se conservó como copia de recuperación cuando fue posible.',
+            'recoveredWithPath': 'No se pudieron usar los ajustes guardados, así que se restauraron los valores predeterminados. El archivo anterior se puso en cuarentena en {path}.',
         },
         'runtime': {
             'title': 'Algo salió mal',

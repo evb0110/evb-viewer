@@ -415,7 +415,7 @@ describe('working-copy cleanup materialization retirement', () => {
             }];
         });
 
-        await cleanupWorkingCopy(workingPath, 7);
+        await expect(cleanupWorkingCopy(workingPath, 7)).resolves.toBe(true);
 
         expect(state.cancelClosingOperations).toHaveBeenCalledWith(workingPath, 'Working copy is closing');
         expect(directoryExistedAtCancel).toBe(true);
@@ -501,7 +501,7 @@ describe('working-copy cleanup materialization retirement', () => {
             settled: wedged.promise.then(() => undefined),
         }]);
 
-        await cleanupWorkingCopy(workingPath, 7);
+        await expect(cleanupWorkingCopy(workingPath, 7)).resolves.toBe(false);
 
         // Deleting here is the production incident: Poppler keeps reading the
         // file and the user's close turns into a failure.

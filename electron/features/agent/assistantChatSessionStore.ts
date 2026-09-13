@@ -37,6 +37,7 @@ import {
 import {
     AssistantChatPersistence,
     readBoundedIntegerEnv,
+    readAssistantChatMaxSessionBytes,
 } from '@electron/features/agent/assistantChatPersistence';
 
 export interface IAssistantChatSession {
@@ -159,18 +160,50 @@ function normalizeRecoveredLastAccessedAt(value: number, now = Date.now()) {
         : now;
 }
 
+function assistantMessageBytes(message: IAgentAssistantChatMessage) {
+    const attachmentBytes = message.attachments?.reduce((total, attachment) => total
+        + Buffer.byteLength(attachment.dataUrl, 'utf8')
+        + Buffer.byteLength(attachment.previewDataUrl ?? '', 'utf8'), 0) ?? 0;
+    return Buffer.byteLength(message.text, 'utf8') + attachmentBytes + 256;
+}
+
+function boundAssistantMessages(messages: IAgentAssistantChatMessage[], maxBytes: number) {
+    let totalBytes = 0;
+    let firstKeptIndex = messages.length;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (!message) {
+            continue;
+        }
+        const messageBytes = assistantMessageBytes(message);
+        if (firstKeptIndex < messages.length && totalBytes + messageBytes > maxBytes) {
+            break;
+        }
+        totalBytes += messageBytes;
+        firstKeptIndex = index;
+    }
+    if (firstKeptIndex > 0) {
+        messages.splice(0, firstKeptIndex);
+    }
+}
+
 export function createAssistantChatSessionStore(options: IAssistantChatSessionStoreOptions = {}) {
     const maxEntries = options.maxEntries ?? readAssistantChatSessionMaxEntries();
     const ttlMs = options.ttlMs ?? readAssistantChatSessionTtlMs();
     const persistence = options.persistence === false
         ? null
         : options.persistence ?? new AssistantChatPersistence();
+    const maxSessionBytes = persistence?.getMaxSessionBytes() ?? readAssistantChatMaxSessionBytes();
     const chatSessions = new Map<string, IAssistantChatSession>();
     let activeChatKey: string | null = null;
     let lastStateScope: IAgentAssistantChatScope | null = null;
     let lastSelection: IAssistantSelection = DEFAULT_SELECTION;
 
-    for (const recovered of persistence?.recoverSessions() ?? []) {
+    const addRecoveredSession = (recovered: Awaited<ReturnType<AssistantChatPersistence['recoverSessions']>>[number]) => {
+        if (chatSessions.has(recovered.key)) {
+            return;
+        }
+        boundAssistantMessages(recovered.session.messages, maxSessionBytes);
         chatSessions.set(recovered.key, {
             provider: recovered.session.provider,
             scope: recovered.session.scope,
@@ -194,7 +227,14 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             claudeSession: undefined,
             ...(recovered.session.lastError === undefined ? {} : { lastError: recovered.session.lastError }),
         });
-    }
+    };
+    const ready = persistence
+        ? persistence.recoverSessions().then(recovered => {
+            for (const session of recovered) {
+                addRecoveredSession(session);
+            }
+        })
+        : Promise.resolve();
 
     function getRememberedScope() {
         return lastStateScope;
@@ -400,12 +440,24 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             ...(message.error === undefined ? {} : { error: message.error }),
         } satisfies IAgentAssistantChatMessage;
         session.messages.push(nextMessage);
+        boundAssistantMessages(session.messages, maxSessionBytes);
         options.onSessionMessageEvent?.({
             type: 'message',
             message: nextMessage,
         }, session);
         persistence?.recordSessionSnapshot(keyForSession(session), session);
         return nextMessage;
+    }
+
+    function removeMessage(session: IAssistantChatSession, messageId: string) {
+        const messageIndex = session.messages.findIndex(message => message.id === messageId);
+        if (messageIndex < 0) {
+            return false;
+        }
+
+        session.messages.splice(messageIndex, 1);
+        persistence?.recordSessionSnapshot(keyForSession(session), session);
+        return true;
     }
 
     function upsertAssistantMessage(
@@ -417,6 +469,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         const existing = session.messages.find(message => message.id === id);
         if (existing) {
             Object.assign(existing, patch);
+            boundAssistantMessages(session.messages, maxSessionBytes);
             options.onSessionMessageEvent?.({
                 type: 'message',
                 message: cloneAssistantMessage(existing),
@@ -446,6 +499,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             });
         message.pending = true;
         message.text += delta;
+        boundAssistantMessages(session.messages, maxSessionBytes);
         options.onSessionMessageEvent?.({
             type: 'message-delta',
             messageId,
@@ -495,8 +549,10 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         rememberStateScope,
         recordSessionSnapshot,
         recordTurnBoundary,
+        removeMessage,
         resolveRequestedScope,
         resetSessionTranscript,
+        ready,
         setActiveSession,
         touchSession,
         updateRememberedSelection,

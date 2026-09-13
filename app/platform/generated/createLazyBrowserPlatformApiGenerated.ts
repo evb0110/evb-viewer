@@ -65,6 +65,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentWorkingCopyCleanupFileMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupFile.path);
     const documentWorkingCopyCleanupOcrTempMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupOcrTemp.path);
     const documentFilesReadFileMethod = lazyAsync(pathDescriptors.documentFiles.readFile.path);
+    const documentFilesReadPdfPageLabelRangesMethod = lazyAsync(pathDescriptors.documentFiles.readPdfPageLabelRanges.path);
     const documentFilesStatFileMethod = lazyAsync(pathDescriptors.documentFiles.statFile.path);
     const documentFilesReadFileRangeMethod = lazyAsync(pathDescriptors.documentFiles.readFileRange.path);
     const documentFilesReadFileChunksMethod = lazyAsync(pathDescriptors.documentFiles.readFileChunks.path);
@@ -188,6 +189,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrOnProgressMethod = lazyEvent(pathDescriptors.ocr.onProgress.path);
     const ocrOnCompleteMethod = lazyEvent(pathDescriptors.ocr.onComplete.path);
     const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
+    const scanCleanupResolvePlacementAnchorCalibrationMethod = lazyAsync(pathDescriptors.scanCleanup.resolvePlacementAnchorCalibration.path);
     const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
     const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
     const scanCleanupCancelDetectionMethod = lazyAsync(pathDescriptors.scanCleanup.cancelDetection.path);
@@ -312,6 +314,7 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     documentFiles: {
         readFile: documentFilesReadFileMethod,
+        readPdfPageLabelRanges: documentFilesReadPdfPageLabelRangesMethod,
         statFile: documentFilesStatFileMethod,
         readFileRange: documentFilesReadFileRangeMethod,
         readFileChunks: documentFilesReadFileChunksMethod,
@@ -455,6 +458,7 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     scanCleanup: {
         preview: scanCleanupPreviewMethod,
+        resolvePlacementAnchorCalibration: scanCleanupResolvePlacementAnchorCalibrationMethod,
         cancelPreview: scanCleanupCancelPreviewMethod,
         detectAll: scanCleanupDetectAllMethod,
         cancelDetection: scanCleanupCancelDetectionMethod,

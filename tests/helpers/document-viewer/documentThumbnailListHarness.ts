@@ -97,6 +97,7 @@ const mounted = new Set<() => void>();
  * genuinely stopped, without any scenario having to guess a chain's length.
  */
 let sourceActivity = 0;
+let openThumbnailRenders = 0;
 
 const DEFAULT_FRAME_WIDTH = 180;
 
@@ -185,10 +186,28 @@ export function createDocumentThumbnailSourceHarness(
     const renderCalls: number[] = [];
     const renderRequests: IDocumentThumbnailRenderRequestRecord[] = [];
     const runawayPages = new Set<number>();
-    const renderThumbnail = vi.fn(async (request: {
+    const renderThumbnail = vi.fn((request: {
         pageNumber: number;
         widthPx: number;
+        signal?: AbortSignal;
     }) => {
+        openThumbnailRenders += 1;
+        let open = true;
+        const close = () => {
+            if (open) {
+                open = false;
+                openThumbnailRenders -= 1;
+            }
+        };
+        request.signal?.addEventListener('abort', close, {once: true});
+        const render = startThumbnailRender(request);
+        void render.then(close, close);
+        return render;
+    });
+    async function startThumbnailRender(request: {
+        pageNumber: number;
+        widthPx: number;
+    }) {
         sourceActivity += 1;
         renderCalls.push(request.pageNumber);
         renderRequests.push({
@@ -221,7 +240,7 @@ export function createDocumentThumbnailSourceHarness(
             surface: document.createElement('canvas'),
             release: vi.fn(),
         };
-    });
+    }
     const source: IDocumentPageSource = {
         kind: 'pdf',
         documentRef: requireDocumentRef(documentRef),
@@ -340,14 +359,16 @@ async function drainDocumentThumbnailWork() {
  * is still pending, and a full drain produced no further work from the source.
  * Each pending timer fires at its own deadline on the fake clock, so a scenario
  * observes the rail's real settle sequence rather than a guessed wait, and a
- * deliberately parked render (`defer`) simply leaves nothing pending.
+ * deliberately parked render (`defer`) leaves only its render deadline pending.
  */
 export async function settleDocumentThumbnailList() {
     let lastActivity = -1;
     for (let round = 0; round < MAX_SETTLE_ROUNDS; round += 1) {
         await drainDocumentThumbnailWork();
-        const pendingTimers = vi.getTimerCount();
-        if (pendingTimers === 0 && sourceActivity === lastActivity) {
+        // Every open render holds one scheduler deadline timer. Advancing to it
+        // would time out a render the scenario parked on purpose.
+        const pendingTimers = vi.getTimerCount() - openThumbnailRenders;
+        if (pendingTimers <= 0 && sourceActivity === lastActivity) {
             return;
         }
         lastActivity = sourceActivity;

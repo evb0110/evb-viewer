@@ -332,7 +332,10 @@ function createLazyPageSizeStore(pageCount: number, chunkPages = 1_024) {
             throw new RangeError(`invalid synthetic page ${String(pageNumber)}`);
         }
     };
-    const store: IPdfPageSizeStore = {
+    const close = vi.fn(async () => {
+        closed = true;
+    });
+    const store: IPdfPageSizeStore & {close: typeof close} = {
         pageCount,
         getPage: vi.fn(async pageNumber => {
             assertOpen();
@@ -381,9 +384,7 @@ function createLazyPageSizeStore(pageCount: number, chunkPages = 1_024) {
                 chunkIndex += 1;
             }
         }),
-        close: vi.fn(async () => {
-            closed = true;
-        }),
+        close,
     };
     return {
         store,
@@ -556,6 +557,52 @@ function createRequest(): IScanCleanupDetectionRequest {
     };
 }
 
+function createSinglePageDetectionHarness(
+    tempDir: string,
+    pageSizeSource: ReturnType<typeof createLazyPageSizeStore>,
+) {
+    const publishedPath = join(tempDir, 'published.png');
+    const retention = {
+        openDocument: vi.fn(async () => ({id: 'document'})),
+        pageCount: vi.fn(async () => 1),
+        pageSizeStore: vi.fn(async () => pageSizeSource.store),
+        rasterPages: vi.fn(async () => ({
+            detected: false,
+            getPageRaster: () => undefined,
+        })),
+        retainedPaths: vi.fn(async () => new Map()),
+        rasterScratchPath: vi.fn(async () => `${publishedPath}.part`),
+        stagedRasterPath: vi.fn(async () => publishedPath),
+        retain: vi.fn(async input => {
+            await rename(input.scratchPath, publishedPath);
+            return {
+                dpi: input.dpi,
+                height: input.height,
+                pageNumber: input.pageNumber,
+                path: publishedPath,
+                sizeBytes: input.sizeBytes,
+                width: input.width,
+            };
+        }),
+        releaseRaster: vi.fn(async () => undefined),
+        release: vi.fn(async () => undefined),
+    } satisfies IScanCleanupDetectionRetention<{id: string}>;
+    const sidecar = createStagedSidecar();
+    return {
+        retention,
+        dependencies: {
+            getTempDir: () => tempDir,
+            getPdftoppmBinary: () => 'pdftoppm',
+            resolveBinary: () => 'evb-scan-cleanup',
+            renderPage: vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+                await writeFile(outputPath, PNG_1X1);
+            }),
+            renderPagePpm: vi.fn(),
+            runSidecar: sidecar.runSidecar,
+        },
+    };
+}
+
 afterEach(async () => {
     await Promise.all(resultStores.splice(0).map(store => store.close()));
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
@@ -567,6 +614,82 @@ afterEach(async () => {
 describe('runScanCleanupDetection non-stream raster admission', () => {
     /* Legacy FIFO Analyze transport coverage was removed when Analyze became
      * retained-PNG-only; Render conversion keeps its independent stream path. */
+
+    it('closes an unreturned result store when required finalization fails', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-finalization-test-'));
+        dirs.push(tempDir);
+        const pageSizeSource = createLazyPageSizeStore(1);
+        pageSizeSource.store.close.mockRejectedValueOnce(new Error('page-size close failed'));
+        const harness = createSinglePageDetectionHarness(tempDir, pageSizeSource);
+
+        await expect(runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            harness.retention,
+            harness.dependencies,
+            {rasterConcurrency: 1},
+            () => undefined,
+        )).rejects.toThrow('page-size close failed');
+
+        expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
+        expect((await readdir(tempDir)).filter(name => name.startsWith('scan-cleanup-results-'))).toEqual([]);
+    });
+
+    it('preserves a successful result when document release fails after publication', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-release-test-'));
+        dirs.push(tempDir);
+        const pageSizeSource = createLazyPageSizeStore(1);
+        const harness = createSinglePageDetectionHarness(tempDir, pageSizeSource);
+        harness.retention.release.mockRejectedValueOnce(new Error('document release failed'));
+
+        const detection = await runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            harness.retention,
+            harness.dependencies,
+            {rasterConcurrency: 1},
+            () => undefined,
+        );
+        resultStores.push(detection.resultStore);
+
+        expect(await detection.resultStore.getPage(1)).toMatchObject({pageNumber: 1});
+        expect(detection.results).toHaveLength(1);
+    });
+
+    it('preserves a successful result when scratch removal fails after publication', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-scratch-test-'));
+        dirs.push(tempDir);
+        const pageSizeSource = createLazyPageSizeStore(1);
+        const harness = createSinglePageDetectionHarness(tempDir, pageSizeSource);
+        const log = vi.fn();
+        const rmSpy = vi.spyOn(fileSystem, 'rm').mockImplementation(async (path, options) => {
+            if (options.recursive === true && path.includes('scan-cleanup-rasters-')) {
+                throw new Error('scratch removal failed');
+            }
+            await rm(path, options);
+        });
+
+        try {
+            const detection = await runScanCleanupDetection(
+                createRequest(),
+                new AbortController().signal,
+                harness.retention,
+                harness.dependencies,
+                {rasterConcurrency: 1},
+                () => undefined,
+                log,
+            );
+            resultStores.push(detection.resultStore);
+
+            expect(await detection.resultStore.getPage(1)).toMatchObject({pageNumber: 1});
+            expect(log).toHaveBeenCalledWith(
+                'warn',
+                expect.stringContaining('scratch removal failed'),
+            );
+        } finally {
+            rmSpy.mockRestore();
+        }
+    });
 
     it('keeps large detection manifests inside the admitted Poppler raster window', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-long-test-'));

@@ -534,7 +534,9 @@ pub fn decode_pdf_symbol_page(
             if decoded_instances > instances {
                 return Err(Jbig2Error::InvalidArithmeticData);
             }
-            current_s = checked_add_i64(current_s, i32::try_from(symbol.width - 1).unwrap())?;
+            let symbol_width =
+                i32::try_from(symbol.width - 1).map_err(|_| Jbig2Error::InvalidArithmeticData)?;
+            current_s = checked_add_i64(current_s, symbol_width)?;
             let Some(delta_s) =
                 decode_integer(&mut decoder, integer_contexts.get_mut(IntegerProc::Ds))?
             else {

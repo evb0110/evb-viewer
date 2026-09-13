@@ -64,7 +64,7 @@ fn rejects_dimensions_above_the_caller_and_absolute_hard_caps_without_panicking(
         assert_decode_error(
             "maximum dimensions",
             &maximum_dimensions,
-            DecodeLimits::new(u64::MAX)
+            DecodeLimits::new(u64::MAX).with_max_dimension(u32::MAX)
         ),
         Jbig2Error::PixelLimitExceeded {
             pixels: u64::from(u32::MAX) * u64::from(u32::MAX),
@@ -80,7 +80,7 @@ fn rejects_dimensions_above_the_caller_and_absolute_hard_caps_without_panicking(
         assert_decode_error(
             "absolute hard cap",
             &above_hard_cap,
-            DecodeLimits::new(u64::MAX)
+            DecodeLimits::new(u64::MAX).with_max_dimension(u32::MAX)
         ),
         Jbig2Error::PixelLimitExceeded {
             pixels: u64::from(width),
@@ -100,6 +100,25 @@ fn rejects_dimensions_above_the_caller_and_absolute_hard_caps_without_panicking(
         Jbig2Error::PixelLimitExceeded {
             pixels: 4_160,
             maximum: 4_095,
+        }
+    );
+}
+
+#[test]
+fn default_limits_reject_dimensions_above_the_default_side_ceiling() {
+    let mut oversized = valid_stream();
+    set_u32(
+        &mut oversized,
+        PAGE_WIDTH_OFFSET,
+        jbig2_codec::DEFAULT_MAX_DIMENSION + 1,
+    );
+    set_u32(&mut oversized, PAGE_HEIGHT_OFFSET, 1);
+
+    assert_eq!(
+        assert_decode_error("default dimension cap", &oversized, DecodeLimits::default()),
+        Jbig2Error::InvalidDimensions {
+            width: jbig2_codec::DEFAULT_MAX_DIMENSION + 1,
+            height: 1,
         }
     );
 }

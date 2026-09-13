@@ -7,7 +7,11 @@ use std::{
     path::{Path, PathBuf},
 };
 #[cfg(unix)]
-use std::{os::fd::AsRawFd, thread, time::Duration};
+use std::{
+    os::fd::AsRawFd,
+    thread,
+    time::{Duration, Instant},
+};
 
 pub mod pbm;
 pub mod png;
@@ -22,10 +26,13 @@ const ATOMIC_TEMP_RANDOM_BYTES: usize = 16;
 const STREAM_CANCEL_SELECT_INTERVAL_US: libc::suseconds_t = 50_000;
 #[cfg(unix)]
 const STREAM_UNCONNECTED_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+#[cfg(unix)]
+const STREAM_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 pub(crate) enum BoundedIoError {
     Canceled,
+    ConnectTimeout,
     Io(std::io::Error),
     TooLarge { limit: usize },
 }
@@ -34,6 +41,9 @@ impl fmt::Display for BoundedIoError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Canceled => formatter.write_str("input copy was canceled"),
+            Self::ConnectTimeout => {
+                formatter.write_str("stream producer did not connect before the deadline")
+            }
             Self::Io(error) => error.fmt(formatter),
             Self::TooLarge { limit } => {
                 write!(formatter, "input exceeds guardrails ({limit}-byte limit)")
@@ -46,7 +56,7 @@ impl Error for BoundedIoError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
-            Self::Canceled | Self::TooLarge { .. } => None,
+            Self::Canceled | Self::ConnectTimeout | Self::TooLarge { .. } => None,
         }
     }
 }
@@ -103,6 +113,23 @@ pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
     max_bytes: usize,
     is_canceled: impl Fn() -> bool,
 ) -> Result<u64, BoundedIoError> {
+    copy_bounded_nonblocking_stream_cancelable_until(
+        source,
+        destination,
+        max_bytes,
+        is_canceled,
+        Instant::now() + STREAM_INITIAL_CONNECT_TIMEOUT,
+    )
+}
+
+#[cfg(unix)]
+fn copy_bounded_nonblocking_stream_cancelable_until(
+    source: &mut (impl Read + AsRawFd),
+    destination: &mut impl Write,
+    max_bytes: usize,
+    is_canceled: impl Fn() -> bool,
+    initial_connect_deadline: Instant,
+) -> Result<u64, BoundedIoError> {
     let mut copied = 0usize;
     let mut received_data = false;
     let mut buffer = [0u8; COPY_BUFFER_BYTES];
@@ -115,6 +142,9 @@ pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
         let count = match source.read(&mut buffer[..read_limit]) {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if !received_data && Instant::now() >= initial_connect_deadline {
+                    return Err(BoundedIoError::ConnectTimeout);
+                }
                 let descriptor = source.as_raw_fd();
                 if descriptor < 0 || descriptor as usize >= libc::FD_SETSIZE {
                     return Err(std::io::Error::other(format!(
@@ -156,7 +186,11 @@ pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
                 // for a producer without spinning on the persistent POLLHUP.
                 // Once connected, data is drained immediately; this delay is
                 // never applied between producer writes.
-                thread::sleep(STREAM_UNCONNECTED_RETRY_INTERVAL);
+                let remaining = initial_connect_deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(BoundedIoError::ConnectTimeout);
+                }
+                thread::sleep(STREAM_UNCONNECTED_RETRY_INTERVAL.min(remaining));
                 continue;
             }
             Ok(count) => count,
@@ -174,17 +208,6 @@ pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
         destination.write_all(&buffer[..count])?;
         copied += count;
     }
-}
-
-pub(crate) fn read_file_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, BoundedIoError> {
-    let mut file = File::open(path)?;
-    let metadata = file.metadata()?;
-    if metadata.len() > max_bytes as u64 {
-        return Err(BoundedIoError::TooLarge { limit: max_bytes });
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    copy_bounded_cancelable(&mut file, &mut bytes, max_bytes, || false)?;
-    Ok(bytes)
 }
 
 pub(crate) fn decode_limits(max_pixels: u64, max_dimension: u32) -> DecodeLimits {
@@ -442,6 +465,38 @@ mod tests {
             elapsed < MAX_ELAPSED,
             "ready FIFO copy took {elapsed:?}; fixed sleep polling is throttling the stream",
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nonblocking_fifo_copy_reports_an_initial_connect_timeout() {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = test_directory("fifo-connect-timeout");
+        let fifo = directory.join("source.fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let mut source = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .unwrap();
+        let mut destination = Vec::new();
+
+        let error = copy_bounded_nonblocking_stream_cancelable_until(
+            &mut source,
+            &mut destination,
+            16,
+            || false,
+            std::time::Instant::now(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, BoundedIoError::ConnectTimeout));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

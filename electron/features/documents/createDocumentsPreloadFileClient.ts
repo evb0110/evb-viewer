@@ -833,6 +833,10 @@ export function createDocumentsPreloadFileClient(
             assertAbsolutePath(workingPath, 'saveDocxAs.workingPath'),
         ).then(result => result === null ? null : assertAbsolutePath(result, 'saveDocxAs.result')),
         readFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile, path),
+        readPdfPageLabelRanges: (path) => invokeFiles(
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfPageLabelRanges,
+            assertAbsolutePath(path, 'readPdfPageLabelRanges.path'),
+        ),
         statFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile, path),
         readFileRange: (path, offset, length) =>
             invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange, path, offset, length),

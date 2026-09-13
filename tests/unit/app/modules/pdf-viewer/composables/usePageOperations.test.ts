@@ -193,6 +193,27 @@ describe('usePageOperations', () => {
         expect(options.metadataSnapshot).not.toHaveProperty('pageLabelRanges');
     });
 
+    it('blocks page-identity mutations until page labels resolve', async () => {
+        const {pageOps} = createHarness('/tmp/work.pdf', {
+            pageLabels: null,
+            pageLabelRanges: [],
+            pageLabelsResolved: false,
+        });
+
+        await expect(pageOps.deletePages([1], 2)).resolves.toBe(false);
+        await expect(pageOps.reorderPages([
+            2,
+            1,
+        ])).resolves.toBe(false);
+
+        expect(pageOpsApi.delete).not.toHaveBeenCalled();
+        expect(pageOpsApi.reorder).not.toHaveBeenCalled();
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'blocked',
+            reason: 'preflight',
+        });
+    });
+
     it.each([
         [
             'rotate',
@@ -703,7 +724,7 @@ describe('usePageOperations', () => {
             requireDocumentRef('browser://documents/b.png'),
             requireDocumentRef('browser://documents/c.pdf'),
         ]);
-        await Promise.resolve();
+        await vi.waitFor(() => expect(pageOpsApi.insertFile).toHaveBeenCalled());
 
         expect(pageOps.batchProgress.value).toEqual({
             processed: 2,

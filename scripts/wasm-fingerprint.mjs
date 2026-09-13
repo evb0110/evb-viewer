@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {execFile} from 'node:child_process';
 import {
     lstat,
     readdir,
@@ -6,8 +7,10 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {promisify} from 'node:util';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const execFileAsync = promisify(execFile);
 const WASM_MAGIC = Buffer.from([
     0x00,
     0x61,
@@ -38,8 +41,9 @@ const IGNORED_DIRECTORY_NAMES = new Set([
 const IGNORED_FILE_NAMES = new Set(['auto-imports.d.ts']);
 
 /** @typedef {{path: string, relativePath: string}} IWasmFingerprintFile */
+/** @typedef {{bytes: Buffer, relativePath: string}} IWasmFingerprintSource */
 /** @typedef {{offset: number, value: number}} IUnsignedLeb128 */
-/** @typedef {{projectRoot?: string | undefined, rustflags?: string | undefined}} IWasmFingerprintOptions */
+/** @typedef {{projectRoot?: string | undefined, rustflags?: string | undefined, rustcCommitHash?: string | undefined, sources?: IWasmFingerprintSource[] | undefined}} IWasmFingerprintOptions */
 /** @typedef {{code?: string | undefined}} INodeError */
 /** @typedef {typeof import('./wasm-artifacts.mjs').WASM_ARTIFACTS[number]} IWasmArtifact */
 
@@ -141,11 +145,40 @@ async function getWasmFingerprintInputFiles(root) {
     return files;
 }
 
+/** @param {string} [root] @returns {Promise<IWasmFingerprintSource[]>} */
+export async function readWasmFingerprintSources(root = projectRoot) {
+    const files = await getWasmFingerprintInputFiles(root);
+    return Promise.all(files.map(async file => ({
+        relativePath: file.relativePath,
+        bytes: await readFile(file.path),
+    })));
+}
+
+/** @type {Map<string, Promise<string>>} */
+const rustcCommitHashByRoot = new Map();
+
+/** @param {string} root */
+function readRustcCommitHash(root) {
+    let pending = rustcCommitHashByRoot.get(root);
+    if (!pending) {
+        pending = execFileAsync('rustc', ['-vV'], {
+            cwd: root,
+            encoding: 'utf8',
+        }).then(({stdout}) => stdout.match(/^commit-hash:\s*(\S+)/mu)?.[1] ?? stdout.trim());
+        pending.catch(() => rustcCommitHashByRoot.delete(root));
+        rustcCommitHashByRoot.set(root, pending);
+    }
+    return pending;
+}
+
 /** @param {IWasmArtifact} artifact @param {IWasmFingerprintOptions} [options] @returns {Promise<string>} */
 export async function computeWasmSourceFingerprint(artifact, {
     projectRoot: root = projectRoot,
     rustflags = '',
+    rustcCommitHash: configuredRustcCommitHash,
+    sources,
 } = {}) {
+    const rustcCommitHash = configuredRustcCommitHash ?? await readRustcCommitHash(root);
     const hash = createHash('sha256');
     hash.update(JSON.stringify({
         artifact: {
@@ -165,13 +198,14 @@ export async function computeWasmSourceFingerprint(artifact, {
             '--lib',
         ],
         schemaVersion: WASM_FINGERPRINT_SCHEMA_VERSION,
+        rustcCommitHash,
     }));
     hash.update('\0');
 
-    for (const file of await getWasmFingerprintInputFiles(root)) {
-        hash.update(file.relativePath);
+    for (const source of sources ?? await readWasmFingerprintSources(root)) {
+        hash.update(source.relativePath);
         hash.update('\0');
-        hash.update(await readFile(file.path));
+        hash.update(source.bytes);
         hash.update('\0');
     }
 

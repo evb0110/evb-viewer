@@ -224,7 +224,7 @@ pub struct NormalizedZonePolygon {
 }
 
 const MANUAL_ZONE_MAX: usize = 256;
-const POLYGON_POINT_MAX: usize = 2_048;
+const POLYGON_POINT_MAX: usize = 64;
 const MANUAL_ZONE_POINT_MAX: usize = 8_192;
 const POLYGON_EPSILON: f64 = 1e-9;
 pub const MANUAL_SPLIT_MIN: f64 = 0.02;

@@ -1,7 +1,10 @@
 import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import type * as TViMockOriginalModule2 from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 
-import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {
+    IPdfPage,
+    IPdfViewport,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type * as TPdfViewerFacade from '@app/services/pdfjs/pdfViewerFacade';
 // @vitest-environment happy-dom
 
@@ -548,6 +551,71 @@ describe('usePdfTextLayerRenderer', () => {
         const currentWords = renderPageWordBoxesMock.mock.calls[0]?.[4] as Set<string>;
         expect(currentWords.has('foo|10|20|30|12')).toBe(false);
         expect(currentWords.has('foo|60|20|30|12')).toBe(true);
+    });
+
+    it('uses the stored current viewport when refreshing OCR geometry highlights', async () => {
+        const pageMatches = new Map([[
+            0,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: 'rotated',
+                searchQuery: 'rotated',
+                matches: [{
+                    matchIndex: 0,
+                    start: 0,
+                    end: 7,
+                    words: [{
+                        text: 'rotated',
+                        x: 10,
+                        y: 20,
+                        width: 30,
+                        height: 12,
+                    }],
+                    pageWidth: 100,
+                    pageHeight: 200,
+                }],
+            },
+        ]]);
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(pageMatches),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
+            effectiveScale: ref(1),
+        });
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container';
+        pageContainer.dataset.page = '1';
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.className = 'text-layer';
+        pageContainer.append(textLayerDiv);
+        const root = document.createElement('div');
+        root.append(pageContainer);
+        document.body.append(root);
+        const viewport = cast<IPdfViewport>({
+            ...textLayerViewport(1),
+            rotation: 180,
+            viewBox: [
+                0,
+                0,
+                100,
+                200,
+            ],
+            convertToViewportRectangle: vi.fn(),
+        });
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
+            streamTextContent: vi.fn(() => ({items: [{
+                str: 'rotated',
+                hasEOL: false,
+            }]})),
+        });
+
+        await renderer.renderTextLayer(pdfPage, textLayerDiv, viewport, 1, 1, 1);
+        renderer.applyAllSearchHighlights(root);
+
+        expect(renderPageWordBoxesMock).toHaveBeenCalledOnce();
+        expect(renderPageWordBoxesMock.mock.calls[0]?.[6]).toBe(viewport);
     });
 
     it('maps applyAllSearchHighlights by mounted page numbers instead of DOM order', () => {

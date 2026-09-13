@@ -210,6 +210,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const metadataSession = useMetadataSession({
         pdfDocument,
         totalPages,
+        workingCopyPath,
+        documentRevisionToken,
         markDirty,
         setWorkspaceCommandSink,
     });
