@@ -29,7 +29,6 @@ interface IRenderPdfPagesForBrowserPrintOptions {signal?: AbortSignal;}
 const BROWSER_PRINT_RESOLUTION_DPI = 300;
 const PDF_POINTS_PER_INCH = 72;
 const BROWSER_PRINT_RENDER_SCALE = BROWSER_PRINT_RESOLUTION_DPI / PDF_POINTS_PER_INCH;
-const BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT = 0.5;
 const BROWSER_PRINT_MAX_INPUT_BYTES = 256 * 1024 * 1024;
 const BROWSER_PRINT_MAX_RESIDENT_CANVAS_BYTES = 256 * 1024 * 1024;
 const BROWSER_PRINT_MAX_CANVAS_PIXELS = 64 * 1024 * 1024;
@@ -117,6 +116,7 @@ function formatPdfPointSizeAsCssPoints(sizeInPoints: number) {
 
 function setBrowserPrintPageSize(
     targetDocument: IBrowserPrintDocument,
+    pageNumber: number,
     width: number,
     height: number,
 ) {
@@ -126,35 +126,18 @@ function setBrowserPrintPageSize(
     }
 
     const style = targetDocument.createElement('style') as IBrowserPrintStyleElement;
+    const pageName = `browser-print-page-${String(pageNumber)}`;
     style.textContent = `
-        @page {
+        @page ${pageName} {
             size: ${formatPdfPointSizeAsCssPoints(width)} ${formatPdfPointSizeAsCssPoints(height)};
             margin: 0;
         }
+
+        .${pageName} {
+            page: ${pageName};
+        }
     `;
     head.appendChild(style);
-}
-
-function assertBrowserPrintPageMatchesFirstPage(
-    pageNumber: number,
-    width: number,
-    height: number,
-    firstPageSize: {
-        width: number;
-        height: number;
-    },
-) {
-    const widthDelta = Math.abs(width - firstPageSize.width);
-    const heightDelta = Math.abs(height - firstPageSize.height);
-
-    if (
-        widthDelta > BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT
-        || heightDelta > BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT
-    ) {
-        throw new Error(
-            `Browser printing does not support mixed page sizes or orientations. Page ${pageNumber} is ${width.toFixed(2)}x${height.toFixed(2)}pt, but page 1 is ${firstPageSize.width.toFixed(2)}x${firstPageSize.height.toFixed(2)}pt.`,
-        );
-    }
 }
 
 export async function renderPdfPagesForBrowserPrint(
@@ -228,10 +211,6 @@ async function renderPdfPageNumbersForBrowserPrint(
     getPage: (pageNumber: number) => Promise<IPdfPage>,
     options: IRenderPdfPagesForBrowserPrintOptions,
 ) {
-    let firstPageSize: {
-        width: number;
-        height: number;
-    } | null = null;
     let residentCanvasBytes = 0;
 
     try {
@@ -242,24 +221,16 @@ async function renderPdfPageNumbersForBrowserPrint(
             try {
                 throwIfBrowserPrintAborted(options.signal);
                 const displayViewport = page.getViewport({ scale: 1 });
-                if (!firstPageSize) {
-                    firstPageSize = {
-                        width: displayViewport.width,
-                        height: displayViewport.height,
-                    };
-                    setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
-                } else {
-                    assertBrowserPrintPageMatchesFirstPage(
-                        pageNumber,
-                        displayViewport.width,
-                        displayViewport.height,
-                        firstPageSize,
-                    );
-                }
+                setBrowserPrintPageSize(
+                    targetDocument,
+                    pageNumber,
+                    displayViewport.width,
+                    displayViewport.height,
+                );
 
                 const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
-                pageContainer.className = 'browser-print-page';
+                pageContainer.className = `browser-print-page browser-print-page-${String(pageNumber)}`;
 
                 const canvas = createBrowserPrintCanvas(targetDocument);
                 const canvasWidth = Math.max(1, Math.ceil(renderViewport.width));
