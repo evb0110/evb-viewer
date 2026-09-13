@@ -49,11 +49,14 @@ describe('WASM artifact flow', () => {
         const outputDir = await mkdtemp(path.join(tmpdir(), 'evb-wasm-stage-'));
         try {
             const sources = await readWasmFingerprintSources();
+            // Staging compares identities; the host toolchain is irrelevant and rustup may install it on demand.
+            const rustcCommitHash = 'test-rustc';
             for (const artifact of WASM_ARTIFACTS) {
                 const fileName = path.basename(artifact.publicRelativePath);
                 const fingerprint = await computeWasmSourceFingerprint(artifact, {
                     rustflags: artifact.rustflags.join(' '),
                     sources,
+                    rustcCommitHash,
                 });
                 const bytes = stampWasmArtifact(Buffer.from([
                     0,
@@ -68,7 +71,7 @@ describe('WASM artifact flow', () => {
                 await writeFile(path.join(inputDir, fileName), bytes);
             }
             await writeWasmArtifactManifest(inputDir);
-            await stageWasmArtifacts(inputDir, outputDir);
+            await stageWasmArtifacts(inputDir, outputDir, {rustcCommitHash});
             const stagedSnapshot = new Map(
                 await Promise.all(WASM_ARTIFACTS.map(async artifact => {
                     const fileName = path.basename(artifact.publicRelativePath);
@@ -94,7 +97,7 @@ describe('WASM artifact flow', () => {
             const manifest = JSON.parse(await readFile(path.join(inputDir, 'manifest.json'), 'utf8'));
             manifest.artifacts[0].fingerprint = '0'.repeat(64);
             await writeFile(path.join(inputDir, 'manifest.json'), `${JSON.stringify(manifest)}\n`);
-            await expect(stageWasmArtifacts(inputDir, outputDir)).rejects.toThrow('manifest does not match');
+            await expect(stageWasmArtifacts(inputDir, outputDir, {rustcCommitHash})).rejects.toThrow('manifest does not match');
             await expectOutputSnapshot(outputDir, stagedSnapshot);
 
             const firstArtifact = WASM_ARTIFACTS[0];
@@ -114,7 +117,7 @@ describe('WASM artifact flow', () => {
                 ]), '0'.repeat(64)),
             );
             await writeWasmArtifactManifest(inputDir);
-            await expect(stageWasmArtifacts(inputDir, outputDir)).rejects.toThrow('built from different sources');
+            await expect(stageWasmArtifacts(inputDir, outputDir, {rustcCommitHash})).rejects.toThrow('built from different sources');
             await expectOutputSnapshot(outputDir, stagedSnapshot);
         } finally {
             await rm(inputDir, {

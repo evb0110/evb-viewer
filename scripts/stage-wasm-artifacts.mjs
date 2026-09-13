@@ -15,7 +15,7 @@ import {
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export async function stageWasmArtifacts(inputDir, outputDir = path.join(projectRoot, 'public', 'wasm')) {
+export async function stageWasmArtifacts(inputDir, outputDir = path.join(projectRoot, 'public', 'wasm'), {rustcCommitHash} = {}) {
     const manifest = JSON.parse(await readFile(path.join(inputDir, 'manifest.json'), 'utf8'));
     if (manifest?.schemaVersion !== 1 || !Array.isArray(manifest.artifacts)) throw new Error('WASM artifact manifest is invalid');
     const manifestByName = new Map(manifest.artifacts.map(entry => [
@@ -37,6 +37,7 @@ export async function stageWasmArtifacts(inputDir, outputDir = path.join(project
             projectRoot,
             rustflags: artifact.rustflags.join(' '),
             sources,
+            rustcCommitHash,
         });
         const entry = manifestByName.get(fileName);
         if (!entry || entry.byteLength !== bytes.byteLength || entry.fingerprint !== actualFingerprint) throw new Error(`WASM artifact manifest does not match ${fileName}`);
