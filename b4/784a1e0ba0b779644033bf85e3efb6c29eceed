@@ -1,0 +1,58 @@
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_eb96588e84cadd::t_e529784b9b1882 450
+electron/features/ocr/worker/pdfAssembler.ts
+  s_eb96588e84cadd::t_e958b2cffbecdc 1112-1115,1119-1130
+  s_eb96588e84cadd::t_9c6efcb3d4c025 2,1097-1111,1116-1118,1131-1150,1409,1475-1486
+  s_eb96588e84cadd::t_bf2bae47bc45fb 3
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_eb96588e84cadd::t_e958b2cffbecdc 233-299,305-344
+  s_eb96588e84cadd::t_4b7659db1617db 27,36,230-232,300-304,345
+electron/features/ocr/worker/main.ts
+  s_eb96588e84cadd::t_0ca503d48917f5 906
+native/pdf-page-ops/tests/text_layer.rs
+  s_eb96588e84cadd::t_040de9a6d1703e 305-316,318-322,325-334,337-353,358-359,367-382,386-392
+  s_eb96588e84cadd::t_85d4ebd6040a28 317,323-324,384
+  s_eb96588e84cadd::t_3cdf4077b673bd 354-357
+  s_eb96588e84cadd::t_71e8b733a0e07f 383,385
+  s_eb96588e84cadd::t_075b566a97661d 360-366
+  s_eb96588e84cadd::t_975d87af105d86 335-336
+app/utils/docxStreaming.ts
+  s_eb96588e84cadd::t_744d4ff4730f22 18-19
+app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent.ts
+  s_eb96588e84cadd::t_6490f732e0f662 8,217,230
+native/pdf-page-ops/src/text_layer.rs
+  s_eb96588e84cadd::t_7662e367b820e1 1205-1238
+  s_eb96588e84cadd::t_a86f882eca6f22 317,1279-1285
+  s_eb96588e84cadd::t_05b862160fb75c 819,826-835,838,840-881
+  s_eb96588e84cadd::t_a6ab9514bf005c 8,188-199,201-225,230-299,303-316,318-322,324-343,345-357
+  s_eb96588e84cadd::t_69a2fc348c7cdc 792-794
+  s_eb96588e84cadd::t_3cdf4077b673bd 226-229,300-302,893-894
+  s_eb96588e84cadd::t_8e281c08fca10a 1113
+  s_eb96588e84cadd::t_6a860fb6348b96 1138
+  s_eb96588e84cadd::t_1180669ec87a5d 768-791,795-812,814-815
+  s_eb96588e84cadd::t_bed6db707d1327 200
+  s_eb96588e84cadd::t_6f452393c7af01 730-767,813,816-818
+  s_eb96588e84cadd::t_fb002ad0b6d312 1022-1026,1123-1126,1128-1136
+  s_eb96588e84cadd::t_fbf7c2fecbc171 323,344
+  s_eb96588e84cadd::t_f1f0e02a434f5e 691-692,697
+  s_eb96588e84cadd::t_15fd820017c11f 583,591-599,656-686,891-892,896-897,904
+  s_eb96588e84cadd::t_166325e73a9d32 1114-1116
+  s_eb96588e84cadd::t_c10eeadf944563 559-575
+  s_eb96588e84cadd::t_06a8e2de4c4a68 1271-1278,1286-1295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b4784a1e0ba0b779644033bf85e3efb6c29eceed",
+  "prompts": {},
+  "sessions": {
+    "s_eb96588e84cadd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c7c-2354-7531-9523-20cf9935c58b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
