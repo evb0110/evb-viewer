@@ -33,6 +33,17 @@ describe('main shutdown ordering', () => {
         expect(beginShutdownIndex).toBeGreaterThan(shutdownStepIndex);
     });
 
+    it('holds graceful quit when renderer persistence cannot complete', () => {
+        const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
+        const flushStepIndex = source.indexOf('label: \'renderer-save-flush\'');
+        const shutdownStepIndex = source.indexOf('label: \'main-operation-shutdown\'');
+        const flushStep = source.slice(flushStepIndex, shutdownStepIndex);
+
+        expect(flushStep).toMatch(
+            /shutdownSaveFlushRequiresRetryableQuit\(result\)[\s\S]*context\.retryablePreservationFailure = true/u,
+        );
+    });
+
     it('preserves loaded assistant history before closing main operation admission', () => {
         const source = readFileSync(join(process.cwd(), 'electron/bootstrap/mainProcess.ts'), 'utf8');
         const assistantIndex = source.indexOf('label: \'assistant-history-preservation\'');

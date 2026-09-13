@@ -29,6 +29,7 @@ import {
 import {
     requestShutdownSaveFlush,
     shutdownSaveFlushRequiresRecoveryPreservation,
+    shutdownSaveFlushRequiresRetryableQuit,
 } from '@electron/bootstrap/requestShutdownSaveFlush';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
@@ -574,6 +575,9 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                             code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
                             context: {},
                         });
+                    }
+                    if (shutdownSaveFlushRequiresRetryableQuit(result)) {
+                        context.retryablePreservationFailure = true;
                     }
                     for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
                         workingCopyCleanupSkipPaths.add(workingCopyPath);

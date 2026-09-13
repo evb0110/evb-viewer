@@ -25,6 +25,13 @@ export function shutdownSaveFlushRequiresRecoveryPreservation(
         || summary.timedOutWindowIds.length > 0;
 }
 
+export function shutdownSaveFlushRequiresRetryableQuit(
+    summary: IShutdownSaveFlushSummary,
+) {
+    return summary.failedWindowIds.length > 0
+        || summary.timedOutWindowIds.length > 0;
+}
+
 function normalizePathList(value: unknown): string[] {
     return Array.isArray(value)
         ? (value as unknown[]).filter((path): path is string => typeof path === 'string' && path.trim().length > 0)

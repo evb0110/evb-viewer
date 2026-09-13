@@ -39,6 +39,7 @@ let settingsSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let flushDebouncedSettingsSave: (() => void) | null = null;
 let settingsSaveFlushListener: (() => void) | null = null;
 const pendingSettingsIntent = new Map<keyof ISettingsData, unknown>();
+let settingsIntentRevision = 0;
 
 type TSettingsPersistenceFailureCode = 'SETTINGS_LOAD_FAILED' | 'SETTINGS_SAVE_FAILED';
 
@@ -211,7 +212,14 @@ export const useSettings = () => {
         if (!isLoaded.value) {
             return true;
         }
-        return getSettingsPersistenceQueue().save();
+        const persistenceQueue = getSettingsPersistenceQueue();
+        let flushedRevision = settingsIntentRevision;
+        let saved = await persistenceQueue.save();
+        while (saved && flushedRevision !== settingsIntentRevision) {
+            flushedRevision = settingsIntentRevision;
+            saved = await persistenceQueue.save();
+        }
+        return saved;
     }
 
     // Trailing debounce: per-keystroke updates otherwise write storage plus
@@ -238,6 +246,7 @@ export const useSettings = () => {
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
+        settingsIntentRevision += 1;
         if (!isLoaded.value) {
             pendingSettingsIntent.set(key, value);
         }
@@ -274,5 +283,6 @@ if (import.meta.hot) {
         }
         settingsPersistenceQueue?.clearRetryTimer();
         settingsPersistenceQueue = null;
+        settingsIntentRevision = 0;
     });
 }

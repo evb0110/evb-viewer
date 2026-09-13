@@ -715,6 +715,129 @@ describe('scan cleanup renderer preference store', () => {
         expect(durable.settings.binarization).toBe('sauvola');
     });
 
+    it('waits for a global edit admitted during the close flush', async () => {
+        const durable = createDefaultScanCleanupSettingsFile();
+        capability.value.getSettings.mockImplementation(async () => structuredClone(durable));
+        let releaseFirst!: () => void;
+        const firstWrite = new Promise<void>(resolve => {
+            releaseFirst = resolve;
+        });
+        capability.value.updateSettings.mockImplementation(async request => {
+            if ('settingsPatch' in request) {
+                if (capability.value.updateSettings.mock.calls.length === 1) {
+                    await firstWrite;
+                }
+                Object.assign(durable.settings, request.settingsPatch);
+            }
+            return structuredClone(durable);
+        });
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        const preferences = getScanCleanupPreferencesStore();
+        preferences.readingOrder = 'rtl';
+        await nextTick();
+        const firstFlush = flushScanCleanupPreferencesStore();
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledTimes(1));
+
+        const closeFlush = flushScanCleanupPreferencesStore();
+        preferences.binarization = 'sauvola';
+        await nextTick();
+        releaseFirst();
+
+        await closeFlush;
+
+        expect(capability.value.updateSettings).toHaveBeenCalledTimes(2);
+        expect(durable.settings.readingOrder).toBe('rtl');
+        expect(durable.settings.binarization).toBe('sauvola');
+        await firstFlush;
+    });
+
+    it('waits for global settings hydration before the close flush', async () => {
+        const durable = createDefaultScanCleanupSettingsFile();
+        let resolveHydration!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
+        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
+            resolveHydration = resolve;
+        }));
+        capability.value.updateSettings.mockImplementation(async request => {
+            if ('settingsPatch' in request) {
+                Object.assign(durable.settings, request.settingsPatch);
+            }
+            return structuredClone(durable);
+        });
+        getScanCleanupPreferencesStore();
+        const preferences = getScanCleanupPreferencesStore();
+        preferences.binarization = 'sauvola';
+        await nextTick();
+
+        const closeFlush = flushScanCleanupPreferencesStore();
+        await Promise.resolve();
+        expect(capability.value.updateSettings).not.toHaveBeenCalled();
+
+        resolveHydration(structuredClone(durable));
+        await closeFlush;
+
+        expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {binarization: 'sauvola'}});
+        expect(durable.settings.binarization).toBe('sauvola');
+    });
+
+    it('waits for a document edit admitted during the close flush', async () => {
+        const durable = createDefaultScanCleanupSettingsFile();
+        const sourceSha256 = 'a'.repeat(64);
+        const legacyDocumentKey = '/documents/close-flush.pdf';
+        let releaseFirst!: () => void;
+        const firstWrite = new Promise<void>(resolve => {
+            releaseFirst = resolve;
+        });
+        capability.value.updateSettings.mockImplementation(async request => {
+            if ('document' in request) {
+                if (capability.value.updateSettings.mock.calls.length === 1) {
+                    await firstWrite;
+                }
+                const document = request.document;
+                const entry = durable.documentOverrides[document.sourceSha256] ?? {lastUsedAtMs: 0};
+                Object.assign(entry, document.patch);
+                durable.documentOverrides[document.sourceSha256] = entry;
+            }
+            return structuredClone(durable);
+        });
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+
+        const firstWritePromise = saveScanCleanupDocumentPreferencesInStore(
+            sourceSha256,
+            legacyDocumentKey,
+            {outputMode: 'color'},
+        );
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledTimes(1));
+        const closeFlush = flushScanCleanupDocumentPreferencesStore();
+        const finalWritePromise = saveScanCleanupDocumentPreferencesInStore(
+            sourceSha256,
+            legacyDocumentKey,
+            {marginsMm: {
+                topMm: 12,
+                rightMm: 12,
+                bottomMm: 12,
+                leftMm: 12,
+            }},
+        );
+        releaseFirst();
+
+        await closeFlush;
+
+        expect(capability.value.updateSettings).toHaveBeenCalledTimes(2);
+        expect(durable.documentOverrides[sourceSha256]?.outputMode).toBe('color');
+        expect(durable.documentOverrides[sourceSha256]?.marginsMm).toEqual({
+            topMm: 12,
+            rightMm: 12,
+            bottomMm: 12,
+            leftMm: 12,
+        });
+        await Promise.all([
+            firstWritePromise,
+            finalWritePromise,
+        ]);
+    });
+
     it('keeps a failed global write pending and retries it without another edit', async () => {
         vi.useFakeTimers();
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});

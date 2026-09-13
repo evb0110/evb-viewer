@@ -339,4 +339,27 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenNthCalledWith(2, { theme: 'dark' });
     });
+
+    it('drains a setting edit admitted while the close flush is in flight', async () => {
+        const firstSave = createDeferred();
+        mockSave
+            .mockImplementationOnce(() => firstSave.promise)
+            .mockResolvedValue(undefined);
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const settings = useSettings();
+        await settings.load();
+
+        settings.updateSetting('locale', 'fr');
+        const flush = settings.save();
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+
+        settings.updateSetting('theme', 'dark');
+        firstSave.resolve();
+
+        await flush;
+
+        expect(mockSave).toHaveBeenCalledTimes(2);
+        expect(mockSave).toHaveBeenLastCalledWith({theme: 'dark'});
+    });
 });
