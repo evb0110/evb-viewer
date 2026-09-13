@@ -4,6 +4,7 @@ export const FAITHFUL_NORMALIZATION = 'NFC';
 export const COMPATIBILITY_NORMALIZATION = 'NFKC + lowercase(und) + Unicode dash folding';
 export const OCR_WHITESPACE_POLICY = 'collapse Unicode whitespace runs to ASCII spaces and trim the ends';
 export const OCR_WORD_TOKENIZER = 'letters, marks and numbers, with internal hyphen, slash or dot separators';
+const MARK_PATTERN = /\p{M}/gu;
 
 function normalizeWhitespace(value) {
     return value
@@ -69,6 +70,21 @@ export function measureOcrQuality(expected, actual) {
     return {
         faithful,
         compatibility,
+    };
+}
+
+/** Report combining-mark preservation separately from the primary CER. */
+export function measureUnicodeMarks(expected, actual) {
+    const expectedMarks = expected.normalize('NFC').match(MARK_PATTERN) ?? [];
+    const actualMarks = actual.normalize('NFC').match(MARK_PATTERN) ?? [];
+    return {
+        expected: expectedMarks.length,
+        actual: actualMarks.length,
+        missing: Math.max(0, expectedMarks.length - actualMarks.length),
+        extra: Math.max(0, actualMarks.length - expectedMarks.length),
+        retainedRatio: expectedMarks.length === 0
+            ? (actualMarks.length === 0 ? 1 : 0)
+            : Math.min(expectedMarks.length, actualMarks.length) / expectedMarks.length,
     };
 }
 
