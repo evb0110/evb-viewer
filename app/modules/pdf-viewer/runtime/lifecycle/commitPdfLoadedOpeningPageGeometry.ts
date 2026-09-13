@@ -4,7 +4,7 @@ import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdfUi';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/public';
 import { pdfSourcesMatch } from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
 
 function diagnosePdfLoadedOpeningPageGeometry(

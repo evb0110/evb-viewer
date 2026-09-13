@@ -11,8 +11,8 @@ import {
     type Ref,
 } from 'vue';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
 
 function createChassisAuthority(
     snapshot: Ref<IDocumentOpenSurfaceSnapshot>,

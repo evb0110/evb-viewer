@@ -2,15 +2,24 @@ import { useResizeObserver } from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentPageMetrics,
-    IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
+    IDocumentPageSource, IDocumentViewportSessionState ,
+    resolveDocumentPageDisplayLayouts,
+    resolveDocumentPageDisplayScale,
+    type IDocumentPageDisplayLayout,
+    createLazyIndexedCollection,
+    isLazyIndexedCollection,
+    type ILazyIndexedCollection, IDocumentZoomPageLayout ,
+    createDocumentWheelZoomHandler,
+    type IDocumentWheelInteraction,
+} from '@app/modules/document-viewer/public';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { shouldProjectDocumentViewportScroll } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewportSessionState } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
-import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
+import {
+    injectDocumentViewerChassisAuthority, shouldProjectDocumentViewportScroll , createDocumentViewportWritePort , clampDocumentManualZoom ,
+    resolveNearestDocumentPageToViewportCenter,
+    resolveDocumentContinuousScrollWindow, DOCUMENT_PAGE_GUTTER_PX , useDocumentViewportLayoutLifecycle , useDocumentWheelZoomSessionBoundaries,  
+} from '@app/modules/document-viewer/public';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
@@ -18,37 +27,14 @@ import {
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
-import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
-import {
-    resolveDocumentPageDisplayLayouts,
-    resolveDocumentPageDisplayScale,
-    type IDocumentPageDisplayLayout,
-} from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
-import {
-    createLazyIndexedCollection,
-    isLazyIndexedCollection,
-    type ILazyIndexedCollection,
-} from '@app/utils/document-viewer/virtualization/pageVirtualization';
-import {
-    resolveNearestDocumentPageToViewportCenter,
-    resolveDocumentContinuousScrollWindow,
-} from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
-import type { IDocumentZoomPageLayout } from '@app/utils/document-viewer/zoomAnchor';
 import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
 import { resolveDocumentPageSourceRenderQueue } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue';
 import {
     createDocumentPageSourcePresentation,
     resolveDocumentPageSourceRenderWidthPx,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
-import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import { createPageSourcePagedWheelNavigation } from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
 import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
-import {
-    createDocumentWheelZoomHandler,
-    type IDocumentWheelInteraction,
-} from '@app/utils/document-viewer/input/documentWheelInteraction';
-import { useDocumentWheelZoomSessionBoundaries } from '@app/utils/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import {

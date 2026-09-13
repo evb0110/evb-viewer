@@ -1,4 +1,4 @@
-import type { TDocumentOpenSurfacePhase } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { TDocumentOpenSurfacePhase } from '@app/modules/document-viewer/public';
 
 interface IShouldApplyPdfOpeningPageFrameInput {
     activeGeneration: number;

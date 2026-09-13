@@ -1,8 +1,9 @@
 import type { IRecentFile } from '@contracts/shared';
 import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
-import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import { createBoundedLruCache } from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
-import { settleDocumentOpeningGeometryPrewarmTask } from '@app/utils/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask';
+import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/modules/document-viewer/public';
+import {
+    createBoundedLruCache, settleDocumentOpeningGeometryPrewarmTask,  
+} from '@app/modules/document-viewer/public';
 
 interface ISourceStat {
     size: number;

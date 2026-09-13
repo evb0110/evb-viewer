@@ -10,7 +10,7 @@ import {
 } from 'vue';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
-import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+import { createPageLabelModel } from '@app/modules/document-viewer/pageLabels';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     IPdfBookmarkEntry,

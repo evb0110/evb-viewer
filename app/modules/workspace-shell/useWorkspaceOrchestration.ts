@@ -45,16 +45,15 @@ import {
     type IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type {
+    IDocumentOpenSurfaceSession,
     IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
+    IDocumentSourceCapabilities, IDocumentSearchMatch,  
+} from '@app/modules/document-viewer/public';
 import type {
     IWorkspaceViewerLifecycleContext,
     IWorkspaceViewerLifecycleHooks,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { getErrorMessage } from '@app/utils/error';

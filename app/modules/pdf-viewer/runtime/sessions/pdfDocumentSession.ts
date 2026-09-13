@@ -22,16 +22,16 @@ import type {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import {
+import type {
+    IDocumentViewerChassisAuthority,
     createDocumentTransitionChannel,
-    type IDocumentTransition,
-} from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
+    type IDocumentTransition, 
+} from '@app/modules/document-viewer/public';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
 import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
 import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
-import { createPdfPageSource } from '@app/utils/document-viewer/source/createPdfPageSource';
+import { createPdfPageSource } from '@app/modules/document-viewer/public';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfjsDocumentSourceLoader,

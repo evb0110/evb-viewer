@@ -8,8 +8,8 @@ import {
     commitDocumentOpenSurfaceViewport,
     createDocumentOpenSurfaceSession,
     shouldProjectDocumentViewportCommitPage,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
 
 describe('commitPdfOpenSurfaceViewport', () => {
     it('settles the exact live surface intent instead of copying a PDF-local intent id', () => {

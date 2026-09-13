@@ -51,7 +51,7 @@ import {
     formatFailurePresentationDescription,
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/public';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
 import type { TDocumentPageSourceVisual } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type * as TViMockOriginalModule from '@app/utils/document-viewer/source/createDjvuPageSource';
+import type * as TViMockOriginalModule from '@app/modules/document-viewer/source/createDjvuPageSource';
 
 import {
     afterEach,
@@ -25,12 +25,12 @@ import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/compos
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
 import {
     createDocumentViewerChassisAuthority,
     documentViewerChassisAuthorityKey,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+} from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 
 const mocks = vi.hoisted(() => ({
     createDjvuPagePreviewSourceFromPath: vi.fn(),
@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath:
     mocks.createDjvuPagePreviewSourceFromPath}));
-vi.mock('@app/utils/document-viewer/source/createDjvuPageSource', async (importOriginal) => ({
+vi.mock('@app/modules/document-viewer/source/createDjvuPageSource', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     createDjvuPageSource:
     mocks.createDjvuPageSource,

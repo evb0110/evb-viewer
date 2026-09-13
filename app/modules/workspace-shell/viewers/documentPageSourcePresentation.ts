@@ -2,16 +2,13 @@ import type {
     IDocumentPageMetrics,
     IDocumentSurfaceLease,
     TDocumentRenderPriority,
-    IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
+    IDocumentPageSource, IDocumentViewerChassisAuthority , IDocumentViewerRenderSession , IDocumentOpenSurfaceRenderOwner, 
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSourceTransition,
     IDocumentPageSourceFence,
     IDocumentPageSourceFeaturePackEmit,
 } from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
-import type { IDocumentOpenSurfaceRenderOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
     getFailureReceipt,
     type FailureReceipt,
@@ -21,7 +18,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
-} from '@app/utils/document-viewer/lifecycle/documentViewerActivationPresentation';
+} from '@app/modules/document-viewer/public';
 const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
     navigation: 5,
     visible: 4,

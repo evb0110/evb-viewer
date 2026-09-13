@@ -5,7 +5,7 @@ import type {
     IDocumentSearchProgress,
     IDocumentSearchSession,
     TDocumentSearchDirection,
-} from '@app/utils/document-viewer/search/documentSearch';
+} from '@app/modules/document-viewer/public';
 
 interface ICreatePdfDocumentSearchSessionOptions {
     query: Readonly<Ref<string>>;

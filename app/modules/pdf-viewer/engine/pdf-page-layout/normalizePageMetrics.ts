@@ -5,7 +5,7 @@ import {
     createLazyIndexedCollection,
     isLazyIndexedCollection,
     type ILazyIndexedCollection,
-} from '@app/utils/document-viewer/virtualization/pageVirtualization';
+} from '@app/modules/document-viewer/public';
 
 export { createLazyIndexedCollection };
 

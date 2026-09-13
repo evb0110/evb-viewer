@@ -7,7 +7,7 @@ import {
     buildPdfCommittedOpenVirtualSpacerStyle,
     resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight,
 } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenVirtualSpacerStyle';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
 
 function createSnapshot(): IDocumentOpenSurfaceSnapshot {
     return {

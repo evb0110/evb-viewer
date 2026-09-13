@@ -10,7 +10,7 @@ import {
     type IRuntimeMemoryPressureSignal,
     type IViewerReclaimCandidate,
     type TMemoryPressureLevel,
-} from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
+} from '@app/utils/viewerResidencyPolicy';
 
 const MIB = 1024 ** 2;
 

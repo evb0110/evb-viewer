@@ -14,14 +14,14 @@ import {
 import type {
     IDocumentPageSource,
     IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+} from '@app/modules/document-viewer/source/documentPageSource';
+import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/chassis/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { createDocumentPageSlotRegistry } from '@app/utils/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
 
 function createCurrentTargetEvent(target: EventTarget): Event {
     const event = new Event('load');

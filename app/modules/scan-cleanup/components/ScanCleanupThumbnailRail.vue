@@ -270,7 +270,7 @@ import {
     isDefaultScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import type {
     IScanCleanupPageOrder,
     TScanCleanupOrderedPages,

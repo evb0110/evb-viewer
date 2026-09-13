@@ -1,5 +1,5 @@
 import type { IWorkspaceDocumentSnapshot } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
 
 export function shouldResetDocumentOpenSurfaceForEmptySession(
     session: IWorkspaceDocumentSnapshot,

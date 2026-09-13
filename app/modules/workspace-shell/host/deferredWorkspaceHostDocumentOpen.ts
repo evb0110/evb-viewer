@@ -18,8 +18,9 @@ import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/hos
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
+import type {
+    IDocumentOpenSurfaceSession, IDocumentOpeningPageFrameAuthority,  
+} from '@app/modules/document-viewer/public';
 
 export interface IWorkspaceDocumentOpenHost {
     documentOpenSurface: IDocumentOpenSurfaceSession;

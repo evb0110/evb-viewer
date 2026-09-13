@@ -24,13 +24,13 @@ import type {
     IPagePreviewRenderedObjectUrl,
     IPagePreviewSource,
     TPreviewPageSizes,
-} from '@app/utils/document-viewer/pagePreviewSource';
+} from '@app/modules/document-viewer/pagePreviewSource';
 import NativePdfViewer from '@app/modules/native-pdf-viewer/components/NativePdfViewer.vue';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     createDocumentViewerChassisAuthority,
     documentViewerChassisAuthorityKey,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+} from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
 
 const nativePdfMocks = vi.hoisted(() => ({createSource: vi.fn()}));
 const vueUseMocks = vi.hoisted(() => ({

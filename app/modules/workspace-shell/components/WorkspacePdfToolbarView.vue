@@ -277,7 +277,7 @@ import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
-import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
+import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import {
     formatScanCleanupProgress,
     isScanCleanupRunning,

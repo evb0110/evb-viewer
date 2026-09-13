@@ -18,7 +18,7 @@ import {
     resolveDocumentWheelZoomTarget,
     type IDocumentWheelInteraction,
     type IDocumentWheelSourceEvent,
-} from '@app/utils/document-viewer/input/documentWheelInteraction';
+} from '@app/modules/document-viewer/public';
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 
 const WHEEL_DISPATCH_LOG_THROTTLE_MS = 420;

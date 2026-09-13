@@ -87,7 +87,7 @@ import {
     flattenPdfVirtualPageSegments,
     groupPdfVirtualPageItems,
 } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
-import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { injectDocumentViewerChassisAuthority } from '@app/modules/document-viewer/public';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -97,7 +97,7 @@ import type { IPdfPageScale } from '@app/modules/pdf-viewer/engine/pdf-page-scal
 import {
     resolveDocumentWheelInteraction,
     type IDocumentWheelInteraction,
-} from '@app/utils/document-viewer/input/documentWheelInteraction';
+} from '@app/modules/document-viewer/public';
 
 interface IProps {
     setViewerContainer: (element: HTMLElement | null) => void;

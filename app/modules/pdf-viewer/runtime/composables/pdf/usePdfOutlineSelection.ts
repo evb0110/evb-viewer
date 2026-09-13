@@ -3,7 +3,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
-import { isDocumentBookmarkExpanded } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import { isDocumentBookmarkExpanded } from '@app/modules/document-viewer/public';
 
 export const usePdfOutlineSelection = (
     bookmarks: Ref<IBookmarkItem[]>,

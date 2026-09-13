@@ -262,12 +262,20 @@ const PACKAGE_LAYER_RULES = [
 ];
 
 /** @type {IPublicOnlyEntrypointRule[]} */
-const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
-    ownerRoot: 'app/platform/browser-api',
-    publicEntry: 'public.ts',
-    rule: 'browser-api-public-entrypoint',
-    message: 'Browser platform API consumers must import through app/platform/browser-api/public.',
-} ];
+const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [
+    {
+        ownerRoot: 'app/platform/browser-api',
+        publicEntry: 'public.ts',
+        rule: 'browser-api-public-entrypoint',
+        message: 'Browser platform API consumers must import through app/platform/browser-api/public.',
+    },
+    {
+        ownerRoot: 'app/modules/document-viewer',
+        publicEntry: 'public.ts',
+        rule: 'document-viewer-public-entrypoint',
+        message: 'Document viewer consumers must import through app/modules/document-viewer/public.',
+    },
+];
 
 const PLATFORM_API_AGGREGATE_COMPOSITION_FILES = new Set(`
 app/platform/browserPlatformApi.ts
@@ -891,7 +899,7 @@ function parseSourceFiles(filePath, sourceText) {
 const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'app/modules/pdf-viewer',
     'app/services/pdfjs',
-    'app/utils/document-viewer/source',
+    'app/modules/document-viewer/source',
     'app/platform/browser-api/browserPdfjsDocumentInit.ts',
     'electron/features/search',
     'scripts/windows-test/oracles/pdfjsNodeRuntime.ts',

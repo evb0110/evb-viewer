@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
-import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/utils/document-viewer/providers/documentSearch';
+import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/modules/document-viewer/providers/documentSearch';
 import { requirePageIndex } from '@contracts/pageNumbers';
 
 describe('createPdfDocumentSearchSession', () => {

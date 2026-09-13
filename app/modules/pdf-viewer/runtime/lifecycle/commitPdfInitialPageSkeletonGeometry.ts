@@ -1,7 +1,7 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { Ref } from 'vue';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/public';
 
 export function diagnosePdfPageSkeletonGeometry(
     chassisAuthority: IDocumentViewerChassisAuthority,

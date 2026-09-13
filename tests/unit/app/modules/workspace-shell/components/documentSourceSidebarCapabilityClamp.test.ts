@@ -19,8 +19,8 @@ import type {
     IDocumentOutlineItem,
     IDocumentPageSource,
     IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+} from '@app/modules/document-viewer/source/documentPageSource';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import {
     createDocumentSearchSessionDouble,

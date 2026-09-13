@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { TTranslateFn } from '@i18n-app';
-import { formatDocumentSearchResultsSummary } from '@app/utils/document-viewer/providers/formatDocumentSearchResultsSummary';
+import { formatDocumentSearchResultsSummary } from '@app/modules/document-viewer/providers/formatDocumentSearchResultsSummary';
 
 const t: TTranslateFn = (key, ...args) => {
     const params = args[0];

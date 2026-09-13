@@ -77,7 +77,7 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
-const {createDocumentViewerChassisAuthority} = await import('@app/utils/document-viewer/chassis/documentViewerChassisAuthority');
+const {createDocumentViewerChassisAuthority} = await import('@app/modules/document-viewer/chassis/documentViewerChassisAuthority');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
 

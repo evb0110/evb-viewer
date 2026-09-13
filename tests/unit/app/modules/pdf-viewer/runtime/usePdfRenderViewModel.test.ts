@@ -14,7 +14,7 @@ import {
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
 
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;

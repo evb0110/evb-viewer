@@ -9,7 +9,7 @@ import type {
     App,
     VNode,
 } from 'vue';
-import type {IDocumentSearchSession} from '@app/utils/document-viewer/search/documentSearch';
+import type {IDocumentSearchSession} from '@app/modules/document-viewer/search/documentSearch';
 
 /**
  * Shared mounting machinery for the source sidebar: an inert search session,

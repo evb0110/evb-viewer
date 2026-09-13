@@ -21,7 +21,7 @@ import {
     workspaceSurfaceBudgetController,
     type IWorkspaceSurfaceBudgetController,
     type IWorkspaceSurfaceLease,
-} from '@app/utils/document-viewer/workspaceSurfaceBudget';
+} from '@app/modules/document-viewer/public';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 

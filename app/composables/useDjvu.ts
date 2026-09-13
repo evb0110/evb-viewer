@@ -29,16 +29,14 @@ import type {
     IPdfRasterDisplayProfileOpenOptions,
     TPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
-import {
+import type {
+    IDocumentPageSource,
+    IDocumentSourceCapabilities, IDocumentOpenSurfaceSession,
     createDocumentSession,
     ensurePdfProjection,
     type IDocumentSession,
-    type TPdfProjectionReason,
-} from '@app/utils/document-viewer/session/documentSession';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
+    type TPdfProjectionReason, 
+} from '@app/modules/document-viewer/public';
 import {
     normalizePdfRasterSourcePagePixels,
     registerPdfRasterDisplayProfile,
@@ -55,7 +53,6 @@ import {
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { cacheTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache';
 import {
     getDocumentFilesCapability,

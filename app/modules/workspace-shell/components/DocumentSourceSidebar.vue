@@ -60,11 +60,12 @@
 </template>
 
 <script setup lang="ts">
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
-import { useDocumentBookmarkSession } from '@app/utils/document-viewer/bookmarks/useDocumentBookmarkSession';
-import type { IDocumentSearchSession } from '@app/utils/document-viewer/search/documentSearch';
-import type {TDocumentSidebarTab} from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
-import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
+import type {
+    IDocumentPageSource, IDocumentSearchSession ,TDocumentSidebarTab, 
+} from '@app/modules/document-viewer/public';
+import {
+    useDocumentBookmarkSession,useDocumentSidebarCapabilitySession, 
+} from '@app/modules/document-viewer/public';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';

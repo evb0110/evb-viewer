@@ -1,9 +1,9 @@
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import {
+import type {
+    IDocumentViewerChassisAuthority,
     commitDocumentOpenSurfaceViewport,
     shouldProjectDocumentViewportCommitPage,
-    type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+    type IDocumentOpenSurfaceSession, 
+} from '@app/modules/document-viewer/public';
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 
 function projectSettledProgrammaticPage(

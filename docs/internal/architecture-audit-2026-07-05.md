@@ -50,7 +50,7 @@ Key verifications (current line numbers):
   e2e nightly + `continue-on-error` at `:246–273`). E2e *isolation* improved (TEST-3
   partial) but nothing real-app is blocking.
 - The overhaul direction is real, not cosmetic: shared viewport primitives under
-  `app/utils/document-viewer/viewport`, DjVu on `useDjvuViewportController`, PDF
+  `app/modules/document-viewer/viewport`, DjVu on `useDjvuViewportController`, PDF
   transaction reducers delegating to shared reducers, assistant state consolidated
   around `providerThreadId`/`turnOwner`. The diff-reviewer's verdict: coherent overhaul,
   "save integrity is not yet a single-owner story everywhere."

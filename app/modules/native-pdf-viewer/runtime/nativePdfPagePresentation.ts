@@ -1,4 +1,4 @@
-import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IDocumentPreviewPageState } from '@app/modules/document-viewer/public';
 
 interface INativePdfPageShellLayout {
     height: number;

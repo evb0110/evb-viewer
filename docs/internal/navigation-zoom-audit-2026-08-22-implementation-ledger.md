@@ -366,7 +366,7 @@ window. Layout keeps its own aspect ratios, so an eviction costs one extra
 
 b and n landed together in the shared sidebar seam. For b, `effectiveTab` is
 now the reconciliation result alone
-(`app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession.ts`);
+(`app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession.ts`);
 the old `?? preferredTab` fallback let an unavailable tab stay active whenever
 the available list was empty, which is every moment before a page source
 resolves and the whole life of a source with no sidebar capability. Falling
@@ -387,7 +387,7 @@ with instead of dropping it. The inline `emit('go-to-page', $event)` handler it
 used could only ever pass the first emitted argument, so the modifier keys the
 rail already published died one layer above it and generic multi-select could
 not be built without synthesizing an event. `IDocumentThumbnailListEmits`
-(`app/utils/document-viewer/thumbnails/documentThumbnailListEmits.ts`) now
+(`app/modules/document-viewer/thumbnails/documentThumbnailListEmits.ts`) now
 states the rail's contract in one place, and the sidebar republishes the event
 as optional because bookmark rows navigate without one. Consumers that only
 navigate are unaffected: `DocumentWorkspace` takes the page number and drops

@@ -98,35 +98,25 @@ import {
     createDocumentViewerChassisAuthority,
     documentViewerChassisAuthorityKey,
     shouldAcceptFeaturePackChassisPage,
-    shouldApplyExternalChassisPage,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+    shouldApplyExternalChassisPage, DocumentViewportHost ,
+    injectDocumentOpenSurfaceSession,
+    resolveDocumentOpenSurfaceViewportPolicy,
+    createDocumentOpeningPageFrameAuthority,
+    resolveDocumentOpeningPageMargin,
+    resolveDocumentOpeningPageShellId, resolveDocumentPageSourceOpeningFrame , observeDocumentViewportWheelInteraction, 
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
     TDocumentPageSourceKind,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import DocumentViewportHost from '@app/utils/document-viewer/chassis/DocumentViewportHost.vue';
+    captureDocumentViewportResizeAnchor,
+    resolveDocumentViewportResizeAnchorPosition,
+    type IDocumentViewportResizeAnchor, IDocumentWheelInteraction, 
+} from '@app/modules/document-viewer/public';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
-import {
-    injectDocumentOpenSurfaceSession,
-    resolveDocumentOpenSurfaceViewportPolicy,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import {
-    createDocumentOpeningPageFrameAuthority,
-    resolveDocumentOpeningPageMargin,
-    resolveDocumentOpeningPageShellId,
-} from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
-import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
-import {
-    captureDocumentViewportResizeAnchor,
-    resolveDocumentViewportResizeAnchorPosition,
-    type IDocumentViewportResizeAnchor,
-} from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
-import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
-import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });

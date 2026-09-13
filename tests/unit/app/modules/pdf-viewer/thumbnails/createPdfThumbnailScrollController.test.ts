@@ -12,7 +12,7 @@ import {
     ref,
 } from 'vue';
 import {createPdfThumbnailScrollController} from '@app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController';
-import type {IDocumentThumbnailScrollSegmentTransition} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import type {IDocumentThumbnailScrollSegmentTransition} from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 type TResolveSegmentTransition = (

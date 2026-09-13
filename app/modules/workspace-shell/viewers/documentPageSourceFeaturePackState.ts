@@ -2,15 +2,15 @@ import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentViewMode } from '@contracts/shared';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import type {
+    IDocumentSearchMatch,
     IDocumentPageMetrics,
     IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentTransition } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
-import { createDocumentTransitionChannel } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+    IDocumentSourceCapabilities, IDocumentTransition , IDocumentViewerChassisAuthority,  
+} from '@app/modules/document-viewer/public';
+import {
+    createDocumentTransitionChannel, createDjvuPageSource , resolveDocumentPageSourceOpeningFrame , DOCUMENT_PAGE_GUTTER_PX,  
+} from '@app/modules/document-viewer/public';
 import {
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
@@ -18,9 +18,6 @@ import {
     type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
-import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDjvuPageSource';
-import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import type { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 
 /** Keep background DjVu metric work within the visible and render-priority window. */

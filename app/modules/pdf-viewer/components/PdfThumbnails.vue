@@ -91,7 +91,11 @@ import {
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { formatPageIndicatorWithOptions } from '@app/utils/document-viewer/pageLabels';
+import {
+    formatPageIndicatorWithOptions,createDocumentThumbnailResizeAnchorLifecycle,
+    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
+    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS, 
+} from '@app/modules/document-viewer/public';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import {
@@ -111,16 +115,11 @@ import {
     usePdfThumbnailRenderRuntime,
 } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
 import { createThumbnailMeasurementDiagnostics } from '@app/modules/pdf-viewer/thumbnails/createThumbnailMeasurementDiagnostics';
-import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
-import type {IDocumentThumbnailLayoutAnchor} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import type {IDocumentThumbnailLayoutAnchor} from '@app/modules/document-viewer/public';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
 import {createPdfThumbnailScrollController} from '@app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController';
-import {
-    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
-    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
-} from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
 import {
     describeContainerGeometry,
     isContainerVisible,

@@ -1,4 +1,4 @@
-import type { IDocumentPageMetrics } from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentPageMetrics } from '@app/modules/document-viewer/public';
 import {
     createRafCoalescedCallback,
     type IRafCoalescedCallbackEnvironment,

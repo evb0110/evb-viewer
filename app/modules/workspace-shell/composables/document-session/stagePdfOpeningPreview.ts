@@ -8,13 +8,12 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IPdfPathSource } from '@app/types/pdfUi';
 import type {
     IDocumentOpenSurfaceSession,
-    IDocumentOpenSurfaceSnapshot,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+    IDocumentOpenSurfaceSnapshot, IDocumentPageSource, 
+} from '@app/modules/document-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getErrorMessage } from '@app/utils/error';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
-import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import { createPagePreviewDocumentSource } from '@app/modules/document-viewer/public';
 import { shouldStageNativePdfOpeningPreview } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {

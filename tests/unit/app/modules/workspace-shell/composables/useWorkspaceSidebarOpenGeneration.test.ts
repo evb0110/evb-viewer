@@ -15,7 +15,7 @@ import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSnapshot,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
 
 // Every harness owns a Vue effect scope. Stopping it in an `afterEach` rather
 // than at the end of each test keeps the watchers of a failed assertion from

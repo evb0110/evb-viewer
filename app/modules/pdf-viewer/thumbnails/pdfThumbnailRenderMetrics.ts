@@ -1,1 +1,1 @@
-export * from '@app/utils/document-viewer/thumbnails/documentThumbnailRenderMetrics';
+export * from '@app/modules/document-viewer/public';

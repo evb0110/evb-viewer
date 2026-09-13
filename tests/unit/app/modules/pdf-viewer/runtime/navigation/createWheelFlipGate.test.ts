@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createWheelFlipGate } from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
+import { createWheelFlipGate } from '@app/modules/document-viewer/single-page-wheel/createWheelFlipGate';
 
 describe('createWheelFlipGate', () => {
     it('blocks same-direction flips inside the cooldown window', () => {

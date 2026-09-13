@@ -103,9 +103,8 @@ import type {
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
     createDocumentViewerChassisAuthority,
-    injectDocumentViewerChassisAuthority,
-} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { createDocumentOpenGenerationErrorLatch } from '@app/utils/document-viewer/chassis/createDocumentOpenGenerationErrorLatch';
+    injectDocumentViewerChassisAuthority, createDocumentOpenGenerationErrorLatch, 
+} from '@app/modules/document-viewer/public';
 import { shouldShowPdfViewportPageSkeleton } from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';

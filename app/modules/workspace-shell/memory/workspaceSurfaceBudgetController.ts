@@ -1,5 +1,5 @@
 import { resolveWorkspaceMemoryBudget } from '@app/modules/workspace-shell/memory/workspaceMemoryBudget';
-import { registerWorkspaceSurfaceBudgetPort } from '@app/utils/document-viewer/workspaceSurfaceBudgetPort';
+import { registerWorkspaceSurfaceBudgetPort } from '@app/utils/workspaceSurfaceBudgetPort';
 
 export type TWorkspaceSurfaceCategory =
     | 'pdf-page-canvas'

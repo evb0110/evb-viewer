@@ -72,7 +72,7 @@ describe('contracts search compatibility exports', () => {
         const searchSurfaces = {
             'app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts': 'PDF_SEARCH_MIN_QUERY_LENGTH',
             'app/modules/pdf-viewer/components/PdfSidebar.vue': 'PDF_SEARCH_MIN_QUERY_LENGTH',
-            'app/utils/document-viewer/search/createDocumentPageSourceSearchBackend.ts': 'DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH',
+            'app/modules/document-viewer/search/createDocumentPageSourceSearchBackend.ts': 'DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH',
             'app/modules/workspace-shell/composables/useDocumentSearchSession.ts': 'DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH',
         };
 

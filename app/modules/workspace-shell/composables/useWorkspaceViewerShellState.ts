@@ -12,7 +12,7 @@ import type {
     IDocumentViewerExpose,
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection,

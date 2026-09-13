@@ -1,4 +1,4 @@
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
 
 export function resolvePdfPreparedOpeningFitScale(
     snapshot: IDocumentOpenSurfaceSnapshot,

@@ -55,15 +55,14 @@ import type {
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type {
     IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+    IDocumentSourceCapabilities, IDocumentSearchMatch, 
+} from '@app/modules/document-viewer/public';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import {
     createDocumentSession,
     ensurePdfProjection,
-} from '@app/utils/document-viewer/session/documentSession';
+} from '@app/modules/document-viewer/public';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';

@@ -5,7 +5,7 @@ import type {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { parseEpochMs } from '@contracts/timestamps';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import type { IPdfOpeningGeometryResolution } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import {

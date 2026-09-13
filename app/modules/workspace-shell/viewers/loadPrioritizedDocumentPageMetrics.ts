@@ -1,11 +1,9 @@
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import {
     createLazyIndexedCollection,
     type ILazyIndexedCollection,
-} from '@app/utils/document-viewer/virtualization/pageVirtualization';
+} from '@app/modules/document-viewer/public';
 
 const COLD_OPEN_PROVISIONAL_PAGE_METRIC: IDocumentPageMetrics = Object.freeze({
     widthPoints: 612,

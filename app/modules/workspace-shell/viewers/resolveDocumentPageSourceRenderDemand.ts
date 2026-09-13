@@ -1,4 +1,4 @@
-import { resolveDocumentRasterResidencyPlan } from '@app/utils/document-viewer/rendering/resolveDocumentRasterResidencyPlan';
+import { resolveDocumentRasterResidencyPlan } from '@app/modules/document-viewer/public';
 
 export interface IDocumentPageSourceRenderDemandOptions {
     bufferRadius?: number;

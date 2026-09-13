@@ -8,15 +8,13 @@ import {
 import {
     getDocumentThumbnailComfortPadding,
     isDocumentThumbnailWithinComfortViewport,
-    resolveDocumentThumbnailRevealScrollTop,
-} from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
+    resolveDocumentThumbnailRevealScrollTop,createDocumentThumbnailScrollRestorer,
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentThumbnailPageBounds,
-    IDocumentThumbnailViewport,
-} from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
-import type {IDocumentThumbnailScrollSegmentTransition} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+    IDocumentThumbnailViewport,IDocumentThumbnailScrollSegmentTransition,
+} from '@app/modules/document-viewer/public';
 import {createDocumentThumbnailSegmentScroll} from '@app/modules/pdf-viewer/thumbnails/createDocumentThumbnailSegmentScroll';
-import {createDocumentThumbnailScrollRestorer} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer';
 
 interface IPdfThumbnailScrollControllerOptions {
     activeSegmentIndex: Readonly<Ref<number>>;

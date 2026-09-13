@@ -128,8 +128,8 @@ import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
     shouldPresentDocumentOpenEmptyPlaceholder,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
+} from '@app/modules/document-viewer/public';
+import type { IDocumentOpeningPageFrameAuthority } from '@app/modules/document-viewer/public';
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
 import { isRecentOpenCommandEligible } from '@app/modules/workspace-shell/host/isRecentOpenCommandEligible';
 import { getErrorMessage } from '@app/utils/error';

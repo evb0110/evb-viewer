@@ -9,7 +9,7 @@ import {
     vi,
 } from 'vitest';
 import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
 
 describe('useDocumentOpenSurfaceLifecycle', () => {
     it('does not create a second generation when the host already owns the open intent', () => {

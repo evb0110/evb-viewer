@@ -16,11 +16,11 @@ import {
     createProvisionalDocumentPageMetrics,
     isSparseDocumentPageMetrics,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
-import {DOCUMENT_PAGE_GUTTER_PX} from '@app/utils/document-viewer/layout/documentPageGutterPx';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import {
     createLazyIndexedCollection,
     isLazyIndexedCollection,
-} from '@app/utils/document-viewer/virtualization/pageVirtualization';
+} from '@app/modules/document-viewer/virtualization/pageVirtualization';
 
 describe('document page-source ready-edge reconciliation', () => {
     it('preserves the committed navigation target until a trusted page is observed', () => {

@@ -4,7 +4,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 import type {
     IDocumentOpenSurfaceRenderFence,
     IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/public';
 import type { IPdfViewportIntent } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 
 export type TPdfOpeningViewportRejectionReason =
