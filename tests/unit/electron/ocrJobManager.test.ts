@@ -1015,6 +1015,45 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         );
     });
 
+    it('fails immediately when the worker cannot deserialize a message', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
+
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
+            createContext(180),
+            'job-180',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-180',
+        });
+
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+        mocks.sendPlatformEvent.mockClear();
+
+        worker?.emit('messageerror', new Error('result could not be cloned'));
+
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
+            undefined,
+            'ocr:complete',
+            expect.objectContaining({
+                requestId: 'job-180',
+                success: false,
+                errors: ['OCR worker message deserialization failed: result could not be cloned'],
+                errorEnvelope: expect.objectContaining({
+                    code: 'OCR_WORKER_MESSAGE_ERROR',
+                    message: 'OCR worker message deserialization failed: result could not be cloned',
+                    retryable: false,
+                    timestamp: expect.any(Number),
+                }),
+            }),
+            expect.any(Function),
+        );
+        expect(worker?.terminate).toHaveBeenCalledTimes(1);
+    });
+
     it('sends a terminal failure when the worker exits cleanly without a result', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

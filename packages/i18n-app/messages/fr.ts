@@ -1607,6 +1607,7 @@ export default {
                 'internal': 'L’OCR a échoué de manière inattendue',
                 'queueBackpressure': 'La file d’attente OCR est pleine',
                 'workerUnavailable': 'Le processus OCR n’est pas disponible',
+                'workerMessageError': 'Le processus OCR n’a pas pu transmettre le résultat',
                 'toolsValidationFailed': 'Les outils OCR ne sont pas prêts',
             },
         },
