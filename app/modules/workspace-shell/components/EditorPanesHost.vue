@@ -92,7 +92,7 @@ import {
 import {
     clearDocumentViewportPaneRelocationScrollFence,
     fenceDocumentViewportPaneRelocationScroll,
-} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+} from '@app/modules/document-viewer/public';
 
 defineOptions({ name: 'EditorPanesHost' });
 

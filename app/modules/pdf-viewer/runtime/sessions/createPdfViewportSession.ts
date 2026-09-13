@@ -15,8 +15,11 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
-import { hasCommittedDocumentOpeningLayout } from '@app/modules/document-viewer/public';
+import {
+    consumeDocumentViewportPaneRelocationScrollFence,
+    hasCommittedDocumentOpeningLayout,
+    type IDocumentViewerRuntime,
+} from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
@@ -57,7 +60,6 @@ import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtim
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-import { consumeDocumentViewportPaneRelocationScrollFence } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
 import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
