@@ -5,6 +5,7 @@ import {
     type IGeneratedRustNativeToolProtocol,
 } from '@contracts/nativeToolProtocols';
 import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
+import {TESSERACT_PDF_FONT_FILE_NAME} from '@scripts/tesseractPdfFont';
 
 export const NATIVE_RESOURCE_PLATFORMS = [
     'darwin',
@@ -75,6 +76,7 @@ export interface IGlobalPackagedResource {
     filters?: readonly string[];
     id: string;
     label: string;
+    requiredFiles?: readonly string[];
     sourceSegments: readonly string[];
     stagedSegments: readonly string[];
     type: TNativeResourcePathType;
@@ -271,6 +273,7 @@ export const GLOBAL_PACKAGED_RESOURCES: readonly IGlobalPackagedResource[] = [
         filters: BUNDLED_OCR_LANGUAGE_CODES.map(code => `${code}.traineddata`),
         id: 'tessdata',
         label: 'tessdata directory',
+        requiredFiles: [TESSERACT_PDF_FONT_FILE_NAME],
         sourceSegments: [
             'resources',
             'tesseract',
