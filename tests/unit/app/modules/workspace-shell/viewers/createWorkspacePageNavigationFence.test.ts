@@ -12,7 +12,7 @@ import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 describe('createWorkspacePageNavigationFence', () => {
     const openSurfaces: IDocumentOpenSurfaceSession[] = [];

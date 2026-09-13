@@ -14,7 +14,7 @@ import type {
 } from '@app/types/pdfContracts';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {
-    IDocumentViewerChassisAuthority, IDocumentOpenSurfaceRenderOwner,  
+    IDocumentViewerRuntime, IDocumentOpenSurfaceRenderOwner,
 } from '@app/modules/document-viewer/public';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { shouldDeferPdfDprRerenderForResize } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
@@ -67,7 +67,7 @@ const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
 export interface ICreatePdfRenderingSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
     performancePolicy: IPdfRenderPerformancePolicy;
     viewerContainer: Vue.Ref<HTMLElement | null>;

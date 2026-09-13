@@ -103,14 +103,15 @@ import {
     resolveDocumentOpenSurfaceViewportPolicy,
     createDocumentOpeningPageFrameAuthority,
     resolveDocumentOpeningPageMargin,
-    resolveDocumentOpeningPageShellId, resolveDocumentPageSourceOpeningFrame , observeDocumentViewportWheelInteraction, 
+    resolveDocumentOpeningPageShellId, resolveDocumentPageSourceOpeningFrame , observeDocumentViewportWheelInteraction,
+    captureDocumentViewportResizeAnchor,
+    resolveDocumentViewportResizeAnchorPosition, 
 } from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
     TDocumentPageSourceKind,
-    captureDocumentViewportResizeAnchor,
-    resolveDocumentViewportResizeAnchorPosition,
-    type IDocumentViewportResizeAnchor, IDocumentWheelInteraction, 
+    IDocumentViewportResizeAnchor,
+    IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';

@@ -9,7 +9,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     invalidateTrustedPdfOpenGeometry,
     rememberValidatedTrustedPdfOpenGeometry,

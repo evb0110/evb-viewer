@@ -26,11 +26,11 @@ import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engin
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-import { createDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
@@ -128,12 +128,12 @@ function createDocumentFixture(pageCount = 100) {
 }
 
 function createChassisAuthority(surface: IDocumentOpenSurfaceSession) {
-    return createDocumentViewerChassisAuthority(ref('pdf'), 1, surface);
+    return createDocumentViewerRuntime(ref('pdf'), 1, surface);
 }
 
 function createViewportFixture(input: {
     bufferPages?: number;
-    chassisAuthority?: IDocumentViewerChassisAuthority;
+    chassisAuthority?: IDocumentViewerRuntime;
     continuousScroll?: boolean;
     fitMode?: Ref<'width' | 'height'>;
     isActive?: Ref<boolean>;

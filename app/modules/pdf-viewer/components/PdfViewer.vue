@@ -102,17 +102,17 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
-    createDocumentViewerChassisAuthority,
-    injectDocumentViewerChassisAuthority, createDocumentOpenGenerationErrorLatch, 
+    createDocumentViewerRuntime,
+    injectDocumentViewerRuntime, createDocumentOpenGenerationErrorLatch,
 } from '@app/modules/document-viewer/public';
 import { shouldShowPdfViewportPageSkeleton } from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 const props = defineProps<IPdfViewerProps>();
-const injectedChassisAuthority = injectDocumentViewerChassisAuthority();
+const injectedChassisAuthority = injectDocumentViewerRuntime();
 const chassisAuthority = injectedChassisAuthority
-    ?? createDocumentViewerChassisAuthority(ref('pdf'), props.currentPage);
+    ?? createDocumentViewerRuntime(ref('pdf'), props.currentPage);
 const emitBase = defineEmits<IPdfViewerEmit>();
 const openErrorLatch = createDocumentOpenGenerationErrorLatch();
 const isCommittedInitialPageTransition = computed(() => {

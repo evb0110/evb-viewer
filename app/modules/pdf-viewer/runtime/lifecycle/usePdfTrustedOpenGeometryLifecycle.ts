@@ -9,13 +9,13 @@ import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdfUi';
-import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/public';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
 import { writeTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
 
 interface IUsePdfTrustedOpenGeometryLifecycleOptions {
     acceptedSource: Readonly<Ref<TPdfSource | null>>;
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     currentPage: ComputedRef<number>;
     documentId: ComputedRef<string | null>;
     numPages: Readonly<Ref<number>>;

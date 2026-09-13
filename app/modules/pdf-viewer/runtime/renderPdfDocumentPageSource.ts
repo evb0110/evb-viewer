@@ -2,7 +2,7 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import type {
     IWorkspaceSurfaceBudgetController,
     IDocumentPageRenderRequest,
-    IDocumentSurfaceLease, 
+    IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
 import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
 
@@ -14,7 +14,7 @@ export async function renderPdfDocumentPageSource(options: {
     request: IDocumentPageRenderRequest;
     scopeId: string;
     surfaceBudget: IWorkspaceSurfaceBudgetController;
-}): Promise<IDocumentSurfaceLease> {
+}): Promise<IDocumentRenderLease> {
     const {
         document,
         request,

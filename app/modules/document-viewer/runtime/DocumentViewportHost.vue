@@ -2,7 +2,7 @@
     <div
         :id="viewportId"
         :ref="setViewportElement"
-        data-document-viewer-chassis-viewport
+        data-document-viewer-runtime-viewport
         @scroll.passive="emit('scroll', $event)"
         @wheel="handleWheel"
         @mousedown="emit('mousedown', $event)"

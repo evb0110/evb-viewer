@@ -1,4 +1,4 @@
-export async function settleDocumentOpeningGeometryPrewarmTask<TGeometry>(
+export async function settleOpeningPreviewGeometry<TGeometry>(
     geometryTask: Promise<TGeometry | null>,
     settleTimeoutMs?: number,
 ) {

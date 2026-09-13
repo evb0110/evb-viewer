@@ -9,8 +9,8 @@ import {
     resolveDocumentOpenSurfaceViewportPolicy,
     shouldProjectDocumentViewportScroll,
     shouldPresentDocumentOpenEmptyPlaceholder,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 import {requireDocumentRef} from '@contracts/documentRef';
 
@@ -1358,7 +1358,7 @@ describe('document open surface session', () => {
             documentRevision: 'open-intent:prepared',
         }, {
             documentId: 'scan.pdf',
-            ownerId: 'document-viewer-chassis:1',
+            ownerId: 'document-viewer-runtime:1',
             pageNumber: 1,
             intentKey: 'fit-width:1',
             layoutKey: '0:1000x800',
@@ -1389,7 +1389,7 @@ describe('document open surface session', () => {
             openingPageGeometry: {documentId: 'scan.pdf'},
             openingPageFrame: {
                 generation: 1,
-                ownerId: 'document-viewer-chassis:1',
+                ownerId: 'document-viewer-runtime:1',
             },
         });
     });
@@ -1403,7 +1403,7 @@ describe('document open surface session', () => {
             documentRevision: 'open-intent:prepared',
         }, {
             documentId: 'scan.pdf',
-            ownerId: 'document-viewer-chassis:1',
+            ownerId: 'document-viewer-runtime:1',
             pageNumber: 1,
             intentKey: 'fit-width:1',
             layoutKey: '0:1000x800',
@@ -1433,10 +1433,10 @@ describe('document open surface session', () => {
             identity: {documentRevision: 'pdf-source:42'},
             openingPageFrame: {
                 generation,
-                ownerId: 'document-viewer-chassis:1',
+                ownerId: 'document-viewer-runtime:1',
             },
         });
-        expect(session.clearOpeningPageFrame(generation, 'document-viewer-chassis:1')).toBe(false);
+        expect(session.clearOpeningPageFrame(generation, 'document-viewer-runtime:1')).toBe(false);
         expect(presentations).toEqual([
             'page-shell',
             'page-shell',
@@ -1450,7 +1450,7 @@ describe('document open surface session', () => {
             documentRevision: 'open-intent:prepared',
         }, {
             documentId: 'other.pdf',
-            ownerId: 'document-viewer-chassis:1',
+            ownerId: 'document-viewer-runtime:1',
             pageNumber: 1,
             intentKey: 'fit-width:1',
             layoutKey: '0:1000x800',

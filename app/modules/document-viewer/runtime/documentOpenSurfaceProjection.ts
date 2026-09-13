@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import {
     resolveDocumentViewportCurrentPage,
     type IDocumentViewportSessionState,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 
 interface IDocumentOpenSurfaceProjectionSnapshot {
     readonly generation: number;

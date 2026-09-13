@@ -22,7 +22,7 @@ import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/bookm
 import type {
     IDocumentPageSource,
     IDocumentSurfaceLease,
-} from '@app/modules/document-viewer/source/documentPageSource';
+} from '@app/modules/document-viewer/public';
 import type {TDocumentSidebarTab} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/documentThumbnailScheduler';
 import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';

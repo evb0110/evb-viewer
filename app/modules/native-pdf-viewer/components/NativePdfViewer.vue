@@ -80,13 +80,13 @@ import {
 import { revokeNativePdfPageObjectUrl } from '@app/modules/native-pdf-viewer/runtime/revokeNativePdfPageObjectUrl';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import {
-    createPagePreviewDocumentSource, injectDocumentViewerChassisAuthority , createDocumentViewportWritePort , clampDocumentManualZoom , DOCUMENT_PAGE_GUTTER_PX , useDocumentViewportLayoutLifecycle , createDocumentWheelZoomHandler , useDocumentWheelZoomSessionBoundaries,  
+    createPagePreviewDocumentSource, injectDocumentViewerRuntime, createDocumentViewportWritePort, clampDocumentManualZoom, DOCUMENT_PAGE_GUTTER_PX, useDocumentViewportLayoutLifecycle, createDocumentWheelZoomHandler, useDocumentWheelZoomSessionBoundaries,
+    getPagePreviewSizesWithDeadline,
 } from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
-    getPagePreviewSizesWithDeadline,
-    type IDocumentPreviewPageState,
-    type IPagePreviewSource, 
+    IDocumentPreviewPageState,
+    IPagePreviewSource,
 } from '@app/modules/document-viewer/public';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -124,7 +124,7 @@ const {
     zoom = undefined,
     zoomMode: zoomModeProp = undefined,
 } = defineProps<IProps>();
-const chassisAuthority = injectDocumentViewerChassisAuthority();
+const chassisAuthority = injectDocumentViewerRuntime();
 const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
 const renderSession = chassisAuthority?.renderCoordinator.createSession(`native-pdf-feature:${String(++nextNativePageSlotOwnerId)}`);
 const pageSlots = renderSession?.pageSlots;

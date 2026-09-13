@@ -1,16 +1,18 @@
 import { useResizeObserver } from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
-import type {
-    IDocumentPageMetrics,
-    IDocumentPageSource, IDocumentViewportSessionState ,
+import {
+    createDocumentWheelZoomHandler,
+    createLazyIndexedCollection,
+    isLazyIndexedCollection,
     resolveDocumentPageDisplayLayouts,
     resolveDocumentPageDisplayScale,
     type IDocumentPageDisplayLayout,
-    createLazyIndexedCollection,
-    isLazyIndexedCollection,
-    type ILazyIndexedCollection, IDocumentZoomPageLayout ,
-    createDocumentWheelZoomHandler,
+    type IDocumentPageMetrics,
+    type IDocumentPageSource,
+    type IDocumentViewportSessionState,
     type IDocumentWheelInteraction,
+    type IDocumentZoomPageLayout,
+    type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/public';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';

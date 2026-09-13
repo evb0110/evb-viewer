@@ -10,8 +10,8 @@ import {
     type Ref,
 } from 'vue';
 import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
-import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 function createElementShim(shape: Record<string, unknown>): HTMLElement {
     // The lifecycle reads only connectivity, scroll extent, selectors, and
@@ -31,13 +31,13 @@ function createChassisAuthority(
         height: number;
         margin: number
     }) => boolean,
-): IDocumentViewerChassisAuthority {
+): IDocumentViewerRuntime {
     // The lifecycle receives the full app authority in production but reads
     // only this open-surface slice in the unit.
     return {openSurface: {
         snapshot,
         commitGeometry,
-    }} as IDocumentViewerChassisAuthority;
+    }} as IDocumentViewerRuntime;
 }
 
 describe('commitPdfPageSkeletonGeometry', () => {

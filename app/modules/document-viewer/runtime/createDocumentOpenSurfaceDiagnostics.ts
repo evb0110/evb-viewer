@@ -1,5 +1,5 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 
 export interface IDocumentOpenSurfaceDiagnosticFence {
     readonly generation: number;

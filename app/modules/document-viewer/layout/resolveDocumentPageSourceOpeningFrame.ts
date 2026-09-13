@@ -1,4 +1,4 @@
-import type { IDocumentOpenSurfacePageGeometry } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfacePageGeometry } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import {
     clampDocumentFitScale,

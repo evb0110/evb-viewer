@@ -2,7 +2,7 @@ import type { IRecentFile } from '@contracts/shared';
 import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
 import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/modules/document-viewer/public';
 import {
-    createBoundedLruCache, settleDocumentOpeningGeometryPrewarmTask,  
+    createBoundedLruCache, settleOpeningPreviewGeometry,
 } from '@app/modules/document-viewer/public';
 
 interface ISourceStat {
@@ -138,7 +138,7 @@ export async function prewarmRecentDjvuOpeningGeometry(
             const {
                 geometry,
                 timedOut,
-            } = await settleDocumentOpeningGeometryPrewarmTask(
+            } = await settleOpeningPreviewGeometry(
                 geometryTask,
                 options.settleTimeoutMs,
             );

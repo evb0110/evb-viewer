@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IDocumentSurfaceLease} from '@app/modules/document-viewer/source/documentPageSource';
+import type {IDocumentRenderLease} from '@app/modules/document-viewer/source/documentPageSource';
 import {
     createDocumentThumbnailScheduler,
     type IDocumentThumbnailDemand,
@@ -45,7 +45,7 @@ function demand(
     };
 }
 
-function lease(widthPx: number, release = vi.fn()): IDocumentSurfaceLease {
+function lease(widthPx: number, release = vi.fn()): IDocumentRenderLease {
     return {
         bytes: widthPx * 2,
         heightPx: widthPx * 2,
@@ -112,7 +112,7 @@ describe('createDocumentThumbnailScheduler', () => {
             const signal = request.signal;
             signal.addEventListener('abort', aborted, {once: true});
             return pageNumber === 1
-                ? new Promise<IDocumentSurfaceLease>(() => undefined)
+                ? new Promise<IDocumentRenderLease>(() => undefined)
                 : Promise.resolve(lease(128));
         });
         const scheduler = createDocumentThumbnailScheduler({
@@ -143,7 +143,7 @@ describe('createDocumentThumbnailScheduler', () => {
     });
 
     it('schedules navigation before nearby work and respects the concurrency limit', async () => {
-        const pending: Array<IDeferred<IDocumentSurfaceLease>> = [];
+        const pending: Array<IDeferred<IDocumentRenderLease>> = [];
         const started: number[] = [];
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
@@ -151,7 +151,7 @@ describe('createDocumentThumbnailScheduler', () => {
             prepareSurface: vi.fn(async () => undefined),
             render: vi.fn(request => {
                 started.push(request.pageNumber);
-                const item = deferred<IDocumentSurfaceLease>();
+                const item = deferred<IDocumentRenderLease>();
                 pending.push(item);
                 return item.promise;
             }),
@@ -174,7 +174,7 @@ describe('createDocumentThumbnailScheduler', () => {
     });
 
     it('releases a cancelled stale lease once and commits only the replacement', async () => {
-        const pending: Array<IDeferred<IDocumentSurfaceLease>> = [];
+        const pending: Array<IDeferred<IDocumentRenderLease>> = [];
         const releases = [
             vi.fn(),
             vi.fn(),
@@ -187,7 +187,7 @@ describe('createDocumentThumbnailScheduler', () => {
             },
             prepareSurface: vi.fn(async (_lease, signal) => signal.throwIfAborted()),
             render: vi.fn(() => {
-                const item = deferred<IDocumentSurfaceLease>();
+                const item = deferred<IDocumentRenderLease>();
                 pending.push(item);
                 return item.promise;
             }),
@@ -309,14 +309,14 @@ describe('createDocumentThumbnailScheduler', () => {
     it('does not report a render that fails after its cancellation', async () => {
         const onError = vi.fn();
         const onStateChange = vi.fn();
-        const pending: Array<IDeferred<IDocumentSurfaceLease>> = [];
+        const pending: Array<IDeferred<IDocumentRenderLease>> = [];
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
             onError,
             onStateChange,
             prepareSurface: vi.fn(async () => undefined),
             render: vi.fn(() => {
-                const item = deferred<IDocumentSurfaceLease>();
+                const item = deferred<IDocumentRenderLease>();
                 pending.push(item);
                 return item.promise;
             }),

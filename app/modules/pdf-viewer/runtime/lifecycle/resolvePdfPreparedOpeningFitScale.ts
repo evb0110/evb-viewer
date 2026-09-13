@@ -15,7 +15,7 @@ export function resolvePdfPreparedOpeningFitScale(
         || !isOpening
         || !frame
         || !geometry
-        || !frame.ownerId.startsWith('document-viewer-chassis:')
+        || !frame.ownerId.startsWith('document-viewer-runtime:')
         || frame.generation !== snapshot.generation
         || frame.pageNumber !== geometry.pageNumber
         || geometry.width <= 0

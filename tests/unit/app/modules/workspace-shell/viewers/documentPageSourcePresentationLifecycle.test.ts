@@ -14,8 +14,8 @@ import {
 import type {
     IDocumentPageSource,
     IDocumentSurfaceLease,
-} from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+} from '@app/modules/document-viewer/public';
+import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';

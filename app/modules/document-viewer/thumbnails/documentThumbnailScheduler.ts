@@ -1,6 +1,6 @@
 import type {
     IDocumentPageRenderRequest,
-    IDocumentSurfaceLease,
+    IDocumentRenderLease,
     TDocumentRenderPriority,
 } from '@app/modules/document-viewer/source/documentPageSource';
 
@@ -20,15 +20,15 @@ export interface IDocumentThumbnailCommittedState {
     pageNumber: number;
     /** Width the accepted demand asked for; the leased raster may be smaller. */
     requestWidthPx: number;
-    surface: IDocumentSurfaceLease['surface'];
+    surface: IDocumentRenderLease['surface'];
     widthPx: number;
 }
 
 interface IDocumentThumbnailSchedulerOptions {
     maxConcurrency: number;
     onStateChange: (pageNumber: number, state: IDocumentThumbnailCommittedState | null) => void;
-    prepareSurface: (lease: IDocumentSurfaceLease, signal: AbortSignal) => Promise<void>;
-    render: (request: IDocumentPageRenderRequest) => Promise<IDocumentSurfaceLease>;
+    prepareSurface: (lease: IDocumentRenderLease, signal: AbortSignal) => Promise<void>;
+    render: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
     renderTimeoutMs?: number;
     /** Reports a render or surface-preparation failure. Cancellations never reach it. */
     onError?: ((error: unknown, demand: IDocumentThumbnailDemand) => void) | undefined;
@@ -37,7 +37,7 @@ interface IDocumentThumbnailSchedulerOptions {
 interface IReleaseOnce {release: () => void;}
 
 interface ICommittedEntry extends IDocumentThumbnailCommittedState {
-    lease: IDocumentSurfaceLease;
+    lease: IDocumentRenderLease;
     releaseOnce: IReleaseOnce;
     unsubscribe: (() => void) | null;
 }
@@ -50,7 +50,7 @@ interface IActiveEntry {
 
 const DEFAULT_DOCUMENT_THUMBNAIL_RENDER_TIMEOUT_MS = 30_000;
 
-function createReleaseOnce(lease: IDocumentSurfaceLease): IReleaseOnce {
+function createReleaseOnce(lease: IDocumentRenderLease): IReleaseOnce {
     let released = false;
     return {release() {
         if (released) {
@@ -180,7 +180,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         active.set(pageNumber, activeEntry);
         activeCount += 1;
         let pendingLease: {
-            lease: IDocumentSurfaceLease;
+            lease: IDocumentRenderLease;
             releaseOnce: IReleaseOnce;
         } | null = null;
         let renderTimedOut = false;

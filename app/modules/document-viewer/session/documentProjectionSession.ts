@@ -22,7 +22,7 @@ export type TPdfProjectionState =
         error: unknown
     };
 
-export interface IDocumentSession {
+export interface IDocumentProjectionSession {
     readonly id: string;
     readonly originalRef: TDocumentRef;
     source: IDocumentPageSource;
@@ -31,7 +31,7 @@ export interface IDocumentSession {
 }
 
 export interface IPdfProjectionBuilder {build(options: {
-    session: IDocumentSession;
+    session: IDocumentProjectionSession;
     reason: TPdfProjectionReason;
     signal?: AbortSignal;
 }): Promise<{
@@ -40,12 +40,12 @@ export interface IPdfProjectionBuilder {build(options: {
     capabilities: IDocumentSourceCapabilities;
 }>;}
 
-export function createDocumentSession(options: {
+export function createDocumentProjectionSession(options: {
     id: string;
     originalRef: TDocumentRef;
     source: IDocumentPageSource;
     capabilities: IDocumentSourceCapabilities;
-}): IDocumentSession {
+}): IDocumentProjectionSession {
     return {
         ...options,
         projection: { status: 'idle' },
@@ -54,7 +54,7 @@ export function createDocumentSession(options: {
 
 /** Atomically swaps a DjVu session to its PDF projection while preserving session/view identity. */
 export async function ensurePdfProjection(
-    session: IDocumentSession,
+    session: IDocumentProjectionSession,
     builder: IPdfProjectionBuilder,
     reason: TPdfProjectionReason,
     signal?: AbortSignal,

@@ -25,12 +25,12 @@ import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/compos
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     createDocumentViewerChassisAuthority,
     documentViewerChassisAuthorityKey,
-} from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
+} from '@app/modules/document-viewer/public';
+import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 
 const mocks = vi.hoisted(() => ({
     createDjvuPagePreviewSourceFromPath: vi.fn(),

@@ -13,8 +13,8 @@ import {
 } from 'vue';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 function createDomRect(shape: object): DOMRect {
     // The visual handshake reads only measured rectangle fields from these
@@ -37,9 +37,9 @@ function createViewportFixture(
 
 function createChassisAuthority(
     openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>,
-): IDocumentViewerChassisAuthority {
+): IDocumentViewerRuntime {
     // The lifecycle reads the open-surface session from the full authority.
-    return {openSurface} as IDocumentViewerChassisAuthority;
+    return {openSurface} as IDocumentViewerRuntime;
 }
 
 function createResidentCanvasFixture(

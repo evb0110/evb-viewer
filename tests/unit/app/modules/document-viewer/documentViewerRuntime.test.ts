@@ -9,13 +9,13 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import {
-    createDocumentViewerChassisAuthority,
-    shouldAcceptFeaturePackChassisPage,
-    shouldApplyExternalChassisPage,
-} from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+    createDocumentViewerRuntime,
+    shouldAcceptFeaturePackRuntimePage,
+    shouldApplyExternalRuntimePage,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
-import { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/chassis/documentViewportWritePort';
+import { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSource {
@@ -58,8 +58,8 @@ describe('document viewer chassis authority', () => {
     });
 
     it('scopes opening-page elements to a unique chassis instance', () => {
-        const first = createDocumentViewerChassisAuthority(ref('djvu'));
-        const second = createDocumentViewerChassisAuthority(ref('djvu'));
+        const first = createDocumentViewerRuntime(ref('djvu'));
+        const second = createDocumentViewerRuntime(ref('djvu'));
         const element = document.createElement('div');
 
         expect(first.instanceId).not.toBe(second.instanceId);
@@ -73,7 +73,7 @@ describe('document viewer chassis authority', () => {
 
     it('publishes opening-page visual state only through the connected owned frame', () => {
         vi.useFakeTimers();
-        const authority = createDocumentViewerChassisAuthority(ref('djvu'));
+        const authority = createDocumentViewerRuntime(ref('djvu'));
         const generation = authority.openSurface.begin({
             documentId: '/documents/scan.djvu',
             documentRevision: 'revision-1',
@@ -112,7 +112,7 @@ describe('document viewer chassis authority', () => {
 
     it('keeps one navigation, page-slot, and surface-budget authority across PDF and DjVu sources', async () => {
         const sourceKind = ref<'pdf' | 'djvu'>('pdf');
-        const authority = createDocumentViewerChassisAuthority(sourceKind, 2);
+        const authority = createDocumentViewerRuntime(sourceKind, 2);
         const originalSlots = authority.pageSlots;
         const originalBudget = authority.surfaceBudget;
         const originalViewportWritePort = authority.viewportWritePort;
@@ -135,7 +135,7 @@ describe('document viewer chassis authority', () => {
     });
 
     it('clears an authored scroll origin for physical wheel input but preserves it for zoom', () => {
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         const container = createViewportContainer();
 
         authority.viewportWritePort.apply(container, {
@@ -176,7 +176,7 @@ describe('document viewer chassis authority', () => {
 
     it('resets a stale viewport offset synchronously when a document generation begins', () => {
         const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
         const container = createViewportContainer();
         container.scrollLeft = 7;
         container.scrollTop = 4;
@@ -193,7 +193,7 @@ describe('document viewer chassis authority', () => {
     });
 
     it('rejects stale continuations after supersession, user input, and source revision changes', () => {
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         const container = createViewportContainer();
         const staleByIntent = authority.viewportWritePort.beginIntent('navigate:old');
         const current = authority.viewportWritePort.beginIntent('navigate:new');
@@ -229,7 +229,7 @@ describe('document viewer chassis authority', () => {
     });
 
     it('rebinds feature presentation and events without replacing the chassis viewport', () => {
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         const container = createViewportContainer();
         const received: string[] = [];
         const interaction = {
@@ -271,7 +271,7 @@ describe('document viewer chassis authority', () => {
     });
 
     it('rejects a feature pack that attempts to bind a source of the wrong kind', () => {
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
 
         expect(() => authority.bindSource(createSource('djvu', 3))).toThrow(
             'Cannot bind djvu source to pdf chassis',
@@ -279,7 +279,7 @@ describe('document viewer chassis authority', () => {
     });
 
     it('clamps navigation only after the source page count is known', () => {
-        const authority = createDocumentViewerChassisAuthority(ref('djvu'));
+        const authority = createDocumentViewerRuntime(ref('djvu'));
 
         expect(authority.navigate(20)).toBe(20);
         authority.pageCount.value = 8;
@@ -294,7 +294,7 @@ describe('document viewer chassis authority', () => {
             documentRevision: 'open-intent:1',
         });
         const requestNavigation = vi.spyOn(openSurface, 'requestNavigation');
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
 
         expect(authority.navigate(1)).toBe(1);
         expect(requestNavigation).toHaveBeenCalledOnce();
@@ -311,23 +311,23 @@ describe('document viewer chassis authority', () => {
             openSurface.requestNavigation(page);
         }
 
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
 
         expect(openSurface.viewportSession.value.requestedPage).toBe(6);
         expect(authority.currentPage.value).toBe(6);
-        expect(shouldApplyExternalChassisPage(openSurface.viewportSession.value, 1)).toBe(false);
-        expect(shouldApplyExternalChassisPage(openSurface.viewportSession.value, 6)).toBe(true);
-        expect(shouldApplyExternalChassisPage({
+        expect(shouldApplyExternalRuntimePage(openSurface.viewportSession.value, 1)).toBe(false);
+        expect(shouldApplyExternalRuntimePage(openSurface.viewportSession.value, 6)).toBe(true);
+        expect(shouldApplyExternalRuntimePage({
             ...openSurface.viewportSession.value,
             lifecycle: 'transitioning',
         }, 1)).toBe(false);
-        expect(shouldAcceptFeaturePackChassisPage(openSurface.viewportSession.value, 1)).toBe(false);
-        expect(shouldAcceptFeaturePackChassisPage(openSurface.viewportSession.value, 6)).toBe(true);
-        expect(shouldAcceptFeaturePackChassisPage({
+        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 1)).toBe(false);
+        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(true);
+        expect(shouldAcceptFeaturePackRuntimePage({
             ...openSurface.viewportSession.value,
             committedPage: 6,
         }, 7)).toBe(false);
-        expect(shouldAcceptFeaturePackChassisPage({
+        expect(shouldAcceptFeaturePackRuntimePage({
             ...openSurface.viewportSession.value,
             requestedPage: 7,
             committedPage: 6,
@@ -336,9 +336,9 @@ describe('document viewer chassis authority', () => {
 
     it('rejects navigation without a document owner instead of leaking it into the next open', () => {
         const openSurface = createDocumentOpenSurfaceSession();
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
 
-        expect(shouldAcceptFeaturePackChassisPage(openSurface.viewportSession.value, 6)).toBe(false);
+        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(false);
 
         for (let page = 2; page <= 6; page += 1) {
             authority.navigate(page);

@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type {
     IDocumentOpenSurfacePageFrame,
     IDocumentOpenSurfacePagePreview,
-} from '@app/modules/document-viewer/chassis/retargetDocumentOpeningShell';
+} from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 
 interface IOpeningPreviewSnapshot {
     readonly generation: number;

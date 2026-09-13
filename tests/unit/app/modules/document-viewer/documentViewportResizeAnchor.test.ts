@@ -8,7 +8,7 @@ import {
 import {
     captureDocumentViewportResizeAnchor,
     resolveDocumentViewportResizeAnchorPosition,
-} from '@app/modules/document-viewer/chassis/documentViewportResizeAnchor';
+} from '@app/modules/document-viewer/runtime/documentViewportResizeAnchor';
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
     return {

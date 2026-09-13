@@ -8,8 +8,8 @@ import type {
     IDocumentOpenSurfaceSession,
     IDocumentOpenSurfaceSnapshot,
     TDocumentOpenSurfacePhase,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSessionContract';
-import {createDocumentOpenSurfaceDiagnostics} from '@app/modules/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSessionContract';
+import {createDocumentOpenSurfaceDiagnostics} from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
 import {
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
@@ -17,15 +17,15 @@ import {
     type IDocumentViewportSessionState,
     type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 import {
     retargetDocumentOpeningShell,
     type IDocumentOpenSurfacePageGeometry,
     type IDocumentOpenSurfaceVisualState,
     type TDocumentOpenSurfacePresentation,
     type TDocumentOpenSurfaceVisualPresentation,
-} from '@app/modules/document-viewer/chassis/retargetDocumentOpeningShell';
-import {createDocumentOpeningPreviewGate} from '@app/modules/document-viewer/chassis/createDocumentOpeningPreviewGate';
+} from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
+import {createDocumentOpeningPreviewGate} from '@app/modules/document-viewer/runtime/createDocumentOpeningPreviewGate';
 export type {
     IDocumentOpenSurfaceIdentity,
     IDocumentOpenSurfacePageGeometrySeed,
@@ -36,7 +36,7 @@ export type {
     IDocumentOpenSurfaceSnapshot,
     IDocumentOpenSurfaceViewportCommit,
     TDocumentOpenSurfacePhase,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSessionContract';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSessionContract';
 export type {
     IDocumentViewportCommitFence,
     IDocumentViewportIdentity,
@@ -50,7 +50,7 @@ export type {
     TDocumentViewportSessionEffect,
     TDocumentViewportSessionEvent,
     TDocumentViewportVisualOwner,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 export {
     assertDocumentViewportSessionInvariants,
     canOpenRecentDocument,
@@ -58,21 +58,21 @@ export {
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 export type {
     IDocumentOpenSurfaceGeometry,
     IDocumentOpenSurfacePageFrame,
     IDocumentOpenSurfacePagePreview,
     IDocumentOpenSurfacePageGeometry,
     TDocumentOpenSurfacePresentation,
-} from '@app/modules/document-viewer/chassis/retargetDocumentOpeningShell';
-export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
+} from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
+export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
 export {
     commitDocumentOpenSurfaceViewport,
     shouldProjectDocumentViewportCommitPage,
     shouldProjectDocumentViewportScroll,
     type IDocumentViewportPositionProjection,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceProjection';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceProjection';
 
 export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
     const isTransitioning = snapshot.phase === 'pending'

@@ -12,7 +12,7 @@ import type {
     IDocumentOpenSurfacePageGeometry,
     IDocumentOpenSurfacePreparedPageFrame,
     IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 
@@ -23,13 +23,13 @@ export interface IDocumentOpeningPageFramePolicy {
     readonly zoomMode: TZoomMode;
 }
 
-export interface IDocumentOpeningPageFrameAuthority {
+export interface IDocumentOpeningPageFrame {
     draftOpeningPageFrame(geometry: IDocumentOpenSurfacePageGeometry): IDocumentOpenSurfacePreparedPageFrame | null;
     isPreparedOpeningPageFrameCurrent(frame: IDocumentOpenSurfacePreparedPageFrame): boolean;
     prepareOpeningPageFrame(generation: number): boolean;
 }
 
-interface ICreateDocumentOpeningPageFrameAuthorityOptions {
+interface ICreateDocumentOpeningPageFrameOptions {
     readonly openSurface: IDocumentOpenSurfaceSession;
     readonly readLayoutRevision?: () => number;
     readonly readPolicy: () => IDocumentOpeningPageFramePolicy;
@@ -39,7 +39,7 @@ interface ICreateDocumentOpeningPageFrameAuthorityOptions {
     };
 }
 
-let nextOpeningPageFrameAuthorityId = 0;
+let nextOpeningPageFrameId = 0;
 
 export function resolveDocumentOpeningPageShellId(chassisInstanceId: string, generation: number) {
     return `${chassisInstanceId}-opening-page-shell-${String(generation)}`;
@@ -122,10 +122,10 @@ function resolveSourceRevisionKey(geometry: IDocumentOpenSurfacePageGeometry) {
         : null;
 }
 
-export function createDocumentOpeningPageFrameAuthority(
-    options: ICreateDocumentOpeningPageFrameAuthorityOptions,
-): IDocumentOpeningPageFrameAuthority {
-    const ownerId = `document-viewer-chassis:${String(++nextOpeningPageFrameAuthorityId)}`;
+export function createDocumentOpeningPageFrame(
+    options: ICreateDocumentOpeningPageFrameOptions,
+): IDocumentOpeningPageFrame {
+    const ownerId = `document-viewer-runtime:${String(++nextOpeningPageFrameId)}`;
 
     function readPreparationInputs(geometry: IDocumentOpenSurfacePageGeometry) {
         // Read the revision only as a reactive invalidation signal. Frame

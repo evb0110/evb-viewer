@@ -17,7 +17,7 @@ import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/co
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSnapshot,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 const mocks = vi.hoisted(() => ({browserWarn: vi.fn()}));
 

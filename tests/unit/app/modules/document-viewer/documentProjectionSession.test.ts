@@ -9,9 +9,9 @@ import {
 import type { IPagePreviewSource } from '@app/modules/document-viewer/pagePreviewSource';
 import { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 import {
-    createDocumentSession,
+    createDocumentProjectionSession,
     ensurePdfProjection,
-} from '@app/modules/document-viewer/session/documentSession';
+} from '@app/modules/document-viewer/session/documentProjectionSession';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import {requireDocumentRef} from '@contracts/documentRef';
 
@@ -595,7 +595,7 @@ describe('document page sources', () => {
             search: false,
             text: false,
         };
-        const session = createDocumentSession({
+        const session = createDocumentProjectionSession({
             id: 'session',
             originalRef: requireDocumentRef('/book.djvu'),
             source: oldSource,
@@ -639,7 +639,7 @@ describe('document page sources', () => {
             search: false,
             text: false,
         };
-        const session = createDocumentSession({
+        const session = createDocumentProjectionSession({
             id: 'print-session',
             originalRef: requireDocumentRef('/book.djvu'),
             source: oldSource,

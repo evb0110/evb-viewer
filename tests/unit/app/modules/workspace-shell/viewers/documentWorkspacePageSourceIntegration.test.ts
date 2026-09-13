@@ -18,18 +18,18 @@ import {
     shallowRef,
 } from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
-import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import DocumentViewerChassis from '@app/modules/workspace-shell/components/DocumentViewerChassis.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
 
 vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders', async () => {
     const vue = await import('vue');
     const {documentViewerChassisAuthorityKey} = await import(
-        '@app/modules/document-viewer/chassis/documentViewerChassisAuthority'
+        '@app/modules/document-viewer/public'
     );
     const createFeaturePackStub = (kind: string) => vue.defineComponent({
         inheritAttrs: false,

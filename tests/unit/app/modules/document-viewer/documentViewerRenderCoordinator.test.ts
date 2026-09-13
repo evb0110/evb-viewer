@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
-import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 
 describe('document viewer render coordinator', () => {
     it('makes feature replacement transactional across equal page numbers', async () => {

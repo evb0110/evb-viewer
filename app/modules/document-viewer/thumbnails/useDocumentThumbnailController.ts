@@ -2,7 +2,7 @@ import type {Ref} from 'vue';
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
-    IDocumentSurfaceLease,
+    IDocumentRenderLease,
 } from '@app/modules/document-viewer/source/documentPageSource';
 import {
     DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
@@ -71,7 +71,7 @@ interface IUseDocumentThumbnailControllerOptions {
     source: Ref<IDocumentPageSource | null>;
 }
 
-function prepareSurface(lease: IDocumentSurfaceLease, signal: AbortSignal) {
+function prepareSurface(lease: IDocumentRenderLease, signal: AbortSignal) {
     if (typeof lease.surface !== 'string') {
         return Promise.resolve();
     }

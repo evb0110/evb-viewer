@@ -4,14 +4,14 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 import type { Ref } from 'vue';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import type {
-    IDocumentViewerChassisAuthority, IDocumentOpenSurfaceRenderOwner,  
+    IDocumentViewerRuntime, IDocumentOpenSurfaceRenderOwner,
 } from '@app/modules/document-viewer/public';
 import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
 import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 export interface ICreatePdfInitialVisualCommitOptions {
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
     viewport: TPdfViewportSession;
     viewerContainer: Ref<HTMLElement | null>;

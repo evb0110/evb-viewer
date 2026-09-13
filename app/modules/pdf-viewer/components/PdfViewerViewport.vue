@@ -87,7 +87,7 @@ import {
     flattenPdfVirtualPageSegments,
     groupPdfVirtualPageItems,
 } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
-import { injectDocumentViewerChassisAuthority } from '@app/modules/document-viewer/public';
+import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/public';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -161,7 +161,7 @@ const emit = defineEmits<{
     'cancel-placed-image': [];
 }>();
 
-const chassisAuthority = injectDocumentViewerChassisAuthority();
+const chassisAuthority = injectDocumentViewerRuntime();
 let releaseViewportFeature: (() => void) | null = null;
 
 const virtualPageItems = computed(() => {

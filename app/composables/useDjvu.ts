@@ -29,13 +29,14 @@ import type {
     IPdfRasterDisplayProfileOpenOptions,
     TPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities, IDocumentOpenSurfaceSession,
-    createDocumentSession,
+import {
+    createDocumentProjectionSession,
     ensurePdfProjection,
-    type IDocumentSession,
-    type TPdfProjectionReason, 
+    type IDocumentOpenSurfaceSession,
+    type IDocumentPageSource,
+    type IDocumentProjectionSession,
+    type IDocumentSourceCapabilities,
+    type TPdfProjectionReason,
 } from '@app/modules/document-viewer/public';
 import {
     normalizePdfRasterSourcePagePixels,
@@ -230,7 +231,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     let conversionGeneration = 0;
     let activeConversionGeneration: number | null = null;
     let isUnmounted = false;
-    let activeProjectionSession: IDocumentSession | null = null;
+    let activeProjectionSession: IDocumentProjectionSession | null = null;
 
     function logSuppressedError(action: string, error: unknown) {
         BrowserLogger.warn('djvu', action, error);
@@ -595,7 +596,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             sourceSizeBytes.value = typeof sourceInfo?.sourceSize === 'number'
                 ? sourceInfo.sourceSize
                 : null;
-            activeProjectionSession = createDocumentSession({
+            activeProjectionSession = createDocumentProjectionSession({
                 id: `djvu:${String(djvuPath)}`,
                 originalRef: djvuPath,
                 source: createProjectionSourceIdentity('djvu', djvuPath),
@@ -824,7 +825,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         }
         const session = activeProjectionSession?.originalRef === sourcePath
             ? activeProjectionSession
-            : createDocumentSession({
+            : createDocumentProjectionSession({
                 id: `djvu:${String(sourcePath)}`,
                 originalRef: sourcePath,
                 source: createProjectionSourceIdentity('djvu', sourcePath),

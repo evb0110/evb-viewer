@@ -109,10 +109,10 @@
 <script setup lang="ts">
 import { useVirtualList } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
-import type {
-    IDocumentSearchMatch,
+import {
     formatPageIndicatorWithOptions,
-    type TDocumentPageLabelLookup, 
+    type IDocumentSearchMatch,
+    type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/public';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';

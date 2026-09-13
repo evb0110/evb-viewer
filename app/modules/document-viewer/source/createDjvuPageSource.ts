@@ -7,7 +7,7 @@ import type {
 import {
     assertDocumentPageNumber,
     type IDocumentPageSource,
-    type IDocumentSurfaceLease,
+    type IDocumentRenderLease,
     type TDocumentRenderPriority,
 } from '@app/modules/document-viewer/source/documentPageSource';
 
@@ -254,7 +254,7 @@ export async function createDjvuPageSource(
                     releaseUrl(rendered.objectUrl);
                 }
             },
-        } satisfies IDocumentSurfaceLease;
+        } satisfies IDocumentRenderLease;
     };
 
     const getPageText = previewSource.getPageText;

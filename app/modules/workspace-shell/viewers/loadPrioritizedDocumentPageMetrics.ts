@@ -1,7 +1,7 @@
-import type {
-    IDocumentPageMetrics,
-    IDocumentPageSource,
+import {
     createLazyIndexedCollection,
+    type IDocumentPageMetrics,
+    type IDocumentPageSource,
     type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/public';
 

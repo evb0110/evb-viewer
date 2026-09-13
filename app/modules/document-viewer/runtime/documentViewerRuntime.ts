@@ -16,18 +16,18 @@ import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/p
 import {
     createDocumentViewportWritePort,
     type IDocumentViewportWritePort,
-} from '@app/modules/document-viewer/chassis/documentViewportWritePort';
-import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
     type IDocumentViewportSessionState,
     resolveDocumentViewportCurrentPage,
-} from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
-export interface IDocumentViewerChassisAuthority {
+export interface IDocumentViewerRuntime {
     readonly instanceId: string;
     readonly currentPage: Ref<number>;
     readonly pageCount: Ref<number>;
@@ -69,13 +69,13 @@ export interface IDocumentViewportFeatureBinding {
     wheel?: (interaction: IDocumentWheelInteraction) => void;
 }
 
-export const documentViewerChassisAuthorityKey = Symbol('document-viewer-chassis-authority') as InjectionKey<
-    IDocumentViewerChassisAuthority
+export const documentViewerRuntimeKey = Symbol('document-viewer-runtime') as InjectionKey<
+    IDocumentViewerRuntime
 >;
 
 let nextDocumentViewerChassisInstanceId = 0;
 
-export function shouldApplyExternalChassisPage(
+export function shouldApplyExternalRuntimePage(
     session: IDocumentViewportSessionState,
     pageNumber: number,
 ) {
@@ -87,7 +87,7 @@ export function shouldApplyExternalChassisPage(
     return session.identity === null || session.requestedPage === normalizedPage;
 }
 
-export function shouldAcceptFeaturePackChassisPage(
+export function shouldAcceptFeaturePackRuntimePage(
     session: IDocumentViewportSessionState,
     pageNumber: number,
 ) {
@@ -109,18 +109,18 @@ export function shouldAcceptFeaturePackChassisPage(
     return resolveDocumentViewportCurrentPage(session) === normalizedPage;
 }
 
-export function createDocumentViewerChassisAuthority(
+export function createDocumentViewerRuntime(
     sourceKind: Ref<TDocumentPageSourceKind>,
     initialPage = 1,
     sharedOpenSurface?: IDocumentOpenSurfaceSession | undefined,
-): IDocumentViewerChassisAuthority {
+): IDocumentViewerRuntime {
     const currentPage = ref(Math.max(
         1,
         Math.trunc(sharedOpenSurface
             ? resolveDocumentViewportCurrentPage(sharedOpenSurface.viewportSession.value)
             : initialPage),
     ));
-    const instanceId = `document-viewer-chassis-${String(++nextDocumentViewerChassisInstanceId)}`;
+    const instanceId = `document-viewer-runtime-${String(++nextDocumentViewerChassisInstanceId)}`;
     const pageCount = ref(0);
     const pageSlots = createDocumentPageSlotRegistry();
     const renderCoordinator = createDocumentViewerRenderCoordinator(pageSlots);
@@ -298,6 +298,6 @@ export function createDocumentViewerChassisAuthority(
     };
 }
 
-export function injectDocumentViewerChassisAuthority() {
-    return inject(documentViewerChassisAuthorityKey, null);
+export function injectDocumentViewerRuntime() {
+    return inject(documentViewerRuntimeKey, null);
 }

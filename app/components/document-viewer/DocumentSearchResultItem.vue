@@ -26,10 +26,10 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    IDocumentSearchMatch,
+import {
     formatPageIndicatorWithOptions,
-    type TDocumentPageLabelLookup, 
+    type IDocumentSearchMatch,
+    type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/public';
 
 const { t } = useTypedI18n();

@@ -1,7 +1,7 @@
-import type {
-    TPageSnapAnchor,
+import {
     createDocumentViewportNavigationMachineState,
-    type IDocumentViewportNavigationState, 
+    type IDocumentViewportNavigationState,
+    type TPageSnapAnchor,
 } from '@app/modules/document-viewer/public';
 
 export type TPdfNavigationSource =

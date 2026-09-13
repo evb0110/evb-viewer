@@ -3,12 +3,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
-    createDocumentOpeningPageFrameAuthority,
+    createDocumentOpeningPageFrame,
     resolveDocumentOpeningPageMargin,
     resolveDocumentOpeningPageShellId,
-} from '@app/modules/document-viewer/chassis/documentOpeningPageFrameAuthority';
+} from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 
 const pdfGeometry = Object.freeze({
@@ -30,7 +30,7 @@ function createAuthority(
     },
     readLayoutRevision?: () => number,
 ) {
-    return createDocumentOpeningPageFrameAuthority({
+    return createDocumentOpeningPageFrame({
         openSurface: surface,
         ...(readLayoutRevision ? {readLayoutRevision} : {}),
         readPolicy: () => ({
@@ -43,7 +43,7 @@ function createAuthority(
     });
 }
 
-describe('documentOpeningPageFrameAuthority', () => {
+describe('documentOpeningPageFrame', () => {
     it('includes the chassis instance in opening-page shell identities', () => {
         expect(resolveDocumentOpeningPageShellId('chassis-a', 7)).toBe('chassis-a-opening-page-shell-7');
         expect(resolveDocumentOpeningPageShellId('chassis-b', 7)).not.toBe(
@@ -81,7 +81,7 @@ describe('documentOpeningPageFrameAuthority', () => {
                 },
             },
         });
-        expect(surface.snapshot.value.openingPageFrame?.ownerId).toMatch(/^document-viewer-chassis:/u);
+        expect(surface.snapshot.value.openingPageFrame?.ownerId).toMatch(/^document-viewer-runtime:/u);
     });
 
     it('content-addresses frames by effective layout and policy instead of observer event order', () => {

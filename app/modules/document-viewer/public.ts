@@ -1,4 +1,4 @@
-export { default as DocumentViewportHost } from '@app/modules/document-viewer/chassis/DocumentViewportHost.vue';
+export { default as DocumentViewportHost } from '@app/modules/document-viewer/runtime/DocumentViewportHost.vue';
 export { applyPageLabelRange } from '@app/modules/document-viewer/pageLabels';
 export { applySparsePageLabelUpdates } from '@app/modules/document-viewer/pageLabels';
 export { buildPageLabelSegments } from '@app/modules/document-viewer/pageLabels';
@@ -6,31 +6,40 @@ export { buildPageLabelsFromRanges } from '@app/modules/document-viewer/pageLabe
 export { buildWholeDocumentPageLabelRanges } from '@app/modules/document-viewer/pageLabels';
 export { canDocumentViewportTransactionSupersede } from '@app/modules/document-viewer/viewport/documentViewportTransactionReducer';
 export { canScrollWithinPageBounds } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
-export { captureDocumentViewportResizeAnchor } from '@app/modules/document-viewer/chassis/documentViewportResizeAnchor';
+export { captureDocumentViewportResizeAnchor } from '@app/modules/document-viewer/runtime/documentViewportResizeAnchor';
 export { clampClientPointToRect } from '@app/modules/document-viewer/region-geometry/clampClientPointToRect';
 export { clampDocumentFitScale } from '@app/modules/document-viewer/zoomPolicy';
 export { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
 export { clampKeyboardSelection } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
-export { commitDocumentOpenSurfaceViewport } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export { commitDocumentOpenSurfaceViewport } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { countPageLabelDifferences } from '@app/modules/document-viewer/pageLabels';
 export { createAnchorPageWindow } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createBoundedLruCache } from '@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
-export { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/chassis/createDocumentOpenGenerationErrorLatch';
+export { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
 export * from '@app/modules/document-viewer/thumbnails/documentThumbnailRenderMetrics';
-export { createDocumentOpeningPageFrameAuthority } from '@app/modules/document-viewer/chassis/documentOpeningPageFrameAuthority';
-export { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export {
+    createDocumentOpeningPageFrame,
+    createDocumentOpeningPageFrame as createDocumentOpeningPageFrameAuthority,
+} from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
+export { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
-export { createDocumentSession } from '@app/modules/document-viewer/session/documentSession';
+export {
+    createDocumentProjectionSession,
+    createDocumentProjectionSession as createDocumentSession,
+} from '@app/modules/document-viewer/session/documentProjectionSession';
 export { createDocumentSinglePageRange } from '@app/modules/document-viewer/documentPageRange';
 export { createDocumentThumbnailResizeAnchorLifecycle } from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
 export { createDocumentThumbnailScrollRestorer } from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer';
 export { createDocumentTransitionChannel } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
 export { createDocumentViewerActivationRunGuard } from '@app/modules/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
-export { createDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+export {
+    createDocumentViewerRuntime,
+    createDocumentViewerRuntime as createDocumentViewerChassisAuthority,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 export { createDocumentViewportNavigationMachineState } from '@app/modules/document-viewer/viewport/documentViewportNavigationMachine';
 export { createDocumentViewportTransactionMachineState } from '@app/modules/document-viewer/viewport/documentViewportTransactionReducer';
-export { createDocumentViewportWritePort } from '@app/modules/document-viewer/chassis/documentViewportWritePort';
+export { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 export { createDocumentWheelZoomHandler } from '@app/modules/document-viewer/input/documentWheelInteraction';
 export { createKeyboardSelection as createKeyboardSelectionInBounds } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
@@ -53,11 +62,14 @@ export { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/doc
 export { DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS } from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
 export { DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS } from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
 export { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/modules/document-viewer/input/documentWheelInteraction';
-export { documentOpenSurfaceSessionKey } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export { documentOpenSurfaceSessionKey } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { DocumentThumbnailLayout } from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
-export { documentViewerChassisAuthorityKey } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+export {
+    documentViewerRuntimeKey,
+    documentViewerRuntimeKey as documentViewerChassisAuthorityKey,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 export { doDocumentPageRangesIntersect } from '@app/modules/document-viewer/documentPageRange';
-export { ensurePdfProjection } from '@app/modules/document-viewer/session/documentSession';
+export { ensurePdfProjection } from '@app/modules/document-viewer/session/documentProjectionSession';
 export { expandVirtualWindowForAnchor } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { findPageByPageLabelInput } from '@app/modules/document-viewer/pageLabels';
 export { formatDocumentSearchResultsSummary } from '@app/modules/document-viewer/providers/formatDocumentSearchResultsSummary';
@@ -71,16 +83,19 @@ export { getPagePreviewSizesWithDeadline } from '@app/modules/document-viewer/pa
 export { getRectHeight } from '@app/modules/document-viewer/region-geometry/getRectHeight';
 export { getRectWidth } from '@app/modules/document-viewer/region-geometry/getRectWidth';
 export { getVisiblePageLabel } from '@app/modules/document-viewer/pageLabels';
-export { hasCommittedDocumentOpeningLayout } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export { hasCommittedDocumentOpeningLayout } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export type { IClientPoint } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
 export type { IClientRect } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
 export type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
-export type { IDocumentOpeningPageFrameAuthority } from '@app/modules/document-viewer/chassis/documentOpeningPageFrameAuthority';
-export type { IDocumentOpenSurfacePageGeometrySeed } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export type { IDocumentOpenSurfaceRenderOwner } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export type {
+    IDocumentOpeningPageFrame,
+    IDocumentOpeningPageFrame as IDocumentOpeningPageFrameAuthority,
+} from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
+export type { IDocumentOpenSurfacePageGeometrySeed } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export type { IDocumentOpenSurfaceRenderOwner } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export type { IDocumentPageDisplayLayout } from '@app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout';
 export type { IDocumentPageLabelModel } from '@app/modules/document-viewer/pageLabels';
 export type { IDocumentPageMetrics } from '@app/modules/document-viewer/source/documentPageSource';
@@ -93,22 +108,31 @@ export type { IDocumentSearchBackend } from '@app/modules/document-viewer/search
 export type { IDocumentSearchMatch } from '@app/modules/document-viewer/providers/documentSearch';
 export type { IDocumentSearchProgress } from '@app/modules/document-viewer/search/documentSearch';
 export type { IDocumentSearchSession } from '@app/modules/document-viewer/search/documentSearch';
-export type { IDocumentSession } from '@app/modules/document-viewer/session/documentSession';
+export type {
+    IDocumentProjectionSession,
+    IDocumentProjectionSession as IDocumentSession,
+} from '@app/modules/document-viewer/session/documentProjectionSession';
 export type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/source/documentPageSource';
-export type { IDocumentSurfaceLease } from '@app/modules/document-viewer/source/documentPageSource';
+export type {
+    IDocumentRenderLease,
+    IDocumentRenderLease as IDocumentSurfaceLease,
+} from '@app/modules/document-viewer/source/documentPageSource';
 export type { IDocumentThumbnailLayoutAnchor } from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 export type { IDocumentThumbnailListEmits } from '@app/modules/document-viewer/thumbnails/documentThumbnailListEmits';
 export type { IDocumentThumbnailPageBounds } from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
 export type { IDocumentThumbnailScrollSegmentTransition } from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 export type { IDocumentThumbnailViewport } from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
 export type { IDocumentTransition } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
-export type { IDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
-export type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+export type {
+    IDocumentViewerRuntime,
+    IDocumentViewerRuntime as IDocumentViewerChassisAuthority,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+export type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 export type { IDocumentViewportDocumentRef } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export type { IDocumentViewportNavigationState } from '@app/modules/document-viewer/viewport/documentViewportNavigationMachine';
 export type { IDocumentViewportRenderRequest } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
-export type { IDocumentViewportResizeAnchor } from '@app/modules/document-viewer/chassis/documentViewportResizeAnchor';
-export type { IDocumentViewportSessionState } from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+export type { IDocumentViewportResizeAnchor } from '@app/modules/document-viewer/runtime/documentViewportResizeAnchor';
+export type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 export type { IDocumentViewportTransactionAdvanceEvent } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export type { IDocumentViewportTransactionBase } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export type { IDocumentViewportTransactionBeginEvent } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
@@ -116,16 +140,19 @@ export type { IDocumentViewportTransactionCancelEvent } from '@app/modules/docum
 export type { IDocumentViewportTransactionCancellation } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export type { IDocumentViewportTransactionConsumeFitRenderHandoffEvent } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export type { IDocumentViewportTransactionMachineState } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
-export type { IDocumentViewportWrite } from '@app/modules/document-viewer/chassis/documentViewportWritePort';
-export type { IDocumentViewportWritePort } from '@app/modules/document-viewer/chassis/documentViewportWritePort';
+export type { IDocumentViewportWrite } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+export type { IDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 export type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 export type { IDocumentWheelSourceEvent } from '@app/modules/document-viewer/input/documentWheelInteraction';
 export type { IDocumentZoomLimits } from '@app/modules/document-viewer/zoomPolicy';
 export type { IDocumentZoomPageLayout } from '@app/modules/document-viewer/zoomAnchor';
 export type { ILazyIndexedCollection } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export type { ILocalRect } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
-export { injectDocumentOpenSurfaceSession } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export { injectDocumentViewerChassisAuthority } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
+export { injectDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export {
+    injectDocumentViewerRuntime,
+    injectDocumentViewerRuntime as injectDocumentViewerChassisAuthority,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 export { intersectClientRects } from '@app/modules/document-viewer/region-geometry/intersectClientRects';
 export type { IOverlayRect } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
 export type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/pagePreviewSource';
@@ -133,7 +160,7 @@ export type { IPagePreviewRenderedObjectUrl } from '@app/modules/document-viewer
 export type { IPagePreviewSource } from '@app/modules/document-viewer/pagePreviewSource';
 export type { IRuntimeMemoryPressureSignal } from '@app/utils/viewerResidencyPolicy';
 export { isDocumentBookmarkExpanded } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
-export { isDocumentOpenEmptySurfaceTransition } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export { isDocumentOpenEmptySurfaceTransition } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { isDocumentThumbnailWithinComfortViewport } from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
 export { isImplicitDefaultPageLabels } from '@app/modules/document-viewer/pageLabels';
 export { isLazyIndexedCollection } from '@app/modules/document-viewer/virtualization/pageVirtualization';
@@ -146,7 +173,7 @@ export { normalizeClientRect } from '@app/modules/document-viewer/region-geometr
 export { normalizeDocumentPageRange } from '@app/modules/document-viewer/documentPageRange';
 export { normalizeMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
 export { normalizePageLabelRanges } from '@app/modules/document-viewer/pageLabels';
-export { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/chassis/documentViewportWritePort';
+export { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 export { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/modules/document-viewer/pageLabels';
 export { PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES } from '@app/modules/document-viewer/pageLabels';
 export { parsePageRangeInput } from '@app/modules/document-viewer/pageLabels';
@@ -157,15 +184,15 @@ export { requireWorkspaceSurfaceBudgetPort } from '@app/utils/workspaceSurfaceBu
 export { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/resolveBoundedRasterDimensions';
 export { resolveDocumentBookmarkRevealRowIndex } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 export { resolveDocumentContinuousScrollWindow } from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
-export { resolveDocumentOpeningPageMargin } from '@app/modules/document-viewer/chassis/documentOpeningPageFrameAuthority';
-export { resolveDocumentOpeningPageShellId } from '@app/modules/document-viewer/chassis/documentOpeningPageFrameAuthority';
-export { resolveDocumentOpenSurfaceViewportPolicy } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export { resolveDocumentOpeningPageMargin } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
+export { resolveDocumentOpeningPageShellId } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
+export { resolveDocumentOpenSurfaceViewportPolicy } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { resolveDocumentPageDisplayLayouts } from '@app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout';
 export { resolveDocumentPageDisplayScale } from '@app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout';
 export { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 export { resolveDocumentRasterResidencyPlan } from '@app/modules/document-viewer/rendering/resolveDocumentRasterResidencyPlan';
 export { resolveDocumentThumbnailRevealScrollTop } from '@app/modules/document-viewer/thumbnails/documentThumbnailViewport';
-export { resolveDocumentViewportResizeAnchorPosition } from '@app/modules/document-viewer/chassis/documentViewportResizeAnchor';
+export { resolveDocumentViewportResizeAnchorPosition } from '@app/modules/document-viewer/runtime/documentViewportResizeAnchor';
 export { resolveDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 export { resolveDocumentWheelZoomTarget } from '@app/modules/document-viewer/input/documentWheelInteraction';
 export { resolveInactiveViewerResidencyState } from '@app/utils/viewerResidencyPolicy';
@@ -176,29 +203,38 @@ export { resolveWheelDirection } from '@app/modules/document-viewer/single-page-
 export { resolveWheelTargetPage } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
 export { runDocumentViewerActivationPresentation } from '@app/modules/document-viewer/lifecycle/documentViewerActivationPresentation';
 export { selectViewerReclaimCandidates } from '@app/utils/viewerResidencyPolicy';
-export { settleDocumentOpeningGeometryPrewarmTask } from '@app/modules/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask';
-export { shouldAcceptFeaturePackChassisPage } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
-export { shouldApplyExternalChassisPage } from '@app/modules/document-viewer/chassis/documentViewerChassisAuthority';
-export { shouldPresentDocumentOpenEmptyPlaceholder } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export { shouldProjectDocumentViewportCommitPage } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
-export { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export {
+    settleOpeningPreviewGeometry,
+    settleOpeningPreviewGeometry as settleDocumentOpeningGeometryPrewarmTask,
+} from '@app/modules/document-viewer/lifecycle/settleOpeningPreviewGeometry';
+export {
+    shouldAcceptFeaturePackRuntimePage,
+    shouldAcceptFeaturePackRuntimePage as shouldAcceptFeaturePackChassisPage,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+export {
+    shouldApplyExternalRuntimePage,
+    shouldApplyExternalRuntimePage as shouldApplyExternalChassisPage,
+} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+export { shouldPresentDocumentOpenEmptyPlaceholder } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export { shouldProjectDocumentViewportCommitPage } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+export { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export { shouldReclaimViewerResidencyState } from '@app/utils/viewerResidencyPolicy';
 export type { TDocumentBookmarkDisplayMode } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 export type { TDocumentBookmarkPersistenceRefusal } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 export type { TDocumentBookmarkStatus } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
-export type { TDocumentOpenSurfacePhase } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export type { TDocumentOpenSurfacePhase } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/pageLabels';
 export type { TDocumentPageSourceKind } from '@app/modules/document-viewer/source/documentPageSource';
 export type { TDocumentRenderPriority } from '@app/modules/document-viewer/source/documentPageSource';
 export type { TDocumentSearchDirection } from '@app/modules/document-viewer/search/documentSearch';
 export type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 export type { TDocumentViewportTransactionState } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
-export type { TDocumentViewportVisualOwner } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+export type { TDocumentViewportVisualOwner } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export type { TMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
 export { toClientRect } from '@app/modules/document-viewer/region-geometry/toClientRect';
 export { toLocalRect } from '@app/modules/document-viewer/region-geometry/toLocalRect';
 export type { TPageSnapAnchor } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
-export type { TPdfProjectionReason } from '@app/modules/document-viewer/session/documentSession';
+export type { TPdfProjectionReason } from '@app/modules/document-viewer/session/documentProjectionSession';
 export type { TViewerResidencyState } from '@app/utils/viewerResidencyPolicy';
 export { unionClientRects } from '@app/modules/document-viewer/region-geometry/unionClientRects';
 export { updateKeyboardSelection as updateKeyboardSelectionInBounds } from '@app/modules/document-viewer/region-geometry/keyboardSelection';

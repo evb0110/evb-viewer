@@ -22,10 +22,10 @@ import type {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type {
-    IDocumentViewerChassisAuthority,
+import {
     createDocumentTransitionChannel,
-    type IDocumentTransition, 
+    type IDocumentTransition,
+    type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/public';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
@@ -120,7 +120,7 @@ type TPdfDocumentTransitionSubscriber = (
 ) => void | Promise<void>;
 
 export interface ICreatePdfDocumentSessionOptions {
-    chassisAuthority?: IDocumentViewerChassisAuthority | null | undefined;
+    chassisAuthority?: IDocumentViewerRuntime | null | undefined;
     openSurfaceDocumentId?: (() => string) | undefined;
     emitInitialVisualPending?: (() => void) | undefined;
     src?: ComputedRef<TPdfSource | null> | undefined;

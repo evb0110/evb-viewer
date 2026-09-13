@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { shouldApplyPdfOpeningPageFrame } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/shouldApplyPdfOpeningPageFrame';
-import type { TDocumentOpenSurfacePhase } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import type { TDocumentOpenSurfacePhase } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 describe('shouldApplyPdfOpeningPageFrame', () => {
     it.each([

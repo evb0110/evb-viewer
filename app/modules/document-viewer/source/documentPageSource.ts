@@ -16,7 +16,7 @@ export interface IDocumentPageMetrics {
     rotation: 0 | 90 | 180 | 270;
 }
 
-export interface IDocumentSurfaceLease {
+export interface IDocumentRenderLease {
     readonly widthPx: number;
     readonly heightPx: number;
     readonly bytes: number;
@@ -54,9 +54,9 @@ export interface IDocumentOutlineItem {
 
 export interface IDocumentOutlineProvider {getOutline(signal: AbortSignal): Promise<IDocumentOutlineItem[]>;}
 
-export interface IDocumentThumbnailProvider {renderThumbnail(request: IDocumentPageRenderRequest): Promise<IDocumentSurfaceLease>;}
+export interface IDocumentThumbnailProvider {renderThumbnail(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;}
 
-export interface IDocumentRasterProvider {renderRaster(request: IDocumentPageRenderRequest): Promise<IDocumentSurfaceLease>;}
+export interface IDocumentRasterProvider {renderRaster(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;}
 
 export interface IDocumentPageSource {
     readonly kind: TDocumentPageSourceKind;
@@ -68,7 +68,7 @@ export interface IDocumentPageSource {
     readonly thumbnailProvider?: IDocumentThumbnailProvider | undefined;
     readonly rasterProvider?: IDocumentRasterProvider | undefined;
     getPageMetrics(pageNumber: number, signal?: AbortSignal): Promise<IDocumentPageMetrics>;
-    renderPage(request: IDocumentPageRenderRequest): Promise<IDocumentSurfaceLease>;
+    renderPage(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;
     dispose(): void;
 }
 

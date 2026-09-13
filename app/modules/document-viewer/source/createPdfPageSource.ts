@@ -7,7 +7,7 @@ import {
     assertDocumentPageNumber,
     type IDocumentPageRenderRequest,
     type IDocumentPageSource,
-    type IDocumentSurfaceLease,
+    type IDocumentRenderLease,
 } from '@app/modules/document-viewer/source/documentPageSource';
 
 interface ICreatePdfPageSourceOptions {
@@ -16,7 +16,7 @@ interface ICreatePdfPageSourceOptions {
     /** Reuses the document session's bounded page-proxy owner for background metrics. */
     getPage?: (pageNumber: number) => Promise<IPdfPage>;
     /** Delegates to the existing coordinated PDF.js path; the generic chassis never rasterizes PDF itself. */
-    renderPage: (request: IDocumentPageRenderRequest) => Promise<IDocumentSurfaceLease>;
+    renderPage: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
 }
 
 export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocumentPageSource {

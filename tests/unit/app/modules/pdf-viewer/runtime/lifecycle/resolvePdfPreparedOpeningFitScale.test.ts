@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 function createSnapshot(
     overrides: Partial<IDocumentOpenSurfaceSnapshot> = {},
@@ -17,7 +17,7 @@ function createSnapshot(
         geometry: null,
         openingPageFrame: {
             generation: 4,
-            ownerId: 'document-viewer-chassis:1',
+            ownerId: 'document-viewer-runtime:1',
             pageNumber: 2,
             intentKey: 'test-intent',
             style: { width: '800px' },

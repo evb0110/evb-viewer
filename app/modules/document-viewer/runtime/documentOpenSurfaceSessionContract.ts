@@ -1,14 +1,14 @@
 import type { Ref } from 'vue';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
-import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/chassis/documentOpenSurfaceReducer';
+import type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
+import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 import type {
     IDocumentOpenSurfaceGeometry,
     IDocumentOpenSurfacePageFrame,
     IDocumentOpenSurfacePageGeometry,
     IDocumentOpenSurfacePagePreview,
     TDocumentOpenSurfacePresentation,
-} from '@app/modules/document-viewer/chassis/retargetDocumentOpeningShell';
+} from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
     | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
