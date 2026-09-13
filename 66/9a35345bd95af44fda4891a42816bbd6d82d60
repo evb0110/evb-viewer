@@ -1,0 +1,25 @@
+tests/unit/scripts/wasmArtifactFlow.test.ts
+  s_ae757872e5d914::t_29a6217b013476 23,51,54-57
+scripts/wasm-fingerprint.mjs
+  s_ae757872e5d914::t_95fe3d01cd3e63 44
+  s_ae757872e5d914::t_a15e335c28bfb6 46
+  s_ae757872e5d914::t_29a6217b013476 148-156,179,205-206,208
+scripts/stage-wasm-artifacts.mjs
+  s_ae757872e5d914::t_29a6217b013476 13,30,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "669a35345bd95af44fda4891a42816bbd6d82d60",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
