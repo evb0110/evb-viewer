@@ -235,6 +235,11 @@ describe('utmctl client commands', () => {
             expect(call.args).toContain(vmId.toUpperCase());
             expect(call.args).not.toContain(vmId);
         }
+        expect(calls.find(call => call.args[0] === 'start')?.args).toEqual([
+            'start',
+            '--hide',
+            vmId.toUpperCase(),
+        ]);
     });
 
     it('spells stop, clone and delete with the qualified UTM flags', async () => {

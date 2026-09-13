@@ -60,7 +60,10 @@ export const defaultUtmctlCommandSpelling = {
     version: ['version'],
     list: ['list'],
     status: ['status'],
-    start: ['start'],
+    start: [
+        'start',
+        '--hide',
+    ],
     stopRequest: [
         'stop',
         '--request',
