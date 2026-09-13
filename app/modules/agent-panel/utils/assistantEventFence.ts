@@ -4,7 +4,7 @@ import type {
     IAgentAssistantState,
     TAgentAssistantProviderId,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
 
 export function shouldAcceptAssistantEvent(
     event: IAgentAssistantEvent,

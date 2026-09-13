@@ -5,11 +5,11 @@ import {
 } from 'vitest';
 import type { IOcrWord } from '@contracts/shared';
 import {
-    buildOcrTextLayerIndexText,
     buildOcrTextLayerItemText,
     buildOcrWordKey,
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
+import { buildOcrTextLayerIndexText } from '@pdf-core';
 
 function word(text: string, y: number, height = 10): IOcrWord {
     return {

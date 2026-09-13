@@ -211,6 +211,15 @@ const PACKAGE_LAYER_RULES = [
         message: 'packages/pdf-core may depend only on itself and contracts.',
     },
     {
+        sourceRoot: 'packages/agent-core',
+        allowedTargetRoots: [
+            'packages/agent-core',
+            'packages/contracts',
+        ],
+        rule: 'packages-agent-core-layer',
+        message: 'packages/agent-core may depend only on itself and contracts.',
+    },
+    {
         sourceRoot: 'packages/i18n-core',
         allowedTargetRoots: ['packages/i18n-core'],
         rule: 'packages-i18n-core-layer',
@@ -1560,6 +1569,7 @@ function checkPackageReverseEdge(edge) {
     }
     if (
         matchesRoot(edge.source, 'packages/pdf-core')
+        || matchesRoot(edge.source, 'packages/agent-core')
         || matchesRoot(edge.source, 'packages/release-selection')
         || matchesRoot(edge.source, 'packages/scan-cleanup')
     ) {

@@ -34,10 +34,8 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import {
-    OCR_TEXT_LAYER_INDEX_VERSION,
-    buildOcrTextLayerIndexText,
-} from '@contracts/ocrText';
+import {OCR_TEXT_LAYER_INDEX_VERSION} from '@contracts/ocrText';
+import { buildOcrTextLayerIndexText } from '@pdf-core';
 import {
     NATIVE_COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER as COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
     getNativeCompactSearchIndexPath as getCompactSearchIndexPath,

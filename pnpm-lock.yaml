@@ -432,6 +432,8 @@ importers:
 
   packages/electron-worker-bundles: {}
 
+  packages/agent-core: {}
+
   packages/i18n-app: {}
 
   packages/i18n-core:

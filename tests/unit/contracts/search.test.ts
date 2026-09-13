@@ -95,22 +95,20 @@ describe('contracts search compatibility exports', () => {
             useRegex: false,
         };
 
-        expect(() => contractsSearch.assertSafePdfSearchRegex('(a+)+$', options))
-            .toThrow('pattern is too complex');
         expect(() => pdfSearchCore.assertSafePdfSearchRegex('(a+)+$', options))
             .toThrow('pattern is too complex');
-        expect(() => contractsSearch.validateSearchQuery('x'.repeat(513), {
-            matchCase: false,
-            wholeWord: false,
-            useRegex: true,
-        })).toThrow('maximum length is 512');
         expect(() => pdfSearchCore.validateSearchQuery('x'.repeat(513), {
             matchCase: false,
             wholeWord: false,
             useRegex: true,
         })).toThrow('maximum length is 512');
-        expect(contractsSearch.collapseRepeatedPdfSearchPageText('alpha '.repeat(32)))
-            .toBe(pdfSearchCore.collapseRepeatedPdfSearchPageText('alpha '.repeat(32)));
+        expect(contractsSearch).not.toHaveProperty('assembleSearchablePageText');
+        expect(contractsSearch).not.toHaveProperty('assertSafePdfSearchRegex');
+        expect(contractsSearch).not.toHaveProperty('buildPdfSearchRegex');
+        expect(contractsSearch).not.toHaveProperty('collapseRepeatedPdfSearchPageText');
+        expect(contractsSearch).not.toHaveProperty('escapeSearchRegex');
+        expect(contractsSearch).not.toHaveProperty('validateSearchQuery');
+        expect(contractsSearch).not.toHaveProperty('SearchRegexLimitError');
         expect(contractsSearch).not.toHaveProperty('findPdfSearchMatches');
         expect(contractsSearch).not.toHaveProperty('iteratePdfSearchMatches');
         expect(contractsSearch).not.toHaveProperty('buildPdfSearchExcerpt');

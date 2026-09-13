@@ -97,8 +97,8 @@ vi.mock('@electron/features/search/extractTextFromPdf', () => ({extractTextFromP
 vi.mock('@electron/features/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({extractTextWithPdfjsWordBoxes: state.extractTextWithPdfjsWordBoxes})}));
 // assembleSearchablePageText spreads per-character offset arrays and overflows
 // the stack for pages above roughly 128 KiB, so budget tests bypass it.
-vi.mock('@contracts/search', async () => {
-    const actual = await vi.importActual('@contracts/search') as Record<string, unknown>;
+vi.mock('@pdf-core', async () => {
+    const actual = await vi.importActual('@pdf-core') as Record<string, unknown>;
     return {
         ...actual,
         assembleSearchablePageText: (items: ReadonlyArray<{text: string}>) => ({

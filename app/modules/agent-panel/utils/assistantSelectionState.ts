@@ -6,7 +6,7 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,

@@ -10,10 +10,8 @@ import {
 } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import {BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST} from '@app/platform/browser-api/browserSearchWorker.types';
 import { isRecord } from '@contracts/runtimeGuards';
-import {
-    SEARCH_REGEX_MAX_EXECUTION_MS,
-    SearchRegexLimitError,
-} from '@contracts/search';
+import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
+import {SearchRegexLimitError} from '@pdf-core';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,

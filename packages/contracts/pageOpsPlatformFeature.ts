@@ -15,10 +15,7 @@ import type {
     TPageIdentityRangeOperation,
     TPageOpsRotationAngle,
 } from '@contracts/electronApiPageOps';
-import {
-    createPageMoveRanges,
-    requirePageIndex,
-} from '@contracts/pageNumbers';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import { parseDocumentRef } from '@contracts/documentRef';
@@ -875,15 +872,15 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:move-ranges',
             args<TMoveRangesArgs>(5, value => {
                 const totalPages = decodeSafeInteger(value, 3, 'totalPages', 1);
-                const move = createPageMoveRanges(
-                    totalPages,
-                    decodePageMoveRangeSegments(value, 1, 'ranges'),
-                    decodeSafeInteger(value, 2, 'insertAt'),
-                );
+                const ranges = decodePageMoveRangeSegments(value, 1, 'ranges');
+                const insertAt = decodeSafeInteger(value, 2, 'insertAt');
+                if (insertAt < 0 || insertAt > totalPages) {
+                    throw new Error(`insertAt must be a safe integer in 0-${totalPages}`);
+                }
                 return [
                     decodeString(value, 0, 'workingCopyPath'),
-                    move.ranges,
-                    move.insertAt,
+                    ranges,
+                    insertAt,
                     totalPages,
                     decodeMutationOptions(value[4]),
                 ];

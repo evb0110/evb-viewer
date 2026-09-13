@@ -6,9 +6,10 @@ import {
     MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH,
     MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS,
 } from '@contracts/documentTextCatalog';
-import {assembleSearchablePageText} from '@contracts/search';
+import {
+    assembleSearchablePageText,buildOcrTextLayerIndexText,
+} from '@pdf-core';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
 import type {TOcrPageArtifact} from '@contracts/ocrIndex';
 import {assertWorkingCopyRevisionSidecarCurrent} from '@electron/file-access/documentRevisionSidecar';
 import {
