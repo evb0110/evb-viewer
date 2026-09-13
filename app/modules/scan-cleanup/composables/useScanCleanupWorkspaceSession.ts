@@ -298,6 +298,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         settings: settings.values,
         sourcePath,
         totalPages,
+        refreshDetection: detection.refreshDetection,
         waitForDetectionBeforeRun: detection.waitForTerminal,
     });
     // The final renderer reports a source page only after every output leaf

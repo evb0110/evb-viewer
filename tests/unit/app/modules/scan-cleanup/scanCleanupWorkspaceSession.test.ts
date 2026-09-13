@@ -454,7 +454,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('refuses a 20,001-page run when the bounded detection-store handoff is missing', async () => {
+    it('refreshes once and keeps a 20,001-page run actionable when the handoff stays missing', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`missing-detection-store-${Date.now()}`, {totalPages: () => 20_001});
@@ -476,13 +476,108 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBe(0);
-        await mounted.session.run.run();
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        harness.emitDetection({
+            ...detectionState('detect-2', 'completed'),
+            progress: {
+                stage: 'detecting',
+                completedUnits: 20_001,
+                totalUnits: 20_001,
+                percent: 100,
+                completedPageNumbers: [],
+            },
+            resultCount: 20_001,
+            results: [],
+            updatedAtMs: requireEpochMs(Date.now() + 2_000),
+        });
+        await run;
 
         expect(harness.value.start).not.toHaveBeenCalled();
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         expect(mounted.session.run.error.value).toMatch(
             /^scanCleanup\.detectAll\.evidenceMissing\nError ID: [0-9a-f]{8}$/u,
         );
         mounted.unmount();
+    });
+
+    it('refreshes stale xlarge evidence once and retries cleanup with the new store', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`refresh-detection-store-${Date.now()}`, {totalPages: () => 20_001});
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.values.pageAlignment = 'top-center';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const stale = detectionState('detect-1', 'completed');
+        stale.progress = {
+            ...stale.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+            completedPageNumbers: [],
+        };
+        stale.resultCount = 20_001;
+        stale.detectionResultStoreId = 'stale-detection-store';
+        harness.emitDetection(stale);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        vi.mocked(harness.value.start)
+            .mockResolvedValueOnce({
+                started: false,
+                jobId: requireJobId('missing-store-start'),
+                error: 'Detection results are no longer available for this document',
+                errorCode: 'detection-results-unavailable',
+            })
+            .mockResolvedValueOnce({
+                started: true,
+                jobId: requireJobId('cleanup-after-store-refresh'),
+                outputPdfPath: '/managed/cleanup-after-store-refresh.pdf',
+            });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: requireJobId('cleanup-after-store-refresh'),
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 20_001,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: requireEpochMs(Date.now() + 1),
+        });
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        const duplicateRun = mounted.session.run.run();
+
+        const fresh = detectionState('detect-2', 'completed');
+        fresh.progress = {
+            ...fresh.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+            completedPageNumbers: [],
+        };
+        fresh.resultCount = 20_001;
+        fresh.detectionResultStoreId = 'fresh-detection-store';
+        harness.emitDetection(fresh);
+        await Promise.all([
+            run,
+            duplicateRun,
+        ]);
+
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
+        expect(harness.value.start).toHaveBeenCalledTimes(2);
+        expect(harness.value.start).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({detectionResultStoreId: 'stale-detection-store'}),
+        );
+        expect(harness.value.start).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({detectionResultStoreId: 'fresh-detection-store'}),
+        );
+        expect(mounted.session.run.error.value).toBe('');
     });
 
     it('bounds xlarge page evidence and refuses full-document ink placement above the IPC capacity', async () => {
@@ -2986,6 +3081,26 @@ describe('scan cleanup workspace session detection guidance', () => {
         const reopened = mountSession(documentKey);
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         reopened.unmount();
+    });
+
+    it('releases completed detection evidence when the source closes', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/closed-detection.pdf'));
+        capability.value = harness.value;
+        const mounted = mountSession(`closed-detection-${Date.now()}`, {sourcePath: () => sourcePath.value});
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        vi.mocked(harness.value.cancelDetection).mockClear();
+        sourcePath.value = null;
+        await nextTick();
+
+        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-1', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: expect.any(String),
+        });
+        mounted.unmount();
     });
 
     it('stores text-axis results and clears them before a fresh detection pass', async () => {

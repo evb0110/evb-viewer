@@ -288,11 +288,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const pending = computed(() => starting.value
         || isDetecting.value
         || (autoPending.value && terminalStatus.value === null));
-    const canStart = computed(() => Boolean(options.sourcePath.value)
-        && !options.isRunning.value
+    const canStartDetection = computed(() => Boolean(options.sourcePath.value)
         && !isDetecting.value
         && !starting.value
         && getScanCleanupCapability() !== null);
+    const canStart = computed(() => canStartDetection.value && !options.isRunning.value);
     const canDetectAll = computed(() => canStart.value && !autoPending.value);
     const progress = computed(() => jobState.value?.progress ?? {
         stage: 'detecting' as const,
@@ -537,6 +537,42 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         clearOutputModeRecommendations();
     }
 
+    function invalidateDetectionEvidence() {
+        const previousJobId = jobId;
+        const previousJobState = jobState.value;
+        releaseCompletedDetectionEvidence();
+        requestGeneration += 1;
+        if (previousJobId && previousJobState && !detectionIsTerminal(previousJobState)) {
+            void enqueueDetectionRetirement(
+                previousJobId,
+                jobDocumentRevision ?? options.documentRevision.value,
+            );
+        }
+        if (scheduledAutoDetection !== null) {
+            clearTimeout(scheduledAutoDetection);
+            scheduledAutoDetection = null;
+        }
+        autoPending.value = false;
+        jobId = null;
+        jobState.value = null;
+        documentCanvasSignature.value = '';
+        error.value = '';
+        errorCode.value = null;
+        clearDetectionEvidence();
+        const key = options.lifecycleDocumentKey.value;
+        if (key !== null) detectionSessionCache.delete(key);
+    }
+
+    function releaseCompletedDetectionEvidence() {
+        if (!jobId || jobState.value?.status !== 'completed') {
+            return;
+        }
+        void getScanCleanupCapability()?.cancelDetection(jobId, {
+            ownerId: options.ownerId,
+            documentRevision: jobDocumentRevision ?? options.documentRevision.value,
+        }).catch(() => undefined);
+    }
+
     function clearDetectionEvidenceForPage(pageNumber: number) {
         // A page edit can change the document top edge. Do not reuse the
         // previous xlarge calibration while replacement detection is pending.
@@ -766,7 +802,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     async function detectAllPages(automatic = false) {
-        if (!options.sourcePath.value || !canStart.value) {
+        if (!options.sourcePath.value || !canStartDetection.value) {
             return;
         }
         const capability = getScanCleanupCapability();
@@ -895,6 +931,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         if (state) applyState(state);
+    }
+
+    async function refreshDetection() {
+        invalidateDetectionEvidence();
+        await waitForDetectionRetirements();
+        await detectAllPages(false);
+        await waitForTerminal();
     }
 
     async function cancel() {
@@ -1258,6 +1301,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         }
+        if (previousKey !== undefined && previousKey !== key) {
+            releaseCompletedDetectionEvidence();
+        }
         if (key === null) {
             // The workspace can stay mounted while its document is closed.
             // This is the actual lifecycle boundary for detection state; a
@@ -1304,6 +1350,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // observe a null transition of its own.
         discardScanCleanupDetectionStateForAliases([...documentAliases]);
         documentAliases.clear();
+        releaseCompletedDetectionEvidence();
         clearDetectionEvidence();
     });
     watch(options.active, active => {
@@ -1362,6 +1409,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (!documentChanged && !pageCountChanged && changedPages.size === 0) {
                 return;
             }
+            releaseCompletedDetectionEvidence();
             const key = options.lifecycleDocumentKey.value;
             if (key !== null) detectionSessionCache.delete(key);
             if (!isDetecting.value) {
@@ -1395,6 +1443,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         cancelRequested,
         confidenceByPage,
         detectAllPages,
+        invalidateDetectionEvidence,
         documentCanvasSignature,
         documentPriorByPage,
         detectionEvidenceComplete: computed(() => detectionEvidenceComplete.value),
@@ -1417,6 +1466,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         progressPhaseText,
         progressText,
         progressWidestText,
+        refreshDetection,
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,
         recommendedOutputModeReasonByPage,
