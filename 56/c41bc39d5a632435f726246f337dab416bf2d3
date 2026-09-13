@@ -1,0 +1,57 @@
+electron/features/agent/assistantService.ts
+  s_c97a99fd00bfbb::t_0a7483ed8c737d 353,356
+  s_c97a99fd00bfbb::t_b746ebb61b142d 347,1262
+electron/bootstrap/externalOpen.ts
+  s_c97a99fd00bfbb::t_cac9b71c9912a6 198,204
+  s_c97a99fd00bfbb::t_203cc0238d0312 87,98-104,120
+  s_c97a99fd00bfbb::t_7bd7bcff29047a 176
+  s_c97a99fd00bfbb::t_762f8d0e97f3f4 250
+tests/unit/electron/externalOpen.test.ts
+  s_c97a99fd00bfbb::t_aa11e9b6f25240 42,204-206,208-212
+  s_c97a99fd00bfbb::t_cac9b71c9912a6 213,225-227,229-235
+  s_c97a99fd00bfbb::t_89e17fac006aa7 88-96,98-103
+  s_c97a99fd00bfbb::t_13017cec155015 97,207,228
+  s_c97a99fd00bfbb::t_a4abc1aed3d276 214
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_c97a99fd00bfbb::t_a39c51ae0a4e72 1413-1416
+  s_c97a99fd00bfbb::t_a0a58ca1f6c9fd 1417-1419,1421-1424,1432
+  s_c97a99fd00bfbb::t_7213e39eefa923 1466
+  s_c97a99fd00bfbb::t_70f246ed28afda 74-77,487,1445-1465
+  s_c97a99fd00bfbb::t_f0c3886fc195b0 89,198-204,493,1444,1467-1484
+  s_c97a99fd00bfbb::t_426241da5052d4 1400-1412,1420,1425-1431,1433-1443,1485-1487
+electron/features/agent/createCodexAssistantAdapter.ts
+  s_c97a99fd00bfbb::t_5bf07c92c05ef8 120-121,271,278-279,292-296,299-300
+  s_c97a99fd00bfbb::t_3a02b2608163ed 248
+  s_c97a99fd00bfbb::t_28696cb816b435 175-178,268
+  s_c97a99fd00bfbb::t_902f02e6e47b4a 27-29,31-34,116-119,122-123,125-145,147-149,152,173,183-189,203-206,224-226,231-233,246-247,249-251,253-255,257-264,269-270,272-277,280-281,287-288,290-291,301
+  s_c97a99fd00bfbb::t_b95712f52743e8 30,200-202,217-220,256,289
+  s_c97a99fd00bfbb::t_6860ae51a8d2e8 221-223
+  s_c97a99fd00bfbb::t_a0a58ca1f6c9fd 26,53,113-115,124,146,252
+  s_ae757872e5d914::t_0ae41b52c6a266 51-52,150-151,153-154,160,174,191,211,265-266
+electron/features/agent/createAssistantAppServerNotificationController.ts
+  s_c97a99fd00bfbb::t_796b24ca929e6f 608
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "56c41bc39d5a632435f726246f337dab416bf2d3",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c97a99fd00bfbb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09881-9221-70b1-9d88-0ec9a71a97a6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
