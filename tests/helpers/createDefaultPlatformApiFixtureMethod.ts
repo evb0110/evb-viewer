@@ -12,50 +12,77 @@ export interface IPlatformApiFixtureEventMethod<TPayload = unknown> {
     dispose: () => void;
 }
 
-export interface IPlatformApiFixtureOperation<TResult, TArgs extends unknown[] = []> {
+export interface IPlatformApiFixtureOperation<TResult, TArgs extends unknown[] = [], TKey = number> {
     method: (...args: TArgs) => Promise<TResult>;
+    resolve: (value: TResult, operationKey?: TKey) => void;
+    reject: (reason: unknown, operationKey?: TKey) => void;
+    cancel: (operationKey?: TKey) => void;
+}
+
+export interface IPlatformApiFixtureOperationOptions<TArgs extends unknown[], TKey> {operationKey?: (...args: TArgs) => TKey;}
+
+interface IPlatformApiFixturePendingOperation<TResult> {
     resolve: (value: TResult) => void;
     reject: (reason: unknown) => void;
-    cancel: () => void;
 }
 
 /**
  * Creates an explicitly controlled async boundary for a real consumer test.
  * The default descriptor methods remain immediate and inert.
  */
-export function createPlatformApiFixtureOperation<TResult, TArgs extends unknown[] = []>(): IPlatformApiFixtureOperation<TResult, TArgs> {
-    let settle: ((value: TResult) => void) | undefined;
-    let fail: ((reason: unknown) => void) | undefined;
-    let active = false;
+export function createPlatformApiFixtureOperation<TResult, TArgs extends unknown[] = [], TKey = number>(
+    options: IPlatformApiFixtureOperationOptions<TArgs, TKey> = {},
+): IPlatformApiFixtureOperation<TResult, TArgs, TKey> {
+    const pendingOperations = new Map<TKey | symbol, IPlatformApiFixturePendingOperation<TResult>>();
+    const singleOperationKey = Symbol('fixture-operation');
+    const resolveOperationKey = (...args: TArgs): TKey | symbol => options.operationKey === undefined
+        ? singleOperationKey
+        : options.operationKey(...args);
+    const settle = (
+        operationKey: TKey | symbol | undefined,
+        settleOperation: (operation: IPlatformApiFixturePendingOperation<TResult>) => void,
+    ) => {
+        if (operationKey === undefined) {
+            return;
+        }
+        const operation = pendingOperations.get(operationKey);
+        if (operation === undefined) {
+            return;
+        }
+        pendingOperations.delete(operationKey);
+        settleOperation(operation);
+    };
     const method = vi.fn((..._args: TArgs) => {
-        if (active) {
+        const operationKey = resolveOperationKey(..._args);
+        if (pendingOperations.has(operationKey)) {
             return Promise.reject(new Error('Fixture operation already has an in-flight invocation'));
         }
-        active = true;
         return new Promise<TResult>((resolve, reject) => {
-            settle = resolve;
-            fail = reject;
+            pendingOperations.set(operationKey, {
+                resolve,
+                reject,
+            });
         });
     });
     return {
         method,
-        resolve: value => {
-            settle?.(value);
-            settle = undefined;
-            fail = undefined;
-            active = false;
+        resolve: (value, operationKey) => {
+            settle(
+                options.operationKey === undefined ? singleOperationKey : operationKey,
+                operation => operation.resolve(value),
+            );
         },
-        reject: reason => {
-            fail?.(reason);
-            settle = undefined;
-            fail = undefined;
-            active = false;
+        reject: (reason, operationKey) => {
+            settle(
+                options.operationKey === undefined ? singleOperationKey : operationKey,
+                operation => operation.reject(reason),
+            );
         },
-        cancel: () => {
-            fail?.(new Error('Fixture operation canceled'));
-            settle = undefined;
-            fail = undefined;
-            active = false;
+        cancel: operationKey => {
+            settle(
+                options.operationKey === undefined ? singleOperationKey : operationKey,
+                operation => operation.reject(new Error('Fixture operation canceled')),
+            );
         },
     };
 }
