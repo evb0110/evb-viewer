@@ -5,6 +5,14 @@ import type {
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type { IWindowsTestGuestChannel } from '@scripts/windows-test/host/guestChannel';
 import type { ICommandRunner } from '@scripts/windows-test/host/utmctlClient';
+import {
+    createHash, randomUUID,
+} from 'node:crypto';
+import {
+    readFile, rm,
+} from 'node:fs/promises';
+import { windowsTestGuestLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
+import { isFreshInteractiveWorkerHeartbeat } from '@scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat';
 
 export type TNativeInputModifier = 'command' | 'control' | 'option' | 'shift';
 
@@ -55,6 +63,7 @@ function nativeInputScript(operation: string, vmId: string) {
 
 export function createNativeInputProvisioner(options: INativeInputProvisioningOptions): INativeInputProvisioner {
     const timeoutMs = options.timeoutMs ?? 30_000;
+    const readinessStartedAtMs = Date.now();
     const assertTarget = () => assertDestructiveTarget(options.target, options.policy);
     const send = async (operation: string) => {
         await assertTarget();
@@ -71,9 +80,12 @@ export function createNativeInputProvisioner(options: INativeInputProvisioningOp
         const heartbeat = guestAgentAvailable
             ? await options.guest.readHeartbeat(options.target.vmId, timeoutMs)
             : null;
+        const bootIdText = guestAgentAvailable
+            ? await options.guest.readGuestText(options.target.vmId, windowsTestGuestLayout.bootIdFile, timeoutMs)
+            : null;
         return {
             guestAgentAvailable,
-            workerReady: heartbeat !== null,
+            workerReady: isFreshInteractiveWorkerHeartbeat(bootIdText, heartbeat, readinessStartedAtMs),
         };
     };
 
@@ -100,7 +112,30 @@ export function createNativeInputProvisioner(options: INativeInputProvisioningOp
         },
         pushFile: async (hostPath, guestPath) => {
             await assertTarget();
-            await options.guest.stageFile(options.target.vmId, hostPath, guestPath, timeoutMs);
+            const expectedSha256 = createHash('sha256').update(await readFile(hostPath)).digest('hex');
+            const verified = options.guest.stageAndVerifyFiles === undefined
+                ? false
+                : await options.guest.stageAndVerifyFiles(options.target.vmId, [{
+                    hostPath,
+                    guestPath,
+                    expectedSha256,
+                }], timeoutMs);
+            if (verified) {
+                return;
+            }
+            const readbackPath = `${hostPath}.${randomUUID()}.readback`;
+            try {
+                await options.guest.stageFile(options.target.vmId, hostPath, guestPath, timeoutMs);
+                if (!await options.guest.pullGuestFile(options.target.vmId, guestPath, readbackPath, timeoutMs)) {
+                    throw new Error(`The staged guest file ${guestPath} could not be read back.`);
+                }
+                const actualSha256 = createHash('sha256').update(await readFile(readbackPath)).digest('hex');
+                if (actualSha256 !== expectedSha256) {
+                    throw new Error(`The staged guest file ${guestPath} failed host readback verification.`);
+                }
+            } finally {
+                await rm(readbackPath, {force: true});
+            }
         },
         pullEvidence: async (guestPath, hostPath) => {
             await assertTarget();
