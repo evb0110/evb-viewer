@@ -13,7 +13,7 @@ import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-bo
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { safeGetLocalStorageItem } from '@app/utils/localStorage';
 
-function isOcrDebugEnabled() {
+export function isOcrDebugEnabled() {
     return safeGetLocalStorageItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
 }
 
