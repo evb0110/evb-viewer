@@ -611,6 +611,7 @@ describe('dependency graph', () => {
             roots: [
                 'packages/contracts',
                 'packages/pdf-core',
+                'packages/agent-core',
                 'packages/electron-worker-bundles',
                 'packages/i18n-core',
                 'packages/i18n-app',
@@ -620,6 +621,7 @@ describe('dependency graph', () => {
         const packageLayerRules = new Set([
             'packages-contracts-layer',
             'packages-pdf-core-layer',
+            'packages-agent-core-layer',
             'packages-i18n-core-layer',
             'packages-i18n-app-layer',
             'packages-release-selection-layer',

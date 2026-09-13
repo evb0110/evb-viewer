@@ -5,7 +5,7 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-import {cloneAssistantScope} from '@contracts/agent';
+import {cloneAssistantScope} from '@agent-core/assistantScope';
 import {createIsoTimestamp} from '@contracts/timestamps';
 import {
     ASSISTANT_DEFAULT_EFFORT,

@@ -14,7 +14,7 @@ import type {
     TAgentAssistantTurnPhase,
     IAgentAssistantToolActivity,
 } from '@contracts/agent';
-import {cloneAssistantScope} from '@contracts/agent';
+import {cloneAssistantScope} from '@agent-core/assistantScope';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,

@@ -15,11 +15,11 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
+import {createRangePageSelection} from '@contracts/pageNumbers';
 import {
     createPageMoveRange,
     createPageMoveRanges,
-    createRangePageSelection,
-} from '@contracts/pageNumbers';
+} from '@pdf-core/pdfPageSelection';
 
 const pageOpsApi = {
     delete: vi.fn(),

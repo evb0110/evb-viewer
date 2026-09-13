@@ -5,15 +5,11 @@ import type {
     IPdfNativePlacedImage,
     IPdfNativeShapeAnnotation,
     IPdfNativeShapesMutation,
+    IPdfNativeTextBoxMutation,
 } from '@contracts/electronApiDocuments';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {parsePdfJsAnnotationRef} from '@contracts/pdfAnnotationRefs';
-import {
-    countBookmarkItems,
-    getTextBoxes,
-    PDF_NATIVE_MUTATION_LIMITS,
-    shapePointCount,
-} from '@contracts/nativePdfMutations';
+import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
 import type {
     IPdfNativeMutationContinuation,
     TPdfNativeMutationContinuationFamily,
@@ -21,6 +17,21 @@ import type {
 
 function fail(message: string, _options?: unknown): never {
     throw new Error(message);
+}
+
+export function countBookmarkItems(items: readonly IPdfBookmarkEntry[]): number {
+    return items.reduce((total, item) => total + 1 + countBookmarkItems(item.items), 0);
+}
+
+export function getTextBoxes(mutations: IPdfNativeMutationSet): readonly IPdfNativeTextBoxMutation[] {
+    if (mutations.textBoxes !== undefined && mutations.freeTextEditors !== undefined) {
+        fail('native PDF mutations must include only one of textBoxes or freeTextEditors');
+    }
+    return mutations.textBoxes ?? mutations.freeTextEditors ?? [];
+}
+
+export function shapePointCount(shape: IPdfNativeShapeAnnotation): number {
+    return (shape.points?.length ?? 0) + (shape.strokes?.reduce((total, stroke) => total + stroke.length, 0) ?? 0);
 }
 
 export {

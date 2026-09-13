@@ -3,7 +3,7 @@ import type {
     IAgentAssistantEvent,
     IAgentAssistantStatus,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IAssistantChatSession,

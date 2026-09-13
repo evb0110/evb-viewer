@@ -1,11 +1,11 @@
-import {
-    cloneAssistantScope,
-    type IAgentAssistantChatScope,
-    type IAgentAssistantModelOption,
-    type IAgentAssistantState,
-    type IAgentAssistantStatus,
-    type TAgentAssistantProviderId,
+import type {
+    IAgentAssistantChatScope,
+    IAgentAssistantModelOption,
+    IAgentAssistantState,
+    IAgentAssistantStatus,
+    TAgentAssistantProviderId,
 } from '@contracts/agent';
+import {cloneAssistantScope} from '@agent-core/assistantScope';
 import {
     CODEX_APP_INSTALL_URL,
     CODEX_STANDALONE_INSTALL_URL,

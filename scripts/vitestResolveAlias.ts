@@ -12,6 +12,7 @@ export const vitestResolveAlias = {
     '@contracts': resolve(projectRoot, 'packages/contracts'),
     '@node-runtime': resolve(projectRoot, 'packages/node-runtime'),
     '@pdf-core': resolve(projectRoot, 'packages/pdf-core'),
+    '@agent-core': resolve(projectRoot, 'packages/agent-core'),
     '@evb/scan-cleanup': resolve(projectRoot, 'packages/scan-cleanup'),
     '@evb/scan-cleanup/core': resolve(projectRoot, 'packages/scan-cleanup/core'),
     '@evb/scan-cleanup/adapters': resolve(projectRoot, 'packages/scan-cleanup/adapters'),

@@ -1488,15 +1488,8 @@ export function normalizePdfNativeMutationSet(
     return normalized;
 }
 
-export function countBookmarkItems(items: readonly IPdfBookmarkEntry[]): number {
-    return items.reduce((total, item) => total + 1 + countBookmarkItems(item.items), 0);
-}
-
-export function getTextBoxes(mutations: IPdfNativeMutationSet): readonly IPdfNativeTextBoxMutation[] {
-    if (mutations.textBoxes !== undefined && mutations.freeTextEditors !== undefined) {
-        fail('native PDF mutations must include only one of textBoxes or freeTextEditors', {errorKind: 'error'});
-    }
-    return mutations.textBoxes ?? mutations.freeTextEditors ?? [];
+function countNativeBookmarkItems(items: readonly IPdfBookmarkEntry[]): number {
+    return items.reduce((total, item) => total + 1 + countNativeBookmarkItems(item.items), 0);
 }
 
 function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
@@ -1510,16 +1503,23 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
     add(mutations.updates?.length ?? 0);
     add(mutations.geometryUpdates?.length ?? 0);
     add(mutations.freeTextNotes?.length ?? 0);
-    add(getTextBoxes(mutations).length);
+    if (mutations.textBoxes !== undefined && mutations.freeTextEditors !== undefined) {
+        add(PDF_NATIVE_MUTATION_LIMITS.collectionItems + 1);
+    }
+    add((mutations.textBoxes ?? mutations.freeTextEditors)?.length ?? 0);
     add(mutations.deletes?.length ?? 0);
     add(mutations.pageLabels?.ranges.length ?? 0);
-    add(mutations.bookmarks ? countBookmarkItems(mutations.bookmarks.items) : 0);
+    add(mutations.bookmarks ? countNativeBookmarkItems(mutations.bookmarks.items) : 0);
     if (mutations.shapes) {
         add(mutations.shapes.shapes.length);
         add(mutations.shapes.deletedAnnotationIds.length);
         add(mutations.shapes.deletedStableKeys.length);
         for (const shape of mutations.shapes.shapes) {
-            add((shape.strokes?.length ?? 0) + shapePointCount(shape));
+            add(
+                (shape.strokes?.length ?? 0)
+                + (shape.points?.length ?? 0)
+                + (shape.strokes?.reduce((total, stroke) => total + stroke.length, 0) ?? 0),
+            );
         }
     }
     if (mutations.markup) {
@@ -1545,9 +1545,4 @@ function validateNativeMutationCollectionBudget(
             options,
         );
     }
-}
-
-
-export function shapePointCount(shape: IPdfNativeShapeAnnotation): number {
-    return (shape.points?.length ?? 0) + (shape.strokes?.reduce((total, stroke) => total + stroke.length, 0) ?? 0);
 }

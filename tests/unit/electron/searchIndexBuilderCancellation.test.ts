@@ -584,7 +584,7 @@ describe('buildSearchIndex assembly', () => {
 
     it('strips oversized word geometry from legacy JSON while returning the in-memory geometry index', async () => {
         const { buildSearchIndex } = await import('@electron/features/search/indexBuilder');
-        const { buildOcrTextLayerIndexText } = await import('@contracts/ocrText');
+        const { buildOcrTextLayerIndexText } = await import('@pdf-core');
         const words = Array.from({length: 1_000}, (_, index) => ({
             text: index === 0 ? 'alpha' : `word-${index}`,
             x: index,
