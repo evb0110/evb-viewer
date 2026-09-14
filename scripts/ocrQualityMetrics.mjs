@@ -34,6 +34,21 @@ export function tokenizeFaithfulOcrWords(value) {
 }
 
 export function editDistance(expected, actual) {
+    let start = 0;
+    while (start < expected.length && start < actual.length && expected[start] === actual[start]) {
+        start += 1;
+    }
+    let expectedEnd = expected.length;
+    let actualEnd = actual.length;
+    while (expectedEnd > start && actualEnd > start && expected[expectedEnd - 1] === actual[actualEnd - 1]) {
+        expectedEnd -= 1;
+        actualEnd -= 1;
+    }
+    if (expectedEnd === start) return actualEnd - start;
+    if (actualEnd === start) return expectedEnd - start;
+    if (start > 0 || expectedEnd < expected.length || actualEnd < actual.length) {
+        return editDistance(expected.slice(start, expectedEnd), actual.slice(start, actualEnd));
+    }
     if (expected.length > actual.length) {
         return editDistance(actual, expected);
     }

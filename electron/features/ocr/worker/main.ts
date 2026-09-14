@@ -566,6 +566,17 @@ async function processOcrPage(
         }
         await context.storageBudget.assertWithinBudget();
 
+        if (ocrResult.unsupportedOptions) {
+            const rejected = ocrResult.unsupportedOptions.join(', ');
+            log('warn', `Tesseract rejected ${rejected} on page ${page.pageNumber}; the selected recognition mode was not fully applied`);
+            diagnostics.push({
+                code: 'OCR_ENGINE_OPTION_UNSUPPORTED',
+                severity: 'warning',
+                pageNumber: requirePageNumber(page.pageNumber),
+                message: `The OCR engine rejected ${rejected}; the selected recognition mode was not fully applied`,
+            });
+        }
+
         const pageData: IOcrPageWithWords = {
             pageNumber: page.pageNumber,
             words: mapOcrWordsThroughInverseTransform(

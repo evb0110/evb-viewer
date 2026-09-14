@@ -890,6 +890,7 @@ export default {
         'diagnostic': {
             'preprocessingUnavailable': 'Seite {page}: Scanbereinigung ist nicht verfügbar; das Originalbild wurde verwendet.',
             'preprocessingFailed': 'Seite {page}: Scanbereinigung ist fehlgeschlagen; das Originalbild wurde verwendet.',
+            'engineOptionUnsupported': 'Seite {page}: Die OCR-Engine unterstützt den gewählten Erkennungsmodus nicht, daher wurde ohne ihn erkannt.',
             'preprocessingGeometryChanged': 'Seite {page}: Scanbereinigung hat die Seitengröße geändert; das Originalbild wurde verwendet.',
             'sourceDpiLimited': 'Seite {page}: Die Quellauflösung hat die effektive OCR-DPI begrenzt.',
             'existingTextSkipped': 'Seite {page}: Vorhandener Text wurde beibehalten.',

@@ -7,7 +7,6 @@ import {
     readFile,
     readdir,
     rm,
-    symlink,
     stat,
     writeFile,
 } from 'node:fs/promises';
@@ -15,8 +14,8 @@ import {
     constants as fsConstants, existsSync,
 } from 'node:fs';
 import {createHash} from 'node:crypto';
-import {tmpdir} from 'node:os';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
@@ -50,10 +49,15 @@ const execFileAsync = promisify(execFile);
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = dirname(scriptDir);
 const corpus = JSON.parse(await readFile(join(scriptDir, 'fixtures', 'ocr-quality-corpus.json'), 'utf8'));
-const tesseract = process.env.EVB_TESSERACT_PATH ?? 'tesseract';
-const pdftotext = process.env.EVB_PDFTOTEXT_PATH ?? 'pdftotext';
-const pdftoppm = process.env.EVB_PDFTOPPM_PATH ?? 'pdftoppm';
-const qpdf = process.env.EVB_QPDF_PATH ?? 'qpdf';
+const platformArch = `${process.platform}-${process.arch}`;
+const executableSuffix = process.platform === 'win32' ? '.exe' : '';
+function bundledExecutable(family, name) {
+    return join(repositoryRoot, 'resources', family, platformArch, 'bin', `${name}${executableSuffix}`);
+}
+const tesseract = process.env.EVB_TESSERACT_PATH ?? bundledExecutable('tesseract', 'tesseract');
+const pdftotext = process.env.EVB_PDFTOTEXT_PATH ?? bundledExecutable('poppler', 'pdftotext');
+const pdftoppm = process.env.EVB_PDFTOPPM_PATH ?? bundledExecutable('poppler', 'pdftoppm');
+const qpdf = process.env.EVB_QPDF_PATH ?? bundledExecutable('qpdf', 'qpdf');
 const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH
     ?? join(
         repositoryRoot,
@@ -62,15 +66,20 @@ const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH
         'release',
         process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops',
     );
-const unpaper = process.env.EVB_UNPAPER_PATH
-    ?? join(repositoryRoot, 'resources', 'tesseract', 'linux-x64', 'bin', 'unpaper');
 const required = process.env.EVB_OCR_QUALITY_REQUIRED === '1';
 const degradedOptIn = required || process.env.EVB_OCR_QUALITY_DEGRADED === '1';
-let tessdataDirectory = process.env.EVB_TESSDATA_PATH
+const tessdataDirectory = process.env.EVB_TESSDATA_PATH
     ?? join(repositoryRoot, 'resources', 'tesseract', 'tessdata');
 const fontPath = join(repositoryRoot, 'public', 'pdf', 'standard_fonts', 'LiberationSans-Regular.ttf');
-const workDirectory = await mkdtemp(join(tmpdir(), 'evb-ocr-quality-'));
+const scratchRoot = join(repositoryRoot, '.devkit', 'tmp');
+await mkdir(scratchRoot, {recursive: true});
+const workDirectory = await mkdtemp(join(scratchRoot, 'evb-ocr-quality-'));
 const cleanManifestPath = join(repositoryRoot, 'scripts', 'fixtures', 'ocr-language-quality-manifest.json');
+// MLOCR-02/03 measure what users get: the popup defaults, or its Poor scan
+// profile when EVB_OCR_QUALITY_OPTIONS=poor-scan. Both come from the shared
+// contract once the production runner bundle loads.
+const recognitionPreset = process.env.EVB_OCR_QUALITY_OPTIONS ?? 'defaults';
+let recognitionOptions;
 
 function deterministicNoise(seed) {
     let state = seed >>> 0;
@@ -123,7 +132,16 @@ async function loadProductionRunner() {
     const bundlePath = join(workDirectory, 'ocr-quality-production-runner.mjs');
     await build({
         bundle: true,
-        entryPoints: [join(repositoryRoot, 'electron', 'features', 'ocr', 'worker', 'runProductionOcrQualityCase.ts')],
+        stdin: {
+            contents: `
+                export {runProductionOcrQualityCase} from './electron/features/ocr/worker/runProductionOcrQualityCase.ts';
+                export {loadBoundedGeneratedPagePdf, repairOcrPageTextLayer} from './electron/features/ocr/worker/pdfAssembler.ts';
+                export {shouldNormalizeGreekMicroSign} from './electron/features/ocr/worker/tesseractRunner.ts';
+                export {DEFAULT_OCR_RECOGNITION_OPTIONS, POOR_SCAN_OCR_RECOGNITION_OPTIONS} from './packages/contracts/electronApiOcr.ts';
+            `,
+            resolveDir: repositoryRoot,
+            sourcefile: 'ocr-quality-production-runner.ts',
+        },
         format: 'esm',
         outfile: bundlePath,
         platform: 'node',
@@ -148,8 +166,7 @@ async function loadProductionWorker() {
 }
 
 async function loadPdfjsTextExtractor() {
-    const bundlePath = join(repositoryRoot, '.devkit', 'ocr-quality-pdfjs-extractor.mjs');
-    await mkdir(join(repositoryRoot, '.devkit'), {recursive: true});
+    const bundlePath = join(workDirectory, 'ocr-quality-pdfjs-extractor.mjs');
     await build({
         bundle: true,
         entryPoints: [join(repositoryRoot, 'electron', 'features', 'search', 'extractTextWithPdfjs.ts')],
@@ -169,7 +186,6 @@ async function runProductionOcrQualityDocument({
     sourcePdfPath,
     pages,
     tempDirectory,
-    unpaperBinary,
     scanCleanupBinary,
     pdfPageOpsBinary,
 }) {
@@ -185,7 +201,6 @@ async function runProductionOcrQualityDocument({
             tempDir: tempDirectory,
             ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
             ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
-            ...(unpaperBinary ? {unpaperBinary} : {}),
         },
     });
     const jobId = `ocr-quality-language-${Date.now()}`;
@@ -209,9 +224,7 @@ async function runProductionOcrQualityDocument({
             })),
             options: {
                 renderDpi: PAGE_DPI,
-                preprocessingMode: 'clean',
-                qualityProfile: 'poor-scan',
-                pageSegmentationMode: 6,
+                ...recognitionOptions,
                 supersessionPolicy: 'replace-all',
                 replaceAllAcknowledged: true,
             },
@@ -286,7 +299,7 @@ async function collectCatalogPageText(sourcePdfPath) {
             const path = join(directory, entry.name);
             if (entry.isDirectory()) {
                 await visit(path);
-            } else if (/\/pages\/\d+\/p\d+\.json$/u.test(path)) {
+            } else if (/[\\/]pages[\\/]\d+[\\/]p\d+\.json$/u.test(path)) {
                 pageFiles.push(path);
             }
         }
@@ -294,7 +307,7 @@ async function collectCatalogPageText(sourcePdfPath) {
     await visit(catalogRoot);
     const pages = new Map();
     for (const pageFile of pageFiles) {
-        const match = /\/p(\d+)\.json$/u.exec(pageFile);
+        const match = /^p(\d+)\.json$/u.exec(basename(pageFile));
         if (!match) continue;
         const pageNumber = Number(match[1]);
         const artifact = JSON.parse(await readFile(pageFile, 'utf8'));
@@ -748,9 +761,9 @@ async function runMeasuredDegradedCase({
     transformedPage,
     outputDirectory,
     selectedLanguage,
-    runProductionOcrQualityCase,
-    unpaperBinary,
+    productionRunner,
     scanCleanupBinary,
+    pdfPageOpsBinary,
 }) {
     const {
         raster, realized,
@@ -769,29 +782,40 @@ async function runMeasuredDegradedCase({
     const startedAt = process.hrtime.bigint();
     let result;
     try {
-        result = await runProductionOcrQualityCase({
+        result = await productionRunner.runProductionOcrQualityCase({
             dpi: realized.dpi,
+            recognitionOptions,
             inputPath: imagePath,
             language: selectedLanguage,
             outputDirectory: caseDirectory,
             tessdataDirectory,
             tesseractBinary: tesseract,
             ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
-            ...(unpaperBinary ? {unpaperBinary} : {}),
         });
     } finally {
         clearInterval(memoryMonitor);
         memorySamples.push(process.memoryUsage().rss);
     }
     const runtimeMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-    const searchablePdfText = (await execFileAsync(pdftotext, [
+    const textLayerStartedAt = process.hrtime.bigint();
+    const repairedPdfPath = await productionRunner.repairOcrPageTextLayer(
+        pdfPageOpsBinary,
+        (await productionRunner.loadBoundedGeneratedPagePdf(result.pdfPath, 'Generated OCR PDF page')).getPage(0),
         result.pdfPath,
+        productionRunner.shouldNormalizeGreekMicroSign(selectedLanguage.split('+')),
+        caseDirectory,
+        'quality',
+        path => path,
+    );
+    const textLayerRuntimeMs = Number(process.hrtime.bigint() - textLayerStartedAt) / 1_000_000;
+    const searchablePdfText = (await execFileAsync(pdftotext, [
+        repairedPdfPath,
         '-',
     ], {
         maxBuffer: 16 * 1024 * 1024,
         timeout: 30_000,
     })).stdout;
-    const pdfjsText = (await extractPdfjsPageText(result.pdfPath))[0] ?? '';
+    const pdfjsText = (await extractPdfjsPageText(repairedPdfPath))[0] ?? '';
     const transformed = transformPageGeometry(page, realized.affine);
     const evaluation = evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transformedPage ?? transformed);
     const scratchBytes = await directoryBytes(caseDirectory);
@@ -821,6 +845,7 @@ async function runMeasuredDegradedCase({
         imageSha256: realized.imageSha256,
         evaluation,
         runtimeMs,
+        textLayerRuntimeMs,
         peakRssBytes,
         scratchBytes,
         preprocessing: result.preprocessing,
@@ -839,9 +864,9 @@ function selectDegradedPages(manifest) {
 
 async function runDegradedLanguageBenchmark({
     fixture,
-    runProductionOcrQualityCase,
-    unpaperBinary,
+    productionRunner,
     scanCleanupBinary,
+    pdfPageOpsBinary,
 }) {
     const profileById = new Map(DEGRADATION_PROFILES.map(profile => [
         profile.id,
@@ -889,9 +914,9 @@ async function runDegradedLanguageBenchmark({
                 cleanImageSha256: cleanImageHashes.get(page.id),
                 outputDirectory,
                 selectedLanguage,
-                runProductionOcrQualityCase,
-                unpaperBinary,
+                productionRunner,
                 scanCleanupBinary,
+                pdfPageOpsBinary,
             });
             entries.push(entry);
             process.stdout.write(
@@ -902,6 +927,13 @@ async function runDegradedLanguageBenchmark({
     return {
         status: 'complete',
         benchmark: 'MLOCR-03',
+        pdfStage: 'native-overlay-text',
+        pdfWriter: {
+            binary: pdfPageOpsBinary,
+            sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
+        },
+        runtimeStage: 'recognition-and-preprocessing',
+        recognitionOptions,
         frozenPolicy: fixture.manifest.policy,
         frozenDefinition: fixture.manifest.frozen,
         split: fixture.manifest.corpusSplit,
@@ -928,6 +960,7 @@ async function runDegradedLanguageBenchmark({
             selectedLanguages: entry.selectedLanguages,
             evaluation: entry.evaluation,
             runtimeMs: entry.runtimeMs,
+            textLayerRuntimeMs: entry.textLayerRuntimeMs,
             peakRssBytes: entry.peakRssBytes,
             scratchBytes: entry.scratchBytes,
             preprocessing: entry.preprocessing,
@@ -937,52 +970,9 @@ async function runDegradedLanguageBenchmark({
     };
 }
 
-async function prepareBenchmarkTessdata() {
-    const sourceDirectory = tessdataDirectory;
-    const stagedDirectory = join(workDirectory, 'tessdata');
-    await mkdir(stagedDirectory, {recursive: true});
-    for (const language of LANGUAGE_CODES) {
-        await symlink(
-            join(sourceDirectory, `${language}.traineddata`),
-            join(stagedDirectory, `${language}.traineddata`),
-        );
-    }
-    const pdfFontSource = [
-        join(sourceDirectory, 'pdf.ttf'),
-        '/usr/share/tesseract-ocr/5/tessdata/pdf.ttf',
-    ].find(path => {
-        return existsSync(path);
-    });
-    if (!pdfFontSource) {
-        throw new Error('Tesseract PDF output font pdf.ttf is unavailable');
-    }
-    await symlink(pdfFontSource, join(stagedDirectory, 'pdf.ttf'));
-
-    const sublanguagePath = join(sourceDirectory, 'srp_latn.traineddata');
-    try {
-        await access(sublanguagePath, fsConstants.R_OK);
-        await symlink(sublanguagePath, join(stagedDirectory, 'srp_latn.traineddata'));
-    } catch {
-        const url = 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/srp_latn.traineddata';
-        const expectedHash = '9bc6caa2ad9daf1706bf4c21741992dd5a334e9ff64cfc1ecd32aa43dd7a150c';
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Pinned srp_latn model download failed: HTTP ${response.status}`);
-        }
-        const bytes = Buffer.from(await response.arrayBuffer());
-        const actualHash = createHash('sha256').update(bytes).digest('hex');
-        if (actualHash !== expectedHash) {
-            throw new Error(`Pinned srp_latn model hash mismatch: ${actualHash}`);
-        }
-        await writeFile(join(stagedDirectory, 'srp_latn.traineddata'), bytes);
-    }
-    tessdataDirectory = stagedDirectory;
-}
-
 async function runCleanLanguageBenchmark({
-    unpaperBinary, scanCleanupBinary, pdfPageOpsBinary,
+    scanCleanupBinary, pdfPageOpsBinary,
 }) {
-    await prepareBenchmarkTessdata();
     const fixtureDirectory = join(workDirectory, 'ocr-language-quality');
     const fixture = await generateOcrLanguageQualityFixture({
         repositoryRoot,
@@ -1001,30 +991,47 @@ async function runCleanLanguageBenchmark({
         throw new Error('MLOCR-02 source PDF contains extractable text');
     }
     const workerBundlePath = await loadProductionWorker();
-    const workerResult = await runProductionOcrQualityDocument({
-        workerBundlePath,
-        sourcePdfPath,
-        pages: fixture.manifest.pages.filter(page => page.kind === 'language'),
-        tempDirectory: workerTempDirectory,
-        unpaperBinary,
-        scanCleanupBinary,
-        pdfPageOpsBinary,
-    });
-    if (!workerResult.success) {
-        throw new Error(`MLOCR-02 production PDF OCR failed: ${workerResult.errors.join('; ')}`);
-    }
-    const rawPages = await collectCatalogPageText(sourcePdfPath);
-    const pdfjsPages = await extractPdfjsPageText(workerResult.pdfPath);
-    const popplerPages = await extractPopplerPageText(workerResult.pdfPath);
-    const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);
     const cleanPages = fixture.manifest.pages.filter(page => page.kind === 'language');
+    const rawPages = new Map();
+    for (const language of LANGUAGE_CODES) {
+        const pages = cleanPages.filter(page => page.language === language);
+        const workerResult = await runProductionOcrQualityDocument({
+            workerBundlePath,
+            sourcePdfPath,
+            pages,
+            tempDirectory: workerTempDirectory,
+            scanCleanupBinary,
+            pdfPageOpsBinary,
+        });
+        if (!workerResult.success) {
+            throw new Error(`MLOCR-02 ${language} production PDF OCR failed: ${workerResult.errors.join('; ')}`);
+        }
+        const catalogPages = await collectCatalogPageText(sourcePdfPath);
+        for (const page of pages) {
+            if (!catalogPages.has(page.pageNumber)) {
+                throw new Error(`MLOCR-02 ${language} has no OCR catalog artifact for page ${page.pageNumber}`);
+            }
+            rawPages.set(page.pageNumber, catalogPages.get(page.pageNumber));
+        }
+        await copyFile(workerResult.pdfPath, sourcePdfPath);
+        process.stdout.write(`MLOCR-02 ${language}: recognized ${pages.length} pages through the production worker\n`);
+    }
+    const pdfjsPages = await extractPdfjsPageText(sourcePdfPath);
+    const popplerPages = await extractPopplerPageText(sourcePdfPath);
+    const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);
     const report = {
         status: 'complete',
+        pdfStage: 'production-worker-native-overlay-text-and-assembly',
+        pdfWriter: {
+            binary: pdfPageOpsBinary,
+            sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
+        },
+        recognitionOptions,
         fixture: {
             languageCount: languages.length,
             pageCount: cleanPages.length,
             pdfSha256: fixture.manifest.artifact.pdfSha256,
-            outputPdfSha256: workerResult.resultSha256,
+            outputPdfSha256: createHash('sha256').update(await readFile(sourcePdfPath)).digest('hex'),
             sourceTextEmpty: true,
             physicalPage: fixture.manifest.physicalPage,
             pageOrder: cleanPages.map(page => page.id),
@@ -1051,18 +1058,9 @@ async function runCleanLanguageBenchmark({
     return report;
 }
 
-async function resolveOptionalPreprocessor() {
-    try {
-        await execFileAsync(unpaper, ['--version'], {timeout: 10_000});
-        return unpaper;
-    } catch {
-        return undefined;
-    }
-}
-
 async function resolveOptionalScanCleanup() {
     const candidate = process.env.EVB_SCAN_CLEANUP_PATH
-        ?? join(repositoryRoot, 'native', 'target', 'release', 'evb-scan-cleanup');
+        ?? join(repositoryRoot, 'native', 'target', 'release', `evb-scan-cleanup${executableSuffix}`);
     try {
         await access(candidate, fsConstants.X_OK);
         return candidate;
@@ -1105,7 +1103,13 @@ async function probeNativeOcrExecutables() {
         args,
     ] of probes) {
         try {
-            await execFileAsync(binary, args, {timeout: 10_000});
+            const result = await execFileAsync(binary, args, {timeout: 10_000});
+            process.stdout.write(`OCR executable identity: ${JSON.stringify({
+                name,
+                binary,
+                version: `${result.stdout}\n${result.stderr}`.trim(),
+                ...(existsSync(binary) ? {sha256: createHash('sha256').update(await readFile(binary)).digest('hex')} : {}),
+            })}\n`);
         } catch (error) {
             missing.push(`${name} (${binary}): ${describeProbeError(error)}`);
         }
@@ -1156,15 +1160,27 @@ try {
         } else if (!GlobalFonts.registerFromPath(fontPath, 'EvbOcrCorpus')) {
             reportIncomplete([`OCR corpus font could not be registered: ${fontPath}`]);
         } else {
-            const {runProductionOcrQualityCase} = await loadProductionRunner();
-            const unpaperBinary = await resolveOptionalPreprocessor();
+            const productionRunner = await loadProductionRunner();
+            const recognitionPresets = {
+                'defaults': productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
+                'poor-scan': productionRunner.POOR_SCAN_OCR_RECOGNITION_OPTIONS,
+            };
+            recognitionOptions = recognitionPresets[recognitionPreset];
+            process.stdout.write(`OCR quality configuration: ${JSON.stringify({
+                recognitionPreset,
+                recognitionOptions,
+                tessdataDirectory,
+            })}\n`);
             const scanCleanupBinary = await resolveOptionalScanCleanup();
             const pdfPageOpsBinary = await resolveOptionalPdfPageOps();
-            if (required && !unpaperBinary && !scanCleanupBinary) {
+            if (!recognitionOptions) {
+                reportIncomplete([`EVB_OCR_QUALITY_OPTIONS must be one of ${Object.keys(recognitionPresets).join(', ')}; got ${recognitionPreset}`]);
+            } else if (!pdfPageOpsBinary) {
+                reportIncomplete([`required OCR text-layer writer is unavailable: ${pdfPageOps}`]);
+            } else if (required && !scanCleanupBinary) {
                 reportIncomplete(['required clean preprocessing tool is unavailable']);
             } else {
                 await runCleanLanguageBenchmark({
-                    unpaperBinary,
                     scanCleanupBinary,
                     pdfPageOpsBinary,
                 });
@@ -1175,12 +1191,11 @@ try {
                         outputDirectory: fixtureDirectory,
                         manifestPath: cleanManifestPath,
                     });
-                    const {runProductionOcrQualityCase} = await loadProductionRunner();
                     const degradedReport = await runDegradedLanguageBenchmark({
                         fixture,
-                        runProductionOcrQualityCase,
-                        unpaperBinary,
+                        productionRunner,
                         scanCleanupBinary,
+                        pdfPageOpsBinary,
                     });
                     process.stdout.write(`MLOCR-03 degraded raster report: ${JSON.stringify(degradedReport)}\n`);
                 } else {
@@ -1195,19 +1210,30 @@ try {
                     const imagePath = join(workDirectory, `${testCase.id}.png`);
                     await writeFile(imagePath, await renderCorpusImage(testCase, index));
                     const caseDirectory = join(workDirectory, testCase.id);
-                    const result = await runProductionOcrQualityCase({
+                    // The scan-like legacy diagnostic exists to exercise clean
+                    // preprocessing, so it always uses the Poor scan profile.
+                    const result = await productionRunner.runProductionOcrQualityCase({
                         dpi: 300,
+                        recognitionOptions: productionRunner.POOR_SCAN_OCR_RECOGNITION_OPTIONS,
                         inputPath: imagePath,
                         language: testCase.language,
                         outputDirectory: caseDirectory,
                         tessdataDirectory,
                         tesseractBinary: tesseract,
                         ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
-                        ...(unpaperBinary ? {unpaperBinary} : {}),
                     });
                     preprocessingCoverage.add(result.preprocessing);
-                    const {stdout: searchablePdfText} = await execFileAsync(pdftotext, [
+                    const repairedPdfPath = await productionRunner.repairOcrPageTextLayer(
+                        pdfPageOpsBinary,
+                        (await productionRunner.loadBoundedGeneratedPagePdf(result.pdfPath, 'Generated OCR PDF page')).getPage(0),
                         result.pdfPath,
+                        productionRunner.shouldNormalizeGreekMicroSign(testCase.language.split('+')),
+                        caseDirectory,
+                        'quality',
+                        path => path,
+                    );
+                    const {stdout: searchablePdfText} = await execFileAsync(pdftotext, [
+                        repairedPdfPath,
                         '-',
                     ], {timeout: 30_000});
                     const expected = testCase.lines.join('\n');
@@ -1260,7 +1286,7 @@ try {
                     reportIncomplete(['required OCR quality coverage did not exercise successful clean preprocessing']);
                 } else {
                     process.stdout.write(
-                        `Production coverage: runOcrFileBased profile/TSV parser/searchable PDF; preprocessing=${[...preprocessingCoverage].join(',')} (legacy image-only diagnostic; Poppler rasterization is covered by OCR worker integration tests)\n`,
+                        `Production coverage: runOcrFileBased profile/TSV parser/native overlay-text searchable PDF; preprocessing=${[...preprocessingCoverage].join(',')} (legacy image-only diagnostic; Poppler rasterization is covered by OCR worker integration tests)\n`,
                     );
                     process.stdout.write(`Legacy image-only diagnostic passed (${corpus.length} degraded multilingual cases)\n`);
                 }

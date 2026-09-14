@@ -1095,7 +1095,7 @@ function sanitizeOcrPageForEmbedding(page: PDFPage) {
     // resources is cheap and avoids guessing about names used by nested Forms.
 }
 
-async function repairOcrPageTextLayer(
+export async function repairOcrPageTextLayer(
     pdfPageOpsBinary: string,
     ocrPage: PDFPage,
     ocrPagePath: string,

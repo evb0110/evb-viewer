@@ -90,6 +90,8 @@ export interface IOcrFileResult {
     pageData: IOcrPageWithWords | null;
     pdfPath: string | null;
     error?: string;
+    /** Tesseract parameters the engine rejected; the run continued without them. */
+    unsupportedOptions?: string[];
     /** The worker stopped before proving that Tesseract's native tree died. */
     terminationUnproven?: string;
 }

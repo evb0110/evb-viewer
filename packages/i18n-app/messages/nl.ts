@@ -890,6 +890,7 @@ export default {
         'diagnostic': {
             'preprocessingUnavailable': 'Pagina {page}: scan opschonen is niet beschikbaar; de oorspronkelijke afbeelding is gebruikt.',
             'preprocessingFailed': 'Pagina {page}: scan opschonen is mislukt; de oorspronkelijke afbeelding is gebruikt.',
+            'engineOptionUnsupported': 'Pagina {page}: de OCR-engine ondersteunt de gekozen herkenningsmodus niet, dus is zonder die modus herkend.',
             'preprocessingGeometryChanged': 'Pagina {page}: scan opschonen heeft de paginageometrie gewijzigd; de oorspronkelijke afbeelding is gebruikt.',
             'sourceDpiLimited': 'Pagina {page}: de bronresolutie beperkte de effectieve OCR-DPI.',
             'existingTextSkipped': 'Pagina {page}: bestaande tekst is behouden.',

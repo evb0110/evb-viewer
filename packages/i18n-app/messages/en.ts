@@ -425,6 +425,7 @@ export default {
         'diagnostic': {
             'preprocessingUnavailable': 'Page {page}: scan cleanup is unavailable; the original image was used.',
             'preprocessingFailed': 'Page {page}: scan cleanup failed; the original image was used.',
+            'engineOptionUnsupported': 'Page {page}: the OCR engine does not support the selected recognition mode, so it was recognized without it.',
             'preprocessingGeometryChanged': 'Page {page}: scan cleanup changed page geometry; the original image was used.',
             'sourceDpiLimited': 'Page {page}: source resolution limited the effective OCR DPI.',
             'existingTextSkipped': 'Page {page}: existing text was preserved.',

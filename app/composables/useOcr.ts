@@ -14,6 +14,7 @@ import type {
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
+import { DEFAULT_OCR_RECOGNITION_OPTIONS } from '@contracts/electronApiOcr';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { createDocxFromTextAsync } from '@app/utils/docx';
@@ -69,8 +70,7 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
-        qualityProfile: 'balanced',
-        preprocessingMode: 'off',
+        ...DEFAULT_OCR_RECOGNITION_OPTIONS,
         pageSegmentationMode: null,
         supersessionPolicy: 'missing-only',
         replaceAllAcknowledged: false,
@@ -592,6 +592,8 @@ export const useOcr = () => {
                 return t('ocr.diagnostic.sourceDpiLimited', params);
             case 'OCR_EXISTING_TEXT_SKIPPED':
                 return t('ocr.diagnostic.existingTextSkipped', params);
+            case 'OCR_ENGINE_OPTION_UNSUPPORTED':
+                return t('ocr.diagnostic.engineOptionUnsupported', params);
         }
     }
 

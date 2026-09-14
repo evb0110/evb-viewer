@@ -91,6 +91,12 @@ function buildTesseractProfileArgs(options: IOcrSearchablePdfOptions | undefined
     return args;
 }
 
+// Tesseract exits 0 when it rejects a -c parameter, so a profile whose option
+// the bundled engine does not know would otherwise run silently without it.
+export function findUnsupportedTesseractOptions(stderrText: string) {
+    return [...stderrText.matchAll(/^Could not set option: (.+)$/gmu)].map(match => match[1]!.trim());
+}
+
 function getPngDimensions(imageBuffer: Buffer): {
     width: number;
     height: number;
@@ -281,7 +287,7 @@ export async function runOcrFileBased(
             return null;
         };
 
-        const handleSuccessfulClose = async () => {
+        const handleSuccessfulClose = async (stderrText: string) => {
             try {
                 const tsvContent = await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES);
                 const parsedTsv = parseTsvOcrData(tsvContent.trim());
@@ -304,8 +310,10 @@ export async function runOcrFileBased(
 
                 await safeUnlink(tsvPath);
 
+                const unsupportedOptions = findUnsupportedTesseractOptions(stderrText);
                 finalize({
                     success: true,
+                    ...(unsupportedOptions.length > 0 ? {unsupportedOptions} : {}),
                     pageData: {
                         pageNumber: 0,
                         words,
@@ -374,7 +382,7 @@ export async function runOcrFileBased(
                 return;
             }
 
-            await handleSuccessfulClose();
+            await handleSuccessfulClose(stderrText);
         });
 
         proc.on('error', async (err) => {

@@ -43,7 +43,8 @@ export type TOcrDiagnosticCode =
     | 'OCR_PREPROCESSING_FAILED'
     | 'OCR_PREPROCESSING_GEOMETRY_CHANGED'
     | 'OCR_SOURCE_DPI_LIMITED'
-    | 'OCR_EXISTING_TEXT_SKIPPED';
+    | 'OCR_EXISTING_TEXT_SKIPPED'
+    | 'OCR_ENGINE_OPTION_UNSUPPORTED';
 
 export const OCR_DIAGNOSTIC_CODES = [
     'OCR_PREPROCESSING_UNAVAILABLE',
@@ -51,6 +52,7 @@ export const OCR_DIAGNOSTIC_CODES = [
     'OCR_PREPROCESSING_GEOMETRY_CHANGED',
     'OCR_SOURCE_DPI_LIMITED',
     'OCR_EXISTING_TEXT_SKIPPED',
+    'OCR_ENGINE_OPTION_UNSUPPORTED',
 ] as const satisfies readonly TOcrDiagnosticCode[];
 
 export interface IOcrDiagnostic {
@@ -146,6 +148,18 @@ export interface IOcrSearchablePdfOptions {
     /** Required when supersessionPolicy is replace-all. */
     replaceAllAcknowledged?: boolean;
 }
+
+/** Recognition options a new OCR run starts with in the popup: automatic layout, no preprocessing. */
+export const DEFAULT_OCR_RECOGNITION_OPTIONS = {
+    qualityProfile: 'balanced',
+    preprocessingMode: 'off',
+} as const satisfies IOcrSearchablePdfOptions;
+
+/** Recognition options the popup switches to when the Poor scan profile is chosen. */
+export const POOR_SCAN_OCR_RECOGNITION_OPTIONS = {
+    qualityProfile: 'poor-scan',
+    preprocessingMode: 'clean',
+} as const satisfies IOcrSearchablePdfOptions;
 
 export interface IOcrRecognizeResult extends IOcrErrorEnvelopeCarrier {
     readonly pageNumber: TPageNumber;

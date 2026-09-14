@@ -1,6 +1,10 @@
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import {parseAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {TOcrQualityProfile} from '@contracts/electronApiOcr';
+import {
+    DEFAULT_OCR_RECOGNITION_OPTIONS,
+    POOR_SCAN_OCR_RECOGNITION_OPTIONS,
+} from '@contracts/electronApiOcr';
 import type {IOcrSettings} from '@app/utils/ocr/ocrTypes';
 
 export const OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE = '__automatic_page_segmentation__';
@@ -112,21 +116,21 @@ export function resolveQualityProfileSettings(
     nextProfile: TOcrQualityProfile,
     previousProfile: TOcrQualityProfile,
 ) {
-    if (nextProfile === 'poor-scan' && currentSettings.preprocessingMode === 'off') {
+    if (nextProfile === 'poor-scan' && currentSettings.preprocessingMode === DEFAULT_OCR_RECOGNITION_OPTIONS.preprocessingMode) {
         return {
             ...currentSettings,
-            preprocessingMode: 'clean' as const,
+            preprocessingMode: POOR_SCAN_OCR_RECOGNITION_OPTIONS.preprocessingMode,
         };
     }
 
     if (
         previousProfile === 'poor-scan'
         && nextProfile !== 'poor-scan'
-        && currentSettings.preprocessingMode === 'clean'
+        && currentSettings.preprocessingMode === POOR_SCAN_OCR_RECOGNITION_OPTIONS.preprocessingMode
     ) {
         return {
             ...currentSettings,
-            preprocessingMode: 'off' as const,
+            preprocessingMode: DEFAULT_OCR_RECOGNITION_OPTIONS.preprocessingMode,
         };
     }
 

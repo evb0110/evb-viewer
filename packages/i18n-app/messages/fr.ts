@@ -891,6 +891,7 @@ export default {
         'diagnostic': {
             'preprocessingUnavailable': 'Page {page} : le nettoyage du scan n’est pas disponible ; l’image originale a été utilisée.',
             'preprocessingFailed': 'Page {page} : le nettoyage du scan a échoué ; l’image originale a été utilisée.',
+            'engineOptionUnsupported': 'Page {page} : le moteur OCR ne prend pas en charge le mode de reconnaissance choisi ; la page a été reconnue sans lui.',
             'preprocessingGeometryChanged': 'Page {page} : le nettoyage du scan a modifié la géométrie de la page ; l’image originale a été utilisée.',
             'sourceDpiLimited': 'Page {page} : la résolution source a limité les DPI OCR effectifs.',
             'existingTextSkipped': 'Page {page} : le texte existant a été conservé.',

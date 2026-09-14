@@ -891,6 +891,7 @@ export default {
         'diagnostic': {
             'preprocessingUnavailable': 'Página {page}: a limpeza da digitalização não está disponível; a imagem original foi usada.',
             'preprocessingFailed': 'Página {page}: a limpeza da digitalização falhou; a imagem original foi usada.',
+            'engineOptionUnsupported': 'Página {page}: o mecanismo de OCR não suporta o modo de reconhecimento selecionado, então foi reconhecida sem ele.',
             'preprocessingGeometryChanged': 'Página {page}: a limpeza da digitalização alterou a geometria da página; a imagem original foi usada.',
             'sourceDpiLimited': 'Página {page}: a resolução de origem limitou os DPI efetivos do OCR.',
             'existingTextSkipped': 'Página {page}: o texto existente foi preservado.',
