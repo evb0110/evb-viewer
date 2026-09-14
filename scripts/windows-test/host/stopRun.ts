@@ -1,6 +1,7 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     mkdir,
+    lstat,
     rm,
     stat,
     writeFile,
@@ -21,6 +22,7 @@ import { withHostLock } from '@scripts/windows-test/host/hostLock';
 import type { IHostLockDependencies } from '@scripts/windows-test/host/hostLock';
 import type { IHostProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
 import { WINDOWS_TEST_CLONE_NAME_PREFIX } from '@scripts/windows-test/host/runCoordinator';
+import path from 'node:path';
 import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
 import type { IUtmInputCaptureGuard } from '@scripts/windows-test/host/utmInputCapture';
 import { utmBundlePathForName } from '@scripts/windows-test/images/vmBundleLocator';
@@ -113,6 +115,17 @@ async function stopOwnedClone(
     }
 }
 
+async function findCloneBundlePath(testImageRoot: string, cloneName: string) {
+    const candidates = [
+        utmBundlePathForName(testImageRoot, cloneName),
+        path.join(testImageRoot, `${cloneName}.utm`),
+    ];
+    for (const candidate of candidates) {
+        if (await lstat(candidate).catch(() => null) !== null) return candidate;
+    }
+    return null;
+}
+
 export async function requestWindowsTestStop(
     request: IWindowsTestStopRequest,
     dependencies: IWindowsTestStopDependencies,
@@ -182,11 +195,32 @@ export async function requestWindowsTestStop(
             if (current.vmId === null) {
                 const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${current.runId}`;
                 const registered = await dependencies.utmctl.list();
-                if (registered.some(entry => entry.name === cloneName)) {
-                    throw new Error(`Stale run ${current.runId} has no bound clone identity; retaining the host exclusion.`);
+                const matches = registered.filter(entry => entry.name === cloneName);
+                if (matches.length !== 1) {
+                    if (matches.length > 0) throw new Error(`Stale run ${current.runId} has an ambiguous clone registration.`);
+                    await rm(dependencies.layout.leaseFile, {force: true});
+                    messages.push('Released the stale lease because no matching clone is registered; the incomplete run directory was preserved.');
+                    recovered = true;
+                    return;
                 }
+                const registeredVm = matches[0]!;
+                const bundlePath = await findCloneBundlePath(dependencies.config.testImageRoot, cloneName);
+                if (bundlePath === null) throw new Error(`Stale run ${current.runId} has no disposable clone bundle at the expected clone or legacy location.`);
+                const policy = withOwnedCloneAllowlisted(destructivePolicyFromConfig(dependencies.config), registeredVm.uuid);
+                assertNotGoldenOrBaselineTarget({
+                    vmId: registeredVm.uuid,
+                    bundlePath,
+                }, policy);
+                if (registeredVm.name === 'Windows' || !registeredVm.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)) throw new Error('Refusing stale recovery for a non-disposable VM.');
+                if (registeredVm.status !== 'stopped') throw new Error('Refusing stale recovery for a running clone.');
+                await assertDestructiveTarget({
+                    vmId: registeredVm.uuid,
+                    bundlePath,
+                }, policy, dependencies.identityGuard);
+                await dependencies.utmctl.deleteVm(registeredVm.uuid);
+                messages.push(`Removed the stopped orphaned clone for stale run ${current.runId}.`);
                 await rm(dependencies.layout.leaseFile, {force: true});
-                messages.push('Released the stale lease because no matching clone is registered; the incomplete run directory was preserved.');
+                messages.push('Released the stale lease; the incomplete run directory was preserved.');
                 recovered = true;
                 return;
             }

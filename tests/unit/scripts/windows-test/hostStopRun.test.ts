@@ -281,16 +281,30 @@ describe('windows test stop request', () => {
         expect(await exists(harness.layout.leaseFile)).toBe(false);
     });
 
-    it('retains an unbound stale lease instead of releasing the host exclusion', async () => {
+    it('removes a stopped legacy clone for an unbound stale lease', async () => {
         const harness = await createStopHarness({lease: lease({vmId: null})});
+        await mkdir(path.join(harness.layout.imagesDir, `${CLONE_NAME}.utm`));
 
         const result = await harness.stop();
 
-        expect(result.exitCode).toBe(3);
-        expect(result.recovered).toBe(false);
-        expect(result.messages.join(' ')).toContain('has no bound clone identity');
-        expect(await exists(harness.layout.leaseFile)).toBe(true);
-        expect(harness.utmctl.calls).toEqual([]);
+        expect(result.exitCode).toBe(0);
+        expect(result.recovered).toBe(true);
+        expect(result.messages.join(' ')).toContain('Removed the stopped orphaned clone');
+        expect(await exists(harness.layout.leaseFile)).toBe(false);
+        expect(harness.utmctl.calls).toEqual([`delete ${CLONE_VM_ID}`]);
+    });
+
+    it('retains an unbound stale lease when no clone is registered', async () => {
+        const harness = await createStopHarness({
+            lease: lease({vmId: null}),
+            utmctl: createFakeUtmctl({registered: []}),
+        });
+
+        const result = await harness.stop();
+
+        expect(result.exitCode).toBe(0);
+        expect(result.recovered).toBe(true);
+        expect(await exists(harness.layout.leaseFile)).toBe(false);
     });
 
     it('refuses stale recovery when the registered UUID has another name', async () => {

@@ -602,6 +602,9 @@ export async function executeWindowsTestRun(
                     `No implemented Windows test cases match suite "${request.suite}" in environment "${request.environment}".`,
                 );
             }
+            const hostDisplayRequired = request.tests === null
+                ? selection.hostDisplayRequired
+                : expectedTests.some(testId => selection.hostDisplayRequiredByTest?.[testId] ?? selection.hostDisplayRequired);
             const fixtureManifestSha256 = await dependencies.fixtureManifest.sha256();
 
             const goldenStatus = await utmctl.status(config.goldenVmId);
@@ -621,7 +624,7 @@ export async function executeWindowsTestRun(
             if (dependencies.cloneVm === undefined) {
                 await utmctl.clone(config.goldenVmId, cloneName);
             } else {
-                await dependencies.cloneVm(cloneName, {headless: !selection.hostDisplayRequired});
+                await dependencies.cloneVm(cloneName, {headless: !hostDisplayRequired});
             }
             const after = await utmctl.list();
             clonedVmId = selectClonedVmId(before, after);

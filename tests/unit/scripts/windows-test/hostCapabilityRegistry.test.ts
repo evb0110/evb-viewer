@@ -160,6 +160,7 @@ describe('createCapabilityFileSuiteResolver', () => {
             expect(entry?.environments).toContain(PRIMARY_ENVIRONMENT);
         }
         expect(byId.get('WIN-SAVE-10')?.hostDisplayRequired).toBe(false);
+        expect(selection.hostDisplayRequiredByTest?.['WIN-SAVE-10']).toBe(false);
         for (const testId of selection.humanReviewObligations) {
             expect(selection.tests).toContain(testId);
             expect(byId.get(testId)?.oracles).toContain(HUMAN_REVIEW_ORACLE_ID);

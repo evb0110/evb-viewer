@@ -16,6 +16,7 @@ export interface IWindowsTestSuiteSelection {
     uncoveredObligations: string[];
     humanReviewObligations: string[];
     hostDisplayRequired: boolean;
+    hostDisplayRequiredByTest?: Record<string, boolean>;
 }
 
 export interface IWindowsTestSuiteResolver {
@@ -44,6 +45,7 @@ export function selectWindowsTestSuite(
         uncoveredObligations: [...resolution.uncoveredObligations],
         humanReviewObligations,
         hostDisplayRequired: resolution.hostDisplayRequired,
+        hostDisplayRequiredByTest: resolution.hostDisplayRequiredByTest,
     };
 }
 

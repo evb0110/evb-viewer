@@ -93,6 +93,7 @@ export interface IWindowsSuiteResolution {
     tests: string[];
     uncoveredObligations: string[];
     hostDisplayRequired: boolean;
+    hostDisplayRequiredByTest: Record<string, boolean>;
 }
 
 export interface IWindowsCoverageBucket {
@@ -237,10 +238,19 @@ export function resolveSuite(
         );
     }
     const runnable = new Set(tests);
+    const hostDisplayRequiredByTest = Object.fromEntries(
+        selectedEntries
+            .filter(entry => runnable.has(entry.id))
+            .map(entry => [
+                entry.id,
+                entry.hostDisplayRequired !== false,
+            ]),
+    );
     return {
         tests,
         uncoveredObligations,
         hostDisplayRequired: selectedEntries.some(entry => runnable.has(entry.id) && entry.hostDisplayRequired !== false),
+        hostDisplayRequiredByTest,
     };
 }
 
