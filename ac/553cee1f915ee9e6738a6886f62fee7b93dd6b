@@ -1,0 +1,35 @@
+scripts/windows-test/host/runCoordinator.ts
+  s_dfc0f301cf02e2::t_c1d1006c9308f6 1022-1025,1039-1040,1050
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_dfc0f301cf02e2::t_f79d81d0ae8239 158,220-222,857-875
+tests/unit/scripts/windows-test/hostStopRun.test.ts
+  s_dfc0f301cf02e2::t_0e6eb2dbb7a33c 233-247
+  s_dfc0f301cf02e2::t_13664b42d46062 14,42,51,98-101,157,276,283,289-306,310-312,316-317
+  s_dfc0f301cf02e2::t_e7006d54dc6c8c 313-315
+scripts/windows-test/host/stopRun.ts
+  s_dfc0f301cf02e2::t_2a39712e77e563 148-151
+  s_dfc0f301cf02e2::t_7a727c36305fe1 108-111
+  s_dfc0f301cf02e2::t_387e19d5a82349 144-147
+scripts/windows-test/host/utmInputCapture.ts
+  s_dfc0f301cf02e2::t_e18c56860947e3 186-195
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_dfc0f301cf02e2::t_541b36598d52e0 100,228-241,243-263
+tests/unit/scripts/windows-test/utmInputCapture.test.ts
+  s_dfc0f301cf02e2::t_b35802aeb884b1 140-144,167,175-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ac553cee1f915ee9e6738a6886f62fee7b93dd6b",
+  "prompts": {},
+  "sessions": {
+    "s_dfc0f301cf02e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e3e-da3c-7022-8090-54fac0b9b3af",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
