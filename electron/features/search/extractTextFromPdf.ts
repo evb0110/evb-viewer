@@ -131,8 +131,13 @@ function splitPageRange(firstPage: number, lastPage: number) {
     return ranges;
 }
 
+// pdftotext wraps independently positioned right-to-left spans in bidi
+// embedding and isolate controls. They are layout hints, never searchable text,
+// and they split OCR words so queries and indexing miss them.
+const BIDI_FORMATTING_CONTROLS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+
 function normalizePageText(text: string, pageNumber: number, pdfPath: string) {
-    const trimmed = text.trim();
+    const trimmed = text.replace(BIDI_FORMATTING_CONTROLS, '').trim();
     if (Buffer.byteLength(trimmed, 'utf8') > PDFTOTEXT_MAX_PAGE_BYTES) {
         throw new PdfTextExtractionCapabilityError(
             'too-large',

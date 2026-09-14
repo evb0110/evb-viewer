@@ -90,6 +90,19 @@ describe('extractTextFromPdf cancellation', () => {
         ]);
     });
 
+    it('drops bidi formatting controls that pdftotext wraps around right-to-left runs', async () => {
+        const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
+        mocks.runCommand.mockResolvedValueOnce({
+            stdout: '\u202Bשלום\u202C \u2067עולם\u2069 OCR\f',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await extractTextFromPdf('/tmp/file.pdf', {pageCount: 1});
+
+        expect(result.map(page => page.text)).toEqual(['שלום עולם OCR']);
+    });
+
     it('extracts only requested page ranges with pdftotext', async () => {
         const { extractTextFromPdf } = await import('@electron/features/search/extractTextFromPdf');
         mocks.runCommand
