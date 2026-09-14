@@ -1,0 +1,21 @@
+native/pdf-page-ops/tests/error_classification.rs
+  s_b63e4aa14334d0::t_04779153b19f37 50-55,60-67,72-80,85-93,98-106,112-119,595-609,707-720
+  s_b63e4aa14334d0::t_9f6007a8ec89dd 40
+  s_b63e4aa14334d0::t_df7c3cc29cfe33 7-8,32-39,41-48,56,68,81,94,107,120,127,610
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1dd49f3abf97ec9e17c37d5c18c4c72cb2404079",
+  "prompts": {},
+  "sessions": {
+    "s_b63e4aa14334d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a060-f056-7ef3-bf97-a4a7577deb38",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
