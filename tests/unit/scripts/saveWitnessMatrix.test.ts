@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import {
     captureResearchFullContentWitness,
     ResearchFullContentWitnessError,
-} from '@electron/file-access/researchFullContentWitness';
+} from '@scripts/save-witness/researchFullContentWitness';
 
 const fixtures = [
     {

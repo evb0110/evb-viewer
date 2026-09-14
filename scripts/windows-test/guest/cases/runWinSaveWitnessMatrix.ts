@@ -1,6 +1,6 @@
 import {
     captureResearchFullContentWitness, readResearchWitnessChunk, RESEARCH_WITNESS_CHUNK_BYTES,
-} from '@electron/file-access/researchFullContentWitness';
+} from '@scripts/save-witness/researchFullContentWitness';
 import {joinGuestPath} from '@scripts/windows-test/guest/guestPaths';
 import {
     SAVE_WITNESS_MATRIX_CI_CEILING_MS, SAVE_WITNESS_MATRIX_CYCLES, SAVE_WITNESS_MATRIX_DEADLINE_MS, SAVE_WITNESS_MATRIX_LOCAL_TARGET_MS,

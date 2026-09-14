@@ -172,8 +172,9 @@ it('copies disk, EFI and TPM into the test root and changes only the copied iden
     expect(replacements.every(entry => entry.args.at(-1) === path.join(destination, 'config.plist'))).toBe(true);
     expect(replacements[0]?.args[3]).not.toBe(goldenId);
     expect(harness.commands.at(-1)?.command).toBe('/usr/bin/open');
-    expect(harness.commands.at(-1)?.args[0]).toBe('-a');
-    expect(harness.commands.at(-1)?.args[1]).toBe('/Applications/UTM.app');
+    expect(harness.commands.at(-1)?.args[0]).toBe('-g');
+    expect(harness.commands.at(-1)?.args[1]).toBe('-a');
+    expect(harness.commands.at(-1)?.args[2]).toBe('/Applications/UTM.app');
     expect(harness.commands.at(-1)?.args.at(-1)).toBe(destination);
 });
 

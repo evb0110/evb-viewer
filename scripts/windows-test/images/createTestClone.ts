@@ -247,6 +247,7 @@ export async function createTestClone(options: {
         ]);
     }
     await runChecked('/usr/bin/open', [
+        '-g',
         '-a',
         '/Applications/UTM.app',
         destination,

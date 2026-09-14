@@ -7,7 +7,7 @@ import {
 import {
     captureResearchFullContentWitness,
     readResearchWitnessChunk,
-} from '@electron/file-access/researchFullContentWitness';
+} from '@scripts/save-witness/researchFullContentWitness';
 import {
     ensureSaveWitnessMatrixFixtures,
     runSaveWitnessMatrix,
