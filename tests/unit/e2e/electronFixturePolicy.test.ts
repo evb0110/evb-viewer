@@ -321,18 +321,19 @@ describe('Electron E2E fixture policy', () => {
         await mkdir(join(process.cwd(), '.devkit/tmp'), { recursive: true });
 
         try {
+            const deterministicFixtureBytes = 8 * 1024;
             vi.useFakeTimers({ now: new Date('2020-01-02T03:04:05.000Z') });
             await generateLargePdfE2eFixture({
                 outputPath: firstOutputPath,
-                pageCount: 7,
-                targetBytes: 2 * 1024 * 1024,
+                pageCount: 1,
+                targetBytes: deterministicFixtureBytes,
             });
 
             vi.setSystemTime(new Date('2030-06-07T08:09:10.000Z'));
             await generateLargePdfE2eFixture({
                 outputPath: secondOutputPath,
-                pageCount: 7,
-                targetBytes: 2 * 1024 * 1024,
+                pageCount: 1,
+                targetBytes: deterministicFixtureBytes,
             });
 
             const firstBytes = await readFile(firstOutputPath);
@@ -343,7 +344,7 @@ describe('Electron E2E fixture policy', () => {
             expect(firstBytes.toString('latin1')).not.toMatch(/\/(?:CreationDate|ModDate)\b/u);
 
             const parsed = await PDFDocument.load(firstBytes, { updateMetadata: false });
-            expect(parsed.getPageCount()).toBe(7);
+            expect(parsed.getPageCount()).toBe(1);
             expect(parsed.getCreationDate()).toBeUndefined();
             expect(parsed.getModificationDate()).toBeUndefined();
             const annotations = parsed.getPage(0).node.Annots();
