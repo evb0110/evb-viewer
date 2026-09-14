@@ -252,7 +252,16 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         const beforeNumbers = new Set(before.windowNumbers);
         const newWindows = after.windowNumbers.filter(number => !beforeNumbers.has(number));
         if (newWindows.length > 0) {
-            throw new Error('A new on-screen UTM window appeared, but Capture Input cannot be verified without Screen Recording or Accessibility permission.');
+            if (after.screenCapturePreflight !== true || after.accessibilityTrusted !== true) {
+                throw new Error('A new on-screen UTM window appeared, but Capture Input cannot be verified without Screen Recording or Accessibility permission.');
+            }
+            activeWindowAvailable = true;
+            const result = await runProbe(windowTitle, 'release');
+            if (!result.windowAvailable || result.after !== 0 || result.frontmostPid === result.utmPid) {
+                throw new Error('The clone window must have Capture Input off and leave host input available.');
+            }
+            await record('launch', result);
+            return result;
         }
         activeWindowAvailable = false;
         const result: IUtmInputCaptureProbeResult = {

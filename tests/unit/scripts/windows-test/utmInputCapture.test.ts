@@ -136,6 +136,43 @@ describe('UTM input-capture guard', () => {
         await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/Screen Recording or Accessibility/u);
     });
 
+    it('verifies the clone checkbox when a new window appears with permissions', async () => {
+        const fake = fakeRunner([
+            windowSnapshot([10]),
+            {
+                ...windowSnapshot([
+                    10,
+                    11,
+                ]),
+                screenCapturePreflight: true,
+                accessibilityTrusted: true,
+            },
+            {
+                windowTitle: CLONE_NAME,
+                windowAvailable: true,
+                before: 0,
+                after: 0,
+                frontmostPid: 101,
+                utmPid: 202,
+                action: 'release',
+            },
+        ]);
+        const guard = createUtmInputCaptureGuard({
+            runner: fake.runner,
+            utmctl: fakeUtmctl(),
+            probeExecutablePath: '/tmp/utm-input-capture-probe',
+        });
+        await expect(guard.ensureReleased(GOLDEN_VM_ID)).resolves.toMatchObject({
+            windowAvailable: true,
+            after: 0,
+        });
+        expect(fake.calls.at(-1)).toEqual([
+            '--window-title',
+            CLONE_NAME,
+            '--release',
+        ]);
+    });
+
     it('records launch evidence for a stable UTM window set', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-utm-input-capture-'));
         roots.push(root);
