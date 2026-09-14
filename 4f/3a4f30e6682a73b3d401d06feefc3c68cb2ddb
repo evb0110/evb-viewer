@@ -1,0 +1,19 @@
+tests/windows/capabilities.json
+  s_dfc0f301cf02e2::t_6db05493b3d24e 585
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4f3a4f30e6682a73b3d401d06feefc3c68cb2ddb",
+  "prompts": {},
+  "sessions": {
+    "s_dfc0f301cf02e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e3e-da3c-7022-8090-54fac0b9b3af",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
