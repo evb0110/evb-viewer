@@ -62,10 +62,6 @@ export function resolveWorkerPaths(rawWorkerData: unknown): IWorkerPaths {
     if (popplerFontConfigDir !== undefined) {
         paths.popplerFontConfigDir = popplerFontConfigDir;
     }
-    const unpaperBinary = readOptionalPath(rawWorkerData, 'unpaperBinary');
-    if (unpaperBinary !== undefined) {
-        paths.unpaperBinary = unpaperBinary;
-    }
 
     return paths;
 }

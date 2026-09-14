@@ -103,7 +103,6 @@ describe('getOcrToolPaths resource base resolution', () => {
         })).toEqual({
             tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
             tessdata: '/runtime/tessdata',
-            unpaper: '/repo/resources/tesseract/darwin-arm64/bin/unpaper',
         });
     });
 

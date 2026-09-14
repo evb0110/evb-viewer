@@ -66,13 +66,6 @@ const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
 };
 
 const OCR_PREPROCESS_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_PREPROCESS_TIMEOUT_MS', 30_000, 1_000);
-const OCR_UNPAPER_PROBE_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_UNPAPER_PROBE_TIMEOUT_MS', 10_000, 1_000);
-const OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS = parseIntegerEnv('EVB_OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS', 5 * 60_000, 1_000);
-const unpaperProbeByBinary = new Map<string, {
-    promise: Promise<boolean>;
-    negativeExpiresAtMs?: number;
-}>();
-
 function createOptionalPreprocessingLog(log: TWorkerLog): TWorkerLog {
     return (level, message) => {
         log(level === 'error' ? 'warn' : level, message);
@@ -132,51 +125,7 @@ async function readNativePreprocessResult(
     }
 }
 
-async function probeUnpaperBinary(
-    unpaperBinary: string,
-    log: TWorkerLog,
-    signal: AbortSignal,
-) {
-    const cachedProbe = unpaperProbeByBinary.get(unpaperBinary);
-    if (cachedProbe) {
-        if (cachedProbe.negativeExpiresAtMs === undefined || cachedProbe.negativeExpiresAtMs > Date.now()) {
-            return cachedProbe.promise;
-        }
-        unpaperProbeByBinary.delete(unpaperBinary);
-    }
-
-    const probe = runOcrCommand(unpaperBinary, ['--version'], {
-        timeoutMs: OCR_UNPAPER_PROBE_TIMEOUT_MS,
-        commandLabel: 'unpaper(version-probe)',
-        signal,
-        log: createOptionalPreprocessingLog(log),
-    }).then(
-        () => true,
-        (error) => {
-            if (signal.aborted) {
-                unpaperProbeByBinary.delete(unpaperBinary);
-                throw error;
-            }
-            log('warn', `OCR preprocessing disabled because bundled unpaper is not runnable: ${getErrorMessage(error)}`);
-            return false;
-        },
-    );
-    void probe.then((isRunnable) => {
-        if (isRunnable) {
-            return;
-        }
-        const cached = unpaperProbeByBinary.get(unpaperBinary);
-        if (cached?.promise === probe) {
-            cached.negativeExpiresAtMs = Date.now() + OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS;
-        }
-    }, () => {});
-
-    unpaperProbeByBinary.set(unpaperBinary, {promise: probe});
-    return probe;
-}
-
 export async function tryPreprocessOcrImage(
-    unpaperBinary: string | undefined,
     inputPath: string,
     outputPath: string,
     log: TWorkerLog,
@@ -215,79 +164,23 @@ export async function tryPreprocessOcrImage(
                     return result;
                 }
             }
-            log('warn', 'Native scan cleanup produced no usable image; trying unpaper fallback');
+            log('warn', 'Native scan cleanup produced no usable image; using raw page render');
         } catch (error) {
             if (signal.aborted) {
                 throw error;
             }
-            log('warn', `Native scan cleanup failed; trying unpaper fallback: ${getErrorMessage(error)}`);
+            log('warn', `Native scan cleanup failed; using raw page render: ${getErrorMessage(error)}`);
         }
     }
 
-    if (!unpaperBinary) {
-        const message = 'OCR preprocessing requested, but unpaper is not bundled and scan cleanup is unavailable for this platform';
-        log('warn', message);
-        onDiagnostic?.({
-            code: 'OCR_PREPROCESSING_UNAVAILABLE',
-            severity: 'warning',
-            message,
-        });
-        return {path: inputPath};
-    }
-
-    if (!await probeUnpaperBinary(unpaperBinary, log, signal)) {
-        onDiagnostic?.({
-            code: 'OCR_PREPROCESSING_UNAVAILABLE',
-            severity: 'warning',
-            message: 'OCR preprocessing is unavailable because unpaper is not runnable; using raw page render',
-        });
-        return {path: inputPath};
-    }
-
-    try {
-        await runOcrCommand(unpaperBinary, [
-            '--layout',
-            'single',
-            '--deskew-scan-direction',
-            'left,right',
-            '--no-mask-center',
-            inputPath,
-            outputPath,
-        ], {
-            timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
-            commandLabel: 'unpaper(ocr-preprocess)',
-            signal,
-            log: createOptionalPreprocessingLog(log),
-        });
-        if (!await isNonEmptyFile(outputPath)) {
-            const message = 'OCR preprocessing did not produce a usable image; using raw page render';
-            log('warn', message);
-            onDiagnostic?.({
-                code: 'OCR_PREPROCESSING_FAILED',
-                severity: 'warning',
-                message,
-            });
-            return {path: inputPath};
-        }
-        const message = 'unpaper preprocessing has no inverse geometry metadata; using raw page render';
-        log('warn', message);
-        onDiagnostic?.({
-            code: 'OCR_PREPROCESSING_FAILED',
-            severity: 'warning',
-            message,
-        });
-        return {path: inputPath};
-    } catch (error) {
-        if (signal.aborted) {
-            throw error;
-        }
-        const message = `OCR preprocessing failed; using raw page render: ${getErrorMessage(error)}`;
-        log('warn', message);
-        onDiagnostic?.({
-            code: 'OCR_PREPROCESSING_FAILED',
-            severity: 'warning',
-            message,
-        });
-        return {path: inputPath};
-    }
+    const message = scanCleanupBinary
+        ? 'OCR preprocessing failed; using raw page render'
+        : 'OCR preprocessing requested, but scan cleanup is unavailable for this platform';
+    log('warn', message);
+    onDiagnostic?.({
+        code: scanCleanupBinary ? 'OCR_PREPROCESSING_FAILED' : 'OCR_PREPROCESSING_UNAVAILABLE',
+        severity: 'warning',
+        message,
+    });
+    return {path: inputPath};
 }

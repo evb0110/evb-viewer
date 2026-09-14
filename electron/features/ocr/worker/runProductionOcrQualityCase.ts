@@ -19,14 +19,13 @@ export interface IOcrProductionQualityCase {
     scanCleanupBinary?: string;
     tessdataDirectory: string;
     tesseractBinary: string;
-    unpaperBinary?: string;
 }
 
 /**
  * Worker-owned quality-corpus adapter for the production OCR path.
  * The corpus supplies an already-rendered page, so Poppler rasterization is the
- * only production stage intentionally outside this gate. When scan cleanup or
- * unpaper is installed, the production clean-preprocessing path is exercised.
+ * only production stage intentionally outside this gate. When scan cleanup is
+ * installed, the production clean-preprocessing path is exercised.
  * The caller owns the returned pdfPath and must remove it after inspection;
  * the corpus runner does so by removing the per-run output directory.
  */
@@ -39,7 +38,6 @@ export async function runProductionOcrQualityCase(testCase: IOcrProductionQualit
     await copyFile(testCase.inputPath, stagedInputPath);
     const logMessages: string[] = [];
     const candidatePath = await tryPreprocessOcrImage(
-        testCase.unpaperBinary,
         stagedInputPath,
         cleanedPath,
         (level, message) => logMessages.push(`${level}: ${message}`),

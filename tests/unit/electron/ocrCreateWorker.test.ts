@@ -28,7 +28,6 @@ vi.mock('@electron/features/ocr/main/paths', () => ({getOcrToolPaths: () => ({
     popplerDataDir: '/tools/poppler-data',
     popplerFontConfigDir: '/tools/fontconfig',
     qpdf: '/tools/qpdf',
-    unpaper: '/tools/unpaper',
 })}));
 vi.mock('@electron/features/page-ops/public', () => ({resolveNativePageOpsPath: () => '/tools/evb-pdf-page-ops'}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => '/tmp/evb-viewer'}));

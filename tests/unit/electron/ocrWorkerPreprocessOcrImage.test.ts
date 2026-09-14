@@ -34,12 +34,11 @@ describe('tryPreprocessOcrImage', () => {
         mocks.decodeMetadata.mockReturnValue({inverseTransform: null});
     });
 
-    it('prefers native scan cleanup and does not invoke unpaper after success', async () => {
+    it('uses native scan cleanup with pinned pixel options', async () => {
         const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
         const controller = new AbortController();
 
         await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
             '/tmp/raw.png',
             '/tmp/clean.png',
             mocks.log,
@@ -136,7 +135,6 @@ describe('tryPreprocessOcrImage', () => {
         const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
-            undefined,
             '/tmp/raw.png',
             '/tmp/clean.png',
             mocks.log,
@@ -171,7 +169,6 @@ describe('tryPreprocessOcrImage', () => {
         const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
-            undefined,
             '/tmp/raw.png',
             '/tmp/clean.png',
             mocks.log,
@@ -183,232 +180,18 @@ describe('tryPreprocessOcrImage', () => {
         expect(mocks.log).toHaveBeenCalledWith('warn', expect.stringContaining('metadata is unusable'));
     });
 
-    it('returns the cleaned image path when unpaper succeeds', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
-        const controller = new AbortController();
-
-        await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            controller.signal,
-        )).resolves.toEqual({path: '/tmp/raw.png'});
-
-        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
-            '/bin/unpaper',
-            ['--version'],
-            expect.objectContaining({
-                commandLabel: 'unpaper(version-probe)',
-                timeoutMs: 10_000,
-                signal: controller.signal,
-                log: expect.any(Function),
-            }),
-        );
-        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
-            '/bin/unpaper',
-            [
-                '--layout',
-                'single',
-                '--deskew-scan-direction',
-                'left,right',
-                '--no-mask-center',
-                '/tmp/raw.png',
-                '/tmp/clean.png',
-            ],
-            expect.objectContaining({
-                commandLabel: 'unpaper(ocr-preprocess)',
-                signal: controller.signal,
-                timeoutMs: 30_000,
-                log: expect.any(Function),
-            }),
-        );
-        expect(mocks.stat).toHaveBeenCalledWith('/tmp/clean.png');
-    });
-
-    it('falls back to the raw Poppler image when unpaper is unavailable', async () => {
+    it('uses the original image without launching a substitute when scan cleanup is unavailable', async () => {
         const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
         const onDiagnostic = vi.fn();
-
         await expect(tryPreprocessOcrImage(
-            undefined,
             '/tmp/raw.png',
             '/tmp/clean.png',
             mocks.log,
             new AbortController().signal,
             onDiagnostic,
         )).resolves.toEqual({path: '/tmp/raw.png'});
-
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
-        expect(mocks.log).toHaveBeenCalledWith(
-            'warn',
-            expect.stringContaining('unpaper is not bundled'),
-        );
-        expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'OCR_PREPROCESSING_UNAVAILABLE',
-            severity: 'warning',
-        }));
-    });
-
-    it('falls back to the raw Poppler image when unpaper fails', async () => {
-        mocks.runOcrCommand
-            .mockResolvedValueOnce({
-                stdout: '',
-                stderr: '',
-            })
-            .mockImplementationOnce(async (
-                _command: string,
-                _args: string[],
-                options: {log: (level: 'debug' | 'warn' | 'error', message: string) => void},
-            ) => {
-                options.log('error', 'unpaper(ocr-preprocess) timed out after 30000ms');
-                throw new Error('deskew failed');
-            });
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
-
-        await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-        )).resolves.toEqual({path: '/tmp/raw.png'});
-
-        expect(mocks.log).toHaveBeenCalledWith(
-            'warn',
-            expect.stringContaining('using raw page render'),
-        );
-        expect(mocks.log).toHaveBeenCalledWith(
-            'warn',
-            'unpaper(ocr-preprocess) timed out after 30000ms',
-        );
-        expect(mocks.log).not.toHaveBeenCalledWith(
-            'error',
-            expect.any(String),
-        );
-    });
-
-    it('disables preprocessing when the unpaper binary is not runnable', async () => {
-        mocks.runOcrCommand.mockRejectedValue(new Error('unpaper exited after signal SIGKILL'));
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
-
-        await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-        )).resolves.toEqual({path: '/tmp/raw.png'});
-
-        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
-        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
-            '/bin/unpaper',
-            ['--version'],
-            expect.any(Object),
-        );
-        expect(mocks.stat).not.toHaveBeenCalled();
-        expect(mocks.log).toHaveBeenCalledWith(
-            'warn',
-            expect.stringContaining('not runnable'),
-        );
-    });
-
-    it('downgrades optional unpaper probe command errors so they do not report as worker errors', async () => {
-        mocks.runOcrCommand.mockImplementation(async (
-            _command: string,
-            _args: string[],
-            options: {log: (level: 'debug' | 'warn' | 'error', message: string) => void},
-        ) => {
-            options.log('error', 'unpaper(version-probe) timed out after 10000ms');
-            throw new Error('unpaper(version-probe) timed out after 10000ms');
-        });
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
-
-        await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-        )).resolves.toEqual({path: '/tmp/raw.png'});
-
-        expect(mocks.log).toHaveBeenCalledWith(
-            'warn',
-            'unpaper(version-probe) timed out after 10000ms',
-        );
-        expect(mocks.log).not.toHaveBeenCalledWith(
-            'error',
-            expect.any(String),
-        );
-        expect(mocks.stat).not.toHaveBeenCalled();
-    });
-
-    it('retries failed unpaper probes after the negative cache ttl expires', async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(0);
-        vi.stubEnv('EVB_OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS', '1000');
-        try {
-            mocks.runOcrCommand
-                .mockRejectedValueOnce(new Error('temporary probe failure'))
-                .mockResolvedValueOnce({
-                    stdout: '',
-                    stderr: '',
-                })
-                .mockResolvedValueOnce({
-                    stdout: '',
-                    stderr: '',
-                });
-            const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
-
-            await expect(tryPreprocessOcrImage(
-                '/bin/unpaper',
-                '/tmp/raw.png',
-                '/tmp/clean.png',
-                mocks.log,
-                new AbortController().signal,
-            )).resolves.toEqual({path: '/tmp/raw.png'});
-            await Promise.resolve();
-
-            await expect(tryPreprocessOcrImage(
-                '/bin/unpaper',
-                '/tmp/raw.png',
-                '/tmp/clean.png',
-                mocks.log,
-                new AbortController().signal,
-            )).resolves.toEqual({path: '/tmp/raw.png'});
-            expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
-
-            vi.setSystemTime(1_001);
-            await expect(tryPreprocessOcrImage(
-                '/bin/unpaper',
-                '/tmp/raw.png',
-                '/tmp/clean.png',
-                mocks.log,
-                new AbortController().signal,
-            )).resolves.toEqual({path: '/tmp/raw.png'});
-            expect(mocks.runOcrCommand).toHaveBeenCalledTimes(3);
-        } finally {
-            vi.useRealTimers();
-            vi.unstubAllEnvs();
-        }
-    });
-
-    it('falls back to the raw Poppler image when unpaper output is empty', async () => {
-        mocks.stat.mockResolvedValue({ size: 0 });
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
-
-        await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-        )).resolves.toEqual({path: '/tmp/raw.png'});
-
-        expect(mocks.log).toHaveBeenCalledWith(
-            'warn',
-            expect.stringContaining('did not produce a usable image'),
-        );
+        expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({code: 'OCR_PREPROCESSING_UNAVAILABLE'}));
     });
 
     it('propagates preprocessing aborts instead of falling back', async () => {
@@ -419,11 +202,12 @@ describe('tryPreprocessOcrImage', () => {
         const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
-            '/bin/unpaper',
             '/tmp/raw.png',
             '/tmp/clean.png',
             mocks.log,
             controller.signal,
+            undefined,
+            '/bin/evb-scan-cleanup',
         )).rejects.toBe(abortError);
     });
 });

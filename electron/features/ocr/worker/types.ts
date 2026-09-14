@@ -28,7 +28,6 @@ export interface IWorkerPaths {
     qpdfBinary: string;
     pdfPageOpsBinary?: string;
     scanCleanupBinary?: string;
-    unpaperBinary?: string;
     tempDir: string;
 }
 

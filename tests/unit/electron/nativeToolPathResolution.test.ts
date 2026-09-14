@@ -144,10 +144,10 @@ describe('native tool binary path primitives', () => {
 
     it('keeps optional missing tools empty and Windows executables suffixed', () => {
         expect(getNativeToolBinaryPath({
-            dir: '/repo/resources/tesseract/win32-x64',
+            dir: '/repo/resources/poppler/win32-x64',
             exists: () => false,
             isPackaged: false,
-            name: 'unpaper',
+            name: 'pdfimages',
             optional: true,
             platform: 'win32',
         })).toBe('');

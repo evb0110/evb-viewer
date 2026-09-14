@@ -502,7 +502,6 @@ async function processOcrPage(
         if (context.options.preprocessingMode === 'clean') {
             context.preprocessInverseByPageNumber?.delete(page.pageNumber);
             const candidateOcrImage = await tryPreprocessOcrImage(
-                paths.unpaperBinary,
                 pageImagePath,
                 preprocessedImagePath,
                 log,
