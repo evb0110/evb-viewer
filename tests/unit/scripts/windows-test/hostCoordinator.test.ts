@@ -541,16 +541,35 @@ describe('windows test run coordinator', () => {
     });
 
     it('restarts the owned clone when the prepared guest worker was refreshed', async () => {
-        const refreshCalls: string[] = [];
-        const harness = await createHarness({refreshGuestWorker: async (vmId, timeoutMs) => {
-            refreshCalls.push(`${vmId}:${timeoutMs}`);
-            return true;
+        const refreshCalls: Array<{
+            vmId: string;
+            timeoutMs: number;
+            allowStage: boolean
+        }> = [];
+        const harness = await createHarness({refreshGuestWorker: async (vmId, timeoutMs, options) => {
+            refreshCalls.push({
+                vmId,
+                timeoutMs,
+                allowStage: options?.allowStage ?? true,
+            });
+            return options?.allowStage !== false;
         }});
 
         const report = await harness.run();
 
         expect(report.outcome).toBe('passed');
-        expect(refreshCalls).toEqual([`${CLONE_VM_ID}:200`]);
+        expect(refreshCalls).toEqual([
+            {
+                vmId: CLONE_VM_ID,
+                timeoutMs: 200,
+                allowStage: true,
+            },
+            {
+                vmId: CLONE_VM_ID,
+                timeoutMs: 200,
+                allowStage: false,
+            },
+        ]);
         expect(harness.utmctl.calls).toContain(`stop request ${CLONE_VM_ID}`);
         expect(harness.utmctl.calls.filter(call => call === `start ${CLONE_VM_ID}`)).toHaveLength(2);
         expect(harness.guest.calls.filter(call => call === 'ping')).toHaveLength(2);

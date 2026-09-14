@@ -120,7 +120,7 @@ export async function runWinSaveWitnessMatrix(context: ICaseContext) {
             failure: canceled ? null : 'gated read did not reject',
         });
     }
-    await context.fs.writeText(context.outputPath('save-witness-matrix.json'), JSON.stringify({
+    await context.fs.writeText(context.attachEvidence('save-witness-matrix.json'), JSON.stringify({
         schemaVersion: 1,
         coverage: 'open -> identical atomic replacement -> edit -> save witness comparison -> reopen stat; no app-level UI save is invoked',
         cache: 'guest filesystem cache state was not flushed; cells are warm-cache observations',

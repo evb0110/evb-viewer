@@ -226,9 +226,11 @@ keep qualification fields null until the ledger's cold-reset checks pass.
 
 After updating the runner, run `prepare` to rebuild the host worker bundle.
 Before publishing a job, the runner compares that bundle with the worker on
-its disposable clone. A mismatch triggers a verified copy and a guarded clone
-reboot. A fresh interactive heartbeat is required again before staging the
-job. The golden image stays unchanged; `prepare` changes host files only.
+its disposable clone. If the SYSTEM bootstrap copies a seed bundle on every
+boot, the runner refreshes that seed. Otherwise it refreshes the installed
+bundle. A mismatch triggers a verified copy and a guarded clone reboot. The
+runner then requires a fresh interactive heartbeat and checks the installed
+bundle hash again before staging the job. The golden image stays unchanged; `prepare` changes host files only.
 
 ## Candidate artifacts
 

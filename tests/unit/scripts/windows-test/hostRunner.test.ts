@@ -130,7 +130,9 @@ describe('prepared guest worker refresh', () => {
         await writeFile(workerFile, 'prepared-worker', 'utf8');
         const calls: string[] = [];
         const guest = {
-            readGuestText: async () => 'golden-worker',
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('system-bootstrap-worker.cmd')
+                ? 'copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\\worker\\guestWorker.cjs"'
+                : 'golden-worker',
             stageFile: async (_vmId: string, hostPath: string, guestPath: string) => {
                 calls.push(`stage ${hostPath} -> ${guestPath}`);
             },
@@ -148,7 +150,7 @@ describe('prepared guest worker refresh', () => {
         expect(changed).toBe(true);
         expect(calls).toHaveLength(2);
         expect(calls[0]).toContain('stage ');
-        expect(calls[1]).toContain('verify C:\\EVBViewerTests\\worker\\guestWorker.cjs ');
+        expect(calls[1]).toContain('verify C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\guestWorker.cjs ');
     });
 
     it('skips staging when the guest worker already matches the prepared hash', async () => {
@@ -157,7 +159,9 @@ describe('prepared guest worker refresh', () => {
         await writeFile(workerFile, 'prepared-worker', 'utf8');
         const calls: string[] = [];
         const guest = {
-            readGuestText: async () => 'prepared-worker',
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('system-bootstrap-worker.cmd')
+                ? 'copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\\worker\\guestWorker.cjs"'
+                : 'prepared-worker',
             stageFile: async () => {
                 calls.push('stage');
             },

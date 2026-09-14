@@ -149,7 +149,11 @@ export interface IWindowsTestRunDependencies {
     deadlines?: Partial<IWindowsTestRunDeadlines>;
     hashFile?(filePath: string): Promise<string>;
     /** Refresh the installed guest worker when the prepared bundle differs. */
-    refreshGuestWorker?(vmId: string, timeoutMs: number): Promise<boolean>;
+    refreshGuestWorker?(
+        vmId: string,
+        timeoutMs: number,
+        options?: {allowStage?: boolean},
+    ): Promise<boolean>;
 }
 
 export interface IWindowsTestRunReport {
@@ -767,6 +771,16 @@ export async function executeWindowsTestRun(
                     bootId, heartbeat,
                 } = await waitForGuestReady('guest-ready', restartStartedAtMs));
                 await recorder.record('guest-ready', 'The refreshed guest worker reported a fresh interactive heartbeat for the restarted clone.');
+                const workerStillChanged = dependencies.refreshGuestWorker === undefined
+                    ? false
+                    : await dependencies.refreshGuestWorker(clonedVmId, deadlines.commandTimeoutMs, {allowStage: false});
+                if (workerStillChanged) {
+                    abort(
+                        'infrastructure-failed',
+                        'guest-ready',
+                        'The restarted clone did not load the prepared guest worker bundle; refusing to publish a job.',
+                    );
+                }
             }
             await recorder.record('desktop-ready', `Interactive desktop confirmed in session ${heartbeat.worker.sessionId}.`);
             await throwIfCanceled('desktop-ready');

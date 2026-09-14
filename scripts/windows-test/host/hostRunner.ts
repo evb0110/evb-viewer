@@ -166,12 +166,15 @@ export async function resolveWindowsTestFixtureInputs(manifestPath: string): Pro
 }
 
 export const WINDOWS_TEST_GUEST_WORKER_FILE = `${windowsTestGuestLayout.root}\\worker\\guestWorker.cjs`;
+export const WINDOWS_TEST_GUEST_WORKER_BOOTSTRAP_FILE = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\system-bootstrap-worker.cmd';
+export const WINDOWS_TEST_GUEST_WORKER_SEED_FILE = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\guestWorker.cjs';
 
 export function createPreparedGuestWorkerRefresher(options: {
     workerFile: string;
     guest: Pick<IWindowsTestGuestChannel, 'readGuestText' | 'stageFile' | 'verifyStagedFileHash'>;
 }) {
-    return async (vmId: string, timeoutMs: number) => {
+    return async (vmId: string, timeoutMs: number, refreshOptions: {allowStage?: boolean} = {}) => {
+        const allowStage = refreshOptions.allowStage ?? true;
         const workerBytes = await readFile(options.workerFile);
         const expectedSha256 = createHash('sha256').update(workerBytes).digest('hex');
         const guestWorkerText = await options.guest.readGuestText(
@@ -182,23 +185,37 @@ export function createPreparedGuestWorkerRefresher(options: {
         const actualSha256 = guestWorkerText === null
             ? null
             : createHash('sha256').update(Buffer.from(guestWorkerText, 'utf8')).digest('hex');
-        if (actualSha256 === expectedSha256) {
+        const bootstrapText = await options.guest.readGuestText(
+            vmId,
+            WINDOWS_TEST_GUEST_WORKER_BOOTSTRAP_FILE,
+            timeoutMs,
+        );
+        const hasKnownBootstrap = bootstrapText !== null
+            && bootstrapText.includes('EVB_STAGE%guestWorker.cjs');
+        const seedText = hasKnownBootstrap
+            ? await options.guest.readGuestText(vmId, WINDOWS_TEST_GUEST_WORKER_SEED_FILE, timeoutMs)
+            : null;
+        const seedSha256 = seedText === null
+            ? null
+            : createHash('sha256').update(Buffer.from(seedText, 'utf8')).digest('hex');
+        const runtimeMatches = actualSha256 === expectedSha256;
+        const seedMatches = !hasKnownBootstrap || seedSha256 === expectedSha256;
+        if (runtimeMatches && seedMatches) {
             return false;
         }
-        await options.guest.stageFile(
-            vmId,
-            options.workerFile,
-            WINDOWS_TEST_GUEST_WORKER_FILE,
-            timeoutMs,
-        );
-        const verified = await options.guest.verifyStagedFileHash(
-            vmId,
-            WINDOWS_TEST_GUEST_WORKER_FILE,
-            expectedSha256,
-            timeoutMs,
-        );
+        if (!allowStage) {
+            return true;
+        }
+        if (hasKnownBootstrap && seedMatches) {
+            return true;
+        }
+        const destination = hasKnownBootstrap
+            ? WINDOWS_TEST_GUEST_WORKER_SEED_FILE
+            : WINDOWS_TEST_GUEST_WORKER_FILE;
+        await options.guest.stageFile(vmId, options.workerFile, destination, timeoutMs);
+        const verified = await options.guest.verifyStagedFileHash(vmId, destination, expectedSha256, timeoutMs);
         if (!verified) {
-            throw new Error(`The staged guest worker did not hash to ${expectedSha256} inside the guest.`);
+            throw new Error(`The staged guest worker at ${destination} did not hash to ${expectedSha256} inside the guest.`);
         }
         return true;
     };
