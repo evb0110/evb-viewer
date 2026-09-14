@@ -57,8 +57,48 @@ export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTe
         : null;
 }
 
-function assembleTextLayerSearchText(index: ITextLayerIndexCacheEntry): IAssembledSearchablePageText {
-    return assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
+export function assembleTextLayerSearchText(
+    index: ITextLayerIndexCacheEntry,
+    query?: string,
+    options?: ISearchMatchOptions,
+    expectedPageMatchCount?: number,
+): IAssembledSearchablePageText {
+    const separated = assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
+    if (query) {
+        try {
+            const pattern = buildPdfSearchRegex(query, {
+                matchCase: options?.matchCase ?? false,
+                wholeWord: options?.wholeWord ?? false,
+                useRegex: options?.useRegex ?? false,
+            });
+            let separatedMatchCount = 0;
+            for (const match of separated.text.matchAll(pattern)) {
+                if (match[0].length > 0) {
+                    separatedMatchCount += 1;
+                }
+            }
+            if (separatedMatchCount > 0
+                && (expectedPageMatchCount === undefined || separatedMatchCount === expectedPageMatchCount)) {
+                return separated;
+            }
+            // PDF.js may split a word into positioned glyph spans. Preserve
+            // their adjacency when inferred separators lose indexed occurrences.
+            const contiguous = assembleSearchablePageText([{text: index.text}]);
+            if (separatedMatchCount === 0) {
+                return contiguous;
+            }
+            let contiguousMatchCount = 0;
+            for (const match of contiguous.text.matchAll(pattern)) {
+                if (match[0].length > 0) {
+                    contiguousMatchCount += 1;
+                }
+            }
+            return contiguousMatchCount === expectedPageMatchCount ? contiguous : separated;
+        } catch {
+            // Invalid queries have no visual occurrences; the caller handles them.
+        }
+    }
+    return separated;
 }
 
 function buildTextLayerIndex(textLayerDiv: HTMLElement): {
@@ -266,8 +306,8 @@ export function createTextLayerRangeForSearchOccurrence(
     },
 ): Range | null {
     const index = getCachedTextLayerIndex(textLayerDiv);
-    const assembled = assembleTextLayerSearchText(index);
     const query = options.searchQuery ?? options.text;
+    const assembled = assembleTextLayerSearchText(index, query, options.searchOptions, options.expectedPageMatchCount);
     if (!query) {
         return null;
     }

@@ -14,6 +14,7 @@ import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composabl
 import {
     clearTextLayerTextMapping,
     createTextLayerRangeForSearchMatch,
+    createTextLayerRangeForSearchOccurrence,
     getCachedTextLayerIndex,
     highlightTextRunInPdfjsStyle,
     registerTextLayerTextMapping,
@@ -530,6 +531,109 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         expect(range?.toString()).toBe('needle');
 
         clearTextLayerTextMapping(textLayer);
+    });
+
+    it.each([
+        'اللغة العربية',
+        'fragmented words',
+    ])('highlights and navigates whole and fragmented occurrences for %s', (text) => {
+        const textLayer = document.createElement('div');
+        const items = [
+            text,
+            '\n',
+            ...Array.from(text),
+        ];
+        const pageText = items.join('');
+        const spans = items.map((character) => {
+            const span = document.createElement('span');
+            span.textContent = character;
+            textLayer.append(span);
+            return span;
+        });
+        registerTextLayerTextMapping(textLayer, {
+            textDivs: spans,
+            textContentItemsStr: items,
+        });
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText,
+            searchQuery: text,
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: text.length,
+                },
+                {
+                    matchIndex: 1,
+                    start: text.length + 1,
+                    end: pageText.length,
+                },
+            ],
+        };
+        const result = usePdfSearchHighlight().highlightPage(textLayer, pageMatches, {
+            pageIndex: requirePageIndex(0),
+            pageMatchIndex: 1,
+            matchIndex: 1,
+            startOffset: text.length + 1,
+            endOffset: pageText.length,
+        });
+        expect(result.currentMatchElements.map(element => element.textContent).join('')).toBe(text);
+        expect(createTextLayerRangeForSearchOccurrence(textLayer, {
+            text,
+            searchQuery: text,
+            pageMatchIndex: 1,
+            expectedPageMatchCount: 2,
+        })?.toString()).toBe(text);
+        expect(textLayer.textContent).toBe(pageText);
+    });
+
+    it('preserves word-separated occurrences when contiguous text contains fewer matches', () => {
+        const textLayer = document.createElement('div');
+        const words = [
+            'foo ',
+            'bar',
+            'foo',
+        ];
+        const spans = words.map((text) => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            textLayer.append(span);
+            return span;
+        });
+        registerTextLayerTextMapping(textLayer, {
+            textDivs: spans,
+            textContentItemsStr: words,
+        });
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: 'foo bar foo',
+            searchQuery: 'foo',
+            searchOptions: {wholeWord: true},
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 3,
+                },
+                {
+                    matchIndex: 1,
+                    start: 8,
+                    end: 11,
+                },
+            ],
+        };
+        const result = usePdfSearchHighlight().highlightPage(textLayer, pageMatches, null);
+        expect(result.elements.map(element => element.textContent)).toEqual([
+            'foo',
+            'foo',
+        ]);
+        expect(createTextLayerRangeForSearchOccurrence(textLayer, {
+            text: 'foo',
+            searchOptions: {wholeWord: true},
+            pageMatchIndex: 1,
+            expectedPageMatchCount: 2,
+        })?.toString()).toBe('foo');
     });
 
     it('marks multi-div highlights with pdf.js begin and end segment classes', () => {
