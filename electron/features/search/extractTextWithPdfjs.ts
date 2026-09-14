@@ -43,7 +43,11 @@ import {
     getPdfjsPageViewBox,
 } from '@pdf-core/pdfjsTextGeometry';
 import { createPdfjsNodeDocumentOptions } from '@electron/features/search/createPdfjsNodeDocumentOptions';
-import {groupContiguousPages} from '@electron/pdf/pdfTextPageBatching';
+import {
+    groupContiguousPages,
+    normalizeRequestedPdfPages,
+    splitPdfPageRange,
+} from '@electron/pdf/pdfTextPageBatching';
 import {
     extractTextFromPdf,
     isPdfTextExtractionCapabilityError,
@@ -267,42 +271,6 @@ function getPdfjsTextExtractionPages(
     )).sort((left, right) => left - right);
 }
 
-function splitDocumentTextCatalogPageRange(firstPage: number, lastPage: number) {
-    const ranges: Array<{
-        firstPage: number;
-        lastPage: number
-    }> = [];
-    for (
-        let rangeFirstPage = firstPage;
-        rangeFirstPage <= lastPage;
-        rangeFirstPage += MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES
-    ) {
-        ranges.push({
-            firstPage: rangeFirstPage,
-            lastPage: Math.min(
-                lastPage,
-                rangeFirstPage + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES - 1,
-            ),
-        });
-    }
-    return ranges;
-}
-
-function getLargeFileRequestedPages(
-    requestedPages: readonly number[] | undefined,
-    pageCount: number | undefined,
-) {
-    if (!requestedPages || requestedPages.length === 0) {
-        return [];
-    }
-
-    return Array.from(new Set(
-        requestedPages
-            .map(page => Math.trunc(page))
-            .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount)),
-    )).sort((left, right) => left - right);
-}
-
 async function extractLargeFileTextFromCatalog(
     pdfPath: string,
     options: IExtractPdfjsTextOptions,
@@ -312,21 +280,19 @@ async function extractLargeFileTextFromCatalog(
         return null;
     }
 
-    const requestedPages = getLargeFileRequestedPages(options.pages, options.pageCount);
+    const requestedPages = normalizeRequestedPdfPages(options.pages, options.pageCount);
     const pageCount = options.pageCount !== undefined && options.pageCount > 0
         ? Math.trunc(options.pageCount)
-        : requestedPages.length > 0
-            ? requestedPages.at(-1)
-            : undefined;
+        : requestedPages.at(-1);
     if (pageCount === undefined || pageCount < 1) {
         return null;
     }
 
     const ranges = requestedPages.length > 0
         ? groupContiguousPages(requestedPages).flatMap(range => (
-            splitDocumentTextCatalogPageRange(range.firstPage, range.lastPage)
+            splitPdfPageRange(range.firstPage, range.lastPage, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES)
         ))
-        : splitDocumentTextCatalogPageRange(1, pageCount);
+        : splitPdfPageRange(1, pageCount, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES);
     const {resolveDocumentTextCatalogWindow} = await import('@electron/features/ocr/public/documentTextCatalog');
     const pages: IPageText[] = [];
 

@@ -31,3 +31,33 @@ export function splitPdfTextOutput(output: string, expectedCount?: number) {
     }
     return pages;
 }
+
+export function normalizeRequestedPdfPages(pages: readonly number[] | undefined, pageCount?: number) {
+    if (!pages || pages.length === 0) {
+        return [];
+    }
+
+    return Array.from(new Set(
+        pages
+            .map(page => Math.trunc(page))
+            .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount)),
+    )).sort((left, right) => left - right);
+}
+
+export function splitPdfPageRange(firstPage: number, lastPage: number, windowPages: number) {
+    const ranges: Array<{
+        firstPage: number;
+        lastPage: number;
+    }> = [];
+    for (
+        let rangeFirstPage = firstPage;
+        rangeFirstPage <= lastPage;
+        rangeFirstPage += windowPages
+    ) {
+        ranges.push({
+            firstPage: rangeFirstPage,
+            lastPage: Math.min(lastPage, rangeFirstPage + windowPages - 1),
+        });
+    }
+    return ranges;
+}
