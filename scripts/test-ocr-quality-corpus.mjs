@@ -54,6 +54,14 @@ const tesseract = process.env.EVB_TESSERACT_PATH ?? 'tesseract';
 const pdftotext = process.env.EVB_PDFTOTEXT_PATH ?? 'pdftotext';
 const pdftoppm = process.env.EVB_PDFTOPPM_PATH ?? 'pdftoppm';
 const qpdf = process.env.EVB_QPDF_PATH ?? 'qpdf';
+const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH
+    ?? join(
+        repositoryRoot,
+        'native',
+        'target',
+        'release',
+        process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops',
+    );
 const unpaper = process.env.EVB_UNPAPER_PATH
     ?? join(repositoryRoot, 'resources', 'tesseract', 'linux-x64', 'bin', 'unpaper');
 const required = process.env.EVB_OCR_QUALITY_REQUIRED === '1';
@@ -163,6 +171,7 @@ async function runProductionOcrQualityDocument({
     tempDirectory,
     unpaperBinary,
     scanCleanupBinary,
+    pdfPageOpsBinary,
 }) {
     await mkdir(tempDirectory, {recursive: true});
     const worker = new Worker(pathToFileURL(workerBundlePath), {
@@ -175,6 +184,7 @@ async function runProductionOcrQualityDocument({
             qpdfBinary: qpdf,
             tempDir: tempDirectory,
             ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
+            ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
             ...(unpaperBinary ? {unpaperBinary} : {}),
         },
     });
@@ -970,7 +980,7 @@ async function prepareBenchmarkTessdata() {
 }
 
 async function runCleanLanguageBenchmark({
-    unpaperBinary, scanCleanupBinary,
+    unpaperBinary, scanCleanupBinary, pdfPageOpsBinary,
 }) {
     await prepareBenchmarkTessdata();
     const fixtureDirectory = join(workDirectory, 'ocr-language-quality');
@@ -998,6 +1008,7 @@ async function runCleanLanguageBenchmark({
         tempDirectory: workerTempDirectory,
         unpaperBinary,
         scanCleanupBinary,
+        pdfPageOpsBinary,
     });
     if (!workerResult.success) {
         throw new Error(`MLOCR-02 production PDF OCR failed: ${workerResult.errors.join('; ')}`);
@@ -1055,6 +1066,15 @@ async function resolveOptionalScanCleanup() {
     try {
         await access(candidate, fsConstants.X_OK);
         return candidate;
+    } catch {
+        return undefined;
+    }
+}
+
+async function resolveOptionalPdfPageOps() {
+    try {
+        await access(pdfPageOps, fsConstants.X_OK);
+        return pdfPageOps;
     } catch {
         return undefined;
     }
@@ -1139,12 +1159,14 @@ try {
             const {runProductionOcrQualityCase} = await loadProductionRunner();
             const unpaperBinary = await resolveOptionalPreprocessor();
             const scanCleanupBinary = await resolveOptionalScanCleanup();
+            const pdfPageOpsBinary = await resolveOptionalPdfPageOps();
             if (required && !unpaperBinary && !scanCleanupBinary) {
                 reportIncomplete(['required clean preprocessing tool is unavailable']);
             } else {
                 await runCleanLanguageBenchmark({
                     unpaperBinary,
                     scanCleanupBinary,
+                    pdfPageOpsBinary,
                 });
                 if (degradedOptIn) {
                     const fixtureDirectory = join(workDirectory, 'ocr-language-quality-degraded-fixture');

@@ -132,6 +132,7 @@ const PDF_CONTENT_OPERATORS = new Set([
 export type TOcrPageEntryValue = string | {
     path: string;
     pageGeometry?: IOcrPageGeometry;
+    normalizeGreekMicroSign?: boolean;
 };
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -1098,6 +1099,7 @@ async function repairOcrPageTextLayer(
     pdfPageOpsBinary: string,
     ocrPage: PDFPage,
     ocrPagePath: string,
+    normalizeGreekMicroSign: boolean,
     tempDir: string,
     sessionId: string,
     trackTempFile: (path: string) => string,
@@ -1127,6 +1129,7 @@ async function repairOcrPageTextLayer(
                 0,
                 0,
             ],
+            normalizeGreekMicroSign,
         }]}),
     );
     await runOcrCommand(pdfPageOpsBinary, [
@@ -1418,11 +1421,15 @@ export async function assembleSearchablePdf(
             .sort(([left], [right]) => left - right)
         : null;
     const geometryByOcrPath = new Map<string, IOcrPageGeometry>();
+    const normalizeGreekMicroSignByOcrPath = new Map<string, boolean>();
     const normalizeEntry = (entry: TOcrPageEntryValue) => {
         if (typeof entry === 'string') {
             return entry;
         }
         if (entry.pageGeometry !== undefined) geometryByOcrPath.set(entry.path, entry.pageGeometry);
+        if (entry.normalizeGreekMicroSign === true) {
+            normalizeGreekMicroSignByOcrPath.set(entry.path, true);
+        }
         return entry.path;
     };
     const ocrPageEntries: ReadonlyArray<readonly [number, string]> | AsyncIterable<readonly [number, string]> = mapPageEntries
@@ -1478,6 +1485,7 @@ export async function assembleSearchablePdf(
                     pdfPageOpsBinary,
                     (await loadBoundedGeneratedPagePdf(ocrPagePath, 'Generated OCR PDF page')).getPage(0),
                     ocrPagePath,
+                    normalizeGreekMicroSignByOcrPath.get(ocrPagePath) === true,
                     tempDir,
                     sessionId,
                     trackTempFile,
