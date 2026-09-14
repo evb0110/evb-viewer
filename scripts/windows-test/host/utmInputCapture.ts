@@ -32,6 +32,8 @@ export interface IUtmInputCaptureProbeResult {
 
 export interface IUtmInputCaptureWindowSnapshot {
     enumerationAvailable: boolean;
+    screenCapturePreflight?: boolean;
+    accessibilityTrusted?: boolean;
     windowNumbers: number[];
     windows: Array<Record<string, string>>;
     utmPid: number;
@@ -106,6 +108,12 @@ function parseWindowSnapshot(text: string): IUtmInputCaptureWindowSnapshot {
         : [];
     return {
         enumerationAvailable: record.enumerationAvailable,
+        ...(typeof record.screenCapturePreflight === 'boolean'
+            ? {screenCapturePreflight: record.screenCapturePreflight}
+            : {}),
+        ...(typeof record.accessibilityTrusted === 'boolean'
+            ? {accessibilityTrusted: record.accessibilityTrusted}
+            : {}),
         windowNumbers,
         windows: Array.isArray(record.windows)
             ? record.windows as Array<Record<string, string>>

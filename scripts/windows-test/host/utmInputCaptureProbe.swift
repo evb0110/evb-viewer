@@ -22,6 +22,8 @@ struct ProbeResult: Codable {
 
 struct WindowSnapshot: Codable {
     let enumerationAvailable: Bool
+    let screenCapturePreflight: Bool
+    let accessibilityTrusted: Bool
     let windowNumbers: [Int]
     let windows: [[String: String]]
     let utmPid: Int32
@@ -30,7 +32,7 @@ struct WindowSnapshot: Codable {
 
 func snapshotWindows(for pid: pid_t) -> WindowSnapshot {
     guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
-        return WindowSnapshot(enumerationAvailable: false, windowNumbers: [], windows: [], utmPid: Int32(pid), frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+        return WindowSnapshot(enumerationAvailable: false, screenCapturePreflight: CGPreflightScreenCaptureAccess(), accessibilityTrusted: AXIsProcessTrusted(), windowNumbers: [], windows: [], utmPid: Int32(pid), frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
     }
     let windows = rawWindows.compactMap { window -> [String: String]? in
         guard (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == Int(pid),
@@ -47,6 +49,8 @@ func snapshotWindows(for pid: pid_t) -> WindowSnapshot {
     }
     return WindowSnapshot(
         enumerationAvailable: true,
+        screenCapturePreflight: CGPreflightScreenCaptureAccess(),
+        accessibilityTrusted: AXIsProcessTrusted(),
         windowNumbers: windows.compactMap { Int($0["number"] ?? "") },
         windows: windows,
         utmPid: Int32(pid),
