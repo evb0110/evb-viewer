@@ -21,15 +21,6 @@ import type {
 } from '@scripts/windows-test/host/utmctlClient';
 import type { IWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
 
-const IMPORT_CLONE_SCRIPT = [
-    'on run argv',
-    'set bundleFile to POSIX file (item 1 of argv)',
-    'tell application id "com.utmapp.UTM"',
-    'open bundleFile',
-    'end tell',
-    'end run',
-].join('\n');
-
 const INPUT_MEDIA_FILE_NAME = 'evb-test-inputs.iso';
 
 async function validateInputMediaPath(inputMediaPath: string | undefined) {
@@ -126,7 +117,13 @@ export async function createTestClone(options: {
     const runChecked = async (command: string, args: string[]) => {
         const result = await runner.run(command, args, { timeoutMs: 60_000 });
         if (result.exitCode !== 0 || result.timedOut) {
-            throw new Error(`Lab clone ${path.basename(command)} failed: ${result.stderr.trim()}`);
+            const output = [
+                result.stderr.trim(),
+                result.stdout.trim(),
+            ]
+                .filter(part => part.length > 0)
+                .join(' | ');
+            throw new Error(`Lab clone ${path.basename(command)} failed (exit ${String(result.exitCode)}, timedOut=${String(result.timedOut)}): ${output || 'no command output'}`);
         }
         return result.stdout;
     };
@@ -249,9 +246,9 @@ export async function createTestClone(options: {
             cloneConfig,
         ]);
     }
-    await runChecked('/usr/bin/osascript', [
-        '-e',
-        IMPORT_CLONE_SCRIPT,
+    await runChecked('/usr/bin/open', [
+        '-a',
+        '/Applications/UTM.app',
         destination,
     ]);
     // Opening a bundle schedules an asynchronous import in UTM's UI process.

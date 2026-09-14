@@ -571,17 +571,21 @@
             "obligation": "automated",
             "status": "implemented",
             "gate": "advisory",
-            "suites": ["all"],
+            "suites": [
+                "smoke",
+                "all"
+            ],
             "primaryEnvironment": "utm-win11-arm64-app-arm64",
             "environments": ["utm-win11-arm64-app-arm64"],
             "fixtures": ["F10"],
             "oracles": ["filesystem-state", "hash-identity", "reopen", "performance"],
             "negativeControl": "Identical atomic replacement must not be accepted without a full-content witness",
             "owner": "electron-test-engineer",
-            "quarantine": null
+            "quarantine": null,
+            "hostDisplayRequired": false
         },
         {
-            "id": "WIN-SAVE-09",
+            "id": "WIN-SAVE-11",
             "family": "Saving, editing, identity and recovery",
             "title": "Rapid repeated save, tab switch, document close, app quit and shutdown during save",
             "driver": "APP",
@@ -611,7 +615,7 @@
             "quarantine": null
         },
         {
-            "id": "WIN-SAVE-10",
+            "id": "WIN-SAVE-09",
             "family": "Saving, editing, identity and recovery",
             "title": "External modification while open, with reopen and reload conflict handling",
             "driver": "APP",

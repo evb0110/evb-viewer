@@ -240,6 +240,8 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('node-extract.stderr.log');
         expect(bootstrap).toContain('node-version.stdout.log');
         expect(bootstrap).toContain('node-version.stderr.log');
+        expect(bootstrap).toContain('exit=skipped-existing');
+        expect(bootstrap).toContain('findstr /x /c:"v22.23.2"');
         expect(bootstrap).toContain('configure-failed');
         expect(bootstrap).toContain('complete=v2');
         expect(bootstrap).toContain('powershell-copy');

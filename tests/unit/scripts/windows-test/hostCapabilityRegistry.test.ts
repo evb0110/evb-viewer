@@ -151,6 +151,7 @@ describe('createCapabilityFileSuiteResolver', () => {
         const selection = await resolver.resolveSuite('smoke', PRIMARY_ENVIRONMENT);
 
         expect(selection.tests).toContain('WIN-PRINT-01');
+        expect(selection.tests).toContain('WIN-SAVE-10');
         expect(selection.tests.length).toBeGreaterThan(0);
         for (const testId of selection.tests) {
             const entry = byId.get(testId);
@@ -158,6 +159,7 @@ describe('createCapabilityFileSuiteResolver', () => {
             expect(entry?.obligation).toBe('automated');
             expect(entry?.environments).toContain(PRIMARY_ENVIRONMENT);
         }
+        expect(byId.get('WIN-SAVE-10')?.hostDisplayRequired).toBe(false);
         for (const testId of selection.humanReviewObligations) {
             expect(selection.tests).toContain(testId);
             expect(byId.get(testId)?.oracles).toContain(HUMAN_REVIEW_ORACLE_ID);

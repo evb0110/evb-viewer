@@ -113,7 +113,7 @@ async function fixture() {
     const utmctl: IUtmctlClient = {
         list: async () => {
             const cloneId = commands.find(entry => entry.args[1] === 'Information.UUID')?.args[3];
-            return cloneId && commands.some(entry => entry.command === '/usr/bin/osascript')
+            return cloneId && commands.some(entry => entry.command === '/usr/bin/open')
                 ? [
                     registration,
                     {
@@ -171,10 +171,10 @@ it('copies disk, EFI and TPM into the test root and changes only the copied iden
     ]);
     expect(replacements.every(entry => entry.args.at(-1) === path.join(destination, 'config.plist'))).toBe(true);
     expect(replacements[0]?.args[3]).not.toBe(goldenId);
-    expect(harness.commands.at(-1)?.command).toBe('/usr/bin/osascript');
+    expect(harness.commands.at(-1)?.command).toBe('/usr/bin/open');
+    expect(harness.commands.at(-1)?.args[0]).toBe('-a');
+    expect(harness.commands.at(-1)?.args[1]).toBe('/Applications/UTM.app');
     expect(harness.commands.at(-1)?.args.at(-1)).toBe(destination);
-    expect(harness.commands.at(-1)?.args[1]).toContain('open bundleFile');
-    expect(harness.commands.at(-1)?.args[1]).not.toContain('import new');
 });
 
 it('refuses the personal display name before copying or importing', async () => {
@@ -195,7 +195,7 @@ it('refuses external media, symlinks and an existing destination', async () => {
     existing.options.config.retention.maxFailedClones = 2;
     await mkdir(path.join(existing.root, `${cloneName}.utm`));
     await expect(createTestClone(existing.options)).rejects.toThrow('already exists');
-    expect(existing.commands.some(entry => entry.command.endsWith('osascript'))).toBe(false);
+    expect(existing.commands.some(entry => entry.command.endsWith('open'))).toBe(false);
 });
 
 it('counts a preserved unregistered clone against the retention limit', async () => {
@@ -241,7 +241,7 @@ it('copies input media into the clone and inserts only a read-only USB CD drive 
         InterfaceVersion: 1,
         ReadOnly: true,
     });
-    expect(harness.commands.some(entry => entry.command.endsWith('osascript'))).toBe(true);
+    expect(harness.commands.some(entry => entry.command.endsWith('open'))).toBe(true);
 });
 
 it('rejects symbolic-link and non-regular input media before touching UTM', async () => {
@@ -276,5 +276,5 @@ it('refuses an input-media destination already present in the golden bundle', as
         ...harness.options,
         inputMediaPath,
     })).rejects.toThrow('input media destination already exists');
-    expect(harness.commands.some(entry => entry.command.endsWith('osascript'))).toBe(false);
+    expect(harness.commands.some(entry => entry.command.endsWith('open'))).toBe(false);
 });

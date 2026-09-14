@@ -194,10 +194,14 @@ export async function runWindowsFixturesCli(options: IWindowsFixtureCliOptions) 
     return result;
 }
 
-if (await isDirectCliInvocation(import.meta.url)) {
-    await runWindowsFixturesCli({
+void isDirectCliInvocation(import.meta.url).then(isDirect => {
+    if (!isDirect) return;
+    return runWindowsFixturesCli({
         argv: process.argv.slice(2),
         cwd: process.cwd(),
         log: message => process.stdout.write(`${message}\n`),
     });
-}
+}).catch(error => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+});

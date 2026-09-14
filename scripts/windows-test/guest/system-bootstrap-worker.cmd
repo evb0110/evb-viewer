@@ -47,9 +47,18 @@ for %%F in (node.zip guestWorker.cjs guestWorker.cjs.map start-worker.cmd test-a
   set "EVB_FAILURE=1"
 )
 if "%EVB_FAILURE%"=="1" exit /b 2
+if not exist "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" goto node-extract
+"%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" --version >"%EVB_STATE%\node-version.stdout.log" 2>"%EVB_STATE%\node-version.stderr.log"
+findstr /x /c:"v22.23.2" "%EVB_STATE%\node-version.stdout.log" >nul 2>&1
+if errorlevel 1 goto node-extract
+>>"%EVB_MARKER%" echo step=node-version;exit=0
+>>"%EVB_MARKER%" echo step=node-extract;exit=skipped-existing
+goto node-extraction-complete
+:node-extract
 tar.exe -xf "%EVB_STAGE%node.zip" -C "%EVB_ROOT%\node" >"%EVB_STATE%\node-extract.stdout.log" 2>"%EVB_STATE%\node-extract.stderr.log"
 call :record node-extract %ERRORLEVEL%
 if not exist "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" call :record node-executable-missing 2
+:node-extraction-complete
 if not exist "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" goto node-version-recorded
 "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" --version >"%EVB_STATE%\node-version.stdout.log" 2>"%EVB_STATE%\node-version.stderr.log"
 call :record node-version %ERRORLEVEL%
