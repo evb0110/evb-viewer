@@ -1,0 +1,147 @@
+.github/workflows/build-mac-intel.yml
+  ai_agent 80
+tests/unit/app/components/toolbarAndOcrExportCoverage.test.ts
+  ai_agent 221,299
+app/composables/useOcrErrorLocalizer.ts
+  s_b63e4aa14334d0::t_e60d9526094f90 95
+.github/workflows/build-target.yml
+  s_b63e4aa14334d0::t_87875bdc99764d 149
+docs/architecture/ocr.md
+  s_b63e4aa14334d0::t_32ebea5a1cda69 1-9,14-37,42-61,68-69
+  s_b63e4aa14334d0::t_e60d9526094f90 10-13
+  s_b63e4aa14334d0::t_9c7570c42a9e6d 38-41,65-67
+packages/contracts/agentOcr.ts
+  s_b63e4aa14334d0::t_e60d9526094f90 79
+tests/unit/electron/ocrWorkerPreprocessOcrImage.test.ts
+  ai_agent 37,183,194,209-210
+tests/unit/scripts/nativeToolSmokePolicy.test.ts
+  ai_agent 242,340
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_b63e4aa14334d0::t_e60d9526094f90 34,388,441-442,448-451,527-529,532,667-670,948
+  s_b63e4aa14334d0::t_62044c00ffcb93 379,444,663
+tests/e2e/electron/helpers/viewerCore.ts
+  ai_agent 1046,1061
+docs/contributing/headless-vps-setup.md
+  ai_agent 78
+packages/i18n-app/messages/es.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 798,801,805-806
+tests/unit/app/composables/useOcr.test.ts
+  ai_agent 760,767-770,782-794
+packages/i18n-app/messages/nl.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 798,801,805-806
+scripts/bundle-all-macos.sh
+  ai_agent 8,30,52-53,58-59
+scripts/lib/macos-dylib-bundle.sh
+  ai_agent 195-243
+packages/i18n-app/messages/fr.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 799,802,806-807
+tests/unit/scripts/macosNativeToolWorkflow.test.ts
+  s_b63e4aa14334d0::t_85cf64c7e6eccc 125,129-130,178
+docs/architecture/css-load-bearing-classes.md
+  s_b63e4aa14334d0::t_6bd69f4d65fa6c 50
+packages/i18n-app/messages/en.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 333,336,340-341
+tests/e2e/electron/helpers/electronApiHelpers.ts
+  ai_agent 13,20-21,69,74,141,179
+tests/unit/app/modules/ocr-panel/ocrLanguagePicker.test.ts
+  ai_agent 8,266
+tests/unit/electron/ocrIpcHandlers.test.ts
+  ai_agent 10,522,545,569-576,578-597
+packages/i18n-app/messages/ru.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 335,338,342-343
+scripts/afterPack.cjs
+  s_b63e4aa14334d0::t_9c8cedd0815574 390-395
+package.json
+  s_b63e4aa14334d0::t_6bd69f4d65fa6c 165
+scripts/nativeResourceManifestCli.ts
+  ai_agent 8,16
+electron/features/ocr/contracts.ts
+  ai_agent 33
+tests/unit/electron/nativeToolPathResolution.test.ts
+  ai_agent 147,150
+scripts/test-ocr-quality-corpus.mjs
+  s_b63e4aa14334d0::t_58b115ac507810 71
+  s_b63e4aa14334d0::t_4461533196f1d1 1009-1012
+  s_b63e4aa14334d0::t_32b200c626ebca 972
+  s_b63e4aa14334d0::t_8ad3366263bc39 18,52-60,74-76,301,309,1061,1104-1110
+  s_b63e4aa14334d0::t_43ebf1e937be23 168,1276
+  s_b63e4aa14334d0::t_b1e092020bdc98 78-82,226,934,1027
+electron/features/ocr/main/nativeToolPaths.ts
+  s_b63e4aa14334d0::t_1101136c417f52 37,42,44
+vendor/pdfjs-dist/provenance.json
+  ai_agent 4-5,11-12,20-21,36-37,41,43-45,51-54,56-58,62,64,73,76,93-94
+.github/actions/setup-release-env/action.yml
+  s_b63e4aa14334d0::t_85cf64c7e6eccc 49
+packages/i18n-app/messages/it.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 798,801,805-806
+scripts/nativeResourceManifest.ts
+  s_b63e4aa14334d0::t_fadc15b7227b67 91-96,150-165,383,386
+scripts/release/generated-release-targets.cjs
+  s_b63e4aa14334d0::t_85cf64c7e6eccc 25-38
+scripts/ocrQualityMetrics.mjs
+  ai_agent 37-51
+scripts/bundle-tools-linux.sh
+  s_b63e4aa14334d0::t_87875bdc99764d 16-17
+packages/i18n-app/messages/pt.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 799,802,806-807
+packages/i18n-app/messages/de.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 798,801,805-806
+electron/features/ocr/worker/tryPreprocessOcrImage.ts
+  ai_agent 167,172,176-185
+pnpm-lock.yaml
+  ai_agent 155-156,424-425,7186-7188,17563
+vendor/pdfjs-dist/README.md
+  ai_agent 3,6-7,27-30
+tests/unit/scripts/runtimeBinaryManifest.test.ts
+  s_b63e4aa14334d0::t_85cf64c7e6eccc 32-34,50-52
+docs/user/formats-and-languages.md
+  s_b63e4aa14334d0::t_e60d9526094f90 36-38
+electron/features/ocr/worker/runProductionOcrQualityCase.ts
+  ai_agent 27
+packages/i18n-app/messages/ptBr.ts
+  s_b63e4aa14334d0::t_32ebea5a1cda69 799,802,806-807
+scripts/verify-pdfjs-provenance.mjs
+  s_b63e4aa14334d0::t_6bd69f4d65fa6c 26,30,35-36,66,197
+  s_b63e4aa14334d0::t_a7ce63364936e8 12-13,19-22,25,152,154,254,259-262,264
+tests/unit/scripts/nativeResourceManifest.test.ts
+  s_b63e4aa14334d0::t_85cf64c7e6eccc 136
+scripts/generateReleaseTargetManifest.ts
+  ai_agent 40,101
+scripts/fetchRuntimeBinaries.ts
+  ai_agent 192-196,250
+scripts/runtimeBinaryManifest.ts
+  s_b63e4aa14334d0::t_85cf64c7e6eccc 88,105
+tests/e2e/electron/helpers/fixtures.ts
+  ai_agent 2234,2242
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  ai_agent 338,348-351,354-360,362-363,365,367-368
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgentOcr.test.ts
+  s_b63e4aa14334d0::t_fe4164271275eb 219
+tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts
+  s_b63e4aa14334d0::t_ead98a42eaf5d9 18,23-26,29-38,41-44,47-63,71,73,85,142-189
+tests/unit/scripts/pdfjsProvenance.test.ts
+  s_b63e4aa14334d0::t_d745523a9cc311 43,232-233,247-248,256-257
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_b63e4aa14334d0::t_e60d9526094f90 302,304-305,331,615,1027
+docs/contributing/development.md
+  s_b63e4aa14334d0::t_5a007609695714 45
+  s_b63e4aa14334d0::t_c65cf74a85ab56 63-68
+electron/features/ocr/worker/pdfAssembler.ts
+  ai_agent 1098
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3259280044d554edf029f5086da0d8e2cfaae4fc",
+  "prompts": {},
+  "sessions": {
+    "s_b63e4aa14334d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a060-f056-7ef3-bf97-a4a7577deb38",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
