@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
 import {
+    createPreparedGuestWorkerRefresher,
     resolveWindowsTestCandidate,
     requestWindowsTestStopOnHost,
     runWindowsTestDoctorOnHost,
@@ -107,6 +108,72 @@ describe('windows test candidate resolution', () => {
                 version: '3.4.6',
                 sourceSha: 'c'.repeat(40),
             });
+    });
+});
+
+describe('prepared guest worker refresh', () => {
+    let root = '';
+
+    afterEach(async () => {
+        if (root !== '') {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+            root = '';
+        }
+    });
+
+    it('stages and verifies the worker only when its guest hash differs', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-worker-refresh-'));
+        const workerFile = path.join(root, 'guestWorker.cjs');
+        await writeFile(workerFile, 'prepared-worker', 'utf8');
+        const calls: string[] = [];
+        const guest = {
+            readGuestText: async () => 'golden-worker',
+            stageFile: async (_vmId: string, hostPath: string, guestPath: string) => {
+                calls.push(`stage ${hostPath} -> ${guestPath}`);
+            },
+            verifyStagedFileHash: async (_vmId: string, guestPath: string, expectedSha256: string) => {
+                calls.push(`verify ${guestPath} ${expectedSha256}`);
+                return true;
+            },
+        };
+
+        const changed = await createPreparedGuestWorkerRefresher({
+            workerFile,
+            guest,
+        })('vm', 200);
+
+        expect(changed).toBe(true);
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toContain('stage ');
+        expect(calls[1]).toContain('verify C:\\EVBViewerTests\\worker\\guestWorker.cjs ');
+    });
+
+    it('skips staging when the guest worker already matches the prepared hash', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-worker-refresh-'));
+        const workerFile = path.join(root, 'guestWorker.cjs');
+        await writeFile(workerFile, 'prepared-worker', 'utf8');
+        const calls: string[] = [];
+        const guest = {
+            readGuestText: async () => 'prepared-worker',
+            stageFile: async () => {
+                calls.push('stage');
+            },
+            verifyStagedFileHash: async () => {
+                calls.push('verify');
+                return true;
+            },
+        };
+
+        const changed = await createPreparedGuestWorkerRefresher({
+            workerFile,
+            guest,
+        })('vm', 200);
+
+        expect(changed).toBe(false);
+        expect(calls).toEqual([]);
     });
 });
 

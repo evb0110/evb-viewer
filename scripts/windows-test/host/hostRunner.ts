@@ -24,6 +24,7 @@ import type { TWindowsTestSuite } from '@scripts/windows-test/contracts/windowsT
 import {loadFixtureManifest} from '@scripts/windows-test/fixtures/fixtureManifest';
 import {
     resolveWindowsTestDataRoot,
+    windowsTestGuestLayout,
     windowsTestHostLayout,
 } from '@scripts/windows-test/contracts/windowsTestPaths';
 import {
@@ -31,6 +32,7 @@ import {
     createFileFixtureManifestSource,
 } from '@scripts/windows-test/host/capabilityRegistry';
 import { createUtmctlGuestChannel } from '@scripts/windows-test/host/guestChannel';
+import type { IWindowsTestGuestChannel } from '@scripts/windows-test/host/guestChannel';
 import { buildWindowsTestInputMedia } from '@scripts/windows-test/host/inputMedia';
 import type { IWindowsTestInputMedia } from '@scripts/windows-test/host/inputMedia';
 import { createSystemClock } from '@scripts/windows-test/host/hostClock';
@@ -161,6 +163,45 @@ export async function resolveWindowsTestFixtureInputs(manifestPath: string): Pro
         }
     }
     return inputs;
+}
+
+export const WINDOWS_TEST_GUEST_WORKER_FILE = `${windowsTestGuestLayout.root}\\worker\\guestWorker.cjs`;
+
+export function createPreparedGuestWorkerRefresher(options: {
+    workerFile: string;
+    guest: Pick<IWindowsTestGuestChannel, 'readGuestText' | 'stageFile' | 'verifyStagedFileHash'>;
+}) {
+    return async (vmId: string, timeoutMs: number) => {
+        const workerBytes = await readFile(options.workerFile);
+        const expectedSha256 = createHash('sha256').update(workerBytes).digest('hex');
+        const guestWorkerText = await options.guest.readGuestText(
+            vmId,
+            WINDOWS_TEST_GUEST_WORKER_FILE,
+            timeoutMs,
+        );
+        const actualSha256 = guestWorkerText === null
+            ? null
+            : createHash('sha256').update(Buffer.from(guestWorkerText, 'utf8')).digest('hex');
+        if (actualSha256 === expectedSha256) {
+            return false;
+        }
+        await options.guest.stageFile(
+            vmId,
+            options.workerFile,
+            WINDOWS_TEST_GUEST_WORKER_FILE,
+            timeoutMs,
+        );
+        const verified = await options.guest.verifyStagedFileHash(
+            vmId,
+            WINDOWS_TEST_GUEST_WORKER_FILE,
+            expectedSha256,
+            timeoutMs,
+        );
+        if (!verified) {
+            throw new Error(`The staged guest worker did not hash to ${expectedSha256} inside the guest.`);
+        }
+        return true;
+    };
 }
 
 export function defaultRepositoryRoot() {
@@ -444,6 +485,10 @@ export async function executeWindowsTestRunOnHost(
                 ),
                 imageManifest,
                 stagedInputs,
+                refreshGuestWorker: createPreparedGuestWorkerRefresher({
+                    workerFile: path.join(layout.toolsCacheDir, 'worker', 'guestWorker.cjs'),
+                    guest,
+                }),
                 evaluateHostOracles: input => runWindowsHostOracles({
                     ...input,
                     repositoryRoot,

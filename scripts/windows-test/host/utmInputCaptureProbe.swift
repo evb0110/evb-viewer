@@ -97,7 +97,7 @@ func findCaptureControl(_ element: AXUIElement) -> AXUIElement? {
     let description = stringAttribute(element, kAXDescriptionAttribute) ?? ""
     let help = stringAttribute(element, kAXHelpAttribute) ?? ""
     let label = "\(title) \(description) \(help)".lowercased()
-    if (role == "AXCheckBox" || role == "AXButton") && label.contains("capture") && label.contains("input") {
+    if role == "AXCheckBox" && label.contains("capture") && label.contains("input") {
         return element
     }
     for child in children(element) {

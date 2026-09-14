@@ -148,6 +148,12 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
     let activeWindowAvailable = false;
     let activeRunId: string | null = null;
     let beforeStartSnapshot: IUtmInputCaptureWindowSnapshot | null = null;
+    const evidenceCounts = new Map<string, number>();
+    const evidenceFileName = (name: string) => {
+        const count = (evidenceCounts.get(name) ?? 0) + 1;
+        evidenceCounts.set(name, count);
+        return `${name}${count === 1 ? '' : `-${count}`}.json`;
+    };
 
     const ensureProbeExecutable = async () => {
         if (probeExecutable !== null) {
@@ -184,7 +190,7 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
             action === 'status' ? '--status' : `--${action}`,
         ], {timeoutMs: 15_000});
         if (options.layout !== undefined && activeRunId !== null) {
-            await writeFile(path.join(options.layout.runsDir, activeRunId, `input-capture-${action}-command.json`), `${JSON.stringify({
+            await writeFile(path.join(options.layout.runsDir, activeRunId, evidenceFileName(`input-capture-${action}-command`)), `${JSON.stringify({
                 action,
                 exitCode: result.exitCode,
                 stdout: result.stdout,
@@ -229,7 +235,7 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
             return;
         }
         await writeFile(
-            path.join(runDirectory, `input-capture-${phase}.json`),
+            path.join(runDirectory, evidenceFileName(`input-capture-${phase}`)),
             `${JSON.stringify({
                 schemaVersion: 1,
                 phase,

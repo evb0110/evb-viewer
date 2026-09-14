@@ -224,8 +224,11 @@ keep qualification fields null until the ledger's cold-reset checks pass.
 }
 ```
 
-After updating the runner, prepare the host files again and refresh the worker
-copy in the lab image before requalifying it. `prepare` changes host files only.
+After updating the runner, run `prepare` to rebuild the host worker bundle.
+Before publishing a job, the runner compares that bundle with the worker on
+its disposable clone. A mismatch triggers a verified copy and a guarded clone
+reboot. A fresh interactive heartbeat is required again before staging the
+job. The golden image stays unchanged; `prepare` changes host files only.
 
 ## Candidate artifacts
 
@@ -407,7 +410,10 @@ The Windows lane keeps the host keyboard and mouse available throughout a run.
 The launcher compiles and runs the checked-in macOS Accessibility probe
 `scripts/windows-test/host/utmInputCaptureProbe.swift`. After every owned clone
 starts, it finds that clone's UTM window by the registered display name and
-reads the supported `Capture Input` toolbar checkbox. A checked control is
+reads the supported `Capture Input` toolbar checkbox. A narrow window can hide
+that checkbox in UTM's toolbar overflow menu. The probe widens only the owned
+clone window through Accessibility before reading it, without activating UTM
+or clicking the capture control. A checked control is
 released with UTM's documented Command+Option chord, then read again. The
 launcher does not click the checkbox and does not send guest keyboard or mouse
 events through the host.
@@ -422,6 +428,17 @@ records `before`, `after`, UTM PID, frontmost PID, and `hostInputAvailable` in
 and keep both records with the run evidence. Both records must report
 `after: 0` and `hostInputAvailable: true`. Never proceed from a screenshot or
 from a unit-test result alone.
+The corresponding `input-capture-release-command.json` and
+`input-capture-restore-command.json` retain stdout, stderr, exit code, signal,
+and timeout status, including when a probe fails before producing a state record.
+Later probes in the same run receive numbered suffixes, so a worker-refresh
+reboot preserves both boots' input checks.
+
+A teardown failure can leave a stopped clone registered even if an older run
+summary says `retainedClone: false`. Run `windows:test:stop --run RUN_ID` to
+recover its stale lease, then run it again to remove the stopped clone. Cleanup
+checks current registration and bundle identity and still refuses the golden
+and baseline images.
 
 ## Repair
 

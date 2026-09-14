@@ -148,6 +148,8 @@ export interface IWindowsTestRunDependencies {
     identityGuard?: IWindowsTestIdentityGuardDependencies;
     deadlines?: Partial<IWindowsTestRunDeadlines>;
     hashFile?(filePath: string): Promise<string>;
+    /** Refresh the installed guest worker when the prepared bundle differs. */
+    refreshGuestWorker?(vmId: string, timeoutMs: number): Promise<boolean>;
 }
 
 export interface IWindowsTestRunReport {
@@ -648,67 +650,123 @@ export async function executeWindowsTestRun(
             await recorder.record('booting', `Starting owned clone ${clonedVmId} cloned from the stopped golden image.`);
             await utmctl.start(clonedVmId);
 
-            const guestReady = await pollUntil(clock, deadlines.bootToGuestReadyMs, deadlines.pollIntervalMs, async () => {
-                await throwIfCanceled('booting');
-                const alive = await guest.ping(clonedVmId ?? '', deadlines.commandTimeoutMs);
-                await throwIfCanceled('booting');
-                return alive ? true : null;
-            });
-            if (guestReady === null) {
-                abort(
-                    'infrastructure-failed',
-                    'booting',
-                    `The guest agent never answered within ${deadlines.bootToGuestReadyMs} ms of boot.`,
-                );
-            }
-            await recorder.record('guest-ready', 'The guest agent answered a read-only file-transfer probe.');
-
-            let bootId = '';
-            const startedAtMs = Date.parse(startedAt);
-            const heartbeat = await pollUntil(
-                clock,
-                deadlines.guestReadyToDesktopReadyMs,
-                deadlines.pollIntervalMs,
-                async () => {
-                    await throwIfCanceled('guest-ready');
-                    // Read the boot token on every poll. The worker replaces a
-                    // copied golden-image token when its logon task starts, and
-                    // retaining the first QGA read would make the fresh
-                    // heartbeat look stale forever.
-                    const bootIdText = await guest.readGuestText(
-                        clonedVmId ?? '',
-                        windowsTestGuestLayout.bootIdFile,
-                        deadlines.commandTimeoutMs,
+            const waitForGuestReady = async (phase: 'booting' | 'guest-ready', startedAtMs: number) => {
+                const guestReady = await pollUntil(clock, deadlines.bootToGuestReadyMs, deadlines.pollIntervalMs, async () => {
+                    await throwIfCanceled(phase);
+                    const alive = await guest.ping(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                    await throwIfCanceled(phase);
+                    return alive ? true : null;
+                });
+                if (guestReady === null) {
+                    abort(
+                        'infrastructure-failed',
+                        phase,
+                        `The guest agent never answered within ${deadlines.bootToGuestReadyMs} ms of boot.`,
                     );
-                    const currentBootId = bootIdText === null ? '' : bootIdText.trim();
-                    if (currentBootId.length === 0) {
-                        return null;
-                    }
-                    bootId = currentBootId;
-                    const observed = await guest.readHeartbeat(clonedVmId ?? '', deadlines.commandTimeoutMs);
-                    if (observed === null) {
-                        return null;
-                    }
-                    return isFreshInteractiveWorkerHeartbeat(currentBootId, observed, startedAtMs)
-                        ? observed
-                        : null;
-                },
-            );
-            if (heartbeat === null) {
-                abort(
-                    'infrastructure-failed',
-                    'guest-ready',
-                    bootId.length === 0
-                        ? 'The guest never published a boot ID, so no result could be tied to this boot.'
-                        : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey.',
+                }
+
+                let bootId = '';
+                const heartbeat = await pollUntil(
+                    clock,
+                    deadlines.guestReadyToDesktopReadyMs,
+                    deadlines.pollIntervalMs,
+                    async () => {
+                        await throwIfCanceled(phase);
+                        // Read the boot token on every poll. The worker replaces a
+                        // copied golden-image token when its logon task starts, and
+                        // retaining the first QGA read would make the fresh
+                        // heartbeat look stale forever.
+                        const bootIdText = await guest.readGuestText(
+                            clonedVmId ?? '',
+                            windowsTestGuestLayout.bootIdFile,
+                            deadlines.commandTimeoutMs,
+                        );
+                        const currentBootId = bootIdText === null ? '' : bootIdText.trim();
+                        if (currentBootId.length === 0) {
+                            return null;
+                        }
+                        bootId = currentBootId;
+                        const observed = await guest.readHeartbeat(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                        if (observed === null) {
+                            return null;
+                        }
+                        return isFreshInteractiveWorkerHeartbeat(currentBootId, observed, startedAtMs)
+                            ? observed
+                            : null;
+                    },
                 );
-            }
-            if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {
-                abort(
-                    'infrastructure-failed',
-                    'guest-ready',
-                    `The guest test marker "${heartbeat.guestTestMarker}" does not match image ${dependencies.imageManifest.imageId}; refusing to drive an unknown machine.`,
+                if (heartbeat === null) {
+                    abort(
+                        'infrastructure-failed',
+                        'guest-ready',
+                        bootId.length === 0
+                            ? 'The guest never published a boot ID, so no result could be tied to this boot.'
+                            : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey.',
+                    );
+                }
+                if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {
+                    abort(
+                        'infrastructure-failed',
+                        'guest-ready',
+                        `The guest test marker "${heartbeat.guestTestMarker}" does not match image ${dependencies.imageManifest.imageId}; refusing to drive an unknown machine.`,
+                    );
+                }
+                return {
+                    bootId,
+                    heartbeat,
+                };
+            };
+
+            let {
+                bootId, heartbeat,
+            } = await waitForGuestReady('booting', Date.parse(startedAt));
+            await recorder.record('guest-ready', 'The guest agent answered a read-only file-transfer probe.');
+            const workerChanged = dependencies.refreshGuestWorker === undefined
+                ? false
+                : await dependencies.refreshGuestWorker(clonedVmId, deadlines.commandTimeoutMs);
+            if (workerChanged) {
+                await recorder.record('guest-ready', 'The prepared guest worker differed from the clone; restarting the owned clone after staging it.');
+                const restartTarget = {
+                    vmId: clonedVmId,
+                    bundlePath: cloneBundlePath ?? '',
+                };
+                const assertRestartTarget = () => assertDestructiveTarget(
+                    restartTarget,
+                    policy,
+                    dependencies.identityGuard,
                 );
+                await assertRestartTarget();
+                await utmctl.stop(clonedVmId, 'request');
+                const stoppedAfterRequest = await pollUntil(
+                    clock,
+                    deadlines.cancelGraceMs,
+                    deadlines.pollIntervalMs,
+                    async () => (await utmctl.status(clonedVmId)) === 'stopped' ? true : null,
+                );
+                if (stoppedAfterRequest === null) {
+                    await assertRestartTarget();
+                    await utmctl.stop(clonedVmId, 'force');
+                    const stoppedAfterForce = await pollUntil(
+                        clock,
+                        deadlines.cancelGraceMs,
+                        deadlines.pollIntervalMs,
+                        async () => (await utmctl.status(clonedVmId)) === 'stopped' ? true : null,
+                    );
+                    if (stoppedAfterForce === null) {
+                        abort(
+                            'infrastructure-failed',
+                            'guest-ready',
+                            `The owned clone ${clonedVmId} did not acknowledge stopped status while loading the refreshed guest worker.`,
+                        );
+                    }
+                }
+                await assertRestartTarget();
+                const restartStartedAtMs = Date.parse(clock.nowIso());
+                await utmctl.start(clonedVmId);
+                ({
+                    bootId, heartbeat,
+                } = await waitForGuestReady('guest-ready', restartStartedAtMs));
+                await recorder.record('guest-ready', 'The refreshed guest worker reported a fresh interactive heartbeat for the restarted clone.');
             }
             await recorder.record('desktop-ready', `Interactive desktop confirmed in session ${heartbeat.worker.sessionId}.`);
             await throwIfCanceled('desktop-ready');

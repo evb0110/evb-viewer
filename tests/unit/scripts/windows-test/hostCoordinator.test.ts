@@ -386,6 +386,7 @@ interface IHarnessOptions {
     tests?: string[] | null;
     environment?: string;
     evaluateHostOracles?: IWindowsTestRunDependencies['evaluateHostOracles'];
+    refreshGuestWorker?: IWindowsTestRunDependencies['refreshGuestWorker'];
 }
 
 async function createHarness(options: IHarnessOptions = {}) {
@@ -464,6 +465,7 @@ async function createHarness(options: IHarnessOptions = {}) {
         hostId: 'test-host',
         randomRunSuffix: () => RUN_SUFFIX,
         ...(options.evaluateHostOracles === undefined ? {} : {evaluateHostOracles: options.evaluateHostOracles}),
+        ...(options.refreshGuestWorker === undefined ? {} : {refreshGuestWorker: options.refreshGuestWorker}),
         identityGuard: {
             resolvePath: target => Promise.resolve(target),
             readVmId: bundlePath => Promise.resolve(bundlePath.includes(RUN_ID) ? CLONE_VM_ID : OLD_CLONE_VM_ID),
@@ -536,6 +538,22 @@ describe('windows test run coordinator', () => {
         expect(harness.guest.calls).toContain('batch 2');
         expect(harness.guest.calls.filter(call => call.startsWith('stage '))).toEqual([]);
         expect(harness.guest.calls).toContain(`job ${RUN_ID} WIN-SAVE-01`);
+    });
+
+    it('restarts the owned clone when the prepared guest worker was refreshed', async () => {
+        const refreshCalls: string[] = [];
+        const harness = await createHarness({refreshGuestWorker: async (vmId, timeoutMs) => {
+            refreshCalls.push(`${vmId}:${timeoutMs}`);
+            return true;
+        }});
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('passed');
+        expect(refreshCalls).toEqual([`${CLONE_VM_ID}:200`]);
+        expect(harness.utmctl.calls).toContain(`stop request ${CLONE_VM_ID}`);
+        expect(harness.utmctl.calls.filter(call => call === `start ${CLONE_VM_ID}`)).toHaveLength(2);
+        expect(harness.guest.calls.filter(call => call === 'ping')).toHaveLength(2);
     });
 
     it('fails promptly when the owned clone stops before publishing a guest result', async () => {
