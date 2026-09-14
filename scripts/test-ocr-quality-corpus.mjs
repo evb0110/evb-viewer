@@ -74,7 +74,6 @@ const fontPath = join(repositoryRoot, 'public', 'pdf', 'standard_fonts', 'Libera
 const scratchRoot = join(repositoryRoot, '.devkit', 'tmp');
 await mkdir(scratchRoot, {recursive: true});
 const workDirectory = await mkdtemp(join(scratchRoot, 'evb-ocr-quality-'));
-const cleanManifestPath = join(repositoryRoot, 'scripts', 'fixtures', 'ocr-language-quality-manifest.json');
 // MLOCR-02/03 measure what users get: the popup defaults, or its Poor scan
 // profile when EVB_OCR_QUALITY_OPTIONS=poor-scan. Both come from the shared
 // contract once the production runner bundle loads.
@@ -977,7 +976,6 @@ async function runCleanLanguageBenchmark({
     const fixture = await generateOcrLanguageQualityFixture({
         repositoryRoot,
         outputDirectory: fixtureDirectory,
-        manifestPath: cleanManifestPath,
     });
     const workerTempDirectory = join(fixtureDirectory, 'worker-tmp');
     await mkdir(workerTempDirectory, {recursive: true});
@@ -1179,7 +1177,6 @@ try {
                     const fixture = await generateOcrLanguageQualityFixture({
                         repositoryRoot,
                         outputDirectory: fixtureDirectory,
-                        manifestPath: cleanManifestPath,
                     });
                     const degradedReport = await runDegradedLanguageBenchmark({
                         fixture,

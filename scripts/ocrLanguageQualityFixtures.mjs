@@ -1628,12 +1628,11 @@ export async function realizeOcrQualityProfile({
 }
 
 /**
- * @param {{repositoryRoot: string, outputDirectory: string, manifestPath: string}} options
+ * @param {{repositoryRoot: string, outputDirectory: string}} options
  */
 export async function generateOcrLanguageQualityFixture({
     repositoryRoot,
     outputDirectory,
-    manifestPath,
 }) {
     const registrySource = await readFile(join(repositoryRoot, 'packages', 'contracts', 'ocrLanguages.ts'), 'utf8');
     const registryCodes = [...registrySource.matchAll(/\bcode:\s*'([^']+)'/gu)].map(match => match[1]);
@@ -1764,7 +1763,6 @@ export async function generateOcrLanguageQualityFixture({
         ...manifest,
         pages: pageImages.map(entry => entry.page),
     };
-    await writeFile(manifestPath, `${JSON.stringify(committedManifest, null, 2)}\n`, 'utf8');
     const renderedManifest = {
         ...committedManifest,
         artifact: {
