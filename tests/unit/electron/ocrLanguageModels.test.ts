@@ -134,7 +134,8 @@ describe('ensureRuntimeTessdataSeeded', () => {
         vi.unstubAllGlobals();
     });
 
-    it('shares one async seed across concurrent callers', async () => {
+    it('shares one async seed and restores the font even when a prior copy exists', async () => {
+        mocks.installedPaths.add('/tmp/electron-user-data/tessdata/pdf.ttf');
         const {
             ensureRuntimeTessdataSeeded,
             getRuntimeTessdataDir,

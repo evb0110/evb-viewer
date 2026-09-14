@@ -78,6 +78,13 @@ describe('resolveTesseractLanguageConfig', () => {
         expect(config.extraConfigArgs).toContain('load_system_dawg=0');
     });
 
+    it('recognizes Serbian Cyrillic without loading an unselected Latin model', () => {
+        expect(resolveTesseractLanguageConfig(['srp']).orderedLanguages).toEqual([
+            'srp',
+            '~srp_latn',
+        ]);
+    });
+
     it('keeps Latin spacing config while preserving dictionaries for accurate profiles', () => {
         const config = resolveTesseractLanguageConfig(['eng'], {preserveDictionaries: true});
 
