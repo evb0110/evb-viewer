@@ -367,7 +367,7 @@ export default {
             },
         },
         'settingHelpAria': 'About {setting}',
-        'languages': 'Languages',
+        'languages': 'Recognition language',
         'languageModelState': {
             'ready': 'Ready',
             'missing': 'Download required',
@@ -376,7 +376,7 @@ export default {
             'unavailable': 'Availability unavailable',
         },
         'languagePicker': {
-            'searchPlaceholder': 'Search languages or codes',
+            'searchPlaceholder': 'Search recognition languages or codes',
             'inventoryLoading': 'Checking language data availability...',
             'inventoryUnavailable': 'Language data availability is unavailable. Try again before starting OCR.',
             'downloadAndStart': 'Download and start OCR',
@@ -420,7 +420,8 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Run OCR again to retry the language model download.',
-            'multiLanguageHint': 'Selecting more than three languages can reduce accuracy and slow recognition.',
+            'singleLanguageHint': 'OCR uses one recognition language per run. Select another language in a separate run.',
+            'legacyMultipleLanguages': 'Your previous OCR settings selected multiple languages. No language was chosen automatically. Select one language before starting OCR.',
             'noResults': 'No matching languages',
         },
         'diagnostic': {
@@ -1636,7 +1637,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Failed to load languages',
-            'noLanguages': 'Select at least one OCR language',
+            'noLanguages': 'Select one OCR language',
             'noValidPages': 'No valid pages selected',
             'timeout': 'OCR operation timed out after 30 minutes',
             'start': 'Failed to start OCR job',
@@ -1652,6 +1653,7 @@ export default {
             'incomplete': 'OCR did not complete',
             'errorCode': {
                 'invalidPayload': 'OCR request is invalid',
+                'multipleLanguages': 'OCR accepts one recognition language per run. Select one language and run OCR again for a different language.',
                 'internal': 'OCR failed unexpectedly',
                 'queueBackpressure': 'OCR queue is full',
                 'workerUnavailable': 'OCR worker is unavailable',

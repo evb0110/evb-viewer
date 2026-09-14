@@ -1,8 +1,8 @@
 import { getErrorMessage } from '@electron/utils/error';
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { isOneOf } from '@contracts/runtimeGuards';
+import { hasSingleOcrLanguageSelection } from '@contracts/ocrLanguages';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     requireRequestId,
@@ -38,6 +38,7 @@ const MAX_SELECTION_RANGES = 100_000;
 const MAX_EXPLICIT_PAGE_REQUESTS = 100_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
+const OCR_MULTIPLE_LANGUAGES_MESSAGE = 'OCR accepts one recognition language per run. Select one language and run OCR again for a different language.';
 const OCR_QUALITY_PROFILES = [
     'balanced',
     'accurate',
@@ -47,12 +48,6 @@ const OCR_PREPROCESSING_MODES = [
     'off',
     'clean',
 ] as const satisfies readonly TOcrPreprocessingMode[];
-const MAX_UNIQUE_LANGUAGES_PER_JOB = parseIntegerEnv(
-    'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
-    AVAILABLE_OCR_LANGUAGE_CODES.size,
-    1,
-    AVAILABLE_OCR_LANGUAGE_CODES.size,
-);
 
 export interface IOcrPageRange extends IOcrSearchablePdfPageRange {
     firstPage: number;
@@ -334,23 +329,29 @@ function asLanguages(value: unknown, fieldName: string) {
             throw new OcrPayloadValidationError(`Unsupported OCR language: ${languageCode}`);
         }
     }
+    if (!hasSingleOcrLanguageSelection(unique)) {
+        throw new OcrPayloadValidationError(
+            OCR_MULTIPLE_LANGUAGES_MESSAGE,
+            'OCR_MULTIPLE_LANGUAGES',
+        );
+    }
     return unique;
 }
 
-function assertUniqueLanguageBudget(
+function assertSingleLanguagePerRun(
     pages: Array<{ languages: string[] }>,
-    fieldName: string,
 ) {
     const uniqueLanguages = new Set<string>();
     for (const page of pages) {
         for (const language of page.languages) {
             uniqueLanguages.add(language);
-            if (uniqueLanguages.size > MAX_UNIQUE_LANGUAGES_PER_JOB) {
-                throw new OcrPayloadValidationError(
-                    `${fieldName} exceed maximum unique language count (${MAX_UNIQUE_LANGUAGES_PER_JOB})`,
-                );
-            }
         }
+    }
+    if (!hasSingleOcrLanguageSelection([...uniqueLanguages])) {
+        throw new OcrPayloadValidationError(
+            OCR_MULTIPLE_LANGUAGES_MESSAGE,
+            'OCR_MULTIPLE_LANGUAGES',
+        );
     }
 }
 
@@ -407,7 +408,7 @@ function asSearchablePdfPageSelection(
         }
         const pages = pagesPayload.map((page, index) =>
             asCreatePdfPageRequest(page, `${fieldName}[${index}]`));
-        assertUniqueLanguageBudget(pages, fieldName);
+        assertSingleLanguagePerRun(pages);
         return pages;
     }
 

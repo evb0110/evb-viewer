@@ -299,9 +299,10 @@
                                     >
                                         {{ t(`ocr.languagePicker.groups.${group.key}`, undefined) }}
                                     </p>
-                                    <UCheckboxGroup
+                                    <URadioGroup
                                         v-if="group.items.length > 0"
-                                        v-model="selectedLanguagesModel"
+                                        v-bind="selectedLanguageModel === undefined ? {} : { modelValue: selectedLanguageModel }"
+                                        name="ocrLanguage"
                                         :legend="t(`ocr.languagePicker.groups.${group.key}`, undefined)"
                                         :items="group.items"
                                         value-key="value"
@@ -310,6 +311,7 @@
                                         orientation="vertical"
                                         indicator="hidden"
                                         :ui="languageChipGroupUi"
+                                        @update:model-value="selectedLanguageModel = $event"
                                     >
                                         <template #label="{ item }">
                                             <span class="chip-name">{{ item.label }}</span>
@@ -327,20 +329,24 @@
                                                 {{ t(getLanguageModelStateLabelKey(item.modelState), undefined) }}
                                             </span>
                                         </template>
-                                    </UCheckboxGroup>
+                                    </URadioGroup>
                                 </template>
                             </template>
                             <p v-else class="language-empty">
                                 {{ t('ocr.languagePicker.noResults') }}
                             </p>
                         </div>
-                        <p
-                            v-if="showMultipleLanguagesHint"
-                            class="language-accuracy-hint"
-                            role="status"
-                        >
+                        <p class="language-accuracy-hint" role="status">
                             <UIcon name="i-ph-info" class="size-4" />
-                            {{ t('ocr.languagePicker.multiLanguageHint') }}
+                            {{ t('ocr.languagePicker.singleLanguageHint') }}
+                        </p>
+                        <p
+                            v-if="hasLegacyMultipleLanguages"
+                            class="language-accuracy-hint"
+                            role="alert"
+                        >
+                            <UIcon name="i-ph-warning-circle" class="size-4" />
+                            {{ t('ocr.languagePicker.legacyMultipleLanguages') }}
                         </p>
                     </div>
                 </template>
@@ -616,11 +622,11 @@ const {
     languageInventoryState,
     hasSelectedLanguageDownload,
     showLanguageSearch,
-    showMultipleLanguagesHint,
+    hasLegacyMultipleLanguages,
     hasLanguageDownloadFailure,
     supersessionChoiceModel,
     replaceOnlyEvbModel,
-    selectedLanguagesModel,
+    selectedLanguageModel,
     pageSegmentationModeSelectValue,
     handleCopyLogs,
     handleRunOcr,

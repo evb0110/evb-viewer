@@ -369,7 +369,7 @@ export default {
             },
         },
         'settingHelpAria': 'О параметре «{setting}»',
-        'languages': 'Языки',
+        'languages': 'Язык распознавания',
         'languageModelState': {
             'ready': 'Готов',
             'missing': 'Нужно скачать',
@@ -378,7 +378,7 @@ export default {
             'unavailable': 'Состояние недоступно',
         },
         'languagePicker': {
-            'searchPlaceholder': 'Поиск по языку или коду',
+            'searchPlaceholder': 'Поиск языков распознавания или кодов',
             'inventoryLoading': 'Проверка доступности языковых данных...',
             'inventoryUnavailable': 'Состояние языковых данных недоступно. Повторите попытку перед запуском OCR.',
             'downloadAndStart': 'Скачать и запустить OCR',
@@ -422,7 +422,8 @@ export default {
                 'unavailable': 'Состояние недоступно',
             },
             'retryDownload': 'Запустите OCR снова, чтобы повторить загрузку языковой модели.',
-            'multiLanguageHint': 'Выбор более трёх языков может снизить точность и замедлить распознавание.',
+            'singleLanguageHint': 'За один запуск OCR используется один язык распознавания. Для другого языка запустите отдельный сеанс.',
+            'legacyMultipleLanguages': 'В прежних настройках OCR было выбрано несколько языков. Ни один язык не выбран автоматически. Выберите один язык перед запуском OCR.',
             'noResults': 'Языки не найдены',
         },
         'diagnostic': {
@@ -1676,7 +1677,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Не удалось загрузить языки',
-            'noLanguages': 'Выберите хотя бы один язык OCR',
+            'noLanguages': 'Выберите один язык OCR',
             'noValidPages': 'Не выбраны корректные страницы',
             'timeout': 'Операция OCR превысила лимит 30 минут',
             'start': 'Не удалось запустить OCR',
@@ -1692,6 +1693,7 @@ export default {
             'incomplete': 'OCR не завершился',
             'errorCode': {
                 'invalidPayload': 'Недопустимый запрос OCR',
+                'multipleLanguages': 'За один запуск OCR можно использовать только один язык распознавания. Выберите один язык и запустите OCR ещё раз для другого языка.',
                 'internal': 'Неожиданная ошибка OCR',
                 'queueBackpressure': 'Очередь OCR переполнена',
                 'workerUnavailable': 'Рабочий процесс OCR недоступен',

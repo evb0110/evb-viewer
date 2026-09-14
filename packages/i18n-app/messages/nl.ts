@@ -832,7 +832,7 @@ export default {
             },
         },
         'settingHelpAria': 'Over {setting}',
-        'languages': 'Talen',
+        'languages': 'Herkenningstaal',
         'languageModelState': {
             'ready': 'Gereed',
             'missing': 'Download vereist',
@@ -841,7 +841,7 @@ export default {
             'unavailable': 'Beschikbaarheid onbekend',
         },
         'languagePicker': {
-            'searchPlaceholder': 'Talen of codes zoeken',
+            'searchPlaceholder': 'Herkenningstalen of codes zoeken',
             'inventoryLoading': 'Beschikbaarheid van taalgegevens controleren...',
             'inventoryUnavailable': 'De beschikbaarheid van taalgegevens is onbekend. Probeer het opnieuw voordat u OCR start.',
             'downloadAndStart': 'Downloaden en OCR starten',
@@ -885,7 +885,8 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Voer OCR opnieuw uit om het taalmodel opnieuw te downloaden.',
-            'multiLanguageHint': 'Meer dan drie talen selecteren kan de nauwkeurigheid verminderen en de herkenning vertragen.',
+            'singleLanguageHint': 'OCR gebruikt één herkenningstaal per uitvoering. Selecteer een andere taal in een aparte uitvoering.',
+            'legacyMultipleLanguages': 'In uw vorige OCR-instellingen waren meerdere talen geselecteerd. Er is niet automatisch een taal gekozen. Selecteer een taal voordat u OCR start.',
             'noResults': 'Geen overeenkomende talen',
         },
         'diagnostic': {
@@ -1636,7 +1637,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Kan talen niet laden',
-            'noLanguages': 'Selecteer ten minste één OCR-taal',
+            'noLanguages': 'Selecteer één OCR-taal',
             'noValidPages': 'Geen geldige pagina\'s geselecteerd',
             'timeout': 'OCR-bewerking verlopen na 30 minuten',
             'start': 'Kan OCR-taak niet starten',
@@ -1652,6 +1653,7 @@ export default {
             'incomplete': 'OCR is niet voltooid',
             'errorCode': {
                 'invalidPayload': 'Het OCR-verzoek is ongeldig',
+                'multipleLanguages': 'OCR accepteert één herkenningstaal per uitvoering. Selecteer één taal en voer OCR opnieuw uit voor een andere taal.',
                 'internal': 'OCR is onverwacht mislukt',
                 'queueBackpressure': 'De OCR-wachtrij is vol',
                 'workerUnavailable': 'De OCR-worker is niet beschikbaar',
