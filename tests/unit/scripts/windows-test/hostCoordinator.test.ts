@@ -155,6 +155,7 @@ function createFakeUtmctl(options: {
     };
     extraClones?: readonly string[];
     onDelete?: () => void;
+    stopErrorAfterStop?: string;
 } = {}) {
     const cloneVmId = options.cloneVmId ?? CLONE_VM_ID;
     const cloneStatusSequence = [...(options.cloneStatusSequence ?? [])];
@@ -216,6 +217,9 @@ function createFakeUtmctl(options: {
         stop: (vmId, mode) => {
             calls.push(`stop ${mode} ${vmId}`);
             statuses.set(vmId, 'stopped');
+            if (options.stopErrorAfterStop !== undefined) {
+                return Promise.reject(new Error(options.stopErrorAfterStop));
+            }
             return Promise.resolve();
         },
         clone: (sourceVmId, name) => {
@@ -848,6 +852,25 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls).not.toContain(`delete ${CLONE_VM_ID}`);
         expect(report.summary?.failures[0]?.reason).toContain('guest-error-response');
         expect(report.summary?.passedTests).toEqual([]);
+    });
+
+    it('records a clone as retained when stop fails after the clone stopped', async () => {
+        const harness = await createHarness({
+            maxFailedClones: 2,
+            utmctl: createFakeUtmctl({stopErrorAfterStop: 'UTM Capture Input remained enabled during cleanup'}),
+            script: {resultText: JSON.stringify({error: 'the worker could not launch the installer'})},
+        });
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.retainedClone).toBe(true);
+        expect(report.summary?.failures).toContainEqual(expect.objectContaining({
+            phase: 'tearing-down',
+            reason: 'UTM Capture Input remained enabled during cleanup',
+        }));
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+        expect(harness.utmctl.calls).not.toContain(`delete ${CLONE_VM_ID}`);
     });
 
     it('normalizes clone UUID casing before retention accounting', async () => {

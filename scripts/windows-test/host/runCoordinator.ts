@@ -1019,6 +1019,10 @@ export async function executeWindowsTestRun(
                         async () => (await utmctl.status(ownedVmId)) === 'stopped' ? true : null,
                     );
                     await assertOwnedClone();
+                    // The exact registration and bundle identity have been
+                    // checked. Keep the summary truthful if a later cleanup
+                    // step fails and leaves this clone behind.
+                    retainedClone = true;
                     await utmctl.stop(ownedVmId, 'request');
                     if (await waitForStopped() === null) {
                         await assertOwnedClone();
@@ -1032,8 +1036,8 @@ export async function executeWindowsTestRun(
                     }
                     const alreadyRetained = registered.filter(entry => entry.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)
                         && entry.uuid.toLowerCase() !== ownedVmId).length;
-                    retainedClone = outcome !== 'passed' && alreadyRetained < config.retention.maxFailedClones;
-                    if (!retainedClone) {
+                    const shouldRetain = outcome !== 'passed' && alreadyRetained < config.retention.maxFailedClones;
+                    if (!shouldRetain) {
                         await assertDestructiveTarget(
                             {
                                 vmId: ownedVmId,
@@ -1043,6 +1047,7 @@ export async function executeWindowsTestRun(
                             dependencies.identityGuard,
                         );
                         await utmctl.deleteVm(ownedVmId);
+                        retainedClone = false;
                     } else {
                         messages.push(`Retained the failed clone ${ownedVmId} for inspection.`);
                     }

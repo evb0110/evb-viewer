@@ -11,6 +11,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     windowsTestHostLayout,
@@ -38,6 +39,7 @@ function createFakeUtmctl(options: {
     statusAfterStop?: string;
     statusSequence?: string[];
     registered?: IUtmVmListEntry[];
+    registeredStatus?: string;
 } = {}) {
     const calls: string[] = [];
     const statusSequence = [...(options.statusSequence ?? [])];
@@ -46,7 +48,7 @@ function createFakeUtmctl(options: {
         version: () => Promise.resolve('utmctl version 4.7.5 (118)'),
         list: () => Promise.resolve(options.registered ?? [{
             uuid: CLONE_VM_ID,
-            status: 'stopped',
+            status: options.registeredStatus ?? 'stopped',
             name: CLONE_NAME,
         }]),
         status: (vmId) => {
@@ -93,6 +95,10 @@ interface IHarnessOptions {
     lease?: Record<string, unknown> | null;
     createRunDir?: boolean;
     utmctl?: ReturnType<typeof createFakeUtmctl>;
+    inputCapture?: {
+        ensureReleased: ReturnType<typeof vi.fn>;
+        restoreHostInput: ReturnType<typeof vi.fn>;
+    };
 }
 
 async function createStopHarness(options: IHarnessOptions = {}) {
@@ -148,6 +154,7 @@ async function createStopHarness(options: IHarnessOptions = {}) {
                 sleep: () => Promise.resolve(),
             },
             nowIso: () => '2026-09-04T12:30:00.000Z',
+            ...(options.inputCapture === undefined ? {} : {inputCapture: options.inputCapture}),
             identityGuard: {
                 resolvePath: target => Promise.resolve(target),
                 readVmId: () => Promise.resolve(CLONE_VM_ID),
@@ -223,6 +230,21 @@ describe('windows test stop request', () => {
         expect(harness.utmctl.calls).toEqual([`delete ${CLONE_VM_ID}`]);
     });
 
+    it('cleans a stopped failed clone when the summary did not record retention', async () => {
+        const harness = await createStopHarness();
+        await mkdir(path.join(harness.layout.imagesDir, 'clones', `${CLONE_NAME}.utm`), {recursive: true});
+        await writeFile(harness.runLayout.summaryFile, JSON.stringify({
+            outcome: 'infrastructure-failed',
+            retainedClone: false,
+        }), 'utf8');
+
+        const result = await harness.stop();
+
+        expect(result.exitCode).toBe(0);
+        expect(result.messages.join(' ')).toContain('Removed the stopped orphaned clone');
+        expect(harness.utmctl.calls).toEqual([`delete ${CLONE_VM_ID}`]);
+    });
+
     it('leaves teardown to a live owner and touches no VM', async () => {
         const harness = await createStopHarness({lease: lease({
             ownerPid: LIVE_PID,
@@ -251,30 +273,48 @@ describe('windows test stop request', () => {
         expect(harness.utmctl.calls).toEqual([]);
     });
 
-    it('recovers a stale owner, stops its clone and preserves the incomplete run', async () => {
+    it('recovers a stale owner whose clone is already stopped', async () => {
         const harness = await createStopHarness({lease: lease()});
 
         const result = await harness.stop();
 
         expect(result.exitCode).toBe(0);
         expect(result.recovered).toBe(true);
-        expect(harness.utmctl.calls).toEqual([
-            `stop request ${CLONE_VM_ID}`,
-            `status ${CLONE_VM_ID}`,
-        ]);
+        expect(harness.utmctl.calls).toEqual([]);
         expect(harness.utmctl.calls).not.toContain(`delete ${CLONE_VM_ID}`);
         expect(await exists(harness.layout.leaseFile)).toBe(false);
         expect(await exists(harness.runLayout.transitionsFile)).toBe(true);
     });
 
+    it('restores host input when an already-stopped clone needs no stop RPC', async () => {
+        const inputCapture = {
+            ensureReleased: vi.fn(() => Promise.resolve()),
+            restoreHostInput: vi.fn(() => Promise.resolve()),
+        };
+        const harness = await createStopHarness({
+            lease: lease(),
+            inputCapture,
+        });
+
+        const result = await harness.stop();
+
+        expect(result.exitCode).toBe(0);
+        expect(inputCapture.ensureReleased).toHaveBeenCalledWith(CLONE_VM_ID);
+        expect(inputCapture.restoreHostInput).toHaveBeenCalledOnce();
+        expect(harness.utmctl.calls).toEqual([]);
+    });
+
     it('retains a failed forced stop for an explicit retry', async () => {
         const harness = await createStopHarness({
             lease: lease(),
-            utmctl: createFakeUtmctl({statusSequence: [
-                'started',
-                'started',
-                'stopped',
-            ]}),
+            utmctl: createFakeUtmctl({
+                registeredStatus: 'started',
+                statusSequence: [
+                    'started',
+                    'started',
+                    'stopped',
+                ],
+            }),
         });
 
         const firstResult = await harness.stop();

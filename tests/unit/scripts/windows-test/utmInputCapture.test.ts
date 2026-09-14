@@ -137,6 +137,11 @@ describe('UTM input-capture guard', () => {
     });
 
     it('verifies the clone checkbox when a new window appears with permissions', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-utm-input-capture-'));
+        roots.push(root);
+        const layout = windowsTestHostLayout(root);
+        const runDirectory = path.join(layout.runsDir, '20260905T120000Z-0123456789ab');
+        await mkdir(runDirectory, {recursive: true});
         const fake = fakeRunner([
             windowSnapshot([10]),
             {
@@ -159,12 +164,18 @@ describe('UTM input-capture guard', () => {
         ]);
         const guard = createUtmInputCaptureGuard({
             runner: fake.runner,
+            layout,
             utmctl: fakeUtmctl(),
             probeExecutablePath: '/tmp/utm-input-capture-probe',
         });
         await expect(guard.ensureReleased(GOLDEN_VM_ID)).resolves.toMatchObject({
             windowAvailable: true,
             after: 0,
+        });
+        expect(JSON.parse(await readFile(path.join(runDirectory, 'input-capture-release-command.json'), 'utf8'))).toMatchObject({
+            exitCode: 0,
+            stderr: '',
+            timedOut: false,
         });
         expect(fake.calls.at(-1)).toEqual([
             '--window-title',

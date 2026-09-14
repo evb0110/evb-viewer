@@ -183,6 +183,16 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
             windowTitle,
             action === 'status' ? '--status' : `--${action}`,
         ], {timeoutMs: 15_000});
+        if (options.layout !== undefined && activeRunId !== null) {
+            await writeFile(path.join(options.layout.runsDir, activeRunId, `input-capture-${action}-command.json`), `${JSON.stringify({
+                action,
+                exitCode: result.exitCode,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                timedOut: result.timedOut,
+                signal: result.signal,
+            }, null, 4)}\n`, 'utf8');
+        }
         if (result.exitCode !== 0 || result.timedOut) {
             throw new Error(`The UTM input-capture ${action} probe failed: ${result.stderr.trim() || result.stdout.trim() || 'probe failed'}.`);
         }

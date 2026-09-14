@@ -97,7 +97,7 @@ func findCaptureControl(_ element: AXUIElement) -> AXUIElement? {
     let description = stringAttribute(element, kAXDescriptionAttribute) ?? ""
     let help = stringAttribute(element, kAXHelpAttribute) ?? ""
     let label = "\(title) \(description) \(help)".lowercased()
-    if role == "AXCheckBox" && label.contains("capture") && label.contains("input") {
+    if (role == "AXCheckBox" || role == "AXButton") && label.contains("capture") && label.contains("input") {
         return element
     }
     for child in children(element) {
@@ -225,8 +225,42 @@ if !targetPresence {
 guard let window = findWindow(axApplication, title: title) else {
     throw ProbeError.targetWindowUnavailable(title)
 }
+// UTM puts Capture Input in an overflow menu when a fresh display window is
+// narrow. Expand only this owned window without making it key or frontmost.
+if findCaptureControl(window) == nil {
+    if let sizeValue = attribute(window, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() {
+        var size = CGSize.zero
+        if AXValueGetValue(unsafeBitCast(sizeValue, to: AXValue.self), .cgSize, &size) {
+            let availableWidth = NSScreen.main?.visibleFrame.width ?? size.width
+            size.width = min(availableWidth, max(size.width, 1_024))
+            if let expandedSize = AXValueCreate(.cgSize, &size) {
+                _ = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, expandedSize)
+            }
+        }
+    }
+}
 guard let control = findCaptureControl(window), let before = checkboxValue(control) else {
-    throw ProbeError.captureControlUnavailable(title)
+    func describeControls(_ element: AXUIElement) -> [[String: String]] {
+        let role = stringAttribute(element, kAXRoleAttribute) ?? ""
+        var records: [[String: String]] = []
+        if role != "AXStaticText" && role != "AXTextArea" && role != "AXTextField" {
+            records.append([
+                "role": role,
+                "title": stringAttribute(element, kAXTitleAttribute) ?? "",
+                "description": stringAttribute(element, kAXDescriptionAttribute) ?? "",
+                "help": stringAttribute(element, kAXHelpAttribute) ?? "",
+                "value": checkboxValue(element).map(String.init) ?? "unavailable",
+                "subrole": stringAttribute(element, kAXSubroleAttribute) ?? "",
+            ])
+        }
+        for child in children(element) { records += describeControls(child) }
+        return records
+    }
+    let diagnostic = try JSONEncoder().encode(describeControls(window))
+    FileHandle.standardError.write(Data("Capture Input control unavailable. Controls: ".utf8))
+    FileHandle.standardError.write(diagnostic)
+    FileHandle.standardError.write(Data([10]))
+    exit(EXIT_FAILURE)
 }
 
 if (arguments.action == "release" || arguments.action == "restore") && before != 0 {

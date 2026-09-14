@@ -105,6 +105,10 @@ async function stopOwnedClone(
         dependencies.identityGuard,
     );
     await dependencies.inputCapture?.ensureReleased(vmId);
+    if (registeredVm.status === 'stopped') {
+        await dependencies.inputCapture?.restoreHostInput();
+        return;
+    }
     await dependencies.utmctl.stop(vmId, 'request');
     const status = await dependencies.utmctl.status(vmId).catch(() => 'unknown');
     if (status !== 'stopped') {
@@ -137,7 +141,14 @@ async function cleanupOrphanedRunClone(
         retainedClone?: boolean;
         outcome?: string
     };
-    if (summary.retainedClone !== true || summary.outcome === 'passed') return false;
+    // The summary records the coordinator's intended retention decision. A
+    // teardown error can leave a stopped clone behind before that decision is
+    // persisted, so use the current registration and bundle identity below
+    // as the source of truth for cleanup.
+    if (summary.outcome !== 'product-failed'
+        && summary.outcome !== 'infrastructure-failed'
+        && summary.outcome !== 'unsupported'
+        && summary.outcome !== 'canceled') return false;
     const matches = (await dependencies.utmctl.list()).filter(entry => entry.name === cloneName);
     if (matches.length !== 1) return false;
     const registeredVm = matches[0]!;
