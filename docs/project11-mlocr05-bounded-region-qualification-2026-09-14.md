@@ -55,6 +55,16 @@ Policy A failed on the development page itself. Its CER stayed at 0.214286 and i
 
 Policy B repaired the development page to CER 0 with no missing or duplicate line and no order failure. Its clean fixed-raster diagnostics improved `eng+rus+ell` from 0.007874 to 0.003937, `ara+heb+syr` from 0.055556 to 0.031746, and the columns cohort from 0.423221 to 0.003745. These numbers are diagnostic comparisons, not production acceptance scores. The same-script cohort did not improve, and its faithful critical-token check still missed the baseline token `417` in `417-A`.
 
+## Policy C frozen before timing and evaluation
+
+Policy C keeps Policy B's region recognition, ordering, and per-region language narrowing. It adds a gate based only on evidence already emitted by the mandatory whole-page baseline pass:
+
+1. Run the whole-page baseline with the selected language set and retain its word boxes.
+2. Build the same bounded word-box regions and apply the same overlap ordering as Policy B. Classify each region from its baseline word text using fixed Unicode script ranges for Latin, Cyrillic, Greek, Arabic, Hebrew, and Syriac. Digits, punctuation, whitespace, and other characters do not create a script label. A region with no recognized script or more than one recognized script is not usable evidence.
+3. Take the baseline path with no crop recognition when the selected-language set has one entry, when no usable region exists, or when all usable regions have one script label. Enter Policy B's regional path only when at least two distinct script labels occur in usable baseline regions.
+
+The gate is frozen before timing and quality results. It has no access to fixture truth, expected text, block language, crop polygons, or evaluation scores. A selected-language page with one script therefore pays zero additional recognition, including the `eng+fra` same-script page. When the gate fires, Policy C uses Policy B's maximum of 16 regions, page-area budget, ordering, and exact-one-model narrowing rule.
+
 ## Frozen adoption failure
 
 Policy B fails the hard clean-page overhead ceiling before production adoption. The production worker timing probe used the existing worker adapter and scan-cleanup preprocessing on `mixed-columns-and-notes`, followed by the nine crop recognitions required by the policy:
