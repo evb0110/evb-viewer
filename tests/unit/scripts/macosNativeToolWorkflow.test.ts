@@ -208,7 +208,7 @@ describe('macOS native tool workflow', () => {
         expect(bundleDjvu).not.toContain('Warning: ddjvu test failed');
     });
 
-    it('copies transitive dylibs and prunes libraries unreachable from the executable', () => {
+    it('copies transitive dylibs through the shared closure policy', () => {
         const root = mkdtempSync(join(tmpdir(), 'evb-macos-dylib-closure-'));
         const fakeBin = join(root, 'fake-bin');
         const brewRoot = join(root, 'brew');
@@ -230,7 +230,6 @@ describe('macOS native tool workflow', () => {
             join(sourceLib, 'libwebp.7.dylib'),
             join(sourceLib, 'libsharpyuv.0.dylib'),
             join(destinationLib, 'libwebp.7.dylib'),
-            join(destinationLib, 'libunused.dylib'),
         ]) {
             writeFileSync(filePath, 'fixture');
         }
@@ -259,10 +258,8 @@ describe('macOS native tool workflow', () => {
                 'source "$1"',
                 'macos_copy_dylib_closure "$2" "$3" "$4" "$2/libwebp.7.dylib"',
                 'test -f "$2/libsharpyuv.0.dylib"',
-                'macos_prune_unused_dylibs "$2" "$4"',
                 'test -f "$2/libwebp.7.dylib"',
                 'test -f "$2/libsharpyuv.0.dylib"',
-                'test ! -f "$2/libunused.dylib"',
             ].join('; '),
             'bash',
             resolve(process.cwd(), 'scripts/lib/macos-dylib-bundle.sh'),

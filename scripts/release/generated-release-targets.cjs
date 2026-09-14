@@ -22,12 +22,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "packageFiltersByPlatform": {
-                "darwin": [
-                    "**/*",
-                    "!bin/unpaper"
-                ]
-            },
             "protocolCapabilities": null,
             "protocolVersion": null,
             "sourceRootSegments": [

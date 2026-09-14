@@ -45,8 +45,10 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: 'a9b0295aef660c10644c351c2b1810066d930e9d8b871bd3d81755adcbe434dd',
     },
     'tesseract-darwin-arm64': {
-        archiveBytes: 27863568,
-        archiveSha256: '0544ed3014ac8cb8cc21166037d45b2b2c7fe6cb3683b166d16eb8e59570adda',
+        // Tesseract 5.5.1 with only the executable's native dependency closure.
+        assetName: 'tesseract-darwin-arm64-5.5.1',
+        archiveBytes: 3606251,
+        archiveSha256: '67b6e52b3f53e08cd6c56ca32ae8f9e3a335a9a23a9673ba46ac73f8cdfe6505',
     },
     'tesseract-linux-x64': {
         // Tesseract 5.5.3 from scripts/bundle-tools-linux.sh. Versioned so the
@@ -109,5 +111,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'ed076f0c2658d6b0aee8f8557e60b17c8040325987ce930ec9f07c55fb3c3bbf',
+    manifestSha256: '061ccadf0370e7ed8e567ae4415a5e63f48cf10eb7187b1ecb6bb1a91e73f9ca',
 };

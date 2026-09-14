@@ -147,12 +147,6 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
     {
         id: 'tesseract',
         label: 'Tesseract native tools',
-        // The pinned darwin-arm64 archive still carries unpaper. Remove this
-        // exclusion when that archive is republished without it.
-        packageFiltersByPlatform: {darwin: [
-            '**/*',
-            '!bin/unpaper',
-        ]},
         packagedEntries: [packagedBinary('tesseract')],
         sourceRootSegments: [
             'resources',
