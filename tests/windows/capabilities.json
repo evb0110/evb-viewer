@@ -94,8 +94,7 @@
             ],
             "negativeControl": "Wrong-page-marker PDF accepted as the surviving page set",
             "owner": "electron-test-engineer",
-            "quarantine": null,
-            "hostDisplayRequired": false
+            "quarantine": null
         },
         {
             "id": "WIN-PRINT-03",
@@ -580,8 +579,7 @@
             "oracles": ["filesystem-state", "hash-identity", "reopen", "performance"],
             "negativeControl": "Identical atomic replacement must not be accepted without a full-content witness",
             "owner": "electron-test-engineer",
-            "quarantine": null,
-            "hostDisplayRequired": false
+            "quarantine": null
         },
         {
             "id": "WIN-SAVE-11",
