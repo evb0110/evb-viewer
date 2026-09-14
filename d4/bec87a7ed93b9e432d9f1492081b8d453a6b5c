@@ -1,0 +1,24 @@
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_71b08669d92876::t_d9a9f57fbc09a9 50-51
+  s_71b08669d92876::t_b0366be19b6b49 53-56
+docs/contributing/windows-tests/setup-and-repair.md
+  s_71b08669d92876::t_d9a9f57fbc09a9 339-343
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_71b08669d92876::t_d9a9f57fbc09a9 238-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d4bec87a7ed93b9e432d9f1492081b8d453a6b5c",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

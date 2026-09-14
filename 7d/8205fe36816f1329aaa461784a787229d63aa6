@@ -1,0 +1,25 @@
+tests/unit/scripts/saveWitnessMatrix.test.ts
+  s_dfc0f301cf02e2::t_9541bf21ac882e 9-10,17,83-97,102-108,111-117
+  s_dfc0f301cf02e2::t_c238244d9f2b00 109-110
+  s_dfc0f301cf02e2::t_1e9c919adb28e2 21-22,98-101
+  s_dfc0f301cf02e2::t_9339f0a00f52da 20
+  s_dfc0f301cf02e2::t_011087bb0c4d06 118-119
+scripts/save-witness/saveWitnessMatrix.ts
+  s_dfc0f301cf02e2::t_3dff76922ff242 12,37,136,138-141,151,371-372,382,415,470,538,541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7d8205fe36816f1329aaa461784a787229d63aa6",
+  "prompts": {},
+  "sessions": {
+    "s_dfc0f301cf02e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e3e-da3c-7022-8090-54fac0b9b3af",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

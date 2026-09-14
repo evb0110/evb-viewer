@@ -1,0 +1,39 @@
+scripts/generate-large-pdf-e2e-fixture.mjs
+  s_71b08669d92876::t_f2196772180a56 119-134
+scripts/windows-test/images/createTestClone.ts
+  s_71b08669d92876::t_52b17d8c86d53f 124-125
+  s_71b08669d92876::t_4cc228be77b4cf 120-123
+  s_71b08669d92876::t_8cff32981a7328 126
+  s_71b08669d92876::t_90752e74d2414e 249-251
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_71b08669d92876::t_f2196772180a56 50-57,61
+scripts/windows-test/fixtures/generateWindowsFixturesCli.ts
+  s_71b08669d92876::t_f2196772180a56 197-199,204-207
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_71b08669d92876::t_fa532af598a6f8 243-244
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_71b08669d92876::t_90752e74d2414e 116,174,198,244,279
+  s_71b08669d92876::t_bf5c4064dd21a6 175-176
+tests/windows/capabilities.json
+  s_71b08669d92876::t_f2196772180a56 574-577,584-585,618
+  s_71b08669d92876::t_fa532af598a6f8 588
+tests/unit/scripts/windows-test/hostCapabilityRegistry.test.ts
+  s_71b08669d92876::t_b28d17f67c2ecb 162
+  s_71b08669d92876::t_f2196772180a56 154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1785f38438c3f77a0d50db89918cec050bd40b8e",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

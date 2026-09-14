@@ -1,0 +1,19 @@
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_71b08669d92876::t_810b6bd8477b19 62-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "797f2adf12176f4cfccee0998ac9cbf893c2a1e6",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+scripts/windows-test/host/runCoordinator.ts
+  s_dfc0f301cf02e2::t_6884d3a120a44a 718
+  s_dfc0f301cf02e2::t_07db2083eb53a5 151-152
+  s_dfc0f301cf02e2::t_272048d521cf0f 723,759,761-762
+  s_dfc0f301cf02e2::t_074c5a7efcc5f4 653-666,668-704,706-717,719-722,724-736,738-744,746-758,760
+  s_dfc0f301cf02e2::t_1352509404c5e8 763-769
+tests/unit/scripts/windows-test/hostRunner.test.ts
+  s_dfc0f301cf02e2::t_c8d209c44bc74b 19,114-171,175,177-179
+  s_dfc0f301cf02e2::t_d7496e6583bf7b 172-174,176
+scripts/windows-test/host/hostRunner.ts
+  s_dfc0f301cf02e2::t_68747f348a9281 172
+  s_dfc0f301cf02e2::t_13091b7e57d1d4 488-491
+  s_dfc0f301cf02e2::t_8fc2d407408c79 168-171,173-206
+  s_dfc0f301cf02e2::t_33e42aa36cec6d 27,35
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_dfc0f301cf02e2::t_83211b7d75fe1c 389,468
+  s_dfc0f301cf02e2::t_5236798ee82a7c 543-558
+docs/contributing/windows-tests/setup-and-repair.md
+  s_dfc0f301cf02e2::t_8a1b0f3aed8c6a 227-231,413-416,431-441
+scripts/windows-test/host/utmInputCapture.ts
+  s_dfc0f301cf02e2::t_29ee4d1e693051 151-156,193,238
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_dfc0f301cf02e2::t_69d6bd158ecde0 100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3f9ee30966d7863491c1fb9afccd23cdcd10d8d7",
+  "prompts": {},
+  "sessions": {
+    "s_dfc0f301cf02e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e3e-da3c-7022-8090-54fac0b9b3af",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

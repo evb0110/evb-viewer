@@ -1,0 +1,26 @@
+scripts/windows-test/images/createTestClone.ts
+  s_71b08669d92876::t_6d5e3db73d7bd9 92-93
+  s_71b08669d92876::t_d1563dc826e429 98-102
+  s_71b08669d92876::t_669289722018cd 154
+scripts/windows-test/images/vmBundleLocator.ts
+  s_71b08669d92876::t_669289722018cd 10
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_71b08669d92876::t_1435110363a0eb 197,204,227
+  s_71b08669d92876::t_d1563dc826e429 157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7b2a99de77a482ed671fca84bccdeb5fe1dfcffc",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

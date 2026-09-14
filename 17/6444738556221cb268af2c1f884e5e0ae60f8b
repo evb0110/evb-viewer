@@ -1,0 +1,29 @@
+tests/unit/scripts/saveWitnessMatrix.test.ts
+  s_71b08669d92876::t_5801ee15ae0281 19
+scripts/save-witness/researchFullContentWitness.ts
+  s_71b08669d92876::t_5801ee15ae0281 8,23,28-29,31,34,38-41,43-44,47,51,56,59,63,68,72,74-75,79,82,85
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_71b08669d92876::t_e4ff838ccf7afe 175-177
+scripts/windows-test/images/createTestClone.ts
+  s_71b08669d92876::t_5801ee15ae0281 250
+scripts/windows-test/guest/cases/runWinSaveWitnessMatrix.ts
+  s_71b08669d92876::t_5801ee15ae0281 3
+scripts/save-witness/runSaveWitnessMatrix.ts
+  s_71b08669d92876::t_5801ee15ae0281 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "176444738556221cb268af2c1f884e5e0ae60f8b",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

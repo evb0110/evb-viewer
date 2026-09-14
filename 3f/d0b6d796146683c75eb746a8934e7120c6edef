@@ -1,0 +1,103 @@
+docs/contributing/windows-tests/setup-and-repair.md
+  s_ae757872e5d914::t_e10da988c5e2e4 174-200,227-233,344-348,415-418,433-443
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 158,220-222,389,468,543-577,755,772-775,894-910
+  s_ae757872e5d914::t_74b7235dd265c9 911-912
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_ae757872e5d914::t_e10da988c5e2e4 50-59,61-65,83-87,93-116
+scripts/windows-test/host/capabilityRegistry.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 18-19,47-48
+scripts/windows-test/images/createTestClone.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 65,91-102,120-126,154,209-228,246-249
+tests/unit/scripts/windows-test/utmInputCapture.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 81,83-85,87,92-187,193-194,206-207,218,220,231-234,283-284
+tests/unit/scripts/windows-test/hostStopRun.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 14,42,51,98-101,157,218-247,276,283,289-306,310-317,339,341,345-362
+scripts/windows-test/images/vmBundleLocator.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 10
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 6,102,116,157,174-177,197,199,204,209-226,236,254,289
+scripts/windows-test/host/runCoordinator.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 67,145,151-156,414-416,419-421,426-430,446,459,611-613,633,657-670,672-708,710-740,742-748,750-783,791-800,1094-1097,1111-1112,1122
+scripts/windows-test/host/hostRunner.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 27,35,168-223,305,505-508,513,542
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 20,115-135,276-332
+  s_ae757872e5d914::t_393698c9ac807a 333
+tests/unit/scripts/saveWitnessMatrix.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 1-282
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_ae757872e5d914::t_e10da988c5e2e4 15,23-77,154,173-174,180-182,196-201,203-240,243-263,292-293
+tests/unit/scripts/windows-test/hostCapabilityRegistry.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 154,162-163
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 238-241,583-599
+  s_ae757872e5d914::t_453a09186dc4c1 600
+scripts/save-witness/saveWitnessMatrix.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 1-582
+scripts/windows-test/guest/cases/runWinSaveWitnessMatrix.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 1-61
+scripts/windows-test/fixtures/generateWindowsFixturesCli.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 4-5,19,26-27,85-102,121-145,147-148,197-199,204-207
+scripts/windows-test/guest/native-ui/winappCliAdapter.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 429-432
+tests/unit/scripts/windows-test/casesRegistry.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 241-309
+tests/unit/scripts/windows-test/hostRunner.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 19,114-181
+  s_ae757872e5d914::t_11f068fbc90f2d 182-183
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 62-65
+scripts/save-witness/runSaveWitnessMatrix.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 1-22
+tests/windows/fixtures/manifest.json
+  s_ae757872e5d914::t_e10da988c5e2e4 293-306
+  s_ae757872e5d914::t_89106dd5f76264 292
+package.json
+  s_ae757872e5d914::t_e10da988c5e2e4 109
+scripts/windows-test/host/utmctlClient.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 16-18,63-65,260-263,393
+  s_ae757872e5d914::t_18ea7a77e90940 15
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 220-234,238-244
+scripts/windows-test/host/nativeInputProvisioning.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 12,14-15,17,19-33,109-151,187-189
+  s_ae757872e5d914::t_605a0330c58533 190-191
+scripts/windows-test/images/vmIdentityGuard.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 28,111-135,141
+scripts/windows-test/guest/cases/caseRegistry.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 17,20-28
+scripts/generate-large-pdf-e2e-fixture.mjs
+  s_ae757872e5d914::t_e10da988c5e2e4 42,119-134
+tests/unit/e2e/electronFixturePolicy.test.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 7,317-356
+  s_ae757872e5d914::t_a80f316cbc0208 357-359
+scripts/windows-test/registry/capabilityRegistry.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 83,95-96,160-161,228,231,240-248,252-253
+scripts/windows-test/host/guestChannel.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 282,478-481
+scripts/windows-test/host/utmInputCapture.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 4,23,29-40,44,71,81,90-125,148,150-156,192-201,208-222,233-236,238,243,249-250,262-266,268-280,282-293,307-312,315-318,339,341,346
+tests/windows/capabilities.json
+  s_ae757872e5d914::t_e10da988c5e2e4 97-98,566-588,618
+scripts/save-witness/researchFullContentWitness.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 1-226
+scripts/windows-test/host/stopRun.ts
+  s_ae757872e5d914::t_e10da988c5e2e4 4-5,26,33,71-74,108-111,123-170,207-209,241-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3fd0b6d796146683c75eb746a8934e7120c6edef",
+  "prompts": {},
+  "sessions": {
+    "s_ae757872e5d914": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c33be97c-f2ab-474e-86cf-174ca598a867",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

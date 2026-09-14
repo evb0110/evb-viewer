@@ -1,0 +1,32 @@
+scripts/windows-test/host/runCoordinator.ts
+  s_dfc0f301cf02e2::t_4495bf16869d73 152-156
+  s_dfc0f301cf02e2::t_5937298670797f 774-783
+scripts/windows-test/host/hostRunner.ts
+  s_dfc0f301cf02e2::t_f26cb12b3a9f8e 209-211
+  s_dfc0f301cf02e2::t_d09e119bc1342e 169-170,176-177,188,190,193-208,212-216,218
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_dfc0f301cf02e2::t_c687b98c8a1edd 544-555
+  s_dfc0f301cf02e2::t_79bbcde99880cf 561-572
+tests/unit/scripts/windows-test/hostRunner.test.ts
+  s_dfc0f301cf02e2::t_d53b77414e9c94 133-135,153,162-164
+docs/contributing/windows-tests/setup-and-repair.md
+  s_dfc0f301cf02e2::t_6d4b0333568734 229-233
+scripts/windows-test/guest/cases/runWinSaveWitnessMatrix.ts
+  s_dfc0f301cf02e2::t_459b75a1e73271 123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cc4d886a46405d1973ef59fe5d8df5bc1853fb07",
+  "prompts": {},
+  "sessions": {
+    "s_dfc0f301cf02e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e3e-da3c-7022-8090-54fac0b9b3af",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
