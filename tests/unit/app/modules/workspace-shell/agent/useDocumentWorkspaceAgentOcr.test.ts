@@ -136,11 +136,7 @@ describe('useDocumentWorkspaceAgent', () => {
 
         await expect(agent.runAgentAction('ocr.start', {
             pageRange: 'all',
-            languages: [
-                'eng',
-                'eng',
-                'rus',
-            ],
+            languages: ['rus'],
             qualityProfile: 'poor-scan',
             preprocessingMode: 'clean',
             pageSegmentationMode: 11,
@@ -155,10 +151,7 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(handleDropdownOpen).toHaveBeenCalledWith('ocr', true);
         expect(runOcrForAgent).toHaveBeenCalledWith({
             pageRange: 'all',
-            languages: [
-                'eng',
-                'rus',
-            ],
+            languages: ['rus'],
             qualityProfile: 'poor-scan',
             preprocessingMode: 'clean',
             pageSegmentationMode: 11,
@@ -219,6 +212,34 @@ describe('useDocumentWorkspaceAgent', () => {
             error: 'OCR popup is not mounted.',
             actionId: 'ocr.start',
             tabId: 'tab-1',
+        });
+    });
+
+    it('returns the popup rejection for a multi-language OCR request', async () => {
+        const runOcrForAgent = vi.fn(async () => ({
+            ok: false,
+            error: 'errors.ocr.errorCode.multipleLanguages',
+        }));
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef: ref({
+            runOcrForAgent,
+            cancelOcrForAgent: vi.fn(async () => ({ok: true})),
+            getAgentOcrSnapshot: vi.fn(() => ({})),
+        })}));
+
+        await expect(agent.runAgentAction('ocr.start', {languages: [
+            'eng',
+            'rus',
+        ]})).resolves.toMatchObject({
+            ok: false,
+            error: 'errors.ocr.errorCode.multipleLanguages',
+            actionId: 'ocr.start',
+        });
+        expect(runOcrForAgent).toHaveBeenCalledWith({
+            languages: [
+                'eng',
+                'rus',
+            ],
+            open: true,
         });
     });
 

@@ -149,10 +149,11 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
         expect(mocks.readdir).toHaveBeenCalledTimes(1);
         expect(mocks.mkdir).toHaveBeenCalledTimes(1);
-        expect(mocks.copyFile).toHaveBeenCalledTimes(2);
+        expect(mocks.copyFile).toHaveBeenCalledTimes(3);
         expect(mocks.copyFile.mock.calls.map(call => call[0])).toEqual([
             '/tmp/resources/tesseract/tessdata/eng.traineddata',
             '/tmp/resources/tesseract/tessdata/rus.traineddata',
+            '/tmp/resources/tesseract/tessdata/pdf.ttf',
         ]);
         expect(mocks.copyFile.mock.calls.every(call => (
             typeof call[1] === 'string'

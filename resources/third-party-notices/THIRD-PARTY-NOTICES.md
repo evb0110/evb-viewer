@@ -16,6 +16,13 @@ texts are included in the `licenses/` directory alongside this file.
 - License: Apache License 2.0 (`licenses/Apache-2.0.txt`)
 - Bundled as: `tesseract/tessdata/*.traineddata`.
 
+## Tesseract PDF font
+
+- Upstream: https://github.com/tesseract-ocr/tesseract
+- License: Apache License 2.0 (`licenses/Apache-2.0.txt`)
+- Bundled as: `tesseract/tessdata/pdf.ttf`.
+- Exact source and SHA-256: `Tesseract-pdf-source.txt`.
+
 ## qpdf
 
 - Upstream: https://github.com/qpdf/qpdf

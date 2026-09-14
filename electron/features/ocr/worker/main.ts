@@ -903,6 +903,7 @@ async function assembleMergedOcrPdf(
             log,
             trackTempFile,
             signal,
+            paths.pdfPageOpsBinary,
         );
     } catch (mergeErr) {
         if (isAbortError(mergeErr) || signal.aborted) {

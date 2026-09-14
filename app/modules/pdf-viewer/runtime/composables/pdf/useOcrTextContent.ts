@@ -5,6 +5,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfRawDims } from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
 import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
+import { resolveDocxParagraphDirection } from '@app/utils/docxStreaming';
 import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
 import {
     buildOcrTextLayerItemText,
@@ -213,8 +214,7 @@ export const useOcrTextContent = () => {
             return null;
         }
 
-        const isRtl = pageData.languages?.some(isRtlOcrLanguage) === true;
-        const textDir: TOcrTextDirection = isRtl ? 'rtl' : 'ltr';
+        const pageRtl = pageData.languages?.some(isRtlOcrLanguage) === true;
 
         const ascentRatio = getAscentRatio();
 
@@ -227,7 +227,7 @@ export const useOcrTextContent = () => {
                 pageData,
                 viewport,
                 isLastOcrWordInLine(words, idx),
-                textDir,
+                resolveDocxParagraphDirection(word.text, pageRtl) ? 'rtl' : 'ltr',
                 ascentRatio,
             ),
         );

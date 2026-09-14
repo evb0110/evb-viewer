@@ -141,7 +141,11 @@ describe('afterPack extraResources preflight', () => {
         const resourcesDir = path.join(tempRoot, 'app-out', 'resources');
         const context = createContext('linux', 'x64', resourcesDir);
         const entries = requiredExtraResourcesForContext(context, {projectRoot: tempRoot})
-            .filter(entry => entry.type === 'directory' && entry.packagedEntries !== undefined);
+            .filter(entry => (
+                entry.type === 'directory'
+                && entry.packagedEntries !== undefined
+                && entry.label !== 'tessdata directory'
+            ));
 
         try {
             for (const entry of entries) {
@@ -401,6 +405,11 @@ describe('afterPack extraResources preflight', () => {
             }),
         ]);
         expect(entries.map(entry => entry.sourcePath).join('\n')).not.toContain('page-processing');
+        expect(entries[0]?.packagedEntries).toEqual([{
+            label: 'tessdata directory file',
+            relativePath: 'pdf.ttf',
+            type: 'file',
+        }]);
     });
 
     it('fails with useful source-path messages when required extraResources are absent', async () => {

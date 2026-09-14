@@ -147,6 +147,23 @@ verify_tessdata_bundle_complete() {
   fi
 }
 
+verify_tesseract_pdf_font() {
+  local tessdata_path="$1"
+  local font_path="$tessdata_path/pdf.ttf"
+  check_file "$font_path" "Tesseract PDF font"
+
+  local expected_sha256
+  expected_sha256="$(node --import tsx -e "import {TESSERACT_PDF_FONT_SHA256} from './scripts/tesseractPdfFont.ts'; console.log(TESSERACT_PDF_FONT_SHA256)")"
+  local actual_sha256
+  actual_sha256="$(sha256sum "$font_path" | awk '{print $1}')"
+  if [ "$actual_sha256" != "$expected_sha256" ]; then
+    echo "Error: Tesseract PDF font SHA-256 mismatch ($font_path)"
+    echo "  expected: $expected_sha256"
+    echo "  actual:   $actual_sha256"
+    exit 1
+  fi
+}
+
 macos_macho_arch_for_release_arch() {
   case "$1" in
     arm64)
@@ -223,6 +240,7 @@ if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit
   exit 1
 fi
 verify_tessdata_bundle_complete "$tessdata_dir"
+verify_tesseract_pdf_font "$tessdata_dir"
 
 packaged_entry_path() {
   local requested_id="$1"

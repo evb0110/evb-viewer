@@ -42,6 +42,7 @@ describe('ocrErrorMessageKeys', () => {
         expect(Object.keys(ocrErrorCodeMessageKeys).sort()).toEqual([
             'OCR_INTERNAL_ERROR',
             'OCR_INVALID_PAYLOAD',
+            'OCR_MULTIPLE_LANGUAGES',
             'OCR_QUEUE_BACKPRESSURE',
             'OCR_TOOLS_VALIDATION_FAILED',
             'OCR_WORKER_MESSAGE_ERROR',
@@ -67,6 +68,18 @@ describe('useOcrErrorLocalizer', () => {
         }, 'errors.ocr.start')).toBe(
             'errors.ocr.errorCode.queueBackpressure: Queue has 2048 pages waiting',
         );
+    });
+
+    it('localizes the single-language admission error instead of exposing backend wording', async () => {
+        const { useOcrErrorLocalizer } = await import('@app/composables/useOcrErrorLocalizer');
+        const { localizeOcrError } = useOcrErrorLocalizer();
+
+        expect(localizeOcrError({
+            code: 'OCR_MULTIPLE_LANGUAGES',
+            message: 'OCR accepts one recognition language per run. Select one language and run OCR again for a different language.',
+            retryable: false,
+            timestamp: 1,
+        }, 'errors.ocr.start')).toBe('errors.ocr.errorCode.multipleLanguages');
     });
 
     it('normalizes Electron remote and Error prefixes before matching file errors', async () => {

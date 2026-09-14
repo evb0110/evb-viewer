@@ -1,4 +1,6 @@
 import { getErrorMessage } from '@electron/utils/error';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import {
     readFile,
     stat,
@@ -130,6 +132,7 @@ const PDF_CONTENT_OPERATORS = new Set([
 export type TOcrPageEntryValue = string | {
     path: string;
     pageGeometry?: IOcrPageGeometry;
+    normalizeGreekMicroSign?: boolean;
 };
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -1092,6 +1095,62 @@ function sanitizeOcrPageForEmbedding(page: PDFPage) {
     // resources is cheap and avoids guessing about names used by nested Forms.
 }
 
+async function repairOcrPageTextLayer(
+    pdfPageOpsBinary: string,
+    ocrPage: PDFPage,
+    ocrPagePath: string,
+    normalizeGreekMicroSign: boolean,
+    tempDir: string,
+    sessionId: string,
+    trackTempFile: (path: string) => string,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    const suffix = randomUUID();
+    const targetPath = trackTempFile(join(tempDir, `${sessionId}-ocr-text-target-${suffix}.pdf`));
+    const instructionsPath = trackTempFile(join(tempDir, `${sessionId}-ocr-text-instructions-${suffix}.json`));
+    const outputPath = trackTempFile(join(tempDir, `${sessionId}-ocr-text-repaired-${suffix}.pdf`));
+    const target = await PDFDocument.create();
+    target.addPage([
+        ocrPage.getWidth(),
+        ocrPage.getHeight(),
+    ]);
+    await writeFile(targetPath, await target.save({useObjectStreams: true}));
+    await writeFile(
+        instructionsPath,
+        JSON.stringify({pages: [{
+            sourcePageIndex: 0,
+            outputPageIndex: 0,
+            matrix: [
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ],
+            normalizeGreekMicroSign,
+        }]}),
+    );
+    await runOcrCommand(pdfPageOpsBinary, [
+        'overlay-text',
+        '--input',
+        targetPath,
+        '--source',
+        ocrPagePath,
+        '--output',
+        outputPath,
+        '--instructions-file',
+        instructionsPath,
+    ], {
+        timeoutMs: QPDF_TIMEOUT_MS,
+        commandLabel: 'evb-pdf-page-ops(overlay-text:ocr)',
+        ...(signal ? {signal} : {}),
+    });
+    throwIfAborted(signal);
+    return outputPath;
+}
+
 function normalizeRotation(angle: number): IOcrPageGeometry['rotation'] {
     const normalized = ((angle % 360) + 360) % 360;
     if (normalized !== 0 && normalized !== 90 && normalized !== 180 && normalized !== 270) {
@@ -1350,6 +1409,7 @@ export async function assembleSearchablePdf(
     log: TWorkerLog,
     trackTempFile: (path: string) => string,
     signal?: AbortSignal,
+    pdfPageOpsBinary?: string,
 ) {
     throwIfAborted(signal);
     const mapEntries = ocrPdfEntries instanceof Map
@@ -1361,11 +1421,15 @@ export async function assembleSearchablePdf(
             .sort(([left], [right]) => left - right)
         : null;
     const geometryByOcrPath = new Map<string, IOcrPageGeometry>();
+    const normalizeGreekMicroSignByOcrPath = new Map<string, boolean>();
     const normalizeEntry = (entry: TOcrPageEntryValue) => {
         if (typeof entry === 'string') {
             return entry;
         }
         if (entry.pageGeometry !== undefined) geometryByOcrPath.set(entry.path, entry.pageGeometry);
+        if (entry.normalizeGreekMicroSign === true) {
+            normalizeGreekMicroSignByOcrPath.set(entry.path, true);
+        }
         return entry.path;
     };
     const ocrPageEntries: ReadonlyArray<readonly [number, string]> | AsyncIterable<readonly [number, string]> = mapPageEntries
@@ -1415,7 +1479,19 @@ export async function assembleSearchablePdf(
             const pdf = await loadBoundedGeneratedPagePdf(sourcePagePath, 'Extracted source PDF page');
             const page = pdf.getPage(0);
             removePreviousOcrLayer(page);
-            const ocrPdf = await loadBoundedGeneratedPagePdf(ocrPagePath, 'Generated OCR PDF page');
+            const sourceOcrPagePath = pdfPageOpsBinary === undefined
+                ? ocrPagePath
+                : await repairOcrPageTextLayer(
+                    pdfPageOpsBinary,
+                    (await loadBoundedGeneratedPagePdf(ocrPagePath, 'Generated OCR PDF page')).getPage(0),
+                    ocrPagePath,
+                    normalizeGreekMicroSignByOcrPath.get(ocrPagePath) === true,
+                    tempDir,
+                    sessionId,
+                    trackTempFile,
+                    signal,
+                );
+            const ocrPdf = await loadBoundedGeneratedPagePdf(sourceOcrPagePath, 'Generated OCR PDF page');
             const ocrPage = ocrPdf.getPage(0);
             sanitizeOcrPageForEmbedding(ocrPage);
             appendOcrLayer(page, await pdf.embedPage(ocrPage), geometryByOcrPath.get(ocrPagePath));

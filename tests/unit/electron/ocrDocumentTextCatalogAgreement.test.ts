@@ -447,7 +447,7 @@ describe('DocumentTextCatalog reader agreement', () => {
         const fixture = createOcrDocumentTextCatalogFixture([
             {
                 pageNumber: 1,
-                text: 'native-looking first page',
+                text: 'Latin ذلك. 123 ٤٥٦ العَرَبِيَّة שלום ܫܠܡܐ ἄνθρωπος؟',
             },
             {
                 pageNumber: 2,
