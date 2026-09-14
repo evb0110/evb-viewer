@@ -189,7 +189,11 @@ export async function fetchRuntimeBinaries({
         console.log(`  ${dataEntry.resourceRoot}: verified ${dataEntry.archiveSha256}`);
     }
 
-    if (entries.length === 0) {
+    const requiredFamilies = new Set(RUNTIME_BINARY_MANIFEST.entries.map(entry => entry.familyId));
+    const publishedFamilies = new Set(entries.map(entry => entry.familyId));
+    const missingFamilies = [...requiredFamilies].filter(family => !publishedFamilies.has(family));
+    if (missingFamilies.length > 0) {
+        console.log(`No published ${target.platformArch} archives for: ${missingFamilies.join(', ')}.`);
         return null;
     }
 
@@ -243,7 +247,7 @@ if (isDirectCliRun) {
                 ...(options.targetTag === undefined ? {} : {targetTag: options.targetTag}),
             });
             if (!result) {
-                console.log('No published runtime archives for this target; the platform bundler builds them from source.');
+                console.log('Published runtime archives are incomplete for this target; the platform bundler builds the runtime tools from source.');
                 // Bundlers read this exit code as "build from source instead".
                 if (!options.ifPublished) process.exitCode = UNPUBLISHED_TARGET_EXIT_CODE;
             }

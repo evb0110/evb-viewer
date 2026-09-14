@@ -1,6 +1,5 @@
 #!/bin/bash
-# Bundle all required native tools for Linux x64
-# Runs on Ubuntu CI runner — installs via apt, copies binaries + .so deps
+# Bundle native tools on the pinned Ubuntu packaging image for x64 and arm64.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -14,8 +13,8 @@ case "$ARCH" in
   *)       echo "Error: Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Fetch the published archives for this target. Exit code 3 means the target
-# has none yet, so the source build below still produces its tools.
+# Fetch the published archives for this target. Exit code 3 means at least
+# one family needs the source build below.
 # EVB_RUNTIME_BINARIES_FROM_SOURCE=1 skips the fetch to rebuild the archives.
 if [ "${EVB_RUNTIME_BINARIES_FROM_SOURCE:-0}" != 1 ]; then
   fetch_status=0
@@ -74,7 +73,7 @@ echo "Installing tools via apt..."
 bash "$SCRIPT_DIR/ci/select-apt-mirrors.sh"
 run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" update -qq
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
-  tesseract-ocr \
+  libleptonica-dev \
   poppler-utils \
   djvulibre-bin \
   build-essential \
@@ -82,11 +81,7 @@ run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@
   curl \
   libjpeg-turbo8-dev \
   zlib1g-dev \
-  git \
-  meson \
-  ninja-build \
   pkg-config \
-  python3-sphinx \
   ca-certificates \
   patchelf
 
@@ -199,11 +194,34 @@ echo "=========================================="
 echo "1. Bundling Tesseract..."
 echo "=========================================="
 
+TESSERACT_VERSION="5.5.3"
+TESSERACT_SHA256="9218e62793116d42a9f6d14cd9348518b27f382096eea3d0f2d1a24616bb5884"
+mkdir -p "$PROJECT_ROOT/.devkit/tmp"
+TESSERACT_BUILD_DIR="$(mktemp -d "$PROJECT_ROOT/.devkit/tmp/tesseract-linux-XXXXXX")"
+trap 'rm -rf -- "$TESSERACT_BUILD_DIR"' EXIT
+curl -fsSL -o "$TESSERACT_BUILD_DIR/tesseract.tar.gz" \
+  "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/$TESSERACT_VERSION.tar.gz"
+echo "$TESSERACT_SHA256  $TESSERACT_BUILD_DIR/tesseract.tar.gz" | sha256sum -c -
+tar -xzf "$TESSERACT_BUILD_DIR/tesseract.tar.gz" -C "$TESSERACT_BUILD_DIR"
+cmake -S "$TESSERACT_BUILD_DIR/tesseract-$TESSERACT_VERSION" -B "$TESSERACT_BUILD_DIR/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TRAINING_TOOLS=OFF \
+  -DBUILD_TESTS=OFF \
+  -DDISABLE_ARCHIVE=ON \
+  -DDISABLE_CURL=ON \
+  -DOPENMP_BUILD=OFF \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build "$TESSERACT_BUILD_DIR/build" --parallel "$(nproc)" --target tesseract
+
 TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
 reset_bundle_dir "$TESSERACT_DIR"
+PATH="$TESSERACT_BUILD_DIR/build/bin:$PATH" \
 bundle_tool "tesseract" "$TESSERACT_DIR"
 bundle_lib_deps "$TESSERACT_DIR/lib"
 fix_lib_rpaths "$TESSERACT_DIR/lib"
+"$TESSERACT_DIR/bin/tesseract" --version
+rm -rf -- "$TESSERACT_BUILD_DIR"
+trap - EXIT
 
 # ==========================================
 # 2. Poppler (pdfinfo, pdftoppm, pdftotext, pdfimages)
@@ -284,58 +302,6 @@ bundle_lib_deps "$DJVU_DIR/lib"
 fix_lib_rpaths "$DJVU_DIR/lib"
 
 # ==========================================
-# 5. Unpaper
-# ==========================================
-echo ""
-echo "=========================================="
-echo "5. Bundling Unpaper..."
-echo "=========================================="
-
-# Unpaper lives alongside tesseract in the same directory
-UNPAPER_BUILD_DIR="$(mktemp -d /tmp/evb-unpaper-linux-XXXXXX)"
-UNPAPER_INSTALL_DIR="$UNPAPER_BUILD_DIR/install"
-FFMPEG_INSTALL_DIR="$UNPAPER_BUILD_DIR/ffmpeg-install"
-trap 'rm -rf "$UNPAPER_BUILD_DIR"' EXIT
-"$SCRIPT_DIR/build-minimal-ffmpeg-for-unpaper.sh" "$UNPAPER_BUILD_DIR/ffmpeg-build" "$FFMPEG_INSTALL_DIR"
-git clone https://github.com/unpaper/unpaper.git "$UNPAPER_BUILD_DIR/unpaper"
-git -C "$UNPAPER_BUILD_DIR/unpaper" checkout unpaper-7.0.0
-if [ "$(git -C "$UNPAPER_BUILD_DIR/unpaper" rev-parse HEAD)" != "5211a623d48858eae154213a61bccbc368b19ca0" ]; then
-  echo "Error: Pinned unpaper tag resolved to an unexpected commit"
-  exit 1
-fi
-PKG_CONFIG_PATH="$FFMPEG_INSTALL_DIR/lib/pkgconfig" \
-LDFLAGS="-Wl,-rpath,$FFMPEG_INSTALL_DIR/lib" \
-meson setup "$UNPAPER_BUILD_DIR/unpaper/build-minimal" \
-  "$UNPAPER_BUILD_DIR/unpaper" \
-  --prefix="$UNPAPER_INSTALL_DIR" \
-  --buildtype=release \
-  -Dstrip=true
-meson compile -C "$UNPAPER_BUILD_DIR/unpaper/build-minimal"
-meson install -C "$UNPAPER_BUILD_DIR/unpaper/build-minimal"
-PATH="$UNPAPER_INSTALL_DIR/bin:$PATH" \
-LD_LIBRARY_PATH="$FFMPEG_INSTALL_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-bundle_tool "unpaper" "$TESSERACT_DIR"
-bundle_lib_deps "$TESSERACT_DIR/lib"
-fix_lib_rpaths "$TESSERACT_DIR/lib"
-
-unexpected_video_libraries="$(find "$TESSERACT_DIR/lib" -maxdepth 1 -type f \
-  \( -name 'libx26*' -o -name 'libaom*' -o -name 'libSvt*' -o -name 'librav1e*' \
-     -o -name 'libvpx*' -o -name 'libdav1d*' -o -name 'libvmaf*' \) -print)"
-if [ -n "$unexpected_video_libraries" ]; then
-  echo "Error: Unexpected video-codec closure leaked into the Linux unpaper bundle:"
-  echo "$unexpected_video_libraries" | sed 's/^/  /'
-  exit 1
-fi
-linked_av_libraries="$(LD_LIBRARY_PATH="$TESSERACT_DIR/lib" ldd "$TESSERACT_DIR/bin/unpaper" \
-  | awk '{print $1}' | grep '^libav' || true)"
-for required_av_library in libavcodec libavformat libavutil; do
-  if ! echo "$linked_av_libraries" | grep -q "^${required_av_library}\."; then
-    echo "Error: Minimal Linux unpaper is missing required $required_av_library linkage"
-    exit 1
-  fi
-done
-
-# ==========================================
 # Verification
 # ==========================================
 echo ""
@@ -370,7 +336,6 @@ verify_dir() {
 missing_count=0
 
 verify_tool "$TESSERACT_DIR/bin/tesseract" "tesseract"
-verify_tool "$TESSERACT_DIR/bin/unpaper" "unpaper"
 verify_tool "$POPPLER_DIR/bin/pdfinfo" "pdfinfo"
 verify_tool "$POPPLER_DIR/bin/pdftoppm" "pdftoppm"
 verify_tool "$POPPLER_DIR/bin/pdftotext" "pdftotext"

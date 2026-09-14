@@ -566,7 +566,6 @@ if [ "$platform" = "mac" ]; then
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   fi
   run_macos_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
-  run_macos_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
 fi
 
 if [ "$platform" = "linux" ]; then
@@ -598,7 +597,6 @@ if [ "$platform" = "linux" ]; then
 
   if host_can_execute_target "$platform" "$arch"; then
     run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
-    run_host_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
     run_host_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
     run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"

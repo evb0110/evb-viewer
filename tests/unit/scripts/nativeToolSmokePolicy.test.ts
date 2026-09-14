@@ -239,22 +239,10 @@ describe('native tool smoke policy', () => {
                 'families',
                 0,
                 'packagedEntries',
-                1,
+                0,
                 'platforms',
             ],
             value: ['android'],
-        },
-        {
-            branch: 'entry skip reasons',
-            error: 'Invalid packaged entry skip',
-            path: [
-                'families',
-                0,
-                'packagedEntries',
-                1,
-                'skip',
-            ],
-            value: {android: 'not packaged'},
         },
         {
             branch: 'global identity',
@@ -349,8 +337,7 @@ describe('native tool smoke policy', () => {
             const suffix = platform === 'win32' ? '.exe' : '';
             const expectedRows = RELEASE_TARGET_MANIFEST.families.flatMap(family => (
                 family.packagedEntries
-                    .filter(entry => !entry.skip?.[platform]
-                        && (!entry.platforms || entry.platforms.includes(platform)))
+                    .filter(entry => !entry.platforms || entry.platforms.includes(platform))
                     .map(entry => [
                         'native',
                         family.stagedRootSegments.join('/'),
@@ -382,6 +369,8 @@ describe('native tool smoke policy', () => {
         expect(() => assertPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('tesseract', 0, 'tesseract 5.5.0')).not.toThrow();
+        expect(() => assertPackagedToolSmoke('tesseract', 0, 'tesseract v5.4.0.20240606\n leptonica-1.84.1')).not.toThrow();
+        expect(() => assertPackagedToolSmoke('tesseract', 0, 'tesseract 4.1.1\n leptonica-1.82.0')).toThrow('did not report a supported version');
         expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-protocol', 0, '4')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
@@ -394,7 +383,6 @@ describe('native tool smoke policy', () => {
         expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
         expect(() => assertPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
         expect(() => assertPackagedToolSmoke('djvudump', 1, 'djvudump usage')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('unpaper', 0, 'Usage: unpaper [options]')).not.toThrow();
         expect(() => assertPackagedToolSmoke('qpdf', 2, 'qpdf version 12.0.0')).toThrow(
             'Packaged tool smoke test failed (qpdf) with exit code 2',
         );

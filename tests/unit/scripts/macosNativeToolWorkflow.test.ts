@@ -16,6 +16,7 @@ import {
     expect,
     it,
 } from 'vitest';
+
 import { getNativeSourceMatrixCheckEntries } from '@scripts/nativeResourceManifest';
 
 const platformArchHelperPath = resolve(process.cwd(), 'scripts/release/platform-arch.sh');
@@ -114,68 +115,18 @@ function runSourceMatrixAsLinuxX64Host() {
 }
 
 describe('macOS native tool workflow', () => {
-    it('keeps unpaper documentation tooling on Homebrew packages instead of PyPI', async () => {
-        const workflowPaths = [
-            '.github/workflows/build-target.yml',
-            '.github/workflows/build-mac-intel.yml',
-        ];
-        const setupAction = await readProjectFile('.github/actions/setup-release-env/action.yml');
 
-        // The shared setup action owns the brew invocation and the sphinx-doc
-        // PATH handling; each workflow owns its formulae list.
-        expect(setupAction).toContain('brew install');
-        expect(setupAction).toContain('brew --prefix sphinx-doc');
-        expect(setupAction).not.toContain('pip3 install sphinx');
-        for (const workflowPath of workflowPaths) {
-            const workflow = await readProjectFile(workflowPath);
-            const brewPackages = extractBrewFormulaeValues(workflow);
-
-            expect(brewPackages).toEqual(expect.arrayContaining([
-                'meson',
-                'pkg-config',
-                'sphinx-doc',
-            ]));
-            expect(workflow).not.toContain('pip3 install sphinx');
-        }
-    });
 
     it('keeps local macOS bundling prerequisites aligned with CI', async () => {
         const workflow = await readProjectFile('.github/workflows/build-target.yml');
         const bundleAll = await readProjectFile('scripts/bundle-all-macos.sh');
-        const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
         const ciBrewPackages = extractBrewFormulaeValues(workflow);
         const localBrewPackages = extractBashArrayValues(bundleAll, 'DEPS');
-        const unpaperBuildPackages = [
-            'meson',
-            'pkg-config',
-            'sphinx-doc',
-        ];
+        expect(localBrewPackages).toEqual(ciBrewPackages);
 
-        expect(localBrewPackages).toEqual(expect.arrayContaining(unpaperBuildPackages));
-        expect(ciBrewPackages).toEqual(expect.arrayContaining(unpaperBuildPackages));
-        expect(bundleUnpaper).toContain('sphinx-build is required');
-        expect(bundleUnpaper).toContain('brew --prefix sphinx-doc');
-        expect(ciBrewPackages).not.toContain('ffmpeg');
-        expect(localBrewPackages).not.toContain('ffmpeg');
-        expect(bundleUnpaper).toContain('build-minimal-ffmpeg-for-unpaper.sh');
-        expect(bundleUnpaper).toContain('Unexpected video-codec closure leaked into the unpaper bundle');
     });
 
-    it('pins a PNM-only FFmpeg build for unpaper instead of the video-codec closure', async () => {
-        const minimalFfmpeg = await readProjectFile('scripts/build-minimal-ffmpeg-for-unpaper.sh');
-        expect(minimalFfmpeg).toContain('resolve_path()');
-        expect(minimalFfmpeg).toContain('refusing unsafe FFmpeg build cleanup target');
-        expect(minimalFfmpeg).toContain('rm -rf -- "$SOURCE_DIR" "$INSTALL_PREFIX"');
 
-        expect(minimalFfmpeg).toContain('FFMPEG_COMMIT="db69d06eeeab4f46da15030a80d539efb4503ca8"');
-        expect(minimalFfmpeg).toContain('--disable-everything');
-        expect(minimalFfmpeg).toContain('--enable-decoder=pam,pbm,pgm,pgmyuv,ppm');
-        expect(minimalFfmpeg).toContain('--enable-encoder=pam,pbm,pgm,pgmyuv,ppm');
-        expect(minimalFfmpeg).toContain('--enable-demuxer=image2,image2pipe');
-        expect(minimalFfmpeg).toContain('--enable-muxer=image2,image2pipe');
-        expect(minimalFfmpeg).not.toContain('--enable-libx264');
-        expect(minimalFfmpeg).not.toContain('--enable-libaom');
-    });
 
     it('maps release platform and architecture tags through the shared shell helper', () => {
         expect(resolveReleasePlatformArch('mac', 'arm64')).toBe('darwin-arm64|');
@@ -224,32 +175,13 @@ describe('macOS native tool workflow', () => {
         ]);
     });
 
-    it('keeps packaged unpaper required outside Windows and smoke-tested on macOS', async () => {
-        const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
-        const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
 
-        expect(getNativeSourceMatrixCheckEntries('linux-x64')).toContainEqual({
-            kind: 'required',
-            label: 'unpaper',
-            path: 'resources/tesseract/linux-x64/bin/unpaper',
-            type: 'file',
-        });
-        expect(getNativeSourceMatrixCheckEntries('win32-x64')).toContainEqual({
-            kind: 'skip',
-            label: 'unpaper',
-            reason: 'not bundled on Windows',
-        });
-        expect(verifier).toContain('run_macos_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help');
-        expect(bundleUnpaper).toContain('if "$DEST/bin/unpaper" --help > /dev/null 2>&1; then');
-        expect(bundleUnpaper).toContain('exit 1');
-    });
 
     it('derives every comparable macOS native-tool dylib closure through one shared policy', async () => {
         const dylibBundle = await readProjectFile('scripts/lib/macos-dylib-bundle.sh');
         const bundleDjvu = await readProjectFile('scripts/bundle-djvu-macos.sh');
         const bundlePdfTools = await readProjectFile('scripts/bundle-pdf-tools-macos.sh');
         const bundleTesseract = await readProjectFile('scripts/bundle-tesseract-macos.sh');
-        const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
 
         expect(dylibBundle).toContain('macos_copy_dylib_closure()');
         expect(dylibBundle).toContain('macos_list_dylib_dependencies "$file"');
@@ -264,7 +196,6 @@ describe('macOS native tool workflow', () => {
             bundleDjvu,
             bundlePdfTools,
             bundleTesseract,
-            bundleUnpaper,
         ]) {
             expect(bundler).toContain('source "$SCRIPT_DIR/lib/macos-dylib-bundle.sh"');
             expect(bundler).toContain('macos_bundle_dylib_closure');
@@ -277,7 +208,7 @@ describe('macOS native tool workflow', () => {
         expect(bundleDjvu).not.toContain('Warning: ddjvu test failed');
     });
 
-    it('copies a transitive @loader_path dylib that is absent from the seeded bundle', () => {
+    it('copies transitive dylibs and prunes libraries unreachable from the executable', () => {
         const root = mkdtempSync(join(tmpdir(), 'evb-macos-dylib-closure-'));
         const fakeBin = join(root, 'fake-bin');
         const brewRoot = join(root, 'brew');
@@ -299,6 +230,7 @@ describe('macOS native tool workflow', () => {
             join(sourceLib, 'libwebp.7.dylib'),
             join(sourceLib, 'libsharpyuv.0.dylib'),
             join(destinationLib, 'libwebp.7.dylib'),
+            join(destinationLib, 'libunused.dylib'),
         ]) {
             writeFileSync(filePath, 'fixture');
         }
@@ -327,6 +259,10 @@ describe('macOS native tool workflow', () => {
                 'source "$1"',
                 'macos_copy_dylib_closure "$2" "$3" "$4" "$2/libwebp.7.dylib"',
                 'test -f "$2/libsharpyuv.0.dylib"',
+                'macos_prune_unused_dylibs "$2" "$4"',
+                'test -f "$2/libwebp.7.dylib"',
+                'test -f "$2/libsharpyuv.0.dylib"',
+                'test ! -f "$2/libunused.dylib"',
             ].join('; '),
             'bash',
             resolve(process.cwd(), 'scripts/lib/macos-dylib-bundle.sh'),

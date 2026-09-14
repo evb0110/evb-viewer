@@ -75,7 +75,7 @@ If the setup script is not appropriate, install the same host packages manually:
 sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   ca-certificates curl build-essential pkg-config ruby-dev \
-  tesseract-ocr poppler-utils qpdf djvulibre-bin unpaper patchelf \
+  tesseract-ocr poppler-utils qpdf djvulibre-bin patchelf \
   xvfb xauth dbus-x11 \
   libgtk-3-0 libnss3 libasound2t64 libxss1 libgbm1 libdrm2 \
   libxshmfence1 libatk-bridge2.0-0 libatspi2.0-0 libcups2 \

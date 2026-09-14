@@ -1,6 +1,6 @@
 import releaseTargetManifest from './generated-release-targets.cjs';
 
-/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[], requiredOutputTokens?: string[]}} IToolSmokePolicy */
+/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[], requiredOutputTokens?: string[], requiredOutputPattern?: RegExp}} IToolSmokePolicy */
 
 export const RELEASE_TARGET_MANIFEST = releaseTargetManifest.manifest;
 
@@ -134,10 +134,8 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     tesseract: {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['tesseract'],
-    },
-    unpaper: {
-        allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['unpaper'],
+        // Recognition profiles pass 5.x-only parameters that 4.x rejects silently.
+        requiredOutputPattern: /^tesseract v?5\./mu,
     },
 };
 
@@ -168,6 +166,11 @@ export function assertPackagedToolSmoke(toolName, exitCode, output) {
     if (!policy.expectedOutputTokens.some(token => normalizedOutput.includes(token))) {
         throw new Error(
             `Packaged tool smoke test output for ${toolName} did not match any expected signature`,
+        );
+    }
+    if (policy.requiredOutputPattern && !policy.requiredOutputPattern.test(normalizedOutput)) {
+        throw new Error(
+            `Packaged tool smoke test output for ${toolName} did not report a supported version`,
         );
     }
     for (const token of policy.requiredOutputTokens ?? []) {

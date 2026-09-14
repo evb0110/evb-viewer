@@ -119,7 +119,7 @@ jobs:
           windows-bundle-cache-key: win-native-tools-${{ inputs.arch }}
           needs-msys2: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' }}
           rust-targets: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
-          brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc' || '' }}
+          brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre' || '' }}
           needs-system-fpm: ${{ inputs.platform == 'linux' }}
 
       - name: Resolve Sentry build identity
@@ -137,7 +137,6 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           bash scripts/bundle-tesseract-macos.sh
-          bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh
           bash scripts/bundle-djvu-macos.sh
 
@@ -147,7 +146,7 @@ jobs:
         timeout-minutes: 20
         run: |
           # The packaging container has no Node, so the verified fetch runs on the runner.
-          # Exit code 3 means this target has no published archives yet.
+          # Exit code 3 means at least one runtime family needs a source build.
           fetch_status=0
           node --import tsx scripts/fetchRuntimeBinaries.ts || fetch_status=$?
           if [ "$fetch_status" -eq 0 ]; then

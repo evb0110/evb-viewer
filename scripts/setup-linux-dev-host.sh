@@ -25,7 +25,6 @@ APT_PACKAGES=(
   poppler-utils
   qpdf
   djvulibre-bin
-  unpaper
   patchelf
   xvfb
   xauth

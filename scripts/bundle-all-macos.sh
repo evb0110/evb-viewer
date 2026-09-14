@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TOTAL_STEPS=4
+TOTAL_STEPS=3
 
 # Fetch the published archives for this target. Exit code 3 means the target
 # has none yet, so the source build below still produces its tools.
@@ -27,7 +27,7 @@ echo ""
 
 # Ensure Homebrew dependencies are installed
 echo "Checking Homebrew dependencies..."
-DEPS=(tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc)
+DEPS=(tesseract poppler qpdf djvulibre)
 MISSING=()
 for dep in "${DEPS[@]}"; do
     if ! brew list --formula "$dep" &>/dev/null; then
@@ -49,20 +49,14 @@ echo ""
 "$SCRIPT_DIR/bundle-tesseract-macos.sh"
 echo ""
 
-# Step 2: Bundle Leptonica + Unpaper (image preprocessing)
-echo "Step 2/$TOTAL_STEPS: Bundling Leptonica + Unpaper..."
-echo ""
-"$SCRIPT_DIR/bundle-leptonica-unpaper-macos.sh"
-echo ""
-
-# Step 3: Bundle PDF tools (Poppler + qpdf)
-echo "Step 3/$TOTAL_STEPS: Bundling PDF tools (Poppler, qpdf)..."
+# Step 2: Bundle PDF tools (Poppler + qpdf)
+echo "Step 2/$TOTAL_STEPS: Bundling PDF tools (Poppler, qpdf)..."
 echo ""
 "$SCRIPT_DIR/bundle-pdf-tools-macos.sh"
 echo ""
 
-# Step 4: Bundle DjVuLibre tools
-echo "Step 4/$TOTAL_STEPS: Bundling DjVuLibre (ddjvu, djvused, djvudump)..."
+# Step 3: Bundle DjVuLibre tools
+echo "Step 3/$TOTAL_STEPS: Bundling DjVuLibre (ddjvu, djvused, djvudump)..."
 echo ""
 "$SCRIPT_DIR/bundle-djvu-macos.sh"
 echo ""

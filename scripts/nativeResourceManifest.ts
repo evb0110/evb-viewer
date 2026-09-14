@@ -68,7 +68,6 @@ export interface IPackagedNativeResourceEntry {
     label: string;
     pathSegments: readonly string[];
     platforms?: readonly TNativeResourcePlatform[];
-    skip?: Partial<Record<TNativeResourcePlatform, string>>;
     type: TNativeResourcePathType;
 }
 
@@ -89,18 +88,12 @@ export interface IGeneratedNativeToolResource {
     stagingName: string;
 }
 
-export type TNativeSourceMatrixCheckEntry =
-    | {
-        kind: 'required';
-        label: string;
-        path: string;
-        type: TNativeResourcePathType;
-    }
-    | {
-        kind: 'skip';
-        label: string;
-        reason: string;
-    };
+export interface INativeSourceMatrixCheckEntry {
+    kind: 'required';
+    label: string;
+    path: string;
+    type: TNativeResourcePathType;
+}
 
 export const NATIVE_RESOURCE_PLATFORM_ARCHES = [
     'darwin-x64',
@@ -121,7 +114,6 @@ const GENERATED_NATIVE_TOOL_FAMILY_LABELS: Record<TGeneratedNativeToolResourceFa
 function packagedBinary(
     id: string,
     platforms?: readonly TNativeResourcePlatform[],
-    skip?: Partial<Record<TNativeResourcePlatform, string>>,
 ): IPackagedNativeResourceEntry {
     return {
         id,
@@ -131,7 +123,6 @@ function packagedBinary(
             `${id}{exeSuffix}`,
         ],
         ...(platforms ? {platforms} : {}),
-        ...(skip ? {skip} : {}),
         type: 'file',
     };
 }
@@ -156,13 +147,13 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
     {
         id: 'tesseract',
         label: 'Tesseract native tools',
-        packagedEntries: [
-            packagedBinary('tesseract'),
-            packagedBinary('unpaper', [
-                'darwin',
-                'linux',
-            ], {win32: 'not bundled on Windows'}),
-        ],
+        // The pinned darwin-arm64 archive still carries unpaper. Remove this
+        // exclusion when that archive is republished without it.
+        packageFiltersByPlatform: {darwin: [
+            '**/*',
+            '!bin/unpaper',
+        ]},
+        packagedEntries: [packagedBinary('tesseract')],
         sourceRootSegments: [
             'resources',
             'tesseract',
@@ -380,18 +371,10 @@ export function parseNativeResourcePlatformArch(tag: string): INativeResourceTar
     };
 }
 
-export function getNativeSourceMatrixCheckEntries(tag: string): TNativeSourceMatrixCheckEntry[] {
+export function getNativeSourceMatrixCheckEntries(tag: string): INativeSourceMatrixCheckEntry[] {
     const target = parseNativeResourcePlatformArch(tag);
     return NATIVE_TOOL_RESOURCE_FAMILIES.flatMap(family => (
-        family.packagedEntries.flatMap((entry): TNativeSourceMatrixCheckEntry[] => {
-            const skipReason = entry.skip?.[target.platform];
-            if (skipReason) {
-                return [{
-                    kind: 'skip',
-                    label: entry.id,
-                    reason: skipReason,
-                }];
-            }
+        family.packagedEntries.flatMap((entry): INativeSourceMatrixCheckEntry[] => {
             if (entry.platforms && !entry.platforms.includes(target.platform)) {
                 return [];
             }

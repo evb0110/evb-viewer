@@ -49,8 +49,11 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: '0544ed3014ac8cb8cc21166037d45b2b2c7fe6cb3683b166d16eb8e59570adda',
     },
     'tesseract-linux-x64': {
-        archiveBytes: 19091562,
-        archiveSha256: '98b5376a330b784c2f220971c7e7222873f926dc4c4a135b298f432e34c365a1',
+        // Tesseract 5.5.3 from scripts/bundle-tools-linux.sh. Versioned so the
+        // 4.1.1 asset that older commits pin stays byte-identical.
+        assetName: 'tesseract-linux-x64-5.5.3',
+        archiveBytes: 4472496,
+        archiveSha256: '65f3f9ce37a0cd57adf1df170aade5f2fc4275229cb60e3990d16ae9c2120e7c',
     },
     'tesseract-win32-x64': {
         archiveBytes: 56140942,
@@ -77,7 +80,7 @@ function createRuntimeEntry(
         archiveKind: 'tar.gz' as const,
         archiveBytes: archive.archiveBytes,
         archiveSha256: archive.archiveSha256,
-        archiveUrl: archiveUrl(key),
+        archiveUrl: archiveUrl('assetName' in archive ? archive.assetName : key),
         executableEntry: `${familyId}/${targetTag}/bin/${executableName}`,
         familyId,
         target: parseNativeResourcePlatformArch(targetTag),
@@ -106,5 +109,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '81cbfe01cf14d25845e45d10e890aea744e83b9ea283d273a78e91619b321938',
+    manifestSha256: 'ed076f0c2658d6b0aee8f8557e60b17c8040325987ce930ec9f07c55fb3c3bbf',
 };

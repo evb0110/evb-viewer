@@ -1,6 +1,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
+const {execFileSync} = require('node:child_process');
 
 const projectRoot = path.resolve(__dirname, '..');
 const {manifest: RELEASE_TARGET_MANIFEST} = require('./release/generated-release-targets.cjs');
@@ -384,6 +385,23 @@ exports.default = async function afterPack(context) {
 
     const nativeToolsDir = nativeToolsDirForContext(context);
     makeTreeOwnerWritable(nativeToolsDir);
+    // The pinned darwin-arm64 Tesseract archive still ships unpaper's FFmpeg
+    // dylibs, which nothing in the app loads. Drop libraries outside Tesseract's
+    // dependency closure. Remove this when that archive is republished without unpaper.
+    const tesseractRoot = path.join(nativeToolsDir, 'tesseract', platformArchTagForContext(context));
+    execFileSync('/bin/bash', [
+        '--noprofile',
+        '--norc',
+        '-e',
+        '-o',
+        'pipefail',
+        '-c',
+        'source "$1"; macos_prune_unused_dylibs "$2" "$3"',
+        'prune-tesseract-libraries',
+        path.join(__dirname, 'lib', 'macos-dylib-bundle.sh'),
+        path.join(tesseractRoot, 'lib'),
+        path.join(tesseractRoot, 'bin', 'tesseract'),
+    ], {stdio: 'inherit'});
     console.log('[afterPack] Made macOS native tools owner-writable for ShipIt updates:', nativeToolsDir);
 
     const src = path.resolve(__dirname, '..', 'resources', 'icon.icns');

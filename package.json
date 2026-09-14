@@ -90,7 +90,6 @@
     "worktrees:prune": "node scripts/worktrees-prune.mjs",
     "electron:run:headless": "bash scripts/electron-run-headless.sh",
     "diag:pdf-navigation-blink-trace": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts",
-    "diag:ocr-profile-benchmark": "python3 scripts/devkit/ocr-profile-benchmark.py",
     "test:ocr:native-smoke:required": "EVB_OCR_NATIVE_SMOKE_REQUIRED=1 node scripts/test-ocr-native-smoke.mjs",
     "test:ocr:quality:required": "EVB_OCR_QUALITY_REQUIRED=1 node scripts/test-ocr-quality-corpus.mjs",
     "diag:pdf-skeleton-navigation": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts",

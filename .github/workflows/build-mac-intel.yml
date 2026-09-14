@@ -77,7 +77,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           rust-targets: wasm32-unknown-unknown
-          brew-formulae: tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc
+          brew-formulae: tesseract poppler qpdf djvulibre
 
       - name: Resolve Sentry build identity
         run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
@@ -86,7 +86,6 @@ jobs:
         timeout-minutes: 30
         run: |
           bash scripts/bundle-tesseract-macos.sh
-          bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh
           bash scripts/bundle-djvu-macos.sh
 

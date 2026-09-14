@@ -236,10 +236,6 @@ console.log(executablePath);
                 join(projectRoot, 'resources', 'tesseract', hostTag, 'bin', process.platform === 'win32' ? 'tesseract.exe' : 'tesseract'),
             ],
             [
-                'unpaper',
-                join(projectRoot, 'resources', 'tesseract', hostTag, 'bin', process.platform === 'win32' ? 'unpaper.exe' : 'unpaper'),
-            ],
-            [
                 'pdfinfo',
                 join(projectRoot, 'resources', 'poppler', hostTag, 'bin', process.platform === 'win32' ? 'pdfinfo.exe' : 'pdfinfo'),
             ],
@@ -294,7 +290,6 @@ console.log(executablePath);
             'ddjvu',
             'djvused',
             'djvudump',
-            'unpaper',
             'patchelf',
         ]
             .filter(command => !commandPath(command));

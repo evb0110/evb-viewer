@@ -46,10 +46,7 @@ inputs:
       arm64, download failures on x64).
     default: 'false'
   brew-formulae:
-    description: >-
-      Space-separated Homebrew formulae (macOS only). When sphinx-doc is
-      included its bin directory is appended to PATH for the doc-dependent
-      native bundle scripts.
+    description: Space-separated Homebrew formulae (macOS only).
     default: ''
 
 runs:
@@ -176,8 +173,3 @@ runs:
       shell: bash
       run: |
         brew install ${{ inputs.brew-formulae }}
-        case " ${{ inputs.brew-formulae }} " in
-          *' sphinx-doc '*)
-            echo "$(brew --prefix sphinx-doc)/bin" >> "$GITHUB_PATH"
-            ;;
-        esac

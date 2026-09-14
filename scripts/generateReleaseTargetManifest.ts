@@ -37,7 +37,7 @@ export function renderReleaseTargetManifest() {
     return `'use strict'; /* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline, @stylistic/indent */
 /** @type {TManifest} */
 const manifest = JSON.parse(String.raw\`${serializedManifest}\`);
-/** @typedef {{id: string, label: string, pathSegments: string[], platforms?: string[], skip?: Record<string, string>, type: string}} TPackagedEntry */
+/** @typedef {{id: string, label: string, pathSegments: string[], platforms?: string[], type: string}} TPackagedEntry */
 /** @typedef {{binaryName: string | null, id: string, label: string, packagedEntries: TPackagedEntry[], packageFiltersByPlatform?: Record<string, string[]>, protocolCapabilities: string[] | null, protocolVersion: number | null, sourceRootSegments: string[], stagedRootSegments: string[]}} TFamily */
 /** @typedef {{filters?: string[], id: string, label: string, requiredFiles?: string[], sourceSegments: string[], stagedSegments: string[], type: string}} TGlobalResource */
 /** @typedef {{entitlementsPathSegments: string[], executableRoots: unknown[][], platforms: string[]}} TSigning */
@@ -85,7 +85,6 @@ function assertManifest(value) {
         for (const entry of family.packagedEntries) {
             if (!record(entry) || !string(entry.id) || !string(entry.label) || entryIds.has(entry.id) || !paths(entry.pathSegments) || !resourceType(entry.type)) throw new Error('[release manifest] Invalid packaged entry'); entryIds.add(entry.id);
             if (entry.platforms !== undefined && !allowedList(entry.platforms, platforms)) throw new Error('[release manifest] Invalid packaged entry platforms');
-            if (entry.skip !== undefined && (!record(entry.skip) || Object.keys(entry.skip).length === 0 || Object.entries(entry.skip).some(([platform, reason]) => !platforms.has(platform) || !string(reason)))) throw new Error('[release manifest] Invalid packaged entry skip');
         } }
     if (!Array.isArray(value.globalResources) || value.globalResources.length === 0) throw new Error('[release manifest] globalResources must be a non-empty array'); const globalIds = new Set();
     for (const resource of value.globalResources) {
@@ -99,7 +98,7 @@ function renderPackagedEntries(tag) { const platform = tag.slice(0, tag.lastInde
     const suffix = platform === 'win32' ? '.exe' : '';
     return [
         ...manifest.families.flatMap(family => family.packagedEntries
-        .filter(entry => !entry.skip?.[platform] && (!entry.platforms || entry.platforms.includes(platform)))
+        .filter(entry => !entry.platforms || entry.platforms.includes(platform))
         .map(entry => ['native', family.stagedRootSegments.join('/'), entry.pathSegments.join('/').replaceAll('{exeSuffix}', suffix), entry.type, entry.label, entry.id].join('\\u001f'))),
         ...manifest.globalResources.map(resource => ['global', '', resource.stagedSegments.join('/'), resource.type, resource.label, resource.id].join('\\u001f')),
     ].join('\\n');

@@ -42,9 +42,9 @@ docs/       Project-specific implementation and release notes
 - Electron 42
 - Nuxt 4 + Vue 3 + TypeScript 6 (TypeScript 7 native compiler for plain-TypeScript checks)
 - Nuxt UI 4 + Tailwind CSS 4
-- PDF.js 5 for rendering
+- The pinned EVB PDF.js fork for rendering
 - `pdf-lib` for document rewriting and page operations
-- Tesseract + Poppler + qpdf + DjVuLibre + unpaper for desktop-native workflows
+- Tesseract + Poppler + qpdf + DjVuLibre for desktop-native workflows
 - Vitest, Playwright, and Puppeteer-based Electron E2E coverage
 
 ## Getting Started
@@ -59,6 +59,12 @@ docs/       Project-specific implementation and release notes
 ```bash
 pnpm install
 ```
+
+On Linux, also run `bash scripts/bundle-tools-linux.sh` before starting desktop
+development. Linux Tesseract builds from pinned source because the published
+archive predates the OCR options used by the app. The script installs its build
+prerequisites through `sudo`. The complete Linux host setup is
+`bash scripts/setup-linux-dev-host.sh`; it already runs this bundling step.
 
 ### Root App Commands
 
@@ -231,17 +237,17 @@ The desktop OCR pipeline supports two common concurrency knobs:
 
 There are also advanced queue/worker controls under `EVB_OCR_*` for release and stress scenarios.
 
-For manual OCR quality tuning, run the profile benchmark:
+Measure OCR quality with the shipped engine and pinned language corpus:
 
 ```bash
-pnpm run diag:ocr-profile-benchmark -- tests/fixtures/electron/test-scanned.pdf --pages 1 --languages eng
+pnpm run build:scan-cleanup
+pnpm run build:pdf-page-ops
+pnpm run test:ocr:quality:required
 ```
 
-It writes `.devkit/tmp/ocr-profile-benchmark/<timestamp>/summary.csv` plus TSV,
-text, render, preprocessing, and log artifacts for `balanced`, `accurate`,
-`poor-scan`, and `stock` profiles. Compare `text_length`, confidence, word
-count, preprocessing result, and runtime together; inspect the parsed text
-before accepting a profile change.
+The benchmark reports faithful Unicode character and word error rates for raw
+recognition, saved-PDF text and degraded pages. It uses bundled Tesseract,
+Poppler and qpdf by default.
 
 Tesseract remains the default OCR backend. Improve wrapper profiles, language
 ordering, rendering, and preprocessing first; treat PaddleOCR or vision models

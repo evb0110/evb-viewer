@@ -667,12 +667,6 @@ echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$D
 fi  # end x64/arm64 branch
 
 # ==========================================
-# Note: Unpaper is intentionally unavailable on Windows packages until a
-# reproducible, architecture-verified source is added. Runtime preprocessing
-# validation must report unpaper as missing on win32-* packages.
-# ==========================================
-echo ""
-echo "Note: Unpaper is intentionally unavailable on Windows packages."
 
 # ==========================================
 # Verification
