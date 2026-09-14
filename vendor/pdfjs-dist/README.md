@@ -1,10 +1,10 @@
 # EVB PDF.js artifact
 
-This directory contains the complete generated `pdfjs-dist@6.3.311` package
+This directory contains the complete generated `pdfjs-dist@6.3.312` package
 from the public EVB fork at
 `https://github.com/evb0110/pdf.js`, commit
-`6922bee2b3dd047c954d5717a533a2d701559c17`, tree
-`0fc8b8db395e8ab30ddec61a78bb9ad72d82512b`, branch
+`c3253faa113dd231ea95630afd40dbb31efead08`, tree
+`61abab5aba6ccc2bfe574869e71dc5960b716d51`, branch
 `ticket/168-fork-rebase`. The fork rebases the EVB changes onto upstream
 `v6.3.289`.
 
@@ -24,3 +24,7 @@ The receipt and sorted manifest must be regenerated with every artifact update.
 The fork's license and bundled third-party inventory remain in the package.
 Human legal review is still required for modification notices and third-party
 license sufficiency.
+
+The OCR repair preserves encoded spaces between touching word boxes and keeps
+selection aligned with horizontally reflected text. The source tests cover
+overlap, rotation and vertical-font controls.
