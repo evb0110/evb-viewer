@@ -2,7 +2,6 @@ import { getErrorMessage } from '@electron/utils/error';
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
 import { isOneOf } from '@contracts/runtimeGuards';
-import { hasSingleOcrLanguageSelection } from '@contracts/ocrLanguages';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     requireRequestId,
@@ -31,14 +30,13 @@ interface IOcrCreateSearchablePdfPayload {
     options: IOcrSearchablePdfOptions;
 }
 
-const MAX_LANGUAGES_PER_PAGE = 16;
+const MAX_LANGUAGES_PER_PAGE = AVAILABLE_OCR_LANGUAGE_CODES.size;
 const MAX_BATCH_PAGES = 5_000;
 const OCR_PAGE_REQUEST_BATCH_SIZE = MAX_BATCH_PAGES;
 const MAX_SELECTION_RANGES = 100_000;
 const MAX_EXPLICIT_PAGE_REQUESTS = 100_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
-const OCR_MULTIPLE_LANGUAGES_MESSAGE = 'OCR accepts one recognition language per run. Select one language and run OCR again for a different language.';
 const OCR_QUALITY_PROFILES = [
     'balanced',
     'accurate',
@@ -329,30 +327,7 @@ function asLanguages(value: unknown, fieldName: string) {
             throw new OcrPayloadValidationError(`Unsupported OCR language: ${languageCode}`);
         }
     }
-    if (!hasSingleOcrLanguageSelection(unique)) {
-        throw new OcrPayloadValidationError(
-            OCR_MULTIPLE_LANGUAGES_MESSAGE,
-            'OCR_MULTIPLE_LANGUAGES',
-        );
-    }
     return unique;
-}
-
-function assertSingleLanguagePerRun(
-    pages: Array<{ languages: string[] }>,
-) {
-    const uniqueLanguages = new Set<string>();
-    for (const page of pages) {
-        for (const language of page.languages) {
-            uniqueLanguages.add(language);
-        }
-    }
-    if (!hasSingleOcrLanguageSelection([...uniqueLanguages])) {
-        throw new OcrPayloadValidationError(
-            OCR_MULTIPLE_LANGUAGES_MESSAGE,
-            'OCR_MULTIPLE_LANGUAGES',
-        );
-    }
 }
 
 function asCreatePdfPageRequest(payload: unknown, fieldName: string): IOcrSearchablePdfPage {
@@ -408,7 +383,6 @@ function asSearchablePdfPageSelection(
         }
         const pages = pagesPayload.map((page, index) =>
             asCreatePdfPageRequest(page, `${fieldName}[${index}]`));
-        assertSingleLanguagePerRun(pages);
         return pages;
     }
 

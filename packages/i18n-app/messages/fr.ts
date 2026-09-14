@@ -796,15 +796,15 @@ export default {
             'replaceAllAcknowledgement': 'Je comprends que le texte OCR masqué provenant d’autres outils sera supprimé et remplacé sur les pages sélectionnées.',
         },
         'qualityProfile': {
-            'label': 'Qualité',
+            'label': 'Mode de reconnaissance',
             'options': {
                 'balanced': 'Équilibré',
-                'accurate': 'Précis',
+                'accurate': 'Utiliser les dictionnaires',
                 'poor-scan': 'Mauvais scan',
             },
             'help': {
-                'balanced': 'Le réglage par défaut — adapté à la plupart des documents.',
-                'accurate': 'Utilise le dictionnaire de langue pour corriger les mots mal lus.',
+                'balanced': 'Utiliser les paramètres de reconnaissance par défaut.',
+                'accurate': 'Garder les dictionnaires de langues activés pendant la reconnaissance.',
                 'poor-scan': 'Pour les scans pâlis, bruités ou de mauvaise qualité.',
             },
         },
@@ -886,8 +886,6 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Relancez l’OCR pour réessayer de télécharger le modèle de langue.',
-            'singleLanguageHint': 'L’OCR utilise une langue de reconnaissance par exécution. Choisissez une autre langue lors d’une exécution séparée.',
-            'legacyMultipleLanguages': 'Vos anciens paramètres OCR sélectionnaient plusieurs langues. Aucune langue n’a été choisie automatiquement. Choisissez-en une avant de lancer l’OCR.',
             'noResults': 'Aucune langue correspondante',
         },
         'diagnostic': {
@@ -1664,7 +1662,6 @@ export default {
             'incomplete': 'L’OCR n’est pas terminé',
             'errorCode': {
                 'invalidPayload': 'La requête OCR n’est pas valide',
-                'multipleLanguages': 'L’OCR accepte une seule langue de reconnaissance par exécution. Choisissez une langue et relancez l’OCR pour une autre langue.',
                 'internal': 'L’OCR a échoué de manière inattendue',
                 'queueBackpressure': 'La file d’attente OCR est pleine',
                 'workerUnavailable': 'Le processus OCR n’est pas disponible',

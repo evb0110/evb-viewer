@@ -795,15 +795,15 @@ export default {
             'replaceAllAcknowledgement': 'Ich verstehe, dass fremde ausgeblendete OCR auf den ausgewählten Seiten entfernt und ersetzt wird.',
         },
         'qualityProfile': {
-            'label': 'Qualität',
+            'label': 'Erkennungsmodus',
             'options': {
                 'balanced': 'Ausgewogen',
-                'accurate': 'Genau',
+                'accurate': 'Wörterbücher verwenden',
                 'poor-scan': 'Schlechter Scan',
             },
             'help': {
-                'balanced': 'Der Standard — gut für die meisten Dokumente.',
-                'accurate': 'Nutzt das Sprachwörterbuch, um falsch gelesene Wörter zu korrigieren.',
+                'balanced': 'Die standardmäßigen Erkennungseinstellungen verwenden.',
+                'accurate': 'Sprachwörterbücher während der Erkennung aktiviert lassen.',
                 'poor-scan': 'Für verblasste, verrauschte oder qualitativ schlechte Scans.',
             },
         },
@@ -885,8 +885,6 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Starten Sie OCR erneut, um den Download des Sprachmodells zu wiederholen.',
-            'singleLanguageHint': 'OCR verwendet pro Lauf eine Erkennungssprache. Wählen Sie eine andere Sprache in einem separaten Lauf.',
-            'legacyMultipleLanguages': 'In Ihren bisherigen OCR-Einstellungen waren mehrere Sprachen ausgewählt. Es wurde keine Sprache automatisch übernommen. Wählen Sie vor dem Start eine Sprache aus.',
             'noResults': 'Keine passenden Sprachen',
         },
         'diagnostic': {
@@ -1653,7 +1651,6 @@ export default {
             'incomplete': 'OCR wurde nicht abgeschlossen',
             'errorCode': {
                 'invalidPayload': 'Die OCR-Anfrage ist ungültig',
-                'multipleLanguages': 'OCR akzeptiert pro Lauf nur eine Erkennungssprache. Wählen Sie eine Sprache aus und starten Sie für eine andere Sprache einen neuen Lauf.',
                 'internal': 'OCR ist unerwartet fehlgeschlagen',
                 'queueBackpressure': 'Die OCR-Warteschlange ist voll',
                 'workerUnavailable': 'Der OCR-Worker ist nicht verfügbar',

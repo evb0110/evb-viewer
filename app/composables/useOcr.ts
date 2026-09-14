@@ -42,7 +42,6 @@ import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { getErrorMessage } from '@app/utils/error';
 import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { hasSingleOcrLanguageSelection } from '@contracts/ocrLanguages';
 
 class OcrJobStartError extends Error {
     readonly errorEnvelope: IOcrErrorEnvelope | undefined;
@@ -654,10 +653,6 @@ export const useOcr = () => {
     ): workingCopyPath is TDocumentRef {
         if (runSettings.selectedLanguages.length === 0) {
             error.value = t('errors.ocr.noLanguages');
-            return false;
-        }
-        if (!hasSingleOcrLanguageSelection(runSettings.selectedLanguages)) {
-            error.value = t('errors.ocr.errorCode.multipleLanguages');
             return false;
         }
         if (getPageSelectionCount(selection) === 0) {

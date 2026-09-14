@@ -757,13 +757,17 @@ describe('useOcr', () => {
         }
     });
 
-    it('rejects runs with multiple selected languages before dispatching to the backend', async () => {
+    it('dispatches all selected languages to the backend', async () => {
         const scope = effectScope();
         const ocr = scope.run(() => useOcr());
         if (!ocr) {
             throw new Error('Failed to create OCR composable scope');
         }
 
+        mockOcr.createSearchablePdf.mockResolvedValue({
+            started: false,
+            error: 'test worker unavailable',
+        });
         try {
             ocr.settings.value = {
                 ...ocr.settings.value,
@@ -775,8 +779,19 @@ describe('useOcr', () => {
 
             await ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
-            expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
-            expect(ocr.error.value).toBe('errors.ocr.errorCode.multipleLanguages');
+            expect(mockOcr.createSearchablePdf).toHaveBeenCalledWith(
+                WORKING_COPY_PATH,
+                [{
+                    pageNumber: 1,
+                    languages: [
+                        'eng',
+                        'rus',
+                    ],
+                }],
+                expect.any(String),
+                expect.any(Object),
+            );
+            expect(ocr.error.value).toContain('test worker unavailable');
             expect(ocr.progress.value.isRunning).toBe(false);
         } finally {
             scope.stop();

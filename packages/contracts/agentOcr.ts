@@ -76,7 +76,7 @@ export const AGENT_OCR_RUN_INPUT_SCHEMA = {
         languages: {
             type: 'array',
             items: {type: 'string'},
-            description: 'Exactly one OCR language code such as eng, deu, or tur. Defaults to the OCR popup current setting. Different languages require separate runs.',
+            description: 'OCR language codes such as eng, deu, or tur. Select the languages present in the document. Defaults to the OCR popup current settings.',
         },
         qualityProfile: {
             type: 'string',

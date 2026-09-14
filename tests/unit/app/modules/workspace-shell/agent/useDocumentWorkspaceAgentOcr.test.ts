@@ -215,11 +215,8 @@ describe('useDocumentWorkspaceAgent', () => {
         });
     });
 
-    it('returns the popup rejection for a multi-language OCR request', async () => {
-        const runOcrForAgent = vi.fn(async () => ({
-            ok: false,
-            error: 'errors.ocr.errorCode.multipleLanguages',
-        }));
+    it('passes a multi-language OCR request to the popup', async () => {
+        const runOcrForAgent = vi.fn(async () => ({ok: true}));
         const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef: ref({
             runOcrForAgent,
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
@@ -230,8 +227,7 @@ describe('useDocumentWorkspaceAgent', () => {
             'eng',
             'rus',
         ]})).resolves.toMatchObject({
-            ok: false,
-            error: 'errors.ocr.errorCode.multipleLanguages',
+            ok: true,
             actionId: 'ocr.start',
         });
         expect(runOcrForAgent).toHaveBeenCalledWith({

@@ -18,7 +18,6 @@ export const ocrErrorMessageKeys = [
     'errors.ocr.noDocument',
     'errors.ocr.incomplete',
     'errors.ocr.errorCode.invalidPayload',
-    'errors.ocr.errorCode.multipleLanguages',
     'errors.ocr.errorCode.internal',
     'errors.ocr.errorCode.queueBackpressure',
     'errors.ocr.errorCode.workerUnavailable',
@@ -28,7 +27,6 @@ export const ocrErrorMessageKeys = [
 
 export const ocrErrorCodeMessageKeys = {
     OCR_INVALID_PAYLOAD: 'errors.ocr.errorCode.invalidPayload',
-    OCR_MULTIPLE_LANGUAGES: 'errors.ocr.errorCode.multipleLanguages',
     OCR_INTERNAL_ERROR: 'errors.ocr.errorCode.internal',
     OCR_QUEUE_BACKPRESSURE: 'errors.ocr.errorCode.queueBackpressure',
     OCR_WORKER_UNAVAILABLE: 'errors.ocr.errorCode.workerUnavailable',

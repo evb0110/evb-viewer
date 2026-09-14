@@ -218,7 +218,7 @@ describe('DOCX export component coverage', () => {
             progressStatusText: ref('ocr.progress'),
             resultStatusText: ref('ocr.done'),
             runOcrForAgent: vi.fn(),
-            selectedLanguageModel: ref(),
+            selectedLanguagesModel: ref([]),
             settings: ref({
                 customRange: '',
                 pageRange: 'current',
@@ -230,7 +230,6 @@ describe('DOCX export component coverage', () => {
             }),
             showCustomRange: ref(false),
             showLanguageSearch: ref(false),
-            hasLegacyMultipleLanguages: ref(false),
             showSuccessState: ref(true),
             triggerTooltip: ref('ocr.open'),
             viewState: ref('results'),
@@ -297,7 +296,7 @@ describe('DOCX export component coverage', () => {
             progressStatusText: ref('ocr.processing'),
             resultStatusText: ref('ocr.done'),
             runOcrForAgent: vi.fn(),
-            selectedLanguageModel: ref(),
+            selectedLanguagesModel: ref([]),
             settings: ref({
                 customRange: '',
                 pageRange: 'current',
@@ -309,7 +308,6 @@ describe('DOCX export component coverage', () => {
             }),
             showCustomRange: ref(false),
             showLanguageSearch: ref(false),
-            hasLegacyMultipleLanguages: ref(false),
             showSuccessState: ref(false),
             triggerTooltip: ref('ocr.open'),
             viewState: ref('running'),

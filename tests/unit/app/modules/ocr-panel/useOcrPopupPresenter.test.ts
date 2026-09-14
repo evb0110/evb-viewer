@@ -335,7 +335,7 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it('keeps legacy multiple-language settings unselected until the user chooses one', async () => {
+    it('preserves multiple selected languages and runs them together', async () => {
         const harness = createPresenterHarness();
         harness.ocr.settings.value = {
             ...harness.ocr.settings.value,
@@ -345,23 +345,27 @@ describe('useOcrPopupPresenter', () => {
             ],
         };
 
+        harness.ocr.runOcr.mockImplementation(async () => {
+            setSearchableResult(harness.ocr, 'req-multilingual', '/tmp/multilingual.pdf');
+        });
+
         try {
             await nextTick();
-
-            expect(harness.presenter.hasLegacyMultipleLanguages.value).toBe(true);
-            expect(harness.presenter.selectedLanguageModel.value).toBeUndefined();
-            expect(harness.presenter.canRunOcr.value).toBe(false);
-
-            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
-                ok: false,
-                error: 'errors.ocr.errorCode.multipleLanguages',
-            });
-            expect(harness.ocr.runOcr).not.toHaveBeenCalled();
-
-            harness.presenter.selectedLanguageModel.value = 'rus';
-            expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
-            expect(harness.presenter.hasLegacyMultipleLanguages.value).toBe(false);
+            expect(harness.presenter.selectedLanguagesModel.value).toEqual([
+                'eng',
+                'rus',
+            ]);
             expect(harness.presenter.canRunOcr.value).toBe(true);
+            expect(harness.presenter.languagePickerItems.value.filter(item => item.group === 'selected'))
+                .toHaveLength(2);
+
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({ok: true});
+            expect(harness.ocr.runOcr).toHaveBeenCalledTimes(1);
+
+            harness.presenter.selectedLanguagesModel.value = ['rus'];
+            expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
+            harness.presenter.selectedLanguagesModel.value = [];
+            expect(harness.presenter.canRunOcr.value).toBe(false);
         } finally {
             stopHarness(harness.scope);
         }

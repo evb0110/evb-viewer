@@ -795,15 +795,15 @@ export default {
             'replaceAllAcknowledgement': 'Ik begrijp dat verborgen externe OCR-lagen op de geselecteerde pagina\'s worden verwijderd en vervangen.',
         },
         'qualityProfile': {
-            'label': 'Kwaliteit',
+            'label': 'Herkenningsmodus',
             'options': {
                 'balanced': 'Gebalanceerd',
-                'accurate': 'Nauwkeurig',
+                'accurate': 'Woordenboeken gebruiken',
                 'poor-scan': 'Slechte scan',
             },
             'help': {
-                'balanced': 'De standaardinstelling — goed voor de meeste documenten.',
-                'accurate': 'Gebruikt het taalwoordenboek om verkeerd gelezen woorden te corrigeren.',
+                'balanced': 'Gebruik de standaardinstellingen voor herkenning.',
+                'accurate': 'Houd taalwoordenboeken ingeschakeld tijdens de herkenning.',
                 'poor-scan': 'Voor vervaagde scans, scans met ruis of scans van lage kwaliteit.',
             },
         },
@@ -885,8 +885,6 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Voer OCR opnieuw uit om het taalmodel opnieuw te downloaden.',
-            'singleLanguageHint': 'OCR gebruikt één herkenningstaal per uitvoering. Selecteer een andere taal in een aparte uitvoering.',
-            'legacyMultipleLanguages': 'In uw vorige OCR-instellingen waren meerdere talen geselecteerd. Er is niet automatisch een taal gekozen. Selecteer een taal voordat u OCR start.',
             'noResults': 'Geen overeenkomende talen',
         },
         'diagnostic': {
@@ -1653,7 +1651,6 @@ export default {
             'incomplete': 'OCR is niet voltooid',
             'errorCode': {
                 'invalidPayload': 'Het OCR-verzoek is ongeldig',
-                'multipleLanguages': 'OCR accepteert één herkenningstaal per uitvoering. Selecteer één taal en voer OCR opnieuw uit voor een andere taal.',
                 'internal': 'OCR is onverwacht mislukt',
                 'queueBackpressure': 'De OCR-wachtrij is vol',
                 'workerUnavailable': 'De OCR-worker is niet beschikbaar',

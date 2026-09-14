@@ -330,15 +330,15 @@ export default {
             'replaceAllDescription': 'Recognition from other apps on the selected pages will also be replaced.',
         },
         'qualityProfile': {
-            'label': 'Quality',
+            'label': 'Recognition mode',
             'options': {
                 'balanced': 'Balanced',
-                'accurate': 'Accurate',
+                'accurate': 'Use dictionaries',
                 'poor-scan': 'Poor scan',
             },
             'help': {
-                'balanced': 'The default — good for most documents.',
-                'accurate': 'Uses the language dictionary to fix misread words.',
+                'balanced': 'Use the default recognition settings.',
+                'accurate': 'Keep language dictionaries enabled during recognition.',
                 'poor-scan': 'For faded, noisy, or low-quality scans.',
             },
         },
@@ -420,8 +420,6 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Run OCR again to retry the language model download.',
-            'singleLanguageHint': 'OCR uses one recognition language per run. Select another language in a separate run.',
-            'legacyMultipleLanguages': 'Your previous OCR settings selected multiple languages. No language was chosen automatically. Select one language before starting OCR.',
             'noResults': 'No matching languages',
         },
         'diagnostic': {
@@ -1653,7 +1651,6 @@ export default {
             'incomplete': 'OCR did not complete',
             'errorCode': {
                 'invalidPayload': 'OCR request is invalid',
-                'multipleLanguages': 'OCR accepts one recognition language per run. Select one language and run OCR again for a different language.',
                 'internal': 'OCR failed unexpectedly',
                 'queueBackpressure': 'OCR queue is full',
                 'workerUnavailable': 'OCR worker is unavailable',

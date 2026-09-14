@@ -5,10 +5,7 @@ import {
 } from 'vitest';
 import type { TLocale } from '@i18n-app';
 import { LOCALE_CODES } from '@i18n-core';
-import {
-    AVAILABLE_OCR_LANGUAGES,
-    hasSingleOcrLanguageSelection,
-} from '@contracts/ocrLanguages';
+import {AVAILABLE_OCR_LANGUAGES} from '@contracts/ocrLanguages';
 import type { IOcrLanguage } from '@contracts/shared';
 import {
     OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES,
@@ -266,13 +263,8 @@ describe('OCR language picker ordering and filtering', () => {
         )).toEqual(new Set(['nor']));
     });
 
-    it('shows the language search at its threshold and accepts one language only', () => {
+    it('shows the language search at its threshold', () => {
         expect(shouldShowOcrLanguageSearch(12)).toBe(false);
         expect(shouldShowOcrLanguageSearch(13)).toBe(true);
-        expect(hasSingleOcrLanguageSelection(['eng'])).toBe(true);
-        expect(hasSingleOcrLanguageSelection([
-            'eng',
-            'rus',
-        ])).toBe(false);
     });
 });

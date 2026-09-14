@@ -795,15 +795,15 @@ export default {
             'replaceAllAcknowledgement': 'Entiendo que el OCR oculto extranjero de las páginas seleccionadas se eliminará y se reemplazará.',
         },
         'qualityProfile': {
-            'label': 'Calidad',
+            'label': 'Modo de reconocimiento',
             'options': {
                 'balanced': 'Equilibrado',
-                'accurate': 'Preciso',
+                'accurate': 'Usar diccionarios',
                 'poor-scan': 'Escaneo pobre',
             },
             'help': {
-                'balanced': 'El valor predeterminado — sirve para la mayoría de los documentos.',
-                'accurate': 'Usa el diccionario del idioma para corregir palabras mal leídas.',
+                'balanced': 'Usar los ajustes de reconocimiento predeterminados.',
+                'accurate': 'Mantener los diccionarios de idiomas activados durante el reconocimiento.',
                 'poor-scan': 'Para escaneos desvaídos, con ruido o de baja calidad.',
             },
         },
@@ -885,8 +885,6 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Vuelva a ejecutar OCR para reintentar la descarga del modelo de idioma.',
-            'singleLanguageHint': 'El OCR usa un idioma de reconocimiento por ejecución. Selecciona otro idioma en una ejecución independiente.',
-            'legacyMultipleLanguages': 'La configuración de OCR anterior tenía varios idiomas seleccionados. No se eligió ningún idioma automáticamente. Selecciona uno antes de iniciar el OCR.',
             'noResults': 'No hay idiomas coincidentes',
         },
         'diagnostic': {
@@ -1653,7 +1651,6 @@ export default {
             'incomplete': 'El OCR no se completó',
             'errorCode': {
                 'invalidPayload': 'La solicitud de OCR no es válida',
-                'multipleLanguages': 'El OCR acepta un solo idioma de reconocimiento por ejecución. Selecciona un idioma y ejecuta el OCR de nuevo para otro idioma.',
                 'internal': 'El OCR falló inesperadamente',
                 'queueBackpressure': 'La cola de OCR está llena',
                 'workerUnavailable': 'El trabajador de OCR no está disponible',

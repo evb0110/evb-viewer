@@ -13,7 +13,6 @@ export const OCR_COMPLETE_EVENT_CHANNEL = 'ocr:complete';
 
 export type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
-    | 'OCR_MULTIPLE_LANGUAGES'
     | 'OCR_INTERNAL_ERROR'
     | 'OCR_QUEUE_BACKPRESSURE'
     | 'OCR_WORKER_UNAVAILABLE'
@@ -22,7 +21,6 @@ export type TOcrErrorCode =
 
 export const OCR_ERROR_CODES = [
     'OCR_INVALID_PAYLOAD',
-    'OCR_MULTIPLE_LANGUAGES',
     'OCR_INTERNAL_ERROR',
     'OCR_QUEUE_BACKPRESSURE',
     'OCR_WORKER_UNAVAILABLE',

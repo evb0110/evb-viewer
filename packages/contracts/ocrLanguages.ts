@@ -193,10 +193,6 @@ export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguag
     return typeof value === 'string' && AVAILABLE_OCR_LANGUAGE_CODES.has(value);
 }
 
-export function hasSingleOcrLanguageSelection(value: readonly string[]) {
-    return value.length === 1;
-}
-
 /** SHA-256 digests for the exact tessdata_best commit used by runtime downloads. */
 export const OCR_LANGUAGE_MODEL_SHA256 = {
     ara: 'ab9d157d8e38ca00e7e39c7d5363a5239e053f5b0dbdb3167dde9d8124335896',
