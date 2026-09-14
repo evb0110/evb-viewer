@@ -3,6 +3,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/release/platform-arch.sh"
 source "$(dirname "$0")/release/packaged-native-root-set.sh"
+source "$(dirname "$0")/sha256-file.sh"
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64> [release-dir]"
@@ -155,7 +156,7 @@ verify_tesseract_pdf_font() {
   local expected_sha256
   expected_sha256="$(node --import tsx -e "import {TESSERACT_PDF_FONT_SHA256} from './scripts/tesseractPdfFont.ts'; console.log(TESSERACT_PDF_FONT_SHA256)")"
   local actual_sha256
-  actual_sha256="$(sha256sum "$font_path" | awk '{print $1}')"
+  actual_sha256="$(sha256_file "$font_path")"
   if [ "$actual_sha256" != "$expected_sha256" ]; then
     echo "Error: Tesseract PDF font SHA-256 mismatch ($font_path)"
     echo "  expected: $expected_sha256"
