@@ -992,32 +992,22 @@ async function runCleanLanguageBenchmark({
     }
     const workerBundlePath = await loadProductionWorker();
     const cleanPages = fixture.manifest.pages.filter(page => page.kind === 'language');
-    const rawPages = new Map();
-    for (const language of LANGUAGE_CODES) {
-        const pages = cleanPages.filter(page => page.language === language);
-        const workerResult = await runProductionOcrQualityDocument({
-            workerBundlePath,
-            sourcePdfPath,
-            pages,
-            tempDirectory: workerTempDirectory,
-            scanCleanupBinary,
-            pdfPageOpsBinary,
-        });
-        if (!workerResult.success) {
-            throw new Error(`MLOCR-02 ${language} production PDF OCR failed: ${workerResult.errors.join('; ')}`);
-        }
-        const catalogPages = await collectCatalogPageText(sourcePdfPath);
-        for (const page of pages) {
-            if (!catalogPages.has(page.pageNumber)) {
-                throw new Error(`MLOCR-02 ${language} has no OCR catalog artifact for page ${page.pageNumber}`);
-            }
-            rawPages.set(page.pageNumber, catalogPages.get(page.pageNumber));
-        }
-        await copyFile(workerResult.pdfPath, sourcePdfPath);
-        process.stdout.write(`MLOCR-02 ${language}: recognized ${pages.length} pages through the production worker\n`);
+    // Keep every page on the frozen fixture. Reusing each result as the next
+    // input makes later language jobs render an accumulating PDF.
+    const workerResult = await runProductionOcrQualityDocument({
+        workerBundlePath,
+        sourcePdfPath,
+        pages: cleanPages,
+        tempDirectory: workerTempDirectory,
+        scanCleanupBinary,
+        pdfPageOpsBinary,
+    });
+    if (!workerResult.success) {
+        throw new Error(`MLOCR-02 production PDF OCR failed: ${workerResult.errors.join('; ')}`);
     }
-    const pdfjsPages = await extractPdfjsPageText(sourcePdfPath);
-    const popplerPages = await extractPopplerPageText(sourcePdfPath);
+    const rawPages = await collectCatalogPageText(sourcePdfPath);
+    const pdfjsPages = await extractPdfjsPageText(workerResult.pdfPath);
+    const popplerPages = await extractPopplerPageText(workerResult.pdfPath);
     const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);
     const report = {
         status: 'complete',
@@ -1031,7 +1021,7 @@ async function runCleanLanguageBenchmark({
             languageCount: languages.length,
             pageCount: cleanPages.length,
             pdfSha256: fixture.manifest.artifact.pdfSha256,
-            outputPdfSha256: createHash('sha256').update(await readFile(sourcePdfPath)).digest('hex'),
+            outputPdfSha256: workerResult.resultSha256,
             sourceTextEmpty: true,
             physicalPage: fixture.manifest.physicalPage,
             pageOrder: cleanPages.map(page => page.id),
