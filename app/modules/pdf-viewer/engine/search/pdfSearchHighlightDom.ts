@@ -57,6 +57,16 @@ export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTe
         : null;
 }
 
+function countNonEmptyMatches(text: string, pattern: RegExp) {
+    let count = 0;
+    for (const match of text.matchAll(pattern)) {
+        if (match[0].length > 0) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
 export function assembleTextLayerSearchText(
     index: ITextLayerIndexCacheEntry,
     query?: string,
@@ -71,12 +81,7 @@ export function assembleTextLayerSearchText(
                 wholeWord: options?.wholeWord ?? false,
                 useRegex: options?.useRegex ?? false,
             });
-            let separatedMatchCount = 0;
-            for (const match of separated.text.matchAll(pattern)) {
-                if (match[0].length > 0) {
-                    separatedMatchCount += 1;
-                }
-            }
+            const separatedMatchCount = countNonEmptyMatches(separated.text, pattern);
             if (separatedMatchCount > 0
                 && (expectedPageMatchCount === undefined || separatedMatchCount === expectedPageMatchCount)) {
                 return separated;
@@ -87,13 +92,7 @@ export function assembleTextLayerSearchText(
             if (separatedMatchCount === 0) {
                 return contiguous;
             }
-            let contiguousMatchCount = 0;
-            for (const match of contiguous.text.matchAll(pattern)) {
-                if (match[0].length > 0) {
-                    contiguousMatchCount += 1;
-                }
-            }
-            return contiguousMatchCount === expectedPageMatchCount ? contiguous : separated;
+            return countNonEmptyMatches(contiguous.text, pattern) === expectedPageMatchCount ? contiguous : separated;
         } catch {
             // Invalid queries have no visual occurrences; the caller handles them.
         }
