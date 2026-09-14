@@ -1,0 +1,54 @@
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_5cf549a6e98bb7::t_afd201f51e4a80 386-405
+  s_5cf549a6e98bb7::t_8894a81820d589 373,381
+  s_5cf549a6e98bb7::t_28a6d7ebd82123 336,347-357,362-366,368-372,374-377,382-385
+  s_5cf549a6e98bb7::t_6da35b9e96425f 337-346
+  s_5cf549a6e98bb7::t_3b208b6554a8d4 358-361,367,378-380
+electron/features/ocr/public/documentTextCatalog.ts
+  s_5cf549a6e98bb7::t_d67a5c83f71d5c 1-5
+electron/features/ocr/main/documentTextCatalog.ts
+  s_5cf549a6e98bb7::t_157c80fbc08d86 70,75
+  s_5cf549a6e98bb7::t_8444e393368a14 69,77-95
+packages/pdf-core/collectSearchMatchWords.ts
+  s_5cf549a6e98bb7::t_49bb6710b91328 8,132-133,141-144,160-163,165
+tests/unit/electron/agentDocumentTextSearchValidation.test.ts
+  s_5cf549a6e98bb7::t_a3114e333e5431 262,359
+electron/features/search/extractTextWithPdfjs.ts
+  s_5cf549a6e98bb7::t_108725e1e2a354 46,326-328,350-353
+  s_5cf549a6e98bb7::t_28a6d7ebd82123 33,94-95
+  s_5cf549a6e98bb7::t_0815a2cc0d3601 34,270,275-325,329,331-340,345,354-369,511-514
+  s_5cf549a6e98bb7::t_41f24847a09289 330,341-344
+  s_5cf549a6e98bb7::t_6da35b9e96425f 271-274,348-349
+  s_5cf549a6e98bb7::t_ccfde3c2b5623f 346-347
+tests/unit/electron/searchResultGeometry.test.ts
+  s_5cf549a6e98bb7::t_6da35b9e96425f 89-104
+  s_5cf549a6e98bb7::t_1caa2d7ea57e7b 82-88,105-115
+electron/features/search/xlargeIndexBuilder.ts
+  s_5cf549a6e98bb7::t_0f159f6c714e9e 8,194
+electron/features/agent/documentText.ts
+  s_5cf549a6e98bb7::t_0815a2cc0d3601 598,607,692,745
+electron/features/ocr/main/visitDocumentOcrCatalogPages.ts
+  s_5cf549a6e98bb7::t_3275b6b94b8181 4-7,11-12,39-42,238-245,247-255,257-347,349,351-374,378-413,423-426,438,446-456,458-470,475-476
+  s_5cf549a6e98bb7::t_416e0fb3862e24 56
+  s_5cf549a6e98bb7::t_07536c8286abd1 45-55,57,256,350
+  s_5cf549a6e98bb7::t_670d4d2b15e5f8 167-174
+  s_5cf549a6e98bb7::t_6a4877d260b534 414-422,427,429-437,439-445
+  s_5cf549a6e98bb7::t_a129af672086a5 246,428,457
+  s_5cf549a6e98bb7::t_6da35b9e96425f 348,375-377,471-474
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "667a9fc8e195efc0eb1df6568acb167cc2fff219",
+  "prompts": {},
+  "sessions": {
+    "s_5cf549a6e98bb7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a187-71fa-7c61-9a8d-0d9ab4ca5ebb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
