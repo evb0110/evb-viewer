@@ -205,6 +205,17 @@ export async function createTestClone(options: {
             mac,
             cloneConfig,
         ]);
+        const display = JSON.parse(await runChecked('/usr/bin/plutil', [
+            '-extract',
+            'Display',
+            'json',
+            '-o',
+            '-',
+            cloneConfig,
+        ])) as unknown;
+        if (!Array.isArray(display) || display.length !== 0) {
+            throw new Error('Headless Windows test clone still has a host display entry.');
+        }
     }
     if (options.headless === true) {
         await runChecked('/usr/bin/plutil', [

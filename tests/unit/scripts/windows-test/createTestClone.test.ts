@@ -99,7 +99,7 @@ async function fixture() {
         });
         return {
             exitCode: 0,
-            stdout: JSON.stringify(decoded),
+            stdout: args[0] === '-extract' ? '[]' : JSON.stringify(decoded),
             stderr: '',
             timedOut: false,
             signal: null,
@@ -213,6 +213,15 @@ it('does not count the promoted golden bundle as a retained clone', async () => 
     harness.options.manifest.bundlePath = promoted;
     await createTestClone(harness.options);
     expect(harness.commands.some(entry => entry.args.includes(cloneName))).toBe(true);
+});
+
+it('asserts that a headless clone has no host display entry', async () => {
+    const harness = await fixture();
+    await createTestClone({
+        ...harness.options,
+        headless: true,
+    });
+    expect(harness.commands.some(entry => entry.args[0] === '-extract' && entry.args[1] === 'Display')).toBe(true);
 });
 
 it('copies input media into the clone and inserts only a read-only USB CD drive in the clone config', async () => {

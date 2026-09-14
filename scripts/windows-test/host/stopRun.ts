@@ -2,6 +2,7 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     mkdir,
     lstat,
+    readFile,
     rm,
     stat,
     writeFile,
@@ -126,6 +127,36 @@ async function findCloneBundlePath(testImageRoot: string, cloneName: string) {
     return null;
 }
 
+async function cleanupOrphanedRunClone(
+    request: IWindowsTestStopRequest,
+    dependencies: IWindowsTestStopDependencies,
+) {
+    const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${request.runId}`;
+    const summaryPath = windowsTestRunLayout(dependencies.layout.runsDir, request.runId).summaryFile;
+    const summary = JSON.parse(await readFile(summaryPath, 'utf8').catch(() => '{}')) as {
+        retainedClone?: boolean;
+        outcome?: string
+    };
+    if (summary.retainedClone !== true || summary.outcome === 'passed') return false;
+    const matches = (await dependencies.utmctl.list()).filter(entry => entry.name === cloneName);
+    if (matches.length !== 1) return false;
+    const registeredVm = matches[0]!;
+    const bundlePath = await findCloneBundlePath(dependencies.config.testImageRoot, cloneName);
+    if (bundlePath === null || registeredVm.status !== 'stopped') throw new Error('Refusing orphan cleanup without a stopped disposable clone bundle.');
+    const policy = withOwnedCloneAllowlisted(destructivePolicyFromConfig(dependencies.config), registeredVm.uuid);
+    assertNotGoldenOrBaselineTarget({
+        vmId: registeredVm.uuid,
+        bundlePath,
+    }, policy);
+    if (!registeredVm.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX) || registeredVm.name === 'Windows') throw new Error('Refusing orphan cleanup for a non-disposable VM.');
+    await assertDestructiveTarget({
+        vmId: registeredVm.uuid,
+        bundlePath,
+    }, policy, dependencies.identityGuard);
+    await dependencies.utmctl.deleteVm(registeredVm.uuid);
+    return true;
+}
+
 export async function requestWindowsTestStop(
     request: IWindowsTestStopRequest,
     dependencies: IWindowsTestStopDependencies,
@@ -162,6 +193,9 @@ export async function requestWindowsTestStop(
 
     const lease = await readHostLease(dependencies.layout.leaseFile);
     if (lease === null || lease.runId !== request.runId) {
+        if (await cleanupOrphanedRunClone(request, dependencies)) {
+            messages.push(`Removed the stopped orphaned clone for failed run ${request.runId}.`);
+        }
         messages.push('No live lease holds this run; the cancel request stays on disk for the owner to observe.');
         return {
             exitCode: windowsTestExitCodes.passed,

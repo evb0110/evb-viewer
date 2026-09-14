@@ -208,6 +208,21 @@ describe('windows test stop request', () => {
         expect(harness.utmctl.calls).toEqual([]);
     });
 
+    it('cleans a retained failed clone when its lease is already gone', async () => {
+        const harness = await createStopHarness();
+        await mkdir(path.join(harness.layout.imagesDir, 'clones', `${CLONE_NAME}.utm`), {recursive: true});
+        await writeFile(harness.runLayout.summaryFile, JSON.stringify({
+            outcome: 'infrastructure-failed',
+            retainedClone: true,
+        }), 'utf8');
+
+        const result = await harness.stop();
+
+        expect(result.exitCode).toBe(0);
+        expect(result.messages.join(' ')).toContain('Removed the stopped orphaned clone');
+        expect(harness.utmctl.calls).toEqual([`delete ${CLONE_VM_ID}`]);
+    });
+
     it('leaves teardown to a live owner and touches no VM', async () => {
         const harness = await createStopHarness({lease: lease({
             ownerPid: LIVE_PID,
