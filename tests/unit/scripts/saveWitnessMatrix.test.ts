@@ -6,16 +6,20 @@ import {
 } from 'vitest';
 import {
     runSaveWitnessMatrix,
+    createResearchSaveWitnessMatrixAdapter,
+    hashSaveWitnessFile,
     SAVE_WITNESS_MATRIX_CYCLES,
     SAVE_WITNESS_MATRIX_DEADLINE_MS,
     withSaveWitnessDeadline,
     type ISaveWitnessMatrixAdapter,
 } from '@scripts/save-witness/saveWitnessMatrix';
 import {
-    mkdtemp, rename, symlink, writeFile,
+    chmod, copyFile, mkdtemp, rename, stat, symlink, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     captureResearchFullContentWitness,
     RESEARCH_WITNESS_CHUNK_BYTES,
@@ -74,6 +78,43 @@ describe('save-witness matrix', () => {
             localTargetMs: 8_000,
             cancellationDeadlineMs: 120_000,
         });
+    });
+
+    it('normalizes Windows-owned copies while preserving a read-only source fixture', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-save-witness-readonly-'));
+        const fixturePath = join(root, 'readonly-fixture.pdf');
+        const sourcePdf = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'interop', 'stock-pdfjs-save-of-synthetic.pdf');
+        await copyFile(sourcePdf, fixturePath);
+        await chmod(fixturePath, 0o444);
+        const original = await hashSaveWitnessFile(fixturePath);
+        const fixture = {
+            id: 'existing-small' as const,
+            path: fixturePath,
+            bytes: original.bytes,
+            sha256: original.sha256,
+            validPdf: true,
+        };
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+        Object.defineProperty(process, 'platform', {
+            value: 'win32',
+            configurable: true,
+        });
+        try {
+            const adapter = createResearchSaveWitnessMatrixAdapter(root);
+            await expect(adapter.runCycle(fixture, 1)).resolves.toMatchObject({
+                baselineCaptureMs: expect.any(Number),
+                readVolumeBytes: original.bytes * 2,
+            });
+            await expect(adapter.runCancellation(fixture)).resolves.toMatchObject({passed: true});
+            expect(adapter.runAdversarial).toBeDefined();
+            await expect(adapter.runAdversarial!(fixture)).resolves.toMatchObject({passed: true});
+            const owned = await stat(join(root, 'existing-small-1.pdf'));
+            expect(owned.mode & 0o222).not.toBe(0);
+            expect((await stat(fixturePath)).mode & 0o222).toBe(0);
+            await expect(hashSaveWitnessFile(fixturePath)).resolves.toEqual(original);
+        } finally {
+            if (platform) Object.defineProperty(process, 'platform', platform);
+        }
     });
 
     it('keeps a failed cycle in the report with null unavailable measurements', async () => {

@@ -9,6 +9,7 @@ import {
     rename,
     open,
     appendFile,
+    chmod,
 } from 'node:fs/promises';
 import {
     dirname,
@@ -33,6 +34,7 @@ export interface ISaveWitnessMatrixFixture {
     bytes: number;
     sha256: string;
     validPdf: boolean;
+    sourceReadOnly?: boolean;
 }
 
 export interface ISaveWitnessMatrixCancellation {
@@ -131,8 +133,12 @@ const MIB = 1024 * 1024;
 export async function identifySaveWitnessPdf(filePath: string) {
     const handle = await open(filePath, 'r');
     let validPdf = false;
+    let sourceReadOnly = false;
     try {
-        const {size} = await handle.stat();
+        const {
+            size, mode,
+        } = await handle.stat();
+        sourceReadOnly = (mode & 0o200) === 0;
         const header = Buffer.alloc(5);
         const tail = Buffer.alloc(Math.min(64, size));
         await handle.read(header, 0, header.length, 0);
@@ -142,6 +148,7 @@ export async function identifySaveWitnessPdf(filePath: string) {
     return {
         ...await hashSaveWitnessFile(filePath),
         validPdf,
+        sourceReadOnly,
     };
 }
 
@@ -361,6 +368,8 @@ export async function withSaveWitnessDeadline<T>(
     }
 }
 
+// Windows CopyFile preserves READONLY from the fixture ISO. Clear it only on
+// owned work copies before opening the baseline or attempting replacement.
 export function createResearchSaveWitnessMatrixAdapter(
     root: string,
     replace: (from: string, to: string) => Promise<void> = rename,
@@ -370,6 +379,7 @@ export function createResearchSaveWitnessMatrixAdapter(
             await mkdir(root, {recursive: true});
             const source = join(root, `${fixture.id}-${cycle}.pdf`);
             await copyFile(fixture.path, source);
+            if (process.platform === 'win32') await chmod(source, 0o600);
             const started = performance.now();
             let baselineCaptureMs: number | undefined;
             let readVolumeBytes = 0;
@@ -402,6 +412,7 @@ export function createResearchSaveWitnessMatrixAdapter(
                     baselineCaptureMs = performance.now() - baselineStarted;
                     signal.throwIfAborted();
                     await copyFile(fixture.path, `${source}.replacement`);
+                    if (process.platform === 'win32') await chmod(`${source}.replacement`, 0o600);
                     signal.throwIfAborted();
                     await replace(`${source}.replacement`, source);
                     signal.throwIfAborted();
@@ -456,6 +467,7 @@ export function createResearchSaveWitnessMatrixAdapter(
                     await mkdir(root, {recursive: true});
                     deadlineSignal.throwIfAborted();
                     await copyFile(fixture.path, source);
+                    if (process.platform === 'win32') await chmod(source, 0o600);
                     deadlineSignal.throwIfAborted();
                     const baseline = await captureResearchFullContentWitness(source, {signal: deadlineSignal});
                     const signal = AbortSignal.any([
@@ -523,8 +535,10 @@ export function createResearchSaveWitnessMatrixAdapter(
             try {
                 await withSaveWitnessDeadline(async deadlineSignal => {
                     await copyFile(fixture.path, source);
+                    if (process.platform === 'win32') await chmod(source, 0o600);
                     deadlineSignal.throwIfAborted();
                     await copyFile(fixture.path, `${source}.replacement`);
+                    if (process.platform === 'win32') await chmod(`${source}.replacement`, 0o600);
                     const baseline = await captureResearchFullContentWitness(source, {signal: deadlineSignal});
                     const save = await baseline.beginSave({signal: AbortSignal.any([
                         controller.signal,
