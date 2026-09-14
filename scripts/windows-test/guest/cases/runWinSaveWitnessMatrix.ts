@@ -32,6 +32,7 @@ export async function runWinSaveWitnessMatrix(context: ICaseContext) {
             const source = joinGuestPath(context.separator, context.paths.outputsDir, `save-witness-${fixtureId}-${cycle}.pdf`);
             const replacement = `${source}.replacement`;
             const started = performance.now();
+            let baselineCaptureMs: number | null = null;
             const rssBefore = process.memoryUsage().rss;
             let peakRss = rssBefore;
             let maxTimerGapMs = 0;
@@ -47,7 +48,7 @@ export async function runWinSaveWitnessMatrix(context: ICaseContext) {
                 await context.fs.copyFile(context.fixturePath(stagedId), source);
                 const baselineStarted = performance.now();
                 const witness = await captureResearchFullContentWitness(source);
-                const baselineCaptureMs = performance.now() - baselineStarted;
+                baselineCaptureMs = performance.now() - baselineStarted;
                 try {
                     await context.fs.copyFile(context.fixturePath(stagedId), replacement);
                     await context.fs.rename(replacement, source);
@@ -58,12 +59,14 @@ export async function runWinSaveWitnessMatrix(context: ICaseContext) {
                     await witness.close();
                 }
                 const bytes = (await context.fs.stat(source)).bytes;
+                const totalSaveLatencyMs = performance.now() - started;
                 cells.push({
                     fixtureId,
                     cycle,
-                    passed: baselineCaptureMs <= SAVE_WITNESS_MATRIX_CI_CEILING_MS,
+                    passed: baselineCaptureMs <= SAVE_WITNESS_MATRIX_CI_CEILING_MS
+                        && totalSaveLatencyMs <= SAVE_WITNESS_MATRIX_CI_CEILING_MS,
                     baselineCaptureMs,
-                    totalSaveLatencyMs: performance.now() - started,
+                    totalSaveLatencyMs,
                     readVolumeBytes: bytes * 2,
                     peakMemoryBytes: Math.max(0, peakRss - rssBefore),
                     mainProcessTimerGapMs: maxTimerGapMs,
@@ -75,7 +78,7 @@ export async function runWinSaveWitnessMatrix(context: ICaseContext) {
                     fixtureId,
                     cycle,
                     passed: false,
-                    baselineCaptureMs: null,
+                    baselineCaptureMs,
                     totalSaveLatencyMs: performance.now() - started,
                     readVolumeBytes: null,
                     peakMemoryBytes: Math.max(0, peakRss - rssBefore),
@@ -119,6 +122,15 @@ export async function runWinSaveWitnessMatrix(context: ICaseContext) {
             },
             failure: canceled ? null : 'gated read did not reject',
         });
+    }
+    for (const cell of cells) {
+        context.assert(
+            `save-witness-${String(cell.fixtureId)}-${String(cell.cycle)}`,
+            cell.passed === true,
+            typeof cell.failure === 'string'
+                ? cell.failure
+                : `baseline=${String(cell.baselineCaptureMs)}ms total=${String(cell.totalSaveLatencyMs)}ms`,
+        );
     }
     await context.fs.writeText(context.attachEvidence('save-witness-matrix.json'), JSON.stringify({
         schemaVersion: 1,

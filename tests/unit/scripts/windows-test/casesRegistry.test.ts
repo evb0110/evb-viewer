@@ -238,4 +238,50 @@ describe('windows guest case registry', () => {
         expect(await fs.readBytes(`${root}/work/${runId}/evidence/artifacts/WIN-SAVE-01/source.pdf`))
             .toEqual(bytes);
     });
+
+    it('records every failed save-witness replacement and still attaches the matrix report', async () => {
+        const fixturePath = `${root}/fixtures/shared-small.pdf`;
+        await fs.copyFile(
+            path.join(process.cwd(), 'tests', 'fixtures', 'electron', 'interop', 'stock-pdfjs-save-of-synthetic.pdf'),
+            fixturePath,
+        );
+        let renameAttempts = 0;
+        const failingFs: ICaseEnvironment['fs'] = {
+            ...fs,
+            rename: async () => {
+                renameAttempts += 1;
+                throw new Error('EPERM: rename denied by the test harness');
+            },
+        };
+        const environment = {
+            ...stubEnvironment(root),
+            fs: failingFs,
+            fixturePath: () => fixturePath,
+        };
+
+        const result = await runRegisteredCase(
+            requireCaseDefinition('WIN-SAVE-10'),
+            environment,
+        );
+
+        expect(result.outcome).toBe('product-failed');
+        expect(renameAttempts).toBe(9);
+        expect(result.assertions).toHaveLength(12);
+        expect(result.assertions.filter(assertion => !assertion.passed)).toHaveLength(9);
+        expect(result.assertions.filter(assertion => assertion.id.endsWith('-0'))).toHaveLength(3);
+        expect(result.assertions.filter(assertion => assertion.id.endsWith('-0')).every(assertion => assertion.passed)).toBe(true);
+        expect(result.evidenceFiles).toEqual(['save-witness-matrix.json']);
+
+        const report = JSON.parse(await fs.readText(`${root}/work/${runId}/evidence/save-witness-matrix.json`)) as {cells: Array<{
+            cycle: number;
+            passed: boolean;
+            failure: string | null;
+            cancellation: {readsAfterCancellation: number} | null;
+        }>;};
+        expect(report.cells).toHaveLength(12);
+        expect(report.cells.filter(cell => cell.cycle > 0)).toHaveLength(9);
+        expect(report.cells.filter(cell => cell.cycle > 0).every(cell => !cell.passed && cell.failure?.includes('EPERM'))).toBe(true);
+        expect(report.cells.filter(cell => cell.cycle === 0).every(cell => cell.passed
+            && cell.cancellation?.readsAfterCancellation === 0)).toBe(true);
+    });
 });
