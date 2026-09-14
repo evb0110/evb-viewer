@@ -582,7 +582,7 @@
             "negativeControl": "Identical atomic replacement must not be accepted without a full-content witness",
             "owner": "electron-test-engineer",
             "quarantine": null,
-            "hostDisplayRequired": false
+            "hostDisplayRequired": true
         },
         {
             "id": "WIN-SAVE-11",
