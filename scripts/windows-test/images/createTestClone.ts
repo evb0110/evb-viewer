@@ -205,6 +205,15 @@ export async function createTestClone(options: {
             mac,
             cloneConfig,
         ]);
+    }
+    if (options.headless === true) {
+        await runChecked('/usr/bin/plutil', [
+            '-replace',
+            'Display',
+            '-json',
+            '[]',
+            cloneConfig,
+        ]);
         const display = JSON.parse(await runChecked('/usr/bin/plutil', [
             '-extract',
             'Display',
@@ -216,29 +225,6 @@ export async function createTestClone(options: {
         if (!Array.isArray(display) || display.length !== 0) {
             throw new Error('Headless Windows test clone still has a host display entry.');
         }
-    }
-    if (options.headless === true) {
-        await runChecked('/usr/bin/plutil', [
-            '-replace',
-            'Display',
-            '-json',
-            '[]',
-            cloneConfig,
-        ]);
-        const qemu = isRecord(decoded.QEMU) ? decoded.QEMU : {};
-        const additionalArguments = Array.isArray(qemu.AdditionalArguments)
-            ? qemu.AdditionalArguments.filter((value): value is string => typeof value === 'string')
-            : [];
-        if (!additionalArguments.includes('virtio-gpu-pci')) {
-            additionalArguments.push('-device', 'virtio-gpu-pci');
-        }
-        await runChecked('/usr/bin/plutil', [
-            '-replace',
-            'QEMU.AdditionalArguments',
-            '-json',
-            JSON.stringify(additionalArguments),
-            cloneConfig,
-        ]);
     }
     if (inputMediaPath !== null) {
         const inputMediaDrive = {
