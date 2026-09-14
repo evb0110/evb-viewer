@@ -1043,7 +1043,7 @@ export async function openDocumentSidebarTab(
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
     await ensureSidebarOpen(page, timeoutMs);
-    const tabs = await page.$$('.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]');
+    const tabs = await page.$$('.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]');
     const tabLabels = await Promise.all(tabs.map(tab => tab.evaluate(element => (
         `${element.getAttribute('aria-label') ?? ''} ${element.textContent ?? ''}`.trim()
     ))));
@@ -1058,7 +1058,7 @@ export async function openDocumentSidebarTab(
     await page.waitForFunction((expectedLabel: string) => {
         const normalized = expectedLabel.trim().toLocaleLowerCase();
         return Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
+            '.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]',
         )).some((tab) => {
             const tabLabel = `${tab.getAttribute('aria-label') ?? ''} ${tab.textContent ?? ''}`
                 .trim()

@@ -10,15 +10,15 @@ import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { readPdfPageSnapshots } from '@tests/e2e/electron/helpers/fixtures';
+import { extractTextWithPdfjs } from '@electron/features/search/extractTextWithPdfjs';
 
 function normalizeSemanticText(value: string) {
     return value.replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
 }
 
 export async function assertOcrPdfSemanticOutput(pdfPath: string, expectedText: string) {
-    const recognizedText = (await readPdfPageSnapshots(pdfPath))
-        .map(page => page.textSnippet)
+    const recognizedText = (await extractTextWithPdfjs(pdfPath, {forcePdfjs: true}))
+        .map(page => page.text)
         .join(' ')
         .replace(/\s+/gu, ' ')
         .trim();
@@ -66,10 +66,12 @@ export async function runOcrSearchablePdf(
     sourcePdfPath: string,
     requestId: string,
     expectedText: string,
+    languages = ['eng'],
 ) {
     const result = await evaluateInPage(page, async ({
         sourcePath,
         id,
+        recognitionLanguages,
     }) => {
         const api = (window as typeof globalThis & IE2EWindow & {electronAPI?: {ocr?: {
             onProgress?: (callback: (progress: {requestId: string;}) => void) => () => void;
@@ -136,7 +138,7 @@ export async function runOcrSearchablePdf(
                 sourcePath,
                 [{
                     pageNumber: 1,
-                    languages: ['eng'],
+                    languages: recognitionLanguages,
                 }],
                 id,
                 150,
@@ -174,6 +176,7 @@ export async function runOcrSearchablePdf(
     }, {
         sourcePath: sourcePdfPath,
         id: requestId,
+        recognitionLanguages: languages,
     });
 
     if (!result.success) {
