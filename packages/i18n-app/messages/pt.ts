@@ -833,7 +833,7 @@ export default {
             },
         },
         'settingHelpAria': 'Acerca de {setting}',
-        'languages': 'Idiomas',
+        'languages': 'Idioma de reconhecimento',
         'languageModelState': {
             'ready': 'Pronto',
             'missing': 'Transferência necessária',
@@ -842,7 +842,7 @@ export default {
             'unavailable': 'Disponibilidade desconhecida',
         },
         'languagePicker': {
-            'searchPlaceholder': 'Pesquisar idiomas ou códigos',
+            'searchPlaceholder': 'Pesquisar idiomas de reconhecimento ou códigos',
             'inventoryLoading': 'A verificar a disponibilidade dos dados de idioma...',
             'inventoryUnavailable': 'A disponibilidade dos dados de idioma não está disponível. Tente novamente antes de iniciar o OCR.',
             'downloadAndStart': 'Transferir e iniciar OCR',
@@ -886,7 +886,8 @@ export default {
                 'unavailable': 'Availability unavailable',
             },
             'retryDownload': 'Execute o OCR novamente para repetir a transferência do modelo de idioma.',
-            'multiLanguageHint': 'Selecionar mais de três idiomas pode reduzir a precisão e tornar o reconhecimento mais lento.',
+            'singleLanguageHint': 'O OCR usa um idioma de reconhecimento por execução. Selecione outro idioma numa execução separada.',
+            'legacyMultipleLanguages': 'As suas definições anteriores de OCR selecionavam vários idiomas. Nenhum idioma foi escolhido automaticamente. Selecione um antes de iniciar o OCR.',
             'noResults': 'Nenhum idioma correspondente',
         },
         'diagnostic': {
@@ -1647,7 +1648,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Falha ao carregar idiomas',
-            'noLanguages': 'Selecione pelo menos um idioma OCR',
+            'noLanguages': 'Selecione um idioma OCR',
             'noValidPages': 'Nenhuma página válida selecionada',
             'timeout': 'A operação de OCR excedeu o tempo limite após 30 minutos',
             'start': 'Falha ao iniciar tarefa de OCR',
@@ -1663,6 +1664,7 @@ export default {
             'incomplete': 'O OCR não foi concluído',
             'errorCode': {
                 'invalidPayload': 'O pedido de OCR é inválido',
+                'multipleLanguages': 'O OCR aceita um idioma de reconhecimento por execução. Selecione um idioma e execute o OCR novamente para outro idioma.',
                 'internal': 'O OCR falhou inesperadamente',
                 'queueBackpressure': 'A fila do OCR está cheia',
                 'workerUnavailable': 'O worker do OCR não está disponível',
