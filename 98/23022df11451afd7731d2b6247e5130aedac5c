@@ -1,0 +1,32 @@
+scripts/windows-test/host/stopRun.ts
+  s_71b08669d92876::t_0e69f7d12c51dd 210-213,216-219
+  s_71b08669d92876::t_38ed178291c6b8 4,25,118-128,198-204,206-209,214-215,220-221,223
+tests/unit/scripts/windows-test/hostStopRun.test.ts
+  s_71b08669d92876::t_0e69f7d12c51dd 298-301
+  s_71b08669d92876::t_38ed178291c6b8 284,286,290-297,302-307
+tests/unit/scripts/windows-test/hostCapabilityRegistry.test.ts
+  s_71b08669d92876::t_7da0ebbd890a45 163
+scripts/windows-test/host/runCoordinator.ts
+  s_71b08669d92876::t_7da0ebbd890a45 605-607,627
+scripts/windows-test/registry/capabilityRegistry.ts
+  s_71b08669d92876::t_a7e83eb34c7f64 244-247
+  s_71b08669d92876::t_7da0ebbd890a45 96,241-243,248,253
+scripts/windows-test/host/capabilityRegistry.ts
+  s_71b08669d92876::t_7da0ebbd890a45 19,48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9823022df11451afd7731d2b6247e5130aedac5c",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
