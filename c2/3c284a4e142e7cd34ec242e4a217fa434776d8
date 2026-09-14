@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight.ts
+  s_b63e4aa14334d0::t_2ee2ba58b1a1bb 171
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearchHighlight.test.ts
+  s_b63e4aa14334d0::t_18f5c8ad7d6a17 539,546-588
+  s_b63e4aa14334d0::t_903db6974cf2bf 541-545
+app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom.ts
+  s_b63e4aa14334d0::t_dfae53255e748d 64,74,77,80-83,85-96,310
+  s_b63e4aa14334d0::t_85f0215119b80f 60-63,65-73,75-76,78-79,84,97-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c23c284a4e142e7cd34ec242e4a217fa434776d8",
+  "prompts": {},
+  "sessions": {
+    "s_b63e4aa14334d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a060-f056-7ef3-bf97-a4a7577deb38",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
