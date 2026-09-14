@@ -385,6 +385,34 @@ fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
     assert!(extracted.contains("123"), "extracted text: {extracted}");
     assert!(!extracted.contains(".كلذ"), "extracted text: {extracted}");
 
+    let positioned_content = source_document.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 10 Tf 60 Tz 1 0 0 1 30 80 Tm <00410042> Tj 1 0 0 1 55 80 Tm <00430044> Tj /F1 20 Tf 40 Tz 1 0 0 1 30 40 Tm <00450046> Tj 1 0 0 1 65 40 Tm <00470048> Tj ET".to_vec(),
+    ));
+    source_document
+        .get_dictionary_mut(source_page_id)
+        .unwrap()
+        .set("Contents", positioned_content);
+    source_document.save(&source).unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let source_bbox = pdftotext_page(&source, 1, &["-bbox"]);
+    let saved_bbox = pdftotext_page(&output, 1, &["-bbox"]);
+    assert!(source_bbox.status.success());
+    assert!(saved_bbox.status.success());
+    let source_bbox = String::from_utf8_lossy(&source_bbox.stdout);
+    let saved_bbox = String::from_utf8_lossy(&saved_bbox.stdout);
+    for word in ["AB", "CD", "EF", "GH"] {
+        assert!(
+            (bbox_word_x(&source_bbox, word) - bbox_word_x(&saved_bbox, word)).abs() < 0.01,
+            "saved word {word} moved away from its raster position: {saved_bbox}"
+        );
+    }
+
     for path in [source, input, output, instructions] {
         let _ = remove_file(path);
     }

@@ -2,7 +2,7 @@ use super::*;
 use evb_native_support::output::AtomicOutput;
 use lopdf::{
     content::{Content, Operation as ContentOperation},
-    DecompressError, Error as LopdfError,
+    dictionary, DecompressError, Error as LopdfError,
 };
 use std::{
     collections::VecDeque,
@@ -970,85 +970,61 @@ fn same_text_line(left: TextMatrix, right: TextMatrix) -> bool {
     offset.is_finite() && perpendicular.abs() <= 0.01
 }
 
-fn coalesced_ltr_text_object(
+fn marked_ltr_text_object(
     source: &Document,
     source_fonts: &Option<BTreeMap<Vec<u8>, Object>>,
     block: &[ContentOperation],
 ) -> Result<Option<Vec<ContentOperation>>> {
-    let mut font_size = None;
-    let mut font = None;
-    for operation in block {
-        if operation.operator != "Tf" || operation.operands.len() != 2 {
-            continue;
-        }
-        let Some(name) = operation.operands[0].as_name().ok() else {
-            continue;
-        };
-        let Some(size) = operation.operands[1].as_float().ok() else {
-            continue;
-        };
-        let Some(source_font) = source_fonts.as_ref().and_then(|fonts| fonts.get(name)) else {
-            return Ok(None);
-        };
-        let Ok(metrics) = parse_font_metrics(source, source_font) else {
-            return Ok(None);
-        };
-        font = Some(TextFont {
-            metrics,
-            unicode: UnicodeMap::from_font(source, source_font),
-        });
-        font_size = Some(f64::from(size));
-        break;
-    }
-    let Some(_font_size) = font_size.filter(|size| size.is_finite() && size.abs() > f64::EPSILON)
-    else {
-        return Ok(None);
-    };
-    let Some(font) = font else {
-        return Ok(None);
-    };
-
+    let mut text = TextFilterState::new();
+    let mut lines: Vec<(usize, TextMatrix, String)> = Vec::new();
+    let mut previous_end: Option<TextMatrix> = None;
     for (index, operation) in block.iter().enumerate() {
-        if operation.operator == "Tj" {
-            let Some(previous) = index.checked_sub(1).and_then(|index| block.get(index)) else {
+        if operation.operator == "Tf" && operation.operands.len() == 2 {
+            let Ok(name) = operation.operands[0].as_name() else {
                 return Ok(None);
             };
-            if previous.operator != "Tm" || operation.operands.len() != 1 {
-                return Ok(None);
+            if text.font_name.as_deref() != Some(name) {
+                let Some(source_font) = source_fonts.as_ref().and_then(|fonts| fonts.get(name))
+                else {
+                    return Ok(None);
+                };
+                let Ok(metrics) = parse_font_metrics(source, source_font) else {
+                    return Ok(None);
+                };
+                text.font = Some(TextFont {
+                    metrics,
+                    unicode: UnicodeMap::from_font(source, source_font),
+                });
+                text.font_name = Some(name.to_vec());
             }
-            let Object::String(bytes, _format) = &operation.operands[0] else {
-                return Ok(None);
-            };
-            let Ok(codes) = font.metrics.glyphs(bytes) else {
-                return Ok(None);
-            };
-            if codes.len() != 1 {
-                return Ok(None);
+            text.font_size = object_to_f64(&operation.operands[1])?;
+        } else if operation.operands.len() == 1 {
+            match operation.operator.as_str() {
+                "Tc" => text.char_spacing = object_to_f64(&operation.operands[0])?,
+                "Tw" => text.word_spacing = object_to_f64(&operation.operands[0])?,
+                "Tz" => text.horizontal_scale = object_to_f64(&operation.operands[0])? / 100.0,
+                _ => {}
             }
         }
-        if operation.operator == "TJ" {
-            let Some(value) = operation.operands.first() else {
-                return Ok(None);
-            };
-            let Ok(values) = value.as_array() else {
-                return Ok(None);
-            };
-            if values
-                .iter()
-                .any(|value| matches!(value, Object::String(..)))
+        if operation.operator != "Tj" {
+            if operation.operator == "TJ"
+                && operation.operands.iter().any(|operand| {
+                    operand.as_array().is_ok_and(|values| {
+                        values
+                            .iter()
+                            .any(|value| matches!(value, Object::String(..)))
+                    })
+                })
             {
                 return Ok(None);
             }
-        }
-    }
-
-    let mut glyphs = Vec::<(TextMatrix, Vec<u8>, lopdf::StringFormat)>::new();
-    for pair in block.windows(2) {
-        let [matrix, show] = pair else {
-            unreachable!();
-        };
-        if matrix.operator != "Tm" || show.operator != "Tj" || show.operands.len() != 1 {
             continue;
+        }
+        let Some(matrix) = index.checked_sub(1).and_then(|index| block.get(index)) else {
+            return Ok(None);
+        };
+        if matrix.operator != "Tm" || operation.operands.len() != 1 {
+            return Ok(None);
         }
         let Some(matrix) = TextMatrix::from_operation(matrix) else {
             return Ok(None);
@@ -1056,75 +1032,72 @@ fn coalesced_ltr_text_object(
         if matrix.a < 0.0 {
             return Ok(None);
         }
-        let Object::String(bytes, format) = &show.operands[0] else {
-            continue;
-        };
-        let Ok(codes) = font.metrics.glyphs(bytes) else {
+        let Object::String(bytes, _) = &operation.operands[0] else {
             return Ok(None);
         };
-        if codes.len() != 1 {
-            continue;
-        }
-        if codes
-            .first()
-            .and_then(|(code, _)| font.unicode.as_ref().and_then(|map| map.character(*code)))
-            .is_some_and(|character| {
-                matches!(
-                    unicode_bidi::bidi_class(character),
-                    unicode_bidi::BidiClass::R
-                        | unicode_bidi::BidiClass::AL
-                        | unicode_bidi::BidiClass::RLE
-                        | unicode_bidi::BidiClass::RLO
-                        | unicode_bidi::BidiClass::RLI
-                )
-            })
-        {
+        text.set_matrix(Some(matrix));
+        let Ok(glyphs) = text.measure_glyphs(bytes) else {
+            return Ok(None);
+        };
+        let Some(characters) = glyphs
+            .iter()
+            .map(|glyph| glyph.character)
+            .collect::<Option<String>>()
+        else {
+            return Ok(None);
+        };
+        if contains_rtl(&characters) {
             return Ok(None);
         }
-        glyphs.push((matrix, bytes.clone(), *format));
-    }
-    if glyphs.is_empty() {
-        return Ok(None);
-    }
-
-    let mut lines: Vec<Vec<(TextMatrix, Vec<u8>, lopdf::StringFormat)>> = Vec::new();
-    for glyph in glyphs {
         if lines
             .last()
-            .and_then(|line| line.first())
-            .is_some_and(|first| same_text_line(first.0, glyph.0))
+            .is_none_or(|line| !same_text_line(line.1, matrix))
         {
-            lines.last_mut().unwrap().push(glyph);
-        } else {
-            lines.push(vec![glyph]);
+            lines.push((index - 1, matrix, String::new()));
+            previous_end = None;
         }
+        let line = &mut lines.last_mut().unwrap().2;
+        if previous_end
+            .and_then(|end| matrix.local_horizontal_offset(end))
+            .is_some_and(|gap| gap > 0.01)
+            && !line.ends_with(char::is_whitespace)
+            && !characters.starts_with(char::is_whitespace)
+        {
+            return Ok(None);
+        }
+        line.push_str(&characters);
+        previous_end = text.text_matrix;
     }
-
-    let mut rewritten = Vec::with_capacity(lines.len() * 3 + 3);
-    rewritten.push(block[0].clone());
-    for operation in block.iter().skip(1) {
-        if operation.operator == "Tr" {
-            rewritten.push(ContentOperation::new("Tr", vec![3.into()]));
-        } else if operation.operator == "Tf" {
-            rewritten.push(operation.clone());
-            break;
-        }
+    if lines.is_empty() {
+        return Ok(None);
     }
-    rewritten.push(ContentOperation::new("Tz", vec![100.into()]));
-    for line in lines {
-        let line_matrix = line[0].0;
-        rewritten.push(ContentOperation::new("Tm", line_matrix.operands()));
-        let mut values = Vec::with_capacity(line.len());
-        for (_matrix, bytes, format) in line {
-            push_string(&mut values, &bytes, format);
+    // Give geometry-sorting extractors a complete logical line without moving
+    // the glyphs or changing their font sizes and horizontal scaling.
+    let mut rewritten = Vec::with_capacity(block.len() + lines.len() * 2);
+    rewritten.extend_from_slice(&block[..lines[0].0]);
+    for (index, (start, _, characters)) in lines.iter().enumerate() {
+        let end = lines.get(index + 1).map_or(block.len() - 1, |line| line.0);
+        let mut actual_text = vec![0xfe, 0xff];
+        for unit in characters.encode_utf16() {
+            actual_text.extend_from_slice(&unit.to_be_bytes());
         }
-        rewritten.push(ContentOperation::new("TJ", vec![Object::Array(values)]));
+        rewritten.push(ContentOperation::new(
+            "BDC",
+            vec![
+                Object::Name(b"Span".to_vec()),
+                Object::Dictionary(dictionary! {
+                    "ActualText" => Object::String(actual_text, lopdf::StringFormat::Hexadecimal),
+                }),
+            ],
+        ));
+        rewritten.extend_from_slice(&block[*start..end]);
+        rewritten.push(ContentOperation::new("EMC", Vec::new()));
     }
     rewritten.push(block.last().unwrap().clone());
     Ok(Some(rewritten))
 }
 
-fn coalesce_ltr_text_objects(
+fn mark_ltr_text_objects(
     source: &Document,
     source_fonts: &Option<BTreeMap<Vec<u8>, Object>>,
     operations: Vec<ContentOperation>,
@@ -1139,7 +1112,7 @@ fn coalesce_ltr_text_objects(
             {
                 let end = index + relative_end + 1;
                 if let Some(block) =
-                    coalesced_ltr_text_object(source, source_fonts, &operations[index..=end])?
+                    marked_ltr_text_object(source, source_fonts, &operations[index..=end])?
                 {
                     rewritten.extend(block);
                     index = end + 1;
@@ -1717,7 +1690,7 @@ fn text_operations(
         return Err("overlay-text source has an unmatched q operator".into());
     }
     Ok((
-        coalesce_ltr_text_objects(source, &source_fonts, operations)?,
+        mark_ltr_text_objects(source, &source_fonts, operations)?,
         fonts,
     ))
 }
