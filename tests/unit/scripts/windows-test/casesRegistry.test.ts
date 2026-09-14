@@ -265,9 +265,9 @@ describe('windows guest case registry', () => {
         );
 
         expect(result.outcome).toBe('product-failed');
-        expect(renameAttempts).toBe(9);
-        expect(result.assertions).toHaveLength(12);
-        expect(result.assertions.filter(assertion => !assertion.passed)).toHaveLength(9);
+        expect(renameAttempts).toBe(12);
+        expect(result.assertions).toHaveLength(18);
+        expect(result.assertions.filter(assertion => !assertion.passed)).toHaveLength(11);
         expect(result.assertions.filter(assertion => assertion.id.endsWith('-0'))).toHaveLength(3);
         expect(result.assertions.filter(assertion => assertion.id.endsWith('-0')).every(assertion => assertion.passed)).toBe(true);
         expect(result.evidenceFiles).toEqual(['save-witness-matrix.json']);
@@ -276,12 +276,35 @@ describe('windows guest case registry', () => {
             cycle: number;
             passed: boolean;
             failure: string | null;
-            cancellation: {readsAfterCancellation: number} | null;
+            baselineCaptureMs: number | null;
+            readVolumeBytes: number | null;
+            cancellation: {
+                readsAfterCancellation: number;
+                durationMs: number;
+                readSettledBeforeRejection: boolean;
+                singleReadIsWholeFile: boolean
+            } | null;
         }>;};
         expect(report.cells).toHaveLength(12);
         expect(report.cells.filter(cell => cell.cycle > 0)).toHaveLength(9);
         expect(report.cells.filter(cell => cell.cycle > 0).every(cell => !cell.passed && cell.failure?.includes('EPERM'))).toBe(true);
+        expect(report.cells.filter(cell => cell.cycle > 0).every(cell => cell.baselineCaptureMs !== null
+            && cell.readVolumeBytes === 9214)).toBe(true);
         expect(report.cells.filter(cell => cell.cycle === 0).every(cell => cell.passed
-            && cell.cancellation?.readsAfterCancellation === 0)).toBe(true);
+            && cell.cancellation?.readsAfterCancellation === 0
+            && cell.cancellation.durationMs >= 0
+            && cell.cancellation.readSettledBeforeRejection
+            && cell.cancellation.singleReadIsWholeFile)).toBe(true);
+
+        const successful = await runRegisteredCase(requireCaseDefinition('WIN-SAVE-10'), {
+            ...environment,
+            fs,
+        });
+        expect(successful.outcome).toBe('product-failed');
+        expect(successful.assertions).toHaveLength(18);
+        expect(successful.assertions.filter(assertion => !assertion.passed).map(assertion => assertion.id)).toEqual([
+            'save-witness-exact-65-mib-fixture-size',
+            'save-witness-exact-513-mib-fixture-size',
+        ]);
     });
 });

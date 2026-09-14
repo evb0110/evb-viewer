@@ -39,7 +39,7 @@ export async function generateLargePdfE2eFixture({
     pageCount = DEFAULT_LARGE_PDF_FIXTURE_PAGES,
     targetBytes = DEFAULT_LARGE_PDF_FIXTURE_BYTES,
 }) {
-    const pdf = await PDFDocument.create();
+    const pdf = await PDFDocument.create({ updateMetadata: false });
     const font = await pdf.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {

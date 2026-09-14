@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
     mkdir,
     readdir,
@@ -310,6 +311,49 @@ describe('Electron E2E fixture policy', () => {
             expect(annotation?.get(PDFName.of('Subtype'))?.toString()).toBe('/FreeText');
         } finally {
             await rm(outputPath, { force: true });
+        }
+    });
+
+    it('generates byte-identical large-PDF fixtures without timestamp metadata', async () => {
+        const firstOutputPath = join(process.cwd(), '.devkit/tmp/generated-large-pdf-policy-first.pdf');
+        const secondOutputPath = join(process.cwd(), '.devkit/tmp/generated-large-pdf-policy-second.pdf');
+        const { generateLargePdfE2eFixture } = await import('@scripts/generate-large-pdf-e2e-fixture.mjs');
+        await mkdir(join(process.cwd(), '.devkit/tmp'), { recursive: true });
+
+        try {
+            vi.useFakeTimers({ now: new Date('2020-01-02T03:04:05.000Z') });
+            await generateLargePdfE2eFixture({
+                outputPath: firstOutputPath,
+                pageCount: 7,
+                targetBytes: 2 * 1024 * 1024,
+            });
+
+            vi.setSystemTime(new Date('2030-06-07T08:09:10.000Z'));
+            await generateLargePdfE2eFixture({
+                outputPath: secondOutputPath,
+                pageCount: 7,
+                targetBytes: 2 * 1024 * 1024,
+            });
+
+            const firstBytes = await readFile(firstOutputPath);
+            const secondBytes = await readFile(secondOutputPath);
+            expect(firstBytes).toEqual(secondBytes);
+            expect(createHash('sha256').update(firstBytes).digest('hex'))
+                .toBe(createHash('sha256').update(secondBytes).digest('hex'));
+            expect(firstBytes.toString('latin1')).not.toMatch(/\/(?:CreationDate|ModDate)\b/u);
+
+            const parsed = await PDFDocument.load(firstBytes, { updateMetadata: false });
+            expect(parsed.getPageCount()).toBe(7);
+            expect(parsed.getCreationDate()).toBeUndefined();
+            expect(parsed.getModificationDate()).toBeUndefined();
+            const annotations = parsed.getPage(0).node.Annots();
+            expect(annotations).toBeInstanceOf(PDFArray);
+            const annotationRef = annotations?.get(0);
+            expect(annotationRef).toBeInstanceOf(PDFRef);
+        } finally {
+            vi.useRealTimers();
+            await rm(firstOutputPath, { force: true });
+            await rm(secondOutputPath, { force: true });
         }
     });
 
