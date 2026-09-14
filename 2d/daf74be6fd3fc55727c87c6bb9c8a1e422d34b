@@ -1,0 +1,21 @@
+tests/unit/scripts/windows-test/casesRegistry.test.ts
+  s_dfc0f301cf02e2::t_b6d44e0e29add1 241-286
+scripts/windows-test/guest/cases/runWinSaveWitnessMatrix.ts
+  s_dfc0f301cf02e2::t_110492860d7489 35,51,62,66-67,69,81,126-134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2ddaf74be6fd3fc55727c87c6bb9c8a1e422d34b",
+  "prompts": {},
+  "sessions": {
+    "s_dfc0f301cf02e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e3e-da3c-7022-8090-54fac0b9b3af",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
