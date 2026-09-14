@@ -336,6 +336,11 @@ not modified.
 
 ## Decision path
 
+0. Never delete a VM by hand or invoke `utmctl delete` directly. Lab cleanup
+   must go through the runner teardown command, which checks ownership and
+   refuses the configured golden VM and every bundle under `images/baselines`.
+   If teardown refuses a target, stop and preserve the evidence for review.
+
 1. Run `pnpm windows:test:prepare`. Pass when the standalone `utmctl` copy and
    metadata verify. If it fails, repair preparation and stop before polling.
 2. Resolve the clone from the structured local session identity. Pass when its

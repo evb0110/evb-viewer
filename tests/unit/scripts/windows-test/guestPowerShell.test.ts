@@ -235,6 +235,11 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).not.toContain('schtasks.exe /create /sc onlogon');
         expect(bootstrap).toContain('system-bootstrap.marker');
         expect(bootstrap).toContain('node-executable-missing');
+        expect(bootstrap).toContain('tar.exe -xf');
+        expect(bootstrap).toContain('node-extract.stdout.log');
+        expect(bootstrap).toContain('node-extract.stderr.log');
+        expect(bootstrap).toContain('node-version.stdout.log');
+        expect(bootstrap).toContain('node-version.stderr.log');
         expect(bootstrap).toContain('configure-failed');
         expect(bootstrap).toContain('complete=v2');
         expect(bootstrap).toContain('powershell-copy');
