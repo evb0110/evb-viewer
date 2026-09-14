@@ -1,0 +1,11 @@
+native/pdf-page-ops/tests/text_layer.rs
+  ai_agent 388-415
+native/pdf-page-ops/src/text_layer.rs
+  ai_agent 5,973,978-980,982-983,986-998,1000-1006,1009-1017,1021,1023-1024,1026-1027,1035-1036,1038-1039,1042-1049,1054,1056-1057,1059-1066,1068-1072,1074-1082,1084-1094,1100,1115,1693
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6b2581096ca33a6a3a5af0d328b0b17b6a6f4446",
+  "prompts": {}
+}
