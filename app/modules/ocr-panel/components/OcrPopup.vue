@@ -124,9 +124,9 @@
 
                     <div class="section">
                         <URadioGroup
-                            v-model="settings.supersessionPolicy"
+                            v-model="supersessionChoiceModel"
                             name="ocrSupersessionPolicy"
-                            :items="supersessionPolicyItems"
+                            :items="supersessionChoiceItems"
                             value-key="value"
                             :ui="listRadioGroupUi"
                         >
@@ -137,19 +137,52 @@
                                     :options="supersessionPolicyHelpItems"
                                 />
                             </template>
+                            <template #description="{ item }">
+                                <span class="policy-option-description">{{ item.description }}</span>
+                            </template>
                         </URadioGroup>
                         <p class="policy-hint" aria-live="polite">
                             {{ selectedSupersessionDescription }}
                         </p>
-                        <div
-                            class="supersession-acknowledgement"
-                            :class="{ 'is-hidden': settings.supersessionPolicy !== 'replace-all' }"
+                        <UCollapsible
+                            v-if="supersessionChoiceModel === 'repeat'"
+                            v-model:open="repeatAdvancedOpen"
+                            :unmount-on-hide="false"
+                            class="supersession-advanced"
                         >
-                            <UCheckbox
-                                v-model="settings.replaceAllAcknowledged"
-                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
-                            />
-                        </div>
+                            <template #default="{ open: isAdvancedOpen }">
+                                <button
+                                    type="button"
+                                    class="supersession-advanced-toggle"
+                                    :aria-expanded="isAdvancedOpen ? 'true' : 'false'"
+                                >
+                                    <UIcon
+                                        :name="isAdvancedOpen ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                                        class="supersession-advanced-icon"
+                                    />
+                                    <span>{{ t('ocr.supersession.advanced') }}</span>
+                                </button>
+                            </template>
+                            <template #content>
+                                <div class="supersession-advanced-content">
+                                    <UCheckbox
+                                        v-model="replaceOnlyEvbModel"
+                                        :label="t('ocr.supersession.onlyEvb')"
+                                    />
+                                    <div
+                                        v-if="!replaceOnlyEvbModel"
+                                        class="supersession-acknowledgement"
+                                        role="alert"
+                                    >
+                                        <p>{{ t('ocr.supersession.replaceAllDescription') }}</p>
+                                        <UCheckbox
+                                            v-model="settings.replaceAllAcknowledged"
+                                            :label="t('ocr.supersession.replaceAllAcknowledgement')"
+                                        />
+                                    </div>
+                                </div>
+                            </template>
+                        </UCollapsible>
                     </div>
 
                     <!-- Quality Profile Selection -->
@@ -240,54 +273,80 @@
                             />
                         </div>
                         <div class="language-picker-list app-scrollbar app-scroll-region--balanced">
-                            <UCheckboxGroup
-                                v-if="languagePickerItems.length > 0"
-                                v-model="selectedLanguagesModel"
-                                :legend="t('ocr.languages')"
-                                :items="languagePickerItems"
-                                value-key="value"
-                                size="sm"
-                                variant="card"
-                                orientation="horizontal"
-                                indicator="hidden"
-                                :ui="languageChipGroupUi"
+                            <p
+                                v-if="languageInventoryState === 'loading'"
+                                class="language-inventory-status"
+                                role="status"
+                                aria-live="polite"
                             >
-                                <template #label="{ item }">
-                                    <span class="chip-name">{{ item.label }}</span>
-                                    <span class="chip-code">{{ item.value }}</span>
-                                    <span
-                                        v-if="item.modelState === 'missing'"
-                                        class="chip-state"
+                                {{ t('ocr.languagePicker.inventoryLoading') }}
+                            </p>
+                            <p
+                                v-else-if="languageInventoryState === 'unavailable'"
+                                class="language-inventory-status"
+                                role="alert"
+                            >
+                                {{ t('ocr.languagePicker.inventoryUnavailable') }}
+                            </p>
+                            <template v-else-if="languagePickerItems.length > 0">
+                                <template
+                                    v-for="group in languagePickerGroups"
+                                    :key="group.key"
+                                >
+                                    <p
+                                        v-if="group.items.length > 0"
+                                        class="language-group-heading"
                                     >
-                                        <UIcon name="i-ph-download-simple" class="size-3" />
-                                        {{ t('ocr.languagePicker.downloadSizeHint') }}
-                                    </span>
-                                    <UIcon
-                                        v-else-if="item.modelState === 'downloading'"
-                                        name="i-ph-circle-notch"
-                                        class="chip-spinner size-3 animate-spin"
-                                        :aria-label="t('ocr.languageModelState.downloading')"
-                                    />
-                                    <span
-                                        v-else-if="item.modelState === 'error'"
-                                        class="chip-state is-error"
+                                        {{ t(`ocr.languagePicker.groups.${group.key}`, undefined) }}
+                                    </p>
+                                    <URadioGroup
+                                        v-if="group.items.length > 0"
+                                        v-bind="selectedLanguageModel === undefined ? {} : { modelValue: selectedLanguageModel }"
+                                        name="ocrLanguage"
+                                        :legend="t(`ocr.languagePicker.groups.${group.key}`, undefined)"
+                                        :items="group.items"
+                                        value-key="value"
+                                        size="sm"
+                                        variant="card"
+                                        orientation="vertical"
+                                        indicator="hidden"
+                                        :ui="languageChipGroupUi"
+                                        @update:model-value="selectedLanguageModel = $event"
                                     >
-                                        <UIcon name="i-ph-warning-circle" class="size-3" />
-                                        {{ t('ocr.languagePicker.downloadFailed') }}
-                                    </span>
+                                        <template #label="{ item }">
+                                            <span class="chip-name">{{ item.label }}</span>
+                                            <span class="chip-code">{{ item.value }}</span>
+                                            <span
+                                                class="chip-state"
+                                                :class="{ 'is-error': item.modelState === 'error' }"
+                                            >
+                                                <UIcon
+                                                    :name="getLanguageModelStateIcon(item.modelState)"
+                                                    class="size-3"
+                                                    :class="{ 'animate-spin': item.modelState === 'downloading' }"
+                                                    aria-hidden="true"
+                                                />
+                                                {{ t(getLanguageModelStateLabelKey(item.modelState), undefined) }}
+                                            </span>
+                                        </template>
+                                    </URadioGroup>
                                 </template>
-                            </UCheckboxGroup>
+                            </template>
                             <p v-else class="language-empty">
                                 {{ t('ocr.languagePicker.noResults') }}
                             </p>
                         </div>
-                        <p
-                            v-if="showMultipleLanguagesHint"
-                            class="language-accuracy-hint"
-                            role="status"
-                        >
+                        <p class="language-accuracy-hint" role="status">
                             <UIcon name="i-ph-info" class="size-4" />
-                            {{ t('ocr.languagePicker.multiLanguageHint') }}
+                            {{ t('ocr.languagePicker.singleLanguageHint') }}
+                        </p>
+                        <p
+                            v-if="hasLegacyMultipleLanguages"
+                            class="language-accuracy-hint"
+                            role="alert"
+                        >
+                            <UIcon name="i-ph-warning-circle" class="size-4" />
+                            {{ t('ocr.languagePicker.legacyMultipleLanguages') }}
                         </p>
                     </div>
                 </template>
@@ -397,7 +456,7 @@
                 <UButton
                     color="primary"
                     icon="i-ph-play"
-                    :label="t('ocr.start')"
+                    :label="hasSelectedLanguageDownload ? t('ocr.languagePicker.downloadAndStart') : t('ocr.languagePicker.startWithoutDownload')"
                     :disabled="!canRunOcr"
                     @click="handleRunOcr"
                 />
@@ -414,7 +473,6 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
-    TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
@@ -422,6 +480,7 @@ import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingH
 import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
+import type { TOcrLanguageModelDisplayState } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
     IOcrSearchablePdfResult,
@@ -436,8 +495,10 @@ type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentati
 type TOcrQualityProfileHelpKey = Extract<TTranslationKey, `ocr.qualityProfile.help.${string}`>;
 type TOcrPreprocessingModeHelpKey = Extract<TTranslationKey, `ocr.preprocessing.help.${string}`>;
 type TOcrPageSegmentationHelpKey = Extract<TTranslationKey, `ocr.pageSegmentation.help.${string}`>;
-type TOcrSupersessionLabelKey = Extract<TTranslationKey, `ocr.supersession.options.${string}`>;
-type TOcrSupersessionDescriptionKey = Extract<TTranslationKey, `ocr.supersession.descriptions.${string}`>;
+type TOcrSupersessionChoice = 'missing-only' | 'repeat';
+type TOcrSupersessionChoiceLabelKey = Extract<TTranslationKey, `ocr.supersession.primaryOptions.${string}`>;
+type TOcrSupersessionChoiceDescriptionKey = Extract<TTranslationKey, `ocr.supersession.primaryDescriptions.${string}`>;
+type TOcrLanguageModelStateLabelKey = Extract<TTranslationKey, `ocr.languageModelState.${string}`>;
 
 const ocrQualityProfileOptions = [
     'balanced',
@@ -450,11 +511,10 @@ const ocrPreprocessingModeOptions = [
     'clean',
 ] as const satisfies readonly TOcrPreprocessingMode[];
 
-const ocrSupersessionPolicies = [
+const ocrSupersessionChoices = [
     'missing-only',
-    'replace-evb',
-    'replace-all',
-] as const satisfies readonly TOcrTextSupersessionPolicy[];
+    'repeat',
+] as const satisfies readonly TOcrSupersessionChoice[];
 
 const ocrPageSegmentationOptions = [
     {
@@ -491,7 +551,7 @@ const segmentedRadioGroupUi = {
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
 const languageChipGroupUi = {
-    fieldset: 'w-full flex-wrap gap-1.5',
+    fieldset: 'w-full gap-1.5',
     legend: 'sr-only',
     item: 'language-chip',
     label: 'language-chip-label font-normal text-xs',
@@ -558,10 +618,15 @@ const {
     resultStatusText,
     languageSearchQuery,
     languagePickerItems,
+    languagePickerGroups,
+    languageInventoryState,
+    hasSelectedLanguageDownload,
     showLanguageSearch,
-    showMultipleLanguagesHint,
+    hasLegacyMultipleLanguages,
     hasLanguageDownloadFailure,
-    selectedLanguagesModel,
+    supersessionChoiceModel,
+    replaceOnlyEvbModel,
+    selectedLanguageModel,
     pageSegmentationModeSelectValue,
     handleCopyLogs,
     handleRunOcr,
@@ -590,6 +655,14 @@ const {
         onExportDocx: selectedLanguages => emit('export-docx', selectedLanguages),
         onCancelDocxExport: () => emit('cancel-docx-export'),
     },
+});
+
+const repeatAdvancedOpen = ref(false);
+
+watch(() => settings.value.supersessionPolicy, policy => {
+    if (policy === 'replace-all') {
+        repeatAdvancedOpen.value = true;
+    }
 });
 
 const triggerIcon = computed(() => (
@@ -629,19 +702,21 @@ const preprocessingModeItems = computed<Array<{
     value: mode,
     label: t(getPreprocessingModeLabelKey(mode), undefined),
 })));
-const supersessionPolicyItems = computed<Array<{
-    value: TOcrTextSupersessionPolicy;
+const supersessionChoiceItems = computed<Array<{
+    value: TOcrSupersessionChoice;
     label: string;
-}>>(() => ocrSupersessionPolicies.map(policy => ({
-    value: policy,
-    label: t(getSupersessionLabelKey(policy), undefined),
+    description: string;
+}>>(() => ocrSupersessionChoices.map(choice => ({
+    value: choice,
+    label: t(getSupersessionChoiceLabelKey(choice), undefined),
+    description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
 })));
-const supersessionPolicyHelpItems = computed(() => ocrSupersessionPolicies.map(policy => ({
-    label: t(getSupersessionLabelKey(policy), undefined),
-    description: t(getSupersessionDescriptionKey(policy), undefined),
+const supersessionPolicyHelpItems = computed(() => ocrSupersessionChoices.map(choice => ({
+    label: t(getSupersessionChoiceLabelKey(choice), undefined),
+    description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
 })));
 const selectedSupersessionDescription = computed(() => t(
-    getSupersessionDescriptionKey(settings.value.supersessionPolicy),
+    getSupersessionChoiceDescriptionKey(supersessionChoiceModel.value),
     undefined,
 ));
 const pageSegmentationItems = computed<Array<{
@@ -681,12 +756,39 @@ function getPreprocessingModeHelpKey(mode: TOcrPreprocessingMode): TOcrPreproces
     return `ocr.preprocessing.help.${mode}`;
 }
 
-function getSupersessionLabelKey(policy: TOcrTextSupersessionPolicy): TOcrSupersessionLabelKey {
-    return `ocr.supersession.options.${policy}`;
+function getSupersessionChoiceLabelKey(choice: TOcrSupersessionChoice): TOcrSupersessionChoiceLabelKey {
+    return `ocr.supersession.primaryOptions.${choice}`;
 }
 
-function getSupersessionDescriptionKey(policy: TOcrTextSupersessionPolicy): TOcrSupersessionDescriptionKey {
-    return `ocr.supersession.descriptions.${policy}`;
+function getSupersessionChoiceDescriptionKey(choice: TOcrSupersessionChoice): TOcrSupersessionChoiceDescriptionKey {
+    return `ocr.supersession.primaryDescriptions.${choice}`;
+}
+
+function getLanguageModelStateLabelKey(state: string): TOcrLanguageModelStateLabelKey {
+    const normalizedState: TOcrLanguageModelDisplayState = state === 'ready'
+        || state === 'missing'
+        || state === 'downloading'
+        || state === 'error'
+        || state === 'unavailable'
+        ? state
+        : 'unavailable';
+    return `ocr.languageModelState.${normalizedState}`;
+}
+
+function getLanguageModelStateIcon(state: string) {
+    if (state === 'ready') {
+        return 'i-ph-check-circle';
+    }
+    if (state === 'missing') {
+        return 'i-ph-download-simple';
+    }
+    if (state === 'downloading') {
+        return 'i-ph-circle-notch';
+    }
+    if (state === 'error') {
+        return 'i-ph-warning-circle';
+    }
+    return 'i-ph-question';
 }
 
 defineExpose<IOcrPopupAgentExpose>({
@@ -775,19 +877,47 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .supersession-acknowledgement {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-sm);
     margin-top: var(--app-space-3xl);
     padding: var(--app-space-lg);
     border: 1px solid var(--ui-warning);
     border-radius: var(--app-radius-md);
     background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
-    transition: opacity 0.18s ease;
 }
 
-/* Kept in layout at every policy so choosing "replace all" reveals the
-   acknowledgement without moving the controls below it. */
-.supersession-acknowledgement.is-hidden {
-    visibility: hidden;
-    opacity: 0;
+.policy-option-description {
+    display: block;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-text);
+}
+
+.supersession-advanced {
+    margin-top: var(--app-space-3xl);
+}
+
+.supersession-advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    padding: var(--app-space-2xs) 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.supersession-advanced-toggle:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+}
+
+.supersession-advanced-icon {
+    color: var(--ui-text-dimmed);
+}
+
+.supersession-advanced-content {
+    padding: var(--app-space-sm) 0 0 var(--app-space-6xl);
 }
 
 .section-row {
@@ -832,6 +962,25 @@ defineExpose<IOcrPopupAgentExpose>({
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: var(--app-space-3xs);
+}
+
+.language-inventory-status {
+    padding: var(--app-space-6xl);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    text-align: center;
+}
+
+.language-group-heading {
+    margin: var(--app-space-3xl) var(--app-space-2xs) var(--app-space-xs);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-micro);
+    font-weight: var(--app-font-weight-semibold);
+    text-transform: uppercase;
+}
+
+.language-group-heading:first-child {
+    margin-top: var(--app-space-xs);
 }
 
 :deep(.language-chip) {

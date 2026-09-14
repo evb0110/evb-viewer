@@ -15,8 +15,8 @@ export const DOCX_MAX_TEXT_RUN_CHARACTERS = 64 * 1024;
 
 export type TDocxParagraphDirection = boolean | ((text: string) => boolean);
 
-const RTL_STRONG_CHARACTER_RE = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/u;
-const LTR_STRONG_CHARACTER_RE = /[A-Za-z\u00C0-\u02AF\u0370-\u052F\u1E00-\u1EFF]/u;
+const RTL_STRONG_CHARACTER_RE = /(?=\p{L})[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/u;
+const LTR_STRONG_CHARACTER_RE = /(?=\p{L})[A-Za-z\u00C0-\u02AF\u0370-\u052F\u1E00-\u1EFF]/u;
 
 /** Resolve each paragraph independently so one RTL paragraph does not relabel a mixed document. */
 export function resolveDocxParagraphDirection(text: string, fallbackRtl = false) {

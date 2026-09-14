@@ -63,9 +63,9 @@ it('prepares a standalone guest bundle and verified fixtures without replacing h
     await writeFile(options.layout.configFile, originalConfig);
     const result = await prepareWindowsTestHost(options);
     const manifest = await loadFixtureManifest(result.fixtureManifestFile);
-    expect(result.fixtureCount).toBe(11);
+    expect(result.fixtureCount).toBe(14);
     expect(await readFile(options.layout.configFile, 'utf8')).toBe(originalConfig);
-    expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(11);
+    expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(14);
     const verification = await verifyFixturePack(options.layout.fixturesCacheDir, manifest);
     expect(verification.problems).toEqual([]);
     // Outside the checkout, no host node_modules can mask a missing native
@@ -115,9 +115,9 @@ it('preparation CLI writes verified inputs into the requested host root', async 
         verifyStandaloneUtmctlSignature: async () => undefined,
     })).toBe(0);
     const manifest = await loadFixtureManifest(path.join(layout.fixturesCacheDir, 'manifest.json'));
-    expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(11);
+    expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(14);
     expect((await verifyFixturePack(layout.fixturesCacheDir, manifest)).problems).toEqual([]);
-    expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('"fixtureCount": 11');
+    expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('"fixtureCount": 14');
 }, 30_000);
 
 it('preparation CLI reports usage without creating inputs for unknown arguments', async () => {

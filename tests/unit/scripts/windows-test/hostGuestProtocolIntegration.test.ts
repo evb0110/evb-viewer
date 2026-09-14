@@ -450,6 +450,7 @@ describe('host and guest Windows test protocol', () => {
             tests: ['WIN-SAVE-01'],
             uncoveredObligations: [],
             humanReviewObligations: [],
+            hostDisplayRequired: false,
         };
         const dependencies: IWindowsTestRunDependencies = {
             config,

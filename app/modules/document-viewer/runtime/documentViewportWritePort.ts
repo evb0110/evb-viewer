@@ -24,6 +24,33 @@ export interface IDocumentViewportWritePort {
     observeUserScroll(container: HTMLElement): void;
 }
 
+const DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE =
+    'data-document-viewport-pane-relocation-scroll-fence';
+
+/**
+ * Marks a pane before its persistent DOM subtree is moved by Teleport.
+ * Browsers can emit a trusted scroll event for the native offset reset caused
+ * by that move, before the workspace can restore the semantic position.
+ */
+export function fenceDocumentViewportPaneRelocationScroll(element: HTMLElement) {
+    element.setAttribute(DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE, '');
+}
+
+export function clearDocumentViewportPaneRelocationScrollFence(element: HTMLElement) {
+    element.removeAttribute(DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE);
+}
+
+export function consumeDocumentViewportPaneRelocationScrollFence(element: HTMLElement) {
+    const fence = element.closest<HTMLElement>(
+        `[${DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE}]`,
+    );
+    if (!fence) {
+        return false;
+    }
+    clearDocumentViewportPaneRelocationScrollFence(fence);
+    return true;
+}
+
 function resolveAuthoredOffset(
     value: number | undefined,
     current: number,

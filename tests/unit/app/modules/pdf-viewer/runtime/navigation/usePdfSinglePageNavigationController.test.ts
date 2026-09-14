@@ -1062,6 +1062,129 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
+    it('releases the visual handoff as soon as trusted input cancels blocked navigation', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 4; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 4}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 4,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected a layout for the blocked navigation test');
+        }
+        const preparation = createDeferred();
+        const viewportWrites = createTestPdfViewportWritePort();
+        const isLoading = ref(false);
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(4),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading,
+                pdfDocument: shallowRef({numPages: 4} as IPdfDocument),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                prepareNavigationLayout: async () => preparation.promise,
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.scrollToPage(requirePageNumber(4))).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
+            });
+
+            // A geometry-only intent can own the authority while the detached
+            // toolbar task is still blocked. Cancelling only that toolbar
+            // destination must leave the handoff with the active intent.
+            isLoading.value = true;
+            const fit = controller.submitViewportStateIntent('fit');
+            expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('fit');
+            controller.cancelDestinationNavigationTarget('toolbar');
+            expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('fit');
+            expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
+
+            controller.cancelProgrammaticNavigation('trusted-scroll');
+
+            expect(controller.navigationAnchorPage.value).toBeNull();
+            expect(controller.navigationVisualHandoffTargetPage.value).toBeNull();
+            expect(controller.viewportAuthority.activeIntent.value).toBeNull();
+
+            // A new request is allowed to replay while the cancelled task is
+            // still blocked. Its abort fence must prevent the old task from
+            // applying a viewport write or clearing the new handoff.
+            isLoading.value = false;
+            expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.pendingTargetPage.value).toBe(2);
+                expect(controller.navigationVisualHandoffTargetPage.value).toBe(2);
+            });
+            preparation.resolve();
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.getTerminalOutcome('viewport-navigation-1'))
+                    .toBe('cancelled');
+            });
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+            });
+            await expect(fit).resolves.toMatchObject({outcome: 'cancelled'});
+            expect(viewportWrites.writes).toHaveLength(1);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
     it('anchors zoom to the viewport authority page while the outer requested page lags', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');

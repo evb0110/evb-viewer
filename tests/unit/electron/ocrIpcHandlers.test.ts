@@ -518,6 +518,70 @@ describe('OCR platform feature main bindings', () => {
         expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
     });
 
+    it('rejects multiple OCR languages and mixed page overrides before queuing the worker job', async () => {
+        const handler = getHandler('ocr:createSearchablePdf');
+        const multiLanguageResult = await handler(
+            {sender: createMockSender(21)},
+            '/tmp/working-copy.pdf',
+            {
+                kind: 'all',
+                pageCount: 2,
+                languages: [
+                    'eng',
+                    'rus',
+                ],
+            },
+            'job-multiple-languages',
+        ) as {
+            started: boolean;
+            error: string;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(multiLanguageResult).toMatchObject({
+            started: false,
+            errorEnvelope: {
+                code: 'OCR_MULTIPLE_LANGUAGES',
+                retryable: false,
+            },
+        });
+        expect(multiLanguageResult.error).toContain('one recognition language per run');
+
+        const mixedPageResult = await handler(
+            {sender: createMockSender(22)},
+            '/tmp/working-copy.pdf',
+            [
+                {
+                    pageNumber: 1,
+                    languages: ['eng'],
+                },
+                {
+                    pageNumber: 2,
+                    languages: ['rus'],
+                },
+            ],
+            'job-mixed-page-languages',
+        ) as {
+            started: boolean;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(mixedPageResult).toMatchObject({
+            started: false,
+            errorEnvelope: {
+                code: 'OCR_MULTIPLE_LANGUAGES',
+                retryable: false,
+            },
+        });
+        expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
+    });
+
     it('rejects disallowed sourcePdfPath before queuing OCR worker job', async () => {
         mocks.ensureWorkingCopyMaterialized.mockRejectedValue(new Error('sourcePdfPath is not a managed working copy'));
 

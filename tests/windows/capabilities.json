@@ -572,7 +572,6 @@
             "status": "implemented",
             "gate": "advisory",
             "suites": [
-                "smoke",
                 "all"
             ],
             "primaryEnvironment": "utm-win11-arm64-app-arm64",
@@ -582,7 +581,7 @@
             "negativeControl": "Identical atomic replacement must not be accepted without a full-content witness",
             "owner": "electron-test-engineer",
             "quarantine": null,
-            "hostDisplayRequired": true
+            "hostDisplayRequired": false
         },
         {
             "id": "WIN-SAVE-11",
@@ -641,34 +640,6 @@
             ],
             "negativeControl": "External edit overwritten without any conflict signal",
             "owner": "electron-test-engineer",
-            "quarantine": null
-        },
-        {
-            "id": "WIN-SAVE-11",
-            "family": "Saving, editing, identity and recovery",
-            "title": "Large PDFs, multi-GB offsets and the low-memory admission boundary",
-            "driver": "NATIVE",
-            "priority": "P1",
-            "obligation": "automated",
-            "status": "planned",
-            "gate": "advisory",
-            "suites": [
-                "all"
-            ],
-            "primaryEnvironment": "utm-win11-arm64-app-arm64",
-            "environments": [
-                "utm-win11-arm64-app-arm64"
-            ],
-            "fixtures": [
-                "F06"
-            ],
-            "oracles": [
-                "resource-bounds",
-                "pdf-structure",
-                "error-message"
-            ],
-            "negativeControl": "Truncated large output reported as a complete save",
-            "owner": "test-maintainer",
             "quarantine": null
         },
         {

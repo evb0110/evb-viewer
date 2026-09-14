@@ -437,6 +437,7 @@ async function createHarness(options: IHarnessOptions = {}) {
         tests: ['WIN-SAVE-01'],
         uncoveredObligations: ['WIN-PRINT-09'],
         humanReviewObligations: [],
+        hostDisplayRequired: false,
         ...options.selection,
     };
 

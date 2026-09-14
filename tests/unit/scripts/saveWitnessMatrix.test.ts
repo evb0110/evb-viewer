@@ -212,10 +212,12 @@ describe('save-witness matrix', () => {
         expect(settled).toBe(false);
         releaseFirstRead();
         const baseline = await baselinePromise;
-        const save = await baseline.beginSave({onRead: async (readBytes, phase) => reads.push([
-            readBytes,
-            phase,
-        ])});
+        const save = await baseline.beginSave({onRead: async (readBytes, phase) => {
+            reads.push([
+                readBytes,
+                phase,
+            ]);
+        }});
         await save.assertPublicationAllowed();
         await save.close();
         expect(reads.filter(([

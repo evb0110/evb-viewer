@@ -340,7 +340,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             const workspace = options.workspaceRefs.value.get(target.tab.tabId)
                 ?? await options.waitForWorkspace(target.tab.tabId);
             if (workspace && workspaceHasPdf(workspace)) {
-                await workspace.handleCloseFileFromUi({persist: false});
+                await (getDocumentSession(target.tab.tabId)?.close({persist: false})
+                    ?? workspace.handleCloseFileFromUi({persist: false}));
             }
         }
 

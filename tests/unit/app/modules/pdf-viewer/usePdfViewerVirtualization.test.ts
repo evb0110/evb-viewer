@@ -126,6 +126,50 @@ function createPagedHarness(options?: {
 }
 
 describe('usePdfViewerVirtualization', () => {
+    it('mounts the scrolled-to pages when a scroll leaves an active zoom freeze window', () => {
+        const visibleRange = ref({
+            start: 1,
+            end: 1,
+        });
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'single'),
+            numPages: ref(100),
+            currentPage: ref(1),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref([]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(5.33),
+            scaledMargin: ref(20),
+            visibleRange,
+            navigationAnchorPage: ref(null),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref({
+                sessionId: null,
+                capturedAtMs: 0,
+                windowStart: 1,
+                windowEnd: 9,
+            }),
+        });
+
+        visibleRange.value = {
+            start: 3,
+            end: 4,
+        };
+        expect(virtualization.pagesToRender.value).toEqual(Array.from({length: 9}, (_, index) => index + 1));
+
+        visibleRange.value = {
+            start: 35,
+            end: 35,
+        };
+        expect(virtualization.pagesToRender.value).toContain(35);
+        expect(virtualization.virtualWindowStart.value).toBeLessThanOrEqual(35);
+        expect(virtualization.virtualWindowEnd.value).toBeGreaterThanOrEqual(35);
+    });
+
     it('keeps the full scroll extent through a disjoint navigation handoff', () => {
         const currentPage = ref(1);
         const navigationAnchorPage = ref<number | null>(241);

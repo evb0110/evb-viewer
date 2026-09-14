@@ -91,7 +91,12 @@ export const useOcrErrorLocalizer = () => {
         if (envelope !== null) {
             const codeMessageKey = ocrErrorCodeMessageKeys[envelope.code];
             const codeMessage = t(codeMessageKey);
-            if (!normalized || normalized === envelope.code || normalized === codeMessage) {
+            if (
+                envelope.code === 'OCR_MULTIPLE_LANGUAGES'
+                || !normalized
+                || normalized === envelope.code
+                || normalized === codeMessage
+            ) {
                 return codeMessage;
             }
             return `${codeMessage}: ${truncateOcrErrorDetails(normalized)}`;

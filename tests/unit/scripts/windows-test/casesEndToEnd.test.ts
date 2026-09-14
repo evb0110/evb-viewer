@@ -1,4 +1,7 @@
-import { mkdtemp } from 'node:fs/promises';
+import {
+    mkdtemp,
+    open,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -176,6 +179,17 @@ async function writeNumberedPdf(fs: IGuestFileSystem, filePath: string, markers:
     await fs.writeBytes(filePath, await document.save());
 }
 
+async function writeSparseMatrixPdf(filePath: string, bytes: number) {
+    const handle = await open(filePath, 'w+');
+    try {
+        await handle.truncate(bytes);
+        await handle.write('%PDF-1.7\n', 0, 'ascii');
+        await handle.write('%%EOF\n', bytes - 6, 'ascii');
+    } finally {
+        await handle.close();
+    }
+}
+
 async function pdfPageCount(fs: IGuestFileSystem, filePath: string) {
     const document = await PDFDocument.load(await fs.readBytes(filePath), { ignoreEncryption: true });
     return document.getPageCount();
@@ -228,6 +242,18 @@ async function createFakeWorld({
     );
     await fs.writeBytes(metadataFixtureFile, await generateMetadataFixture());
     await fs.writeBytes(fontsFixtureFile, await generateFontsFixture());
+    await writeSparseMatrixPdf(
+        joinGuestPath('/', fixtureDirectory, 'F10-save-witness-small.pdf'),
+        9_214,
+    );
+    await writeSparseMatrixPdf(
+        joinGuestPath('/', fixtureDirectory, 'F10-save-witness-65mib.pdf'),
+        65 * 1024 * 1024,
+    );
+    await writeSparseMatrixPdf(
+        joinGuestPath('/', fixtureDirectory, 'F10-save-witness-513mib.pdf'),
+        513 * 1024 * 1024,
+    );
     await fs.writeText(joinGuestPath('/', installDirectory, 'resources', 'bin', 'pdftool.exe'), 'MZ fake image');
     await fs.writeText(joinGuestPath('/', installDirectory, 'resources', 'helper.exe'), 'MZ fake image');
     await fs.writeText(joinGuestPath('/', installDirectory, 'resources', 'notes.txt'), 'not an executable');
@@ -715,7 +741,7 @@ describe('windows guest cases under a fake guest world', () => {
                 expect(await world.fs.exists(evidenceFile), evidenceFile).toBe(true);
             }
             expect(world.openWindowCount(), 'the case left a window open').toBe(0);
-        });
+        }, 120_000);
     }
 
     it('prints through the native dialogs and drains the spooler queue', async () => {

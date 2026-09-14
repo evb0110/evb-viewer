@@ -55,7 +55,7 @@ beforeAll(async () => {
 });
 
 describe('tests/windows/fixtures/manifest.json', () => {
-    it('declares every pack from F01 to F09', () => {
+    it('declares every pack from F01 to F10', () => {
         expect(collectFixturePackIds(manifest)).toEqual([
             'F01',
             'F02',
@@ -65,6 +65,7 @@ describe('tests/windows/fixtures/manifest.json', () => {
             'F06',
             'F07',
             'F08',
+            'F10',
             'F09',
         ]);
         for (const packId of collectFixturePackIds(manifest)) {

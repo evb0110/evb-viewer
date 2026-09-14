@@ -28,6 +28,7 @@ import {
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { fenceDocumentViewportPaneRelocationScroll } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
@@ -640,6 +641,81 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
             expect(fixture.emittedPages.at(-1)).toBe(fixture.viewport.currentPage.value);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('does not publish a pane-deactivation scroll reset as user navigation', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            fixture.container.scrollTop = 300;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            setCurrentPage(fixture.viewport, 4);
+            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const committedAnchor = fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value;
+            const visibleRange = {...fixture.viewport.visibleRange.value};
+            expect(committedAnchor?.page).toBe(4);
+
+            fixture.isActive.value = false;
+            await nextTick();
+            fixture.container.scrollTop = 0;
+            fenceDocumentViewportPaneRelocationScroll(fixture.container);
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value).toBe(committedAnchor);
+            expect(fixture.viewport.currentPage.value).toBe(4);
+            expect(fixture.viewport.visibleRange.value).toEqual(visibleRange);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('keeps an inactive pane user scroll authoritative after relocation is fenced', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            fixture.container.scrollTop = 300;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            setCurrentPage(fixture.viewport, 4);
+            fixture.isActive.value = false;
+            await nextTick();
+            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const previousAnchor = fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value;
+
+            fixture.container.scrollTop = 700;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch + 1);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value).not.toBe(previousAnchor);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value?.page).toBeGreaterThan(4);
         } finally {
             fixture.app.unmount();
         }

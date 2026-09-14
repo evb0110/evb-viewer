@@ -42,6 +42,7 @@ import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { getErrorMessage } from '@app/utils/error';
 import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import { hasSingleOcrLanguageSelection } from '@contracts/ocrLanguages';
 
 class OcrJobStartError extends Error {
     readonly errorEnvelope: IOcrErrorEnvelope | undefined;
@@ -64,6 +65,7 @@ export const useOcr = () => {
     const { localizeOcrError } = useOcrErrorLocalizer();
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
+    const languageLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const settings = ref<IOcrSettings>({
         pageRange: 'current',
         customRange: '',
@@ -288,12 +290,17 @@ export const useOcr = () => {
     }, OCR_TIMEOUT_MS, { immediate: false });
 
     async function loadLanguages(surfaceError = true) {
+        languageLoadState.value = 'loading';
         try {
             const languages = await getOcrCapability().getLanguages();
             if (!disposed) {
                 availableLanguages.value = languages;
+                languageLoadState.value = 'ready';
             }
         } catch (e) {
+            if (!disposed) {
+                languageLoadState.value = 'error';
+            }
             if (!disposed && surfaceError) {
                 error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
             }
@@ -649,6 +656,10 @@ export const useOcr = () => {
             error.value = t('errors.ocr.noLanguages');
             return false;
         }
+        if (!hasSingleOcrLanguageSelection(runSettings.selectedLanguages)) {
+            error.value = t('errors.ocr.errorCode.multipleLanguages');
+            return false;
+        }
         if (getPageSelectionCount(selection) === 0) {
             error.value = t('errors.ocr.noValidPages');
             return false;
@@ -892,10 +903,7 @@ export const useOcr = () => {
 
     function toggleLanguage(code: string, selected: boolean) {
         const selectedLanguages = selected
-            ? Array.from(new Set([
-                ...settings.value.selectedLanguages,
-                code,
-            ]))
+            ? [code]
             : settings.value.selectedLanguages.filter(languageCode => languageCode !== code);
 
         settings.value = {
@@ -969,6 +977,7 @@ export const useOcr = () => {
 
     return {
         availableLanguages,
+        languageLoadState,
         settings,
         activeRunSettings,
         lastCompletedRunSettings,

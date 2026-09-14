@@ -154,6 +154,24 @@ describe('useOcr', () => {
         expect(ocr.error.value).toBeNull();
     });
 
+    it('marks language availability unavailable when the inventory request fails', async () => {
+        mockOcr.getLanguages.mockRejectedValueOnce(new Error('inventory unavailable'));
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            await ocr.loadLanguages();
+
+            expect(ocr.languageLoadState.value).toBe('error');
+            expect(ocr.availableLanguages.value).toEqual([]);
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('settles runOcr when canceled before completion', async () => {
         interface IOcrCompleteTestResult {
             requestId: string;
@@ -733,6 +751,32 @@ describe('useOcr', () => {
 
             expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
             expect(ocr.error.value).toBe('errors.ocr.noLanguages');
+            expect(ocr.progress.value.isRunning).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('rejects runs with multiple selected languages before dispatching to the backend', async () => {
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                selectedLanguages: [
+                    'eng',
+                    'rus',
+                ],
+            };
+
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
+
+            expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
+            expect(ocr.error.value).toBe('errors.ocr.errorCode.multipleLanguages');
             expect(ocr.progress.value.isRunning).toBe(false);
         } finally {
             scope.stop();

@@ -39,7 +39,7 @@ export function renderReleaseTargetManifest() {
 const manifest = JSON.parse(String.raw\`${serializedManifest}\`);
 /** @typedef {{id: string, label: string, pathSegments: string[], platforms?: string[], skip?: Record<string, string>, type: string}} TPackagedEntry */
 /** @typedef {{binaryName: string | null, id: string, label: string, packagedEntries: TPackagedEntry[], packageFiltersByPlatform?: Record<string, string[]>, protocolCapabilities: string[] | null, protocolVersion: number | null, sourceRootSegments: string[], stagedRootSegments: string[]}} TFamily */
-/** @typedef {{filters?: string[], id: string, label: string, sourceSegments: string[], stagedSegments: string[], type: string}} TGlobalResource */
+/** @typedef {{filters?: string[], id: string, label: string, requiredFiles?: string[], sourceSegments: string[], stagedSegments: string[], type: string}} TGlobalResource */
 /** @typedef {{entitlementsPathSegments: string[], executableRoots: unknown[][], platforms: string[]}} TSigning */
 /** @typedef {{electronBuilderPlatformKeys: Record<string, string>, families: TFamily[], globalResources: TGlobalResource[], platformArches: string[], schemaVersion: number, signing: TSigning}} TManifest */
 
@@ -89,7 +89,7 @@ function assertManifest(value) {
         } }
     if (!Array.isArray(value.globalResources) || value.globalResources.length === 0) throw new Error('[release manifest] globalResources must be a non-empty array'); const globalIds = new Set();
     for (const resource of value.globalResources) {
-        if (!record(resource) || !string(resource.id) || !string(resource.label) || globalIds.has(resource.id) || !paths(resource.sourceSegments) || !paths(resource.stagedSegments) || !resourceType(resource.type) || (resource.filters !== undefined && !strings(resource.filters))) throw new Error('[release manifest] Invalid global resource');
+        if (!record(resource) || !string(resource.id) || !string(resource.label) || globalIds.has(resource.id) || !paths(resource.sourceSegments) || !paths(resource.stagedSegments) || !resourceType(resource.type) || (resource.filters !== undefined && !strings(resource.filters)) || (resource.requiredFiles !== undefined && !strings(resource.requiredFiles))) throw new Error('[release manifest] Invalid global resource');
         globalIds.add(resource.id); }
     const expectedRoots = new Set(value.families.map(family => family.stagedRootSegments.join('/'))); if (!record(value.signing) || !allowedList(value.signing.platforms, platforms) || !paths(value.signing.entitlementsPathSegments) || !Array.isArray(value.signing.executableRoots) || new Set(value.signing.executableRoots.map(root => Array.isArray(root) ? root.join('/') : '')).size !== expectedRoots.size || value.signing.executableRoots.length !== expectedRoots.size || !value.signing.executableRoots.every(root => paths(root) && expectedRoots.has(root.join('/')))) throw new Error('[release manifest] Invalid signing inputs');
     return value; }

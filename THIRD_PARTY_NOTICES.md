@@ -9,7 +9,7 @@ This file is a practical index of the major third-party components and assets th
 
 ## Desktop Native Resources
 
-- Tesseract OCR binaries and `tessdata_best` language models are bundled under `resources/tesseract/`.
+- Tesseract OCR binaries, the `tessdata_best` language models, and Tesseract's glyphless PDF font are bundled under `resources/tesseract/`. The exact `pdf.ttf` source and SHA-256 are recorded in `resources/third-party-notices/Tesseract-pdf-source.txt`.
 - Poppler binaries and poppler-data resources are bundled under `resources/poppler/`; Windows poppler-data license files are retained under `resources/poppler/win32-x64/share/poppler/`.
 - qpdf binaries are bundled under `resources/qpdf/`.
 - DjVuLibre binaries are bundled under `resources/djvulibre/`.

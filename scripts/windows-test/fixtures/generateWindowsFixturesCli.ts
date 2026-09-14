@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
+    mkdtemp,
     mkdir,
     readFile,
+    rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import { isDirectCliInvocation } from '@scripts/windows-test/cli/windowsTestCliIo';
 import { generateFontsFixture } from '@scripts/windows-test/fixtures/generateFontsFixture';
@@ -119,26 +122,36 @@ export async function runWindowsFixtureGeneration(
     for (const artifact of windowsFixtureArtifacts()) {
         const absolutePath = path.join(options.outputDirectory, artifact.fileName);
         if (artifact.write !== undefined) {
-            if (options.write) {
-                await artifact.write(absolutePath);
-            }
-            const identity = options.write
-                ? {
-                    bytes: (await stat(absolutePath)).size,
-                    sha256: createHash('sha256').update(await readFile(absolutePath)).digest('hex'),
-                }
-                : {
-                    bytes: 0,
-                    sha256: '',
+            const temporaryDirectory = options.write
+                ? null
+                : await mkdtemp(path.join(tmpdir(), 'evb-windows-fixture-'));
+            const generatedPath = options.write
+                ? absolutePath
+                : path.join(temporaryDirectory ?? (() => {
+                    throw new Error('Temporary fixture directory was not created.');
+                })(), artifact.fileName);
+            try {
+                await artifact.write(generatedPath);
+                const identity = {
+                    bytes: (await stat(generatedPath)).size,
+                    sha256: createHash('sha256').update(await readFile(generatedPath)).digest('hex'),
                 };
-            entries.push({
-                fixtureId: artifact.fixtureId,
-                relativePath: options.relativeTo === undefined
-                    ? absolutePath
-                    : path.relative(options.relativeTo, absolutePath).split(path.sep).join('/'),
-                ...identity,
-                written: options.write,
-            });
+                entries.push({
+                    fixtureId: artifact.fixtureId,
+                    relativePath: options.relativeTo === undefined
+                        ? absolutePath
+                        : path.relative(options.relativeTo, absolutePath).split(path.sep).join('/'),
+                    ...identity,
+                    written: options.write,
+                });
+            } finally {
+                if (temporaryDirectory !== null) {
+                    await rm(temporaryDirectory, {
+                        recursive: true,
+                        force: true,
+                    });
+                }
+            }
             continue;
         }
         if (artifact.build === undefined) {

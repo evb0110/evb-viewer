@@ -1,0 +1,6 @@
+Tesseract glyphless PDF font, unchanged upstream file.
+Source: https://github.com/tesseract-ocr/tesseract/commit/3b7c70e34dea179549ed3e995872e2e019eb8477
+Source path: tessdata/pdf.ttf
+Source tag: 5.5.1
+SHA-256: c7845420925a23d88ed830a63957b8af85a66a8daf8d9fc90e843673b2ef1a59
+License: Apache License 2.0 (`licenses/Apache-2.0.txt`).

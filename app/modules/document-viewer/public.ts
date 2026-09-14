@@ -51,7 +51,7 @@ export {
     createDocumentViewportNavigationMachineState, type IDocumentViewportNavigationState,
 } from '@app/modules/document-viewer/viewport/documentViewportNavigationMachine';
 export {
-    createDocumentViewportWritePort, observeDocumentViewportWheelInteraction, type IDocumentViewportWrite, type IDocumentViewportWritePort,
+    clearDocumentViewportPaneRelocationScrollFence, consumeDocumentViewportPaneRelocationScrollFence, createDocumentViewportWritePort, fenceDocumentViewportPaneRelocationScroll, observeDocumentViewportWheelInteraction, type IDocumentViewportWrite, type IDocumentViewportWritePort,
 } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 export {
     createDocumentWheelZoomHandler, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS, resolveDocumentWheelInteraction, resolveDocumentWheelZoomTarget, type IDocumentWheelInteraction, type IDocumentWheelSourceEvent,

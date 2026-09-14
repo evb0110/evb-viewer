@@ -917,6 +917,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             currentPage: viewportAuthority.currentPage.value,
         }));
         clearQueuedNavigation();
+        // Trusted physical input owns the viewport immediately. Release the
+        // detached navigation's handoff here, after the shared clear path has
+        // preserved it for lifecycle and geometry callers.
+        activeNavigationSequence = null;
+        navigationVisualHandoff.clear();
         const page = observeNativeUserScroll(anchorOverride);
         // Physical input is authoritative even when the browser cannot move
         // the viewport (for example, while a programmatic scroll and canvas

@@ -729,10 +729,15 @@ export async function executeWindowsTestRun(
                 ? false
                 : await dependencies.refreshGuestWorker(clonedVmId, deadlines.commandTimeoutMs);
             if (workerChanged) {
+                if (clonedVmId === null || cloneBundlePath === null) {
+                    abort('infrastructure-failed', 'guest-ready', 'The owned clone identity was lost while refreshing the guest worker.');
+                }
+                const ownedCloneVmId = clonedVmId;
+                const ownedCloneBundlePath = cloneBundlePath;
                 await recorder.record('guest-ready', 'The prepared guest worker differed from the clone; restarting the owned clone after staging it.');
                 const restartTarget = {
-                    vmId: clonedVmId,
-                    bundlePath: cloneBundlePath ?? '',
+                    vmId: ownedCloneVmId,
+                    bundlePath: ownedCloneBundlePath,
                 };
                 const assertRestartTarget = () => assertDestructiveTarget(
                     restartTarget,
@@ -740,21 +745,21 @@ export async function executeWindowsTestRun(
                     dependencies.identityGuard,
                 );
                 await assertRestartTarget();
-                await utmctl.stop(clonedVmId, 'request');
+                await utmctl.stop(ownedCloneVmId, 'request');
                 const stoppedAfterRequest = await pollUntil(
                     clock,
                     deadlines.cancelGraceMs,
                     deadlines.pollIntervalMs,
-                    async () => (await utmctl.status(clonedVmId)) === 'stopped' ? true : null,
+                    async () => (await utmctl.status(ownedCloneVmId)) === 'stopped' ? true : null,
                 );
                 if (stoppedAfterRequest === null) {
                     await assertRestartTarget();
-                    await utmctl.stop(clonedVmId, 'force');
+                    await utmctl.stop(ownedCloneVmId, 'force');
                     const stoppedAfterForce = await pollUntil(
                         clock,
                         deadlines.cancelGraceMs,
                         deadlines.pollIntervalMs,
-                        async () => (await utmctl.status(clonedVmId)) === 'stopped' ? true : null,
+                        async () => (await utmctl.status(ownedCloneVmId)) === 'stopped' ? true : null,
                     );
                     if (stoppedAfterForce === null) {
                         abort(
@@ -766,14 +771,14 @@ export async function executeWindowsTestRun(
                 }
                 await assertRestartTarget();
                 const restartStartedAtMs = Date.parse(clock.nowIso());
-                await utmctl.start(clonedVmId);
+                await utmctl.start(ownedCloneVmId);
                 ({
                     bootId, heartbeat,
                 } = await waitForGuestReady('guest-ready', restartStartedAtMs));
                 await recorder.record('guest-ready', 'The refreshed guest worker reported a fresh interactive heartbeat for the restarted clone.');
                 const workerStillChanged = dependencies.refreshGuestWorker === undefined
                     ? false
-                    : await dependencies.refreshGuestWorker(clonedVmId, deadlines.commandTimeoutMs, {allowStage: false});
+                    : await dependencies.refreshGuestWorker(ownedCloneVmId, deadlines.commandTimeoutMs, {allowStage: false});
                 if (workerStillChanged) {
                     abort(
                         'infrastructure-failed',

@@ -145,11 +145,21 @@ export const useDocumentViewportLayoutLifecycle = (
     };
 
     const cancelPendingRestore = () => {
-        restoreGeneration += 1;
-        pendingRestore = null;
         releasePointerAnchor();
         activeLayoutTransaction = null;
         layoutTransactionAnchor = null;
+        if (isResizeTransitionActive.value) {
+            // A pane deactivation or pointerdown during a workspace layout
+            // transition does not move the viewport. The resize anchor must
+            // survive it: a split moves the pane in the DOM, which resets
+            // scrollTop to 0, and recapturing from that origin restores page 1.
+            if (pendingRestore?.pointerAuthored === true) {
+                pendingRestore = null;
+            }
+            return;
+        }
+        restoreGeneration += 1;
+        pendingRestore = null;
         dragAnchor = null;
         retainedAnchor = null;
     };

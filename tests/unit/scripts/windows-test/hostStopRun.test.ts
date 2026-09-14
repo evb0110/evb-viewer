@@ -24,6 +24,10 @@ import type {
     IUtmVmListEntry,
     IUtmctlClient,
 } from '@scripts/windows-test/host/utmctlClient';
+import type {
+    IUtmInputCaptureProbeResult,
+    IUtmInputCaptureWindowSnapshot,
+} from '@scripts/windows-test/host/utmInputCapture';
 
 const GOLDEN_VM_ID = '11111111-2222-4333-8444-555555555555';
 const TEST_VM_ID = '22222222-3333-4444-8555-666666666666';
@@ -96,8 +100,10 @@ interface IHarnessOptions {
     createRunDir?: boolean;
     utmctl?: ReturnType<typeof createFakeUtmctl>;
     inputCapture?: {
-        ensureReleased: ReturnType<typeof vi.fn>;
-        restoreHostInput: ReturnType<typeof vi.fn>;
+        snapshotBeforeStart: () => Promise<IUtmInputCaptureWindowSnapshot>;
+        ensureReleased: (vmId: string) => Promise<IUtmInputCaptureProbeResult>;
+        status: (vmId: string) => Promise<IUtmInputCaptureProbeResult>;
+        restoreHostInput: () => Promise<void>;
     };
 }
 
@@ -288,7 +294,31 @@ describe('windows test stop request', () => {
 
     it('restores host input when an already-stopped clone needs no stop RPC', async () => {
         const inputCapture = {
-            ensureReleased: vi.fn(() => Promise.resolve()),
+            snapshotBeforeStart: vi.fn<() => Promise<IUtmInputCaptureWindowSnapshot>>(() => Promise.resolve({
+                enumerationAvailable: true,
+                windowNumbers: [],
+                windows: [],
+                utmPid: 0,
+                frontmostPid: 0,
+            })),
+            ensureReleased: vi.fn<(vmId: string) => Promise<IUtmInputCaptureProbeResult>>(() => Promise.resolve({
+                windowTitle: '',
+                windowAvailable: false,
+                before: 0,
+                after: 0,
+                frontmostPid: 0,
+                utmPid: 0,
+                action: 'release',
+            })),
+            status: vi.fn<(vmId: string) => Promise<IUtmInputCaptureProbeResult>>(() => Promise.resolve({
+                windowTitle: '',
+                windowAvailable: false,
+                before: 0,
+                after: 0,
+                frontmostPid: 0,
+                utmPid: 0,
+                action: 'status',
+            })),
             restoreHostInput: vi.fn(() => Promise.resolve()),
         };
         const harness = await createStopHarness({

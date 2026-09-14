@@ -122,7 +122,7 @@ describe('UTM bundle location', () => {
 
     it('derives the bundle path from the display name inside the test image root', () => {
         expect(utmBundlePathForName('/Volumes/WindowsTests/images', 'evb-win-test-clone'))
-            .toBe(path.join('/Volumes/WindowsTests/images', 'evb-win-test-clone.utm'));
+            .toBe(path.join('/Volumes/WindowsTests/images', 'clones', 'evb-win-test-clone.utm'));
     });
 
     it('reads the bundle UUID out of the UTM configuration plist', async () => {

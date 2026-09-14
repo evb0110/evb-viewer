@@ -460,7 +460,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     /**
      * Keeps the zoom freeze only while it still contains the active navigation
-     * anchor. Otherwise a stale frozen window can hide a bookmark target row.
+     * anchor and the live visible range. Otherwise a stale frozen window can
+     * hide a bookmark target row, or a page the user scrolled to while the
+     * zoom rerender was still settling.
      */
     const activeZoomVirtualizationFreeze = computed(() => {
         const freeze = zoomVirtualizationFreeze.value;
@@ -472,6 +474,12 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (
             anchorPage !== null
             && (anchorPage < freeze.windowStart || anchorPage > freeze.windowEnd)
+        ) {
+            return null;
+        }
+        if (
+            visibleRange.value.start < freeze.windowStart
+            || visibleRange.value.end > freeze.windowEnd
         ) {
             return null;
         }
