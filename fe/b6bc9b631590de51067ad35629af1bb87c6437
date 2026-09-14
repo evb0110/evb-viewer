@@ -1,0 +1,19 @@
+docs/project11-mlocr05-bounded-region-qualification-2026-09-14.md
+  s_64eea3f80af7be::t_cf829c9008fe46 58-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "feb6bc9b631590de51067ad35629af1bb87c6437",
+  "prompts": {},
+  "sessions": {
+    "s_64eea3f80af7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09e8c-cd83-7891-9fe9-9de235167ca9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
