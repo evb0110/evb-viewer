@@ -1,0 +1,232 @@
+app/modules/workspace-shell/components/EditorPanesHost.vue
+  s_71b08669d92876::t_0e6795e16c21f8 92-95,294-300
+electron/features/ocr/languageModels.ts
+  s_71b08669d92876::t_0e6795e16c21f8 54-56,63,397-401,523-543,648-658,1135
+scripts/windows-test/fixtures/generateWindowsFixturesCli.ts
+  s_71b08669d92876::t_7ae9c04eb13399 130-132
+  s_71b08669d92876::t_d20c1f69c6eba8 3,6,10,125-129,133-137,139-148,153-154
+  s_71b08669d92876::t_a1575e397c9a2a 149-152
+scripts/ocrLanguageQualityFixtures.mjs
+  s_71b08669d92876::t_0e6795e16c21f8 1-1799
+tests/windows/capabilities.json
+  s_71b08669d92876::t_ee0b98a4bfd084 584
+native/pdf-page-ops/src/types.rs
+  s_71b08669d92876::t_0e6795e16c21f8 785-789
+packages/i18n-app/messages/en.ts
+  s_71b08669d92876::t_0e6795e16c21f8 309-317,328-330,370-377,379-421,423-424,1640,1656
+app/modules/document-viewer/runtime/documentViewportWritePort.ts
+  s_71b08669d92876::t_0e6795e16c21f8 27-53
+app/utils/ocr/ocrErrorMessageKeys.ts
+  s_71b08669d92876::t_0e6795e16c21f8 21,31
+packages/i18n-app/messages/ptBr.ts
+  s_71b08669d92876::t_0e6795e16c21f8 775-783,789-790,836-843,845-887,889-890,1651,1667
+tests/unit/app/composables/ocrErrorLocalization.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 45,73-82
+  s_71b08669d92876::t_0095f38e56bb4a 83-84
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgentOcr.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 139,154,218-243
+  s_71b08669d92876::t_e261866be8f095 244-245
+packages/i18n-app/messages/de.ts
+  s_71b08669d92876::t_0e6795e16c21f8 774-782,788-789,835-842,844-886,888-889,1640,1656
+packages/contracts/agentOcr.ts
+  s_71b08669d92876::t_0e6795e16c21f8 79
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 674-679,711,738-743
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_71b08669d92876::t_8b3ce8205139f0 440
+app/modules/document-viewer/public.ts
+  s_71b08669d92876::t_0e6795e16c21f8 54
+packages/i18n-app/messages/ru.ts
+  s_71b08669d92876::t_0e6795e16c21f8 311-319,330-332,372-379,381-423,425-426,1680,1696
+scripts/fixtures/ocr-language-quality-manifest.json
+  s_71b08669d92876::t_0e6795e16c21f8 1-28803
+electron/features/search/extractTextWithPdfjs.ts
+  s_71b08669d92876::t_0e6795e16c21f8 96-97,104-222,399,405,444,451-457,464
+packages/i18n-app/messages/pt.ts
+  s_71b08669d92876::t_0e6795e16c21f8 775-783,789-790,836-843,845-887,889-890,1651,1667
+electron/windowTabTransfer.ts
+  s_71b08669d92876::t_0e6795e16c21f8 53,123,131-136,268-277,291-297
+  s_71b08669d92876::t_4149b819b1794d 298-299
+tests/e2e/electron/helpers/splitPaneCloseContinuity.ts
+  s_71b08669d92876::t_0e6795e16c21f8 285,459,463-465,617-620,622-625,644-656,658-662,664-668
+native/pdf-page-ops/tests/text_layer.rs
+  s_71b08669d92876::t_0e6795e16c21f8 305-392
+resources/third-party-notices/THIRD-PARTY-NOTICES.md
+  s_71b08669d92876::t_0e6795e16c21f8 19-25
+tests/unit/app/composables/useOcr.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 157-174,760-779,781-784
+  s_71b08669d92876::t_298df8dd600acd 780,785
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 129-172
+tests/unit/scripts/windows-test/casesEndToEnd.test.ts
+  s_71b08669d92876::t_d20c1f69c6eba8 744
+  s_71b08669d92876::t_a01cc923c7bb77 1-4,182-192,245-256
+scripts/test-ocr-quality-corpus.mjs
+  s_71b08669d92876::t_0e6795e16c21f8 4-5,8,10-11,14-17,28,36-37,40-47,55-66,68-69,73,126,136-1053,1065,1074-1085,1089-1116,1118-1134,1136,1140-1147,1149-1151,1153-1169,1171-1266
+tests/unit/scripts/buildArtifactGeneration.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 121
+tests/unit/scripts/windows-test/hostGuestProtocolIntegration.test.ts
+  s_71b08669d92876::t_8b3ce8205139f0 453
+scripts/windows-test/host/runCoordinator.ts
+  s_71b08669d92876::t_15b7924b04e1ba 732-733,735-736,739-740,748,753,757,762,774,781
+  s_71b08669d92876::t_586e4b6fee7703 734
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 27,36,230-345
+  s_71b08669d92876::t_add83e6c02e8a4 346
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_71b08669d92876::t_0e6795e16c21f8 920-924
+resources/third-party-notices/Tesseract-pdf-source.txt
+  s_71b08669d92876::t_0e6795e16c21f8 1-6
+app/composables/useOcrErrorLocalizer.ts
+  s_71b08669d92876::t_0e6795e16c21f8 94-99
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_71b08669d92876::t_0e6795e16c21f8 463-465,480-482
+  s_71b08669d92876::t_55f8f4cdaf7549 483-485
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_71b08669d92876::t_0e6795e16c21f8 19,171,247-249
+app/utils/docxStreaming.ts
+  s_71b08669d92876::t_0e6795e16c21f8 18-19
+native/pdf-page-ops/src/text_layer.rs
+  s_71b08669d92876::t_0e6795e16c21f8 8,188-359,559-575,583-584,592-600,608,658-697,701-702,707,740-895,902-911,914,916-1079,1081-1168,1170-1171,1178,1214-1240,1323-1327,1413,1415-1418,1425-1428,1430-1438,1440,1507-1540,1573-1597,1719-1722,1756,1768-1770,1884,1986,2210
+electron/features/ocr/contracts.ts
+  s_71b08669d92876::t_0e6795e16c21f8 5,41,332-337,341,350-355,411
+scripts/afterPack.cjs
+  s_71b08669d92876::t_0e6795e16c21f8 90-94
+scripts/fixtures/ocr-language-fonts/NOTICE.md
+  s_71b08669d92876::t_0e6795e16c21f8 1-22
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 1062,1065-1184
+  s_71b08669d92876::t_3ba10add64ce98 1063-1064
+packages/i18n-app/messages/nl.ts
+  s_71b08669d92876::t_0e6795e16c21f8 774-782,788-789,835-842,844-886,888-889,1640,1656
+scripts/verify-packaged-native-tools.sh
+  s_71b08669d92876::t_0e6795e16c21f8 150-166,243
+native/pdf-page-ops/src/tests/catalog.rs
+  s_71b08669d92876::t_0e6795e16c21f8 842,880,887,914
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 31,649-722
+  s_71b08669d92876::t_716f96d113a135 723
+THIRD_PARTY_NOTICES.md
+  s_71b08669d92876::t_0e6795e16c21f8 12
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_71b08669d92876::t_0e6795e16c21f8 343-344
+scripts/fetchRuntimeBinaries.ts
+  s_71b08669d92876::t_0e6795e16c21f8 2-5,9,12,31-34,135-149,186,188
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_71b08669d92876::t_0e6795e16c21f8 7,41-43,86-118,194,206,210-211,216-218,226-228,324,382-388,395,399,401-421,425,427-462,537-539,542,677-682,736-745,963-965,967,969-971
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 145,288,300,324,338-369,560-566,604-617
+app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle.ts
+  s_71b08669d92876::t_0e6795e16c21f8 151-162
+tests/unit/scripts/ocrQualityMetrics.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 9-10,12,18,28,34-133
+  s_71b08669d92876::t_29fa6b662c8161 134
+scripts/release/generated-release-targets.cjs
+  s_71b08669d92876::t_0e6795e16c21f8 362-364,451,501
+scripts/windows-test/oracles/oracleRegistry.ts
+  s_71b08669d92876::t_2dd27945c83819 154-157
+  s_71b08669d92876::t_29a13548687312 153
+electron/features/ocr/worker/runProductionOcrQualityCase.ts
+  s_71b08669d92876::t_0e6795e16c21f8 89-91
+packages/i18n-app/messages/it.ts
+  s_71b08669d92876::t_0e6795e16c21f8 774-782,788-789,835-842,844-886,888-889,1640,1656
+electron/features/ocr/worker/pdfAssembler.ts
+  s_71b08669d92876::t_0e6795e16c21f8 2-3,135,1098-1153,1412,1424,1430-1432,1482-1494
+packages/contracts/electronApiOcr.ts
+  s_71b08669d92876::t_0e6795e16c21f8 16,25
+tests/unit/electron/ocrIpcHandlers.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 521-584
+tests/unit/scripts/windows-test/fixturesManifest.test.ts
+  s_71b08669d92876::t_d20c1f69c6eba8 58,68
+scripts/generateElectronBuilderResources.ts
+  s_71b08669d92876::t_0e6795e16c21f8 16,63-66,113-114,120,123
+app/composables/useOcr.ts
+  s_71b08669d92876::t_0e6795e16c21f8 45,68,293,298,301-303,659-662,906,980
+tests/unit/scripts/windows-test/hostCapabilityRegistry.test.ts
+  s_71b08669d92876::t_4d61bda0674a8e 171
+  s_71b08669d92876::t_d20c1f69c6eba8 170
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_71b08669d92876::t_0e6795e16c21f8 127,129,140-142,147-151,153-185,276-287,289-298,300-314,316-332,334,339-342,344,346,348-349,459,483,498-501,514,516-517,554,621-623,625,627-629,660-667,705-706,708-712,714-716,719,759-775,778-791,880-882,890-920,967-984
+  s_71b08669d92876::t_1ef466b6a8153b 985
+tests/unit/scripts/windows-test/hostPreparation.test.ts
+  s_71b08669d92876::t_d20c1f69c6eba8 66,68,118,120
+app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent.ts
+  s_71b08669d92876::t_0e6795e16c21f8 8,217,230
+tests/unit/scripts/windows-test/hostStopRun.test.ts
+  s_71b08669d92876::t_8b3ce8205139f0 298-303,314-321
+  s_71b08669d92876::t_66a5d682900306 27-30,103-106,297,304-313
+scripts/generateReleaseTargetManifest.ts
+  s_71b08669d92876::t_0e6795e16c21f8 42,92
+scripts/tesseractPdfFont.ts
+  s_71b08669d92876::t_0e6795e16c21f8 1-9
+tests/unit/scripts/windows-test/imagesManifest.test.ts
+  s_71b08669d92876::t_d20c1f69c6eba8 125
+scripts/nativeResourceManifest.ts
+  s_71b08669d92876::t_0e6795e16c21f8 8,79,276
+tests/e2e/electron/rapidPdfNavigation.e2e.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 1587-1593
+tests/windows/fixtures/manifest.json
+  s_71b08669d92876::t_4d61bda0674a8e 303-304
+tests/unit/scripts/afterPackExtraResources.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 144-148,408-412
+electron/features/ocr/worker/ocrPageSelectionStream.ts
+  s_71b08669d92876::t_0e6795e16c21f8 7,24,87,117
+scripts/generateLargePdfE2eFixture.d.mts
+  s_71b08669d92876::t_a1575e397c9a2a 1-9
+packages/i18n-app/messages/fr.ts
+  s_71b08669d92876::t_0e6795e16c21f8 775-783,789-790,836-843,845-887,889-890,1651,1667
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 152,156
+tests/unit/app/modules/ocr-panel/ocrLanguagePicker.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 8-11,75,78,104-107,126-159,269,272-276
+nuxt.config.ts
+  s_71b08669d92876::t_0e6795e16c21f8 545
+scripts/check-native-tools-source-matrix.sh
+  s_71b08669d92876::t_0e6795e16c21f8 244-249
+scripts/ocrQualityMetrics.mjs
+  s_71b08669d92876::t_0e6795e16c21f8 1,3-9,15-27,29-33,56-93,96-97,103,105-117,121-129
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_71b08669d92876::t_0e6795e16c21f8 552
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 4718-4720
+tests/unit/app/components/toolbarAndOcrExportCoverage.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 85-93,221,233,259,300,312,338
+tests/unit/app/modules/document-viewer/useDocumentViewportLayoutLifecycle.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 705-754
+docs/internal/research/project11-mlocr-05-bounded-region-qualification-2026-09-14.md
+  s_71b08669d92876::t_0e6795e16c21f8 1-114
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 140,236,287,338,353-410,473,520,575
+tsconfig.scripts.json
+  s_71b08669d92876::t_7ae9c04eb13399 18-19
+packages/i18n-app/messages/es.ts
+  s_71b08669d92876::t_0e6795e16c21f8 774-782,788-789,835-842,844-886,888-889,1640,1656
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_71b08669d92876::t_0e6795e16c21f8 18-22,883-890,892
+packages/contracts/ocrLanguages.ts
+  s_71b08669d92876::t_0e6795e16c21f8 196-199
+electron/features/ocr/worker/main.ts
+  s_71b08669d92876::t_0e6795e16c21f8 906
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_71b08669d92876::t_0e6795e16c21f8 450
+docs/internal/research/project11-mlocr-06-ocr-model-qualification-2026-09-14.md
+  s_71b08669d92876::t_0e6795e16c21f8 1-327
+tests/unit/scripts/saveWitnessMatrix.test.ts
+  s_71b08669d92876::t_586e4b6fee7703 215-220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aeeb120501855657eff2ea8448a5aeb1ac369f60",
+  "prompts": {},
+  "sessions": {
+    "s_71b08669d92876": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c25-d026-7df1-bf75-49ed936583a5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
