@@ -1,0 +1,25 @@
+electron/features/ocr/main/resolveTesseractLanguageConfig.ts
+  ai_agent 47-51
+tests/unit/electron/ocrLanguageModels.test.ts
+  ai_agent 137-138
+electron/features/ocr/languageModels.ts
+  s_b63e4aa14334d0::t_bd7b7fea37dc18 54
+tests/unit/electron/tesseractLanguageConfig.test.ts
+  ai_agent 81-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1cda19bf28e0333d64eb9a9f768a7b6308de078e",
+  "prompts": {},
+  "sessions": {
+    "s_b63e4aa14334d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a060-f056-7ef3-bf97-a4a7577deb38",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
