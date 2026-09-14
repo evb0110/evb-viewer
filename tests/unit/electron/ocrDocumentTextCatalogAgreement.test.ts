@@ -333,6 +333,76 @@ describe('DocumentTextCatalog reader agreement', () => {
         ]);
     });
 
+    it('uses current EVB OCR text for large-file extraction while retaining native text pages', async () => {
+        const fixture = createOcrDocumentTextCatalogFixture([
+            {
+                pageNumber: 1,
+                text: 'اللغة العربية ܫܠܡܐ',
+            },
+            {
+                pageNumber: 3,
+                text: 'third catalog page',
+            },
+        ]);
+        state.artifacts = new Map(fixture.artifacts);
+        mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
+        mocks.extractTextFromPdf.mockResolvedValue([
+            {
+                pageNumber: 1,
+                text: 'ܐܡܠܫ ܐﻳﺑﺮﻌﻟﺍ ﺔﻐﻠﻟﺍ',
+            },
+            {
+                pageNumber: 2,
+                text: 'native text from another program',
+            },
+            {
+                pageNumber: 3,
+                text: 'third native text',
+            },
+        ]);
+
+        const {extractTextWithPdfjs} = await import('@electron/features/search/extractTextWithPdfjs');
+        const pages = await extractTextWithPdfjs(fixture.path, {
+            documentRevision: fixture.revision,
+            pageCount: 3,
+        });
+
+        expect(pages).toEqual([
+            {
+                pageNumber: 1,
+                text: 'اللغة العربية ܫܠܡܐ',
+            },
+            {
+                pageNumber: 2,
+                text: 'native text from another program',
+            },
+            {
+                pageNumber: 3,
+                text: 'third catalog page',
+            },
+        ]);
+    });
+
+    it('does not return large-file text after the working-copy revision changes', async () => {
+        const fixture = createOcrDocumentTextCatalogFixture([{
+            pageNumber: 1,
+            text: 'must not return stale OCR',
+        }]);
+        state.artifacts = new Map(fixture.artifacts);
+        mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
+        mocks.assertWorkingCopyRevisionSidecarCurrent.mockImplementationOnce(async () => {
+            throw new Error('Document revision is stale');
+        });
+
+        const {extractTextWithPdfjs} = await import('@electron/features/search/extractTextWithPdfjs');
+
+        await expect(extractTextWithPdfjs(fixture.path, {
+            documentRevision: fixture.revision,
+            pageCount: 1,
+        })).rejects.toThrow('Document revision is stale');
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+    });
+
     it('passes scalar extraction cancellation into the PDF reader', async () => {
         const fixture = createOcrDocumentTextCatalogFixture([{
             pageNumber: 1,

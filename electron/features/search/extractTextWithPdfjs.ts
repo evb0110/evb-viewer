@@ -30,6 +30,8 @@ import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { buildOcrTextLayerIndexText } from '@pdf-core';
 import type { IPageText } from '@electron/features/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES } from '@contracts/documentTextCatalog';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type {
     DocumentInitParameters,
@@ -41,6 +43,7 @@ import {
     getPdfjsPageViewBox,
 } from '@pdf-core/pdfjsTextGeometry';
 import { createPdfjsNodeDocumentOptions } from '@electron/features/search/createPdfjsNodeDocumentOptions';
+import {groupContiguousPages} from '@electron/pdf/pdfTextPageBatching';
 import {
     extractTextFromPdf,
     isPdfTextExtractionCapabilityError,
@@ -88,6 +91,8 @@ async function destroyPdfjsDocument(document: IPdfjsDocumentLifecycle) {
 }
 
 export interface IExtractPdfjsTextOptions {
+    /** Revision fence for substituting current EVB OCR catalog text on large files. */
+    documentRevision?: TDocumentRevisionToken;
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
     collectPages?: boolean;
@@ -262,6 +267,106 @@ function getPdfjsTextExtractionPages(
     )).sort((left, right) => left - right);
 }
 
+function splitDocumentTextCatalogPageRange(firstPage: number, lastPage: number) {
+    const ranges: Array<{
+        firstPage: number;
+        lastPage: number
+    }> = [];
+    for (
+        let rangeFirstPage = firstPage;
+        rangeFirstPage <= lastPage;
+        rangeFirstPage += MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES
+    ) {
+        ranges.push({
+            firstPage: rangeFirstPage,
+            lastPage: Math.min(
+                lastPage,
+                rangeFirstPage + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES - 1,
+            ),
+        });
+    }
+    return ranges;
+}
+
+function getLargeFileRequestedPages(
+    requestedPages: readonly number[] | undefined,
+    pageCount: number | undefined,
+) {
+    if (!requestedPages || requestedPages.length === 0) {
+        return [];
+    }
+
+    return Array.from(new Set(
+        requestedPages
+            .map(page => Math.trunc(page))
+            .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount)),
+    )).sort((left, right) => left - right);
+}
+
+async function extractLargeFileTextFromCatalog(
+    pdfPath: string,
+    options: IExtractPdfjsTextOptions,
+): Promise<IPageText[] | null> {
+    const documentRevision = options.documentRevision;
+    if (documentRevision === undefined) {
+        return null;
+    }
+
+    const requestedPages = getLargeFileRequestedPages(options.pages, options.pageCount);
+    const pageCount = options.pageCount !== undefined && options.pageCount > 0
+        ? Math.trunc(options.pageCount)
+        : requestedPages.length > 0
+            ? requestedPages.at(-1)
+            : undefined;
+    if (pageCount === undefined || pageCount < 1) {
+        return null;
+    }
+
+    const ranges = requestedPages.length > 0
+        ? groupContiguousPages(requestedPages).flatMap(range => (
+            splitDocumentTextCatalogPageRange(range.firstPage, range.lastPage)
+        ))
+        : splitDocumentTextCatalogPageRange(1, pageCount);
+    const {resolveDocumentTextCatalogWindow} = await import('@electron/features/ocr/public/documentTextCatalog');
+    const pages: IPageText[] = [];
+
+    for (const range of ranges) {
+        throwIfAborted(options.signal);
+        const window = await resolveDocumentTextCatalogWindow(
+            pdfPath,
+            documentRevision,
+            range.firstPage,
+            range.lastPage,
+            pageCount,
+            {
+                extractEmbeddedText: extractTextFromPdf,
+                ...(options.signal === undefined ? {} : {signal: options.signal}),
+            },
+        );
+        const pagesByNumber = new Map<number, string>(window.pages.map(page => [
+            Number(page.pageNumber),
+            page.text,
+        ]));
+        const pageNumbers = Array.from(
+            {length: range.lastPage - range.firstPage + 1},
+            (_value, index) => range.firstPage + index,
+        );
+        for (const pageNumber of pageNumbers) {
+            throwIfAborted(options.signal);
+            const page = {
+                pageNumber,
+                text: pagesByNumber.get(pageNumber) ?? '',
+            } satisfies IPageText;
+            if (options.collectPages ?? options.onPageText === undefined) {
+                pages.push(page);
+            }
+            options.onPageText?.(page);
+        }
+    }
+
+    return pages;
+}
+
 function createPdfjsPathDocumentOptions(pdfPath: string) {
     return {
         url: pdfPath,
@@ -403,6 +508,10 @@ export async function extractTextWithPdfjs(
 
     const fileStat = await stat(pdfPath);
     if (fileStat.size > PDFJS_COMPATIBILITY_MAX_INPUT_BYTES && !forcePdfjs) {
+        const catalogPages = await extractLargeFileTextFromCatalog(pdfPath, options);
+        if (catalogPages !== null) {
+            return catalogPages;
+        }
         return extractTextFromPdf(pdfPath, {
             ...(options.pageCount === undefined ? {} : {pageCount: options.pageCount}),
             ...(requestedPages === undefined ? {} : {pages: requestedPages}),

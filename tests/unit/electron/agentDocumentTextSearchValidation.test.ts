@@ -259,6 +259,7 @@ describe('agent document search validation', () => {
 
         expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {
+            documentRevision: 'revision-token',
             pages: [
                 2,
                 4,
@@ -355,6 +356,7 @@ describe('agent document search validation', () => {
         );
 
         expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {
+            documentRevision: 'revision-token',
             pages: [
                 1,
                 3,

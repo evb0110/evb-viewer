@@ -79,4 +79,38 @@ describe('search result geometry', () => {
             height: 10,
         }]);
     });
+
+    it('maps geometry against logical catalog text when a low-confidence word has no box', () => {
+        const page: IPageIndex = {
+            pageNumber: 1,
+            text: 'first omitted second',
+            pageWidth: 120,
+            pageHeight: 80,
+            words: [
+                {
+                    text: 'first',
+                    x: 0,
+                    y: 5,
+                    width: 30,
+                    height: 10,
+                },
+                {
+                    text: 'second',
+                    x: 60,
+                    y: 5,
+                    width: 40,
+                    height: 10,
+                },
+            ],
+        };
+        const startOffset = page.text.indexOf('second');
+
+        expect(collectSearchMatchWords(page, startOffset, startOffset + 'second'.length)).toEqual([{
+            text: 'second',
+            x: 60,
+            y: 5,
+            width: 40,
+            height: 10,
+        }]);
+    });
 });
