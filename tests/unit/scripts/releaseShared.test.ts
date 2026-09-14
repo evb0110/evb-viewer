@@ -28,9 +28,16 @@ const {
 describe('release shared helpers', () => {
     it('rejects a lower manifest when a release tag is reachable through a merge parent', () => {
         const root = mkdtempSync(join(tmpdir(), 'evb-release-ancestry-'));
+        // Ignore the developer's global git config: signing settings there turn
+        // the lightweight tags and commits below into prompts for a message or key.
         const git = (args: string[]) => execFileSync('git', args, {
             cwd: root,
             encoding: 'utf8',
+            env: {
+                ...process.env,
+                GIT_CONFIG_GLOBAL: '/dev/null',
+                GIT_CONFIG_NOSYSTEM: '1',
+            },
         }).trim();
         const writeVersion = (version: string) => writeFileSync(
             join(root, 'package.json'),
