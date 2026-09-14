@@ -1,0 +1,23 @@
+tests/unit/scripts/macosNativeToolWorkflow.test.ts
+  s_f6cd60e5daa076::t_a7d29d33e705a8 211
+scripts/runtimeBinaryManifest.ts
+  s_f6cd60e5daa076::t_03ff9d377c27df 114
+  s_f6cd60e5daa076::t_a7d29d33e705a8 49-51
+  s_f6cd60e5daa076::t_ea608a8294d2e8 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3c8b2def538aad9429ba2e7964cdff7f4a0772c4",
+  "prompts": {},
+  "sessions": {
+    "s_f6cd60e5daa076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a187-9dad-7510-9f1e-0006cbc0e654",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
