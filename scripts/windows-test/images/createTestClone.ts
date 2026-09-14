@@ -89,17 +89,17 @@ export async function createTestClone(options: {
     }
     const registered = await utmctl.list();
     const baselineRoot = path.resolve(root, 'baselines');
+    const cloneRoot = path.resolve(root, 'clones');
+    await mkdir(cloneRoot, {recursive: true});
     const retained = new Set(registered
         .filter(entry => entry.uuid.toLowerCase() !== config.goldenVmId
             && entry.name.startsWith('evb-win-test-'))
         .map(entry => entry.name));
-    for (const entry of await readdir(root)) {
-        const candidate = path.resolve(root, entry);
-        const candidateIsBaseline = candidate === baselineRoot
-            || path.relative(baselineRoot, candidate).startsWith('..') === false;
-        if (entry.startsWith('evb-win-test-') && entry.endsWith('.utm')
-            && candidate !== source && !candidateIsBaseline) {
-            retained.add(entry.slice(0, -4));
+    for (const entry of await readdir(cloneRoot, {withFileTypes: true})) {
+        const candidate = path.resolve(cloneRoot, entry.name);
+        if (entry.isDirectory() && entry.name.startsWith('evb-win-test-') && entry.name.endsWith('.utm')
+            && candidate !== source && !candidate.startsWith(`${baselineRoot}${path.sep}`)) {
+            retained.add(entry.name.slice(0, -4));
         }
     }
     if (config.retention.maxFailedClones > 0 && retained.size >= config.retention.maxFailedClones) {
@@ -151,7 +151,7 @@ export async function createTestClone(options: {
         }
     }
     await refuseLinks(source);
-    const destination = path.join(root, `${cloneName}.utm`);
+    const destination = path.join(cloneRoot, `${cloneName}.utm`);
     if (await lstat(destination).catch(() => null)) {
         throw new Error('The clone destination already exists; preserved it without replacement.');
     }

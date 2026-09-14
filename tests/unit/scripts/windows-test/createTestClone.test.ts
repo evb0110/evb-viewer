@@ -154,7 +154,7 @@ async function fixture() {
 it('copies disk, EFI and TPM into the test root and changes only the copied identities before import', async () => {
     const harness = await fixture();
     await createTestClone(harness.options);
-    const destination = path.join(harness.root, `${cloneName}.utm`);
+    const destination = path.join(harness.root, 'clones', `${cloneName}.utm`);
     for (const file of [
         'disk.qcow2',
         'efi_vars.fd',
@@ -194,14 +194,14 @@ it('refuses external media, symlinks and an existing destination', async () => {
     await expect(createTestClone(linked.options)).rejects.toThrow('symbolic link');
     const existing = await fixture();
     existing.options.config.retention.maxFailedClones = 2;
-    await mkdir(path.join(existing.root, `${cloneName}.utm`));
+    await mkdir(path.join(existing.root, 'clones', `${cloneName}.utm`), {recursive: true});
     await expect(createTestClone(existing.options)).rejects.toThrow('already exists');
     expect(existing.commands.some(entry => entry.command.endsWith('open'))).toBe(false);
 });
 
 it('counts a preserved unregistered clone against the retention limit', async () => {
     const harness = await fixture();
-    await mkdir(path.join(harness.root, 'evb-win-test-20260904T000000Z-0123456789ab.utm'));
+    await mkdir(path.join(harness.root, 'clones', 'evb-win-test-20260904T000000Z-0123456789ab.utm'), {recursive: true});
     await expect(createTestClone(harness.options)).rejects.toThrow('Retained test clones');
     expect(harness.commands).toEqual([]);
 });
@@ -224,7 +224,7 @@ it('copies input media into the clone and inserts only a read-only USB CD drive 
         inputMediaPath,
     });
 
-    const destination = path.join(harness.root, `${cloneName}.utm`);
+    const destination = path.join(harness.root, 'clones', `${cloneName}.utm`);
     expect(await readFile(path.join(destination, 'Data', 'evb-test-inputs.iso'), 'utf8')).toBe('input media bytes');
     expect(await readFile(inputMediaPath, 'utf8')).toBe('input media bytes');
     const driveInsert = harness.commands.find(entry => entry.args[0] === '-insert' && entry.args[1] === 'Drive.1');

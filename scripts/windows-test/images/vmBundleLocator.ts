@@ -7,7 +7,7 @@ export const UTM_BUNDLE_EXTENSION = '.utm';
 export const UTM_BUNDLE_CONFIG_FILE = 'config.plist';
 
 export function utmBundlePathForName(testImageRoot: string, vmName: string) {
-    return path.join(testImageRoot, `${vmName}${UTM_BUNDLE_EXTENSION}`);
+    return path.join(testImageRoot, 'clones', `${vmName}${UTM_BUNDLE_EXTENSION}`);
 }
 
 export interface IVmBundleIdentityReader {
