@@ -59,6 +59,10 @@ export async function runWindowsTestProvisionCli(argv: readonly string[]) {
             runner,
             utmctlPath: await resolvePreparedStandaloneUtmctl({layout}),
             dataRoot: layout.root,
+            // A fresh copy of the source image has no EVBViewerTests state
+            // directory yet. Keep the completion protocol in an existing
+            // Windows directory until the bootstrap creates the lab tree.
+            guestExecStateDirectory: 'C:\\Windows\\Temp',
             temporaryFilePath: label => `${layout.root}/.devkit-${label}`,
         });
         const guest = createUtmctlGuestChannel({
