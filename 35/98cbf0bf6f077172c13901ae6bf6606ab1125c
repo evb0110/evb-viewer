@@ -1,0 +1,33 @@
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_86946a3feec145::t_e492a4f3bb24c6 30,32,64-74
+  s_86946a3feec145::t_c861c25c59f4bc 212,435-436
+  s_86946a3feec145::t_4c934ff6053fcd 316,322
+  s_86946a3feec145::t_273a43ddbeff22 481-489,491-494,496-508,513-522,524-531,533-542
+  s_86946a3feec145::t_11012e03a5d448 490,495,532
+  s_86946a3feec145::t_c9ae52dafa2baa 154,162-179,182-195,198-203
+  s_86946a3feec145::t_b65752a17ea832 155-161,180-181,196-197,271-275,282-289
+  s_86946a3feec145::t_9967a17c1c901d 509-512
+  s_86946a3feec145::t_c35507ca664d64 278-281
+  s_86946a3feec145::t_56357c11cbf14c 33,292,312,523
+  s_86946a3feec145::t_3b6f195a2328e4 75,276-277,290-291,293-311,313-315
+  s_86946a3feec145::t_f9783ea4e91b65 76
+tests/e2e/electron/helpers/fixtures.ts
+  s_86946a3feec145::t_3f2577f9874e78 2220,2228-2254,2256
+  s_86946a3feec145::t_c35507ca664d64 2257-2260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3598cbf0bf6f077172c13901ae6bf6606ab1125c",
+  "prompts": {},
+  "sessions": {
+    "s_86946a3feec145": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a693-a375-7ff2-a1ce-e60f11e7df38",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
