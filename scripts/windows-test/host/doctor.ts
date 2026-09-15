@@ -149,6 +149,7 @@ export function isUtmScreenshotPreferenceRequired(version: string | null) {
 
 export async function readUtmScreenshotPreference(
     runner: ICommandRunner,
+    options: {containerPath?: string} = {},
 ): Promise<IUtmScreenshotPreferenceStatus> {
     const read = async (target: string) => runner.run(
         UTM_SCREENSHOT_PREFERENCE_COMMAND,
@@ -159,37 +160,26 @@ export async function readUtmScreenshotPreference(
         ],
         {timeoutMs: 5_000},
     );
+    const containerPath = options.containerPath ?? UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH;
+    const containerTarget = containerPath.slice(0, -'.plist'.length);
+    const containerError = await stat(containerPath).then(() => null, (error: unknown) => error);
+    if (containerError !== null && (containerError as NodeJS.ErrnoException).code !== 'ENOENT') {
+        return {
+            enabled: false,
+            detail: `Could not inspect ${containerPath}: ${getErrorMessage(containerError)}.`,
+            remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+        };
+    }
+    const target = containerError === null ? containerTarget : UTM_SCREENSHOT_PREFERENCE_DOMAIN;
     let result;
-    let target = UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH.slice(0, -'.plist'.length);
     try {
         result = await read(target);
     } catch (error) {
         return {
             enabled: false,
-            detail: `Could not read ${UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
+            detail: `Could not read ${target} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
             remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
         };
-    }
-    if (result.exitCode !== 0 || result.timedOut) {
-        const detail = result.stderr.trim() || 'defaults read failed';
-        if (!result.timedOut && /(?:does not exist|not found)/iu.test(detail)) {
-            target = UTM_SCREENSHOT_PREFERENCE_DOMAIN;
-            try {
-                result = await read(target);
-            } catch (error) {
-                return {
-                    enabled: false,
-                    detail: `Could not read ${target} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
-                    remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
-                };
-            }
-        } else {
-            return {
-                enabled: false,
-                detail: `The ${UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH} ${UTM_SCREENSHOT_PREFERENCE_KEY} preference is unavailable: ${detail}.`,
-                remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
-            };
-        }
     }
     if (result.exitCode !== 0 || result.timedOut) {
         const detail = result.stderr.trim() || 'defaults read failed';

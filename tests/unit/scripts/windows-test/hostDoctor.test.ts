@@ -499,33 +499,58 @@ describe('windows test doctor', () => {
     });
 
     it('falls back to the plain domain only when the container plist is absent', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-utm-preferences-'));
+        const containerPath = path.join(tempRoot, 'missing.plist');
         const calls: string[][] = [];
         const runner: ICommandRunner = {run: async (_command, args) => {
             calls.push(args);
-            return calls.length === 1
-                ? {
-                    exitCode: 1,
-                    stdout: '',
-                    stderr: 'Domain not found',
-                    timedOut: false,
-                    signal: null,
-                }
-                : {
-                    exitCode: 0,
-                    stdout: '1\n',
-                    stderr: '',
-                    timedOut: false,
-                    signal: null,
-                };
+            return {
+                exitCode: 0,
+                stdout: '1\n',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            };
         }};
 
-        await expect(readUtmScreenshotPreference(runner)).resolves.toMatchObject({enabled: true});
-        expect(calls).toHaveLength(2);
-        expect(calls[1]).toEqual([
+        await expect(readUtmScreenshotPreference(runner, {containerPath})).resolves.toMatchObject({enabled: true});
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toEqual([
             'read',
             'com.utmapp.UTM',
             'NoScreenshot',
         ]);
+        await rm(tempRoot, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('does not fall back when an existing container plist lacks NoScreenshot', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-utm-preferences-'));
+        const containerPath = path.join(tempRoot, 'present.plist');
+        await writeFile(containerPath, 'plist');
+        const calls: string[][] = [];
+        const runner: ICommandRunner = {run: async (_command, args) => {
+            calls.push(args);
+            return {
+                exitCode: 1,
+                stdout: '',
+                stderr: 'The domain/default pair does not exist',
+                timedOut: false,
+                signal: null,
+            };
+        }};
+
+        await expect(readUtmScreenshotPreference(runner, {containerPath})).resolves.toMatchObject({
+            enabled: false,
+            detail: expect.stringContaining('unset'),
+        });
+        expect(calls).toHaveLength(1);
+        await rm(tempRoot, {
+            recursive: true,
+            force: true,
+        });
     });
 
     it('fails closed on a container permission error without falling back', async () => {
@@ -549,6 +574,8 @@ describe('windows test doctor', () => {
     });
 
     it('fails closed when NoScreenshot is unset', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-utm-preferences-'));
+        const containerPath = path.join(tempRoot, 'missing.plist');
         const runner: ICommandRunner = {run: async () => ({
             exitCode: 1,
             stdout: '',
@@ -557,10 +584,14 @@ describe('windows test doctor', () => {
             signal: null,
         })};
 
-        await expect(readUtmScreenshotPreference(runner)).resolves.toMatchObject({
+        await expect(readUtmScreenshotPreference(runner, {containerPath})).resolves.toMatchObject({
             enabled: false,
             detail: expect.stringContaining('unset'),
             remedy: expect.stringContaining('NoScreenshot'),
+        });
+        await rm(tempRoot, {
+            recursive: true,
+            force: true,
         });
     });
 });
