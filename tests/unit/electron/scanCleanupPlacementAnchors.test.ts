@@ -34,7 +34,7 @@ const options: IScanCleanupOptions = {
     pageOverrides: {},
 };
 
-function result(pageNumber: number, yNormalized: number): IScanCleanupDetectionResult {
+function result(pageNumber: number, yNormalized: number, heightPoints = 792): IScanCleanupDetectionResult {
     const brandedPageNumber = requirePageNumber(pageNumber);
     return {
         pageNumber: brandedPageNumber,
@@ -50,7 +50,7 @@ function result(pageNumber: number, yNormalized: number): IScanCleanupDetectionR
             xPoints: 0,
             yPoints: 0,
             widthPoints: 612,
-            heightPoints: 792,
+            heightPoints,
             rotation: 0,
             sourceDpi: 300,
         },
@@ -96,6 +96,78 @@ function resultStore(
 }
 
 describe('scan-cleanup bounded ink placement summary', () => {
+    it('recomputes current-option calibration at the 1,024/1,025 boundary with mixed sheets', async () => {
+        const records = Array.from({length: 1_025}, (_, index) => {
+            const pageNumber = index + 1;
+            return result(pageNumber, pageNumber === 1 ? 0.1 : 0.2, pageNumber === 512 ? 396 : 792);
+        });
+
+        const initial = await buildScanCleanupPlacementAnchorSummary({
+            options,
+            resultStore: resultStore(records),
+            signal: new AbortController().signal,
+            identity: {
+                documentRevision: 'revision-boundary',
+                detectionSignature: 'detection-boundary',
+                calibrationSignature: 'calibration-initial',
+            },
+        });
+
+        expect(initial.sampleCount).toBe(1_025);
+        expect(initial.referenceHeightPoints).toBe(792);
+        expect(initial.samples.map(sample => sample.pageNumber)).toEqual([
+            1,
+            513,
+            1_025,
+        ]);
+        expect(initial.topEdgeNormalized).toBeCloseTo(0.2);
+        expect(resolveScanCleanupPlacementAnchorFromSummary(initial, 0.2)).toEqual({yNormalized: 0});
+
+        const currentOptions = structuredClone(options);
+        currentOptions.pageOverrides['1'] = {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        };
+        currentOptions.pageOverrides['2'] = {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.3,
+                widthNormalized: 0.8,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            }},
+        };
+        currentOptions.pageOverrides['3'] = {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            placementOverrides: {full: 'top-center'},
+        };
+        const current = await buildScanCleanupPlacementAnchorSummary({
+            options: currentOptions,
+            resultStore: resultStore(records),
+            signal: new AbortController().signal,
+            identity: {
+                documentRevision: 'revision-boundary',
+                detectionSignature: 'detection-boundary',
+                calibrationSignature: 'calibration-current-options',
+            },
+        });
+
+        expect(current.sampleCount).toBe(1_023);
+        expect(current.topEdgeNormalized).toBeCloseTo(0.2);
+        expect(resolveScanCleanupPlacementAnchorFromSummary(current, 0.2)).toEqual({yNormalized: 0});
+        expect(resolveScanCleanupPlacementAnchorFromSummary(current, 0.3)).toEqual({yNormalized: expect.closeTo(0.1)});
+        expect(current.identity.calibrationSignature).toBe('calibration-current-options');
+    });
+
     it('keeps early, middle, and late anchors bounded for a 20,001-page result store', async () => {
         const records = Array.from({length: 20_001}, (_, index) => {
             const pageNumber = index + 1;

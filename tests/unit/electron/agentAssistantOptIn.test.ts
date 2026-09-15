@@ -889,6 +889,80 @@ describe('agent assistant opt-in gating', () => {
         expect(process.requestMethods.filter(method => method === 'turn/start')).toHaveLength(2);
     });
 
+    it('keeps a newer Codex turn unchanged after duplicate out-of-order old terminal events', async () => {
+        const documentScope = createDocumentScope('stale-terminal-events.pdf');
+        const process = enableAssistantRuntime();
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(sendAgentAssistantMessage({
+            text: 'turn A',
+            scope: documentScope,
+        })).resolves.toMatchObject({ok: true});
+        process.notifyAppServer('turn/completed', {
+            threadId: 'thread-1',
+            turn: {
+                id: 'turn-1',
+                usage: {
+                    inputTokens: 11,
+                    outputTokens: 7,
+                    cachedInputTokens: 2,
+                },
+            },
+        });
+        await settleAsyncTicks();
+
+        await expect(sendAgentAssistantMessage({
+            text: 'hold-active turn B',
+            scope: documentScope,
+        })).resolves.toMatchObject({ok: true});
+        process.notifyAppServer('item/agentMessage/delta', {
+            threadId: 'thread-1',
+            turnId: 'turn-2',
+            itemId: 'assistant-2',
+            delta: 'B response',
+        });
+        process.notifyAppServer('error', {
+            threadId: 'thread-1',
+            turnId: 'turn-2',
+            error: {message: 'B failed normally.'},
+        });
+        await settleAsyncTicks();
+
+        const beforeStaleEvents = await getAgentAssistantState({scope: documentScope});
+        expect(beforeStaleEvents.status.turn.phase).toBe('failed');
+        expect(beforeStaleEvents.status.error).toBe('B failed normally.');
+        expect(beforeStaleEvents.messages.map(message => message.text)).toContain('B response');
+
+        const oldCompletion = {
+            threadId: 'thread-1',
+            turn: {
+                id: 'turn-1',
+                usage: {
+                    inputTokens: 999,
+                    outputTokens: 999,
+                    cachedInputTokens: 999,
+                },
+            },
+        };
+        process.notifyAppServer('turn/completed', oldCompletion);
+        process.notifyAppServer('error', {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            error: {message: 'A arrived late.'},
+        });
+        process.notifyAppServer('turn/completed', oldCompletion);
+        await settleAsyncTicks();
+
+        const afterStaleEvents = await getAgentAssistantState({scope: documentScope});
+        expect(afterStaleEvents.status.turn).toEqual(beforeStaleEvents.status.turn);
+        expect(afterStaleEvents.status.runtimeState).toBe(beforeStaleEvents.status.runtimeState);
+        expect(afterStaleEvents.status.error).toBe(beforeStaleEvents.status.error);
+        expect(afterStaleEvents.messages).toEqual(beforeStaleEvents.messages);
+    });
+
     it('does not create a Claude session when opt-out wins during adapter loading', async () => {
         configureEnabledAssistantRuntime();
         const documentScope = createDocumentScope('disable-during-claude-load.pdf');
