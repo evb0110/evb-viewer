@@ -890,6 +890,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps a newer Codex turn unchanged after duplicate out-of-order old terminal events', async () => {
+        vi.useFakeTimers({toFake: ['Date']});
+        vi.setSystemTime(1_000_000);
         const documentScope = createDocumentScope('stale-terminal-events.pdf');
         const process = enableAssistantRuntime();
         const {
