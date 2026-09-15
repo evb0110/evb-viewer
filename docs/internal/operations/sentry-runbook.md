@@ -69,6 +69,55 @@ Record completion without private links:
 | Rate alert | Repository owner | 2026-09-04 | Enabled |
 | Quota alert | Repository owner | 2026-09-05 | Enabled at the stricter available `100% and 80%` setting |
 
+### 2026-09-16 control record
+
+A follow-up using the documented owner-browser route widened the issue search
+to 16D (2026-09-01 onward), all environments, and an explicit
+`lastSeen:>=2026-09-01`. In both projects, each bare query
+(`has:evb_canary`, `evb_canary:*`, and
+`logger:evb-viewer.sourcemap-canary`) returned `1-25 of 1000+`; the same
+counts held with the explicit date term. With `environment:production`, the
+direct tag query returned 17 desktop rows and 732 web rows; the `has:` form
+returned 0 desktop rows and 731 web rows. The exact production query combining
+the canary logger and `error.type:EVBViewerSourceMapCanary` returned 0 desktop
+rows and 729 web rows. Each of `release:v0.1.454` through
+`release:v0.1.456`, and the corresponding unprefixed release queries, returned
+no rows in either project; the event panels for the desktop tag candidates
+nevertheless exposed versions `0.1.454` through `0.1.456`.
+
+The production tag set read back as 7 desktop unresolved rows (the same 7
+were regressed), 10 resolved rows, and no escalating, ongoing, archived, or
+ignored rows. All 17 desktop rows were inspected in the event panels: every
+one was mixed, with at least one event group missing one or more of the
+`evb_canary` tag, canary logger, and `EVBViewerSourceMapCanary` type. The mixed
+desktop short IDs were `DESKTOP-213`, `DESKTOP-6H5`, `DESKTOP-6HA`,
+`DESKTOP-6H8`, `DESKTOP-6HB`, `DESKTOP-6H9`, `DESKTOP-218`, `DESKTOP-6HX`,
+`DESKTOP-6HV`, `DESKTOP-6HK`, `DESKTOP-6HT`, `DESKTOP-6HN`, `DESKTOP-6HM`,
+`DESKTOP-6HH`, `DESKTOP-6H7`, `DESKTOP-6HW`, and `DESKTOP-6HJ`. None was
+resolved. The 112 desktop canary events are therefore an event-level count
+spread across mixed issue groups, not 112 pure canary issues. Symbolication
+left real-fault titles/types and diagnostic logger values on those groups,
+which explains why the earlier all-three-marker desktop query returned zero.
+
+The web production tag set read back as 732 resolved rows and zero rows for
+unresolved, escalating, regressed, ongoing, archived, or ignored. The
+all-environment exact-marker status checks were capped at `1-25 of 1000+` for
+unresolved and ongoing in both projects and returned no rows for the other
+listed statuses; those non-production capped sets were not mutated because
+they are outside the week-1 production-release scope and could not be proven
+event-by-event from the bounded result surface.
+
+The three project issue alerts in both projects now have the documented
+`tagged_event` action filter (`evb_canary`, `ns`) on the shared notification
+action block, covering Suggested Assignees and Recently Active Members. The
+before/after readback preserved each rule's trigger logic and existing
+conditions, actions, throttle, projects, and owner; only the canary action
+filter was added. Sentry canonically displayed the two existing fatal-alert
+high-priority trigger rows in the opposite order after save; no trigger was
+added, removed, or changed.
+The organization quota alert was not opened or changed. No event was sent and
+no paid capacity was enabled.
+
 ## Weekly and post-release triage
 
 Run this checklist once per week and after every production release that has
