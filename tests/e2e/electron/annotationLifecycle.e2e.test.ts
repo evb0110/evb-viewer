@@ -1743,6 +1743,23 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await clickEntity(second.id, true);
         await waitForSelectedCount(2);
         await expectEditorLayerFocused();
+        // Note markers shift up by one pixel while hovered. Move away before
+        // capturing the mixed baseline so undo compares canonical geometry,
+        // rather than a transient hover transform.
+        await page.mouse.move(0, 0);
+        await page.waitForFunction((ids: string[]) => ids.every(annotationId => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+            );
+            return entity !== null
+                && !entity.matches(':hover')
+                && entity.getAnimations().every(animation => (
+                    animation.playState !== 'running' && !animation.pending
+                ));
+        }), {timeout: 10_000}, [
+            first.id,
+            second.id,
+        ]);
         const mixedBefore = new Map((await readGeometry())
             .filter(entity => entity.id === first.id || entity.id === second.id)
             .map(entity => [
