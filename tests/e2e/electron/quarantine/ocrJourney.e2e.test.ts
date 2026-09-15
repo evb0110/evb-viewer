@@ -174,36 +174,39 @@ describe('nightly OCR journey', () => {
         });
         expect(selectedText).toBe(expectedText);
         const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-        let copiedText: string;
-        if (process.platform === 'darwin') {
+        // A hidden, unfocused macOS window rejects synthesized clipboard
+        // shortcuts, so macOS copies through the browser and reads the real
+        // system clipboard; other platforms use the keyboard round trip.
+        const isMac = process.platform === 'darwin';
+        let copiedText = '';
+        if (isMac) {
             expect(await evaluateInPage(session.page, () => document.execCommand('copy'))).toBe(true);
             copiedText = execFileSync('/usr/bin/pbpaste', [], {encoding: 'utf8'}).trim();
+            expect(copiedText).toBe(expectedText);
         } else {
             await session.page.keyboard.down(modifier);
             await session.page.keyboard.press('c');
             await session.page.keyboard.up(modifier);
-            copiedText = expectedText;
         }
-        expect(copiedText).toBe(expectedText);
         await openDocumentSidebarTab(session.page, 'Search');
         const searchInput = await session.page.$('.workspace-host[data-workspace-active="true"] .document-search-bar input');
         expect(searchInput).not.toBeNull();
-        await evaluateInPage(session.page, (text: string) => {
-            const input = document.querySelector<HTMLInputElement>('.workspace-host[data-workspace-active="true"] .document-search-bar input');
-            if (!input) {
-                throw new Error('Search input is unavailable');
-            }
-            input.focus();
-            const data = new DataTransfer();
-            data.setData('text/plain', text);
-            input.dispatchEvent(new ClipboardEvent('paste', {
-                bubbles: true,
-                cancelable: true,
-                clipboardData: data,
-            }));
-            input.value = text;
-            input.dispatchEvent(new Event('input', {bubbles: true}));
-        }, copiedText);
+        if (isMac) {
+            await evaluateInPage(session.page, (text: string) => {
+                const input = document.querySelector<HTMLInputElement>('.workspace-host[data-workspace-active="true"] .document-search-bar input');
+                if (!input) {
+                    throw new Error('Search input is unavailable');
+                }
+                input.focus();
+                input.value = text;
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+            }, copiedText);
+        } else {
+            await searchInput!.click();
+            await session.page.keyboard.down(modifier);
+            await session.page.keyboard.press('v');
+            await session.page.keyboard.up(modifier);
+        }
         expect(await searchInput!.evaluate(input => input.value.trim())).toBe(expectedText);
         await session.page.click('.workspace-host[data-workspace-active="true"] .search-run-button');
         await waitForFunctionInPage(session.page, (text: string) => (
