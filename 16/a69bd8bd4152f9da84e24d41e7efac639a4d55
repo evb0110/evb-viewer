@@ -1,0 +1,25 @@
+scripts/windows-test/host/runCoordinator.ts
+  s_b6c5e21fed5360::t_085770e64c2183 728-738
+scripts/windows-test/contracts/windowsTestPaths.ts
+  s_b6c5e21fed5360::t_085770e64c2183 83
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_b6c5e21fed5360::t_085770e64c2183 577
+scripts/windows-test/host/hostRunner.ts
+  s_b6c5e21fed5360::t_085770e64c2183 171-172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "16a69bd8bd4152f9da84e24d41e7efac639a4d55",
+  "prompts": {},
+  "sessions": {
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
