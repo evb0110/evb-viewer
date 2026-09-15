@@ -168,8 +168,8 @@ export async function resolveWindowsTestFixtureInputs(manifestPath: string): Pro
 
 export const WINDOWS_TEST_GUEST_WORKER_FILE = `${windowsTestGuestLayout.root}\\worker\\guestWorker.cjs`;
 export const WINDOWS_TEST_GUEST_PDF_WORKER_FILE = `${windowsTestGuestLayout.root}\\worker\\pdf.worker.mjs`;
-export const WINDOWS_TEST_GUEST_WINAPP_EXECUTABLE = `${windowsTestGuestLayout.root}\\tools\\winapp\\winapp.exe`;
-export const WINDOWS_TEST_GUEST_WINAPP_NATIVE_LIBRARY = `${windowsTestGuestLayout.root}\\tools\\winapp\\libSkiaSharp.dll`;
+export const WINDOWS_TEST_GUEST_WINAPP_EXECUTABLE = `${windowsTestGuestLayout.winappToolsDir}\\winapp.exe`;
+export const WINDOWS_TEST_GUEST_WINAPP_NATIVE_LIBRARY = `${windowsTestGuestLayout.winappToolsDir}\\libSkiaSharp.dll`;
 export const WINDOWS_TEST_GUEST_WORKER_BOOTSTRAP_FILE = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\system-bootstrap-worker.cmd';
 export const WINDOWS_TEST_GUEST_WORKER_SEED_FILE = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\guestWorker.cjs';
 

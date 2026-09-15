@@ -725,6 +725,17 @@ export async function executeWindowsTestRun(
                 bootId, heartbeat,
             } = await waitForGuestReady('booting', Date.parse(startedAt));
             await recorder.record('guest-ready', 'The guest agent answered a read-only file-transfer probe.');
+            if (dependencies.refreshGuestWorker !== undefined) {
+                // UTM's file-push operation opens the destination directly.
+                // The image contract guarantees the shared root and worker
+                // tree, but the refreshed WinApp runtime lives in a new
+                // directory that must exist before its first push.
+                await guest.ensureDirectory(
+                    clonedVmId,
+                    windowsTestGuestLayout.winappToolsDir,
+                    deadlines.commandTimeoutMs,
+                );
+            }
             const workerChanged = dependencies.refreshGuestWorker === undefined
                 ? false
                 : await dependencies.refreshGuestWorker(clonedVmId, deadlines.commandTimeoutMs);

@@ -574,6 +574,7 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls).toContain(`stop request ${CLONE_VM_ID}`);
         expect(harness.utmctl.calls.filter(call => call === `start ${CLONE_VM_ID}`)).toHaveLength(2);
         expect(harness.guest.calls.filter(call => call === 'ping')).toHaveLength(2);
+        expect(harness.guest.calls).toContain(`mkdir ${windowsTestGuestLayout.winappToolsDir}`);
     });
 
     it('fails promptly when the owned clone stops before publishing a guest result', async () => {
