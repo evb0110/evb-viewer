@@ -1,0 +1,33 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b6c5e21fed5360::t_7351ac51a89a4c 911-915,984-988
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_b6c5e21fed5360::t_df7cdeee2c09d6 534-537,539-542
+  s_b6c5e21fed5360::t_6b858f0d4519a9 502-505
+  s_b6c5e21fed5360::t_aa97cf38208f18 538
+  s_b6c5e21fed5360::t_4cd3b0779dc228 525
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_b6c5e21fed5360::t_c068b8bd9c5c4a 470
+  s_b6c5e21fed5360::t_d55833a5c7cde0 660
+  s_b6c5e21fed5360::t_7351ac51a89a4c 895
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_b6c5e21fed5360::t_2176c4dbb4d64f 934,937
+  s_b6c5e21fed5360::t_87e7f9793c9396 944
+  s_b6c5e21fed5360::t_abd300b81e3483 540,922-933,935-936,938-943,945-946
+  s_b6c5e21fed5360::t_cc495733199a41 947-950
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c099fb5cb7834fd52e2c1ca6feaf23314d29b4cc",
+  "prompts": {},
+  "sessions": {
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
