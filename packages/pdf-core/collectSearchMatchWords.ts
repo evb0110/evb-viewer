@@ -5,6 +5,7 @@ import {
 } from '@contracts/ocrText';
 
 interface IPageWithSearchWords {
+    text?: string;
     words?: readonly IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
@@ -128,7 +129,8 @@ export function collectSearchMatchWords(
 
     const pageWords: readonly IOcrWord[] = page.words;
     const matchWords: IOcrWord[] = [];
-    let cursor = 0;
+    let fallbackCursor = 0;
+    let logicalTextCursor = 0;
 
     for (let index = 0; index < pageWords.length; index += 1) {
         const word = pageWords[index];
@@ -136,7 +138,10 @@ export function collectSearchMatchWords(
             continue;
         }
         const wordText = buildOcrTextLayerItemText(word);
-        const wordStart = cursor;
+        const logicalWordStart = page.text === undefined
+            ? -1
+            : page.text.indexOf(word.text, logicalTextCursor);
+        const wordStart = logicalWordStart >= 0 ? logicalWordStart : fallbackCursor;
         const wordEnd = wordStart + word.text.length;
 
         if (wordStart >= endOffset) {
@@ -152,9 +157,12 @@ export function collectSearchMatchWords(
             }
         }
 
-        cursor += wordText.length;
+        if (logicalWordStart >= 0) {
+            logicalTextCursor = wordEnd;
+        }
+        fallbackCursor += wordText.length;
         if (isLastOcrWordInLine(pageWords, index)) {
-            cursor += 1;
+            fallbackCursor += 1;
         }
     }
 

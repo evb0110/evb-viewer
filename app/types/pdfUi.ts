@@ -3,7 +3,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApiDocuments';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import { pageNumberToPageIndex } from '@contracts/pageNumbers';
-import type { IDocumentPageRange } from '@app/utils/document-viewer/documentPageRange';
+import type { IDocumentPageRange } from '@app/modules/document-viewer/public';
 import type {
     IOcrWord,
     IPdfBookmarkEntry,

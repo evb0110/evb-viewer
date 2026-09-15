@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
 import {
+    createPreparedGuestWorkerRefresher,
     resolveWindowsTestCandidate,
     requestWindowsTestStopOnHost,
     runWindowsTestDoctorOnHost,
@@ -107,6 +108,158 @@ describe('windows test candidate resolution', () => {
                 version: '3.4.6',
                 sourceSha: 'c'.repeat(40),
             });
+    });
+});
+
+describe('prepared guest worker refresh', () => {
+    let root = '';
+
+    afterEach(async () => {
+        if (root !== '') {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+            root = '';
+        }
+    });
+
+    it('stages and verifies the worker only when its guest hash differs', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-worker-refresh-'));
+        const workerFile = path.join(root, 'guestWorker.cjs');
+        await writeFile(workerFile, 'prepared-worker', 'utf8');
+        const calls: string[] = [];
+        const guest = {
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('system-bootstrap-worker.cmd')
+                ? 'copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\\worker\\guestWorker.cjs"'
+                : 'golden-worker',
+            stageFile: async (_vmId: string, hostPath: string, guestPath: string) => {
+                calls.push(`stage ${hostPath} -> ${guestPath}`);
+            },
+            verifyStagedFileHash: async (_vmId: string, guestPath: string, expectedSha256: string) => {
+                calls.push(`verify ${guestPath} ${expectedSha256}`);
+                return true;
+            },
+        };
+
+        const changed = await createPreparedGuestWorkerRefresher({
+            workerFile,
+            guest,
+        })('vm', 200);
+
+        expect(changed).toBe(true);
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toContain('stage ');
+        expect(calls[1]).toContain('verify C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\guestWorker.cjs ');
+    });
+
+    it('skips staging when the guest worker already matches the prepared hash', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-worker-refresh-'));
+        const workerFile = path.join(root, 'guestWorker.cjs');
+        await writeFile(workerFile, 'prepared-worker', 'utf8');
+        const calls: string[] = [];
+        const guest = {
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('system-bootstrap-worker.cmd')
+                ? 'copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\\worker\\guestWorker.cjs"'
+                : 'prepared-worker',
+            stageFile: async () => {
+                calls.push('stage');
+            },
+            verifyStagedFileHash: async () => {
+                calls.push('verify');
+                return true;
+            },
+        };
+
+        const changed = await createPreparedGuestWorkerRefresher({
+            workerFile,
+            guest,
+        })('vm', 200);
+
+        expect(changed).toBe(false);
+        expect(calls).toEqual([]);
+    });
+
+    it('stages the matching PDF.js fake worker beside a refreshed guest worker', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-worker-refresh-'));
+        const workerFile = path.join(root, 'guestWorker.cjs');
+        const pdfWorkerFile = path.join(root, 'pdf.worker.mjs');
+        await writeFile(workerFile, 'prepared-worker', 'utf8');
+        await writeFile(pdfWorkerFile, 'prepared-pdf-worker', 'utf8');
+        const calls: string[] = [];
+        let pdfWorkerHashChecks = 0;
+        const guest = {
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('system-bootstrap-worker.cmd')
+                ? 'copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\\worker\\guestWorker.cjs"'
+                : 'golden-worker',
+            stageFile: async (_vmId: string, hostPath: string, guestPath: string) => {
+                calls.push(`stage ${path.basename(hostPath)} -> ${guestPath}`);
+            },
+            verifyStagedFileHash: async (_vmId: string, guestPath: string, expectedSha256: string) => {
+                calls.push(`verify ${guestPath} ${expectedSha256}`);
+                if (guestPath.endsWith('pdf.worker.mjs')) {
+                    pdfWorkerHashChecks += 1;
+                    return pdfWorkerHashChecks > 1;
+                }
+                return true;
+            },
+        };
+
+        const changed = await createPreparedGuestWorkerRefresher({
+            workerFile,
+            pdfWorkerFile,
+            guest,
+        })('vm', 200);
+
+        expect(changed).toBe(true);
+        expect(calls.some(call => call.includes('stage pdf.worker.mjs -> C:\\EVBViewerTests\\worker\\pdf.worker.mjs'))).toBe(true);
+        expect(calls.some(call => call.includes('verify C:\\EVBViewerTests\\worker\\pdf.worker.mjs '))).toBe(true);
+    });
+
+    it('stages the pinned WinApp runtime files into the guest tool directory', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-worker-refresh-'));
+        const workerFile = path.join(root, 'guestWorker.cjs');
+        const executableFile = path.join(root, 'winapp.exe');
+        const nativeLibraryFile = path.join(root, 'libSkiaSharp.dll');
+        await writeFile(workerFile, 'prepared-worker', 'utf8');
+        await writeFile(executableFile, 'winapp', 'utf8');
+        await writeFile(nativeLibraryFile, 'skia', 'utf8');
+        const calls: string[] = [];
+        const verified = new Set<string>();
+        const guest = {
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('system-bootstrap-worker.cmd')
+                ? ''
+                : 'golden-worker',
+            stageFile: async (_vmId: string, hostPath: string, guestPath: string) => {
+                calls.push(`stage ${path.basename(hostPath)} -> ${guestPath}`);
+                verified.add(guestPath);
+            },
+            verifyStagedFileHash: async (_vmId: string, guestPath: string, expectedSha256: string) => {
+                calls.push(`verify ${guestPath} ${expectedSha256}`);
+                return verified.has(guestPath);
+            },
+        };
+
+        const changed = await createPreparedGuestWorkerRefresher({
+            workerFile,
+            preparedFiles: [
+                {
+                    hostPath: executableFile,
+                    guestPath: 'C:\\EVBViewerTests\\tools\\winapp\\winapp.exe',
+                    expectedSha256: createHash('sha256').update('winapp').digest('hex'),
+                },
+                {
+                    hostPath: nativeLibraryFile,
+                    guestPath: 'C:\\EVBViewerTests\\tools\\winapp\\libSkiaSharp.dll',
+                    expectedSha256: createHash('sha256').update('skia').digest('hex'),
+                },
+            ],
+            guest,
+        })('vm', 200);
+
+        expect(changed).toBe(true);
+        expect(calls).toContain('stage winapp.exe -> C:\\EVBViewerTests\\tools\\winapp\\winapp.exe');
+        expect(calls).toContain('stage libSkiaSharp.dll -> C:\\EVBViewerTests\\tools\\winapp\\libSkiaSharp.dll');
     });
 });
 

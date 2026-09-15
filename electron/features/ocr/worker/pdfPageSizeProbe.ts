@@ -2,7 +2,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import {runOcrCommand} from '@electron/features/ocr/worker/runOcrCommand';
 import type {
     IOcrPageGeometry, TWorkerLog,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 import {
     readPdfPageSizeChunks,
     type IPdfPageSizeChunk,

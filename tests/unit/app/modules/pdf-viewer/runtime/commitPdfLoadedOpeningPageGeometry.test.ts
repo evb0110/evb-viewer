@@ -11,19 +11,19 @@ import {
     type Ref,
 } from 'vue';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 function createChassisAuthority(
     snapshot: Ref<IDocumentOpenSurfaceSnapshot>,
     commitOpeningPageGeometry: (...args: never[]) => boolean,
-): IDocumentViewerChassisAuthority {
+): IDocumentViewerRuntime {
     // This lifecycle unit reads only the open-surface snapshot and commit
     // method from the larger viewer authority.
     return {openSurface: {
         snapshot,
         commitOpeningPageGeometry,
-    }} as IDocumentViewerChassisAuthority;
+    }} as IDocumentViewerRuntime;
 }
 
 function createHarness() {

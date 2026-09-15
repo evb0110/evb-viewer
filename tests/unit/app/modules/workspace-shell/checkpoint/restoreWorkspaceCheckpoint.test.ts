@@ -137,6 +137,7 @@ describe('restoreWorkspaceCheckpoint', () => {
             }],
         }, {
             tabs,
+            activeTabId: ref(null),
             workspaceRefs,
             restoreGraph,
             openPathInReservedTab,
@@ -232,6 +233,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 isDirty: true,
                 isDjvu: false,
             }]),
+            activeTabId: ref(null),
             workspaceRefs: ref(new Map([[
                 requireTabId('tab-1'),
                 workspace,
@@ -282,6 +284,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 isDirty: false,
                 isDjvu: false,
             }]),
+            activeTabId: ref(null),
             workspaceRefs: ref(new Map()),
             restoreGraph: vi.fn(),
             openPathInReservedTab,
@@ -332,6 +335,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 isDirty: true,
                 isDjvu: false,
             }]),
+            activeTabId: ref(null),
             workspaceRefs: ref(new Map([[
                 requireTabId('tab-1'),
                 workspace,
@@ -343,6 +347,64 @@ describe('restoreWorkspaceCheckpoint', () => {
 
         expect(failedPaths).toEqual([sourcePath]);
         expect(waitForDocumentOpenSettled).not.toHaveBeenCalled();
+        expect(activateTab).not.toHaveBeenCalled();
+    });
+
+    it('keeps a tab the user activated while checkpoint documents reopen', async () => {
+        const workspace = createWorkspaceExposeFixture({});
+        const activateTab = vi.fn();
+        const activeTabId = ref<string | null>(null);
+        const sourcePath = requireDocumentRef('/documents/draft.pdf');
+
+        await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
+            layout: {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            },
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [{
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
+                fileName: 'draft.pdf',
+                sourceRef: sourcePath,
+                workingCopyRef: null,
+                isDirty: false,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        }, {
+            tabs: ref([{
+                id: requireTabId('tab-1'),
+                fileName: 'draft.pdf',
+                originalPath: sourcePath,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+            activeTabId,
+            workspaceRefs: ref(new Map([[
+                requireTabId('tab-1'),
+                workspace,
+            ]])),
+            restoreGraph: () => {
+                activeTabId.value = 'tab-1';
+            },
+            openPathInReservedTab: vi.fn(async () => {
+                activeTabId.value = 'tab-2';
+                return true;
+            }),
+            activateTab,
+        });
+
         expect(activateTab).not.toHaveBeenCalled();
     });
 
@@ -408,6 +470,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 isDirty: true,
                 isDjvu: false,
             }]),
+            activeTabId: ref(null),
             workspaceRefs: ref(new Map<string, IWorkspaceExpose>().set('tab-1', workspace)),
             restoreGraph: vi.fn(),
             openPathInReservedTab,
@@ -454,6 +517,7 @@ describe('restoreWorkspaceCheckpoint', () => {
             }],
         }, {
             tabs: ref([]),
+            activeTabId: ref(null),
             workspaceRefs: ref(new Map()),
             restoreGraph: vi.fn(),
             openPathInReservedTab,
@@ -508,6 +572,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 isDirty: false,
                 isDjvu: false,
             }]),
+            activeTabId: ref(null),
             workspaceRefs: ref(new Map<string, IWorkspaceExpose>().set('tab-1', workspace)),
             restoreGraph: vi.fn(),
             openPathInReservedTab: vi.fn(),

@@ -9,26 +9,31 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
+    basename,
+    dirname,
     join,
     relative,
     resolve,
     sep,
 } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'node:url';
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
-const projectRoot = resolve(new URL('..', import.meta.url).pathname);
-const archiveName = 'pdfjs-dist-6.3.311-6922bee2.tgz';
+const projectRoot = fileURLToPath(new URL('..', import.meta.url));
+const archiveName = 'pdfjs-dist-6.3.312-c3253faa.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '6.3.311',
+    version: '6.3.312',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
     branch: 'ticket/168-fork-rebase',
-    commit: '6922bee2b3dd047c954d5717a533a2d701559c17',
-    tree: '0fc8b8db395e8ab30ddec61a78bb9ad72d82512b',
+    commit: 'c3253faa113dd231ea95630afd40dbb31efead08',
+    tree: '61abab5aba6ccc2bfe574869e71dc5960b716d51',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
     upstreamTag: 'v6.3.289',
@@ -58,6 +63,7 @@ const forkMarkerFiles = [
     'test/integration/stamp_editor_spec.mjs',
     'test/unit/api_spec.js',
     'test/unit/stream_spec.js',
+    'test/unit/text_layer_spec.js',
 ];
 const runtimeMarkerSources = {
     pdf: [
@@ -143,8 +149,9 @@ export { absoluteSourceMapPath };
 export function inspectArchive(candidateArchivePath) {
     const listing = execFileSync('tar', [
         '-tvzf',
-        candidateArchivePath,
+        basename(candidateArchivePath),
     ], {
+        cwd: dirname(resolve(candidateArchivePath)),
         encoding: 'utf8',
         env: {
             ...process.env,
@@ -187,7 +194,7 @@ function validateReceipt(receipt) {
     ] of Object.entries(expectedFork)) assert(receipt.source?.[key] === value, `receipt source.${key} mismatch`);
     assert(receipt.source.cleanCheckout === true && receipt.source.fullHistory === true, 'source checkout is not clean and complete');
     assert(receipt.source.versionCalculationBase === 'sourceBaseCommit', 'version calculation base mismatch');
-    assert(receipt.build.packageLockSha256 === '3bf40345ad74ca02396681079e25fb9b63332e75ade3394ce990549dcd5263c0', 'fork package-lock hash mismatch');
+    assert(receipt.build.packageLockSha256 === 'cd9b0ce997a442b17335976706b2fa64707bfb6b8b7d83cfe332acdc5498b6a2', 'fork package-lock hash mismatch');
     assert(JSON.stringify(receipt.build.commands) === JSON.stringify(expectedBuildCommands)
         && receipt.build.environment === 'PUPPETEER_SKIP_DOWNLOAD=1', 'build receipt is incomplete');
     assert(receipt.build.node && receipt.build.npm && receipt.build.os && receipt.build.arch, 'build tool receipt is incomplete');
@@ -244,12 +251,17 @@ export async function verify(options = {}) {
     try {
         execFileSync('tar', [
             '-xzf',
-            archivePath,
+            '-',
             '--no-same-owner',
             '--no-same-permissions',
         ], {
             cwd: tempRoot,
-            stdio: 'ignore',
+            input: archive,
+            stdio: [
+                'pipe',
+                'ignore',
+                'pipe',
+            ],
         });
         const packageRoot = join(tempRoot, 'package');
         const actual = [];
@@ -327,7 +339,7 @@ export async function verify(options = {}) {
         force: true,
     }); }
     const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    assert(packageJson.dependencies?.['pdfjs-dist'] === dependencyKey && packageJson.dependencies?.['pdfjs-dist-codex-preview'] === 'npm:pdfjs-dist@5.4.296', 'package dependency mismatch');
+    assert(packageJson.dependencies?.['pdfjs-dist'] === dependencyKey && packageJson.devDependencies?.['pdfjs-dist-codex-preview'] === 'npm:pdfjs-dist@5.4.296', 'package dependency mismatch');
     const lockfile = await readFile(join(root, 'pnpm-lock.yaml'), 'utf8');
     assert(lockfile.includes(`specifier: ${dependencyKey}`) && lockfile.includes(`integrity: ${receipt.evb.lockfilePdfjsIntegrity}`), 'lockfile does not bind the committed tarball');
     assert((await readFile(join(root, receipt.evb.publicVersionStamp), 'utf8')).trim() === expectedPackage.version, 'public version stamp mismatch');

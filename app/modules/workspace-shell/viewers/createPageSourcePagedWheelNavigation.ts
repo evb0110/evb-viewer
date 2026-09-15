@@ -1,10 +1,10 @@
 import type {TDocumentViewMode} from '@contracts/shared';
-import {createWheelFlipGate} from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
 import {
+    createWheelFlipGate,
     canScrollWithinPageBounds,
     resolveWheelDirection,
     resolveWheelTargetPage,
-} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
+} from '@app/modules/document-viewer/public';
 
 interface IPageSourcePagedWheelState {
     container: HTMLElement | null;

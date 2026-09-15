@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import { AVAILABLE_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
 import {
     cancelMainOperationsForClosingWorkingCopy,
     resetMainOperationLifecycleForTests,
@@ -516,6 +517,84 @@ describe('OCR platform feature main bindings', () => {
             retryable: false,
         });
         expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
+    });
+
+    it('queues multiple OCR languages and preserves per-page language overrides', async () => {
+        const handler = getHandler('ocr:createSearchablePdf');
+        const multiLanguageResult = await handler(
+            {sender: createMockSender(21)},
+            '/tmp/working-copy.pdf',
+            {
+                kind: 'all',
+                pageCount: 2,
+                languages: [
+                    'eng',
+                    'rus',
+                ],
+            },
+            'job-multiple-languages',
+        ) as {
+            started: boolean;
+            error: string;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(multiLanguageResult).toMatchObject({started: true});
+
+        const mixedPageResult = await handler(
+            {sender: createMockSender(22)},
+            '/tmp/working-copy.pdf',
+            [
+                {
+                    pageNumber: 1,
+                    languages: ['eng'],
+                },
+                {
+                    pageNumber: 2,
+                    languages: ['rus'],
+                },
+            ],
+            'job-mixed-page-languages',
+        ) as {
+            started: boolean;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(mixedPageResult).toMatchObject({started: true});
+        expect(mocks.handleOcrCreateSearchablePdfAsync).toHaveBeenCalledTimes(2);
+        expect(mocks.handleOcrCreateSearchablePdfAsync.mock.calls[0]?.[2]).toMatchObject({
+            kind: 'all',
+            languages: [
+                'eng',
+                'rus',
+            ],
+        });
+        expect(mocks.handleOcrCreateSearchablePdfAsync.mock.calls[1]?.[2]).toEqual([
+            {
+                pageNumber: 1,
+                languages: ['eng'],
+            },
+            {
+                pageNumber: 2,
+                languages: ['rus'],
+            },
+        ]);
+        await expect(handler(
+            {sender: createMockSender(23)},
+            '/tmp/working-copy.pdf',
+            {
+                kind: 'all',
+                pageCount: 1,
+                languages: [...AVAILABLE_OCR_LANGUAGE_CODES],
+            },
+            'job-all-supported-languages',
+        )).resolves.toMatchObject({started: true});
     });
 
     it('rejects disallowed sourcePdfPath before queuing OCR worker job', async () => {

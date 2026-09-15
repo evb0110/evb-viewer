@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TWorkspaceSaveAbort } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
 import { notSavedBeforeWrite } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
-import type { TWorkspaceSavePlan } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePolicy';
+import type { TWorkspaceSavePlan } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
 export interface IUnencryptedSaveNoticeResult {
     confirmed: boolean;

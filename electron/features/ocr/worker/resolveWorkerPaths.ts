@@ -1,4 +1,4 @@
-import type { IWorkerPaths } from '@electron/ocr/worker/types';
+import type { IWorkerPaths } from '@electron/features/ocr/worker/types';
 import { isRecord } from '@contracts/runtimeGuards';
 
 function readRequiredPath(
@@ -61,10 +61,6 @@ export function resolveWorkerPaths(rawWorkerData: unknown): IWorkerPaths {
     const popplerFontConfigDir = readOptionalPath(rawWorkerData, 'popplerFontConfigDir');
     if (popplerFontConfigDir !== undefined) {
         paths.popplerFontConfigDir = popplerFontConfigDir;
-    }
-    const unpaperBinary = readOptionalPath(rawWorkerData, 'unpaperBinary');
-    if (unpaperBinary !== undefined) {
-        paths.unpaperBinary = unpaperBinary;
     }
 
     return paths;

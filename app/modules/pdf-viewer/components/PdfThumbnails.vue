@@ -91,7 +91,13 @@ import {
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { formatPageIndicatorWithOptions } from '@app/utils/document-viewer/pageLabels';
+import {
+    formatPageIndicatorWithOptions,createDocumentThumbnailResizeAnchorLifecycle,
+    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
+    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
+    resolveThumbnailRasterWidth,
+    roundMetric, 
+} from '@app/modules/document-viewer/public';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import {
@@ -103,24 +109,15 @@ import {
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 import {
-    resolveThumbnailRasterWidth,
-    roundMetric,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
-import {
     PDF_THUMBNAIL_LOG_SECTION,
     usePdfThumbnailRenderRuntime,
 } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
 import { createThumbnailMeasurementDiagnostics } from '@app/modules/pdf-viewer/thumbnails/createThumbnailMeasurementDiagnostics';
-import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
-import type {IDocumentThumbnailLayoutAnchor} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import type {IDocumentThumbnailLayoutAnchor} from '@app/modules/document-viewer/public';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
 import {createPdfThumbnailScrollController} from '@app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController';
-import {
-    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
-    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
-} from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
 import {
     describeContainerGeometry,
     isContainerVisible,
@@ -251,39 +248,6 @@ watch(() => currentPage, page => {
     setActiveScrollSegmentForPage(page);
 }, {immediate: true});
 
-watch(() => pageGeometry?.version, () => {
-    if (pageGeometry) {
-        applyThumbnailPageMetrics(pageGeometry.metrics);
-    }
-}, {immediate: true});
-
-// The rail lays out pages the viewer may never have measured. Ask the
-// session for each contiguous run it still lacks; the session dedupes
-// in-flight loads, so repeated requests cost one array scan.
-watch([
-    virtualPages,
-    () => pageGeometry?.version,
-], ([pages]) => {
-    if (!pageGeometry) {
-        return;
-    }
-    let runStart: number | null = null;
-    let runEnd = 0;
-    for (const page of pages) {
-        if (getExactThumbnailAspectRatio(page) !== undefined) {
-            continue;
-        }
-        if (runStart !== null && page !== runEnd + 1) {
-            void pageGeometry.ensureRange(runStart, runEnd);
-            runStart = null;
-        }
-        runStart ??= page;
-        runEnd = page;
-    }
-    if (runStart !== null) {
-        void pageGeometry.ensureRange(runStart, runEnd);
-    }
-}, {immediate: true});
 function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
 }
@@ -523,6 +487,42 @@ function scheduleThumbnailLayoutReaction(
         }
     });
 }
+
+// Applying metrics captures and schedules a layout anchor, so this immediate
+// watcher must run after the anchor lifecycle and pending anchor exist.
+watch(() => pageGeometry?.version, () => {
+    if (pageGeometry) {
+        applyThumbnailPageMetrics(pageGeometry.metrics);
+    }
+}, {immediate: true});
+
+// The rail lays out pages the viewer may never have measured. Ask the
+// session for each contiguous run it still lacks; the session dedupes
+// in-flight loads, so repeated requests cost one array scan.
+watch([
+    virtualPages,
+    () => pageGeometry?.version,
+], ([pages]) => {
+    if (!pageGeometry) {
+        return;
+    }
+    let runStart: number | null = null;
+    let runEnd = 0;
+    for (const page of pages) {
+        if (getExactThumbnailAspectRatio(page) !== undefined) {
+            continue;
+        }
+        if (runStart !== null && page !== runEnd + 1) {
+            void pageGeometry.ensureRange(runStart, runEnd);
+            runStart = null;
+        }
+        runStart ??= page;
+        runEnd = page;
+    }
+    if (runStart !== null) {
+        void pageGeometry.ensureRange(runStart, runEnd);
+    }
+}, {immediate: true});
 
 function scrollPageIntoKeyboardView(page: number): void | Promise<void> {
     const container = resolveVisibleContainer('keyboard-selection');

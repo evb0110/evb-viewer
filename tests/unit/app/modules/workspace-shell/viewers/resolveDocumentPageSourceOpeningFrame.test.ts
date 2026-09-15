@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
+import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/public';
 
 const geometry = {
     documentId: '/documents/scan.djvu',

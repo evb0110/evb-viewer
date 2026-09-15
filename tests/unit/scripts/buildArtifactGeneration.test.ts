@@ -118,6 +118,7 @@ describe('build artifact generation', () => {
         for (const code of BUNDLED_OCR_LANGUAGE_CODES) {
             expect(rendered).toContain(`      - ${code}.traineddata`);
         }
+        expect(rendered).toContain('      - pdf.ttf');
         for (const {code} of AVAILABLE_OCR_LANGUAGES) {
             if (!BUNDLED_OCR_LANGUAGE_CODE_SET.has(code)) {
                 expect(rendered).not.toContain(`      - ${code}.traineddata`);

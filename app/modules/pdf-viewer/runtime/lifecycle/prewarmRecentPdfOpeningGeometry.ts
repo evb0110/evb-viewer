@@ -9,7 +9,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
-import { settleDocumentOpeningGeometryPrewarmTask } from '@app/utils/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask';
+import { settleOpeningPreviewGeometry } from '@app/modules/document-viewer/public';
 
 const DEFAULT_RECENT_PDF_OPEN_GEOMETRY_PREWARM_LIMIT = 4;
 const DEFAULT_PREWARM_CONCURRENCY = 2;
@@ -96,7 +96,7 @@ export async function prewarmRecentPdfOpeningGeometry(
                 const {
                     geometry,
                     timedOut,
-                } = await settleDocumentOpeningGeometryPrewarmTask(
+                } = await settleOpeningPreviewGeometry(
                     geometryTask,
                     options.settleTimeoutMs,
                 );

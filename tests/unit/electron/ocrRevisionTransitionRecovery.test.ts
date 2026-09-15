@@ -15,6 +15,7 @@ import {
     it,
 } from 'vitest';
 import {recoverPreparedOcrRevisionTransition} from '@electron/features/ocr/main/recoverPreparedOcrRevisionTransition';
+import {getOcrCatalogV4PreparedDescriptorPath} from '@electron/features/ocr/worker/indexWriterV4';
 
 let root: string | null = null;
 
@@ -101,6 +102,48 @@ describe('OCR revision transition crash recovery', () => {
         await expect(readFile(pdfBackupPath, 'utf8')).resolves.toBe('exact-before-pdf');
         await expect(readFile(join(catalogBackupPath, 'manifest.json'), 'utf8'))
             .resolves.toBe('exact-before-catalog');
+    });
+
+    it('converts a prepared v4 journal to a valid undo state when its revision is already public', async () => {
+        const {
+            workingCopyPath,
+            pdfBackupPath,
+            catalogBackupPath,
+        } = await createInterruptedTransition();
+        const targetDocumentRevisionToken = 'next-revision';
+        const resultPath = join(root!, 'result.pdf');
+        await writeFile(`${workingCopyPath}.ocr-transition.json`, JSON.stringify({
+            version: 1,
+            transitionId: 'transition-1',
+            state: 'prepared',
+            workingCopyPath,
+            resultPath,
+            targetDocumentRevisionToken,
+            pdfBackupPath,
+            catalogBackupPath,
+            catalogBackupExisted: true,
+            catalogKind: 'v4-root',
+            descriptorPath: getOcrCatalogV4PreparedDescriptorPath(resultPath),
+        }));
+        await writeFile(`${workingCopyPath}.evb-revision.json`, JSON.stringify({
+            sidecarVersion: 1,
+            version: 1,
+            documentRef: workingCopyPath,
+            authority: 'electron-working-copy',
+            token: targetDocumentRevisionToken,
+            contentRevision: 2,
+            mintedAt: 1,
+            updatedAt: 1,
+        }));
+
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(true);
+        const committed = JSON.parse(await readFile(`${workingCopyPath}.ocr-transition.json`, 'utf8')) as Record<string, unknown>;
+        expect(committed).toMatchObject({
+            state: 'committed',
+            catalogKind: 'v4-root',
+            descriptorPath: getOcrCatalogV4PreparedDescriptorPath(resultPath),
+        });
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(false);
     });
 
     it('restores the absence of a catalog when OCR was first applied to the document', async () => {

@@ -124,7 +124,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
     }
 
     function preseedCachedSplitPayload(payload: TSplitPayload) {
-        if (payload.kind === 'pdfSnapshot' || payload.kind === 'djvu') {
+        if (payload.kind !== 'empty') {
             preseedSplitPayloadPaging(payload);
         }
     }
@@ -173,8 +173,8 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 hadPdfBeforeRestore: options.hasPdf.value,
-                payloadCurrentPage: payload.kind === 'pdfSnapshot' || payload.kind === 'djvu' ? payload.currentPage : null,
-                payloadTotalPages: payload.kind === 'pdfSnapshot' || payload.kind === 'djvu' ? payload.totalPages : null,
+                payloadCurrentPage: payload.kind !== 'empty' ? payload.currentPage : null,
+                payloadTotalPages: payload.kind !== 'empty' ? payload.totalPages : null,
                 preseededCurrentPage: options.currentPage.value,
                 preseededTotalPages: options.totalPages.value,
             });

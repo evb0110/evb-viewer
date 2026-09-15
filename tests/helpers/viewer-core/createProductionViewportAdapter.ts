@@ -4,11 +4,11 @@ import {
     createDocumentViewportNavigationMachineState,
     reduceDocumentViewportNavigationMachine,
     type TDocumentViewportNavigationEvent,
-} from '@app/utils/document-viewer/viewport/documentViewportNavigationMachine';
+} from '@app/modules/document-viewer/viewport/documentViewportNavigationMachine';
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
-} from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
+} from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 
 export function createProductionViewportAdapter() {
     let navigation = createDocumentViewportNavigationMachineState();

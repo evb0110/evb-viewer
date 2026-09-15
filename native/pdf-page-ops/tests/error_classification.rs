@@ -4,7 +4,8 @@ use std::{
     env,
     fs::{read, remove_file, write},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -28,84 +29,102 @@ impl<const N: usize> Drop for RemovePdfFilesOnDrop<N> {
     }
 }
 
+// A concurrent fork can retain a writable script descriptor until its exec,
+// even with CLOEXEC, and make Linux reject another exec with ETXTBSY.
+static FIXTURE_PROCESS_LOCK: Mutex<()> = Mutex::new(());
+
+fn run_command(command: &mut Command) -> Output {
+    let child = {
+        let _guard = FIXTURE_PROCESS_LOCK.lock().unwrap();
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    child.wait_with_output().unwrap()
+}
+
 fn run_page_sizes(input: &Path, output: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["page-sizes", "--input"])
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .output()
-        .unwrap()
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["page-sizes", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output),
+    )
 }
 
 fn run_page_geometry(input: &Path, output: &Path, page_number: u32) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["page-geometry", "--input"])
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .arg("--page")
-        .arg(page_number.to_string())
-        .output()
-        .unwrap()
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["page-geometry", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .arg("--page")
+            .arg(page_number.to_string()),
+    )
 }
 
 fn run_append(input: &Path, output: &Path, updates: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["update-note-text", "--input"])
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .arg("--updates-file")
-        .arg(updates)
-        .args(["--modified-at", "D:20260809120000Z", "--append"])
-        .output()
-        .unwrap()
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["update-note-text", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .arg("--updates-file")
+            .arg(updates)
+            .args(["--modified-at", "D:20260809120000Z", "--append"]),
+    )
 }
 
 fn run_save_mutations(input: &Path, output: &Path, mutations: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["save-mutations", "--input"])
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .arg("--mutations-file")
-        .arg(mutations)
-        .args(["--modified-at", "D:20260809120000Z", "--append"])
-        .output()
-        .unwrap()
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["save-mutations", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .arg("--mutations-file")
+            .arg(mutations)
+            .args(["--modified-at", "D:20260809120000Z", "--append"]),
+    )
 }
 
 fn run_crop(input: &Path, output: &Path, pages: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["crop", "--input"])
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .arg("--pages-file")
-        .arg(pages)
-        .args(["--top", "4", "--bottom", "3", "--left", "2", "--right", "1"])
-        .output()
-        .unwrap()
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["crop", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .arg("--pages-file")
+            .arg(pages)
+            .args(["--top", "4", "--bottom", "3", "--left", "2", "--right", "1"]),
+    )
 }
 
 #[cfg(unix)]
 fn run_pdf_conformance(input: &Path, output: &Path, qpdf: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["pdf-conformance", "--input"])
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .arg("--qpdf")
-        .arg(qpdf)
-        .output()
-        .unwrap()
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["pdf-conformance", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .arg("--qpdf")
+            .arg(qpdf),
+    )
 }
 
 #[cfg(unix)]
 fn write_fake_qpdf(qpdf: &Path, status: i32, structure: &str) {
     use std::os::unix::fs::PermissionsExt;
 
+    let _guard = FIXTURE_PROCESS_LOCK.lock().unwrap();
     let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
     write(qpdf, script).unwrap();
     let mut permissions = qpdf.metadata().unwrap().permissions();
@@ -573,22 +592,22 @@ fn save_mutations_cli_dispatches_text_box_and_identity_binding() {
     )
     .unwrap();
 
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["save-mutations", "--input"])
-        .arg(&input)
-        .arg("--output")
-        .arg(&output)
-        .arg("--mutations-file")
-        .arg(&mutations)
-        .args([
-            "--modified-at",
-            "D:20260831150000Z",
-            "--append",
-            "--identity-bindings-file",
-        ])
-        .arg(&identity_bindings)
-        .output()
-        .unwrap();
+    let result = run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["save-mutations", "--input"])
+            .arg(&input)
+            .arg("--output")
+            .arg(&output)
+            .arg("--mutations-file")
+            .arg(&mutations)
+            .args([
+                "--modified-at",
+                "D:20260831150000Z",
+                "--append",
+                "--identity-bindings-file",
+            ])
+            .arg(&identity_bindings),
+    );
     assert!(
         result.status.success(),
         "save-mutations failed: {}",
@@ -685,23 +704,20 @@ fn save_mutations_cli_accepts_legacy_text_box_alias() {
     )
     .unwrap();
 
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args([
-            "save-mutations",
-            "--input",
-            input.to_str().unwrap(),
-            "--output",
-            output.to_str().unwrap(),
-            "--mutations-file",
-            mutations.to_str().unwrap(),
-            "--modified-at",
-            "D:20260831150000Z",
-            "--append",
-            "--identity-bindings-file",
-            identity_bindings.to_str().unwrap(),
-        ])
-        .output()
-        .unwrap();
+    let result = run_command(Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops")).args([
+        "save-mutations",
+        "--input",
+        input.to_str().unwrap(),
+        "--output",
+        output.to_str().unwrap(),
+        "--mutations-file",
+        mutations.to_str().unwrap(),
+        "--modified-at",
+        "D:20260831150000Z",
+        "--append",
+        "--identity-bindings-file",
+        identity_bindings.to_str().unwrap(),
+    ]));
     assert!(
         result.status.success(),
         "legacy save-mutations failed: {}",

@@ -2,7 +2,7 @@ import {
     clampDocumentFitScale,
     clampDocumentManualZoom,
     type IDocumentZoomLimits,
-} from '@app/utils/document-viewer/zoomPolicy';
+} from '@app/modules/document-viewer/public';
 import type {
     TFitMode,
     TZoomMode,

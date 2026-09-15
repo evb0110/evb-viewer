@@ -442,7 +442,7 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';

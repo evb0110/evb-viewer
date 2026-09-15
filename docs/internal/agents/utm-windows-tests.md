@@ -28,12 +28,47 @@ probes UTM and its Automation consent, checks the golden image and caches,
 and never starts, stops, or modifies a VM.
 
 Use the prepared, hash-verified standalone `utmctl` under the host tools cache.
+
+If the guest agent is missing, read the native-input recovery section in
+docs/contributing/windows-tests/setup-and-repair.md before declaring computer
+use unavailable. The retained command is
+pnpm windows:test:provision --plan /absolute/path/to/.devkit/plan.json.
+It claims one clone from a before/after inventory, reuses the destructive
+identity guard before every UTM AppleScript input keystroke, input scan code,
+or input mouse click, and reports guest-agent and worker readiness separately.
+It never treats an input call as guest completion. Keep input text, UUIDs,
+bundle paths, and passwords out of output. A successful recovery needs a guest
+marker read and a fresh worker heartbeat, plus screenshot evidence when visual
+input verification is required. Delete the lab clone after the campaign and
+confirm the personal Windows VM remains stopped.
+Once the marker pull proves that the guest agent is available, use its file push,
+file pull, and exec operations for the worker bundle, the standard-account
+repair helper, task registration, startup, and diagnosis. Read
+`state/startup-validation.json`, `state/worker-logon.json`, and
+`state/heartbeat.json` from the guest. The worker requires a standard
+interactive account. `scripts/windows-test/guest/powershell/ensure-standard-test-user.ps1`
+repairs a copied image with an administrator-only account without weakening
+that worker check. A task registration or sent input is not a heartbeat.
 Running the executable inside `UTM.app` registers each CLI process as a foreground
 application on this Mac and produces a recurring second UTM Dock icon. A symlink
 resolves back into the app bundle. Preparation must copy the signed executable
 without changing its bytes; doctor must reject a missing or stale copy. Read
 [the transport investigation](../research/utm-windows-live-transport-2026-09-05.md)
 when diagnosing Dock activity, false zero exits, or VM lookup failures.
+
+For a copied image whose Group Policy Startup directory is absent, use the
+SYSTEM route in the setup and repair guide. Stage the checked-in
+`install-system-bootstrap.cmd`, `system-bootstrap-worker.cmd`,
+`start-worker.cmd`, worker bundle, Node archive, account secret, and startup
+INI through the guarded provision CLI. The installer creates the missing
+directory and runs the account and on-logon setup as SYSTEM. Pull the SYSTEM,
+task, launch, and heartbeat markers after every reboot. A marker or a task
+registration is not worker readiness. The guide records the current live gap,
+including the case where the guest agent does not return after reboot.
+The SYSTEM payload disables Windows 11 passwordless-device enforcement and
+first-logon screens, removes `AutoLogonCount`, records `query user` on the
+next startup pass, and installs a profile Startup launcher as the fallback
+when an interactive session exists but the on-logon task does not fire.
 
 Keep one UTM app instance running before invoking doctor, run, or stop. The
 runner checks its executable, PID, and start time before Apple Events commands
@@ -85,6 +120,11 @@ separately. Do not mark that review done from a machine result.
   `~/Library/Application Support/EVBViewerWindowsTests/`, outside every
   checkout. Do not put them under `.devkit`, and do not prune that root as
   part of workspace hygiene.
+- Windows lab images take tens of gigabytes on a shared workstation disk.
+  When a Windows campaign finishes, pass or fail, delete every clone it
+  created and the lab golden image under the test-image root, then confirm
+  the space came back with `df`. The next campaign provisions a fresh image.
+  Keep an image only when the user asks for it in the current request.
 - Diagnostic and provisioning helpers must apply the same existing-process
   guard as the runner before every UTM Apple Event. A raw `utmctl file pull`
   can relaunch UTM after a crash. Never use retry loops that reopen the app.

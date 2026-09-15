@@ -229,7 +229,7 @@ BASELINE CORRECTION (applies to every prior plan built on the scouted facts)
 
 1.13 MEDIUM — OCR preprocessing inherits CleanupOptions::default() from the same binary that
      R11/R13 binarization tuning is actively changing, with no OCR-side oracle.
-     Evidence: electron/ocr/worker/tryPreprocessOcrImage.ts:85-97 passes only
+     Evidence: electron/features/ocr/worker/tryPreprocessOcrImage.ts:85-97 passes only
      `--ocr-mode --options {"dpi":…}`; native/scan-cleanup/src/adapters/batch_cli.rs:419-426
      defaults everything else; domain/options.rs:500-505 (binarization Auto,
      normalize_illumination true, despeckle true, output Bw). ocr_mode gates only page-size and

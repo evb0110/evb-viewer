@@ -782,6 +782,11 @@ pub(crate) struct TextLayerInstruction {
     /// filter show operators by their positioned origin in target-page space.
     #[serde(default)]
     pub(crate) filter_to_output_page: bool,
+    /// Tesseract's Greek OCR output uses U+00B5 for Greek mu in its PDF text
+    /// stream. The glyph-less Identity-H font makes the CID the Unicode
+    /// scalar, so normalize that scalar before embedding the stream.
+    #[serde(default)]
+    pub(crate) normalize_greek_micro_sign: bool,
 }
 
 /// Scales the source page's own content into the output page box, so a page

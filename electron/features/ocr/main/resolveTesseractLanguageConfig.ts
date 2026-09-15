@@ -44,6 +44,11 @@ export function resolveTesseractLanguageConfig(
     options: ITesseractLanguageConfigOptions = {},
 ): ITesseractLanguageConfig {
     const deduped = uniq(compact(languages));
+    // The Cyrillic model asks Tesseract to load srp_latn implicitly. EVB exposes
+    // Serbian Cyrillic, so keep that unselected recognizer out of the run.
+    if (deduped.includes('srp')) {
+        deduped.push('~srp_latn');
+    }
     const hasRtl = deduped.some(isRtlOcrLanguage);
 
     if (!hasRtl) {

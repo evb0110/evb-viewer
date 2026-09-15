@@ -150,6 +150,15 @@ Copying does not remove personal files, credentials, or inherited settings.
    choose a personal-account autologon. If automatic sign-in for the isolated
    lab account is not configured, runs after a reset are assisted and the
    ledger's M0a gate stays open.
+
+   If a copied image has only an administrator account, use the retained
+   `scripts/windows-test/guest/powershell/ensure-standard-test-user.ps1` helper
+   from an elevated guest-agent command or an elevated PowerShell opened by the
+   native-input route. Pipe a disposable password to its standard input. The
+   helper prints only the account name and `standard=true`, removes the account
+   from Administrators, and adds it to Users. Sign out and sign in as that
+   account before registering or starting the worker. The worker's administrator
+   token refusal remains enabled.
 7. Keep the baseline device layout stable. The lab booted with Intel HD Audio,
    stalled in firmware after removing that device, and booted again after
    restoring it. Endpoint mute reported success but the user still heard
@@ -162,6 +171,33 @@ Copying does not remove personal files, credentials, or inherited settings.
    `images/baselines/`. Write `images/baselines/<goldenImageId>.json` with the
    observed identity and configuration below. Set `goldenVmId` and
    `goldenImageId` in the host config.
+
+   Before promotion, verify the Drive entries without printing full paths:
+
+   ```sh
+   plutil -convert json -o - "/absolute/path/to/<golden>.utm/config.plist" \
+     | jq '[.Drive[] | {interface: .Interface, removable: (.Removable // false), imageName: (.ImageName // "" | split("/")[-1] | split("\\\\")[-1])}]'
+   ```
+
+   With every VM stopped and UTM quit normally, back up `config.plist`. Remove
+   only removable or CD entries with no image, or entries whose image is
+   outside the bundle. Delete Drive entries from the highest index first so
+   later indices do not move. For example, this removes two empty CD entries
+   at indices 2 and 0 while preserving the system disk:
+
+   ```sh
+   cp -p "/absolute/path/to/<golden>.utm/config.plist" \
+     "/absolute/path/to/<golden>.utm/config.plist.pre-media-removal.bak"
+   /usr/libexec/PlistBuddy \
+     -c 'Delete :Drive:2' \
+     -c 'Delete :Drive:0' \
+     "/absolute/path/to/<golden>.utm/config.plist"
+   ```
+
+   Run the redacted Drive listing again. Confirm that every remaining
+   `ImageName` is a basename inside the bundle, that the bundle has no
+   symbolic links, and that `pnpm windows:test:doctor` passes before changing
+   the golden-image fields.
 8. Run `pnpm windows:test:doctor` again. The golden VM must be stopped and
    registered.
 
@@ -188,8 +224,13 @@ keep qualification fields null until the ledger's cold-reset checks pass.
 }
 ```
 
-After updating the runner, prepare the host files again and refresh the worker
-copy in the lab image before requalifying it. `prepare` changes host files only.
+After updating the runner, run `prepare` to rebuild the host worker bundle.
+Before publishing a job, the runner compares that bundle with the worker on
+its disposable clone. If the SYSTEM bootstrap copies a seed bundle on every
+boot, the runner refreshes that seed. Otherwise it refreshes the installed
+bundle. A mismatch triggers a verified copy and a guarded clone reboot. The
+runner then requires a fresh interactive heartbeat and checks the installed
+bundle hash again before staging the job. The golden image stays unchanged; `prepare` changes host files only.
 
 ## Candidate artifacts
 
@@ -214,6 +255,136 @@ pnpm windows:test:doctor
 pnpm windows:test --suite critical
 pnpm windows:test:report --run RUN_ID
 ```
+
+### Native-input provisioning recovery
+
+Use the retained windows:test:provision command when a stopped or newly
+copied QEMU VM has no QEMU guest agent. This route needs a logged-in Aqua
+session, UTM Automation consent for the launcher, enough free space for one
+clone, and Screen Recording permission if screenshots are part of the
+qualification. The clone must be registered under a test-only name, have its
+bundle inside testImageRoot, and be claimed from one before/after UTM
+inventory. The personal VM named Windows is never an owned target. A one-time
+campaign authorization to copy it does not change this reusable policy.
+
+Create a local-only plan under .devkit with vmId, bundlePath, beforeVmIds, and
+steps. The step kinds are scanCodes, keystroke, mouseClick, pushFile, and
+pullEvidence. Keep the plan
+out of commits and logs. Run:
+
+~~~sh
+pnpm windows:test:provision --plan /absolute/path/to/.devkit/windows-provision-plan.json
+~~~
+
+The command rechecks the existing identity guard before every event. It sends
+only UTM's QEMU native AppleScript input commands, using an exact claimed UUID.
+keystroke text must be ASCII. The command prints step numbers and two readiness
+fields only. A pushFile step stages a command or secret through the guest file
+channel. A later keystroke runs the pushed script with all output redirected to
+a guest result file, and pullEvidence retrieves that file. It never prints
+input text, UUIDs, bundle paths, passwords, or evidence payloads.
+
+guestAgentAvailable is true only when the existing guest channel can read the
+lab marker through QEMU guest agent transport. workerReady is true only when
+that transport can read a current worker heartbeat. Input delivery does not
+make either state ready. After each input event, take a fresh screenshot of the
+clone's UTM window and inspect it before sending the next event. Resolve the
+window by its registered test-only display name. If capture fails, grant Screen
+Recording to the launcher and record that infrastructure gap rather than
+claiming a guest state.
+
+For the missing-agent branch, first observe guestAgentAvailable=false. Use
+native input to sign in, open an elevated PowerShell with Win+R and
+Ctrl+Shift+Enter, then run a short command that downloads or reads the
+prepared recovery script from the lab's approved host-served URL or UTM
+shared directory. That script installs QEMU guest agent, creates the marked
+guest directories, installs the pinned Windows Node runtime, copies the
+prepared worker and PowerShell helpers, and registers
+register-worker-logon-task.ps1. Reboot or sign out and back in as required.
+The flow is complete only after the guest channel reads the marker and the
+worker publishes a fresh heartbeat. If the marker becomes readable but the
+heartbeat does not, report guestAgentAvailable=true and workerReady=false and
+repair the worker separately.
+
+When the agent is available, stop using native typing for file transfer and
+diagnosis. Run `utmctl file push` for the prepared worker and
+`ensure-standard-test-user.ps1`, then run the registration and start commands
+with `utmctl exec`. Pull `state/startup-validation.json`,
+`state/worker-logon.json`, and `state/heartbeat.json` with `utmctl file pull`.
+The first file records account, desktop, marker, and policy failures. A
+heartbeat is the only evidence that the worker is ready. A successful task
+registration or a delivered input event does not count.
+
+Before any account change or reboot, run the allowlisted
+`ensure-guest-agent-service.ps1` helper through `utmctl exec`. It checks the
+installed service, sets `qemu-ga` to Automatic, applies restart actions for
+failures, and returns bounded service metadata plus event IDs from the System
+log. Do not copy event message text into host output. If the service is not
+installed, return to the missing-agent native-input branch and install it
+before continuing.
+
+For a no-logon recovery, the retained `scripts/windows-test/guest/autostart-worker.cmd`
+and `machine-startup-scripts.ini` can be pushed into the Windows Startup and
+Group Policy Machine Startup locations. The command writes
+`state/autostart-marker.json` before launching Node. Push the worker bundle and
+Node archive beside the command, stop and start the clone, then use bounded
+marker and heartbeat pulls. Empty or merely readable files are not success;
+the marker content must identify the attempted stage.
+
+Successful evidence consists of the redacted provisioning output, fresh
+screenshots for each input step, the guest marker read, a fresh heartbeat with
+the Windows build and architecture, and the normal run evidence under
+runs/<RUN_ID>/. Do not preserve a failed lab clone after the campaign. Stop
+it, delete it through the owned target path, confirm no test clone remains, and
+check free space with df. Confirm the original Windows VM is stopped and was
+not modified.
+
+## Decision path
+
+0. Never delete a VM by hand or invoke `utmctl delete` directly. Lab cleanup
+   must go through the runner teardown command, which checks ownership and
+   refuses the configured golden VM and every bundle under `images/baselines`.
+   If teardown refuses a target, stop and preserve the evidence for review.
+
+1. Run `pnpm windows:test:prepare`. Pass when the standalone `utmctl` copy and
+   metadata verify. If it fails, repair preparation and stop before polling.
+2. Resolve the clone from the structured local session identity. Pass when its
+   bundle UUID and name match exactly one registered test VM. If identity or
+   registration is ambiguous, stop without sending UTM commands.
+3. Run the read-only screen and input-capture check before native input. Pass
+   when the UTM window is identified and `Capture Input` is off. If screen
+   capture fails, record the exact host permission error, request Screen
+   Recording, and continue only with guest-agent evidence. Never infer guest
+   login from a native input call returning successfully.
+4. Boot or observe the owned clone, then pull the lab marker and boot token
+   with the prepared standalone `utmctl`. Pass when the QEMU guest agent
+   answers and the marker is non-empty. If the pull fails or is empty, inspect
+   the guest-agent service through the supported evidence path before retrying.
+5. Pull the heartbeat and boot token again. Pass only when the shared fresh
+   interactive heartbeat check finds the current boot ID, matching lab marker,
+   nonzero interactive session, Default desktop, and unlocked state, with a
+   timestamp after this run. If it fails, pull bootstrap records, task output,
+   worker stderr, and extraction evidence. Do not change logon settings until
+   those records identify the first failed step.
+6. Stage bootstrap files with verified push and host readback, or use the
+   configured input media batch. Pass when every expected hash matches in the
+   guest. If a hash differs, stop the run and preserve the evidence.
+7. After fresh worker readiness, run the requested WIN-SAVE matrix. If the
+   minimal `cmd.exe` guest-exec probe does not complete, record that as the
+   first failing operation and leave the matrix unqualified.
+
+## Observed qualification status
+
+The prepared standalone `utmctl` path and the retained clone identity checks
+work. The clone is registered and running. Guest file pulls complete, but the
+returned state files are zero bytes. The first failing live operation is a
+minimal `cmd.exe` guest-exec probe that does not complete. No fresh worker
+heartbeat or WIN-SAVE measurement exists.
+
+Screen capture is denied on this host with `could not create image from
+display`. Record that host limitation and continue with guest-agent evidence;
+it does not prove anything about guest login. Native input calls and absent
+markers are not readiness evidence.
 
 Every run copies the complete stopped lab bundle into the configured test-image
 root, assigns a new UUID and network MAC addresses, imports it into UTM, and boots it.
@@ -241,7 +412,10 @@ The Windows lane keeps the host keyboard and mouse available throughout a run.
 The launcher compiles and runs the checked-in macOS Accessibility probe
 `scripts/windows-test/host/utmInputCaptureProbe.swift`. After every owned clone
 starts, it finds that clone's UTM window by the registered display name and
-reads the supported `Capture Input` toolbar checkbox. A checked control is
+reads the supported `Capture Input` toolbar checkbox. A narrow window can hide
+that checkbox in UTM's toolbar overflow menu. The probe widens only the owned
+clone window through Accessibility before reading it, without activating UTM
+or clicking the capture control. A checked control is
 released with UTM's documented Command+Option chord, then read again. The
 launcher does not click the checkbox and does not send guest keyboard or mouse
 events through the host.
@@ -256,6 +430,17 @@ records `before`, `after`, UTM PID, frontmost PID, and `hostInputAvailable` in
 and keep both records with the run evidence. Both records must report
 `after: 0` and `hostInputAvailable: true`. Never proceed from a screenshot or
 from a unit-test result alone.
+The corresponding `input-capture-release-command.json` and
+`input-capture-restore-command.json` retain stdout, stderr, exit code, signal,
+and timeout status, including when a probe fails before producing a state record.
+Later probes in the same run receive numbered suffixes, so a worker-refresh
+reboot preserves both boots' input checks.
+
+A teardown failure can leave a stopped clone registered even if an older run
+summary says `retainedClone: false`. Run `windows:test:stop --run RUN_ID` to
+recover its stale lease, then run it again to remove the stopped clone. Cleanup
+checks current registration and bundle identity and still refuses the golden
+and baseline images.
 
 ## Repair
 

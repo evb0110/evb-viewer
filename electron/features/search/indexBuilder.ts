@@ -16,9 +16,11 @@ import {
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
     OCR_TEXT_LAYER_INDEX_VERSION,
-    buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
-import { assembleSearchablePageText } from '@contracts/search';
+import {
+    assembleSearchablePageText,
+    buildOcrTextLayerIndexText,
+} from '@pdf-core';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { extractTextFromPdf } from '@electron/features/search/extractTextFromPdf';
 import type { IExtractPdfjsTextOptions } from '@electron/features/search/extractTextWithPdfjs';

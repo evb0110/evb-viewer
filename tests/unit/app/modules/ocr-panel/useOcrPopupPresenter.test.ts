@@ -29,12 +29,13 @@ import type {
 } from '@app/utils/ocr/ocrTypes';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
 const getDebugLogsMock = vi.hoisted(() => vi.fn());
 const browserLoggerWarnMock = vi.hoisted(() => vi.fn());
-const getOcrCapabilityMock = vi.hoisted(() => vi.fn());
+const resolveDocumentOcrAvailabilityMock = vi.hoisted(() => vi.fn());
 const timeoutStartMock = vi.hoisted(() => vi.fn());
 const timeoutStopMock = vi.hoisted(() => vi.fn());
 const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => {
@@ -59,8 +60,11 @@ vi.mock('@vueuse/core', () => ({
         stop: timeoutStopMock,
     }),
 }));
-vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({getDebugLogs: getDebugLogsMock})}));
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: getOcrCapabilityMock}));
+const platformApi = createElectronPlatformApiFixture({
+    settings: {getDebugLogs: getDebugLogsMock},
+    ocr: {resolveDocumentOcrAvailability: resolveDocumentOcrAvailabilityMock},
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
 const { useOcrPopupPresenter } = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
@@ -138,6 +142,7 @@ function createOcrMock() {
     const cancelOcr = vi.fn<() => Promise<IOcrCancelResult>>(async () => ({canceled: true}));
     return {
         availableLanguages: languages,
+        languageLoadState: ref<'idle' | 'loading' | 'ready' | 'error'>('ready'),
         settings,
         activeRunSettings,
         lastCompletedRunSettings,
@@ -255,7 +260,7 @@ describe('useOcrPopupPresenter', () => {
             message: 'trace line',
             timestamp: '2026-06-28T00:00:00.000Z',
         }]);
-        getOcrCapabilityMock.mockReturnValue({resolveDocumentOcrAvailability: vi.fn().mockResolvedValue({needsReOcr: false})});
+        resolveDocumentOcrAvailabilityMock.mockResolvedValue({needsReOcr: false});
     });
 
     afterEach(() => {
@@ -280,12 +285,7 @@ describe('useOcrPopupPresenter', () => {
                 open: true,
                 pageRange: 'custom',
                 customRange: '2-5',
-                languages: [
-                    ' rus ',
-                    'eng',
-                    'missing',
-                    'eng',
-                ],
+                languages: [' rus '],
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
@@ -297,10 +297,7 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.ocr.settings.value).toMatchObject({
                 pageRange: 'custom',
                 customRange: '2-5',
-                selectedLanguages: [
-                    'rus',
-                    'eng',
-                ],
+                selectedLanguages: ['rus'],
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
@@ -324,10 +321,7 @@ describe('useOcrPopupPresenter', () => {
                 ok: true,
                 ocr: {
                     hasResults: true,
-                    selectedLanguages: [
-                        'rus',
-                        'eng',
-                    ],
+                    selectedLanguages: ['rus'],
                 },
             });
             expect(harness.presenter.showSuccessState.value).toBe(false);
@@ -336,6 +330,42 @@ describe('useOcrPopupPresenter', () => {
             await nextTick();
             expect(harness.presenter.showSuccessState.value).toBe(true);
             expect(harness.presenter.viewState.value).toBe('results');
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('preserves multiple selected languages and runs them together', async () => {
+        const harness = createPresenterHarness();
+        harness.ocr.settings.value = {
+            ...harness.ocr.settings.value,
+            selectedLanguages: [
+                'eng',
+                'rus',
+            ],
+        };
+
+        harness.ocr.runOcr.mockImplementation(async () => {
+            setSearchableResult(harness.ocr, 'req-multilingual', '/tmp/multilingual.pdf');
+        });
+
+        try {
+            await nextTick();
+            expect(harness.presenter.selectedLanguagesModel.value).toEqual([
+                'eng',
+                'rus',
+            ]);
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+            expect(harness.presenter.languagePickerItems.value.filter(item => item.group === 'selected'))
+                .toHaveLength(2);
+
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({ok: true});
+            expect(harness.ocr.runOcr).toHaveBeenCalledTimes(1);
+
+            harness.presenter.selectedLanguagesModel.value = ['rus'];
+            expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
+            harness.presenter.selectedLanguagesModel.value = [];
+            expect(harness.presenter.canRunOcr.value).toBe(false);
         } finally {
             stopHarness(harness.scope);
         }
@@ -401,7 +431,7 @@ describe('useOcrPopupPresenter', () => {
 
     it('offers a full OCR rebuild when the catalog was quarantined', async () => {
         const resolveDocumentOcrAvailability = vi.fn().mockResolvedValue({needsReOcr: true});
-        getOcrCapabilityMock.mockReturnValue({resolveDocumentOcrAvailability});
+        resolveDocumentOcrAvailabilityMock.mockImplementation(resolveDocumentOcrAvailability);
         const harness = createPresenterHarness();
 
         try {
@@ -531,6 +561,13 @@ describe('useOcrPopupPresenter', () => {
 
         try {
             expect(harness.ocr.settings.value.supersessionPolicy).toBe('missing-only');
+            expect(harness.presenter.supersessionChoiceModel.value).toBe('missing-only');
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+
+            harness.presenter.supersessionChoiceModel.value = 'repeat';
+            await nextTick();
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('replace-evb');
+            expect(harness.presenter.replaceOnlyEvbModel.value).toBe(true);
             expect(harness.presenter.canRunOcr.value).toBe(true);
 
             harness.ocr.settings.value = {
@@ -568,6 +605,20 @@ describe('useOcrPopupPresenter', () => {
             };
             await nextTick();
             expect(harness.ocr.settings.value.replaceAllAcknowledged).toBe(false);
+
+            harness.presenter.replaceOnlyEvbModel.value = false;
+            await nextTick();
+            expect(harness.ocr.settings.value).toMatchObject({
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: false,
+            });
+
+            harness.presenter.supersessionChoiceModel.value = 'missing-only';
+            await nextTick();
+            expect(harness.ocr.settings.value).toMatchObject({
+                supersessionPolicy: 'missing-only',
+                replaceAllAcknowledged: false,
+            });
         } finally {
             stopHarness(harness.scope);
         }

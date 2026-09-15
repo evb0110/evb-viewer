@@ -42,6 +42,8 @@
     "generate:build-artifacts": "node --import tsx scripts/generateBuildArtifacts.ts",
     "preview": "pnpm exec nuxi preview",
     "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs && pnpm run check:electron:install",
+    "fetch:runtime-binaries": "node --import tsx scripts/fetchRuntimeBinaries.ts",
+    "pack:runtime-binary-archives": "bash scripts/packRuntimeBinaryArchives.sh",
     "copy:pdfjs": "node scripts/copy-pdfjs-assets.mjs && node scripts/sync-pdfjs-viewer-css.mjs",
     "verify:pdfjs-provenance": "node scripts/verify-pdfjs-provenance.mjs",
     "typecheck": "node scripts/run-nuxt-typecheck.mjs && node scripts/run-workspace-package-typecheck.mjs --all",
@@ -88,7 +90,6 @@
     "worktrees:prune": "node scripts/worktrees-prune.mjs",
     "electron:run:headless": "bash scripts/electron-run-headless.sh",
     "diag:pdf-navigation-blink-trace": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts",
-    "diag:ocr-profile-benchmark": "python3 scripts/devkit/ocr-profile-benchmark.py",
     "test:ocr:native-smoke:required": "EVB_OCR_NATIVE_SMOKE_REQUIRED=1 node scripts/test-ocr-native-smoke.mjs",
     "test:ocr:quality:required": "EVB_OCR_QUALITY_REQUIRED=1 node scripts/test-ocr-quality-corpus.mjs",
     "diag:pdf-skeleton-navigation": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts",
@@ -104,6 +105,7 @@
     "stress": "pnpm run build:electron && pnpm exec tsx scripts/stress/runStress.ts",
     "stress:fixtures": "pnpm exec tsx scripts/stress/runStress.ts --fixtures-only",
     "stress:replay": "pnpm run build:electron && pnpm exec tsx scripts/stress/replayStress.ts",
+    "diag:save-witness-matrix": "pnpm exec tsx scripts/save-witness/runSaveWitnessMatrix.ts",
     "benchmark:save-pipeline": "node scripts/benchmark-save-pipeline.mjs",
     "dist": "node scripts/check-dev-environment.mjs --strict && pnpm run build:desktop && electron-builder",
     "release:verify:checks": "node scripts/release/verify-local-checks.mjs",
@@ -134,8 +136,9 @@
     "windows:test:doctor": "node --import tsx scripts/windows-test/cli/runWindowsTestDoctorCli.ts",
     "windows:test:report": "node --import tsx scripts/windows-test/cli/runWindowsTestReportCli.ts",
     "windows:test:stop": "node --import tsx scripts/windows-test/cli/runWindowsTestStopCli.ts",
+    "windows:test:provision": "node --import tsx scripts/windows-test/cli/runWindowsTestProvisionCli.ts",
     "preversion": "pnpm run check:resources:matrix",
-    "prepare": "pnpm run generate:build-artifacts && husky"
+    "prepare": "pnpm run fetch:runtime-binaries --if-published && pnpm run generate:build-artifacts && husky"
   },
   "lint-staged": {
     "!(*.config).{ts,mts,vue}": "eslint --fix --max-warnings=0 --no-warn-ignored",
@@ -159,7 +162,7 @@
     "fast-png": "^8.0.0",
     "h3": "1.15.11",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
+    "pdfjs-dist": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz",
     "utif": "^3.1.0",
     "vue": "3.5.41"
   },

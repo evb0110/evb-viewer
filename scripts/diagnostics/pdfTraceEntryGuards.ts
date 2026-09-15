@@ -1,5 +1,7 @@
-import type { IPdfNavLogEntry } from '@app/utils/logPdfNav';
-import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import type {
+    IPdfNavLogEntry,
+    IPdfRenderTraceEntry,
+} from '@contracts/pdfDiagnostics';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;

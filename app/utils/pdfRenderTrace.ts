@@ -1,13 +1,10 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 
 const PDF_RENDER_TRACE_SECTION = 'pdf-render-trace';
 const PDF_RENDER_TRACE_BUFFER_LIMIT = 20_000;
 
 type TPdfRenderTracePayload = Record<string, unknown> | (() => Record<string, unknown>);
-export interface IPdfRenderTraceEntry {
-    event: string;
-    payload: Record<string, unknown>;
-}
 
 type TPdfRenderTraceWindow = Window & {
     __pdfRenderTrace?: boolean;

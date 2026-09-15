@@ -15,7 +15,7 @@ import {
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { writeOcrIndexV3 } from '@electron/ocr/worker/indexWriter';
+import { writeOcrIndexV3 } from '@electron/features/ocr/worker/indexWriter';
 import {
     NATIVE_COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER as COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
     loadNativeCompactSearchIndex as loadCompactSearchIndex,

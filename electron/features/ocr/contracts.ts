@@ -1,7 +1,6 @@
 import { getErrorMessage } from '@electron/utils/error';
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { isOneOf } from '@contracts/runtimeGuards';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
@@ -31,7 +30,7 @@ interface IOcrCreateSearchablePdfPayload {
     options: IOcrSearchablePdfOptions;
 }
 
-const MAX_LANGUAGES_PER_PAGE = 16;
+const MAX_LANGUAGES_PER_PAGE = AVAILABLE_OCR_LANGUAGE_CODES.size;
 const MAX_BATCH_PAGES = 5_000;
 const OCR_PAGE_REQUEST_BATCH_SIZE = MAX_BATCH_PAGES;
 const MAX_SELECTION_RANGES = 100_000;
@@ -47,12 +46,6 @@ const OCR_PREPROCESSING_MODES = [
     'off',
     'clean',
 ] as const satisfies readonly TOcrPreprocessingMode[];
-const MAX_UNIQUE_LANGUAGES_PER_JOB = parseIntegerEnv(
-    'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
-    AVAILABLE_OCR_LANGUAGE_CODES.size,
-    1,
-    AVAILABLE_OCR_LANGUAGE_CODES.size,
-);
 
 export interface IOcrPageRange extends IOcrSearchablePdfPageRange {
     firstPage: number;
@@ -337,23 +330,6 @@ function asLanguages(value: unknown, fieldName: string) {
     return unique;
 }
 
-function assertUniqueLanguageBudget(
-    pages: Array<{ languages: string[] }>,
-    fieldName: string,
-) {
-    const uniqueLanguages = new Set<string>();
-    for (const page of pages) {
-        for (const language of page.languages) {
-            uniqueLanguages.add(language);
-            if (uniqueLanguages.size > MAX_UNIQUE_LANGUAGES_PER_JOB) {
-                throw new OcrPayloadValidationError(
-                    `${fieldName} exceed maximum unique language count (${MAX_UNIQUE_LANGUAGES_PER_JOB})`,
-                );
-            }
-        }
-    }
-}
-
 function asCreatePdfPageRequest(payload: unknown, fieldName: string): IOcrSearchablePdfPage {
     if (!payload || typeof payload !== 'object') {
         throw new OcrPayloadValidationError(`${fieldName} must be an object`);
@@ -407,7 +383,6 @@ function asSearchablePdfPageSelection(
         }
         const pages = pagesPayload.map((page, index) =>
             asCreatePdfPageRequest(page, `${fieldName}[${index}]`));
-        assertUniqueLanguageBudget(pages, fieldName);
         return pages;
     }
 

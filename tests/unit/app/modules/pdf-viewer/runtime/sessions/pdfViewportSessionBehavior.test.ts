@@ -26,11 +26,12 @@ import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engin
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import { createDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { fenceDocumentViewportPaneRelocationScroll } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
@@ -128,12 +129,12 @@ function createDocumentFixture(pageCount = 100) {
 }
 
 function createChassisAuthority(surface: IDocumentOpenSurfaceSession) {
-    return createDocumentViewerChassisAuthority(ref('pdf'), 1, surface);
+    return createDocumentViewerRuntime(ref('pdf'), 1, surface);
 }
 
 function createViewportFixture(input: {
     bufferPages?: number;
-    chassisAuthority?: IDocumentViewerChassisAuthority;
+    chassisAuthority?: IDocumentViewerRuntime;
     continuousScroll?: boolean;
     fitMode?: Ref<'width' | 'height'>;
     isActive?: Ref<boolean>;
@@ -498,7 +499,10 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('retains the physical viewport raster while a distant navigation target paints', async () => {
+    it.each([
+        'wheel',
+        'scroll',
+    ] as const)('retains the physical raster until %s supersedes a distant navigation', async (interaction) => {
         const fixture = createViewportFixture({
             bufferPages: 0,
             isPageFreshlyRenderedForNavigation: () => false,
@@ -518,6 +522,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.markPageMounted(requirePageNumber(1));
             fixture.viewport.markPageMounted(requirePageNumber(64));
 
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
             await vi.waitFor(() => {
                 expect(fixture.viewport.demand.value.requiredPages).toContain(64);
@@ -526,6 +531,15 @@ describe('PdfViewportSession behavior', () => {
                 1,
                 64,
             ]));
+            const cancellationRevision = fixture.viewport.cancelRasterRevision.value;
+            if (interaction === 'wheel') {
+                fixture.viewport.markUserViewportInteraction();
+            } else {
+                fixture.container.scrollTop = 200;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            }
+            expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision + 1);
+
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             fixture.app.unmount();
@@ -640,6 +654,81 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
             expect(fixture.emittedPages.at(-1)).toBe(fixture.viewport.currentPage.value);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('does not publish a pane-deactivation scroll reset as user navigation', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            fixture.container.scrollTop = 300;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            setCurrentPage(fixture.viewport, 4);
+            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const committedAnchor = fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value;
+            const visibleRange = {...fixture.viewport.visibleRange.value};
+            expect(committedAnchor?.page).toBe(4);
+
+            fixture.isActive.value = false;
+            await nextTick();
+            fixture.container.scrollTop = 0;
+            fenceDocumentViewportPaneRelocationScroll(fixture.container);
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value).toBe(committedAnchor);
+            expect(fixture.viewport.currentPage.value).toBe(4);
+            expect(fixture.viewport.visibleRange.value).toEqual(visibleRange);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('keeps an inactive pane user scroll authoritative after relocation is fenced', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            fixture.container.scrollTop = 300;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            setCurrentPage(fixture.viewport, 4);
+            fixture.isActive.value = false;
+            await nextTick();
+            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const previousAnchor = fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value;
+
+            fixture.container.scrollTop = 700;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch + 1);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value).not.toBe(previousAnchor);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority
+                .committedAnchor.value?.page).toBeGreaterThan(4);
         } finally {
             fixture.app.unmount();
         }

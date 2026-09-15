@@ -120,7 +120,11 @@ function parseWaitForJobMs(raw: string) {
     return parsed;
 }
 
-function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv): IGuestWorkerAdapters {
+export function defaultWinappExecutableForRoot(root: string) {
+    return `${root.replace(/[\\/]+$/u, '')}\\tools\\winapp\\winapp.exe`;
+}
+
+function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv, winappExecutable: string): IGuestWorkerAdapters {
     return {
         createNativeUiAdapter: ({
             exec,
@@ -134,9 +138,7 @@ function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv): IGuestWorkerAdapters {
             : createWinappCliAdapter({
                 exec,
                 clock,
-                ...(env.EVB_WINDOWS_TEST_WINAPP_EXECUTABLE === undefined
-                    ? {}
-                    : { executable: env.EVB_WINDOWS_TEST_WINAPP_EXECUTABLE }),
+                executable: env.EVB_WINDOWS_TEST_WINAPP_EXECUTABLE ?? winappExecutable,
             })),
         createViewerFactory: ({
             clock,
@@ -177,7 +179,7 @@ export async function guestWorkerMain(argv: readonly string[], env: NodeJS.Proce
             exec: createNodeGuestCommandRunner(),
             clock: nodeGuestClock,
             paths: layout,
-            adapters: nodeGuestWorkerAdapters(env),
+            adapters: nodeGuestWorkerAdapters(env, defaultWinappExecutableForRoot(root)),
             env,
             powerShellScriptsDirectory: joinGuestPath(
                 WINDOWS_GUEST_PATH_SEPARATOR,

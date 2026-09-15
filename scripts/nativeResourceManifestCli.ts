@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
     getNativeSourceMatrixCheckEntries,
     NATIVE_RESOURCE_PLATFORM_ARCHES,
-    type TNativeSourceMatrixCheckEntry,
+    type INativeSourceMatrixCheckEntry,
 } from '@scripts/nativeResourceManifest';
 
 const requireScript = createRequire(import.meta.url);
@@ -13,15 +13,7 @@ const {renderPackagedEntries} = requireScript(
     './release/generated-release-targets.cjs',
 ) as {renderPackagedEntries: (tag: string) => string};
 
-export function formatNativeSourceMatrixCliEntry(entry: TNativeSourceMatrixCheckEntry) {
-    if (entry.kind === 'skip') {
-        return [
-            'skip',
-            entry.label,
-            entry.reason,
-        ].join('\t');
-    }
-
+export function formatNativeSourceMatrixCliEntry(entry: INativeSourceMatrixCheckEntry) {
     return [
         entry.type,
         entry.path,

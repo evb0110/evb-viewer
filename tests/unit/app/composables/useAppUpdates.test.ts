@@ -5,22 +5,24 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    IAppUpdateStatus,
-    IUpdatesCapability,
-} from '@contracts/updatesPlatformFeature';
+import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
+import {
+    BROWSER_PLATFORM_MANIFEST,
+    type IPlatformApi,
+} from '@contracts/platformApi';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 
-type TUpdatesCapability = IUpdatesCapability | undefined;
-
-const getUpdatesCapabilityMock = vi.hoisted(() => vi.fn<() => TUpdatesCapability>());
-const isUpdatesCapabilitySupportedMock = vi.hoisted(() => vi.fn((status: IAppUpdateStatus) => status.phase !== 'unsupported'));
 const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/platformUpdates', () => ({
-    getUpdatesCapability: getUpdatesCapabilityMock,
-    isUpdatesCapabilitySupported: isUpdatesCapabilitySupportedMock,
-}));
+const browserPlatformApi = createPlatformApiFixture({
+    backend: 'browser',
+    manifest: BROWSER_PLATFORM_MANIFEST,
+    overrides: {updates: undefined},
+});
+let platformApi: IPlatformApi = createElectronPlatformApiFixture();
+
+vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => platformApi }));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
     diagnostic: vi.fn(),
@@ -39,10 +41,11 @@ describe('useAppUpdates', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        platformApi = createElectronPlatformApiFixture();
     });
 
     it('keeps browser state idle when the optional updates capability is absent', async () => {
-        getUpdatesCapabilityMock.mockReturnValue(undefined);
+        platformApi = browserPlatformApi;
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
@@ -77,7 +80,7 @@ describe('useAppUpdates', () => {
                 return () => {};
             }),
         }}).updates;
-        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
@@ -116,7 +119,7 @@ describe('useAppUpdates', () => {
                 return () => {};
             }),
         }}).updates;
-        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
@@ -147,7 +150,7 @@ describe('useAppUpdates', () => {
                 return () => {};
             }),
         }}).updates;
-        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
@@ -185,7 +188,7 @@ describe('useAppUpdates', () => {
             .mockRejectedValueOnce(new Error('first failure'))
             .mockResolvedValueOnce(unsupportedStatus);
         const updatesCapability = createElectronPlatformApiFixture({updates: {getState}}).updates;
-        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();

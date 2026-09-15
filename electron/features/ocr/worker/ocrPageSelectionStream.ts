@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {uniq} from 'es-toolkit/array';
+import {isGreekOcrLanguage} from '@contracts/ocrLanguages';
 import type {
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
@@ -14,12 +15,13 @@ import type {
     IOcrPageGeometry,
     IOcrPdfPageRequest,
     TOcrPdfPageSelection,
-} from '@electron/ocr/worker/types';
+} from '@electron/features/ocr/worker/types';
 
 export interface IOcrCheckpointPageResult {
     pageData: IOcrPageWithWords;
     pageDataPath: string;
     pdfPath: string;
+    normalizeGreekMicroSign: boolean;
     effectiveDpi?: number;
     diagnostics: IOcrDiagnostic[];
     pageGeometry?: IOcrPageGeometry;
@@ -82,6 +84,7 @@ export async function* iterateCheckpointPageResults(
                 pageData: checkpoint.pageData,
                 pageDataPath,
                 pdfPath,
+                normalizeGreekMicroSign: page.languages.some(isGreekOcrLanguage),
                 ...(effectiveDpi === undefined ? {} : {effectiveDpi}),
                 diagnostics,
                 ...(isOcrPageGeometry(checkpoint.pageGeometry) ? {pageGeometry: checkpoint.pageGeometry} : {}),
@@ -111,6 +114,7 @@ export async function* iterateCheckpointPdfEntries(
             {
                 path: result.pdfPath,
                 ...(result.pageGeometry === undefined ? {} : {pageGeometry: result.pageGeometry}),
+                normalizeGreekMicroSign: result.normalizeGreekMicroSign,
             },
         ] as const;
     }

@@ -76,6 +76,7 @@ export {
     assertSafePdfSearchRegex,
     buildPdfSearchExcerpt,
     buildPdfSearchRegex,
+    buildOcrTextLayerIndexText,
     assembleSearchablePageText,
     collapseRepeatedPdfSearchPageText,
     escapeSearchRegex,
@@ -177,7 +178,9 @@ export type {
 } from '@pdf-core/pdfPageLabels';
 export {PDF_NATIVE_DATE_PATTERN} from '@contracts/pdfDateString';
 export {
+    countBookmarkItems,
     collectExpectedNativeIdentityIds,
+    getTextBoxes,
     normalizePdfNativeAnnotationIdentityBindings,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
@@ -185,6 +188,7 @@ export {
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
+    shapePointCount,
     splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@pdf-core/nativePdfMutationPolicy';
 export type {

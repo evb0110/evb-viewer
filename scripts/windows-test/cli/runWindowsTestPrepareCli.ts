@@ -15,6 +15,7 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 export interface IWindowsTestPrepareCliDependencies {
     standaloneUtmctlSourcePath?: string;
     verifyStandaloneUtmctlSignature?: TStandaloneUtmctlSignatureVerifier;
+    winappToolSourceDirectory?: string;
 }
 
 export async function runWindowsTestPrepareCli(
@@ -49,6 +50,9 @@ export async function runWindowsTestPrepareCli(
             ...(dependencies.verifyStandaloneUtmctlSignature === undefined
                 ? {}
                 : {verifyStandaloneUtmctlSignature: dependencies.verifyStandaloneUtmctlSignature}),
+            ...(dependencies.winappToolSourceDirectory === undefined
+                ? {}
+                : {winappToolSourceDirectory: dependencies.winappToolSourceDirectory}),
         };
         const result = await prepareWindowsTestHost(preparationOptions);
         process.stdout.write(`${JSON.stringify(result, null, 4)}\nPrepared runner files only. Follow docs/contributing/windows-tests/setup-and-repair.md for the lab image, then run windows:test:doctor.\n`);

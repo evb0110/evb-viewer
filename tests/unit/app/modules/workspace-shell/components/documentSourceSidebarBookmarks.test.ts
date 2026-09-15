@@ -21,9 +21,9 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentOutlineItem,
     IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type { IDocumentSearchSession } from '@app/utils/document-viewer/search/documentSearch';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+} from '@app/modules/document-viewer/source/documentPageSource';
+import type { IDocumentSearchSession } from '@app/modules/document-viewer/search/documentSearch';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({

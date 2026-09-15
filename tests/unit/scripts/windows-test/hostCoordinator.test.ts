@@ -155,6 +155,7 @@ function createFakeUtmctl(options: {
     };
     extraClones?: readonly string[];
     onDelete?: () => void;
+    stopErrorAfterStop?: string;
 } = {}) {
     const cloneVmId = options.cloneVmId ?? CLONE_VM_ID;
     const cloneStatusSequence = [...(options.cloneStatusSequence ?? [])];
@@ -216,6 +217,9 @@ function createFakeUtmctl(options: {
         stop: (vmId, mode) => {
             calls.push(`stop ${mode} ${vmId}`);
             statuses.set(vmId, 'stopped');
+            if (options.stopErrorAfterStop !== undefined) {
+                return Promise.reject(new Error(options.stopErrorAfterStop));
+            }
             return Promise.resolve();
         },
         clone: (sourceVmId, name) => {
@@ -382,6 +386,7 @@ interface IHarnessOptions {
     tests?: string[] | null;
     environment?: string;
     evaluateHostOracles?: IWindowsTestRunDependencies['evaluateHostOracles'];
+    refreshGuestWorker?: IWindowsTestRunDependencies['refreshGuestWorker'];
 }
 
 async function createHarness(options: IHarnessOptions = {}) {
@@ -432,6 +437,7 @@ async function createHarness(options: IHarnessOptions = {}) {
         tests: ['WIN-SAVE-01'],
         uncoveredObligations: ['WIN-PRINT-09'],
         humanReviewObligations: [],
+        hostDisplayRequired: false,
         ...options.selection,
     };
 
@@ -460,6 +466,7 @@ async function createHarness(options: IHarnessOptions = {}) {
         hostId: 'test-host',
         randomRunSuffix: () => RUN_SUFFIX,
         ...(options.evaluateHostOracles === undefined ? {} : {evaluateHostOracles: options.evaluateHostOracles}),
+        ...(options.refreshGuestWorker === undefined ? {} : {refreshGuestWorker: options.refreshGuestWorker}),
         identityGuard: {
             resolvePath: target => Promise.resolve(target),
             readVmId: bundlePath => Promise.resolve(bundlePath.includes(RUN_ID) ? CLONE_VM_ID : OLD_CLONE_VM_ID),
@@ -532,6 +539,42 @@ describe('windows test run coordinator', () => {
         expect(harness.guest.calls).toContain('batch 2');
         expect(harness.guest.calls.filter(call => call.startsWith('stage '))).toEqual([]);
         expect(harness.guest.calls).toContain(`job ${RUN_ID} WIN-SAVE-01`);
+    });
+
+    it('restarts the owned clone when the prepared guest worker was refreshed', async () => {
+        const refreshCalls: Array<{
+            vmId: string;
+            timeoutMs: number;
+            allowStage: boolean
+        }> = [];
+        const harness = await createHarness({refreshGuestWorker: async (vmId, timeoutMs, options) => {
+            refreshCalls.push({
+                vmId,
+                timeoutMs,
+                allowStage: options?.allowStage ?? true,
+            });
+            return options?.allowStage !== false;
+        }});
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('passed');
+        expect(refreshCalls).toEqual([
+            {
+                vmId: CLONE_VM_ID,
+                timeoutMs: 200,
+                allowStage: true,
+            },
+            {
+                vmId: CLONE_VM_ID,
+                timeoutMs: 200,
+                allowStage: false,
+            },
+        ]);
+        expect(harness.utmctl.calls).toContain(`stop request ${CLONE_VM_ID}`);
+        expect(harness.utmctl.calls.filter(call => call === `start ${CLONE_VM_ID}`)).toHaveLength(2);
+        expect(harness.guest.calls.filter(call => call === 'ping')).toHaveLength(2);
+        expect(harness.guest.calls).toContain(`mkdir ${windowsTestGuestLayout.winappToolsDir}`);
     });
 
     it('fails promptly when the owned clone stops before publishing a guest result', async () => {
@@ -711,7 +754,7 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls.some(call => call.startsWith(`clone ${GOLDEN_VM_ID}`))).toBe(false);
     });
 
-    it('does not reclaim an unbound stale lease once its run directory exists', async () => {
+    it('releases an unbound stale lease without touching a VM', async () => {
         const oldRunId = '20260903T090000Z-abcdefabcdef';
         const harness = await createHarness();
         await mkdir(windowsTestRunLayout(harness.layout.runsDir, oldRunId).runDir, {recursive: true});
@@ -728,9 +771,10 @@ describe('windows test run coordinator', () => {
 
         const report = await harness.run();
 
-        expect(report.outcome).toBe('infrastructure-failed');
-        expect(await exists(harness.layout.leaseFile)).toBe(true);
-        expect(harness.utmctl.calls).toEqual([]);
+        expect(report.outcome).toBe('passed');
+        expect(await exists(harness.layout.leaseFile)).toBe(false);
+        expect(harness.utmctl.calls).toContain(`clone ${GOLDEN_VM_ID} evb-win-test-${RUN_ID}`);
+        expect(harness.utmctl.calls).not.toContain(`delete ${GOLDEN_VM_ID}`);
     });
 
     it('exits 5 and tells the guest to stop when a cancel request appears', async () => {
@@ -847,6 +891,25 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls).not.toContain(`delete ${CLONE_VM_ID}`);
         expect(report.summary?.failures[0]?.reason).toContain('guest-error-response');
         expect(report.summary?.passedTests).toEqual([]);
+    });
+
+    it('records a clone as retained when stop fails after the clone stopped', async () => {
+        const harness = await createHarness({
+            maxFailedClones: 2,
+            utmctl: createFakeUtmctl({stopErrorAfterStop: 'UTM Capture Input remained enabled during cleanup'}),
+            script: {resultText: JSON.stringify({error: 'the worker could not launch the installer'})},
+        });
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.retainedClone).toBe(true);
+        expect(report.summary?.failures).toContainEqual(expect.objectContaining({
+            phase: 'tearing-down',
+            reason: 'UTM Capture Input remained enabled during cleanup',
+        }));
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+        expect(harness.utmctl.calls).not.toContain(`delete ${CLONE_VM_ID}`);
     });
 
     it('normalizes clone UUID casing before retention accounting', async () => {

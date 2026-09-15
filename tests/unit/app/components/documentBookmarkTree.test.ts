@@ -19,7 +19,7 @@ import {
 import type {
     IDocumentBookmarkTreeItem,
     TDocumentBookmarkDisplayMode,
-} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({

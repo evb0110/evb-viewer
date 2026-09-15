@@ -22,7 +22,6 @@ describe('resolveWorkerPaths', () => {
             popplerDataDir: '/share/poppler',
             popplerFontConfigDir: '/share/fontconfig',
             pdfPageOpsBinary: '/bin/evb-pdf-page-ops',
-            unpaperBinary: '/bin/unpaper',
         })).toEqual({
             ...requiredWorkerPaths,
             pdftotextBinary: '/bin/pdftotext',
@@ -30,7 +29,6 @@ describe('resolveWorkerPaths', () => {
             popplerDataDir: '/share/poppler',
             popplerFontConfigDir: '/share/fontconfig',
             pdfPageOpsBinary: '/bin/evb-pdf-page-ops',
-            unpaperBinary: '/bin/unpaper',
         });
     });
 

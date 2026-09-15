@@ -2,14 +2,14 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { Ref } from 'vue';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
 import {
     buildPdfCommittedOpenVirtualSpacerStyle,
     resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight,
 } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenVirtualSpacerStyle';
 
 interface IUsePdfOpenVirtualSurfaceGeometryOptions<TSpacerStyle, TPlaceholderStyle> {
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     continuousScroll: Readonly<Ref<boolean>>;
     viewMode: Readonly<Ref<TPdfViewMode>>;
     scaledMargin: Readonly<Ref<number>>;

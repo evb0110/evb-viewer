@@ -11,18 +11,20 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IOcrWord } from '@contracts/shared';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const ocrCapability = vi.hoisted(() => ({
     resolveDocumentOcrAvailability: vi.fn(),
     resolveDocumentOcrPage: vi.fn(),
     resolveDocumentTextCatalog: vi.fn(),
 }));
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ocrCapability}));
+const platformApi = createElectronPlatformApiFixture({ocr: ocrCapability});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
 const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
-function createPageSnapshot(words: IOcrWord[]) {
+function createPageSnapshot(words: IOcrWord[], languages: string[] = ['eng']) {
     return {
         documentRevision: TEST_DOCUMENT_REVISION,
         pageCount: 1,
@@ -31,7 +33,7 @@ function createPageSnapshot(words: IOcrWord[]) {
             text: words.map(word => word.text).join(' '),
             words,
             source: 'evb-ocr',
-            languages: ['eng'],
+            languages,
             render: {
                 dpi: 300,
                 imagePx: {
@@ -224,5 +226,122 @@ describe('useOcrTextContent', () => {
         expect(textContent?.items).toHaveLength(2);
         expect(textContent?.styles['ocr-sans']?.ascent).toBe(0.8);
         expect(createElement).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves direction per OCR word while leaving digits and punctuation neutral', async () => {
+        ocrCapability.resolveDocumentOcrPage.mockResolvedValue(createPageSnapshot([
+            {
+                text: 'Latin',
+                x: 10,
+                y: 10,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'ذلك.',
+                x: 35,
+                y: 10,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: '123',
+                x: 60,
+                y: 10,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: '٤٥٦',
+                x: 85,
+                y: 10,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'العَرَبِيَّة',
+                x: 10,
+                y: 30,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'שלום',
+                x: 35,
+                y: 30,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'ܫܠܡܐ',
+                x: 60,
+                y: 30,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'ἄνθρωπος',
+                x: 85,
+                y: 30,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: '؟',
+                x: 110,
+                y: 30,
+                width: 20,
+                height: 10,
+            },
+        ], [
+            'ara',
+            'eng',
+        ]));
+        const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
+        const textContent = await useOcrTextContent().getOcrTextContent(
+            requireDocumentRef('/tmp/directions.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(1), createViewport(),
+        );
+
+        expect(textContent?.items.map(item => [
+            item.str.trim(),
+            item.dir,
+        ])).toEqual([
+            [
+                'Latin',
+                'ltr',
+            ],
+            [
+                'ذلك.',
+                'rtl',
+            ],
+            [
+                '123',
+                'ltr',
+            ],
+            [
+                '٤٥٦',
+                'ltr',
+            ],
+            [
+                'العَرَبِيَّة',
+                'rtl',
+            ],
+            [
+                'שלום',
+                'rtl',
+            ],
+            [
+                'ܫܠܡܐ',
+                'rtl',
+            ],
+            [
+                'ἄνθρωπος',
+                'ltr',
+            ],
+            [
+                '؟',
+                'ltr',
+            ],
+        ]);
     });
 });

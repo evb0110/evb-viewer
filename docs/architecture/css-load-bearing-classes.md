@@ -47,7 +47,7 @@ formats on PDF.js layer elements:
 <div class="page_canvas canvasWrapper" />
 ```
 
-**Why:** pdfjs-dist (currently v6.3.311 from the committed EVB fork) internally uses camelCase class names (`textLayer`, `annotationLayer`, `annotationEditorLayer`). PDF.js's own CSS and JS reference these names. The kebab-case variants (`text-layer`, `annotation-layer`, `annotation-editor-layer`) are the app's convention for custom styling and JS queries.
+**Why:** pdfjs-dist (from the committed EVB fork) internally uses camelCase class names (`textLayer`, `annotationLayer`, `annotationEditorLayer`). PDF.js's own CSS and JS reference these names. The kebab-case variants (`text-layer`, `annotation-layer`, `annotation-editor-layer`) are the app's convention for custom styling and JS queries.
 
 Both formats must be preserved. CSS selectors and JS queries throughout the codebase target one or both:
 

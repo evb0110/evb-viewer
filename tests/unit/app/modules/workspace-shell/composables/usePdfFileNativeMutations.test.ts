@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     beforeEach,
     describe,
@@ -16,6 +14,8 @@ import { requirePdfDateString } from '@contracts/pdfDateString';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { requireEpochMs } from '@contracts/timestamps';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const analyticsMock = vi.hoisted(() => ({
     clearDocumentContext: vi.fn(),
@@ -96,10 +96,17 @@ const documentsMock = vi.hoisted(() => ({
 
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => analyticsMock}));
 vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: documentsMock as never,
+    documentWorkingCopy: documentsMock as never,
+});
+Reflect.deleteProperty(platformApi.documentWorkingCopy, 'createWorkingCopyFromPath');
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => platformApi,
+    resolveInitialDesktopRuntime: () => true,
+}));
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => documentsMock,
-    getDocumentWorkingCopyCapability: () => documentsMock,
     shouldRefreshWorkingCopyAfterSaveAs: () => false,
 }));
 

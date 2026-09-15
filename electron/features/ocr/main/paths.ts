@@ -117,9 +117,6 @@ export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     if (pdfPaths.popplerFontConfigDir !== undefined) {
         paths.popplerFontConfigDir = pdfPaths.popplerFontConfigDir;
     }
-    if (ocrPaths.unpaper !== undefined) {
-        paths.unpaper = ocrPaths.unpaper;
-    }
 
     return createAwaitablePaths(paths);
 }

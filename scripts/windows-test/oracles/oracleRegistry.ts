@@ -151,6 +151,11 @@ const GUEST_ORACLE_SEEDS: readonly IGuestOracleSeed[] = [
         description: 'The guest sampled memory, handle and CPU usage against the declared bounds.',
     },
     {
+        id: 'performance',
+        evidenceField: 'performance',
+        description: 'The guest recorded save latency, read volume, memory and timer-gap measurements.',
+    },
+    {
         id: 'network-policy',
         evidenceField: 'networkPolicy',
         description: 'The guest recorded outbound network attempts against the allowed policy.',

@@ -23,13 +23,12 @@ import type {
     IDocumentOcrPageRange,
     IDocumentOcrPageSnapshot,
     IDocumentTextCatalogPage,
-    IDocumentTextSnapshot,
     IDocumentTextCatalogWindow,
+    IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
 import {
     MAX_DOCUMENT_OCR_AVAILABILITY_RANGES,
     MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
-    MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
     MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH,
 } from '@contracts/documentTextCatalog';
 import {
@@ -37,7 +36,7 @@ import {
     OCR_SCALAR_PAGE_LIMIT,
 } from '@contracts/ocrIndex';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
+import {buildOcrTextLayerIndexText} from '@pdf-core';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
     extractTextFromPdf,
@@ -67,25 +66,33 @@ import {
     hasOcrCatalogRecovery,
     openCurrentOcrCatalog,
     recoverOcrCatalogCorruption,
+    resolveDocumentTextCatalogWindow as resolveDocumentTextCatalogWindowWithEmbeddedText,
+    type IResolveDocumentTextCatalogOptions,
     visitDocumentOcrCatalogPages,
 } from '@electron/features/ocr/main/visitDocumentOcrCatalogPages';
 
 export {visitDocumentOcrCatalogPages};
+export type {IResolveDocumentTextCatalogOptions};
 
-interface IVisitDocumentTextCatalogPagesOptions {
-    pageCount?: number;
-    firstPage?: number;
-    lastPage?: number;
-    pageWindow?: number;
-    sourcePdfPath?: string;
-    signal?: AbortSignal;
-    onPage: (page: IDocumentTextCatalogPage) => void | Promise<void>;
-}
-
-export interface IResolveDocumentTextCatalogOptions {
-    pageWindow?: number;
-    signal?: AbortSignal;
-    sourcePdfPath?: string;
+export async function resolveDocumentTextCatalogWindow(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    firstPage: number,
+    lastPage: number,
+    pageCount?: number,
+    options: IResolveDocumentTextCatalogOptions = {},
+): Promise<IDocumentTextCatalogWindow> {
+    return resolveDocumentTextCatalogWindowWithEmbeddedText(
+        workingCopyPath,
+        documentRevision,
+        firstPage,
+        lastPage,
+        pageCount,
+        {
+            ...options,
+            extractEmbeddedText: extractTextFromPdf,
+        },
+    );
 }
 
 const DOCUMENT_TEXT_EXPORT_PAGE_WINDOW = MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES;
@@ -487,170 +494,6 @@ export async function resolveDocumentOcrPage(
         await closeOcrCatalog(catalog);
         await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
     }
-}
-
-/**
- * Visits canonical text pages in bounded PDF windows. Each window is released
- * before the next one starts, so desktop exports do not build an all-document
- * page array or apply the snapshot aggregate text budget. Argument checks run
- * before the catalog opens, the window budget is charged page by page while
- * the catalog is still being pulled, and the revision fence is re-read after
- * each window's reads so a mid-read rewrite is never emitted as current text.
- */
-async function visitDocumentTextCatalogPages(
-    workingCopyPath: string,
-    documentRevision: TDocumentRevisionToken,
-    options: IVisitDocumentTextCatalogPagesOptions,
-) {
-    throwIfAborted(options.signal);
-    if (
-        options.pageCount !== undefined
-        && (!Number.isSafeInteger(options.pageCount) || options.pageCount < 1)
-    ) {
-        throw new Error('Document text catalog window traversal requires a positive page count');
-    }
-    const firstPage = options.firstPage ?? 1;
-    const pageWindow = options.pageWindow ?? DOCUMENT_TEXT_EXPORT_PAGE_WINDOW;
-    const requestedLastPage = options.lastPage ?? options.pageCount;
-    if (
-        !Number.isSafeInteger(firstPage)
-        || firstPage < 1
-        || (requestedLastPage !== undefined && !isValidWindowEnd(firstPage, requestedLastPage))
-        || !Number.isSafeInteger(pageWindow)
-        || pageWindow < 1
-        || pageWindow > DOCUMENT_TEXT_EXPORT_PAGE_WINDOW
-    ) {
-        throw new RangeError('Invalid document text catalog window');
-    }
-    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
-    const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
-    let corruption: unknown = null;
-    try {
-        const catalogPageCount = catalog?.header.pageCount;
-        const resolvedPageCount = options.pageCount ?? catalogPageCount;
-        if (!resolvedPageCount || !Number.isSafeInteger(resolvedPageCount) || resolvedPageCount < 1) {
-            throw new Error('Document text catalog window traversal requires a positive page count');
-        }
-        if (catalogPageCount !== undefined && resolvedPageCount > catalogPageCount) {
-            throw new RangeError('Document text catalog page count exceeds the OCR catalog page count');
-        }
-        const lastPage = requestedLastPage ?? resolvedPageCount;
-        if (!isValidWindowEnd(firstPage, lastPage) || lastPage > resolvedPageCount) {
-            throw new RangeError('Invalid document text catalog window');
-        }
-        const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
-        let visitedPages = 0;
-        for (let windowFirst = firstPage; windowFirst <= lastPage; windowFirst += pageWindow) {
-            throwIfAborted(options.signal);
-            const windowLast = Math.min(lastPage, windowFirst + pageWindow - 1);
-            const embeddedPages = await extractTextFromPdf(options.sourcePdfPath ?? workingCopyPath, {
-                pageCount: resolvedPageCount,
-                pages: Array.from(
-                    {length: windowLast - windowFirst + 1},
-                    (_value, index) => windowFirst + index,
-                ),
-                ...(options.signal === undefined ? {} : {signal: options.signal}),
-            });
-            const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
-            const budget: ITextBudget = {
-                limit: MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
-                used: 0,
-                message: 'Document text catalog window exceeds its bounded text budget',
-            };
-            for (const embedded of embeddedPages) {
-                const page = createEmbeddedCatalogPage(embedded);
-                if (
-                    page
-                    && page.pageNumber >= windowFirst
-                    && page.pageNumber <= windowLast
-                ) {
-                    setCanonicalPage(canonicalByPage, page, budget);
-                }
-            }
-
-            if (catalog) {
-                for await (const {
-                    pageNumber,
-                    artifact,
-                } of catalog.readWindow(windowFirst, windowLast - windowFirst + 1)) {
-                    throwIfAborted(options.signal);
-                    if (!artifact) {
-                        continue;
-                    }
-                    setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, languages, budget);
-                }
-            }
-            await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
-            throwIfAborted(options.signal);
-
-            const pages = Array.from(canonicalByPage.values())
-                .sort((left, right) => left.pageNumber - right.pageNumber);
-            for (const page of pages) {
-                throwIfAborted(options.signal);
-                await options.onPage(page);
-                visitedPages += 1;
-            }
-        }
-        return {
-            documentRevision,
-            pageCount: resolvedPageCount,
-            firstPage,
-            lastPage,
-            visitedPages,
-        };
-    } catch (error) {
-        corruption = error;
-        throw error;
-    } finally {
-        await closeOcrCatalog(catalog);
-        await recoverOcrCatalogCorruption(workingCopyPath, documentRevision, corruption);
-    }
-}
-
-function isValidWindowEnd(firstPage: number, lastPage: number) {
-    return Number.isSafeInteger(lastPage)
-        && lastPage >= firstPage
-        && lastPage - firstPage + 1 <= DOCUMENT_TEXT_EXPORT_PAGE_WINDOW;
-}
-
-export async function resolveDocumentTextCatalogWindow(
-    workingCopyPath: string,
-    documentRevision: TDocumentRevisionToken,
-    firstPage: number,
-    lastPage: number,
-    pageCount?: number,
-    options: IResolveDocumentTextCatalogOptions = {},
-): Promise<IDocumentTextCatalogWindow> {
-    const pages: IDocumentTextCatalogPage[] = [];
-    const result = await visitDocumentTextCatalogPages(
-        workingCopyPath,
-        documentRevision,
-        {
-            firstPage,
-            lastPage,
-            ...(pageCount === undefined ? {} : {pageCount}),
-            ...(options.pageWindow === undefined ? {} : {pageWindow: options.pageWindow}),
-            ...(options.sourcePdfPath === undefined ? {} : {sourcePdfPath: options.sourcePdfPath}),
-            ...(options.signal === undefined ? {} : {signal: options.signal}),
-            onPage: page => {
-                pages.push(page);
-            },
-        },
-    );
-    throwIfAborted(options.signal);
-    return {
-        documentRevision,
-        pageCount: result.pageCount,
-        firstPage: result.firstPage,
-        lastPage: result.lastPage,
-        pages,
-        contentDigest: createHash('sha256').update(JSON.stringify(
-            pages.map(page => [
-                page.pageNumber,
-                page.contentDigest,
-            ]),
-        )).digest('hex'),
-    };
 }
 
 /** Main-process canonical per-page text authority for viewer/search/export projections. */

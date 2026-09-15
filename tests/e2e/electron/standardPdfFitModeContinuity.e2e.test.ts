@@ -530,13 +530,22 @@ async function readOpenRouteCapabilitySpan(
  * already settled, so this can only fall back to true for a claim that is over.
  */
 async function waitForNoWorkspaceOpening(session: IElectronE2ESession) {
-    await waitForFunctionInPage(session.page, () => {
-        const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => {workspaces: Array<{toolbarSnapshot: {isOpeningDocument?: boolean} | null}>} | null}})
-            .__evbTestApi?.collectWorkspaceDebugState?.();
-        return debugState !== undefined
-            && debugState !== null
-            && debugState.workspaces.every(workspace => workspace.toolbarSnapshot?.isOpeningDocument !== true);
-    }, {timeout: SETTLE_TIMEOUT_MS});
+    try {
+        await waitForFunctionInPage(session.page, () => {
+            const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => {workspaces: Array<{toolbarSnapshot: {isOpeningDocument?: boolean} | null}>} | null}})
+                .__evbTestApi?.collectWorkspaceDebugState?.();
+            return debugState !== undefined
+                && debugState !== null
+                && debugState.workspaces.every(workspace => workspace.toolbarSnapshot?.isOpeningDocument !== true);
+        }, {timeout: SETTLE_TIMEOUT_MS});
+    } catch (error) {
+        const stuckState = await evaluateInPage(session.page, () => {
+            const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => unknown}})
+                .__evbTestApi?.collectWorkspaceDebugState?.();
+            return JSON.stringify(debugState);
+        });
+        throw new Error(`A workspace still claims an open: ${stuckState}`, {cause: error});
+    }
 }
 
 async function activateWorkspaceTabById(session: IElectronE2ESession, tabId: string) {
@@ -1275,7 +1284,17 @@ describe('standard PDF.js fit-mode continuity', () => {
 
         await goToPageViaToolbar(session.page, DEEP_PAGE);
         await waitForToolbarCurrentPage(session.page, DEEP_PAGE, SETTLE_TIMEOUT_MS);
-        await waitForFitSettlement(session, DEEP_PAGE);
+        try {
+            await waitForFitSettlement(session, DEEP_PAGE);
+        } catch (error) {
+            throw new Error(`The deep page never settled: ${JSON.stringify({
+                authority: await readViewerAuthorityState(session),
+                chassis: await session.page.evaluate(() => ({...document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .document-viewer-chassis',
+                )?.dataset})),
+                trace: await readRawPdfRenderTrace(session, 120),
+            })}`, {cause: error});
+        }
 
         // An invalid staged open must leave the document the user already had
         // exactly where they left it. The app stages an open into a tab of its

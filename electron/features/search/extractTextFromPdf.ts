@@ -5,6 +5,8 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     groupContiguousPages,
     splitPdfTextOutput,
+    normalizeRequestedPdfPages,
+    splitPdfPageRange,
 } from '@electron/pdf/pdfTextPageBatching';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import {
@@ -90,18 +92,6 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function normalizeRequestedPages(pages: readonly number[] | undefined, pageCount?: number) {
-    if (!pages || pages.length === 0) {
-        return [];
-    }
-
-    return Array.from(new Set(
-        pages
-            .map(page => Math.trunc(page))
-            .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount)),
-    )).sort((left, right) => left - right);
-}
-
 function parsePdfInfoPageCount(output: string) {
     const match = output.match(/^Pages:\s*(\d+)\s*$/mu);
     const pageCount = match ? Number.parseInt(match[1] ?? '', 10) : Number.NaN;
@@ -113,26 +103,13 @@ function isStdoutLimitError(error: unknown) {
     return /stdout (?:exceeded|truncat)/iu.test(message);
 }
 
-function splitPageRange(firstPage: number, lastPage: number) {
-    const ranges: Array<{
-        firstPage: number;
-        lastPage: number;
-    }> = [];
-    for (
-        let rangeFirstPage = firstPage;
-        rangeFirstPage <= lastPage;
-        rangeFirstPage += PDFTOTEXT_DEFAULT_PAGE_WINDOW
-    ) {
-        ranges.push({
-            firstPage: rangeFirstPage,
-            lastPage: Math.min(lastPage, rangeFirstPage + PDFTOTEXT_DEFAULT_PAGE_WINDOW - 1),
-        });
-    }
-    return ranges;
-}
+// pdftotext wraps independently positioned right-to-left spans in bidi
+// embedding and isolate controls. They are layout hints, never searchable text,
+// and they split OCR words so queries and indexing miss them.
+const BIDI_FORMATTING_CONTROLS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
 function normalizePageText(text: string, pageNumber: number, pdfPath: string) {
-    const trimmed = text.trim();
+    const trimmed = text.replace(BIDI_FORMATTING_CONTROLS, '').trim();
     if (Buffer.byteLength(trimmed, 'utf8') > PDFTOTEXT_MAX_PAGE_BYTES) {
         throw new PdfTextExtractionCapabilityError(
             'too-large',
@@ -191,7 +168,7 @@ export async function extractTextFromPdf(
             commandOptions.signal = signal;
         }
 
-        const requestedPages = normalizeRequestedPages(options.pages, options.pageCount);
+        const requestedPages = normalizeRequestedPdfPages(options.pages, options.pageCount);
         const argsForRange = (firstPage: number, lastPage: number) => [
             '-layout',
             '-f',
@@ -232,10 +209,10 @@ export async function extractTextFromPdf(
         }>;
         if (requestedPages.length > 0) {
             ranges = groupContiguousPages(requestedPages).flatMap(range => (
-                splitPageRange(range.firstPage, range.lastPage)
+                splitPdfPageRange(range.firstPage, range.lastPage, PDFTOTEXT_DEFAULT_PAGE_WINDOW)
             ));
         } else if (options.pageCount !== undefined && options.pageCount > 0) {
-            ranges = splitPageRange(1, Math.trunc(options.pageCount));
+            ranges = splitPdfPageRange(1, Math.trunc(options.pageCount), PDFTOTEXT_DEFAULT_PAGE_WINDOW);
         } else {
             let pageCount: number | null = null;
             const pdfinfo = paths.pdfinfo;
@@ -275,7 +252,7 @@ export async function extractTextFromPdf(
                     pdfPath,
                 );
             }
-            ranges = splitPageRange(1, pageCount);
+            ranges = splitPdfPageRange(1, pageCount, PDFTOTEXT_DEFAULT_PAGE_WINDOW);
         }
 
         const emitBoundedRange = async (firstPage: number, lastPage: number): Promise<void> => {

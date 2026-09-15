@@ -80,6 +80,7 @@ export function windowsTestRunLayout(runsDir: string, runId: string): IWindowsTe
 
 export const windowsTestGuestLayout = {
     root: 'C:\\EVBViewerTests',
+    winappToolsDir: 'C:\\EVBViewerTests\\tools\\winapp',
     inboxDir: 'C:\\EVBViewerTests\\inbox',
     outboxDir: 'C:\\EVBViewerTests\\outbox',
     stateDir: 'C:\\EVBViewerTests\\state',

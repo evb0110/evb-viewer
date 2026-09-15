@@ -683,6 +683,11 @@ export function createWorkspaceDocumentController(
             dirtyRevisionInfo,
             normalizedRecord.documentIdentity,
         );
+        // Undo or redo back to the saved entry is clean at the revision where
+        // dirty was asserted. Only a workspace with history can publish that;
+        // a lagging mount or adoption record has none.
+        const recordReturnedThroughHistory = normalizedRecord.toolbarSnapshot.canUndo
+            || normalizedRecord.toolbarSnapshot.canRedo;
         const preserveDirtyDuringRestore = (
             (activeKind === 'restore' || activeKind === null)
             && snapshot.value.dirty
@@ -701,6 +706,7 @@ export function createWorkspaceDocumentController(
                     && !normalizedRecord.tab.isDirty
                     && sameLogicalDocument
                     && !hasAcceptedCleanProjection
+                    && !recordReturnedThroughHistory
                     && (cleanRecordLagsDirtyState || sameIdentityLessDocument)
                 )
             )

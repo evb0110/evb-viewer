@@ -5,10 +5,10 @@ import {
     findPdfPageContainer,
     pdfViewerDomSelectors, 
 } from '@app/modules/pdf-viewer/public';
-import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRectHeight';
-import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
-import type { IClientRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
-import { toClientRect } from '@app/utils/document-viewer/region-geometry/toClientRect';
+import {
+    getRectHeight, getRectWidth , toClientRect,  
+} from '@app/modules/document-viewer/public';
+import type { IClientRect } from '@app/modules/document-viewer/public';
 import type { IWorkspacePdfViewerAgentPageImageCapturePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     getAgentNumberInput,

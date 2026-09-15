@@ -25,8 +25,8 @@ import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/session
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 function createDomRect(shape: object): DOMRect {
     // The rendering session reads only viewport geometry from these browser
@@ -36,9 +36,9 @@ function createDomRect(shape: object): DOMRect {
 
 function createChassisAuthority(
     openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>,
-): IDocumentViewerChassisAuthority {
+): IDocumentViewerRuntime {
     // The test enables only the open-surface authority path.
-    return {openSurface} as IDocumentViewerChassisAuthority;
+    return {openSurface} as IDocumentViewerRuntime;
 }
 
 const rendererFixture = vi.hoisted(() => {
@@ -537,6 +537,7 @@ function createRenderingFixture(fixtureOptions: {
     return {
         app,
         beginLayoutGeometryReplacement,
+        cancelRasterRevision,
         demand,
         disposables,
         emitInitialVisualReady,
@@ -914,6 +915,35 @@ describe('PdfRenderingSession behavior', () => {
             await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
         } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('waits for superseded raster cancellation before accepting the next page render', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        let finishCancellation!: () => void;
+        const cancellation = new Promise<void>((resolve) => { finishCancellation = resolve; });
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            const cancelSource = fixture.rasterScheduler.cancelSource.bind(fixture.rasterScheduler);
+            const cancel = vi.spyOn(fixture.rasterScheduler, 'cancelSource').mockImplementation(async (source) => {
+                await cancelSource(source);
+                await cancellation;
+            });
+            fixture.cancelRasterRevision.value += 1;
+            fixture.documentSession.ensurePageMetricsInRange.mockClear();
+            const pageRendererOptions = rendererFixture.options as {requestSearchPageRaster: (page: number) => Promise<void>};
+            const nextRender = pageRendererOptions.requestSearchPageRaster(3);
+            expect(fixture.documentSession.ensurePageMetricsInRange).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+            expect(fixture.renderTasks).toHaveLength(1);
+            finishCancellation();
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+            fixture.renderTasks[1]!.resolve();
+            await nextRender;
+            await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
+        } finally {
+            finishCancellation();
             await fixture.dispose();
         }
     });

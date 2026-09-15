@@ -6,7 +6,7 @@ import {
     workspaceSurfaceBudgetController,
     type TWorkspaceResourcePressureLevel,
 } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import type { TMemoryPressureLevel } from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
+import type { TMemoryPressureLevel } from '@app/modules/document-viewer/public';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 
 const MEMORY_SAMPLE_INTERVAL_MS = 2_000;

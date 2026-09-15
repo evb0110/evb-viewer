@@ -17,11 +17,11 @@ import {
     type IPdfRenderSupervisor,
     type IPdfRenderSupervisorTimer,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import {
-    workspaceSurfaceBudgetController,
-    type IWorkspaceSurfaceBudgetController,
-    type IWorkspaceSurfaceLease,
-} from '@app/utils/document-viewer/workspaceSurfaceBudget';
+import {workspaceSurfaceBudgetController} from '@app/modules/workspace-shell/public/workspaceSurfaceBudget';
+import type {
+    IWorkspaceSurfaceBudgetController,
+    IWorkspaceSurfaceLease,
+} from '@app/modules/document-viewer/public';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 

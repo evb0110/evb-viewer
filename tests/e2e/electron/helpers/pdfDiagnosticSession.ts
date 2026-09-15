@@ -1,6 +1,8 @@
 import type { Page } from 'puppeteer-core';
-import type { IPdfNavLogEntry } from '@app/utils/logPdfNav';
-import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import type {
+    IPdfNavLogEntry,
+    IPdfRenderTraceEntry,
+} from '@contracts/pdfDiagnostics';
 
 interface IPdfDiagnosticWindow extends Window {
     __clearPdfNavLog?: () => void;

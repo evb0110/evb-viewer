@@ -839,6 +839,7 @@
                     output_page_index,
                     matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     filter_to_output_page: false,
+                    normalize_greek_micro_sign: false,
                 }],
             };
 
@@ -876,12 +877,14 @@
                     output_page_index: 0,
                     matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     filter_to_output_page: false,
+                    normalize_greek_micro_sign: false,
                 },
                 TextLayerInstruction {
                     source_page_index: 1,
                     output_page_index: 1,
                     matrix: [1.0, 0.0, 0.0, 1.0, 20.0, 0.0],
                     filter_to_output_page: false,
+                    normalize_greek_micro_sign: false,
                 },
             ],
         };
@@ -908,6 +911,7 @@
                 output_page_index,
                 matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                 filter_to_output_page: false,
+                normalize_greek_micro_sign: false,
             }],
         };
 

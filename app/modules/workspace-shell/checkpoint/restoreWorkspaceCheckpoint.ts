@@ -8,7 +8,7 @@ import type {
 } from '@contracts/workspaceCheckpoint';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {getWorkspaceViewerAdapterForDocumentType} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type {
     TWorkspaceViewerDocumentType,
     IWorkspaceViewerAdapter,
@@ -16,6 +16,7 @@ import type {
 
 interface IRestoreWorkspaceCheckpointOptions {
     tabs: Ref<ITab[]>;
+    activeTabId: Readonly<Ref<string | null>>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     restoreGraph: (checkpoint: IWorkspaceCheckpoint) => void;
     openPathInReservedTab: (tabId: string, target: TDocumentRef | TOpenFileResult) => Promise<boolean>;
@@ -27,7 +28,7 @@ const WORKSPACE_RESTORE_CONCURRENCY = 2;
 const PDF_DOCUMENT_TYPE: TWorkspaceViewerDocumentType = 'pdf';
 
 export function getRegisteredPdfOpenKind(
-    adapter: Pick<IWorkspaceViewerAdapter, 'documentTypes' | 'capabilities'> = getWorkspaceViewerAdapter('pdf'),
+    adapter: Pick<IWorkspaceViewerAdapter, 'documentTypes' | 'capabilities'> = getWorkspaceViewerAdapterForDocumentType('pdf'),
 ) {
     const kind = adapter.documentTypes.find((documentType): documentType is 'pdf' => documentType === PDF_DOCUMENT_TYPE);
     return adapter.capabilities.pdfDocument ? kind ?? null : null;
@@ -167,6 +168,7 @@ export async function restoreWorkspaceCheckpoint(
         }
     }
     await nextTick();
+    const graphActiveTabId = options.activeTabId.value;
     const failedPaths: TDocumentRef[] = [];
     const restoredTabIds = new Set<string>();
     let nextTabIndex = 0;
@@ -242,7 +244,9 @@ export async function restoreWorkspaceCheckpoint(
             restoredActiveTabId = restored.tabId;
         }
     }
-    if (restoredActiveTabId) {
+    // Tabs are clickable while their documents reopen. A tab the user chose in
+    // that window outranks the checkpoint's choice.
+    if (restoredActiveTabId && options.activeTabId.value === graphActiveTabId) {
         options.activateTab(restoredActiveTabId);
     }
     return failedPaths;

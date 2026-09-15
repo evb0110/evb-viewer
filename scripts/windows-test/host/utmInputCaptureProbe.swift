@@ -12,11 +12,67 @@ enum ProbeError: Error {
 
 struct ProbeResult: Codable {
     let windowTitle: String
+    let windowAvailable: Bool
     let before: Int
     let after: Int
     let frontmostPid: Int32
     let utmPid: Int32
     let action: String
+}
+
+struct WindowSnapshot: Codable {
+    let enumerationAvailable: Bool
+    let screenCapturePreflight: Bool
+    let accessibilityTrusted: Bool
+    let windowNumbers: [Int]
+    let windows: [[String: String]]
+    let utmPid: Int32
+    let frontmostPid: Int32
+}
+
+func snapshotWindows(for pid: pid_t) -> WindowSnapshot {
+    guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
+        return WindowSnapshot(enumerationAvailable: false, screenCapturePreflight: CGPreflightScreenCaptureAccess(), accessibilityTrusted: AXIsProcessTrusted(), windowNumbers: [], windows: [], utmPid: Int32(pid), frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+    }
+    let windows = rawWindows.compactMap { window -> [String: String]? in
+        guard (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == Int(pid),
+              (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+              let number = (window[kCGWindowNumber as String] as? NSNumber)?.intValue
+        else { return nil }
+        let bounds = window[kCGWindowBounds as String] as? [String: Any]
+        return [
+            "number": String(number),
+            "width": String((bounds?["Width"] as? NSNumber)?.intValue ?? -1),
+            "height": String((bounds?["Height"] as? NSNumber)?.intValue ?? -1),
+            "owner": (window[kCGWindowOwnerName as String] as? String) ?? "",
+        ]
+    }
+    return WindowSnapshot(
+        enumerationAvailable: true,
+        screenCapturePreflight: CGPreflightScreenCaptureAccess(),
+        accessibilityTrusted: AXIsProcessTrusted(),
+        windowNumbers: windows.compactMap { Int($0["number"] ?? "") },
+        windows: windows,
+        utmPid: Int32(pid),
+        frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1,
+    )
+}
+
+func targetWindowPresence(for pid: pid_t, title: String) -> Bool? {
+    guard let rawWindows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+    let ownerWindows = rawWindows.filter { window in
+        (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == Int(pid)
+    }
+    if ownerWindows.isEmpty {
+        return false
+    }
+    let namedWindows = ownerWindows.compactMap { $0[kCGWindowName as String] as? String }
+    if namedWindows.isEmpty {
+        return nil
+    }
+    return namedWindows.contains(title)
 }
 
 func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
@@ -95,7 +151,7 @@ func hideApplication(_ pid: pid_t) -> Bool {
     ) == .success
 }
 
-func parseArguments() throws -> (title: String, action: String) {
+func parseArguments() throws -> (title: String?, action: String) {
     let arguments = CommandLine.arguments
     var title: String?
     var action = "status"
@@ -114,10 +170,15 @@ func parseArguments() throws -> (title: String, action: String) {
             action = "restore"
         case "--status":
             action = "status"
+        case "--snapshot":
+            action = "snapshot"
         default:
             throw ProbeError.invalidArguments("unknown argument")
         }
         index += 1
+    }
+    if action == "snapshot" {
+        return (title, action)
     }
     guard let title, !title.isEmpty else {
         throw ProbeError.invalidArguments("missing window title")
@@ -132,12 +193,74 @@ guard applications.count == 1, let application = applications.first else {
 }
 
 let pid = application.processIdentifier
+if arguments.action == "snapshot" {
+    let encoded = try JSONEncoder().encode(snapshotWindows(for: pid))
+    FileHandle.standardOutput.write(encoded)
+    FileHandle.standardOutput.write(Data([10]))
+    exit(EXIT_SUCCESS)
+}
 let axApplication = AXUIElementCreateApplication(pid)
-guard let window = findWindow(axApplication, title: arguments.title) else {
-    throw ProbeError.targetWindowUnavailable(arguments.title)
+guard let title = arguments.title else {
+    throw ProbeError.invalidArguments("missing window title")
+}
+guard let targetPresence = targetWindowPresence(for: pid, title: title) else {
+    throw ProbeError.targetWindowUnavailable("UTM window enumeration was unavailable")
+}
+if !targetPresence {
+    let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+    let output = ProbeResult(
+        windowTitle: title,
+        windowAvailable: false,
+        before: 0,
+        after: 0,
+        frontmostPid: frontmostPid,
+        utmPid: pid,
+        action: arguments.action,
+    )
+    let encoded = try JSONEncoder().encode(output)
+    FileHandle.standardOutput.write(encoded)
+    FileHandle.standardOutput.write(Data([10]))
+    exit(EXIT_SUCCESS)
+}
+guard let window = findWindow(axApplication, title: title) else {
+    throw ProbeError.targetWindowUnavailable(title)
+}
+// UTM puts Capture Input in an overflow menu when a fresh display window is
+// narrow. Expand only this owned window without making it key or frontmost.
+if findCaptureControl(window) == nil {
+    if let sizeValue = attribute(window, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() {
+        var size = CGSize.zero
+        if AXValueGetValue(unsafeBitCast(sizeValue, to: AXValue.self), .cgSize, &size) {
+            let availableWidth = NSScreen.main?.visibleFrame.width ?? size.width
+            size.width = min(availableWidth, max(size.width, 1_024))
+            if let expandedSize = AXValueCreate(.cgSize, &size) {
+                _ = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, expandedSize)
+            }
+        }
+    }
 }
 guard let control = findCaptureControl(window), let before = checkboxValue(control) else {
-    throw ProbeError.captureControlUnavailable(arguments.title)
+    func describeControls(_ element: AXUIElement) -> [[String: String]] {
+        let role = stringAttribute(element, kAXRoleAttribute) ?? ""
+        var records: [[String: String]] = []
+        if role != "AXStaticText" && role != "AXTextArea" && role != "AXTextField" {
+            records.append([
+                "role": role,
+                "title": stringAttribute(element, kAXTitleAttribute) ?? "",
+                "description": stringAttribute(element, kAXDescriptionAttribute) ?? "",
+                "help": stringAttribute(element, kAXHelpAttribute) ?? "",
+                "value": checkboxValue(element).map(String.init) ?? "unavailable",
+                "subrole": stringAttribute(element, kAXSubroleAttribute) ?? "",
+            ])
+        }
+        for child in children(element) { records += describeControls(child) }
+        return records
+    }
+    let diagnostic = try JSONEncoder().encode(describeControls(window))
+    FileHandle.standardError.write(Data("Capture Input control unavailable. Controls: ".utf8))
+    FileHandle.standardError.write(diagnostic)
+    FileHandle.standardError.write(Data([10]))
+    exit(EXIT_FAILURE)
 }
 
 if (arguments.action == "release" || arguments.action == "restore") && before != 0 {
@@ -166,7 +289,8 @@ if arguments.action == "release" || arguments.action == "restore" {
     }
 }
 let output = ProbeResult(
-    windowTitle: arguments.title,
+    windowTitle: title,
+    windowAvailable: true,
     before: before,
     after: after,
     frontmostPid: restoredFrontmostPid,

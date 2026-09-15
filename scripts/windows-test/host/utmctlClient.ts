@@ -12,7 +12,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { isVmUuid } from '@scripts/windows-test/contracts/windowsTestContracts';
+import {
+    isVmUuid,
+    windowsTestDefaultDeadlines,
+} from '@scripts/windows-test/contracts/windowsTestContracts';
 import {
     resolveWindowsTestDataRoot,
     windowsTestGuestLayout,
@@ -36,14 +39,18 @@ export interface IDefaultUtmctlPathOptions {
 /**
  * Prefer the prepared copy because the executable inside UTM.app registers as
  * a foreground application and creates a second Dock icon for each poll.
- * Before preparation, retain the bundled path so doctor can report that the
- * host still needs preparation instead of failing with an opaque ENOENT.
+ * A missing prepared copy is an operator error. Running the executable inside
+ * UTM.app registers a foreground app and creates a second Dock icon for each
+ * poll, so there is no safe fallback here.
  */
 export function resolveDefaultUtmctlPath(options: IDefaultUtmctlPathOptions = {}) {
     const dataRoot = options.dataRoot ?? resolveWindowsTestDataRoot(options.env);
     const preparedPath = path.join(dataRoot, STANDALONE_UTMCTL_RELATIVE_PATH);
     const fileExists = options.fileExists ?? existsSync;
-    return fileExists(preparedPath) ? preparedPath : DEFAULT_UTMCTL_PATH;
+    if (!fileExists(preparedPath)) {
+        throw new Error('The verified standalone utmctl copy is unavailable. Run pnpm windows:test:prepare before running the Windows test lane.');
+    }
+    return preparedPath;
 }
 
 // Captured from `utmctl help <subcommand>` of the installed UTM 4.7.5 build 118.
@@ -53,6 +60,9 @@ export const defaultUtmctlCommandSpelling = {
     version: ['version'],
     list: ['list'],
     status: ['status'],
+    // `--hide` asks ScriptingBridge to close UTM windows and needs an extra
+    // Automation privilege. The runner uses the normal start path, while the
+    // input-capture guard remains fail-closed for any newly visible window.
     start: ['start'],
     stopRequest: [
         'stop',
@@ -247,7 +257,10 @@ export function detectsAutomationConsentFailure(text: string) {
 }
 
 export function detectsUtmctlEventFailure(text: string) {
-    if (/(?:^|\r?\n)\s*error\s*(?::|$)/imu.test(text)) {
+    if (/(?:^|\r?\n)\s*error\b/imu.test(text)
+        || /failed to (?:open|read|write) file/iu.test(text)
+        || /process cannot access the file/iu.test(text)
+        || (text.includes('-2700') && /guest agent is not running|not installed on the guest/iu.test(text))) {
         return true;
     }
     for (const line of text.split(/\r?\n/u)) {
@@ -377,7 +390,7 @@ export interface IUtmctlClient {
     pullFile(vmId: string, guestPath: string, hostPath: string, options?: {timeoutMs?: number;}): Promise<void>;
 }
 
-const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = windowsTestDefaultDeadlines.guestTransportSeconds * 1_000;
 const DEFAULT_GUEST_EXEC_POLL_INTERVAL_MS = 2_000;
 const GUEST_EXEC_DEADLINE_HEADROOM_MS = 2_000;
 const WINDOWS_POWERSHELL_EXECUTABLE = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';

@@ -13,8 +13,9 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentOpenSurfaceRenderOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type {
+    IDocumentViewerRuntime, IDocumentOpenSurfaceRenderOwner,
+} from '@app/modules/document-viewer/public';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { shouldDeferPdfDprRerenderForResize } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
 import { usePdfPageRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
@@ -57,7 +58,7 @@ import type {
     TPdfViewportSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { ILinkAnnotation } from '@app/types/annotations';
-import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/modules/document-viewer/public';
 import type {
     IPdfViewportRasterJob,
     TPdfPageRasterState,
@@ -66,7 +67,7 @@ const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
 export interface ICreatePdfRenderingSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
     performancePolicy: IPdfRenderPerformancePolicy;
     viewerContainer: Vue.Ref<HTMLElement | null>;
@@ -466,6 +467,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         range: PdfUi.IPageRange,
         requestedRenderOptions: IRenderVisiblePagesOptions = {},
     ) {
+        await pendingRasterCancellation;
         const renderOptions = bindPdfOpenSurfaceRenderContext(
             requestedRenderOptions,
             {
@@ -655,6 +657,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         bumpRenderVersion();
         await cancellation;
     }
+    let pendingRasterCancellation = Promise.resolve();
     // Persist-only revisions reauthorize pixels; replacement documents do not.
     // The load path nulls the document first, so authority tracks the last loaded document instead of the watcher's previous value.
     let canvasAuthority = {
@@ -889,7 +892,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         immediate: true,
     });
     const stopCancelRasterWatch = watch(viewport.cancelRasterRevision, () => {
-        void cancelInFlightRenders();
+        pendingRasterCancellation = pendingRasterCancellation.then(() => cancelInFlightRenders());
     }, {flush: 'sync'});
     const stopVisualReadyWatch = watch(viewport.visualReadySignal, (signal, previous) => {
         if (signal.revision !== previous.revision && signal.pageNumber !== null) {

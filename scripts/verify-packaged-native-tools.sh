@@ -3,6 +3,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/release/platform-arch.sh"
 source "$(dirname "$0")/release/packaged-native-root-set.sh"
+source "$(dirname "$0")/sha256-file.sh"
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64> [release-dir]"
@@ -147,6 +148,23 @@ verify_tessdata_bundle_complete() {
   fi
 }
 
+verify_tesseract_pdf_font() {
+  local tessdata_path="$1"
+  local font_path="$tessdata_path/pdf.ttf"
+  check_file "$font_path" "Tesseract PDF font"
+
+  local expected_sha256
+  expected_sha256="$(node --import tsx -e "import {TESSERACT_PDF_FONT_SHA256} from './scripts/tesseractPdfFont.ts'; console.log(TESSERACT_PDF_FONT_SHA256)")"
+  local actual_sha256
+  actual_sha256="$(sha256_file "$font_path")"
+  if [ "$actual_sha256" != "$expected_sha256" ]; then
+    echo "Error: Tesseract PDF font SHA-256 mismatch ($font_path)"
+    echo "  expected: $expected_sha256"
+    echo "  actual:   $actual_sha256"
+    exit 1
+  fi
+}
+
 macos_macho_arch_for_release_arch() {
   case "$1" in
     arm64)
@@ -223,6 +241,7 @@ if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit
   exit 1
 fi
 verify_tessdata_bundle_complete "$tessdata_dir"
+verify_tesseract_pdf_font "$tessdata_dir"
 
 packaged_entry_path() {
   local requested_id="$1"
@@ -547,7 +566,6 @@ if [ "$platform" = "mac" ]; then
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   fi
   run_macos_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
-  run_macos_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
 fi
 
 if [ "$platform" = "linux" ]; then
@@ -579,7 +597,6 @@ if [ "$platform" = "linux" ]; then
 
   if host_can_execute_target "$platform" "$arch"; then
     run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
-    run_host_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
     run_host_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
     run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"

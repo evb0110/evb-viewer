@@ -30,7 +30,7 @@
 </template>
 
 <script setup lang="ts">
-import type {IDocumentBookmarkTreeItem} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/public';
 
 const props = defineProps<{
     item: IDocumentBookmarkTreeItem;

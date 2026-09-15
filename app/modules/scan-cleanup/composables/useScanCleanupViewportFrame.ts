@@ -8,7 +8,7 @@ import type {Ref} from 'vue';
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
+} from '@app/modules/document-viewer/public';
 import {
     resolvePreviewPlaceholderViewportFrame,
     resolvePreviewViewportFrame,

@@ -27,9 +27,11 @@ import {
 import {getErrorMessage} from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
+import { buildOcrTextLayerIndexText } from '@pdf-core';
 import type { IPageText } from '@electron/features/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES } from '@contracts/documentTextCatalog';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type {
     DocumentInitParameters,
@@ -41,6 +43,11 @@ import {
     getPdfjsPageViewBox,
 } from '@pdf-core/pdfjsTextGeometry';
 import { createPdfjsNodeDocumentOptions } from '@electron/features/search/createPdfjsNodeDocumentOptions';
+import {
+    groupContiguousPages,
+    normalizeRequestedPdfPages,
+    splitPdfPageRange,
+} from '@electron/pdf/pdfTextPageBatching';
 import {
     extractTextFromPdf,
     isPdfTextExtractionCapabilityError,
@@ -88,15 +95,138 @@ async function destroyPdfjsDocument(document: IPdfjsDocumentLifecycle) {
 }
 
 export interface IExtractPdfjsTextOptions {
+    /** Revision fence for substituting current EVB OCR catalog text on large files. */
+    documentRevision?: TDocumentRevisionToken;
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
     collectPages?: boolean;
     pages?: readonly number[];
     pageCount?: number;
+    /** Keeps the independent PDF.js benchmark route active for large fixtures. */
+    forcePdfjs?: boolean;
 }
 
 function isInvisibleTextRenderingMode(args: unknown) {
     return Array.isArray(args) && args[0] === 3;
+}
+
+interface IPdfjsTextItemForAssembly {
+    text: string;
+    separatorAfter: 'line' | 'none';
+    transform: readonly number[];
+    width: number;
+    fontName: string;
+    isGlyphRun: boolean;
+    direction: string;
+}
+
+function restorePdfjsCombiningMarkOrder(text: string, direction: string) {
+    if (direction !== 'rtl') {
+        return text;
+    }
+    return text.replace(/^(\p{M}+)([^\p{M}])/u, '$2$1');
+}
+
+function isSingleScalar(text: string) {
+    return text.length > 0 && Array.from(text).length === 1 && !/\s/u.test(text);
+}
+
+function areAdjacentPdfjsGlyphs(
+    previous: IPdfjsTextItemForAssembly,
+    current: IPdfjsTextItemForAssembly,
+) {
+    if (
+        previous.separatorAfter === 'line'
+        || previous.fontName !== current.fontName
+        || !previous.isGlyphRun
+        || !current.isGlyphRun
+        || previous.transform.length < 6
+        || current.transform.length < 6
+        || !Number.isFinite(previous.width)
+        || !Number.isFinite(current.width)
+    ) {
+        return false;
+    }
+
+    const a = previous.transform[0];
+    const b = previous.transform[1];
+    const previousX = previous.transform[4];
+    const previousY = previous.transform[5];
+    const currentX = current.transform[4];
+    const currentY = current.transform[5];
+    const previousVerticalScale = previous.transform[3];
+    if (
+        a === undefined
+        || b === undefined
+        || previousX === undefined
+        || previousY === undefined
+        || currentX === undefined
+        || currentY === undefined
+        || previousVerticalScale === undefined
+    ) {
+        return false;
+    }
+    const scale = Math.hypot(a, b);
+    if (!Number.isFinite(scale) || scale <= Number.EPSILON) {
+        return false;
+    }
+    const directionX = a / scale;
+    const directionY = b / scale;
+    const expectedX = previousX + directionX * previous.width;
+    const expectedY = previousY + directionY * previous.width;
+    const markContinuation = /\p{M}$/u.test(previous.text);
+    const tolerance = markContinuation
+        ? Math.max(0.75, Math.abs(previousVerticalScale) * 0.75)
+        : Math.max(0.75, previous.width * 0.2);
+    return Math.hypot(
+        currentX - expectedX,
+        currentY - expectedY,
+    ) <= tolerance;
+}
+
+function mergePositionedPdfjsGlyphItems(items: readonly IPdfjsTextItemForAssembly[]) {
+    // The repaired RTL layer deliberately creates one PDF.js item per glyph.
+    // Rejoin only items whose reported origins prove adjacency. This keeps
+    // the existing search assembler's word separators from becoming spaces
+    // between glyphs, without maintaining another copy of OCR text.
+    const merged: IPdfjsTextItemForAssembly[] = [];
+    for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        if (item === undefined) {
+            continue;
+        }
+        const previous = merged.at(-1);
+        const next = items[index + 1];
+        if (
+            // PDF.js synthesizes this separator after a zero-width combining
+            // mark when it closes a bidi item. The mark stays in the output;
+            // only the consumer-generated separator is ignored.
+            item.text === ' '
+            && previous !== undefined
+            && /\p{M}$/u.test(previous.text)
+            && next !== undefined
+            && isSingleScalar(next.text)
+            && item.width <= Math.max(0.75, previous.width * 1.25)
+        ) {
+            continue;
+        }
+        if (previous !== undefined && areAdjacentPdfjsGlyphs(previous, item)) {
+            previous.text += item.text;
+            previous.separatorAfter = item.separatorAfter;
+            previous.transform = item.transform;
+            previous.width = item.width;
+            previous.isGlyphRun = true;
+            continue;
+        }
+        merged.push({...item});
+    }
+    return merged.map(({
+        text,
+        separatorAfter,
+    }) => ({
+        text,
+        separatorAfter,
+    }));
 }
 
 export interface IPageTextWithWordBoxes extends IPageText {
@@ -139,6 +269,68 @@ function getPdfjsTextExtractionPages(
             .map(page => Math.trunc(page))
             .filter(page => page >= 1 && page <= pageCount),
     )).sort((left, right) => left - right);
+}
+
+async function extractLargeFileTextFromCatalog(
+    pdfPath: string,
+    options: IExtractPdfjsTextOptions,
+): Promise<IPageText[] | null> {
+    const documentRevision = options.documentRevision;
+    if (documentRevision === undefined) {
+        return null;
+    }
+
+    const requestedPages = normalizeRequestedPdfPages(options.pages, options.pageCount);
+    const pageCount = options.pageCount !== undefined && options.pageCount > 0
+        ? Math.trunc(options.pageCount)
+        : requestedPages.at(-1);
+    if (pageCount === undefined || pageCount < 1) {
+        return null;
+    }
+
+    const ranges = requestedPages.length > 0
+        ? groupContiguousPages(requestedPages).flatMap(range => (
+            splitPdfPageRange(range.firstPage, range.lastPage, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES)
+        ))
+        : splitPdfPageRange(1, pageCount, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES);
+    const {resolveDocumentTextCatalogWindow} = await import('@electron/features/ocr/public/documentTextCatalog');
+    const pages: IPageText[] = [];
+
+    for (const range of ranges) {
+        throwIfAborted(options.signal);
+        const window = await resolveDocumentTextCatalogWindow(
+            pdfPath,
+            documentRevision,
+            range.firstPage,
+            range.lastPage,
+            pageCount,
+            {
+                extractEmbeddedText: extractTextFromPdf,
+                ...(options.signal === undefined ? {} : {signal: options.signal}),
+            },
+        );
+        const pagesByNumber = new Map<number, string>(window.pages.map(page => [
+            Number(page.pageNumber),
+            page.text,
+        ]));
+        const pageNumbers = Array.from(
+            {length: range.lastPage - range.firstPage + 1},
+            (_value, index) => range.firstPage + index,
+        );
+        for (const pageNumber of pageNumbers) {
+            throwIfAborted(options.signal);
+            const page = {
+                pageNumber,
+                text: pagesByNumber.get(pageNumber) ?? '',
+            } satisfies IPageText;
+            if (options.collectPages ?? options.onPageText === undefined) {
+                pages.push(page);
+            }
+            options.onPageText?.(page);
+        }
+    }
+
+    return pages;
 }
 
 function createPdfjsPathDocumentOptions(pdfPath: string) {
@@ -275,12 +467,17 @@ export async function extractTextWithPdfjs(
         onPageText,
         collectPages = !onPageText,
         pages: requestedPages,
+        forcePdfjs = false,
     } = options;
     log.debug(`Extracting desktop PDF text: ${pdfPath}`);
     throwIfAborted(signal);
 
     const fileStat = await stat(pdfPath);
-    if (fileStat.size > PDFJS_COMPATIBILITY_MAX_INPUT_BYTES) {
+    if (fileStat.size > PDFJS_COMPATIBILITY_MAX_INPUT_BYTES && !forcePdfjs) {
+        const catalogPages = await extractLargeFileTextFromCatalog(pdfPath, options);
+        if (catalogPages !== null) {
+            return catalogPages;
+        }
         return extractTextFromPdf(pdfPath, {
             ...(options.pageCount === undefined ? {} : {pageCount: options.pageCount}),
             ...(requestedPages === undefined ? {} : {pages: requestedPages}),
@@ -319,24 +516,27 @@ export async function extractTextWithPdfjs(
                     );
                     throwIfAborted(signal);
 
-                    const textItems: Array<{
-                        text: string;
-                        separatorAfter: 'line' | 'none'
-                    }> = [];
+                    const textItems: IPdfjsTextItemForAssembly[] = [];
                     for (const item of content.items) {
                         throwIfAborted(signal);
                         if ('str' in item) {
                             const textItem = item;
                             textItems.push({
-                                text: textItem.str,
                                 separatorAfter: textItem.hasEOL ? 'line' : 'none',
+                                transform: textItem.transform,
+                                width: textItem.width,
+                                fontName: textItem.fontName,
+                                text: restorePdfjsCombiningMarkOrder(textItem.str, textItem.dir),
+                                isGlyphRun: isSingleScalar(textItem.str)
+                                    || (textItem.dir === 'rtl' && /^\p{M}+[^\p{M}]$/u.test(textItem.str)),
+                                direction: textItem.dir,
                             });
                         }
                     }
 
                     const pageText = {
                         pageNumber,
-                        text: assembleSearchablePageText(textItems).text,
+                        text: assembleSearchablePageText(mergePositionedPdfjsGlyphItems(textItems)).text,
                     };
                     extractedPageCount += 1;
                     if (collectPages) {

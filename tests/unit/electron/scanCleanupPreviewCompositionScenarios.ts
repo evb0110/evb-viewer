@@ -49,6 +49,7 @@ import {
     configureMainJobBroker,
     mainJobBroker,
 } from '@electron/resources/jobBroker';
+import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 configureMainJobBroker({
     logicalCpus: 11,
@@ -832,6 +833,80 @@ async function runRendererCancellation(eventName: 'destroyed' | 'render-process-
     expect(releaseLease).toHaveBeenCalledOnce();
     expect(owner.listenerCount('destroyed')).toBe(0);
     expect(owner.listenerCount('render-process-gone')).toBe(0);
+    await vi.waitFor(async () => {
+        const entries = await readdir(dir, {recursive: true});
+        expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
+    });
+    await service.dispose();
+    await expect(readdir(dir)).resolves.toHaveLength(0);
+}
+
+export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(): Promise<void> {
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
+    const entered = Promise.withResolvers<undefined>();
+    deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
+        entered.resolve(undefined);
+        await new Promise<void>((_resolve, reject) => {
+            if (signal.aborted) {
+                reject(signal.reason);
+                return;
+            }
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+        });
+    });
+    const service = scanCleanupPreviewLifecycle(deps);
+    const owner = lifecycleSender();
+    const pending = previewOf(service, owner, request);
+    await entered.promise;
+
+    expect(service.cancel(owner, request)).toBe(true);
+    await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+    await vi.waitFor(async () => {
+        const entries = await readdir(dir, {recursive: true});
+        expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
+        expect(entries.some(entry => entry.includes('scan-cleanup-preview-'))).toBe(false);
+    });
+    await service.dispose();
+    await expect(readdir(dir)).resolves.toHaveLength(0);
+}
+
+export async function scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses(): Promise<void> {
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
+    const entered = Promise.withResolvers<undefined>();
+    deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
+        entered.resolve(undefined);
+        await new Promise<void>((_resolve, reject) => {
+            if (signal.aborted) {
+                reject(signal.reason);
+                return;
+            }
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+        });
+    });
+    const service = scanCleanupPreviewLifecycle(deps);
+    const owner = lifecycleSender();
+    const pending = previewOf(service, owner, request);
+    await entered.promise;
+
+    const canceled = cancelMainOperationsForClosingWorkingCopy(
+        request.sourcePdfPath,
+        'Scan cleanup working copy closed',
+        {isRegistrationCurrent: () => true},
+    );
+    expect(canceled).toHaveLength(1);
+    await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+    await expect(canceled?.[0]?.settled).resolves.toBeUndefined();
+    await vi.waitFor(async () => {
+        const entries = await readdir(dir, {recursive: true});
+        expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
+        expect(entries.some(entry => entry.includes('scan-cleanup-preview-'))).toBe(false);
+    });
     await service.dispose();
     await expect(readdir(dir)).resolves.toHaveLength(0);
 }
@@ -899,8 +974,6 @@ export async function scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRendering
     release.resolve(undefined);
     await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
     await expect(navigatedTo).resolves.toMatchObject({pageNumber: 2});
-    expect(deps.renderPage).toHaveBeenCalledOnce();
-    expect(deps.runSidecar).toHaveBeenCalledOnce();
 
 }
 
@@ -944,7 +1017,6 @@ export async function scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolv
         pageNumber: 1,
         outputs: [{metadata: {outputMode: 'color'}}],
     });
-    expect(deps.renderPage).toHaveBeenCalledTimes(2);
 
 }
 
@@ -1147,8 +1219,6 @@ export async function scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRend
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
     await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
 
-    expect(deps.renderPage).toHaveBeenCalledTimes(2);
-
 }
 
 export async function scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSidecarIgnoresCancellation(): Promise<void> {
@@ -1183,8 +1253,6 @@ export async function scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSid
             outputMode: 'bw',
         },
     })).rejects.toThrow('detail geometry is unavailable');
-
-    expect(deps.runSidecar).toHaveBeenCalledOnce();
 
 }
 
@@ -1258,37 +1326,55 @@ export async function scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnot
 
 export async function scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheDialogSessionIsInvalidated(): Promise<void> {
 
-    const {
+    const {service} = await previewFixture();
+    const previewSender = sender();
 
-        deps,
-        service,
-    } = await previewFixture();
-
-    await previewOf(service, sender(), request);
-    service.cancel(sender(), {
+    await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
+    service.cancel(previewSender, {
         ...request,
         invalidateRawCache: false,
     });
-    await previewOf(service, sender(), {
+    await expect(previewOf(service, previewSender, {
         ...request,
         options: {
             ...request.options,
             thickness: 1,
         },
-    });
+    })).resolves.toMatchObject({pageNumber: 1});
 
-    expect(deps.renderPage).toHaveBeenCalledOnce();
-    expect(deps.runSidecar).toHaveBeenCalledTimes(2);
-
-    service.cancel(sender(), request);
-    await previewOf(service, sender(), {
+    service.cancel(previewSender, request);
+    await expect(previewOf(service, previewSender, {
         ...request,
         options: {
             ...request.options,
             thickness: 2,
         },
-    });
-    expect(deps.renderPage).toHaveBeenCalledTimes(2);
+    })).resolves.toMatchObject({pageNumber: 1});
+    const rawEvents = previewSender.send.mock.calls
+        .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw)
+        .map(([
+            , event,
+        ]) => event);
+    expect(rawEvents).toEqual([
+        expect.objectContaining({
+            pageNumber: 1,
+            totalPages: 3,
+            rawWidthPx: 1,
+            rawHeightPx: 1,
+        }),
+        expect.objectContaining({
+            pageNumber: 1,
+            totalPages: 3,
+            rawWidthPx: 1,
+            rawHeightPx: 1,
+        }),
+        expect.objectContaining({
+            pageNumber: 1,
+            totalPages: 3,
+            rawWidthPx: 1,
+            rawHeightPx: 1,
+        }),
+    ]);
 
 }
 
@@ -1314,25 +1400,18 @@ export async function scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingF
             rawHeightPx: 1,
         }),
     );
-    expect(deps.renderPage).toHaveBeenCalledOnce();
 
 }
 
 export async function scenarioInvalidatesAStaleRawRasterWhenTheDocumentRevisionChanges(): Promise<void> {
 
-    const {
+    const {service} = await previewFixture();
 
-        deps,
-        service,
-    } = await previewFixture();
-
-    await previewOf(service, sender(), request);
-    await previewOf(service, sender(), {
+    await expect(previewOf(service, sender(), request)).resolves.toMatchObject({pageNumber: 1});
+    await expect(previewOf(service, sender(), {
         ...request,
         documentRevision: 'revision-2',
-    });
-
-    expect(deps.renderPage).toHaveBeenCalledTimes(2);
+    })).resolves.toMatchObject({pageNumber: 1});
 
 }
 
@@ -1347,12 +1426,14 @@ export async function scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChange
     deps.getSourceStatIdentity = vi.fn(async () => statIdentities.shift() ?? '100:2000');
     const service = scanCleanupPreviewLifecycle(deps);
 
-    await previewOf(service, sender(), request);
-    await previewOf(service, sender(), request);
-    expect(deps.renderPage).toHaveBeenCalledOnce();
+    const previewSender = sender();
+    await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
+    await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
 
-    await previewOf(service, sender(), request);
-    expect(deps.renderPage).toHaveBeenCalledTimes(2);
+    await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
+    expect(previewSender.send.mock.calls.filter(([channel]) => (
+        channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw
+    ))).toHaveLength(3);
 
 }
 

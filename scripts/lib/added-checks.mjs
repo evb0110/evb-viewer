@@ -244,14 +244,15 @@ function git(arguments_, cwd) {
     return result.status === 0 ? result.stdout : null;
 }
 
-/** @param {string} cwd @returns {string[]} */
-export function findStagedAddedChecks(cwd) {
+/** @param {string} cwd @param {string[]} base @returns {string[]} */
+function findStagedAddedChecksAgainst(cwd, base) {
     const names = git([
         'diff',
         '--cached',
         '--name-status',
         '-z',
         '--no-renames',
+        ...base,
     ], cwd);
     if (names === null) {
         return [];
@@ -260,9 +261,27 @@ export function findStagedAddedChecks(cwd) {
         'diff',
         '--cached',
         '-U0',
+        ...base,
         '--',
         path,
     ], cwd) ?? ''));
+}
+
+// A merge commit only adds what neither parent already had, so a check that
+// arrives with the merged branch is not charged to the merge.
+/** @param {string} cwd @returns {string[]} */
+export function findStagedAddedChecks(cwd) {
+    const againstHead = findStagedAddedChecksAgainst(cwd, []);
+    if (git([
+        'rev-parse',
+        '-q',
+        '--verify',
+        'MERGE_HEAD',
+    ], cwd) === null) {
+        return againstHead;
+    }
+    const againstMergeHead = new Set(findStagedAddedChecksAgainst(cwd, ['MERGE_HEAD']));
+    return againstHead.filter(check => againstMergeHead.has(check));
 }
 
 /** @param {string} commit @param {string} cwd @returns {string[]} */

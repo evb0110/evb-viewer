@@ -20,7 +20,7 @@ import {
     clampPdfFitScale,
     resolvePdfZoomScale,
 } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/public';
 
 interface IFitScalePageOptions {
     page?: number | null | undefined;

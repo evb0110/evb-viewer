@@ -1,4 +1,4 @@
-import type { IOverlayRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
+import type { IOverlayRect } from '@app/modules/document-viewer/public';
 
 export interface ISnipPointerPayload {
     clientX: number;

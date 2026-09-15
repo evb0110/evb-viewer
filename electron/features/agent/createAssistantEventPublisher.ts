@@ -4,7 +4,7 @@ import type {
     IAgentAssistantEvent,
     IAgentAssistantState,
 } from '@contracts/agent';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@agent-core/assistantScope';
 import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
 import { sendAgentAssistantEvent } from '@electron/features/agent/main/agentRendererEvents';

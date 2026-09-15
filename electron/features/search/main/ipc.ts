@@ -37,6 +37,7 @@ import {
 import type { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { createLogger } from '@electron/utils/createLogger';
+import { validateSearchQuery } from '@pdf-core';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -307,6 +308,7 @@ async function handlePdfSearch(
             truncated: false,
         };
     }
+    validateSearchQuery(query, request);
 
     const requestId = resolveSearchRequestId(request.requestId, 'search');
     const admission = createSearchRequestAdmission(pdfPath, operationContext.senderId, requestId);

@@ -149,6 +149,18 @@ describe('canonical application frame normalization', () => {
         expect(result.frames[0]?.module).toBe(result.debugMeta.images[0]?.code_file);
     });
 
+    it('accepts scan-cleanup files through their packages root', () => {
+        const result = normalizeCanonicalApplicationFrames(`at render (file:///Users/alice/Projects/evb-viewer/packages/scan-cleanup/core/render.ts:10:2)
+    at stale (file:///Users/alice/Projects/evb-viewer/scan-cleanup-core/render.ts:11:3)`);
+
+        expect(result.frames).toEqual([{
+            module: 'packages/scan-cleanup/core/render.ts',
+            function: 'render',
+            line: 10,
+            column: 2,
+        }]);
+    });
+
     it('keeps a line-only location while omitting an absent column', () => {
         const result = normalizeCanonicalApplicationFrames(
             'at openDocument (file:///Users/alice/Projects/evb-viewer/app/viewer.ts:27)',

@@ -77,8 +77,8 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
-const {createDocumentViewerChassisAuthority} = await import('@app/utils/document-viewer/chassis/documentViewerChassisAuthority');
-const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
+const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
+const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
 
 // This test copies two 1 MiB ranges and runs alongside the complete six-project
@@ -638,7 +638,7 @@ describe('PdfDocumentSession range loading', () => {
             4,
         ]));
 
-        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const authority = createDocumentViewerRuntime(ref('pdf'));
         const documentState = createPdfDocumentSession({chassisAuthority: authority});
         try {
             await documentState.loadPdf({

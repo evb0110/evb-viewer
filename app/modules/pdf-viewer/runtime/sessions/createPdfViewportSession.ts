@@ -15,8 +15,11 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { hasCommittedDocumentOpeningLayout } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    consumeDocumentViewportPaneRelocationScrollFence,
+    hasCommittedDocumentOpeningLayout,
+    type IDocumentViewerRuntime,
+} from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
@@ -100,7 +103,7 @@ export interface ICreatePdfViewportSessionOptions {
     isPageFreshlyRenderedForNavigation: (pageNumber: TPageNumber) => boolean;
     waitForPageTextLayerReady?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<boolean>) | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     performancePolicy: IPdfRenderPerformancePolicy;
     maxBufferCanvasPixels: number;
     settledMaxCanvasPixels: number;
@@ -877,8 +880,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         lastPhysicalScrollTop = container.scrollTop;
         viewModel.syncHorizontalScrollForZoomMode();
         const authority = singlePageScroll.viewportAuthority;
+        const wasAuthorityScroll = viewportWritePort.consumeAuthorityScroll(container);
+        if (consumeDocumentViewportPaneRelocationScrollFence(container)) {
+            // Teleport can reset the native scroll offset while moving a pane.
+            // The workspace marks that move explicitly, so only this lifecycle
+            // event is excluded from viewport authority.
+            navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
+            return;
+        }
         if (
-            viewportWritePort.consumeAuthorityScroll(container)
+            wasAuthorityScroll
             || options.isResizing.value
             || resizeTransitionVisible.value
             || zoomSnapSuppressedForClass.value
@@ -896,6 +907,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(authority.currentPage.value);
             return;
+        }
+        const supersedesProgrammaticNavigation = authority.activeIntent.value !== null
+            || singlePageScroll.navigationAnchorPage.value !== null;
+        if (supersedesProgrammaticNavigation) {
+            cancelRasterRevision.value += 1;
         }
         // A direct scroll can arrive without a preceding wheel/pointer event
         // (scrollbar drags, accessibility input, or automation). Clear the
@@ -965,6 +981,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     function markUserViewportInteraction() {
         navigationEpochs.markPhysicalNavigation();
+        const supersedesProgrammaticNavigation = singlePageScroll.viewportAuthority.activeIntent.value !== null
+            || singlePageScroll.navigationAnchorPage.value !== null;
+        if (supersedesProgrammaticNavigation) {
+            cancelRasterRevision.value += 1;
+        }
         singlePageScroll.cancelProgrammaticNavigation('user-viewport-interaction');
     }
     function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {

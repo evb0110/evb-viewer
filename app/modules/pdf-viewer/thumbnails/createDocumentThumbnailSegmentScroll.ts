@@ -1,5 +1,5 @@
 import type {Ref} from 'vue';
-import type {IDocumentThumbnailScrollSegmentTransition} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import type {IDocumentThumbnailScrollSegmentTransition} from '@app/modules/document-viewer/public';
 
 interface IDocumentThumbnailSegmentScrollOptions {
     activeSegmentIndex: Readonly<Ref<number>>;

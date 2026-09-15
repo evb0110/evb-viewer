@@ -1,5 +1,5 @@
 import { resolveWorkspaceMemoryBudget } from '@app/modules/workspace-shell/memory/workspaceMemoryBudget';
-import { registerWorkspaceSurfaceBudgetPort } from '@app/utils/document-viewer/workspaceSurfaceBudgetPort';
+import { registerWorkspaceSurfaceBudgetPort } from '@app/utils/workspaceSurfaceBudgetPort';
 
 export type TWorkspaceSurfaceCategory =
     | 'pdf-page-canvas'
@@ -74,8 +74,14 @@ export function estimateCanvasSurfaceBytes(canvas: Pick<HTMLCanvasElement, 'widt
 }
 
 export function createWorkspaceSurfaceBudgetController(
-    maxBytes = resolveWorkspaceMemoryBudget().maxRasterSurfaceBytes,
+    configuredMaxBytes?: number,
 ): IWorkspaceSurfaceBudgetController {
+    // The module singleton is created at import time, before the platform bridge exists.
+    let resolvedMaxBytes = configuredMaxBytes;
+    function getMaxBytes() {
+        resolvedMaxBytes ??= resolveWorkspaceMemoryBudget().maxRasterSurfaceBytes;
+        return resolvedMaxBytes;
+    }
     interface ILeaseEntry {
         bytes: number;
         category: TWorkspaceSurfaceCategory;
@@ -99,7 +105,7 @@ export function createWorkspaceSurfaceBudgetController(
     };
 
     function getEffectiveMaxBytes() {
-        return Math.floor(maxBytes * pressureBudgetScale[pressureLevel]);
+        return Math.floor(getMaxBytes() * pressureBudgetScale[pressureLevel]);
     }
 
     function getEvictionCandidates() {
@@ -222,7 +228,7 @@ export function createWorkspaceSurfaceBudgetController(
             }
         }
         return {
-            maxBytes,
+            maxBytes: getMaxBytes(),
             effectiveMaxBytes: getEffectiveMaxBytes(),
             reservedBytes,
             reservedBytesByCategory,

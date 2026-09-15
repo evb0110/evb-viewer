@@ -9,7 +9,7 @@ import {
     vi,
 } from 'vitest';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import { usePageSearch } from '@app/modules/workspace-shell/composables/usePageSearch';
 
 function createPageSearch() {

@@ -38,7 +38,7 @@ describe('Node worker entrypoints', () => {
         await import('@electron/features/image-export/main/tiffCombineWorker');
         await import('@electron/features/page-ops/main/cropWorker');
         await import('@electron/image/pdfCombineWorker');
-        await import('@electron/ocr/worker/main');
+        await import('@electron/features/ocr/worker/main');
 
         expect(mocks.postMessage).toHaveBeenCalled();
         expect(mocks.postMessage.mock.calls.some(call => call[0]?.type === 'result' && call[0]?.ok === false)).toBe(true);

@@ -51,7 +51,7 @@ import type {
     IWorkspaceDocumentViewerNavigationPort,
     IWorkspacePdfViewerExposeAutomationPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';

@@ -17,7 +17,7 @@ import {
 } from 'vue';
 import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/NativePdfPageContent.vue';
 import { resolveNativePdfRenderQueue } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfRenderQueue';
-import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IDocumentPreviewPageState } from '@app/modules/document-viewer/pagePreviewSource';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),

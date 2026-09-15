@@ -112,17 +112,17 @@ describe('findFormatComparisonViolations', () => {
         expect(violations).toEqual([]);
     });
 
-    it('allows only the exact driver and adapter implementation paths', () => {
+    it('checks the driver and adapter implementation paths like any other source', () => {
         const source = 'if (driver.id === \'djvu\') {}';
 
         expect(findFormatComparisonViolations(
             'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts',
             source,
-        )).toEqual([]);
+        )).toHaveLength(1);
         expect(findFormatComparisonViolations(
             'app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts',
             source,
-        )).toEqual([]);
+        )).toHaveLength(1);
         expect(findFormatComparisonViolations(
             'app/modules/workspace-shell/viewers/workspaceDocumentDriverCopy.ts',
             source,

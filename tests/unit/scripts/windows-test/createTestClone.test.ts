@@ -3,6 +3,7 @@ import {
     mkdtemp,
     readFile,
     realpath,
+    rename,
     rm,
     symlink,
     writeFile,
@@ -98,7 +99,7 @@ async function fixture() {
         });
         return {
             exitCode: 0,
-            stdout: JSON.stringify(decoded),
+            stdout: args[0] === '-extract' ? '[]' : JSON.stringify(decoded),
             stderr: '',
             timedOut: false,
             signal: null,
@@ -112,7 +113,7 @@ async function fixture() {
     const utmctl: IUtmctlClient = {
         list: async () => {
             const cloneId = commands.find(entry => entry.args[1] === 'Information.UUID')?.args[3];
-            return cloneId && commands.some(entry => entry.command === '/usr/bin/osascript')
+            return cloneId && commands.some(entry => entry.command === '/usr/bin/open')
                 ? [
                     registration,
                     {
@@ -153,7 +154,7 @@ async function fixture() {
 it('copies disk, EFI and TPM into the test root and changes only the copied identities before import', async () => {
     const harness = await fixture();
     await createTestClone(harness.options);
-    const destination = path.join(harness.root, `${cloneName}.utm`);
+    const destination = path.join(harness.root, 'clones', `${cloneName}.utm`);
     for (const file of [
         'disk.qcow2',
         'efi_vars.fd',
@@ -170,10 +171,11 @@ it('copies disk, EFI and TPM into the test root and changes only the copied iden
     ]);
     expect(replacements.every(entry => entry.args.at(-1) === path.join(destination, 'config.plist'))).toBe(true);
     expect(replacements[0]?.args[3]).not.toBe(goldenId);
-    expect(harness.commands.at(-1)?.command).toBe('/usr/bin/osascript');
+    expect(harness.commands.at(-1)?.command).toBe('/usr/bin/open');
+    expect(harness.commands.at(-1)?.args[0]).toBe('-g');
+    expect(harness.commands.at(-1)?.args[1]).toBe('-a');
+    expect(harness.commands.at(-1)?.args[2]).toBe('/Applications/UTM.app');
     expect(harness.commands.at(-1)?.args.at(-1)).toBe(destination);
-    expect(harness.commands.at(-1)?.args[1]).toContain('open bundleFile');
-    expect(harness.commands.at(-1)?.args[1]).not.toContain('import new');
 });
 
 it('refuses the personal display name before copying or importing', async () => {
@@ -192,16 +194,34 @@ it('refuses external media, symlinks and an existing destination', async () => {
     await expect(createTestClone(linked.options)).rejects.toThrow('symbolic link');
     const existing = await fixture();
     existing.options.config.retention.maxFailedClones = 2;
-    await mkdir(path.join(existing.root, `${cloneName}.utm`));
+    await mkdir(path.join(existing.root, 'clones', `${cloneName}.utm`), {recursive: true});
     await expect(createTestClone(existing.options)).rejects.toThrow('already exists');
-    expect(existing.commands.some(entry => entry.command.endsWith('osascript'))).toBe(false);
+    expect(existing.commands.some(entry => entry.command.endsWith('open'))).toBe(false);
 });
 
 it('counts a preserved unregistered clone against the retention limit', async () => {
     const harness = await fixture();
-    await mkdir(path.join(harness.root, 'evb-win-test-20260904T000000Z-0123456789ab.utm'));
+    await mkdir(path.join(harness.root, 'clones', 'evb-win-test-20260904T000000Z-0123456789ab.utm'), {recursive: true});
     await expect(createTestClone(harness.options)).rejects.toThrow('Retained test clones');
     expect(harness.commands).toEqual([]);
+});
+
+it('does not count the promoted golden bundle as a retained clone', async () => {
+    const harness = await fixture();
+    const promoted = path.join(harness.root, 'evb-win-test-promoted.utm');
+    await rename(harness.source, promoted);
+    harness.options.manifest.bundlePath = promoted;
+    await createTestClone(harness.options);
+    expect(harness.commands.some(entry => entry.args.includes(cloneName))).toBe(true);
+});
+
+it('asserts that a headless clone has no host display entry', async () => {
+    const harness = await fixture();
+    await createTestClone({
+        ...harness.options,
+        headless: true,
+    });
+    expect(harness.commands.some(entry => entry.args[0] === '-extract' && entry.args[1] === 'Display')).toBe(true);
 });
 
 it('copies input media into the clone and inserts only a read-only USB CD drive in the clone config', async () => {
@@ -213,7 +233,7 @@ it('copies input media into the clone and inserts only a read-only USB CD drive 
         inputMediaPath,
     });
 
-    const destination = path.join(harness.root, `${cloneName}.utm`);
+    const destination = path.join(harness.root, 'clones', `${cloneName}.utm`);
     expect(await readFile(path.join(destination, 'Data', 'evb-test-inputs.iso'), 'utf8')).toBe('input media bytes');
     expect(await readFile(inputMediaPath, 'utf8')).toBe('input media bytes');
     const driveInsert = harness.commands.find(entry => entry.args[0] === '-insert' && entry.args[1] === 'Drive.1');
@@ -231,7 +251,7 @@ it('copies input media into the clone and inserts only a read-only USB CD drive 
         InterfaceVersion: 1,
         ReadOnly: true,
     });
-    expect(harness.commands.some(entry => entry.command.endsWith('osascript'))).toBe(true);
+    expect(harness.commands.some(entry => entry.command.endsWith('open'))).toBe(true);
 });
 
 it('rejects symbolic-link and non-regular input media before touching UTM', async () => {
@@ -266,5 +286,5 @@ it('refuses an input-media destination already present in the golden bundle', as
         ...harness.options,
         inputMediaPath,
     })).rejects.toThrow('input media destination already exists');
-    expect(harness.commands.some(entry => entry.command.endsWith('osascript'))).toBe(false);
+    expect(harness.commands.some(entry => entry.command.endsWith('open'))).toBe(false);
 });

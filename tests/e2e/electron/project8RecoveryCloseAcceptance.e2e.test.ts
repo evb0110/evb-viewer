@@ -480,17 +480,27 @@ describe('Project 8 recovered close decisions', () => {
         await Promise.all(livePages.map(page => waitForViewerInteractive(page, 60_000)));
 
         const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        // Each window debounces its own record, so the journal reaches two
+        // records while the source window still lists the moved tab and the new
+        // window lists an empty tab. Crash only once each record holds exactly
+        // its own dirty document.
         await expect.poll(async () => {
             try {
-                const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {
-                    checkpoint?: {tabs?: unknown[]};
-                    records?: Array<{checkpoint?: {tabs?: unknown[]}}>
-                };
-                return stored.records?.length ?? (stored.checkpoint ? 1 : 0);
+                const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {records?: Array<{checkpoint: {tabs: Array<{
+                    sourceRef?: string | null;
+                    workingCopyRef?: string | null;
+                    isDirty?: boolean;
+                }>}}>};
+                return (stored.records ?? []).map(record => record.checkpoint.tabs.map(tab => (
+                    tab.isDirty && tab.workingCopyRef ? tab.sourceRef : null
+                ))).sort((left, right) => String(left).localeCompare(String(right)));
             } catch {
-                return 0;
+                return [];
             }
-        }, {timeout: 60_000}).toBe(2);
+        }, {timeout: 60_000}).toEqual([
+            [firstPdfPath],
+            [secondPdfPath],
+        ]);
 
         await session.browser.disconnect();
         await stopSingleSession(session.name, {
@@ -506,11 +516,16 @@ describe('Project 8 recovered close decisions', () => {
         await expect.poll(async () => (await appPages()).length, {timeout: 60_000}).toBe(2);
 
         const recoveredPages = await appPages();
-        const recoveredFileNames = await Promise.all(recoveredPages.map(page => page.evaluate(() => (
-            document.querySelector('.tab-list .tab[data-tab-id]')?.textContent?.trim() ?? ''
-        ))));
-        expect(recoveredFileNames.some(name => name.includes('project8-owner-a-'))).toBe(true);
-        expect(recoveredFileNames.some(name => name.includes('project8-owner-b-'))).toBe(true);
+        await expect.poll(async () => {
+            const recoveredFileNames = await Promise.all(recoveredPages.map(page => page.evaluate(() => (
+                document.querySelector('.tab-list .tab[data-tab-id]')?.textContent?.trim() ?? ''
+            ))));
+            return [
+                'project8-owner-a-',
+                'project8-owner-b-',
+            ]
+                .every(owner => recoveredFileNames.some(name => name.includes(owner)));
+        }, {timeout: 60_000}).toBe(true);
         await expect.poll(async () => {
             const recoveredDirtyStates = await Promise.all(recoveredPages.map(page => (
                 readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(page, ['dirtyState'])

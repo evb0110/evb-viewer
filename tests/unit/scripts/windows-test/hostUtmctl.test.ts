@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     mkdtemp,
@@ -204,11 +205,11 @@ describe('utmctl client commands', () => {
         expect(calls[0]?.command).toBe(preparedPath);
     });
 
-    it('keeps the bundled executable as the pre-preparation fallback', () => {
-        expect(resolveDefaultUtmctlPath({
+    it('refuses to resolve before standalone preparation', () => {
+        expect(() => resolveDefaultUtmctlPath({
             dataRoot: '/tmp/evb-windows-tests',
             fileExists: () => false,
-        })).toBe(DEFAULT_UTMCTL_PATH);
+        })).toThrow('verified standalone utmctl copy is unavailable');
     });
 
     it('uses the uppercase UUID expected by UTM for every VM operation', async () => {
@@ -235,6 +236,10 @@ describe('utmctl client commands', () => {
             expect(call.args).toContain(vmId.toUpperCase());
             expect(call.args).not.toContain(vmId);
         }
+        expect(calls.find(call => call.args[0] === 'start')?.args).toEqual([
+            'start',
+            vmId.toUpperCase(),
+        ]);
     });
 
     it('spells stop, clone and delete with the qualified UTM flags', async () => {
@@ -576,6 +581,24 @@ describe('utmctl client commands', () => {
         expect((error as UtmctlTransportError).message).toContain('guest file was not found');
     });
 
+    it('rejects a zero-exit file pull when UTM reports a guest file lock on stderr', async () => {
+        const {runner} = fakeRunner([result({stderr: 'Error from event: failed to open file: process cannot access the file because it is being used by another process.'})]);
+        const client = createUtmctlClient({runner});
+
+        await expect(client.pullFile(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\state\\locked.txt',
+            '/tmp/locked-result.json',
+        )).rejects.toMatchObject({kind: 'transport-failed'});
+    });
+
+    it('rejects a zero-exit command when UTM reports that the guest agent is unavailable', () => {
+        expect(classifyUtmctlTransportFailure({
+            ...result(),
+            stderr: 'Error from event: The operation couldn’t be completed. (OSStatus error -2700.)\nThe QEMU guest agent is not running or not installed on the guest.\n',
+        })).toBe('transport-failed');
+    });
+
     it('creates run-scoped guest directories with the path supplied as stdin data', async () => {
         const {
             calls,
@@ -599,6 +622,53 @@ describe('utmctl client commands', () => {
         const request = JSON.parse(String(calls[0]?.options.input)) as {arguments: string[]};
         expect(request.arguments.at(-1)).toContain('[IO.Directory]::CreateDirectory($path)');
         expect(request.arguments.at(-1)).not.toContain('New-Item -ItemType Directory -LiteralPath');
+    });
+
+    it('stages the shared guest hash verifier once for concurrent checks', async () => {
+        const client = createUtmctlClient({runner: fakeRunner([]).runner});
+        let releasePush!: () => void;
+        const pushFile = vi.fn(() => new Promise<void>(resolve => {
+            releasePush = resolve;
+        }));
+        const expectedSha256 = 'a'.repeat(64);
+        const exec = vi.fn(async () => ({
+            exitCode: 0,
+            stdout: `match ${expectedSha256}`,
+            stderr: '',
+            timedOut: false,
+            signal: null,
+            transportFailure: null,
+        }));
+        client.pushFile = pushFile;
+        client.exec = exec;
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: () => '/tmp/unused-guest-read',
+        });
+
+        const first = guest.verifyStagedFileHash(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\worker\\first.cjs',
+            expectedSha256,
+            120_000,
+        );
+        const second = guest.verifyStagedFileHash(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\worker\\second.cjs',
+            expectedSha256,
+            120_000,
+        );
+        await Promise.resolve();
+        expect(pushFile).toHaveBeenCalledOnce();
+        releasePush();
+        await expect(Promise.all([
+            first,
+            second,
+        ])).resolves.toEqual([
+            true,
+            true,
+        ]);
+        expect(exec).toHaveBeenCalledTimes(2);
     });
 
     it('copies mapped files from the verified EVB_INPUTS media through an encoded guest command', async () => {

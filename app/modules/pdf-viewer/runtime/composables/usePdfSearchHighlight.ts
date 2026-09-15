@@ -5,6 +5,7 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
 import {
+    assembleTextLayerSearchText,
     buildRunMatchOverlaps,
     clearDomHighlights,
     getCachedTextLayerIndex,
@@ -26,7 +27,6 @@ import {
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import type { ICssHighlightState } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
-import { assembleSearchablePageText } from '@pdf-core';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
@@ -165,7 +165,10 @@ export const usePdfSearchHighlight = () => {
             runs,
         } = getCachedTextLayerIndex(textLayerDiv);
 
-        const assembledLayerText = assembleSearchablePageText(runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
+        const assembledLayerText = assembleTextLayerSearchText({
+            text: layerText,
+            runs,
+        }, pageMatches.searchQuery, pageMatches.searchOptions, pageMatches.matches.length);
         const matchesWithCurrent = buildVisualMatchesWithCurrent(
             pageMatches,
             currentMatch,

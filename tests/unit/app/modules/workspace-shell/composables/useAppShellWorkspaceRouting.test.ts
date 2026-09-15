@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     computed,
     nextTick,
@@ -33,6 +31,7 @@ import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const routingMocks = vi.hoisted(() => ({
     getPdfOpeningGeometry: vi.fn(),
@@ -41,11 +40,11 @@ const routingMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/modules/workspace-shell/host/recentOpenGeometryReadiness', () => ({readRecentOpenExactGeometry: routingMocks.readRecentOpenExactGeometry}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => ({getPdfOpeningGeometry: routingMocks.getPdfOpeningGeometry}),
-    getDocumentOpenCapability: () => ({openDocumentDirect: routingMocks.openDocumentDirect}),
-}));
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: {getPdfOpeningGeometry: routingMocks.getPdfOpeningGeometry},
+    documentOpen: {openDocumentDirect: routingMocks.openDocumentDirect},
+});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 interface IWorkspaceRecord {
     workspace: IWorkspaceExpose;

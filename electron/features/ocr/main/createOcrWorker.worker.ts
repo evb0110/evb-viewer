@@ -82,7 +82,6 @@ export function createOcrWorker(): Worker {
             qpdfBinary: paths.qpdf,
             pdfPageOpsBinary: resolveNativePageOpsPath() ?? undefined,
             scanCleanupBinary: resolveScanCleanupPath() ?? undefined,
-            unpaperBinary: paths.unpaper,
             tempDir: getAppTempDir(),
         },
         resourceLimits: OCR_WORKER_RESOURCE_LIMITS,

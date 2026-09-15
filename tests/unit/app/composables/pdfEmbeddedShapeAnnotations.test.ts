@@ -9,8 +9,8 @@ import {
     PDFName,
     PDFString,
 } from 'pdf-lib';
-import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/collectEmbeddedShapeAnnotationIds';
-import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/collectEmbeddedShapeAnnotationIds';
+import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { createEmbeddedShapeColorPdf } from '@tests/unit/app/fixtures/createEmbeddedShapeColorPdf';

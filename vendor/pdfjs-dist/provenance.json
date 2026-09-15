@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "artifact": {
-    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
-    "filename": "pdfjs-dist-6.3.311-6922bee2.tgz",
+    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz",
+    "filename": "pdfjs-dist-6.3.312-c3253faa.tgz",
     "published": false
   },
   "source": {
     "repository": "https://github.com/evb0110/pdf.js.git",
     "branch": "ticket/168-fork-rebase",
-    "commit": "6922bee2b3dd047c954d5717a533a2d701559c17",
-    "tree": "0fc8b8db395e8ab30ddec61a78bb9ad72d82512b",
+    "commit": "c3253faa113dd231ea95630afd40dbb31efead08",
+    "tree": "61abab5aba6ccc2bfe574869e71dc5960b716d51",
     "upstreamTag": "v6.3.289",
     "upstreamCommit": "1c8020a7d4e43668ac287a3ecf9a8dbea17e4c56",
     "upstreamTree": "df7e37b2ed4ab43bf3cee8c96348993459e2c457",
@@ -17,7 +17,8 @@
     "sourceBaseTree": "9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a",
     "versionCalculationBase": "sourceBaseCommit",
     "cleanCheckout": true,
-    "fullHistory": true
+    "fullHistory": true,
+    "cleanCheckoutEvidence": "git status --porcelain was empty before gulp dist; npm pack created the sole untracked tgz afterward"
   },
   "build": {
     "commands": [
@@ -32,35 +33,35 @@
     "node": "v24.18.0",
     "npm": "11.18.0",
     "environment": "PUPPETEER_SKIP_DOWNLOAD=1",
-    "packageLockSha256": "3bf40345ad74ca02396681079e25fb9b63332e75ade3394ce990549dcd5263c0",
-    "reproduciblePackSha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a"
+    "packageLockSha256": "cd9b0ce997a442b17335976706b2fa64707bfb6b8b7d83cfe332acdc5498b6a2",
+    "reproduciblePackSha256": "9de7e73a16eeb2c20f67e0b854654e96295f2691c5d27769cddf416515a129d0"
   },
   "package": {
     "name": "pdfjs-dist",
-    "version": "6.3.311",
+    "version": "6.3.312",
     "entryCount": 559,
-    "unpackedByteSize": 34888812,
-    "manifest": "pdfjs-dist-6.3.311-6922bee2.files.sha256",
-    "manifestSha256": "7d3fdea389cf22fe6cba49615f0cf583c22b771b34c261a41fc4b797925664cc",
+    "unpackedByteSize": 34894138,
+    "manifest": "pdfjs-dist-6.3.312-c3253faa.files.sha256",
+    "manifestSha256": "48df4f1e0b6b8ada70e1b1d97831ba22e0d67ff46d08685eae10b78f4bc89fd5",
     "manifestFormat": "file<TAB>size<TAB>sha256<TAB>path",
     "sourceMapPolicy": "source maps retained; local absolute paths forbidden",
     "sourceMapCount": 10
   },
   "archive": {
-    "byteSize": 8524137,
-    "sha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a",
-    "sha512": "e68e76b143c510a6fae834810455f53bc700d8b2a777a0b0624b433e1001110391a8d28543747f8ef64d9a1e242f851771912ee21ba73ebf25a1ea52cc4cb55a",
-    "sri": "sha512-5o52sUPFEKb66DSBBFX1O8cA2LKnd6CwYktDPhABEQORqNKFQ3R/jvZNmh4kL4UXcZEu4hunPr8loepSzEy1Wg==",
+    "byteSize": 8525548,
+    "sha256": "9de7e73a16eeb2c20f67e0b854654e96295f2691c5d27769cddf416515a129d0",
+    "sha512": "3714a58bfc6b8fabe2aefe3835d019594c0b29afd250dd3061b057862220d818f8364ea49a69234dc3c67359995091480d9760b3bff695ac9760c29398fefecf",
+    "sri": "sha512-NxSli/xrj6virv44NdAZWUwLKa/SUN0wYbBXhiIg2Bj4Nk6kmmkjTcPGc1mZUJFIDZdgs7/2layXYMKTmP7+zw==",
     "entryCount": 559,
-    "unpackedByteSize": 34888812,
-    "pack1Sha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a",
-    "pack2Sha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a",
+    "unpackedByteSize": 34894138,
+    "pack1Sha256": "9de7e73a16eeb2c20f67e0b854654e96295f2691c5d27769cddf416515a129d0",
+    "pack2Sha256": "9de7e73a16eeb2c20f67e0b854654e96295f2691c5d27769cddf416515a129d0",
     "reproducible": true
   },
   "evb": {
-    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
+    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz",
     "pnpm": "10.32.1",
-    "lockfilePdfjsIntegrity": "sha512-5o52sUPFEKb66DSBBFX1O8cA2LKnd6CwYktDPhABEQORqNKFQ3R/jvZNmh4kL4UXcZEu4hunPr8loepSzEy1Wg==",
+    "lockfilePdfjsIntegrity": "sha512-NxSli/xrj6virv44NdAZWUwLKa/SUN0wYbBXhiIg2Bj4Nk6kmmkjTcPGc1mZUJFIDZdgs7/2layXYMKTmP7+zw==",
     "publicVersionStamp": "public/pdf/.pdfjs-version",
     "previewDependency": "npm:pdfjs-dist@5.4.296",
     "noNpmPublication": true,
@@ -69,10 +70,10 @@
   "verifier": {
     "path": "scripts/verify-pdfjs-provenance.mjs",
     "version": "1",
-    "sourceSha256": "02d481b5ef7e81da585d336745d85eea69f8f543329ed4f1c266d7eb2809dd22"
+    "sourceSha256": "1260ec8894b87af083977c5f3a3eb62f3ba1f6ef7b2ab735ee6caf6602a5c9e1"
   },
   "verification": {
-    "requiredForkMarkers": 16,
+    "requiredForkMarkers": 17,
     "forkMarkerFiles": [
       "NOTICE",
       "gulpfile.mjs",
@@ -89,7 +90,8 @@
       "src/display/transport_stream.js",
       "test/integration/stamp_editor_spec.mjs",
       "test/unit/api_spec.js",
-      "test/unit/stream_spec.js"
+      "test/unit/stream_spec.js",
+      "test/unit/text_layer_spec.js"
     ],
     "runtimeMarkerSourceFiles": [
       "webpack://pdf.js/./src/display/editor/editor.js",

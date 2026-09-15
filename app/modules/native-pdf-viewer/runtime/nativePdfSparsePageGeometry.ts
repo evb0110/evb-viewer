@@ -2,8 +2,8 @@ import type {
     IPdfNativePageSize,
     TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
-import type { IDocumentZoomPageLayout } from '@app/utils/document-viewer/zoomAnchor';
-import { resolveDocumentPageDisplayScale } from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
+import type { IDocumentZoomPageLayout } from '@app/modules/document-viewer/public';
+import { resolveDocumentPageDisplayScale } from '@app/modules/document-viewer/public';
 
 /** Keep DOM and lifecycle geometry work bounded when the PDF has sparse metadata. */
 export const NATIVE_PDF_SPARSE_PAGE_WINDOW_LIMIT = 256;

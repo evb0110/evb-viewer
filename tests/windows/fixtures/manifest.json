@@ -290,6 +290,21 @@
             ]
         },
         {
+            "id": "F10",
+            "name": "Save witness matrix",
+            "purpose": "Exact-size valid PDFs for the three-cycle save-witness measurement matrix.",
+            "license": "synthetic",
+            "publishable": false,
+            "provenance": "Generated in the Windows test fixture cache with the existing sparse valid-PDF generator.",
+            "variants": ["exact-65-MiB", "exact-513-MiB"],
+            "metadata": {"pageCount": "431", "padding": "inert sparse unreferenced data"},
+            "files": [
+                {"id": "F10-save-witness-small", "path": "../../fixtures/electron/interop/stock-pdfjs-save-of-synthetic.pdf", "bytes": 9214, "sha256": "17714bae1958fd2389f908deeac3643d99a032d38e501ece1863c3596472dbe4", "expectedPages": null, "markers": [], "generated": false},
+                {"id": "F10-save-witness-65mib", "path": "generated/f10-save-witness-65mib.pdf", "bytes": 68157440, "sha256": "e0a694fa348a1a0d123771e8f8a57c12954ba2888c64c0cdd842379bc3e019f3", "expectedPages": 431, "markers": [], "generated": true},
+                {"id": "F10-save-witness-513mib", "path": "generated/f10-save-witness-513mib.pdf", "bytes": 537919488, "sha256": "18fb7741273549fc4d5d5247a9fdbf70874b9fe9e1808863b648322226887a74", "expectedPages": 431, "markers": [], "generated": true}
+            ]
+        },
+        {
             "id": "F09",
             "name": "Installer and profile",
             "purpose": "N-1 profiles and settings plus verified N and N-1 install artifacts with download-origin metadata.",

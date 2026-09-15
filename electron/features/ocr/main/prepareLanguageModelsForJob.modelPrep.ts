@@ -7,7 +7,7 @@ import {
     ensureTessdataLanguages,
 } from '@electron/features/ocr/languageModels';
 import { getOcrToolPaths } from '@electron/features/ocr/main/paths';
-import type { TOcrPdfPageSelection } from '@electron/ocr/worker/types';
+import type { TOcrPdfPageSelection } from '@electron/features/ocr/worker/types';
 import { createTimeoutError } from '@electron/features/ocr/main/jobManagerProtocol';
 import { createLogger } from '@electron/utils/createLogger';
 

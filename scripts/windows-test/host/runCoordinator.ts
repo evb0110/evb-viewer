@@ -64,11 +64,13 @@ import { WINDOWS_HOST_ORACLE_RESULTS_FILE } from '@scripts/windows-test/oracles/
 import {
     WindowsTestIdentityGuardError,
     assertDestructiveTarget,
+    assertNotGoldenOrBaselineTarget,
     destructivePolicyFromConfig,
     selectClonedVmId,
     withOwnedCloneAllowlisted,
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type { IWindowsTestIdentityGuardDependencies } from '@scripts/windows-test/images/vmIdentityGuard';
+import { isFreshInteractiveWorkerHeartbeat } from '@scripts/windows-test/host/isFreshInteractiveWorkerHeartbeat';
 
 export const WINDOWS_TEST_CLONE_NAME_PREFIX = 'evb-win-test-';
 
@@ -140,12 +142,18 @@ export interface IWindowsTestRunDependencies {
     randomRunSuffix(): string;
     stagedInputs?: readonly IWindowsTestStagedInput[];
     /** Optional guarded clone implementation for UTM versions that place clones elsewhere. */
-    cloneVm?(cloneName: string): Promise<void>;
+    cloneVm?(cloneName: string, options: {headless: boolean}): Promise<void>;
     /** Run host-side output oracles only after guest evidence has validated. */
     evaluateHostOracles?(input: IWindowsTestHostOracleEvaluationInput): Promise<IWindowsTestHostOracleEvaluationResult>;
     identityGuard?: IWindowsTestIdentityGuardDependencies;
     deadlines?: Partial<IWindowsTestRunDeadlines>;
     hashFile?(filePath: string): Promise<string>;
+    /** Refresh the installed guest worker when the prepared bundle differs. */
+    refreshGuestWorker?(
+        vmId: string,
+        timeoutMs: number,
+        options?: {allowStage?: boolean},
+    ): Promise<boolean>;
 }
 
 export interface IWindowsTestRunReport {
@@ -403,13 +411,23 @@ export async function executeWindowsTestRun(
                 if (staleLease.vmId === null) {
                     const staleRun = windowsTestRunLayout(layout.runsDir, staleLease.runId);
                     const runExists = await stat(staleRun.runDir).then(() => true).catch(() => false);
-                    if (runExists) {
+                    const registered = await utmctl.list();
+                    const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${staleLease.runId}`;
+                    if (registered.some(entry => entry.name === cloneName)) {
                         throw new Error(`Stale run ${staleLease.runId} has no bound clone identity; refusing to replace its host exclusion.`);
+                    }
+                    if (runExists) {
+                        messages.push(`Stale run ${staleLease.runId} has no registered clone; releasing its orphaned host lease.`);
                     }
                     return;
                 }
                 const staleVmId = staleLease.vmId;
                 const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${staleLease.runId}`;
+                const staleTarget = {
+                    vmId: staleVmId,
+                    bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
+                };
+                assertNotGoldenOrBaselineTarget(staleTarget, destructivePolicyFromConfig(config));
                 const registered = await utmctl.list();
                 const ownedUuid = staleVmId.toLowerCase();
                 const byUuid = registered.filter(entry => entry.uuid.toLowerCase() === ownedUuid);
@@ -425,10 +443,7 @@ export async function executeWindowsTestRun(
                     staleLease.vmId,
                 );
                 await assertDestructiveTarget(
-                    {
-                        vmId: staleVmId,
-                        bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
-                    },
+                    staleTarget,
                     policy,
                     dependencies.identityGuard,
                 );
@@ -441,10 +456,7 @@ export async function executeWindowsTestRun(
                 );
                 if (stoppedAfterRequest === null) {
                     await assertDestructiveTarget(
-                        {
-                            vmId: staleVmId,
-                            bundlePath: utmBundlePathForName(config.testImageRoot, cloneName),
-                        },
+                        staleTarget,
                         policy,
                         dependencies.identityGuard,
                     );
@@ -596,6 +608,9 @@ export async function executeWindowsTestRun(
                     `No implemented Windows test cases match suite "${request.suite}" in environment "${request.environment}".`,
                 );
             }
+            const hostDisplayRequired = request.tests === null
+                ? selection.hostDisplayRequired
+                : expectedTests.some(testId => selection.hostDisplayRequiredByTest?.[testId] ?? selection.hostDisplayRequired);
             const fixtureManifestSha256 = await dependencies.fixtureManifest.sha256();
 
             const goldenStatus = await utmctl.status(config.goldenVmId);
@@ -615,7 +630,7 @@ export async function executeWindowsTestRun(
             if (dependencies.cloneVm === undefined) {
                 await utmctl.clone(config.goldenVmId, cloneName);
             } else {
-                await dependencies.cloneVm(cloneName);
+                await dependencies.cloneVm(cloneName, {headless: !hostDisplayRequired});
             }
             const after = await utmctl.list();
             clonedVmId = selectClonedVmId(before, after);
@@ -639,73 +654,149 @@ export async function executeWindowsTestRun(
             await recorder.record('booting', `Starting owned clone ${clonedVmId} cloned from the stopped golden image.`);
             await utmctl.start(clonedVmId);
 
-            const guestReady = await pollUntil(clock, deadlines.bootToGuestReadyMs, deadlines.pollIntervalMs, async () => {
-                await throwIfCanceled('booting');
-                const alive = await guest.ping(clonedVmId ?? '', deadlines.commandTimeoutMs);
-                await throwIfCanceled('booting');
-                return alive ? true : null;
-            });
-            if (guestReady === null) {
-                abort(
-                    'infrastructure-failed',
-                    'booting',
-                    `The guest agent never answered within ${deadlines.bootToGuestReadyMs} ms of boot.`,
-                );
-            }
-            await recorder.record('guest-ready', 'The guest agent answered a read-only file-transfer probe.');
-
-            let bootId = '';
-            const startedAtMs = Date.parse(startedAt);
-            const heartbeat = await pollUntil(
-                clock,
-                deadlines.guestReadyToDesktopReadyMs,
-                deadlines.pollIntervalMs,
-                async () => {
-                    await throwIfCanceled('guest-ready');
-                    // Read the boot token on every poll. The worker replaces a
-                    // copied golden-image token when its logon task starts, and
-                    // retaining the first QGA read would make the fresh
-                    // heartbeat look stale forever.
-                    const bootIdText = await guest.readGuestText(
-                        clonedVmId ?? '',
-                        windowsTestGuestLayout.bootIdFile,
-                        deadlines.commandTimeoutMs,
+            const waitForGuestReady = async (phase: 'booting' | 'guest-ready', startedAtMs: number) => {
+                const guestReady = await pollUntil(clock, deadlines.bootToGuestReadyMs, deadlines.pollIntervalMs, async () => {
+                    await throwIfCanceled(phase);
+                    const alive = await guest.ping(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                    await throwIfCanceled(phase);
+                    return alive ? true : null;
+                });
+                if (guestReady === null) {
+                    abort(
+                        'infrastructure-failed',
+                        phase,
+                        `The guest agent never answered within ${deadlines.bootToGuestReadyMs} ms of boot.`,
                     );
-                    const currentBootId = bootIdText === null ? '' : bootIdText.trim();
-                    if (currentBootId.length === 0) {
-                        return null;
-                    }
-                    bootId = currentBootId;
-                    const observed = await guest.readHeartbeat(clonedVmId ?? '', deadlines.commandTimeoutMs);
-                    if (observed === null) {
-                        return null;
-                    }
-                    const heartbeatUpdatedAtMs = Date.parse(observed.updatedAt);
-                    const freshSinceRunStart = Number.isFinite(startedAtMs)
-                        && Number.isFinite(heartbeatUpdatedAtMs)
-                        && heartbeatUpdatedAtMs >= startedAtMs;
-                    const usable = observed.bootId === bootId
-                        && observed.worker.interactive
-                        && observed.worker.sessionId !== 0
-                        && !observed.locked;
-                    return usable && freshSinceRunStart ? observed : null;
-                },
-            );
-            if (heartbeat === null) {
-                abort(
-                    'infrastructure-failed',
-                    'guest-ready',
-                    bootId.length === 0
-                        ? 'The guest never published a boot ID, so no result could be tied to this boot.'
-                        : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey.',
+                }
+
+                let bootId = '';
+                const heartbeat = await pollUntil(
+                    clock,
+                    deadlines.guestReadyToDesktopReadyMs,
+                    deadlines.pollIntervalMs,
+                    async () => {
+                        await throwIfCanceled(phase);
+                        // Read the boot token on every poll. The worker replaces a
+                        // copied golden-image token when its logon task starts, and
+                        // retaining the first QGA read would make the fresh
+                        // heartbeat look stale forever.
+                        const bootIdText = await guest.readGuestText(
+                            clonedVmId ?? '',
+                            windowsTestGuestLayout.bootIdFile,
+                            deadlines.commandTimeoutMs,
+                        );
+                        const currentBootId = bootIdText === null ? '' : bootIdText.trim();
+                        if (currentBootId.length === 0) {
+                            return null;
+                        }
+                        bootId = currentBootId;
+                        const observed = await guest.readHeartbeat(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                        if (observed === null) {
+                            return null;
+                        }
+                        return isFreshInteractiveWorkerHeartbeat(currentBootId, observed, startedAtMs)
+                            ? observed
+                            : null;
+                    },
+                );
+                if (heartbeat === null) {
+                    abort(
+                        'infrastructure-failed',
+                        'guest-ready',
+                        bootId.length === 0
+                            ? 'The guest never published a boot ID, so no result could be tied to this boot.'
+                            : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey.',
+                    );
+                }
+                if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {
+                    abort(
+                        'infrastructure-failed',
+                        'guest-ready',
+                        `The guest test marker "${heartbeat.guestTestMarker}" does not match image ${dependencies.imageManifest.imageId}; refusing to drive an unknown machine.`,
+                    );
+                }
+                return {
+                    bootId,
+                    heartbeat,
+                };
+            };
+
+            let {
+                bootId, heartbeat,
+            } = await waitForGuestReady('booting', Date.parse(startedAt));
+            await recorder.record('guest-ready', 'The guest agent answered a read-only file-transfer probe.');
+            if (dependencies.refreshGuestWorker !== undefined) {
+                // UTM's file-push operation opens the destination directly.
+                // The image contract guarantees the shared root and worker
+                // tree, but the refreshed WinApp runtime lives in a new
+                // directory that must exist before its first push.
+                await guest.ensureDirectory(
+                    clonedVmId,
+                    windowsTestGuestLayout.winappToolsDir,
+                    deadlines.commandTimeoutMs,
                 );
             }
-            if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {
-                abort(
-                    'infrastructure-failed',
-                    'guest-ready',
-                    `The guest test marker "${heartbeat.guestTestMarker}" does not match image ${dependencies.imageManifest.imageId}; refusing to drive an unknown machine.`,
+            const workerChanged = dependencies.refreshGuestWorker === undefined
+                ? false
+                : await dependencies.refreshGuestWorker(clonedVmId, deadlines.commandTimeoutMs);
+            if (workerChanged) {
+                if (clonedVmId === null || cloneBundlePath === null) {
+                    abort('infrastructure-failed', 'guest-ready', 'The owned clone identity was lost while refreshing the guest worker.');
+                }
+                const ownedCloneVmId = clonedVmId;
+                const ownedCloneBundlePath = cloneBundlePath;
+                await recorder.record('guest-ready', 'The prepared guest worker differed from the clone; restarting the owned clone after staging it.');
+                const restartTarget = {
+                    vmId: ownedCloneVmId,
+                    bundlePath: ownedCloneBundlePath,
+                };
+                const assertRestartTarget = () => assertDestructiveTarget(
+                    restartTarget,
+                    policy,
+                    dependencies.identityGuard,
                 );
+                await assertRestartTarget();
+                await utmctl.stop(ownedCloneVmId, 'request');
+                const stoppedAfterRequest = await pollUntil(
+                    clock,
+                    deadlines.cancelGraceMs,
+                    deadlines.pollIntervalMs,
+                    async () => (await utmctl.status(ownedCloneVmId)) === 'stopped' ? true : null,
+                );
+                if (stoppedAfterRequest === null) {
+                    await assertRestartTarget();
+                    await utmctl.stop(ownedCloneVmId, 'force');
+                    const stoppedAfterForce = await pollUntil(
+                        clock,
+                        deadlines.cancelGraceMs,
+                        deadlines.pollIntervalMs,
+                        async () => (await utmctl.status(ownedCloneVmId)) === 'stopped' ? true : null,
+                    );
+                    if (stoppedAfterForce === null) {
+                        abort(
+                            'infrastructure-failed',
+                            'guest-ready',
+                            `The owned clone ${clonedVmId} did not acknowledge stopped status while loading the refreshed guest worker.`,
+                        );
+                    }
+                }
+                await assertRestartTarget();
+                const restartStartedAtMs = Date.parse(clock.nowIso());
+                await utmctl.start(ownedCloneVmId);
+                ({
+                    bootId, heartbeat,
+                } = await waitForGuestReady('guest-ready', restartStartedAtMs));
+                await recorder.record('guest-ready', 'The refreshed guest worker reported a fresh interactive heartbeat for the restarted clone.');
+                const workerStillChanged = dependencies.refreshGuestWorker === undefined
+                    ? false
+                    : await dependencies.refreshGuestWorker(ownedCloneVmId, deadlines.commandTimeoutMs, {allowStage: false});
+                if (workerStillChanged) {
+                    abort(
+                        'infrastructure-failed',
+                        'guest-ready',
+                        'The restarted clone did not load the prepared guest worker bundle; refusing to publish a job.',
+                    );
+                }
             }
             await recorder.record('desktop-ready', `Interactive desktop confirmed in session ${heartbeat.worker.sessionId}.`);
             await throwIfCanceled('desktop-ready');
@@ -713,6 +804,16 @@ export async function executeWindowsTestRun(
             // UTM's file-push operation opens the destination directly. Create
             // the run-scoped tree first because the golden image only contains
             // the shared staging root.
+            await guest.ensureDirectory(
+                clonedVmId,
+                windowsTestGuestLayout.inboxDir,
+                deadlines.commandTimeoutMs,
+            );
+            await guest.ensureDirectory(
+                clonedVmId,
+                windowsTestGuestLayout.outboxDir,
+                deadlines.commandTimeoutMs,
+            );
             await guest.ensureDirectory(
                 clonedVmId,
                 `${guestPaths.stagingDir}\\fixtures`,
@@ -1006,6 +1107,10 @@ export async function executeWindowsTestRun(
                         async () => (await utmctl.status(ownedVmId)) === 'stopped' ? true : null,
                     );
                     await assertOwnedClone();
+                    // The exact registration and bundle identity have been
+                    // checked. Keep the summary truthful if a later cleanup
+                    // step fails and leaves this clone behind.
+                    retainedClone = true;
                     await utmctl.stop(ownedVmId, 'request');
                     if (await waitForStopped() === null) {
                         await assertOwnedClone();
@@ -1019,8 +1124,8 @@ export async function executeWindowsTestRun(
                     }
                     const alreadyRetained = registered.filter(entry => entry.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)
                         && entry.uuid.toLowerCase() !== ownedVmId).length;
-                    retainedClone = outcome !== 'passed' && alreadyRetained < config.retention.maxFailedClones;
-                    if (!retainedClone) {
+                    const shouldRetain = outcome !== 'passed' && alreadyRetained < config.retention.maxFailedClones;
+                    if (!shouldRetain) {
                         await assertDestructiveTarget(
                             {
                                 vmId: ownedVmId,
@@ -1030,6 +1135,7 @@ export async function executeWindowsTestRun(
                             dependencies.identityGuard,
                         );
                         await utmctl.deleteVm(ownedVmId);
+                        retainedClone = false;
                     } else {
                         messages.push(`Retained the failed clone ${ownedVmId} for inspection.`);
                     }

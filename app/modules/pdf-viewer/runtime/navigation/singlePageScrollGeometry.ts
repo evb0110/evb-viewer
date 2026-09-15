@@ -9,7 +9,7 @@ import type { IPageScrollBounds } from '@app/modules/pdf-viewer/engine/pdf-scrol
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { TPageSnapAnchor } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
+import type { TPageSnapAnchor } from '@app/modules/document-viewer/public';
 
 interface IPageRowGeometry {
     top: number;

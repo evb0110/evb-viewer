@@ -18,14 +18,14 @@ import {
 } from 'vue';
 import type {PropType} from 'vue';
 import { requireDocumentRef } from '@contracts/documentRef';
-import type {IDocumentBookmarkTreeItem} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import type {
     IDocumentPageSource,
-    IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import type {TDocumentSidebarTab} from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
-import type {IDocumentThumbnailCommittedState} from '@app/utils/document-viewer/thumbnails/documentThumbnailScheduler';
-import type {IDocumentThumbnailVirtualItem} from '@app/utils/document-viewer/thumbnails/useDocumentThumbnailController';
+    IDocumentRenderLease,
+} from '@app/modules/document-viewer/public';
+import type {TDocumentSidebarTab} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/documentThumbnailScheduler';
+import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import {
     createDocumentSearchSessionDouble,
@@ -56,7 +56,7 @@ const controller = vi.hoisted(() => ({
 }));
 
 vi.mock(
-    '@app/utils/document-viewer/thumbnails/useDocumentThumbnailController',
+    '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController',
     () => ({useDocumentThumbnailController: () => controller}),
 );
 
@@ -115,7 +115,7 @@ vi.mock('@app/components/sidebar/AppSidebarShell.vue', async () => {
     })};
 });
 
-function createSurfaceLease(): IDocumentSurfaceLease {
+function createSurfaceLease(): IDocumentRenderLease {
     return {
         widthPx: 180,
         heightPx: 252,

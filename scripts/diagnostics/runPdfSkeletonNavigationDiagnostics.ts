@@ -9,9 +9,10 @@ import {
     getWorkspaceToolbarSnapshot,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { IPdfNavLogEntry } from '@app/utils/logPdfNav';
-import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import type {
+    IPdfNavLogEntry,
+    IPdfRenderTraceEntry,
+} from '@contracts/pdfDiagnostics';
 import {
     toPdfNavLogEntries,
     toPdfRenderTraceEntries,
@@ -70,8 +71,14 @@ interface INavigationDiagnosticsSnapshot {
     pageControlsText: string;
     scrollTop: number | null;
     visibleRangeText: string | null;
-    toolbarSnapshot: IWorkspaceToolbarSnapshot | null;
+    toolbarSnapshot: INavigationToolbarSnapshot | null;
     visiblePages: IVisiblePageDiagnostics[];
+}
+
+interface INavigationToolbarSnapshot {
+    currentPage?: number;
+    fitMode: string;
+    totalPages?: number;
 }
 
 interface INavigationZoomToolbarSnapshot {
@@ -209,7 +216,7 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
     });
     const snapshot = rawSnapshot as Omit<INavigationDiagnosticsSnapshot, 'toolbarSnapshot'>;
     const rawToolbarSnapshot: unknown = await getWorkspaceToolbarSnapshot(session.page, {requireVisible: true});
-    const toolbarSnapshot = rawToolbarSnapshot as IWorkspaceToolbarSnapshot | null;
+    const toolbarSnapshot = rawToolbarSnapshot as INavigationToolbarSnapshot | null;
     return {
         ...snapshot,
         toolbarSnapshot,

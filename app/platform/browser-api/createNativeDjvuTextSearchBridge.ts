@@ -7,7 +7,7 @@ import {
 import { isBrowserDocumentRef } from '@app/platform/browserDocumentStore';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
-import type { IPagePreviewSource } from '@app/utils/document-viewer/pagePreviewSource';
+import type { IPagePreviewSource } from '@app/modules/document-viewer/public';
 
 type TNativeDjvuSearchCapability = Pick<
     IDjvuCapability,

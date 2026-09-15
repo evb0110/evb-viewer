@@ -58,6 +58,7 @@ const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
 const MIN_TRAINEDDATA_BYTES = 1024;
 const TESSDATA_SEED_MARKER_PREFIX = '.evb-seeded-';
+const TESSERACT_PDF_FONT_FILE_NAME = 'pdf.ttf';
 const NON_RETRYABLE_HTTP_STATUSES = new Set([
     400,
     401,
@@ -512,6 +513,27 @@ async function removeInvalidModelIfPresent(languageCode: string, modelPath: stri
     return verifyInstalledLanguageModel(languageCode, modelPath);
 }
 
+async function ensureTessdataInventoryReadable(runtimeDir: string) {
+    try {
+        statSync(runtimeDir);
+    } catch (error) {
+        if (getErrorCode(error) === 'ENOENT') {
+            return;
+        }
+        throw new Error(
+            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
+        );
+    }
+
+    try {
+        await readdir(runtimeDir);
+    } catch (error) {
+        throw new Error(
+            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
+        );
+    }
+}
+
 async function verifyInstalledLanguageModel(
     languageCode: string,
     modelPath: string,
@@ -612,6 +634,17 @@ async function seedBundledModels(
         const stagingPath = `${destinationPath}.seed-${randomUUID()}`;
         try {
             await publishVerifiedModel(languageCode, sourcePath, destinationPath, stagingPath);
+        } finally {
+            await rm(stagingPath, { force: true }).catch(() => {});
+        }
+    }
+    const bundledPdfFontPath = join(bundledDir, TESSERACT_PDF_FONT_FILE_NAME);
+    const runtimePdfFontPath = join(runtimeDir, TESSERACT_PDF_FONT_FILE_NAME);
+    if (existsSync(bundledPdfFontPath)) {
+        const stagingPath = `${runtimePdfFontPath}.seed-${randomUUID()}`;
+        try {
+            await copyFile(bundledPdfFontPath, stagingPath);
+            await rename(stagingPath, runtimePdfFontPath);
         } finally {
             await rm(stagingPath, { force: true }).catch(() => {});
         }
@@ -1092,6 +1125,7 @@ export async function ensureTessdataLanguages(
 export async function getOcrLanguageModelStates() {
     await ensureRuntimeTessdataSeeded();
     const runtimeDir = getRuntimeTessdataDir();
+    await ensureTessdataInventoryReadable(runtimeDir);
     return Promise.all(Array.from(AVAILABLE_OCR_LANGUAGE_CODES, async languageCode => ({
         code: languageCode,
         state: inFlightDownloads.has(languageCode)

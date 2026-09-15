@@ -595,6 +595,7 @@ async function extractSelectedPdfPageTextWithFallback(
     pdfPath: string,
     pages: readonly number[],
     pageCount: number | undefined,
+    documentRevision: TDocumentRevisionToken,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
@@ -603,6 +604,7 @@ async function extractSelectedPdfPageTextWithFallback(
         return {
             source: 'direct-pdfjs' as const,
             pages: completeRequestedPageTexts(await extractTextWithPdfjs(pdfPath, {
+                documentRevision,
                 pages,
                 ...(pageCount === undefined ? {} : {pageCount}),
                 ...(signal === undefined ? {} : {signal}),
@@ -687,6 +689,7 @@ export async function readAgentDocumentPages(
             resolvedPdfPath,
             uniquePages,
             knownPageCount,
+            documentRevision,
             signal,
         );
         throwIfAborted(signal);
@@ -739,6 +742,7 @@ export async function readAgentDocumentPages(
             resolvedPdfPath,
             pagesNeedingDirectProbe,
             pageCount,
+            documentRevision,
             signal,
         )
         : null;

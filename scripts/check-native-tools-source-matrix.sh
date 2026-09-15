@@ -86,7 +86,6 @@ has_ci_bundler_for_tag() {
   case "$tag" in
     darwin-arm64|darwin-x64)
       [ -f "scripts/bundle-tesseract-macos.sh" ] \
-        && [ -f "scripts/bundle-leptonica-unpaper-macos.sh" ] \
         && [ -f "scripts/bundle-pdf-tools-macos.sh" ] \
         && [ -f "scripts/bundle-djvu-macos.sh" ] \
         && [ -f "scripts/build-macos-pdf-print-dialog.sh" ]
@@ -208,9 +207,6 @@ check_tag() {
       directory)
         check_dir_for_tag "$entry_path" "$entry_label" "$tag"
         ;;
-      skip)
-        echo "  SKIP    $entry_path: $entry_label"
-        ;;
       *)
         echo "Error: Unsupported native resource manifest entry type for $tag: $entry_type" >&2
         exit 1
@@ -241,6 +237,12 @@ elif ! find "resources/tesseract/tessdata" -maxdepth 1 -type f -name '*.trainedd
   missing=1
 else
   echo "OK tessdata directory and traineddata files present"
+  if [ ! -s "resources/tesseract/tessdata/pdf.ttf" ]; then
+    echo "MISSING Tesseract PDF font: resources/tesseract/tessdata/pdf.ttf"
+    missing=1
+  else
+    echo "OK Tesseract PDF font: resources/tesseract/tessdata/pdf.ttf"
+  fi
   if [ "${EVB_BUILD_ARTIFACTS_PREPARED:-0}" != "1" ]; then
     node --import tsx scripts/generateElectronBuilderResources.ts
   fi

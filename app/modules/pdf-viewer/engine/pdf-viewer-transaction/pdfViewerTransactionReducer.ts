@@ -7,7 +7,7 @@ import {
     canDocumentViewportTransactionSupersede,
     createDocumentViewportTransactionMachineState,
     reduceDocumentViewportTransactionMachine,
-} from '@app/utils/document-viewer/viewport/documentViewportTransactionReducer';
+} from '@app/modules/document-viewer/public';
 
 export function createPdfViewerTransactionMachineState(
     options: Partial<IPdfViewerTransactionMachineState> = {},

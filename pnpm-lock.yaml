@@ -152,8 +152,8 @@ importers:
         specifier: ^1.17.1
         version: 1.17.1
       pdfjs-dist:
-        specifier: file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz
-        version: file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz
+        specifier: file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz
+        version: file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz
       utif:
         specifier: ^3.1.0
         version: 3.1.0
@@ -420,6 +420,8 @@ importers:
       vue-tsc:
         specifier: 3.3.3
         version: 3.3.3(typescript@6.0.3)
+
+  packages/agent-core: {}
 
   packages/contracts:
     dependencies:
@@ -7181,9 +7183,9 @@ packages:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==}
     engines: {node: '>=20.16.0 || >=22.3.0'}
 
-  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz:
-    resolution: {integrity: sha512-5o52sUPFEKb66DSBBFX1O8cA2LKnd6CwYktDPhABEQORqNKFQ3R/jvZNmh4kL4UXcZEu4hunPr8loepSzEy1Wg==, tarball: file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz}
-    version: 6.3.311
+  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz:
+    resolution: {integrity: sha512-NxSli/xrj6virv44NdAZWUwLKa/SUN0wYbBXhiIg2Bj4Nk6kmmkjTcPGc1mZUJFIDZdgs7/2layXYMKTmP7+zw==, tarball: file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz}
+    version: 6.3.312
     engines: {node: '>=22.13.0 || >=24'}
 
   pe-library@0.4.1:
@@ -17558,7 +17560,7 @@ snapshots:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 
-  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz:
+  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz:
     optionalDependencies:
       '@napi-rs/canvas': 1.0.8
 

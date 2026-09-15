@@ -139,7 +139,6 @@ describe('changed-area classifier', () => {
             'resources/tesseract/tessdata/eng.traineddata',
             'scripts/afterPack.cjs',
             'scripts/afterSign.cjs',
-            'scripts/build-minimal-ffmpeg-for-unpaper.sh',
             'scripts/build-warning-allowlist.json',
             'scripts/cargo-artifacts.mjs',
             'scripts/checkSearchNativeParity.ts',
@@ -163,7 +162,7 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
         for (const file of [
             '.github/workflows/build-target.yml',
-            'electron/ocr/worker/main.ts',
+            'electron/features/ocr/worker/main.ts',
             'electron-builder.yml',
             'package.json',
             'pnpm-lock.yaml',

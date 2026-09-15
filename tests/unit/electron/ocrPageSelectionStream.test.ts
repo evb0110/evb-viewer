@@ -10,7 +10,7 @@ import {
 } from '@electron/features/ocr/worker/ocrPageSelectionStream';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IOcrSearchablePdfPage} from '@contracts/electronApiOcr';
-import type {TOcrPdfPageSelection} from '@electron/ocr/worker/types';
+import type {TOcrPdfPageSelection} from '@electron/features/ocr/worker/types';
 
 function page(pageNumber: number, languages: string[] = ['eng']): IOcrSearchablePdfPage {
     return {

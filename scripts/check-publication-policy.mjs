@@ -400,8 +400,8 @@ function rejectViolations(violations) {
         console.error(`  ${subject}: ${matches.join(', ')}`);
     }
     console.error(
-        'Remove the local-only artifact from every listed object (rewriting the affected '
-        + 'history, not only the tip), and retry.',
+        'Fix every listed unpublished commit, not only the tip (amend, rebase, or drop it), '
+        + 'and retry. Published history is not rewritten.',
     );
     process.exitCode = 1;
 }

@@ -69,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TDocumentBookmarkDisplayMode } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import type { TDocumentBookmarkDisplayMode } from '@app/modules/document-viewer/public';
 
 const {
     displayMode,

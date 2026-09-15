@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import type { TLocale } from '@i18n-app';
 import { LOCALE_CODES } from '@i18n-core';
-import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
+import {AVAILABLE_OCR_LANGUAGES} from '@contracts/ocrLanguages';
 import type { IOcrLanguage } from '@contracts/shared';
 import {
     OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES,
@@ -14,7 +14,6 @@ import {
     resolveOcrLanguageDisplayName,
     resolveOcrLanguageShortCode,
     shouldShowOcrLanguageSearch,
-    shouldShowOcrMultiLanguageHint,
 } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 
 describe('OCR language display names', () => {
@@ -70,13 +69,10 @@ describe('OCR language picker ordering and filtering', () => {
         },
     ] satisfies IOcrLanguage[];
 
-    it('orders selected, installed, and not-installed languages by localized name', () => {
+    it('orders the selected language before installed and not-installed languages', () => {
         const items = buildOcrLanguagePickerItems(
             languages,
-            [
-                'rus',
-                'spa',
-            ],
+            ['rus'],
             'en',
             '',
             new Set(),
@@ -91,10 +87,6 @@ describe('OCR language picker ordering and filtering', () => {
                 'selected',
             ],
             [
-                'spa',
-                'selected',
-            ],
-            [
                 'eng',
                 'installed',
             ],
@@ -104,6 +96,10 @@ describe('OCR language picker ordering and filtering', () => {
             ],
             [
                 'deu',
+                'missing',
+            ],
+            [
+                'spa',
                 'missing',
             ],
         ]);
@@ -122,6 +118,40 @@ describe('OCR language picker ordering and filtering', () => {
         for (const item of items) {
             expect(item.value).toMatch(/^[a-z]{3}$/u);
         }
+    });
+
+    it('uses the supplied localized registry names and keeps unknown availability explicit', () => {
+        const items = buildOcrLanguagePickerItems(
+            [
+                {
+                    code: 'grc',
+                    script: 'greek',
+                },
+                {
+                    code: 'syr',
+                    script: 'rtl',
+                },
+            ],
+            [],
+            'en',
+            '',
+            new Set(),
+            code => code === 'grc' ? 'Ancient Greek' : 'Syriac',
+        );
+
+        expect(items.map(item => [
+            item.label,
+            item.modelState,
+        ])).toEqual([
+            [
+                'Ancient Greek',
+                'unavailable',
+            ],
+            [
+                'Syriac',
+                'unavailable',
+            ],
+        ]);
     });
 
     it('finds a language by its familiar two-letter code in every UI locale', () => {
@@ -233,10 +263,8 @@ describe('OCR language picker ordering and filtering', () => {
         )).toEqual(new Set(['nor']));
     });
 
-    it('shows scaling hints only beyond their thresholds', () => {
+    it('shows the language search at its threshold', () => {
         expect(shouldShowOcrLanguageSearch(12)).toBe(false);
         expect(shouldShowOcrLanguageSearch(13)).toBe(true);
-        expect(shouldShowOcrMultiLanguageHint(3)).toBe(false);
-        expect(shouldShowOcrMultiLanguageHint(4)).toBe(true);
     });
 });

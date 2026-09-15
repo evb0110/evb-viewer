@@ -30,13 +30,13 @@ import {
     resolvePdfNavigationTarget,
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
-import {createWheelFlipGate} from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
-import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
+    createWheelFlipGate,
     canScrollWithinPageBounds,
     resolveWheelDirection,
     resolveWheelTargetPage,
-} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
+} from '@app/modules/document-viewer/public';
+import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -733,6 +733,24 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return submission.finally(() => {
             navigationVisualHandoff.finishIntent(viewportStateIntentId);
             navigationVisualHandoff.clearSequence(handoffSequence);
+        }).then((result) => {
+            // This intent took the destination away from the navigation queue.
+            // If it dies without a successor (for example, page metrics bumped
+            // the geometry revision mid-render), hand the destination back.
+            if (
+                result.outcome === 'cancelled'
+                && intentSequence === handoffSequence
+                && queuedNavigation === null
+                && viewportAuthority.activeIntent.value === null
+                && result.intent.documentRevision === options.getDocumentRevision()
+            ) {
+                queuedNavigation = {
+                    request: absorbedNavigation,
+                    sequence: handoffSequence,
+                };
+                replayQueuedNavigation();
+            }
+            return result;
         });
     }
 
@@ -899,6 +917,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             currentPage: viewportAuthority.currentPage.value,
         }));
         clearQueuedNavigation();
+        // Trusted physical input owns the viewport immediately. Release the
+        // detached navigation's handoff here, after the shared clear path has
+        // preserved it for lifecycle and geometry callers.
+        activeNavigationSequence = null;
+        navigationVisualHandoff.clear();
         const page = observeNativeUserScroll(anchorOverride);
         // Physical input is authoritative even when the browser cannot move
         // the viewport (for example, while a programmatic scroll and canvas

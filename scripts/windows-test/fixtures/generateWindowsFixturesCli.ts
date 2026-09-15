@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
+    mkdtemp,
     mkdir,
+    readFile,
+    rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import { isDirectCliInvocation } from '@scripts/windows-test/cli/windowsTestCliIo';
 import { generateFontsFixture } from '@scripts/windows-test/fixtures/generateFontsFixture';
@@ -14,13 +19,15 @@ import {
     generateWrongMarkerControl,
 } from '@scripts/windows-test/fixtures/generateNegativeControls';
 import { generateNumberedFixture } from '@scripts/windows-test/fixtures/generateNumberedFixture';
+import { generateLargePdfE2eFixture } from '@scripts/generate-large-pdf-e2e-fixture.mjs';
 
 export const WINDOWS_FIXTURE_GENERATED_DIRECTORY = path.join('tests', 'windows', 'fixtures', 'generated');
 
 export interface IWindowsFixtureArtifact {
     fixtureId: string;
     fileName: string;
-    build: () => Promise<Uint8Array>;
+    build?: () => Promise<Uint8Array>;
+    write?: (outputPath: string) => Promise<void>;
 }
 
 export interface IWindowsFixtureGenerationEntry {
@@ -78,6 +85,24 @@ export function windowsFixtureArtifacts(): IWindowsFixtureArtifact[] {
             fileName: 'f08-control-corrupt-sidecar.json',
             build: () => Promise.resolve(encodeText(generateCorruptSidecarControl())),
         },
+        {
+            fixtureId: 'F10-save-witness-65mib',
+            fileName: 'f10-save-witness-65mib.pdf',
+            write: outputPath => generateLargePdfE2eFixture({
+                outputPath,
+                pageCount: 431,
+                targetBytes: 65 * 1024 * 1024,
+            }).then(() => undefined),
+        },
+        {
+            fixtureId: 'F10-save-witness-513mib',
+            fileName: 'f10-save-witness-513mib.pdf',
+            write: outputPath => generateLargePdfE2eFixture({
+                outputPath,
+                pageCount: 431,
+                targetBytes: 513 * 1024 * 1024,
+            }).then(() => undefined),
+        },
     ];
 }
 
@@ -95,11 +120,45 @@ export async function runWindowsFixtureGeneration(
         await mkdir(options.outputDirectory, { recursive: true });
     }
     for (const artifact of windowsFixtureArtifacts()) {
-        const bytes = await artifact.build();
         const absolutePath = path.join(options.outputDirectory, artifact.fileName);
-        if (options.write) {
-            await writeFile(absolutePath, bytes);
+        if (artifact.write !== undefined) {
+            const temporaryDirectory = options.write
+                ? null
+                : await mkdtemp(path.join(tmpdir(), 'evb-windows-fixture-'));
+            const generatedPath = options.write
+                ? absolutePath
+                : path.join(temporaryDirectory ?? (() => {
+                    throw new Error('Temporary fixture directory was not created.');
+                })(), artifact.fileName);
+            try {
+                await artifact.write(generatedPath);
+                const identity = {
+                    bytes: (await stat(generatedPath)).size,
+                    sha256: createHash('sha256').update(await readFile(generatedPath)).digest('hex'),
+                };
+                entries.push({
+                    fixtureId: artifact.fixtureId,
+                    relativePath: options.relativeTo === undefined
+                        ? absolutePath
+                        : path.relative(options.relativeTo, absolutePath).split(path.sep).join('/'),
+                    ...identity,
+                    written: options.write,
+                });
+            } finally {
+                if (temporaryDirectory !== null) {
+                    await rm(temporaryDirectory, {
+                        recursive: true,
+                        force: true,
+                    });
+                }
+            }
+            continue;
         }
+        if (artifact.build === undefined) {
+            throw new Error(`Fixture ${artifact.fixtureId} has neither a byte builder nor a file writer.`);
+        }
+        const bytes = await artifact.build();
+        if (options.write) await writeFile(absolutePath, bytes);
         entries.push({
             fixtureId: artifact.fixtureId,
             relativePath: options.relativeTo === undefined
@@ -148,10 +207,14 @@ export async function runWindowsFixturesCli(options: IWindowsFixtureCliOptions) 
     return result;
 }
 
-if (await isDirectCliInvocation(import.meta.url)) {
-    await runWindowsFixturesCli({
+void isDirectCliInvocation(import.meta.url).then(isDirect => {
+    if (!isDirect) return;
+    return runWindowsFixturesCli({
         argv: process.argv.slice(2),
         cwd: process.cwd(),
         log: message => process.stdout.write(`${message}\n`),
     });
-}
+}).catch(error => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+});

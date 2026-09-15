@@ -4,6 +4,293 @@ use super::*;
 use crate::background::IlluminationPreparation;
 use crate::protocol::manifest_v3::ContentBlockEvidence;
 
+pub(crate) struct PageAnalysisInput<'a> {
+    pub source: &'a GrayImage,
+    pub color_source: Option<&'a RgbImage>,
+    pub options: &'a CleanupOptions,
+    pub document_prior: Option<DocumentPrior>,
+    pub recommend_output_mode: bool,
+    pub plan_content: bool,
+    pub cache: Option<&'a PageCache>,
+    pub timings: &'a mut PageStageTimings,
+}
+
+pub(crate) fn analyze_page(
+    input: PageAnalysisInput<'_>,
+) -> Result<PageAnalysisResult, super::AnalysisError> {
+    let PageAnalysisInput {
+        source,
+        color_source,
+        options,
+        document_prior,
+        recommend_output_mode,
+        plan_content,
+        cache,
+        timings,
+    } = input;
+    options.validate()?;
+    if options.excluded {
+        return Ok(PageAnalysisResult {
+            outputs: Vec::new(),
+            classification: LayoutClassification::SingleUncutPage,
+            confidence: 1.0,
+            cutter_x: None,
+            split_seam: None,
+            excluded: true,
+            rotation: options.rotation,
+            reconciliation: ReconciliationMetadata {
+                tier1_verdict: LayoutClassification::SingleUncutPage,
+                reconciled: false,
+                cluster_agreement: 0.0,
+            },
+            split_diagnostics: SplitDiagnostics::default(),
+            rotated_width: source.width(),
+            rotated_height: source.height(),
+            calibration_stroke_width_px: None,
+            calibration_x_height_px: None,
+            candidate_cutter_ratio: None,
+            whitespace_score: 0.0,
+            text_axis: None,
+            output_mode_recommendation: None,
+        });
+    }
+    let prepared = document_analysis::run(document_analysis::Input {
+        source,
+        color_source,
+        options,
+        prepare_quality_raster: plan_content,
+        render_policy: PageRenderPolicy {
+            create_mixed_layers: false,
+            create_mixed_composite: false,
+            recommend_output_mode,
+            analyze_layout: true,
+        },
+        document_prior,
+        calibration_config: CalibrationConfig::default(),
+        cache,
+        trusted_mrc_background: None,
+        timings,
+    });
+    let mut split = prepared.split;
+    let needs_raw_gutter_remeasurement = gutter_band_needs_raw_remeasurement(&split);
+    if plan_content
+        && split.classification == LayoutClassification::TwoPageSpread
+        && needs_raw_gutter_remeasurement
+    {
+        // Analysis geometry is published before the final cleanup pass. Use
+        // the rotated full-resolution source here as well, otherwise the
+        // final renderer can discover the right edge only after the analyze
+        // pass has already fixed both leaf origins at the cutter.
+        let raw_source = rotate_orthogonal(source, options.rotation);
+        split.remeasure_gutter_band_from_source(
+            &raw_source,
+            raw_source.width(),
+            raw_source.height(),
+        );
+    }
+    if !plan_content {
+        return Ok(PageAnalysisResult {
+            outputs: Vec::new(),
+            classification: split.classification,
+            confidence: split.confidence,
+            cutter_x: split.cutter_x,
+            split_seam: split.split_seam,
+            excluded: false,
+            rotation: options.rotation,
+            reconciliation: split.reconciliation,
+            split_diagnostics: split.diagnostics,
+            rotated_width: prepared.full_width,
+            rotated_height: prepared.full_height,
+            calibration_stroke_width_px: prepared
+                .calibration
+                .valid
+                .then_some(prepared.calibration.stroke_width_px),
+            calibration_x_height_px: prepared
+                .calibration
+                .valid
+                .then_some(prepared.calibration.x_height_px),
+            candidate_cutter_ratio: prepared.candidate_cutter_ratio,
+            whitespace_score: prepared.whitespace_score,
+            text_axis: prepared.text_axis,
+            output_mode_recommendation: prepared.output_mode_recommendation,
+        });
+    }
+    let support_source = match options.rotation {
+        OrthogonalRotation::None => Cow::Borrowed(source),
+        rotation => Cow::Owned(rotate_orthogonal(source, rotation)),
+    };
+    let content_started = Instant::now();
+    let manual_picture_crop_authority = manual_picture_crop_authority(
+        options,
+        prepared.normalized.width(),
+        prepared.normalized.height(),
+    );
+    let outputs = output_regions(
+        prepared.full_width,
+        prepared.full_height,
+        &split,
+        options.layout,
+    )
+    .into_iter()
+    .map(|(region, half)| {
+        let analysis_region = Rect::new(
+            region.x * prepared.scale_x,
+            region.y * prepared.scale_y,
+            region.width * prepared.scale_x,
+            region.height * prepared.scale_y,
+        );
+        let working = crop_gray(&prepared.normalized, analysis_region);
+        let text_tone_diagnostics = if prepared.resolved_output_mode == OutputMode::Grayscale {
+            prepared
+                .text_mask
+                .as_ref()
+                .zip(prepared.text_vicinity_mask.as_ref())
+                .map(|(text_mask, text_vicinity_mask)| {
+                    let picture_mask = prepared
+                        .picture_mask
+                        .as_ref()
+                        .map(|mask| crop_binary(mask, analysis_region))
+                        .unwrap_or_else(|| BinaryImage::new(working.width(), working.height()));
+                    derive_text_tone_diagnostics(
+                        &working,
+                        &crop_binary(text_mask, analysis_region),
+                        &crop_binary(text_vicinity_mask, analysis_region),
+                        &picture_mask,
+                    )
+                })
+        } else {
+            None
+        };
+        let content_picture_mask = prepared
+            .content_picture_mask
+            .as_ref()
+            .map(|mask| crop_binary(mask, analysis_region));
+        let manual_picture_crop_authority = manual_picture_crop_authority
+            .as_ref()
+            .map(|mask| crop_binary(mask, analysis_region));
+        let (detected_content, content_diagnostics) = if let Some(manual) =
+            options.resolved_content_for(half, prepared.full_width, prepared.full_height)
+        {
+            let left = manual.x.clamp(0.0, region.width.max(1.0) - 1.0);
+            let top = manual.y.clamp(0.0, region.height.max(1.0) - 1.0);
+            let right = manual.right().clamp(left + 1.0, region.width);
+            let bottom = manual.bottom().clamp(top + 1.0, region.height);
+            (Some(Rect::new(left, top, right - left, bottom - top)), None)
+        } else {
+            let detected = detect_content_and_margins_calibrated_with_crop_authority(
+                &working,
+                content_picture_mask.as_ref(),
+                manual_picture_crop_authority.as_ref(),
+                prepared.calibration.effective_dpi,
+                None,
+                Some([0.0; 4]),
+                prepared.calibration,
+            );
+            let content = detected.content.map(|content| {
+                map_analysis_rect_to_source_support(
+                    content,
+                    prepared.scale_x,
+                    prepared.scale_y,
+                    region.width,
+                    region.height,
+                    SourceContentSupport::Rectilinear {
+                        image: &support_source,
+                        to_source: Affine::translation(region.x, region.y),
+                    },
+                )
+            });
+            (content, detected.diagnostics)
+        };
+        if options.match_page_size {
+            // Matched margins are composed on the final document grid, but
+            // their untrusted request geometry still has to pass the same
+            // finite-arithmetic checks before the engine omits them here.
+            content_result_for_dimensions(
+                region.width.ceil().max(1.0) as usize,
+                region.height.ceil().max(1.0) as usize,
+                options.dpi,
+                detected_content,
+                options.margins_mm.map(crate::MarginsMm::values),
+                options.margins_pixels,
+            )?;
+        }
+        let content = content_result_for_dimensions(
+            region.width.ceil().max(1.0) as usize,
+            region.height.ceil().max(1.0) as usize,
+            options.dpi,
+            detected_content,
+            if options.match_page_size {
+                None
+            } else {
+                options.margins_mm.map(crate::MarginsMm::values)
+            },
+            if options.match_page_size {
+                Some([0.0; 4])
+            } else {
+                options.margins_pixels
+            },
+        )?;
+        options.validate_derived_raster_dimensions(
+            content.output_rect.width,
+            content.output_rect.height,
+        )?;
+        let crop_enabled = options.crop_content && content.content.is_some();
+        let local_crop = if crop_enabled {
+            content.output_rect
+        } else {
+            Rect::new(0.0, 0.0, region.width, region.height)
+        };
+        Ok(AnalysisOutputMetadata {
+            half,
+            source_region: region,
+            content_box: content.content,
+            content_diagnostics,
+            text_tone_diagnostics,
+            crop_rect: Rect::new(
+                region.x + local_crop.x,
+                region.y + local_crop.y,
+                local_crop.width,
+                local_crop.height,
+            ),
+            applied_margins: if crop_enabled {
+                content.margins
+            } else {
+                [0.0; 4]
+            }
+            .into(),
+            input_width: source.width(),
+            input_height: source.height(),
+        })
+    })
+    .collect::<Result<Vec<_>, AnalysisError>>()?;
+    timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
+    Ok(PageAnalysisResult {
+        outputs,
+        classification: split.classification,
+        confidence: split.confidence,
+        cutter_x: split.cutter_x,
+        split_seam: split.split_seam,
+        excluded: false,
+        rotation: options.rotation,
+        reconciliation: split.reconciliation,
+        split_diagnostics: split.diagnostics,
+        rotated_width: prepared.full_width,
+        rotated_height: prepared.full_height,
+        calibration_stroke_width_px: prepared
+            .calibration
+            .valid
+            .then_some(prepared.calibration.stroke_width_px),
+        calibration_x_height_px: prepared
+            .calibration
+            .valid
+            .then_some(prepared.calibration.x_height_px),
+        candidate_cutter_ratio: prepared.candidate_cutter_ratio,
+        whitespace_score: prepared.whitespace_score,
+        text_axis: prepared.text_axis,
+        output_mode_recommendation: prepared.output_mode_recommendation,
+    })
+}
+
 pub(crate) struct Input<'a> {
     pub source: &'a GrayImage,
     pub color_source: Option<&'a RgbImage>,
@@ -718,20 +1005,33 @@ struct TonalEvidenceOutput {
     content_picture_mask: Option<Arc<BinaryImage>>,
 }
 
-fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput {
-    let TonalEvidenceInput {
+struct TonalCandidateInput<'a> {
+    rotated: &'a GrayImage,
+    layout_normalized: &'a GrayImage,
+    text_vicinity_mask: Option<&'a BinaryImage>,
+    options: &'a CleanupOptions,
+    calibration: PageCalibration,
+    content_evidence_complete: bool,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+}
+
+struct TonalCandidateOutput {
+    outside_tone: OutsideTonalEvidence,
+    tonal_seed_mask: BinaryImage,
+    flat_graphic_preservation_alpha: Option<Arc<GrayImage>>,
+    destructive_tone_mask: Option<Arc<BinaryImage>>,
+    structural_tone_mask: Option<Arc<BinaryImage>>,
+    spatial_tone_mask: Option<Arc<BinaryImage>>,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+}
+
+fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOutput {
+    let TonalCandidateInput {
         rotated,
         layout_normalized,
         text_vicinity_mask,
-        picture_mask,
-        automatic_picture_mask,
-        trusted_mrc_owned_tone_mask,
-        continuous_tone_mask,
         options,
-        effective_dpi,
         calibration,
-        text_line_count,
-        blank_scan_candidate,
         content_evidence_complete,
         mut content_picture_mask,
     } = input;
@@ -802,6 +1102,51 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
         content_picture_mask =
             union_optional_masks(content_picture_mask.as_ref(), qualified_tone_mask.as_ref());
     }
+    TonalCandidateOutput {
+        outside_tone,
+        tonal_seed_mask,
+        flat_graphic_preservation_alpha,
+        destructive_tone_mask,
+        structural_tone_mask,
+        spatial_tone_mask,
+        content_picture_mask,
+    }
+}
+
+fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput {
+    let TonalEvidenceInput {
+        rotated,
+        layout_normalized,
+        text_vicinity_mask,
+        picture_mask,
+        automatic_picture_mask,
+        trusted_mrc_owned_tone_mask,
+        continuous_tone_mask,
+        options,
+        effective_dpi,
+        calibration,
+        text_line_count,
+        blank_scan_candidate,
+        content_evidence_complete,
+        content_picture_mask,
+    } = input;
+    let TonalCandidateOutput {
+        outside_tone,
+        tonal_seed_mask,
+        flat_graphic_preservation_alpha,
+        destructive_tone_mask,
+        structural_tone_mask,
+        spatial_tone_mask,
+        content_picture_mask,
+    } = prepare_tonal_candidates(TonalCandidateInput {
+        rotated,
+        layout_normalized,
+        text_vicinity_mask,
+        options,
+        calibration,
+        content_evidence_complete,
+        content_picture_mask,
+    });
     let continuous_tone_mask =
         continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
     let picture_tone_evidence = automatic_picture_mask.is_some_and(|mask| mask.count_black() > 0)

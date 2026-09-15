@@ -242,6 +242,32 @@ describe('WorkspaceDocumentController', () => {
         }), 'workspace');
 
         expect(session.snapshot.value.dirty).toBe(false);
+
+        const editedRevision = createDocumentRevision('revision-2', '/tmp/working.pdf');
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            documentIdentity: editedRevision,
+            toolbarSnapshot: {
+                initialVisualReady: true,
+                canRedo: true,
+            },
+        }), 'workspace');
+        expect(session.snapshot.value.dirty).toBe(true);
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...recoveredRecord,
+            tab: {
+                ...recoveredRecord.tab,
+                isDirty: false,
+            },
+            documentIdentity: editedRevision,
+            toolbarSnapshot: {
+                initialVisualReady: true,
+                canUndo: true,
+            },
+        }), 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(false);
     });
 
     it('accepts a same-revision clean projection after returning to a saved baseline', () => {

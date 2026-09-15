@@ -1026,7 +1026,14 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         }
         const rect = sidebar.getBoundingClientRect();
         const style = window.getComputedStyle(sidebar);
-        return rect.width > 10 && rect.height > 10 && style.display !== 'none' && style.visibility !== 'hidden';
+        // The panel takes its open width at once while the wrapper slides open
+        // over it, so the panel measures visible before it can take a click.
+        const wrapperRect = sidebar.closest('.sidebar-wrapper')?.getBoundingClientRect();
+        return rect.width > 10
+            && rect.height > 10
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Boolean(wrapperRect && wrapperRect.right >= rect.right - 1);
     }, {timeout: timeoutMs});
 }
 
@@ -1036,7 +1043,7 @@ export async function openDocumentSidebarTab(
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
     await ensureSidebarOpen(page, timeoutMs);
-    const tabs = await page.$$('.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]');
+    const tabs = await page.$$('.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]');
     const tabLabels = await Promise.all(tabs.map(tab => tab.evaluate(element => (
         `${element.getAttribute('aria-label') ?? ''} ${element.textContent ?? ''}`.trim()
     ))));
@@ -1051,7 +1058,7 @@ export async function openDocumentSidebarTab(
     await page.waitForFunction((expectedLabel: string) => {
         const normalized = expectedLabel.trim().toLocaleLowerCase();
         return Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
+            '.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]',
         )).some((tab) => {
             const tabLabel = `${tab.getAttribute('aria-label') ?? ''} ${tab.textContent ?? ''}`
                 .trim()

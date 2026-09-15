@@ -9,11 +9,6 @@ const FORMAT_LITERALS = Object.freeze([
     'image',
 ]);
 
-const DEFAULT_ALLOWED_PATHS = Object.freeze([
-    'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts',
-    'app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts',
-]);
-
 const BINARY_COMPARISON_OPERATORS = Object.freeze([
     '==',
     '===',
@@ -33,14 +28,17 @@ const BINARY_COMPARISON_OPERATORS = Object.freeze([
  * @property {string} message
  * @typedef {object} IFormatComparisonCheckOptions
  * @property {readonly string[]} [allowedPaths]
+ * @typedef {{type: string, range: [number, number], [key: string]: any}} TAstNode
  */
 
+/** @param {TAstNode | null | undefined} node @returns {boolean} */
 const isFormatLiteral = node => (
     node?.type === 'Literal'
     && typeof node.value === 'string'
     && FORMAT_LITERALS.includes(node.value)
 );
 
+/** @param {TAstNode | null | undefined} node @returns {TAstNode | null | undefined} */
 const unwrapExpression = node => {
     let expression = node;
     while (
@@ -58,16 +56,19 @@ const unwrapExpression = node => {
     return expression;
 };
 
+/** @param {string} name */
 const isLiveDiscriminantName = name => (
     name === 'adapter'
     || name === 'document'
     || name === 'driver'
     || name === 'format'
+    || name === 'sourceKind'
     || name === 'viewer'
     || /^(?:active|workspace)?(?:adapter|document|driver|viewer)(?:adapter|driver|viewer|id|type|kind|format|identifier|state)?$/i.test(name)
     || /^(?:document|driver|viewer)(?:id|type|kind|format|identifier|state)$/i.test(name)
 );
 
+/** @param {TAstNode | null | undefined} node @returns {string | null} */
 const propertyName = node => {
     if (node?.type === 'Identifier') {
         return node.name;
@@ -78,6 +79,7 @@ const propertyName = node => {
     return null;
 };
 
+/** @param {TAstNode | null | undefined} node @returns {string[]} */
 const collectMemberNames = node => {
     const expression = unwrapExpression(node);
     if (!expression) {
@@ -92,9 +94,10 @@ const collectMemberNames = node => {
     return [
         ...collectMemberNames(expression.object),
         propertyName(expression.property),
-    ].filter(Boolean);
+    ].filter(name => name !== null);
 };
 
+/** @param {TAstNode | null | undefined} node @returns {TAstNode | null} */
 const getDiscriminant = node => {
     const expression = unwrapExpression(node);
     if (!expression) {
@@ -107,14 +110,16 @@ const getDiscriminant = node => {
         return null;
     }
     return collectMemberNames(expression).some(isLiveDiscriminantName)
-        ? node
+        ? node ?? null
         : null;
 };
 
+/** @param {string} sourceText @param {TAstNode | null} node */
 const getNodeText = (sourceText, node) => (
     node?.range ? sourceText.slice(node.range[0], node.range[1]) : null
 );
 
+/** @param {string} sourceText @param {number} offset */
 const getLocation = (sourceText, offset) => {
     const before = sourceText.slice(0, offset);
     const lineStart = before.lastIndexOf('\n') + 1;
@@ -124,8 +129,14 @@ const getLocation = (sourceText, offset) => {
     };
 };
 
+/** @param {string} sourcePath */
 const normalizeSourcePath = sourcePath => sourcePath.replaceAll('\\', '/').replace(/^\.\//, '');
 
+/**
+ * @param {string} sourcePath @param {string} sourceText @param {TAstNode} node
+ * @param {Pick<IFormatComparisonViolation, 'comparisonKind' | 'discriminant' | 'formatLiteral' | 'message'>} details
+ * @returns {IFormatComparisonViolation}
+ */
 const createViolation = (sourcePath, sourceText, node, details) => {
     const location = getLocation(sourceText, node.range[0]);
     return {
@@ -135,11 +146,12 @@ const createViolation = (sourcePath, sourceText, node, details) => {
     };
 };
 
+/** @param {unknown} node @param {(node: TAstNode) => void} visit */
 const walk = (node, visit) => {
     if (!node || typeof node !== 'object') {
         return;
     }
-    visit(node);
+    visit(/** @type {TAstNode} */ (node));
     for (const [
         key,
         value,
@@ -155,15 +167,16 @@ const walk = (node, visit) => {
     }
 };
 
+/** @param {string} sourcePath @param {string} sourceText @returns {TAstNode} */
 const parseSource = (sourcePath, sourceText) => {
     const options = {
         comment: false,
-        ecmaVersion: 'latest',
+        ecmaVersion: /** @type {const} */ ('latest'),
         filePath: sourcePath,
         jsx: true,
         loc: true,
         range: true,
-        sourceType: 'module',
+        sourceType: /** @type {const} */ ('module'),
     };
     return sourcePath.toLowerCase().endsWith('.vue')
         ? vueParser.parseForESLint(sourceText, {
@@ -173,9 +186,10 @@ const parseSource = (sourcePath, sourceText) => {
         : tsParser.parseForESLint(sourceText, options).ast;
 };
 
+/** @param {string} sourcePath @param {string} sourceText @param {{lineNumber?: number, column?: number, message?: string}} error @returns {IFormatComparisonViolation} */
 const createParseError = (sourcePath, sourceText, error) => {
-    const line = Number.isInteger(error.lineNumber) ? error.lineNumber : 1;
-    const column = Number.isInteger(error.column) ? error.column : 1;
+    const line = error.lineNumber ?? 1;
+    const column = error.column ?? 1;
     const lineStart = sourceText.split('\n').slice(0, line - 1).reduce(
         (offset, lineText) => offset + lineText.length + 1,
         0,
@@ -191,12 +205,10 @@ const createParseError = (sourcePath, sourceText, error) => {
     };
 };
 
+/** @param {string} sourcePath @param {readonly string[] | undefined} allowedPaths */
 const isAllowedPath = (sourcePath, allowedPaths) => {
     const normalizedPath = normalizeSourcePath(sourcePath);
-    return [
-        ...DEFAULT_ALLOWED_PATHS,
-        ...(allowedPaths ?? []).map(normalizeSourcePath),
-    ].includes(normalizedPath);
+    return (allowedPaths ?? []).map(normalizeSourcePath).includes(normalizedPath);
 };
 
 /**
@@ -209,21 +221,18 @@ const isAllowedPath = (sourcePath, allowedPaths) => {
  * @returns {IFormatComparisonViolation[]}
  */
 export const findFormatComparisonViolations = (sourcePath, sourceText, options = {}) => {
-    if (typeof sourcePath !== 'string' || typeof sourceText !== 'string') {
-        throw new TypeError('sourcePath and sourceText must be strings');
-    }
-
     let ast;
     try {
         ast = parseSource(sourcePath, sourceText);
     } catch (error) {
-        return [createParseError(sourcePath, sourceText, error)];
+        return [createParseError(sourcePath, sourceText, /** @type {Error & {lineNumber?: number, column?: number}} */ (error))];
     }
 
     if (isAllowedPath(sourcePath, options.allowedPaths)) {
         return [];
     }
 
+    /** @type {IFormatComparisonViolation[]} */
     const violations = [];
     walk(ast, node => {
         if (node.type === 'BinaryExpression' && BINARY_COMPARISON_OPERATORS.includes(node.operator)) {
@@ -269,7 +278,4 @@ export const findFormatComparisonViolations = (sourcePath, sourceText, options =
     ));
 };
 
-export {
-    DEFAULT_ALLOWED_PATHS,
-    FORMAT_LITERALS,
-};
+export {FORMAT_LITERALS};

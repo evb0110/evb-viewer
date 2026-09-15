@@ -57,7 +57,7 @@
 
 <script setup lang="ts">
 
-import { parsePageRangeInput } from '@app/utils/document-viewer/pageLabels';
+import { parsePageRangeInput } from '@app/modules/document-viewer/public';
 import { createPageSelectionFromRange } from '@app/utils/pdfPageSelection';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';

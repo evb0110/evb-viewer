@@ -10,7 +10,6 @@ import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import type * as PlatformDocuments from '@app/utils/platformDocuments';
 
 type TCapturedListener = (event: DragEvent) => void;
 
@@ -25,9 +24,21 @@ const browserDocumentStoreMock = vi.hoisted(() => ({registerFileWithOwnership: v
 const cleanupFileMock = vi.hoisted(() => vi.fn(async (_path: string) => {}));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: browserDocumentStoreMock}));
-vi.mock('@app/utils/platformDocuments', async importOriginal => ({
-    ...await importOriginal<typeof PlatformDocuments>(),
-    getDocumentWorkingCopyCapability: () => ({cleanupFile: cleanupFileMock}),
+function createTestElectronApi(overrides: Parameters<typeof createElectronPlatformApiFixture>[0] = {}) {
+    return createElectronPlatformApiFixture({
+        ...overrides,
+        documentWorkingCopy: {
+            ...overrides.documentWorkingCopy,
+            cleanupFile: cleanupFileMock,
+        },
+    });
+}
+const platformApi = createTestElectronApi();
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => typeof window !== 'undefined' && window.electronAPI
+        ? window.electronAPI
+        : platformApi,
+    isBrowserPlatformActive: () => !(typeof window !== 'undefined' && Boolean(window.electronAPI)),
 }));
 
 vi.mock('@vueuse/core', () => ({ useEventListener: vi.fn((_target: unknown, event: string, listener: TCapturedListener) => {
@@ -117,7 +128,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen }}),
+            electronAPI: createTestElectronApi({documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen }}),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -140,7 +151,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/readme.txt')])} }),
+            electronAPI: createTestElectronApi({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/readme.txt')])} }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -162,7 +173,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/a.pdf')])} }),
+            electronAPI: createTestElectronApi({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/a.pdf')])} }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -198,7 +209,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker }),
+            electronAPI: createTestElectronApi({ documentPicker }),
         });
 
         const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
@@ -232,7 +243,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen } }),
+            electronAPI: createTestElectronApi({ documentPicker: { registerFilesForOpen } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });

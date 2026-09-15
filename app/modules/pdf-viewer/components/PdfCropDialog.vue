@@ -131,7 +131,7 @@ import {
     unitStep,
     unitToPoints,
 } from '@app/utils/pdfCropCoordinates';
-import { parsePageRangeInput } from '@app/utils/document-viewer/pageLabels';
+import { parsePageRangeInput } from '@app/modules/document-viewer/public';
 import {
     createRangePageSelection,
     materializePageSelection,

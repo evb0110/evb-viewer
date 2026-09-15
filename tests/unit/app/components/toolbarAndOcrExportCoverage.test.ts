@@ -82,6 +82,15 @@ const SlotStub = defineComponent({
     setup: (_props, {slots}) => () => slots.default?.(),
 });
 
+const CollapsibleStub = defineComponent({
+    inheritAttrs: false,
+    props: {open: Boolean},
+    setup: (props, {slots}) => () => h('div', [
+        slots.default?.({open: props.open}),
+        slots.content?.(),
+    ]),
+});
+
 const DropdownMenuStub = defineComponent({
     inheritAttrs: false,
     props: {items: {
@@ -221,7 +230,6 @@ describe('DOCX export component coverage', () => {
             }),
             showCustomRange: ref(false),
             showLanguageSearch: ref(false),
-            showMultipleLanguagesHint: ref(false),
             showSuccessState: ref(true),
             triggerTooltip: ref('ocr.open'),
             viewState: ref('results'),
@@ -247,6 +255,7 @@ describe('DOCX export component coverage', () => {
             app.component('UInput', SlotStub);
             app.component('UCheckbox', SlotStub);
             app.component('UCheckboxGroup', SlotStub);
+            app.component('UCollapsible', CollapsibleStub);
             app.component('UFormField', SlotStub);
             app.component('USelect', SlotStub);
         });
@@ -299,7 +308,6 @@ describe('DOCX export component coverage', () => {
             }),
             showCustomRange: ref(false),
             showLanguageSearch: ref(false),
-            showMultipleLanguagesHint: ref(false),
             showSuccessState: ref(false),
             triggerTooltip: ref('ocr.open'),
             viewState: ref('running'),
@@ -325,6 +333,7 @@ describe('DOCX export component coverage', () => {
             app.component('UInput', SlotStub);
             app.component('UCheckbox', SlotStub);
             app.component('UCheckboxGroup', SlotStub);
+            app.component('UCollapsible', CollapsibleStub);
             app.component('UFormField', SlotStub);
             app.component('USelect', SlotStub);
         });

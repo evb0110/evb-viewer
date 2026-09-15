@@ -8,8 +8,12 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
 import type { IWindowsTestHostLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
 import {
     loadFixtureManifest,
@@ -24,6 +28,74 @@ import type {
     IStandaloneUtmctlPreparationOptions,
     TStandaloneUtmctlSignatureVerifier,
 } from '@scripts/windows-test/host/standaloneUtmctl';
+import {
+    WINDOWS_TEST_WINAPP_ARCHIVE_RELATIVE_PATH,
+    WINDOWS_TEST_WINAPP_ARCHIVE_SHA256,
+    windowsTestWinappToolPaths,
+} from '@scripts/windows-test/host/winappTool';
+
+function sha256(contents: Uint8Array) {
+    return createHash('sha256').update(contents).digest('hex');
+}
+
+async function prepareWinappTool(layout: IWindowsTestHostLayout, sourceDirectory?: string) {
+    const paths = windowsTestWinappToolPaths(layout);
+    await mkdir(path.dirname(paths.executablePath), {recursive: true});
+    if (sourceDirectory !== undefined) {
+        for (const member of [
+            'winapp.exe',
+            'libSkiaSharp.dll',
+        ]) {
+            const source = await readFile(path.join(sourceDirectory, member));
+            if (source.byteLength === 0) {
+                throw new Error(`The prepared WinApp source file ${member} is empty.`);
+            }
+            await copyFile(path.join(sourceDirectory, member), path.join(path.dirname(paths.executablePath), member));
+        }
+        return paths;
+    }
+    if (path.relative(layout.toolsCacheDir, paths.archivePath) !== WINDOWS_TEST_WINAPP_ARCHIVE_RELATIVE_PATH) {
+        throw new Error('The prepared WinApp archive path is outside the tools cache.');
+    }
+    const archive = await readFile(paths.archivePath).catch(() => null);
+    if (archive === null) {
+        throw new Error(`The pinned WinApp CLI archive is missing at ${paths.archivePath}.`);
+    }
+    const archiveSha256 = sha256(archive);
+    if (archiveSha256 !== WINDOWS_TEST_WINAPP_ARCHIVE_SHA256) {
+        throw new Error(`The pinned WinApp CLI archive hashes to ${archiveSha256}, expected ${WINDOWS_TEST_WINAPP_ARCHIVE_SHA256}.`);
+    }
+    for (const [
+        member,
+        destination,
+    ] of [
+            [
+                'winapp.exe',
+                paths.executablePath,
+            ],
+            [
+                'libSkiaSharp.dll',
+                paths.nativeLibraryPath,
+            ],
+        ] as const) {
+        const extracted = execFileSync('unzip', [
+            '-p',
+            paths.archivePath,
+            member,
+        ], {
+            encoding: 'buffer',
+            maxBuffer: 64 * 1024 * 1024,
+        });
+        if (extracted.byteLength === 0) {
+            throw new Error(`The pinned WinApp CLI archive did not contain ${member}.`);
+        }
+        const existing = await readFile(destination).catch(() => null);
+        if (existing === null || !existing.equals(extracted)) {
+            await writeFile(destination, extracted);
+        }
+    }
+    return paths;
+}
 
 export async function prepareWindowsTestHost(options: {
     layout: IWindowsTestHostLayout;
@@ -31,6 +103,7 @@ export async function prepareWindowsTestHost(options: {
     lock: IHostLockDependencies;
     standaloneUtmctlSourcePath?: string;
     verifyStandaloneUtmctlSignature?: TStandaloneUtmctlSignatureVerifier;
+    winappToolSourceDirectory?: string;
 }) {
     const {
         layout,
@@ -115,6 +188,21 @@ export async function prepareWindowsTestHost(options: {
         const powerShellDirectory = path.join(workerDirectory, 'powershell');
         await mkdir(powerShellDirectory, { recursive: true });
         const workerFile = path.join(workerDirectory, 'guestWorker.cjs');
+        const pdfWorkerSource = path.join(
+            repositoryRoot,
+            'node_modules',
+            'pdfjs-dist',
+            'legacy',
+            'build',
+            'pdf.worker.mjs',
+        );
+        const pdfWorkerFile = path.join(workerDirectory, 'pdf.worker.mjs');
+        // The guest worker bundles PDF.js itself, but PDF.js resolves its
+        // fake worker by file URL at runtime. Keep the matching worker beside
+        // the staged guest bundle instead of relying on a host node_modules
+        // tree that does not exist inside the Windows guest.
+        await copyFile(pdfWorkerSource, pdfWorkerFile);
+        const winappTool = await prepareWinappTool(layout, options.winappToolSourceDirectory);
         const temporaryWorkerDirectory = path.join(workerDirectory, `.bundle-${randomUUID()}`);
         await mkdir(temporaryWorkerDirectory);
         try {
@@ -141,6 +229,10 @@ export async function prepareWindowsTestHost(options: {
         // fixtures cannot establish a Windows installation or qualify a driver.
         return {
             workerFile,
+            pdfWorkerFile,
+            winappArchiveFile: winappTool.archivePath,
+            winappExecutableFile: winappTool.executablePath,
+            winappNativeLibraryFile: winappTool.nativeLibraryPath,
             fixtureManifestFile,
             fixtureCount: declaredFiles.length,
             standaloneUtmctl,

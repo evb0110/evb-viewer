@@ -291,6 +291,18 @@ describe('file-based Tesseract arguments', () => {
         });
     });
 
+    it('reports parameters the engine rejected while still exiting successfully', async () => {
+        const { findUnsupportedTesseractOptions } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const stderr = [
+            'Estimating resolution as 300',
+            'Could not set option: thresholding_method=2',
+            'Warning: Invalid resolution 0 dpi. Using 70 instead.',
+        ].join('\n');
+
+        expect(findUnsupportedTesseractOptions(stderr)).toEqual(['thresholding_method=2']);
+        expect(findUnsupportedTesseractOptions('Estimating resolution as 300\n')).toEqual([]);
+    });
+
     it('adds public quality profile options without removing existing output config', async () => {
         const child = new MockChildProcess();
         mocks.spawn.mockReturnValue(child);

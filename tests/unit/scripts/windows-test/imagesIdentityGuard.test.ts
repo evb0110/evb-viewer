@@ -3,7 +3,9 @@ import {
     mkdtemp,
     rm,
     symlink,
+    writeFile,
 } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -15,6 +17,7 @@ import {
 } from 'vitest';
 import {
     assertDestructiveTarget,
+    assertNotGoldenOrBaselineTarget,
     destructivePolicyFromConfig,
     selectClonedVmId,
     withOwnedCloneAllowlisted,
@@ -24,6 +27,10 @@ import type {
     WindowsTestIdentityGuardError,
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
+import type { IWindowsTestWorkerHeartbeat } from '@scripts/windows-test/contracts/windowsTestContracts';
+import { createNativeInputProvisioner } from '@scripts/windows-test/host/nativeInputProvisioning';
+import { createUtmctlGuestChannel } from '@scripts/windows-test/host/guestChannel';
+import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
 
 const ALLOWED_VM_ID = '11111111-2222-4333-8444-555555555555';
 const GOLDEN_VM_ID = '22222222-3333-4444-8555-666666666666';
@@ -103,6 +110,225 @@ describe('destructive VM identity guard', () => {
         ).catch((thrown: unknown) => thrown);
 
         expect((error as WindowsTestIdentityGuardError).refusal).toBe('vm-id-denied');
+    });
+
+    it('refuses a bundle below baselines even when its name looks like a test clone', async () => {
+        const baselineBundle = path.join(imageRoot, 'baselines', 'evb-win-test-promoted.utm');
+        await mkdir(path.dirname(baselineBundle), {recursive: true});
+
+        expect(() => assertNotGoldenOrBaselineTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: baselineBundle,
+            },
+            policy,
+        )).toThrowError(/golden baseline directory/u);
+        await expect(assertDestructiveTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: baselineBundle,
+            },
+            policy,
+            identityDependencies(ALLOWED_VM_ID),
+        )).rejects.toMatchObject({refusal: 'bundle-path-is-golden-baseline'});
+    });
+
+    it('refuses native input before invoking osascript for a personal VM', async () => {
+        const calls: string[] = [];
+        const provisioner = createNativeInputProvisioner({
+            runner: {run: async command => {
+                calls.push(command);
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                    timedOut: false,
+                    signal: null,
+                };
+            }},
+            guest: {
+                ping: async () => false,
+                readHeartbeat: async () => null,
+                ensureDirectory: async () => undefined,
+                stageFile: async () => undefined,
+                stageAndVerifyFiles: async () => false,
+                stageText: async () => undefined,
+                verifyStagedFileHash: async () => false,
+                writeJob: async () => undefined,
+                publishReadyMarker: async () => undefined,
+                requestGuestCancel: async () => undefined,
+                readGuestText: async () => null,
+                pullGuestFile: async () => false,
+            },
+            policy,
+            target: {
+                vmId: PERSONAL_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+
+        await expect(provisioner.scanCodes([28])).rejects.toMatchObject({ refusal: 'vm-id-denied' });
+        await expect(provisioner.pushFile('/tmp/command.ps1', 'C:\\EVBViewerTests\\worker\\command.ps1'))
+            .rejects.toMatchObject({ refusal: 'vm-id-denied' });
+        await expect(provisioner.pullEvidence('C:\\EVBViewerTests\\state\\result.json', '/tmp/result.json'))
+            .rejects.toMatchObject({ refusal: 'vm-id-denied' });
+        expect(calls).toEqual([]);
+    });
+
+    it('keeps agent and worker readiness separate until a heartbeat appears', async () => {
+        let heartbeat: IWindowsTestWorkerHeartbeat | null = null;
+        const guest = {
+            ping: async () => true,
+            readHeartbeat: async () => heartbeat,
+            ensureDirectory: async () => undefined,
+            stageFile: async () => undefined,
+            stageAndVerifyFiles: async () => false,
+            stageText: async () => undefined,
+            verifyStagedFileHash: async () => false,
+            writeJob: async () => undefined,
+            publishReadyMarker: async () => undefined,
+            requestGuestCancel: async () => undefined,
+            readGuestText: async (_vmId: string, guestPath: string) => guestPath.endsWith('boot-id.txt') ? 'boot' : null,
+            pullGuestFile: async () => false,
+        };
+        const provisioner = createNativeInputProvisioner({
+            runner: { run: async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            }) },
+            guest,
+            policy,
+            target: {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+        await expect(provisioner.readiness()).resolves.toEqual({
+            guestAgentAvailable: true,
+            workerReady: false,
+        });
+        heartbeat = {
+            schemaVersion: 1,
+            bootId: 'boot',
+            guestTestMarker: 'marker',
+            updatedAt: new Date().toISOString(),
+            locked: false,
+            worker: {
+                userSid: 'sid',
+                sessionId: 1,
+                integrityLevel: 'medium',
+                inputDesktop: 'Default',
+                interactive: true,
+                workerPid: 1,
+                workerStartTime: 'now',
+            },
+        };
+        await expect(provisioner.readiness()).resolves.toEqual({
+            guestAgentAvailable: true,
+            workerReady: true,
+        });
+    });
+
+    it('uses verified push and readback when the real no-media guest channel declines batching', async () => {
+        const source = path.join(imageRoot, 'bootstrap.cmd');
+        const destination = 'C:\\EVBViewerTests\\worker\\bootstrap.cmd';
+        const contents = 'bootstrap bytes';
+        await writeFile(source, contents);
+        await writeFile(path.join(imageRoot, 'clone.utm', 'config.plist'), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Information</key><dict><key>UUID</key><string>${ALLOWED_VM_ID}</string><key>Name</key><string>evb-win-test-clone</string></dict></dict></plist>`);
+        const guestFiles = new Map<string, Uint8Array>();
+        const client = {
+            pushFile: async (_vmId: string, guestPath: string, bytes: Uint8Array | string) => {
+                guestFiles.set(guestPath, Buffer.from(bytes));
+            },
+            pullFile: async (_vmId: string, guestPath: string, hostPath: string) => {
+                await writeFile(hostPath, guestFiles.get(guestPath) ?? new Uint8Array());
+            },
+        } as IUtmctlClient;
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: label => path.join(imageRoot, `${label}.tmp`),
+        });
+        const provisioner = createNativeInputProvisioner({
+            runner: {run: async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            })},
+            guest,
+            policy,
+            target: {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+
+        await provisioner.pushFile(source, destination);
+        expect(guestFiles.get(destination)).toEqual(Buffer.from(contents));
+        expect(createHash('sha256').update(guestFiles.get(destination) ?? '').digest('hex'))
+            .toBe(createHash('sha256').update(contents).digest('hex'));
+    });
+
+    it('chunks large no-media pushes and verifies each chunk and the reassembled file', async () => {
+        const source = path.join(imageRoot, 'large-bootstrap.cmd');
+        const destination = 'C:\\EVBViewerTests\\worker\\large-bootstrap.cmd';
+        const contents = Buffer.alloc(2 * 1024 * 1024 + 17, 0x5a);
+        await writeFile(source, contents);
+        await writeFile(path.join(imageRoot, 'clone.utm', 'config.plist'), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Information</key><dict><key>UUID</key><string>${ALLOWED_VM_ID}</string><key>Name</key><string>evb-win-test-clone</string></dict></dict></plist>`);
+        const guestFiles = new Map<string, Buffer>();
+        const client = {
+            pushFile: async (_vmId: string, guestPath: string, bytes: Uint8Array | string) => {
+                guestFiles.set(guestPath, Buffer.from(bytes));
+            },
+            pullFile: async (_vmId: string, guestPath: string, hostPath: string) => {
+                await writeFile(hostPath, guestFiles.get(guestPath) ?? new Uint8Array());
+            },
+            exec: async (_vmId: string, _command: readonly string[], options?: {input?: string}) => {
+                if (options?.input !== undefined) {
+                    const request = JSON.parse(options.input) as {
+                        Destination: string;
+                        Parts: string[]
+                    };
+                    guestFiles.set(request.Destination, Buffer.concat(request.Parts.map(part => guestFiles.get(part) ?? Buffer.alloc(0))));
+                    request.Parts.forEach(part => guestFiles.delete(part));
+                }
+                const actual = guestFiles.get(destination) ?? Buffer.alloc(0);
+                return {
+                    exitCode: 0,
+                    stdout: `evb-chunk-sha256=${createHash('sha256').update(actual).digest('hex')}`,
+                    stderr: '',
+                    timedOut: false,
+                    signal: null,
+                    transportFailure: null,
+                };
+            },
+        } as IUtmctlClient;
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: label => path.join(imageRoot, `${label}.tmp`),
+        });
+        const provisioner = createNativeInputProvisioner({
+            runner: {run: async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            })},
+            guest,
+            policy,
+            target: {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+        });
+
+        await provisioner.pushFile(source, destination);
+        expect(guestFiles.get(destination)).toEqual(contents);
     });
 
     it('refuses a personal VM by path even when the UUID is allowlisted', async () => {

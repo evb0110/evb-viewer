@@ -282,6 +282,7 @@ async function installContinuityProbe(
             sourceTab: HTMLElement;
             sourceThumbnailSurface: HTMLElement;
             phase: string;
+            samplingEnabled: boolean;
             timerId: number;
         }
         type TProbeWindow = Window & {__splitPaneCloseContinuityProbe?: IContinuityProbe};
@@ -455,9 +456,13 @@ async function installContinuityProbe(
             thumbnailScrollResetFrames: 0,
             thumbnailSurfaceChangedFrames: 0,
             timerId: 0,
+            samplingEnabled: true,
         };
 
         probe.sample = (scheduleNextFrame: boolean) => {
+            if (!probe.samplingEnabled) {
+                return;
+            }
             probe.sampleCount += 1;
             const currentPane = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
                 .find(candidate => candidate.dataset.editorPaneId === sourcePaneId) ?? null;
@@ -609,9 +614,15 @@ async function installContinuityProbe(
 
 async function splitAndCloseEmptyRightPane(page: Page, sourcePaneId: string) {
     await page.evaluate(() => {
-        const probe = (window as Window & {__splitPaneCloseContinuityProbe?: {phase: string}})
+        const probe = (window as Window & {__splitPaneCloseContinuityProbe?: {
+            phase: string;
+            samplingEnabled: boolean;
+        }})
             .__splitPaneCloseContinuityProbe;
-        if (probe) probe.phase = 'split';
+        if (probe) {
+            probe.phase = 'split';
+            probe.samplingEnabled = false;
+        }
     });
     const split = await page.evaluate(async () => {
         interface ISplitWindow extends Window { __splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void; }
@@ -630,10 +641,31 @@ async function splitAndCloseEmptyRightPane(page: Page, sourcePaneId: string) {
         {timeout: CONTINUITY_TIMEOUT_MS},
     );
 
+    // The split promise covers its layout frames, but Vue publishes the
+    // resize-fence release through the source chassis on the following patch.
+    // Start the close probe only after that lifecycle edge, not in the split's
+    // transient reset-to-origin state.
+    await page.waitForFunction((retainedPaneId: string) => {
+        const pane = document.querySelector<HTMLElement>(
+            `.editor-pane[data-editor-pane-id="${CSS.escape(retainedPaneId)}"]`,
+        );
+        const chassis = pane?.querySelector<HTMLElement>('.document-viewer-chassis');
+        return chassis?.dataset.chassisResizing === 'false'
+            && chassis.dataset.viewportLifecycle === 'ready';
+    }, {timeout: CONTINUITY_TIMEOUT_MS}, sourcePaneId);
+
     await page.evaluate(() => {
-        const probe = (window as Window & {__splitPaneCloseContinuityProbe?: {phase: string}})
+        const probe = (window as Window & {__splitPaneCloseContinuityProbe?: {
+            phase: string;
+            sample: (scheduleNextFrame: boolean) => void;
+            samplingEnabled: boolean;
+        }})
             .__splitPaneCloseContinuityProbe;
-        if (probe) probe.phase = 'close';
+        if (probe) {
+            probe.phase = 'close';
+            probe.samplingEnabled = true;
+            probe.sample(true);
+        }
     });
 
     const closeResult = await page.evaluate((retainedPaneId: string) => {

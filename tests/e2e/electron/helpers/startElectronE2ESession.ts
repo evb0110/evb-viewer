@@ -605,7 +605,10 @@ async function startElectronE2ESessionWithAutomationEnv(
                     origin: rendererOrigin,
                     storageTypes: 'all',
                 });
-                await client.send('Network.clearBrowserCache');
+                // The shared Nuxt renderer runs with HTTP caching disabled.
+                // Clearing the browser-wide network cache here interrupts its
+                // Vite connection and can strand the following navigation
+                // before DOMContentLoaded.
             } finally {
                 await client.detach();
             }

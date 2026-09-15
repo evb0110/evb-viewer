@@ -79,6 +79,18 @@ The fast first paint of a document produced outside the renderer while the
 renderer is still loading.
 _Avoid_: native preview, skeleton
 
+**Document viewer runtime**:
+The module that owns one opened document's page source, viewport presentation,
+opening preview, render leases, and release ordering. It coordinates renderers
+but never writes PDF bytes or owns annotation state.
+_Avoid_: chassis, viewer chassis, authority, viewer core
+
+**Render lease**:
+Temporary ownership of a rendered page or thumbnail surface. The owner keeps
+the surface alive until it calls `release`; the source may then reclaim the
+underlying resource after any active render settles.
+_Avoid_: surface handle, render token
+
 ## Assistant
 
 **Assistant session**:

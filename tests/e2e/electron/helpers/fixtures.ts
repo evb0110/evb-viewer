@@ -43,7 +43,7 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
-import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
@@ -2231,7 +2231,7 @@ export async function createManagedInkStrokeFixturePdf(filename: string) {
     return filePath;
 }
 
-export async function createScannedTextFixturePdf(filename: string, text: string) {
+export async function createScannedTextFixturePdf(filename: string, text: string, font = 'bold 72px sans-serif') {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const canvas = createCanvas(1200, 500);
@@ -2239,7 +2239,7 @@ export async function createScannedTextFixturePdf(filename: string, text: string
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#111111';
-    context.font = 'bold 72px sans-serif';
+    context.font = font;
     context.fillText(text, 60, 270);
 
     const doc = await PDFDocument.create();

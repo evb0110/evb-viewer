@@ -11,14 +11,14 @@ import {
     getNativeSourceMatrixCheckEntries,
     NATIVE_RESOURCE_PLATFORM_ARCHES,
     NATIVE_TOOL_RESOURCE_FAMILIES,
-    type TNativeSourceMatrixCheckEntry,
+    type INativeSourceMatrixCheckEntry,
 } from '@scripts/nativeResourceManifest';
 
 function findRequiredEntry(
-    entries: readonly TNativeSourceMatrixCheckEntry[],
+    entries: readonly INativeSourceMatrixCheckEntry[],
     label: string,
 ) {
-    const entry = entries.find((candidate): candidate is Extract<TNativeSourceMatrixCheckEntry, {kind: 'required'}> => (
+    const entry = entries.find(candidate => (
         candidate.kind === 'required' && candidate.label === label
     ));
 
@@ -50,23 +50,12 @@ describe('native resource manifest', () => {
             path: 'resources/tesseract/linux-x64/bin/tesseract',
             type: 'file',
         });
-        expect(findRequiredEntry(entries, 'unpaper')).toEqual({
-            kind: 'required',
-            label: 'unpaper',
-            path: 'resources/tesseract/linux-x64/bin/unpaper',
-            type: 'file',
-        });
         expect(entries.some(entry => entry.label === 'pdftocairo')).toBe(false);
     });
 
     it('renders Windows-only source matrix requirements and skips', () => {
         const entries = getNativeSourceMatrixCheckEntries('win32-arm64');
 
-        expect(entries).toContainEqual({
-            kind: 'skip',
-            label: 'unpaper',
-            reason: 'not bundled on Windows',
-        });
         expect(findRequiredEntry(entries, 'pdftocairo')).toEqual({
             kind: 'required',
             label: 'pdftocairo',
@@ -144,10 +133,6 @@ describe('native resource manifest', () => {
         const entry = findRequiredEntry(getNativeSourceMatrixCheckEntries('linux-x64'), 'qpdf');
 
         expect(formatNativeSourceMatrixCliEntry(entry)).toBe('file\tresources/qpdf/linux-x64/bin/qpdf\tqpdf');
-        expect(formatNativeSourceMatrixCliEntry({
-            kind: 'skip',
-            label: 'unpaper',
-            reason: 'not bundled on Windows',
-        })).toBe('skip\tunpaper\tnot bundled on Windows');
+
     });
 });

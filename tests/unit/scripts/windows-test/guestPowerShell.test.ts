@@ -177,6 +177,94 @@ describe('guest PowerShell script files', () => {
         expect(source).toContain('no credentials');
     });
 
+    it('keeps standard-account recovery input-only and outside the administrator group', () => {
+        const source = sources.get('ensure-standard-test-user.ps1') ?? '';
+        expect(source).toContain('[Console]::In.ReadLine()');
+        expect(source).toContain('Remove-LocalGroupMember -Group Administrators');
+        expect(source).toContain('Add-LocalGroupMember -Group Users');
+    });
+
+    it('repairs the guest-agent service without copying event messages', () => {
+        const source = sources.get('ensure-guest-agent-service.ps1') ?? '';
+        expect(source).toContain('Set-Service -Name qemu-ga -StartupType Automatic');
+        expect(source).toContain('sc.exe failure qemu-ga');
+        expect(source).toContain('eventIds');
+        expect(source).not.toContain('Message');
+    });
+
+    it('keeps the no-input startup payload tied to the guest root and marker', async () => {
+        const command = await readFile(path.join(scriptsDirectory, '..', 'autostart-worker.cmd'), 'utf8');
+        const policy = await readFile(path.join(scriptsDirectory, '..', 'machine-startup-scripts.ini'), 'utf8');
+        expect(command).toContain('C:\\EVBViewerTests');
+        expect(command).toContain('autostart-marker.json');
+        expect(command).toContain('guestWorker.cjs');
+        expect(policy).toContain('0CmdLine=system-bootstrap-worker.cmd');
+    });
+
+    it('keeps SYSTEM startup setup separate from the standard-user worker task', async () => {
+        const bootstrap = await readFile(path.join(scriptsDirectory, '..', 'system-bootstrap-worker.cmd'), 'utf8');
+        const launcher = await readFile(path.join(scriptsDirectory, '..', 'start-worker.cmd'), 'utf8');
+        const installer = await readFile(path.join(scriptsDirectory, '..', 'install-system-bootstrap.cmd'), 'utf8');
+        const policy = await readFile(path.join(scriptsDirectory, '..', 'machine-startup-scripts.ini'), 'utf8');
+        expect(policy).toContain('0CmdLine=system-bootstrap-worker.cmd');
+        expect(bootstrap).toContain('Get-LocalUser -Name EVBTester');
+        expect(bootstrap).toContain('DefaultDomainName');
+        expect(bootstrap).toContain('DevicePasswordLessBuildVersion');
+        expect(bootstrap).toContain('DisablePrivacyExperience');
+        expect(bootstrap).toContain('EnableFirstLogonAnimation');
+        expect(bootstrap).toContain('AutoLogonCount');
+        expect(bootstrap).toContain('DisableLockWorkstation');
+        expect(bootstrap).toContain('register-worker-logon-task.ps1');
+        expect(bootstrap).toContain('-UserName EVBTester');
+        expect(bootstrap).toContain('register-worker-logon.stderr.log');
+        expect(bootstrap).toContain('boot-diagnostic.log');
+        expect(bootstrap).toContain('sc query qemu-ga');
+        expect(bootstrap).toContain('sc qc qemu-ga');
+        expect(bootstrap).toContain('qemu-ga.exe');
+        expect(bootstrap).toContain('query user');
+        expect(bootstrap).toContain('if exist "%EVB_STATE%\\test-marker.json"');
+        expect(bootstrap).toContain('schtasks.exe /query /tn "EVB Windows Test Worker" /v /fo list');
+        expect(bootstrap).toContain('DefaultUserName');
+        expect(bootstrap).not.toContain('/v DefaultPassword');
+        expect(bootstrap).toContain('/v AutoLogonSID');
+        expect(bootstrap).toContain('/v ForceAutoLogon');
+        expect(bootstrap).toContain('DefaultPasswordSecret present');
+        expect(bootstrap).toContain('CurrentAccountPrincipalSource');
+        expect(bootstrap).toContain('for /f "skip=1 tokens=1" %%U in');
+        expect(bootstrap).toContain('do net user %%U');
+        expect(bootstrap).not.toContain('schtasks.exe /create /sc onlogon');
+        expect(bootstrap).toContain('system-bootstrap.marker');
+        expect(bootstrap).toContain('node-executable-missing');
+        expect(bootstrap).toContain('tar.exe -xf');
+        expect(bootstrap).toContain('node-extract.stdout.log');
+        expect(bootstrap).toContain('node-extract.stderr.log');
+        expect(bootstrap).toContain('node-version.stdout.log');
+        expect(bootstrap).toContain('node-version.stderr.log');
+        expect(bootstrap).toContain('exit=skipped-existing');
+        expect(bootstrap).toContain('findstr /x /c:"v22.23.2"');
+        expect(bootstrap).toContain('configure-failed');
+        expect(bootstrap).toContain('complete=v2');
+        expect(bootstrap).toContain('powershell-copy');
+        expect(bootstrap).toContain('query user');
+        expect(bootstrap).toContain('user-startup-launcher-copy');
+        expect(bootstrap).toContain('call :record');
+        expect(launcher).toContain('task-marker.json');
+        expect(launcher).toContain('worker-launch-marker.txt');
+        expect(launcher).toContain('EVBTester');
+        expect(launcher).toContain('guestWorker.cjs');
+        expect(launcher).toContain('start-worker-logon.ps1');
+        expect(launcher).toContain('ExpectedUserName EVBTester');
+        expect(launcher).not.toContain('-MuteScript');
+        expect(launcher).not.toContain('-PrinterScript');
+        expect(launcher).not.toContain('disable-test-audio.ps1');
+        expect(launcher).not.toContain('start "EVB Windows Test Worker"');
+        expect(installer).toContain('GroupPolicy\\Machine\\Scripts\\Startup');
+        expect(installer).toContain('/ru SYSTEM');
+        expect(installer).toContain('installer-start.marker');
+        expect(installer).toContain('schtasks.exe /run');
+        expect(installer).toContain('copy-powershell');
+    });
+
     it('registers a hidden PowerShell startup action with the worker paths and account', () => {
         const source = sources.get('register-worker-logon-task.ps1') ?? '';
         expect(source).toContain('\'start-worker-logon.ps1\'');

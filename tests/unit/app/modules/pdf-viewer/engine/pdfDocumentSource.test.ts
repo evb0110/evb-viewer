@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
-
 import {
     afterEach,
     beforeEach,
@@ -52,10 +50,11 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
 }));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: mocks.browserLogger}));
 vi.mock('@app/utils/pdfRenderTrace', () => ({logPdfRenderTrace: mocks.logPdfRenderTrace}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
-    ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getDocumentFilesCapability: () => mocks.documentFiles,
-}));
+vi.mock('@app/utils/platform', async () => {
+    const {createElectronPlatformApiFixture} = await import('@tests/helpers/createElectronPlatformApiFixture');
+    const platformApi = createElectronPlatformApiFixture({documentFiles: mocks.documentFiles});
+    return {getPlatformAPI: () => platformApi};
+});
 
 interface IMockTask {
     destroy: ReturnType<typeof vi.fn>;

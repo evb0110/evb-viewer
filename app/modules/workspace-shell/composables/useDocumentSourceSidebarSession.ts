@@ -1,6 +1,6 @@
 import type { MaybeRefOrGetter } from 'vue';
-import { createDocumentPageSourceSearchBackend } from '@app/utils/document-viewer/search/createDocumentPageSourceSearchBackend';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/public';
+import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 
 interface IUseDocumentSourceSidebarSessionOptions {

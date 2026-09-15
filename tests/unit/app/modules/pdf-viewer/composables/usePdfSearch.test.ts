@@ -70,10 +70,16 @@ interface IPdfSearchRunResult {
 const mockSearch = {
     onProgress: vi.fn<(listener: (progress: IPdfSearchTestProgress) => void) => () => void>(),
     run: vi.fn<(pdfPath: string, query: string, options: IPdfSearchRunOptions) => Promise<IPdfSearchRunResult>>(),
-    cancel: vi.fn<() => void>(),
-    resetCache: vi.fn<() => void>(),
+    cancel: vi.fn<(requestId?: string) => Promise<{canceled: boolean}>>(),
+    resetCache: vi.fn<() => Promise<boolean>>(),
 };
-vi.mock('@app/utils/getSearchCapability', () => ({ getSearchCapability: () => mockSearch }));
+const platformApi = createElectronPlatformApiFixture({search: {
+    onProgress: mockSearch.onProgress as never,
+    run: mockSearch.run as never,
+    cancel: mockSearch.cancel as never,
+    resetCache: mockSearch.resetCache as never,
+}});
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
 /** Lets `search()` run past its internal awaits and reach its debounce filter. */
@@ -787,8 +793,8 @@ describe('usePdfSearch', () => {
                 resolveFirstSearch = resolve;
             });
         });
-        mockSearch.cancel.mockImplementation(async () => new Promise<void>((resolve) => {
-            resolveCancel = resolve;
+        mockSearch.cancel.mockImplementation(async () => new Promise<{canceled: boolean}>((resolve) => {
+            resolveCancel = () => resolve({canceled: true});
         }));
         const search = await createPdfSearch();
 
@@ -835,8 +841,8 @@ describe('usePdfSearch', () => {
                 truncated: false,
             };
         });
-        mockSearch.cancel.mockImplementation(async () => new Promise<void>((resolve) => {
-            resolveCancel = resolve;
+        mockSearch.cancel.mockImplementation(async () => new Promise<{canceled: boolean}>((resolve) => {
+            resolveCancel = () => resolve({canceled: true});
         }));
         const search = await createPdfSearch();
 
@@ -1128,6 +1134,7 @@ describe('usePdfSearch', () => {
         });
         mockSearch.cancel.mockImplementation(() => {
             operation.cancel(requestId);
+            return Promise.resolve({canceled: true});
         });
         const search = await createPdfSearch();
 

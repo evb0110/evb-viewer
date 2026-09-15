@@ -1,6 +1,6 @@
 import type { IOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/public';
 
 export interface IDocumentPageSourceSearchHighlight {
     current: boolean;

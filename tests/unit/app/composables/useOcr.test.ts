@@ -1,5 +1,4 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
-import type * as TViMockOriginalModule2 from '@app/utils/platformDocuments';
 
 import {
     beforeEach,
@@ -61,15 +60,10 @@ const mockElectronAPI = createElectronPlatformApiFixture({
 });
 const WORKING_COPY_PATH = requireDocumentRef('/tmp/work.pdf');
 
-vi.mock('@app/utils/getOcrCapability', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockElectronAPI}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     useTypedI18n: () => ({t: (key: string) => key}),
-}));
-vi.mock('@app/utils/platformDocuments', async (importOriginal_1) => ({
-    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
-    getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
-    getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));
 vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
@@ -158,6 +152,24 @@ describe('useOcr', () => {
 
         expect(ocr.availableLanguages.value).toEqual([]);
         expect(ocr.error.value).toBeNull();
+    });
+
+    it('marks language availability unavailable when the inventory request fails', async () => {
+        mockOcr.getLanguages.mockRejectedValueOnce(new Error('inventory unavailable'));
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            await ocr.loadLanguages();
+
+            expect(ocr.languageLoadState.value).toBe('error');
+            expect(ocr.availableLanguages.value).toEqual([]);
+        } finally {
+            scope.stop();
+        }
     });
 
     it('settles runOcr when canceled before completion', async () => {
@@ -739,6 +751,47 @@ describe('useOcr', () => {
 
             expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
             expect(ocr.error.value).toBe('errors.ocr.noLanguages');
+            expect(ocr.progress.value.isRunning).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('dispatches all selected languages to the backend', async () => {
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        mockOcr.createSearchablePdf.mockResolvedValue({
+            started: false,
+            error: 'test worker unavailable',
+        });
+        try {
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                selectedLanguages: [
+                    'eng',
+                    'rus',
+                ],
+            };
+
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
+
+            expect(mockOcr.createSearchablePdf).toHaveBeenCalledWith(
+                WORKING_COPY_PATH,
+                [{
+                    pageNumber: 1,
+                    languages: [
+                        'eng',
+                        'rus',
+                    ],
+                }],
+                expect.any(String),
+                expect.any(Object),
+            );
+            expect(ocr.error.value).toContain('test worker unavailable');
             expect(ocr.progress.value.isRunning).toBe(false);
         } finally {
             scope.stop();

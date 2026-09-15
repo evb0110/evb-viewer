@@ -3,7 +3,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { TPdfViewMode } from '@contracts/shared';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { TDocumentViewportVisualOwner } from '@app/modules/document-viewer/public';
 
 export function shouldShowPdfViewportPageSkeleton(options: {
     fallbackVisible: boolean;

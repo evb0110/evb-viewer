@@ -64,24 +64,29 @@ const RESOURCE_URI_SCHEMA = {
     type: 'string',
     description: 'EVB resource URI such as evb://document/{tabId}/annotations, /bookmarks, /page-labels, or /toc.',
 };
-const ACTION_INPUT_SCHEMA = {oneOf: AGENT_CAPABILITY_TEMPLATES.map(capability => ({
+// Claude Code drops the whole MCP tool list when an input schema lacks a
+// top-level object type, so the union keeps one beside oneOf.
+const ACTION_INPUT_SCHEMA = {
     type: 'object',
-    properties: {
-        windowId: WINDOW_ID_SCHEMA,
-        tabId: TAB_ID_SCHEMA,
-        id: {
-            ...CAPABILITY_ID_SCHEMA,
-            const: capability.id,
+    oneOf: AGENT_CAPABILITY_TEMPLATES.map(capability => ({
+        type: 'object',
+        properties: {
+            windowId: WINDOW_ID_SCHEMA,
+            tabId: TAB_ID_SCHEMA,
+            id: {
+                ...CAPABILITY_ID_SCHEMA,
+                const: capability.id,
+            },
+            input: capability.inputSchema,
+            dryRun: {
+                type: 'boolean',
+                description: 'Validate and preview without mutating visible app state when supported.',
+            },
         },
-        input: capability.inputSchema,
-        dryRun: {
-            type: 'boolean',
-            description: 'Validate and preview without mutating visible app state when supported.',
-        },
-    },
-    required: ['id'],
-    additionalProperties: false,
-}))};
+        required: ['id'],
+        additionalProperties: false,
+    })),
+};
 
 export const MCP_TOOLS = [
     {

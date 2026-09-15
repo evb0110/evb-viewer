@@ -4,7 +4,7 @@ import type {
     Ref,
 } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 
 interface IUsePdfViewerLoadingStateOptions {
     src: ComputedRef<TPdfSource | null>;

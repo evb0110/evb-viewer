@@ -1,10 +1,5 @@
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
-import {constants as fsConstants} from 'node:fs';
-import {
-    copyFile,
-    unlink,
-} from 'node:fs/promises';
 import {
     describe,
     expect,
@@ -13,8 +8,6 @@ import {
 import {
     createMultiPageTextFixturePdf,
     resolveExactNativeLargePdfFixtureAvailability,
-    resolveNativeLargePdfFixtureAvailability,
-    selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -38,17 +31,14 @@ import {
 } from '@scripts/ci/stageExactPdfFixture';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
-const GENERATED_LARGE_PDF_PAGE_COUNT = 431;
 const EXACT_DICTIONARY_PAGE_COUNT = 882;
 const NAVIGATION_ACCEPTANCE_PAGE = 64;
-const generatedLargePdf = resolveNativeLargePdfFixtureAvailability(GENERATED_LARGE_PDF_PAGE_COUNT);
-const largePdfDescribe = selectFixtureDescribe(describe, generatedLargePdf);
 const exactFixtureProfile = process.env.EVB_EXACT_FIXTURE_PROFILE?.trim() ?? '';
 const exactNativePdf = resolveExactNativeLargePdfFixtureAvailability();
 const exactFixtureExpectation = exactFixtureProfile.length > 0
     ? resolveExactPdfFixtureExpectation()
     : null;
-const exactNativePreviewIt = exactFixtureProfile.length > 0 ? it : it.skip;
+const exactNativePreviewDescribe = exactFixtureProfile.length > 0 ? describe : describe.skip;
 
 interface IPdfNavigationFrame {
     committedPage: number | null;
@@ -241,87 +231,6 @@ async function openWithHandoffTrace(
         frames,
         startedAt,
     };
-}
-
-async function assertEarlyNativePreviewCloseReturnsToIdle(page: Page, pdfPath: string) {
-    const priorPdfPath = await createMultiPageTextFixturePdf(
-        `large-pdf-early-close-prior-${Date.now()}.pdf`,
-        2,
-    );
-    await openPdfInApp(page, priorPdfPath, LARGE_PDF_TIMEOUT_MS);
-    const closedPriorDocument = await page.evaluate(() => {
-        const closeButton = document.querySelector<HTMLButtonElement>(
-            '.tab-list .tab.is-active .tab-close',
-        );
-        closeButton?.click();
-        return closeButton !== null;
-    });
-    expect(closedPriorDocument).toBe(true);
-    await waitForFunctionInPage(page, () => {
-        const placeholder = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .workspace-host__placeholder',
-        );
-        const openButton = placeholder?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
-        return Boolean(openButton && !openButton.disabled);
-    }, {
-        polling: 'raf',
-        timeout: 10_000,
-    });
-    await triggerOpenPathInApp(page, pdfPath, LARGE_PDF_TIMEOUT_MS);
-    await waitForFunctionInPage(page, () => {
-        const preview = document.querySelector<HTMLImageElement>(
-            '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
-        );
-        if (!preview?.complete || preview.naturalWidth <= 0) {
-            return false;
-        }
-        const closeButton = document.querySelector<HTMLButtonElement>(
-            '.tab-list .tab.is-active .tab-close',
-        );
-        closeButton?.click();
-        return closeButton !== null;
-    }, {
-        polling: 'raf',
-        timeout: 10_000,
-    });
-    await waitForFunctionInPage(page, (sourcePath: string) => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
-        const openButton = host?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
-        const recentRow = Array.from(
-            host?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? [],
-        ).find(row => row.dataset.recentSource === sourcePath) ?? null;
-        return Boolean(
-            openButton
-            && !openButton.disabled
-            && host?.querySelector('[data-testid="document-opening-native-preview"]') === null
-            && recentRow?.dataset.recentOpenActionable === 'true',
-        );
-    }, {
-        polling: 'raf',
-        timeout: 10_000,
-    }, pdfPath);
-
-    const state = await page.evaluate((sourcePath: string) => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
-        const openButton = host?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
-        const recentRow = Array.from(
-            host?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? [],
-        ).find(row => row.dataset.recentSource === sourcePath) ?? null;
-        return {
-            openButtonDisabled: openButton?.disabled ?? null,
-            openingPreviewCount: host?.querySelectorAll('[data-testid="document-opening-native-preview"]').length ?? -1,
-            recentActionable: recentRow?.dataset.recentOpenActionable ?? null,
-        };
-    }, pdfPath);
-    expect(state, JSON.stringify(state)).toEqual({
-        openButtonDisabled: false,
-        openingPreviewCount: 0,
-        recentActionable: 'true',
-    });
 }
 
 async function assertNativeOpeningPreviewIsViewable(page: Page, expectedTotalPages: number) {
@@ -661,40 +570,13 @@ async function assertSkeletonFreePageJump(page: Page, targetPage: number) {
     expect(transitionFrames.at(-1)?.visibleCanvasPages, evidence).toContain(targetPage);
 }
 
-largePdfDescribe('Electron E2E - Large PDF native opening preview handoff', () => {
+exactNativePreviewDescribe('Electron E2E - Large PDF native opening preview handoff', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-large-pdf-opening-handoff-${Date.now()}`,
         timeoutMs: LARGE_PDF_TIMEOUT_MS,
     });
 
-    it('hands an oversized native first paint to the full PDF.js viewer', async () => {
-        const session = sessionFixture.getSession();
-        if (!session || !generatedLargePdf.path) {
-            throw new Error(`Large-PDF fixture unavailable: ${generatedLargePdf.reason}`);
-        }
-
-        const trace = await openWithHandoffTrace(session.page, generatedLargePdf.path);
-        assertAtomicNativeToPdfjsHandoff(trace);
-        await assertFinalPdfjsCapabilities(session.page, GENERATED_LARGE_PDF_PAGE_COUNT);
-        await assertSkeletonFreePageJump(session.page, NAVIGATION_ACCEPTANCE_PAGE);
-    }, LARGE_PDF_TIMEOUT_MS);
-
-    it('cancels an early native-preview close without leaving Recent Files busy', async () => {
-        const session = sessionFixture.getSession();
-        if (!session || !generatedLargePdf.path) {
-            throw new Error(`Large-PDF fixture unavailable: ${generatedLargePdf.reason}`);
-        }
-
-        const coldFixturePath = `${generatedLargePdf.path}.early-close-${String(Date.now())}.pdf`;
-        await copyFile(generatedLargePdf.path, coldFixturePath, fsConstants.COPYFILE_FICLONE);
-        try {
-            await assertEarlyNativePreviewCloseReturnsToIdle(session.page, coldFixturePath);
-        } finally {
-            await unlink(coldFixturePath).catch(() => undefined);
-        }
-    }, LARGE_PDF_TIMEOUT_MS);
-
-    exactNativePreviewIt(
+    it(
         'hands the exact production dictionary to PDF.js without a navigation flash',
         async () => {
             const session = sessionFixture.getSession();

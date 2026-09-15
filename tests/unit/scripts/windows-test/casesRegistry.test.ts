@@ -238,4 +238,73 @@ describe('windows guest case registry', () => {
         expect(await fs.readBytes(`${root}/work/${runId}/evidence/artifacts/WIN-SAVE-01/source.pdf`))
             .toEqual(bytes);
     });
+
+    it('records every failed save-witness replacement and still attaches the matrix report', async () => {
+        const fixturePath = `${root}/fixtures/shared-small.pdf`;
+        await fs.copyFile(
+            path.join(process.cwd(), 'tests', 'fixtures', 'electron', 'interop', 'stock-pdfjs-save-of-synthetic.pdf'),
+            fixturePath,
+        );
+        let renameAttempts = 0;
+        const failingFs: ICaseEnvironment['fs'] = {
+            ...fs,
+            rename: async () => {
+                renameAttempts += 1;
+                throw new Error('EPERM: rename denied by the test harness');
+            },
+        };
+        const environment = {
+            ...stubEnvironment(root),
+            fs: failingFs,
+            fixturePath: () => fixturePath,
+        };
+
+        const result = await runRegisteredCase(
+            requireCaseDefinition('WIN-SAVE-10'),
+            environment,
+        );
+
+        expect(result.outcome).toBe('product-failed');
+        expect(renameAttempts).toBe(12);
+        expect(result.assertions).toHaveLength(18);
+        expect(result.assertions.filter(assertion => !assertion.passed)).toHaveLength(11);
+        expect(result.assertions.filter(assertion => assertion.id.endsWith('-0'))).toHaveLength(3);
+        expect(result.assertions.filter(assertion => assertion.id.endsWith('-0')).every(assertion => assertion.passed)).toBe(true);
+        expect(result.evidenceFiles).toEqual(['save-witness-matrix.json']);
+
+        const report = JSON.parse(await fs.readText(`${root}/work/${runId}/evidence/save-witness-matrix.json`)) as {cells: Array<{
+            cycle: number;
+            passed: boolean;
+            failure: string | null;
+            baselineCaptureMs: number | null;
+            readVolumeBytes: number | null;
+            cancellation: {
+                readsAfterCancellation: number;
+                durationMs: number;
+                readSettledBeforeRejection: boolean;
+                singleReadIsWholeFile: boolean
+            } | null;
+        }>;};
+        expect(report.cells).toHaveLength(12);
+        expect(report.cells.filter(cell => cell.cycle > 0)).toHaveLength(9);
+        expect(report.cells.filter(cell => cell.cycle > 0).every(cell => !cell.passed && cell.failure?.includes('EPERM'))).toBe(true);
+        expect(report.cells.filter(cell => cell.cycle > 0).every(cell => cell.baselineCaptureMs !== null
+            && cell.readVolumeBytes === 9214)).toBe(true);
+        expect(report.cells.filter(cell => cell.cycle === 0).every(cell => cell.passed
+            && cell.cancellation?.readsAfterCancellation === 0
+            && cell.cancellation.durationMs >= 0
+            && cell.cancellation.readSettledBeforeRejection
+            && cell.cancellation.singleReadIsWholeFile)).toBe(true);
+
+        const successful = await runRegisteredCase(requireCaseDefinition('WIN-SAVE-10'), {
+            ...environment,
+            fs,
+        });
+        expect(successful.outcome).toBe('product-failed');
+        expect(successful.assertions).toHaveLength(18);
+        expect(successful.assertions.filter(assertion => !assertion.passed).map(assertion => assertion.id)).toEqual([
+            'save-witness-exact-65-mib-fixture-size',
+            'save-witness-exact-513-mib-fixture-size',
+        ]);
+    });
 });

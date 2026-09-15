@@ -32,7 +32,6 @@ const mocks = vi.hoisted(() => ({
         popplerDataDir: '/mock/poppler/share',
         popplerFontConfigDir: '/mock/poppler/fonts',
         qpdf: '/mock/qpdf',
-        unpaper: '/mock/unpaper',
     })),
     logger: {
         debug: vi.fn(),

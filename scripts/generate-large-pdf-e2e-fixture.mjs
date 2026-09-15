@@ -39,7 +39,7 @@ export async function generateLargePdfE2eFixture({
     pageCount = DEFAULT_LARGE_PDF_FIXTURE_PAGES,
     targetBytes = DEFAULT_LARGE_PDF_FIXTURE_BYTES,
 }) {
-    const pdf = await PDFDocument.create();
+    const pdf = await PDFDocument.create({ updateMetadata: false });
     const font = await pdf.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
@@ -116,16 +116,21 @@ export async function generateLargePdfE2eFixture({
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
-    const outputPath = readArgument('output');
-    if (!outputPath) {
-        throw new Error('Usage: generate-large-pdf-e2e-fixture.mjs --output=<path> [--pages=431] [--bytes=537919488]');
-    }
-    const pageCount = parsePositiveInteger(readArgument('pages') ?? DEFAULT_LARGE_PDF_FIXTURE_PAGES, 'pages');
-    const targetBytes = parsePositiveInteger(readArgument('bytes') ?? DEFAULT_LARGE_PDF_FIXTURE_BYTES, 'bytes');
-    const generatedPath = await generateLargePdfE2eFixture({
-        outputPath,
-        pageCount,
-        targetBytes,
+    void (async () => {
+        const outputPath = readArgument('output');
+        if (!outputPath) {
+            throw new Error('Usage: generate-large-pdf-e2e-fixture.mjs --output=<path> [--pages=431] [--bytes=537919488]');
+        }
+        const pageCount = parsePositiveInteger(readArgument('pages') ?? DEFAULT_LARGE_PDF_FIXTURE_PAGES, 'pages');
+        const targetBytes = parsePositiveInteger(readArgument('bytes') ?? DEFAULT_LARGE_PDF_FIXTURE_BYTES, 'bytes');
+        const generatedPath = await generateLargePdfE2eFixture({
+            outputPath,
+            pageCount,
+            targetBytes,
+        });
+        process.stdout.write(`${generatedPath}\n`);
+    })().catch(error => {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
     });
-    process.stdout.write(`${generatedPath}\n`);
 }

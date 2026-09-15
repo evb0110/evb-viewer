@@ -1,17 +1,14 @@
 import type {
     IDocumentPageMetrics,
-    IDocumentSurfaceLease,
+    IDocumentRenderLease,
     TDocumentRenderPriority,
-    IDocumentPageSource,
-} from '@app/utils/document-viewer/source/documentPageSource';
+    IDocumentPageSource, IDocumentViewerRuntime , IDocumentViewerRenderSession , IDocumentOpenSurfaceRenderOwner, 
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSourceTransition,
     IDocumentPageSourceFence,
     IDocumentPageSourceFeaturePackEmit,
 } from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
-import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
-import type { IDocumentOpenSurfaceRenderOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
     getFailureReceipt,
     type FailureReceipt,
@@ -21,7 +18,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
-} from '@app/utils/document-viewer/lifecycle/documentViewerActivationPresentation';
+} from '@app/modules/document-viewer/public';
 const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
     navigation: 5,
     visible: 4,
@@ -34,7 +31,7 @@ export interface IDocumentPageSourceVisualState {
     error: string | null;
     failurePresentation: FailurePresentation | null;
     ready: boolean;
-    lease: IDocumentSurfaceLease | null;
+    lease: IDocumentRenderLease | null;
     priority: TDocumentRenderPriority;
     retryCount: number;
     widthPx: number;
@@ -100,7 +97,7 @@ function waitForDocumentPageImagePaint(image: HTMLImageElement, signal: AbortSig
     });
 }
 export function createDocumentPageSourcePresentation(options: {
-    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    chassisAuthority: IDocumentViewerRuntime | null;
     emit: IDocumentPageSourceFeaturePackEmit;
     ensureExactPageMetric: (
         source: IDocumentPageSource, generation: number, pageNumber: number,
@@ -131,6 +128,9 @@ export function createDocumentPageSourcePresentation(options: {
 }) {
     const pageStates = shallowReactive(new Map<number, IDocumentPageSourceVisualState>());
     const renderControllers = new Map<number, AbortController>();
+    // An <img> finishing its load is invisible to Vue; this map makes getVisual re-derive when the
+    // opening-shell handoff remounts an already-ready page with a fresh image element.
+    const loadedSurfaceImages = shallowReactive(new Map<number, HTMLImageElement>());
     let nextViewportRenderRequestId = 0;
     const beginPending = (_pageNumber: number, state: IDocumentPageSourceVisualState) => {
         state.error = null;
@@ -155,13 +155,13 @@ export function createDocumentPageSourcePresentation(options: {
     const subscribeInvalidation = (
         pageNumber: number,
         state: IDocumentPageSourceVisualState,
-        lease: IDocumentSurfaceLease,
+        lease: IDocumentRenderLease,
     ) => lease.onInvalidated?.(() => {
         const invalidated = pageStates.get(pageNumber);
         if (invalidated !== state || invalidated.lease !== lease) {
             return;
         }
-        const image = getConnectedImage(pageNumber, invalidated);
+        const image = getMountedImage(pageNumber, invalidated);
         if (image?.dataset.pageSourceCandidate) image.remove();
         invalidated.unsubscribeInvalidation?.();
         invalidated.unsubscribeInvalidation = null;
@@ -178,7 +178,7 @@ export function createDocumentPageSourcePresentation(options: {
     const getRenderGeneration = (pageNumber: number): number | '' => (
         pageStates.get(pageNumber)?.generation ?? ''
     );
-    const getConnectedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
+    const getMountedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
         const openingTarget = options.getOpeningTarget(pageNumber);
         const candidates = openingTarget
             ? openingTarget.querySelectorAll<HTMLImageElement>('[data-testid="document-page-source-image"]')
@@ -187,14 +187,17 @@ export function createDocumentPageSourcePresentation(options: {
             image.dataset.pageRenderGeneration === String(state.generation)
             && image.dataset.documentLoadGeneration === String(options.readFence().loadGeneration)
             && isOwnedConnectedDocumentPageImage(image, pageNumber, openingTarget)
-            && image.complete
-            && image.naturalWidth > 0
         )) ?? null;
+    };
+    const getConnectedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
+        const image = getMountedImage(pageNumber, state);
+        return image?.complete && image.naturalWidth > 0 ? image : null;
     };
     const getVisual = (pageNumber: number): TDocumentPageSourceVisual => {
         const state = pageStates.get(pageNumber);
+        loadedSurfaceImages.get(pageNumber);
         const connected = Boolean(state && getConnectedImage(pageNumber, state));
-        const pending: TDocumentPageSourceVisual = options.readFence().src === null ? 'none' : 'skeleton';
+        const pending: TDocumentPageSourceVisual = 'skeleton';
         if (state?.error) {
             return 'error';
         }
@@ -433,7 +436,7 @@ export function createDocumentPageSourcePresentation(options: {
             return;
         }
         activeController?.abort();
-        const preserveExistingVisual = Boolean(previous?.lease && getConnectedImage(pageNumber, previous));
+        const preserveExistingVisual = Boolean(previous?.lease && getMountedImage(pageNumber, previous));
         if (previous && preserveExistingVisual && priority === 'navigation') {
             commitReady(pageNumber, previous);
         }
@@ -548,6 +551,7 @@ export function createDocumentPageSourcePresentation(options: {
             const current = pageStates.get(pageNumber);
             if (
                 renderControllers.get(pageNumber) === renderController
+                && !renderController.signal.aborted
                 && isCurrent()
                 && (preserveExistingVisual
                     ? current === previous
@@ -605,6 +609,7 @@ export function createDocumentPageSourcePresentation(options: {
         if (!target) {
             return;
         }
+        loadedSurfaceImages.set(pageNumber, markRaw(target.image));
         const controller = renderControllers.get(pageNumber) ?? new AbortController();
         if (!await waitForDocumentPageImagePaint(target.image, controller.signal)) {
             return;
@@ -663,6 +668,7 @@ export function createDocumentPageSourcePresentation(options: {
         state?.lease?.release();
         if (image?.dataset.pageSourceCandidate) image.remove();
         pageStates.delete(pageNumber);
+        loadedSurfaceImages.delete(pageNumber);
         options.renderSession?.releasePage(pageNumber);
     }
     async function restore(

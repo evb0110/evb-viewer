@@ -5,6 +5,7 @@ import {
     type ICompactSearchIndexPage,
     type ICompactSearchIndexStreamingOptions,
 } from '@electron/features/search/searchIndexSidecar';
+import {extractTextFromPdf} from '@electron/features/search/extractTextFromPdf';
 import {resolveDocumentTextCatalogWindow} from '@electron/features/ocr/public/documentTextCatalog';
 import {assertWorkingCopyRevisionSidecarCurrent} from '@electron/file-access/documentRevisionSidecar';
 import {abortErrorFromSignal} from '@electron/utils/abort';
@@ -190,6 +191,7 @@ export async function buildXlargeSearchIndex(
                 options.pageCount,
                 {
                     pageWindow,
+                    extractEmbeddedText: extractTextFromPdf,
                     ...(options.signal === undefined ? {} : {signal: options.signal}),
                     ...(options.sourcePdfPath === undefined
                         ? {}

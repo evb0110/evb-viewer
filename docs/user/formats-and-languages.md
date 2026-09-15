@@ -33,6 +33,15 @@ capabilities need the desktop app.
 
 ### OCR Languages
 
+Select one or more languages present in the document. OCR uses all selected
+language models during recognition, so select only the languages the pages
+actually contain. Each extra model gives Tesseract another way to misread a word.
+
+Pages that mix several right-to-left scripts are the weakest case. Arabic, Hebrew
+and Syriac selected together measured about 5% character error on clean
+synthetic pages, against under 1.3% for any single language. Recognizing such a
+document one script at a time gives better text.
+
 English and Russian work offline out of the box. Other supported models download on
 demand the first time they are selected:
 
