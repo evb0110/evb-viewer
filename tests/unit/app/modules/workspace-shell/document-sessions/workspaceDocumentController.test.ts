@@ -270,6 +270,37 @@ describe('WorkspaceDocumentController', () => {
         expect(session.snapshot.value.dirty).toBe(false);
     });
 
+    it('accepts a same-revision clean projection after returning to a saved baseline', () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const cleanRecord = createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+                isDirty: false,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision('revision-1', '/tmp/working.pdf'),
+            toolbarSnapshot: {initialVisualReady: true},
+        });
+        session.applyWorkspaceRecord(cleanRecord, 'workspace');
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...cleanRecord,
+            tab: {
+                ...cleanRecord.tab,
+                isDirty: true,
+            },
+        }), 'workspace');
+        expect(session.snapshot.value.dirty).toBe(true);
+
+        session.applyWorkspaceRecord(cleanRecord, 'workspace');
+
+        expect(session.snapshot.value.dirty).toBe(false);
+    });
+
     it('clears recovered dirty state when the save revision arrives before the clean flag', () => {
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',

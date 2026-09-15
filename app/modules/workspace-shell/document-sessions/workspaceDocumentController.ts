@@ -488,9 +488,18 @@ export function createWorkspaceDocumentController(
     let closeRecordFenceActive = false;
     // The revision at which the current dirty state was asserted. A clean
     // record that still carries this revision (or none) is a projection that
-    // lags the dirty bytes; a save mints a newer revision before it publishes
-    // the clean flag, so a clean record at a newer revision is trusted.
+    // lags the dirty bytes until the first clean projection for this session
+    // has been accepted. A later dirty-to-clean transition can return to that
+    // same saved revision through undo or redo, so the revision alone cannot
+    // identify a lagging record.
     let dirtyRevisionInfo: IDocumentRevisionInfo | null = null;
+    let hasAcceptedCleanProjection = (
+        (initialRecord.documentIdentity !== null
+            || initialRecord.tab.originalPath !== null
+            || initialRecord.tab.fileName !== null
+            || initialRecord.tab.isDjvu)
+        && !initialRecord.tab.isDirty
+    );
 
     function updateSnapshot(
         updater: (current: IWorkspaceDocumentSnapshot) => IWorkspaceDocumentSnapshot,
@@ -696,6 +705,7 @@ export function createWorkspaceDocumentController(
                     && snapshot.value.dirty
                     && !normalizedRecord.tab.isDirty
                     && sameLogicalDocument
+                    && !hasAcceptedCleanProjection
                     && !recordReturnedThroughHistory
                     && (cleanRecordLagsDirtyState || sameIdentityLessDocument)
                 )
@@ -761,6 +771,12 @@ export function createWorkspaceDocumentController(
             snapshot.value.identity,
             nextIdentity,
         )});
+        if (!sameLogicalDocument && hasIncomingDocument) {
+            hasAcceptedCleanProjection = false;
+        }
+        if (hasIncomingDocument && !normalizedRecord.tab.isDirty) {
+            hasAcceptedCleanProjection = true;
+        }
     }
 
     function applyTabUpdate(updates: TTabUpdate) {
