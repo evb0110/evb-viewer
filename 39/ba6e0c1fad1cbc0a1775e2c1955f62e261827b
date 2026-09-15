@@ -1,0 +1,74 @@
+scripts/windows-test/host/prepareWindowsTestHost.ts
+  s_9632976151caea::t_e815760a9e5546 43
+  s_9632976151caea::t_5779a24f1e07e4 233-235
+  s_9632976151caea::t_fb39dac7836b07 13-16,45-48
+  s_9632976151caea::t_dd30fda8767eb2 72-80
+  s_9632976151caea::t_dbc1a935fb07cc 11,31-40,42,57-67,81-90,95-98
+  s_9632976151caea::t_e3bc6c5d718017 68-71
+  s_9632976151caea::t_7b9b4f564e5077 49-52,91-94
+  s_9632976151caea::t_37f1a917ee08db 191-204,232
+  s_9632976151caea::t_bacbd2b52f8963 41,44,53-56,106,205
+tests/unit/scripts/windows-test/guestWorkerRuntime.test.ts
+  s_9632976151caea::t_b2933237bab499 33-36,233-236
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_9632976151caea::t_bacbd2b52f8963 18,53-55
+tests/unit/scripts/windows-test/hostPreparation.test.ts
+  s_9632976151caea::t_bacbd2b52f8963 39-42,51
+  s_9632976151caea::t_47cba9483ae8ce 76-77
+  s_9632976151caea::t_37f1a917ee08db 75
+  s_9632976151caea::t_50de8ca65e5cc2 119-120,126
+  s_9632976151caea::t_83b3845bbe547e 69
+scripts/windows-test/host/hostRunner.ts
+  s_9632976151caea::t_c031b37a6105df 251
+  s_9632976151caea::t_b2ced66e8e7d2e 555-556,569-572,601,627-629
+  s_9632976151caea::t_5dad8cd75db92e 557-564
+  s_9632976151caea::t_48cb36dd1765c7 171-172,180-182,196,226,228-236,238-240,243,255-271,273-274,281-282,293-294
+  s_9632976151caea::t_37f1a917ee08db 170,178,190-195,220-225,227,237,241-242,244-250,252-254,272,600
+  s_9632976151caea::t_52ff55b0812118 86
+  s_9632976151caea::t_fb39dac7836b07 179,183,565-568
+  s_b6c5e21fed5360::t_c3e98f646e5f95 630
+scripts/windows-test/host/winappTool.ts
+  s_9632976151caea::t_0a5bc80bae219f 1-18
+scripts/windows-test/host/guestChannel.ts
+  s_9632976151caea::t_fb39dac7836b07 300
+  s_9632976151caea::t_7f77630c51ecf8 292-299,301-329,406,476
+tests/unit/scripts/windows-test/hostRunner.test.ts
+  s_9632976151caea::t_711ea20b41d3a6 218-263
+  s_9632976151caea::t_37f1a917ee08db 182-189,191-199,204-214,216-217
+  s_9632976151caea::t_47efc5a961ea87 190,200-203
+  s_9632976151caea::t_fb39dac7836b07 215
+scripts/windows-test/guest/guestWorkerMain.ts
+  s_9632976151caea::t_508f1dd4b04ee7 123-127,141,182
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_9632976151caea::t_fb39dac7836b07 664-666
+  s_9632976151caea::t_444fef3828d943 638-639
+  s_9632976151caea::t_e3bc6c5d718017 667-670
+  s_9632976151caea::t_94d32a0a0c9965 5,627-633,636,641-663,671
+  s_9632976151caea::t_5dad8cd75db92e 634-635,637
+  s_9632976151caea::t_68e4440815d7b2 640
+  s_9632976151caea::t_8745326bfbf107 672-673
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "39ba6e0c1fad1cbc0a1775e2c1955f62e261827b",
+  "prompts": {},
+  "sessions": {
+    "s_9632976151caea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a44e-055f-75b3-8cbb-b7a4daa82ace",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
