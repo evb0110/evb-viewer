@@ -1,0 +1,19 @@
+AGENTS.md
+  s_b57cefbe3e1e5f::t_b77e46cb1d13d8 1,3,5,7-10,12,14-16,18,20-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4cc27bf2c4ddb4e84f578c513011623333c4044d",
+  "prompts": {},
+  "sessions": {
+    "s_b57cefbe3e1e5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a1e1-28fa-7510-a02a-afb233fa2bf1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

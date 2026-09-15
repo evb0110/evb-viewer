@@ -1,0 +1,19 @@
+scripts/ocrLanguageQualityFixtures.mjs
+  s_2f99a1d898de41::t_7c9a679955a4c8 1631
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41bb940eccd08114f275c525890813a26a09a5ae",
+  "prompts": {},
+  "sessions": {
+    "s_2f99a1d898de41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a228-a47c-7163-9da1-536ec0da9ac7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

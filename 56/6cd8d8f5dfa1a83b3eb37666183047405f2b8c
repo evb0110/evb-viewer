@@ -1,0 +1,21 @@
+tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts
+  s_2f99a1d898de41::t_b8ec25b9f40dc4 147-153,187,191-203,206
+  s_2f99a1d898de41::t_e30c201b6cd87d 1,177-186
+  s_2f99a1d898de41::t_0dda3033d2d85c 204-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "566cd8d8f5dfa1a83b3eb37666183047405f2b8c",
+  "prompts": {},
+  "sessions": {
+    "s_2f99a1d898de41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a228-a47c-7163-9da1-536ec0da9ac7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
