@@ -1,0 +1,19 @@
+docs/internal/operations/sentry-runbook.md
+  s_3ba808c9806725::t_213ef3cc8586d9 347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4939343d4d72a9711e3038ecd182a5c7e7675cf",
+  "prompts": {},
+  "sessions": {
+    "s_3ba808c9806725": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a5e7-a435-7880-9707-41dadcefef32",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
