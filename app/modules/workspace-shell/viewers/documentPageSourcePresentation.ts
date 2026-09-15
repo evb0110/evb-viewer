@@ -551,6 +551,7 @@ export function createDocumentPageSourcePresentation(options: {
             const current = pageStates.get(pageNumber);
             if (
                 renderControllers.get(pageNumber) === renderController
+                && !renderController.signal.aborted
                 && isCurrent()
                 && (preserveExistingVisual
                     ? current === previous

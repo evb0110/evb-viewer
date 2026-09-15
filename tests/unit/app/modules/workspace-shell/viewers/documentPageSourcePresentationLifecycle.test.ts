@@ -411,6 +411,29 @@ describe('document page-source presentation lifecycle', () => {
         expect(state.retryCount).toBe(0);
     });
 
+    it('keeps canceled renders pending when the transport rejects with an ordinary error', async () => {
+        const harness = createPresentationHarness();
+        harness.presentation.beginSourceGeneration();
+        vi.mocked(harness.source.renderPage).mockImplementation(({signal}) => new Promise((
+            _resolve,
+            reject,
+        ) => {
+            signal.addEventListener('abort', () => reject(new Error('DjVu conversion canceled')), {once: true});
+        }));
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            const render = harness.presentation.renderPage(1);
+            await vi.waitFor(() => expect(harness.source.renderPage).toHaveBeenCalledTimes(attempt));
+            harness.presentation.renderControllers.get(1)?.abort();
+            await render;
+        }
+
+        expect(harness.presentation.pageStates.get(1)?.retryCount).toBe(0);
+        expect(harness.presentation.getVisual(1)).toBe('skeleton');
+        expect(harness.presentation.getVisualFailurePresentation(1)).toBeNull();
+        expect(harness.emit).not.toHaveBeenCalledWith('loadError', expect.anything());
+    });
+
     it('ignores a stale failed attempt after a source generation reset', async () => {
         const harness = createPresentationHarness();
         harness.presentation.beginSourceGeneration();
