@@ -1,0 +1,25 @@
+tests/unit/scripts/windows-test/hostDoctor.test.ts
+  s_2f99a1d898de41::t_5151be8ad2bc48 502-503,516,529-549,577-578,587
+  s_2f99a1d898de41::t_f78ff24ff0647a 507-513,517-518
+  s_2f99a1d898de41::t_1134eebe70276a 523-526,550-553,592-595
+  s_2f99a1d898de41::t_5898a1a2d8d234 527-528
+scripts/windows-test/host/doctor.ts
+  s_2f99a1d898de41::t_dff38b66b09b87 152,163-172,180
+  s_2f99a1d898de41::t_f78ff24ff0647a 173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5a17de9ba2f05fb7ce4855a41f57109c97e38725",
+  "prompts": {},
+  "sessions": {
+    "s_2f99a1d898de41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a228-a47c-7163-9da1-536ec0da9ac7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
