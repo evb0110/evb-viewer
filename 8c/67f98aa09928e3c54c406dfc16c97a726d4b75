@@ -1,0 +1,21 @@
+tests/e2e/electron/squigglyMarkup.e2e.test.ts
+  s_b6c5e21fed5360::t_a8b4c16aa57b50 448
+  s_b6c5e21fed5360::t_2855950ed3052a 291-293
+  s_b6c5e21fed5360::t_346e43c747e6ae 300-303,305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8c67f98aa09928e3c54c406dfc16c97a726d4b75",
+  "prompts": {},
+  "sessions": {
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
