@@ -1,0 +1,19 @@
+docs/internal/operations/sentry-runbook.md
+  s_3ba808c9806725::t_ba532b22431269 367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82f3551b8015f27a5d8bfb0cbbe9ca82342aca79",
+  "prompts": {},
+  "sessions": {
+    "s_3ba808c9806725": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a5e7-a435-7880-9707-41dadcefef32",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
