@@ -289,6 +289,44 @@ export function createUtmctlGuestChannel(options: {
     temporaryFilePath(label: string): string;
     inputMedia?: IWindowsTestInputMedia | undefined;
 }): IWindowsTestGuestChannel {
+    const hashScriptStages = new Map<string, Promise<void>>();
+    const ensureHashScript = async (vmId: string) => {
+        const key = vmId.toLowerCase();
+        const existing = hashScriptStages.get(key);
+        if (existing !== undefined) {
+            await existing;
+            return;
+        }
+        const stage = options.client.pushFile(
+            vmId,
+            GUEST_FILE_HASH_SCRIPT_PATH,
+            GUEST_FILE_HASH_SCRIPT,
+            {timeoutMs: HEARTBEAT_READ_TIMEOUT_MS},
+        ).catch(error => {
+            if (hashScriptStages.get(key) === stage) {
+                hashScriptStages.delete(key);
+            }
+            throw error;
+        });
+        hashScriptStages.set(key, stage);
+        await stage;
+    };
+    const verifyGuestFileHashForChannel = async (
+        vmId: string,
+        guestPath: string,
+        expectedSha256: string,
+        timeoutMs: number,
+    ) => {
+        await ensureHashScript(vmId);
+        return verifyGuestFileHash(
+            options.client,
+            vmId,
+            guestPath,
+            expectedSha256,
+            timeoutMs,
+            true,
+        );
+    };
     const readGuestText = async (vmId: string, guestPath: string, timeoutMs: number) => {
         const hostPath = options.temporaryFilePath('guest-read');
         try {
@@ -365,12 +403,7 @@ export function createUtmctlGuestChannel(options: {
                 });
             }
             if (unmapped.length > 0) {
-                await options.client.pushFile(
-                    vmId,
-                    GUEST_FILE_HASH_SCRIPT_PATH,
-                    GUEST_FILE_HASH_SCRIPT,
-                    {timeoutMs: HEARTBEAT_READ_TIMEOUT_MS},
-                );
+                await ensureHashScript(vmId);
             }
             for (const file of unmapped) {
                 await options.client.pushFile(vmId, file.guestPath, await readFile(file.hostPath), {timeoutMs});
@@ -440,7 +473,7 @@ export function createUtmctlGuestChannel(options: {
             await options.client.pushFile(vmId, guestPath, contents, {timeoutMs});
         },
         verifyStagedFileHash: async (vmId, guestPath, expectedSha256, timeoutMs) => {
-            return verifyGuestFileHash(options.client, vmId, guestPath, expectedSha256, timeoutMs);
+            return verifyGuestFileHashForChannel(vmId, guestPath, expectedSha256, timeoutMs);
         },
         writeJob: async (vmId, job, timeoutMs) => {
             await options.client.pushFile(

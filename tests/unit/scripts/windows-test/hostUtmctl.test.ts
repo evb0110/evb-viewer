@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     mkdtemp,
@@ -621,6 +622,53 @@ describe('utmctl client commands', () => {
         const request = JSON.parse(String(calls[0]?.options.input)) as {arguments: string[]};
         expect(request.arguments.at(-1)).toContain('[IO.Directory]::CreateDirectory($path)');
         expect(request.arguments.at(-1)).not.toContain('New-Item -ItemType Directory -LiteralPath');
+    });
+
+    it('stages the shared guest hash verifier once for concurrent checks', async () => {
+        const client = createUtmctlClient({runner: fakeRunner([]).runner});
+        let releasePush!: () => void;
+        const pushFile = vi.fn(() => new Promise<void>(resolve => {
+            releasePush = resolve;
+        }));
+        const expectedSha256 = 'a'.repeat(64);
+        const exec = vi.fn(async () => ({
+            exitCode: 0,
+            stdout: `match ${expectedSha256}`,
+            stderr: '',
+            timedOut: false,
+            signal: null,
+            transportFailure: null,
+        }));
+        client.pushFile = pushFile;
+        client.exec = exec;
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: () => '/tmp/unused-guest-read',
+        });
+
+        const first = guest.verifyStagedFileHash(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\worker\\first.cjs',
+            expectedSha256,
+            120_000,
+        );
+        const second = guest.verifyStagedFileHash(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\worker\\second.cjs',
+            expectedSha256,
+            120_000,
+        );
+        await Promise.resolve();
+        expect(pushFile).toHaveBeenCalledOnce();
+        releasePush();
+        await expect(Promise.all([
+            first,
+            second,
+        ])).resolves.toEqual([
+            true,
+            true,
+        ]);
+        expect(exec).toHaveBeenCalledTimes(2);
     });
 
     it('copies mapped files from the verified EVB_INPUTS media through an encoded guest command', async () => {

@@ -30,7 +30,10 @@ import {
     guestWorkerBuildOptions,
     resolveGuestWorkerAlias,
 } from '@scripts/windows-test/guest/bundleGuestWorker';
-import { guestWorkerMain } from '@scripts/windows-test/guest/guestWorkerMain';
+import {
+    defaultWinappExecutableForRoot,
+    guestWorkerMain,
+} from '@scripts/windows-test/guest/guestWorkerMain';
 import { createPuppeteerViewerDriver } from '@scripts/windows-test/guest/viewer/createPuppeteerViewerDriver';
 import {
     createNativeUiActionLog,
@@ -227,6 +230,10 @@ function stubLauncher(options: {
 }
 
 describe('guest worker entry point', () => {
+    it('uses the guest-root WinApp tool path by default', () => {
+        expect(defaultWinappExecutableForRoot('C:\\EVBViewerTests')).toBe('C:\\EVBViewerTests\\tools\\winapp\\winapp.exe');
+    });
+
     it('returns without a result when the inbox never receives a job', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-guest-main-'));
         const written: string[] = [];

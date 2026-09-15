@@ -83,6 +83,7 @@ import {
     resolvePreparedStandaloneUtmctl,
     standaloneUtmctlPaths,
 } from '@scripts/windows-test/host/standaloneUtmctl';
+import { windowsTestWinappToolPaths } from '@scripts/windows-test/host/winappTool';
 import { loadWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
 import { createTestClone } from '@scripts/windows-test/images/createTestClone';
 import { runWindowsHostOracles } from '@scripts/windows-test/oracles/windowsHostOracleDispatcher';
@@ -166,17 +167,33 @@ export async function resolveWindowsTestFixtureInputs(manifestPath: string): Pro
 }
 
 export const WINDOWS_TEST_GUEST_WORKER_FILE = `${windowsTestGuestLayout.root}\\worker\\guestWorker.cjs`;
+export const WINDOWS_TEST_GUEST_PDF_WORKER_FILE = `${windowsTestGuestLayout.root}\\worker\\pdf.worker.mjs`;
+export const WINDOWS_TEST_GUEST_WINAPP_EXECUTABLE = `${windowsTestGuestLayout.root}\\tools\\winapp\\winapp.exe`;
+export const WINDOWS_TEST_GUEST_WINAPP_NATIVE_LIBRARY = `${windowsTestGuestLayout.root}\\tools\\winapp\\libSkiaSharp.dll`;
 export const WINDOWS_TEST_GUEST_WORKER_BOOTSTRAP_FILE = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\system-bootstrap-worker.cmd';
 export const WINDOWS_TEST_GUEST_WORKER_SEED_FILE = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup\\guestWorker.cjs';
 
 export function createPreparedGuestWorkerRefresher(options: {
     workerFile: string;
+    pdfWorkerFile?: string;
+    preparedFiles?: ReadonlyArray<{
+        hostPath: string;
+        guestPath: string;
+        expectedSha256: string;
+    }>;
     guest: Pick<IWindowsTestGuestChannel, 'readGuestText' | 'stageFile' | 'verifyStagedFileHash'>;
 }) {
     return async (vmId: string, timeoutMs: number, refreshOptions: {allowStage?: boolean} = {}) => {
         const allowStage = refreshOptions.allowStage ?? true;
         const workerBytes = await readFile(options.workerFile);
         const expectedSha256 = createHash('sha256').update(workerBytes).digest('hex');
+        const pdfWorkerBytes = options.pdfWorkerFile === undefined
+            ? null
+            : await readFile(options.pdfWorkerFile);
+        const expectedPdfWorkerSha256 = pdfWorkerBytes === null
+            ? null
+            : createHash('sha256').update(pdfWorkerBytes).digest('hex');
+        const preparedFiles = options.preparedFiles ?? [];
         const guestWorkerText = await options.guest.readGuestText(
             vmId,
             WINDOWS_TEST_GUEST_WORKER_FILE,
@@ -200,13 +217,69 @@ export function createPreparedGuestWorkerRefresher(options: {
             : createHash('sha256').update(Buffer.from(seedText, 'utf8')).digest('hex');
         const runtimeMatches = actualSha256 === expectedSha256;
         const seedMatches = !hasKnownBootstrap || seedSha256 === expectedSha256;
-        if (runtimeMatches && seedMatches) {
+        const pdfWorkerMatches = expectedPdfWorkerSha256 === null
+            ? true
+            : await options.guest.verifyStagedFileHash(
+                vmId,
+                WINDOWS_TEST_GUEST_PDF_WORKER_FILE,
+                expectedPdfWorkerSha256,
+                timeoutMs,
+            );
+        const preparedFilesMatch = (await Promise.all(preparedFiles.map(file => options.guest.verifyStagedFileHash(
+            vmId,
+            file.guestPath,
+            file.expectedSha256,
+            timeoutMs,
+        )))).every(Boolean);
+        const stagePdfWorker = async () => {
+            if (expectedPdfWorkerSha256 === null || pdfWorkerMatches) {
+                return;
+            }
+            if (options.pdfWorkerFile === undefined) {
+                throw new Error('The prepared PDF.js worker hash is present without a host file.');
+            }
+            await options.guest.stageFile(
+                vmId,
+                options.pdfWorkerFile,
+                WINDOWS_TEST_GUEST_PDF_WORKER_FILE,
+                timeoutMs,
+            );
+            const verifiedPdfWorker = await options.guest.verifyStagedFileHash(
+                vmId,
+                WINDOWS_TEST_GUEST_PDF_WORKER_FILE,
+                expectedPdfWorkerSha256,
+                timeoutMs,
+            );
+            if (!verifiedPdfWorker) {
+                throw new Error(`The staged PDF.js worker at ${WINDOWS_TEST_GUEST_PDF_WORKER_FILE} did not hash to ${expectedPdfWorkerSha256} inside the guest.`);
+            }
+        };
+        const stagePreparedFiles = async () => {
+            for (const file of preparedFiles) {
+                if (await options.guest.verifyStagedFileHash(vmId, file.guestPath, file.expectedSha256, timeoutMs)) {
+                    continue;
+                }
+                await options.guest.stageFile(vmId, file.hostPath, file.guestPath, timeoutMs);
+                const verified = await options.guest.verifyStagedFileHash(
+                    vmId,
+                    file.guestPath,
+                    file.expectedSha256,
+                    timeoutMs,
+                );
+                if (!verified) {
+                    throw new Error(`The staged guest file at ${file.guestPath} did not hash to ${file.expectedSha256} inside the guest.`);
+                }
+            }
+        };
+        if (runtimeMatches && seedMatches && pdfWorkerMatches && preparedFilesMatch) {
             return false;
         }
         if (!allowStage) {
             return true;
         }
         if (hasKnownBootstrap && seedMatches) {
+            await stagePdfWorker();
+            await stagePreparedFiles();
             return true;
         }
         const destination = hasKnownBootstrap
@@ -217,6 +290,8 @@ export function createPreparedGuestWorkerRefresher(options: {
         if (!verified) {
             throw new Error(`The staged guest worker at ${destination} did not hash to ${expectedSha256} inside the guest.`);
         }
+        await stagePdfWorker();
+        await stagePreparedFiles();
         return true;
     };
 }
@@ -477,6 +552,24 @@ export async function executeWindowsTestRunOnHost(
     const clock = createSystemClock();
     const probe = transport.processProbe;
     const repositoryRoot = options.repositoryRoot ?? defaultRepositoryRoot();
+    const winappPaths = windowsTestWinappToolPaths(layout);
+    const preparedWinappFiles = await Promise.all([
+        {
+            hostPath: winappPaths.executablePath,
+            guestPath: WINDOWS_TEST_GUEST_WINAPP_EXECUTABLE,
+        },
+        {
+            hostPath: winappPaths.nativeLibraryPath,
+            guestPath: WINDOWS_TEST_GUEST_WINAPP_NATIVE_LIBRARY,
+        },
+    ].map(async ({
+        hostPath,
+        guestPath,
+    }) => ({
+        hostPath,
+        guestPath,
+        expectedSha256: createHash('sha256').update(await readFile(hostPath)).digest('hex'),
+    })));
 
     try {
         return await executeWindowsTestRun(
@@ -504,6 +597,8 @@ export async function executeWindowsTestRunOnHost(
                 stagedInputs,
                 refreshGuestWorker: createPreparedGuestWorkerRefresher({
                     workerFile: path.join(layout.toolsCacheDir, 'worker', 'guestWorker.cjs'),
+                    pdfWorkerFile: path.join(layout.toolsCacheDir, 'worker', 'pdf.worker.mjs'),
+                    preparedFiles: preparedWinappFiles,
                     guest,
                 }),
                 evaluateHostOracles: input => runWindowsHostOracles({
@@ -528,6 +623,10 @@ export async function executeWindowsTestRunOnHost(
                             ...stagedInputs.map(input => ({
                                 hostPath: input.hostPath,
                                 sha256: input.sha256,
+                            })),
+                            ...preparedWinappFiles.map(file => ({
+                                hostPath: file.hostPath,
+                                sha256: file.expectedSha256,
                             })),
                         ],
                         runner,

@@ -36,6 +36,10 @@ afterEach(async () => {
 async function preparation() {
     const root = await mkdtemp(path.join(tmpdir(), 'evb-windows-prepare-'));
     roots.push(root);
+    const winappToolSourceDirectory = path.join(root, 'winapp-tool-source');
+    await mkdir(winappToolSourceDirectory, {recursive: true});
+    await writeFile(path.join(winappToolSourceDirectory, 'winapp.exe'), 'test-winapp', 'utf8');
+    await writeFile(path.join(winappToolSourceDirectory, 'libSkiaSharp.dll'), 'test-skia', 'utf8');
     const standaloneUtmctlSourcePath = path.join(root, 'installed-utmctl');
     await writeFile(standaloneUtmctlSourcePath, '#!/bin/sh\nprintf utmctl\n', 'utf8');
     await chmod(standaloneUtmctlSourcePath, 0o755);
@@ -44,6 +48,7 @@ async function preparation() {
         repositoryRoot: process.cwd(),
         standaloneUtmctlSourcePath,
         verifyStandaloneUtmctlSignature: async () => undefined,
+        winappToolSourceDirectory,
         lock: {
             hostId: 'preparation-test',
             pid: process.pid,
@@ -61,11 +66,15 @@ it('prepares a standalone guest bundle and verified fixtures without replacing h
     const options = await preparation();
     const originalConfig = '{"machine-specific":"preserve"}\n';
     await writeFile(options.layout.configFile, originalConfig);
+    expect(await readFile(path.join(options.winappToolSourceDirectory, 'winapp.exe'), 'utf8')).toBe('test-winapp');
     const result = await prepareWindowsTestHost(options);
     const manifest = await loadFixtureManifest(result.fixtureManifestFile);
     expect(result.fixtureCount).toBe(14);
     expect(await readFile(options.layout.configFile, 'utf8')).toBe(originalConfig);
     expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(14);
+    expect((await readFile(result.pdfWorkerFile)).byteLength).toBeGreaterThan(0);
+    expect((await readFile(result.winappExecutableFile)).byteLength).toBeGreaterThan(0);
+    expect((await readFile(result.winappNativeLibraryFile)).byteLength).toBeGreaterThan(0);
     const verification = await verifyFixturePack(options.layout.fixturesCacheDir, manifest);
     expect(verification.problems).toEqual([]);
     // Outside the checkout, no host node_modules can mask a missing native
@@ -107,12 +116,14 @@ it('rejects a declared generated fixture that the generator did not produce', as
 });
 
 it('preparation CLI writes verified inputs into the requested host root', async () => {
-    const { layout } = await preparation();
+    const options = await preparation();
+    const { layout } = options;
     const standaloneUtmctlSourcePath = path.join(layout.root, 'installed-utmctl');
     const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root }, {
         standaloneUtmctlSourcePath,
         verifyStandaloneUtmctlSignature: async () => undefined,
+        winappToolSourceDirectory: options.winappToolSourceDirectory,
     })).toBe(0);
     const manifest = await loadFixtureManifest(path.join(layout.fixturesCacheDir, 'manifest.json'));
     expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(14);
