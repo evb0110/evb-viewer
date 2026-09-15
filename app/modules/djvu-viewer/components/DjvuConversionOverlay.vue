@@ -14,7 +14,11 @@ import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
 
 const { t } = useTypedI18n();
 
-const { phase } = defineProps<{
+const {
+    isConverting,
+    percent,
+    phase,
+} = defineProps<{
     isConverting: boolean;
     phase: 'converting' | 'bookmarks' | 'optimizing' | null;
     percent: number;

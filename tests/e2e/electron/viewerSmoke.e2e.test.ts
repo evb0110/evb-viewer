@@ -2,7 +2,14 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
+import {rm} from 'node:fs/promises';
+import {mkdirSync} from 'node:fs';
+import {
+    dirname,
+    resolve,
+} from 'node:path';
 import {
     createAnnotatedLinkFixturePdf,
     createLargeScannedFixturePdf,
@@ -5275,9 +5282,19 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             return;
         }
 
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-modal-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(destinationPath), {recursive: true});
+        onTestFinished(() => rm(destinationPath, {force: true}));
+
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-djvu-conversion-modal-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
         });
         if (!session) {
             return;
@@ -5329,15 +5346,78 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             }));
             throw new Error(`${error instanceof Error ? error.message : String(error)}; modal state: ${JSON.stringify(state)}`);
         }
+        const modalState = await session.page.evaluate((selector) => {
+            const overlay = document.querySelector<HTMLElement>(selector);
+            overlay?.parentElement?.setAttribute('data-e2e-progress-overlay-parent', 'true');
+            const siblings = overlay?.parentElement
+                ? Array.from(overlay.parentElement.children).filter(element => element !== overlay)
+                : [];
+            return {
+                backgroundIsInert: siblings.length > 0 && siblings.every(element => (
+                    element instanceof HTMLElement && element.inert
+                )),
+                focusInside: overlay?.contains(document.activeElement) ?? false,
+            };
+        }, progressSelector);
+        expect(modalState.backgroundIsInert).toBe(true);
+        expect(modalState.focusInside).toBe(true);
         await session.page.keyboard.press('Tab');
-        expect(await session.page.evaluate(() => document.activeElement?.matches(`${progressSelector} button`))).toBe(true);
-        await session.page.keyboard.press('Shift+Tab');
-        expect(await session.page.evaluate(() => document.activeElement?.matches(`${progressSelector} button`))).toBe(true);
+        expect(await session.page.evaluate((selector) => document.activeElement?.matches(`${selector} button`), progressSelector)).toBe(true);
+        await session.page.keyboard.down('Shift');
+        await session.page.keyboard.press('Tab');
+        await session.page.keyboard.up('Shift');
+        expect(await session.page.evaluate((selector) => document.activeElement?.matches(`${selector} button`), progressSelector)).toBe(true);
         await session.page.keyboard.press('Escape');
         await session.page.waitForSelector(progressSelector, {
             hidden: true,
             timeout: 30_000,
         });
+        expect(await session.page.evaluate(() => {
+            const parent = document.querySelector<HTMLElement>('[data-e2e-progress-overlay-parent]');
+            return parent
+                ? Array.from(parent.children).some(element => element instanceof HTMLElement && element.inert)
+                : false;
+        })).toBe(false);
         expect(await session.page.$('.editor-pane.is-active .djvu-banner')).not.toBeNull();
+
+        await callWorkspaceCommand(session.page, 'handleConvertToPdf');
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).some(button => button.textContent?.trim() === 'Convert' && !button.disabled), {timeout: 30_000});
+        const switchDialogButtons = await session.page.$$('[role="dialog"] button');
+        const switchConvertButton = (await Promise.all(switchDialogButtons.map(async button => (
+            await button.evaluate(element => element.textContent?.trim() === 'Convert') ? button : null
+        )))).find(Boolean);
+        expect(switchConvertButton).not.toBeNull();
+        await switchConvertButton!.click();
+        await session.page.waitForSelector(progressSelector, {
+            visible: true,
+            timeout: 30_000,
+        });
+
+        await openPdfInApp(
+            session.page,
+            resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
+            30_000,
+        );
+        await waitForFunctionInPage(session.page, (selector) => (
+            document.querySelector(selector) === null
+        ), {timeout: 30_000}, progressSelector);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector('.editor-pane.is-active .djvu-banner') === null
+        ), {timeout: 30_000});
+        const switchedDocument = await callWorkspaceCommand<Record<string, unknown>>(
+            session.page,
+            'getAutomationStateSnapshot',
+        );
+        expect(switchedDocument.value?.originalPath).toBe(
+            resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
+        );
+        expect(await session.page.$(progressSelector)).toBeNull();
+        expect(await session.page.$('.editor-pane.is-active .djvu-banner')).toBeNull();
+        const switchedSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        expect(switchedSnapshot?.hasPdf).toBe(true);
+        expect(switchedSnapshot?.isOpeningDocument).toBe(false);
     }, 120_000);
 });

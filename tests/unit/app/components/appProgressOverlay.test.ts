@@ -93,7 +93,11 @@ function mountOverlay() {
 }
 
 describe('DjvuConversionOverlay', () => {
-    it('presents conversion progress as a modal and restores focus after cancel', async () => {
+    it.each([
+        'cancel',
+        'completion',
+        'failure',
+    ])('presents conversion progress as a modal and restores focus after %s', async (terminalState) => {
         const mounted = mountOverlay();
         const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
         workspaceAction.focus();
@@ -107,12 +111,14 @@ describe('DjvuConversionOverlay', () => {
         expect(mounted.host.querySelector('.app-progress-overlay-percent')?.textContent).toContain('25%');
         expect(workspaceAction.hasAttribute('inert')).toBe(true);
 
-        overlay.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            cancelable: true,
-            key: 'Escape',
-        }));
-        expect(mounted.cancelCount()).toBe(1);
+        if (terminalState === 'cancel') {
+            overlay.dispatchEvent(new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: 'Escape',
+            }));
+            expect(mounted.cancelCount()).toBe(1);
+        }
 
         mounted.open.value = false;
         await nextTick();
