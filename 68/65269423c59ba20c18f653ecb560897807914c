@@ -1,0 +1,21 @@
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourcePresentationLifecycle.test.ts
+  s_b6c5e21fed5360::t_9b68ff3566d4bf 414-436
+app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts
+  s_b6c5e21fed5360::t_e9434be3ec38fc 554
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6865269423c59ba20c18f653ecb560897807914c",
+  "prompts": {},
+  "sessions": {
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
