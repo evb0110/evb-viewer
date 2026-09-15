@@ -14,6 +14,7 @@ import {
     type TSentryNitroClientFactory,
 } from '@server/utils/sentryNitroAdapter';
 import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {DIAGNOSTIC_EVENT_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {
     requireDiagnosticRecord,
     type DiagnosticRecord,
@@ -137,6 +138,7 @@ const ALLOWED_EVENT_KEYS = new Set([
 ]);
 
 const NITRO_RECORD_MARKER = '__evb_diagnostic_record';
+const SOURCE_MAP_CANARY = DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY;
 
 function createRecord(runtime: DiagnosticRecord['runtime'], eventId: string): DiagnosticRecord {
     const code = runtime === 'electron-main'
@@ -458,6 +460,54 @@ describe('SEN-GATE-03 privacy envelope policy', () => {
             debug_id: '11111111-1111-4111-8111-111111111111',
         };
         const event = {debug_meta: {images: [image]}};
+        expect(() => assertClosedEvent(event)).not.toThrow();
+    });
+
+    it('accepts a marked source-map canary with an isolated fingerprint', () => {
+        const event = {
+            event_id: 'a'.repeat(32),
+            timestamp: 1_757_000_000,
+            level: 'error',
+            platform: 'javascript',
+            logger: SOURCE_MAP_CANARY.logger,
+            release: DESKTOP_IDENTITY.release,
+            dist: DESKTOP_IDENTITY.dist,
+            environment: DESKTOP_IDENTITY.environment,
+            fingerprint: [
+                SOURCE_MAP_CANARY.fingerprintPrefix,
+                DESKTOP_IDENTITY.target,
+                DESKTOP_IDENTITY.release,
+                DESKTOP_IDENTITY.dist,
+                DESKTOP_IDENTITY.environment,
+                'dist-electron/main.js',
+            ],
+            exception: {values: [{
+                type: SOURCE_MAP_CANARY.exceptionType,
+                value: SOURCE_MAP_CANARY.exceptionValue,
+                stacktrace: {frames: [{
+                    abs_path: 'dist-electron/main.js',
+                    filename: 'dist-electron/main.js',
+                    module: 'dist-electron/main.js',
+                    function: 'evbViewerSourceMapCanary',
+                    lineno: 1,
+                    colno: 1,
+                    in_app: true,
+                }]},
+            }]},
+            tags: {
+                evb_schema: 'evb-diagnostic-v1',
+                [SOURCE_MAP_CANARY.tagKey]: SOURCE_MAP_CANARY.tagValue,
+                bundle_role: 'electron-main',
+            },
+            debug_meta: {images: [{
+                type: 'sourcemap',
+                code_file: 'dist-electron/main.js',
+                debug_id: '11111111-1111-4111-8111-111111111111',
+            }]},
+        };
+
+        expect(event.fingerprint[0]).toBe(SOURCE_MAP_CANARY.fingerprintPrefix);
+        expect(event.tags[SOURCE_MAP_CANARY.tagKey]).toBe(SOURCE_MAP_CANARY.tagValue);
         expect(() => assertClosedEvent(event)).not.toThrow();
     });
 

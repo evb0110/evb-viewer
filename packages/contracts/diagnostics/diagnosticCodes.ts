@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
+export {DIAGNOSTIC_EVENT_DEFINITIONS} from './diagnosticEventDefinitions.js';
+
 export const DIAGNOSTIC_OPERATIONS = [
     'renderer-error',
     'main-error',

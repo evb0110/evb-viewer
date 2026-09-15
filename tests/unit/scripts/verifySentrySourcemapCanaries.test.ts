@@ -17,11 +17,13 @@ import {
     vi,
 } from 'vitest';
 import {getErrorMessage} from '@contracts/getErrorMessage.ts';
+import {DIAGNOSTIC_EVENT_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {getCanaryEventId} from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
 import {verifySentrySourcemapCanaries} from '@scripts/release/verify-sentry-sourcemap-canaries.mjs';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
 
 const roots: string[] = [];
+const sourceMapCanary = DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY;
 const identity = {
     target: 'web',
     release: 'evb-viewer-web@1.2.3',
@@ -155,8 +157,8 @@ function eventPayload({
         release: {version: identity.release},
         tags: [
             {
-                key: 'evb_canary',
-                value: 'sourcemap-v7',
+                key: sourceMapCanary.tagKey,
+                value: sourceMapCanary.tagValue,
             },
             {
                 key: 'bundle_role',
@@ -168,7 +170,7 @@ function eventPayload({
             },
             {
                 key: 'logger',
-                value: 'evb-viewer.sourcemap-canary',
+                value: sourceMapCanary.logger,
             },
         ],
         ...overrides,
@@ -328,9 +330,9 @@ describe('verifySentrySourcemapCanaries', () => {
             {
                 payload: eventPayload({
                     environment: identity.environment,
-                    logger: 'evb-viewer.sourcemap-canary',
+                    logger: sourceMapCanary.logger,
                     tags: [{
-                        key: 'evb_canary',
+                        key: sourceMapCanary.tagKey,
                         value: 'other',
                     }],
                 }),

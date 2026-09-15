@@ -10,6 +10,7 @@ import * as fc from 'fast-check';
 import {
     DIAGNOSTIC_CODES,
     DIAGNOSTIC_DEFINITIONS,
+    DIAGNOSTIC_EVENT_DEFINITIONS,
     decodeDiagnosticContext,
     type DiagnosticCode,
     type DiagnosticContext,
@@ -299,6 +300,17 @@ describe('diagnostic contracts', () => {
             && (definition.stackPolicy === 'source' || definition.stackPolicy === 'call-site')
             && !Object.hasOwn(definition, 'message')
         ))).toBe(true);
+    });
+
+    it('keeps synthetic Sentry event identity in the shared diagnostics registry', () => {
+        expect(DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY).toEqual({
+            exceptionType: 'EVBViewerSourceMapCanary',
+            exceptionValue: 'EVB Viewer source-map canary',
+            fingerprintPrefix: 'evb-viewer-sourcemap-canary-v8',
+            logger: 'evb-viewer.sourcemap-canary',
+            tagKey: 'evb_canary',
+            tagValue: 'sourcemap-v8',
+        });
     });
 
     it('decodes only the bounded context declared by the registry', () => {

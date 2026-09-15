@@ -11,6 +11,7 @@ import {
     serializeEnvelope,
 } from '@sentry/core';
 import sourceMap from 'source-map-js';
+import {DIAGNOSTIC_EVENT_DEFINITIONS} from '../../packages/contracts/diagnostics/diagnosticEventDefinitions.js';
 import {
     assertSameSentryBuildIdentity,
     assertSentryBuildIdentity,
@@ -18,8 +19,9 @@ import {
 import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const {SourceMapConsumer} = sourceMap;
+const SOURCE_MAP_CANARY = DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY;
 export const CANARY_RECEIPT_SCHEMA_VERSION = 2;
-export const CANARY_EVENT_VERSION = 'sourcemap-v7';
+export const CANARY_EVENT_VERSION = SOURCE_MAP_CANARY.tagValue;
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 const SENTRY_INGEST_ATTEMPTS = 5;
@@ -178,7 +180,7 @@ export function getCanaryCodeFile(identity, bundlePath) {
 /** @param {TSentryBuildIdentity} identity @param {string} bundlePath @returns {string} */
 export function getCanaryEventId(identity, bundlePath) {
     return createHash('sha256')
-        .update(`evb-${CANARY_EVENT_VERSION}`)
+        .update(SOURCE_MAP_CANARY.fingerprintPrefix)
         .update('\0')
         .update(identity.target)
         .update('\0')
@@ -203,18 +205,14 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
             timestamp: Date.now() / 1_000,
             level: 'error',
             platform: 'javascript',
-            logger: 'evb-viewer.sourcemap-canary',
+            logger: SOURCE_MAP_CANARY.logger,
             release: identity.release,
             dist: identity.dist,
             environment: identity.environment,
-            fingerprint: [
-                `evb-${CANARY_EVENT_VERSION}`,
-                identity.dist,
-                bundle.bundle,
-            ],
+            fingerprint: getCanaryFingerprint(identity, bundle.bundle),
             exception: {values: [{
-                type: 'EVBViewerSourceMapCanary',
-                value: 'EVB Viewer source-map canary',
+                type: SOURCE_MAP_CANARY.exceptionType,
+                value: SOURCE_MAP_CANARY.exceptionValue,
                 stacktrace: {frames: [{
                     abs_path: codeFile,
                     filename: codeFile,
@@ -227,7 +225,7 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
             }]},
             tags: {
                 evb_schema: 'evb-diagnostic-v1',
-                evb_canary: CANARY_EVENT_VERSION,
+                [SOURCE_MAP_CANARY.tagKey]: SOURCE_MAP_CANARY.tagValue,
                 bundle_role: bundle.role,
             },
             debug_meta: {images: [{
@@ -247,6 +245,18 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
             role: bundle.role,
         },
     };
+}
+
+/** @param {TSentryBuildIdentity} identity @param {string} bundlePath @returns {string[]} */
+export function getCanaryFingerprint(identity, bundlePath) {
+    return [
+        SOURCE_MAP_CANARY.fingerprintPrefix,
+        identity.target,
+        identity.release,
+        identity.dist,
+        identity.environment,
+        bundlePath,
+    ];
 }
 
 /** @param {number} status @returns {boolean} */

@@ -18,6 +18,7 @@ import {
     sendEnvelope,
     sendSentrySourcemapCanaries,
 } from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
+import {DIAGNOSTIC_EVENT_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
 import { makeDsn } from '@sentry/core';
 
@@ -25,6 +26,7 @@ const canaryDsn = makeDsn('https://public@o123.ingest.de.sentry.io/42');
 if (canaryDsn === undefined) {
     throw new Error('Canary DSN fixture failed to parse');
 }
+const sourceMapCanary = DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY;
 
 const roots: string[] = [];
 const identity = {
@@ -158,12 +160,24 @@ describe('Sentry source-map canaries', () => {
             environment: 'test',
             tags: {
                 evb_schema: 'evb-diagnostic-v1',
-                evb_canary: 'sourcemap-v7',
+                [sourceMapCanary.tagKey]: sourceMapCanary.tagValue,
             },
-            exception: {values: [{stacktrace: {frames: [{
-                abs_path: 'dist-electron/main.js',
-                filename: 'dist-electron/main.js',
-            }]}}]},
+            fingerprint: [
+                sourceMapCanary.fingerprintPrefix,
+                identity.target,
+                identity.release,
+                identity.dist,
+                identity.environment,
+                'dist-electron/main.js',
+            ],
+            exception: {values: [{
+                type: sourceMapCanary.exceptionType,
+                value: sourceMapCanary.exceptionValue,
+                stacktrace: {frames: [{
+                    abs_path: 'dist-electron/main.js',
+                    filename: 'dist-electron/main.js',
+                }]},
+            }]},
             debug_meta: {images: [{
                 type: 'sourcemap',
                 code_file: 'dist-electron/main.js',
@@ -174,7 +188,7 @@ describe('Sentry source-map canaries', () => {
             bundle: 'dist-electron/main.js',
             codeFile: 'dist-electron/main.js',
             debugId: '12345678-1234-5678-9abc-123456789abc',
-            eventId: '3d5cd2dab9a963574eb65ac0881ff5bc',
+            eventId: '04995a5e89a5929ac242aeab0f01598f',
             expectedFunction: 'start',
             expectedLine: 1,
             expectedSource: 'electron/main.ts',

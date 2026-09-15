@@ -36,10 +36,29 @@ Automatic GitHub issue creation and automatic Sentry resolution stay off.
 
 | Alert class | Project and filter | Trigger | Exclusions |
 | --- | --- | --- | --- |
-| New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress |
-| New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior |
-| Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, and client-suppressed repeats |
+| New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress, and events tagged `evb_canary` |
+| New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior, and events tagged `evb_canary` |
+| Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, client-suppressed repeats, and events tagged `evb_canary` |
 | Quota | Organization usage | Personal error-quota notification at the platform-supported 80 and 100 percent points | No pay-as-you-go continuation; Sentry exposes no custom 50, 70, 75, or 90 percent points for this account |
+
+The three project issue alerts must apply this account-side action filter to
+every notification/escalation action:
+
+```yaml
+type: tagged_event
+comparison:
+  key: evb_canary
+  match: ns # tag is not set
+```
+
+The current release-CI source-map canary carries
+`evb_canary=sourcemap-v8` and a distinct fingerprint beginning with
+`evb-viewer-sourcemap-canary-v8`. The `ns` comparison deliberately excludes
+all canary versions by tag key, including future value changes. This filters
+alert actions; the organization quota alert has no event-level filter and
+remains subject to the account's normal usage accounting. The repository has
+no alert-rule declarations, so the repository owner must apply this filter in
+Sentry for both projects.
 
 Record completion without private links:
 
@@ -188,8 +207,9 @@ The first command records one deterministic event per project-source bundle in
 `canary-receipt.json`. The second command queries Sentry's source-map-debug and
 processed-event APIs for every event in that receipt. It requires the exact
 release, dist, uploaded Debug ID artifacts, source-file and map lookup, the
-expected EVB file, function, line, canary tags, and source context. It also
-checks that the receipt covers the complete staged manifest. It writes only a
+expected EVB file, function, line, the `evb_canary` marker, and source context.
+The sender gives that marked event an isolated fingerprint. It also checks
+that the receipt covers the complete staged manifest. It writes only a
 credential-free `canary-verification-receipt.json`. A submission without a
 passing verification receipt is not symbolication evidence.
 
@@ -312,7 +332,7 @@ four-week completion claim. Continue it under
 
 | Week | Enabled runtimes and releases | Volume within thresholds | Suppression correct | Quota healthy | Forbidden fields | Symbolication | Actionable outcomes | Remediation issue |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Eight desktop identities on `v0.1.454` to `v0.1.456`; production web on `v0.1.453` | Yes; 112 desktop production events, all from release CI canaries, with no rate-alert bursts | Yes; no repeated user fault observed | Unknown; not readable with the verification token | None | Fail for desktop renderer frames, fixed 2026-09-12 in the desktop adapter and pending the next release for proof | Renderer Debug ID fix; release-CI canaries share production fingerprints with real faults and keep issues escalating, which needs a canary marker and an alert filter | None |
+| 1 | Eight desktop identities on `v0.1.454` to `v0.1.456`; production web on `v0.1.453` | Yes; 112 desktop production events, all from release CI canaries, with no rate-alert bursts | Yes; no repeated user fault observed | Unknown; not readable with the verification token | None | Fail for desktop renderer frames, fixed 2026-09-12 in the desktop adapter and pending the next release for proof | Renderer Debug ID fix; release-CI canaries share production fingerprints with real faults and keep issues escalating, which is fixed in the release canary contract by an explicit marker and isolated fingerprint; the three issue-alert actions still require the documented `evb_canary` `ns` filter | None |
 | 2 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 3 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 4 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |

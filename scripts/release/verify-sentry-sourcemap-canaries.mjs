@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {DIAGNOSTIC_EVENT_DEFINITIONS} from '../../packages/contracts/diagnostics/diagnosticEventDefinitions.js';
 import {
     assertSameSentryBuildIdentity,
     assertSentryBuildIdentity,
@@ -11,7 +12,6 @@ import {
 import {getErrorMessage} from '../../packages/contracts/getErrorMessage.js';
 import {
     CANARY_RECEIPT_SCHEMA_VERSION,
-    CANARY_EVENT_VERSION,
     findCanaryMapping,
     getCanaryEventId,
     getCanaryCodeFile,
@@ -31,6 +31,7 @@ const VERIFY_REQUEST_TIMEOUT_MS = 30_000;
 // within each lane.
 const VERIFY_CONCURRENCY = 2;
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
+const SOURCE_MAP_CANARY = DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY;
 
 class SentryApiError extends Error {
     constructor(kind, status, cause) {
@@ -295,8 +296,8 @@ function inspectEventPayload(payload, identity, evidence) {
         };
     }
     if (
-        !eventLoggerMatches(payload, 'evb-viewer.sourcemap-canary')
-        || !eventTagMatches(payload, 'evb_canary', CANARY_EVENT_VERSION)
+        !eventLoggerMatches(payload, SOURCE_MAP_CANARY.logger)
+        || !eventTagMatches(payload, SOURCE_MAP_CANARY.tagKey, SOURCE_MAP_CANARY.tagValue)
         || !eventTagMatches(payload, 'bundle_role', evidence.role)
     ) {
         return {
