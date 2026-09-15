@@ -1,0 +1,37 @@
+app/modules/djvu-viewer/components/DjvuConversionOverlay.vue
+  s_b6ae5bc9738eeb::t_3d28f8110db3b7 17-21
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_b6ae5bc9738eeb::t_c70acb9856b8ff 5404-5406
+  s_b6ae5bc9738eeb::t_0c1f21a6719292 5365,5369
+  s_b6ae5bc9738eeb::t_15f88e586b4898 5349-5350,5352-5363
+  s_b6ae5bc9738eeb::t_da91d6d16102c5 5410-5416
+  s_b6ae5bc9738eeb::t_30ec0dd4c89b14 7-8
+  s_b6ae5bc9738eeb::t_acb1d8fe8b2116 5,5285-5293
+  s_b6ae5bc9738eeb::t_005a6801719005 10-12,5297,5394-5397
+  s_b6ae5bc9738eeb::t_6d237ed6744b69 5407-5409
+  s_b6ae5bc9738eeb::t_74b95ad3460f5d 5382-5393,5398-5403
+  s_b6ae5bc9738eeb::t_6347d46c7809cc 5351,5375-5380
+  s_b6ae5bc9738eeb::t_3c422762e4877d 5417-5421
+  s_b6ae5bc9738eeb::t_70b6ff05bc5ef9 5366,5368
+  s_b6ae5bc9738eeb::t_c5fe296bc8ebeb 9
+  s_b6ae5bc9738eeb::t_c83f5bdb49d7c2 5364
+tests/unit/app/components/appProgressOverlay.test.ts
+  s_b6ae5bc9738eeb::t_005a6801719005 96-100
+  s_b6ae5bc9738eeb::t_4993f88574fe0f 114-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d6a739a1091fac7a5ab83c59403d2040164a726c",
+  "prompts": {},
+  "sessions": {
+    "s_b6ae5bc9738eeb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a64a-abbe-7ae0-aed7-92a14f8c0887",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
