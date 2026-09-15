@@ -467,6 +467,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         range: PdfUi.IPageRange,
         requestedRenderOptions: IRenderVisiblePagesOptions = {},
     ) {
+        await pendingRasterCancellation;
         const renderOptions = bindPdfOpenSurfaceRenderContext(
             requestedRenderOptions,
             {
@@ -656,6 +657,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         bumpRenderVersion();
         await cancellation;
     }
+    let pendingRasterCancellation = Promise.resolve();
     // Persist-only revisions reauthorize pixels; replacement documents do not.
     // The load path nulls the document first, so authority tracks the last loaded document instead of the watcher's previous value.
     let canvasAuthority = {
@@ -890,7 +892,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         immediate: true,
     });
     const stopCancelRasterWatch = watch(viewport.cancelRasterRevision, () => {
-        void cancelInFlightRenders();
+        pendingRasterCancellation = pendingRasterCancellation.then(() => cancelInFlightRenders());
     }, {flush: 'sync'});
     const stopVisualReadyWatch = watch(viewport.visualReadySignal, (signal, previous) => {
         if (signal.revision !== previous.revision && signal.pageNumber !== null) {

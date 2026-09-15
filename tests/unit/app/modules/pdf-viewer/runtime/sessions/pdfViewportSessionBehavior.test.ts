@@ -499,7 +499,10 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('retains the physical viewport raster while a distant navigation target paints', async () => {
+    it.each([
+        'wheel',
+        'scroll',
+    ] as const)('retains the physical raster until %s supersedes a distant navigation', async (interaction) => {
         const fixture = createViewportFixture({
             bufferPages: 0,
             isPageFreshlyRenderedForNavigation: () => false,
@@ -519,6 +522,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.markPageMounted(requirePageNumber(1));
             fixture.viewport.markPageMounted(requirePageNumber(64));
 
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
             await vi.waitFor(() => {
                 expect(fixture.viewport.demand.value.requiredPages).toContain(64);
@@ -527,6 +531,15 @@ describe('PdfViewportSession behavior', () => {
                 1,
                 64,
             ]));
+            const cancellationRevision = fixture.viewport.cancelRasterRevision.value;
+            if (interaction === 'wheel') {
+                fixture.viewport.markUserViewportInteraction();
+            } else {
+                fixture.container.scrollTop = 200;
+                fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            }
+            expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision + 1);
+
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             fixture.app.unmount();

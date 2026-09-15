@@ -908,6 +908,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             options.emitCurrentPage(authority.currentPage.value);
             return;
         }
+        const supersedesProgrammaticNavigation = authority.activeIntent.value !== null
+            || singlePageScroll.navigationAnchorPage.value !== null;
+        if (supersedesProgrammaticNavigation) {
+            cancelRasterRevision.value += 1;
+        }
         // A direct scroll can arrive without a preceding wheel/pointer event
         // (scrollbar drags, accessibility input, or automation). Clear the
         // retained navigation row at the scroll boundary so virtualization
@@ -976,6 +981,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     function markUserViewportInteraction() {
         navigationEpochs.markPhysicalNavigation();
+        const supersedesProgrammaticNavigation = singlePageScroll.viewportAuthority.activeIntent.value !== null
+            || singlePageScroll.navigationAnchorPage.value !== null;
+        if (supersedesProgrammaticNavigation) {
+            cancelRasterRevision.value += 1;
+        }
         singlePageScroll.cancelProgrammaticNavigation('user-viewport-interaction');
     }
     function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
