@@ -27,7 +27,10 @@ const MATCHED_DISPLAY_ZOOM = 2;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'annotation-stroke-parity');
 const ELECTRON_SCREENSHOT_PATH = resolve(ARTIFACT_DIR, 'electron.png');
 const PLAYWRIGHT_SCREENSHOT_PATH = resolve(ARTIFACT_DIR, 'playwright.png');
+const PLAYWRIGHT_WRONG_OPACITY_SCREENSHOT_PATH = resolve(ARTIFACT_DIR, 'playwright-wrong-opacity.png');
 const CHROMIUM_EXECUTABLE_PATH = process.env.EVB_E2E_CHROMIUM_EXECUTABLE_PATH?.trim();
+const INTERIOR_PIXEL_MISMATCH_RATIO = 0.005;
+const ICC_CHANNEL_DELTA = 10;
 
 interface IStrokePaintMetrics {
     canvasInkPixelCount: number;
@@ -56,6 +59,19 @@ interface IPageSurfaceOrigin {
     devicePixelRatio: number;
     left: number;
     top: number;
+}
+
+interface IInteriorSamplePoint {
+    kind: 'fill' | 'stroke';
+    x: number;
+    y: number;
+}
+
+interface IInteriorPixel {
+    alpha: number;
+    blue: number;
+    green: number;
+    red: number;
 }
 
 function readStrokePaintMetrics(): IStrokePaintMetrics {
@@ -135,6 +151,56 @@ function readPageSurfaceOrigin(): IPageSurfaceOrigin {
     };
 }
 
+function readInteriorSamplePoints(): IInteriorSamplePoint[] {
+    const pageContainer = document.querySelector<HTMLElement>(
+        '.editor-pane.is-active .page_container[data-page="1"]',
+    );
+    const pageOrigin = pageContainer?.getBoundingClientRect();
+    if (!pageOrigin) {
+        throw new Error('Interior parity page container is not mounted');
+    }
+    const visualShapes = Array.from(document.querySelectorAll<SVGGElement>(
+        '.editor-pane.is-active .page_container[data-page="1"] '
+        + '.pdf-annotation-editor-shape[data-annotation-id] [data-annotation-visual]',
+    ));
+    const samples: IInteriorSamplePoint[] = [];
+    const devicePixelInset = 1 / Math.max(window.devicePixelRatio, 1);
+    for (const visualShape of visualShapes) {
+        const geometry = visualShape.firstElementChild;
+        if (!(geometry instanceof SVGGeometryElement)) {
+            continue;
+        }
+        if (geometry instanceof SVGRectElement) {
+            const rect = geometry.getBoundingClientRect();
+            const inset = devicePixelInset + 2;
+            for (let row = 1; row <= 5; row += 1) {
+                for (let column = 1; column <= 5; column += 1) {
+                    samples.push({
+                        kind: 'fill',
+                        x: rect.left - pageOrigin.left + inset + (rect.width - inset * 2) * column / 6,
+                        y: rect.top - pageOrigin.top + inset + (rect.height - inset * 2) * row / 6,
+                    });
+                }
+            }
+            continue;
+        }
+        const path = geometry;
+        const totalLength = path.getTotalLength();
+        for (let index = 1; index <= 24; index += 1) {
+            const point = path.getPointAtLength(totalLength * index / 25);
+            const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(
+                path.getScreenCTM() ?? new DOMMatrix(),
+            );
+            samples.push({
+                kind: 'stroke',
+                x: screenPoint.x - pageOrigin.left,
+                y: screenPoint.y - pageOrigin.top,
+            });
+        }
+    }
+    return samples;
+}
+
 async function waitForStrokeMetrics(
     readMetrics: () => Promise<IStrokePaintMetrics>,
     timeoutMs = 30_000,
@@ -143,7 +209,7 @@ async function waitForStrokeMetrics(
     let metrics = await readMetrics();
     while (
         Date.now() - startedAt < timeoutMs
-        && (metrics.managedShapeCount !== 1 || metrics.renderedStrokeWidth === null)
+        && (metrics.managedShapeCount !== 2 || metrics.renderedStrokeWidth === null)
     ) {
         await delay(250);
         metrics = await readMetrics();
@@ -202,13 +268,58 @@ async function readBlueStrokePixelMetrics(
     };
 }
 
-describe('Electron and Playwright annotation stroke parity', () => {
+function readInteriorPixels(
+    path: string,
+    samples: IInteriorSamplePoint[],
+    pageOrigin: IPageSurfaceOrigin,
+): IInteriorPixel[] {
+    const image = decode(readFileSync(path));
+    const channels = image.data.length / (image.width * image.height);
+    return samples.map(({
+        x,
+        y,
+    }) => {
+        const pixelX = Math.max(0, Math.min(
+            image.width - 1,
+            Math.round((x + pageOrigin.left) * pageOrigin.devicePixelRatio),
+        ));
+        const pixelY = Math.max(0, Math.min(
+            image.height - 1,
+            Math.round((y + pageOrigin.top) * pageOrigin.devicePixelRatio),
+        ));
+        const index = (pixelY * image.width + pixelX) * channels;
+        return {
+            alpha: channels === 4 ? image.data[index + 3] ?? 255 : 255,
+            blue: image.data[index + 2] ?? 0,
+            green: image.data[index + 1] ?? 0,
+            red: image.data[index] ?? 0,
+        };
+    });
+}
+
+function countInteriorMismatches(expected: IInteriorPixel[], actual: IInteriorPixel[]) {
+    return expected.reduce((count, pixel, index) => {
+        const candidate = actual[index];
+        if (!candidate) {
+            return count + 1;
+        }
+        const channelDelta = Math.max(
+            Math.abs(pixel.alpha - candidate.alpha),
+            Math.abs(pixel.blue - candidate.blue),
+            Math.abs(pixel.green - candidate.green),
+            Math.abs(pixel.red - candidate.red),
+        );
+        return count + (channelDelta > ICC_CHANNEL_DELTA ? 1 : 0);
+    }, 0);
+}
+
+describe('Electron and Playwright annotation opacity parity', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: false,
         sessionName: () => `e2e-annotation-stroke-parity-${Date.now()}`,
     });
 
-    it('renders the same saved ink stroke identically in both runtimes', async () => {
+    it('renders canonical stroke and fill opacity identically in both runtimes', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -321,8 +432,8 @@ describe('Electron and Playwright annotation stroke parity', () => {
                 playwright: webMetrics,
             })}`);
 
-            expect(electronMetrics.managedShapeCount).toBe(1);
-            expect(webMetrics.managedShapeCount).toBe(1);
+            expect(electronMetrics.managedShapeCount).toBe(2);
+            expect(webMetrics.managedShapeCount).toBe(2);
             expect(electronMetrics.strokeWidthAttribute).toBe(webMetrics.strokeWidthAttribute);
             expect(electronMetrics.scaleFactor).toBeCloseTo(webMetrics.scaleFactor ?? 0, 5);
             expect(electronMetrics.userUnit).toBeCloseTo(webMetrics.userUnit ?? 0, 5);
@@ -367,6 +478,68 @@ describe('Electron and Playwright annotation stroke parity', () => {
                 playwrightBluePixels.count,
             ) * 0.005);
             expect(Math.abs(electronBluePixels.count - playwrightBluePixels.count)).toBeLessThanOrEqual(maxCoverageDrift);
+
+            const electronInteriorSamples = await session.page.evaluate(readInteriorSamplePoints);
+            const playwrightInteriorSamples = await webPage.evaluate(readInteriorSamplePoints);
+            expect(electronInteriorSamples.filter(sample => sample.kind === 'fill')).toHaveLength(25);
+            expect(electronInteriorSamples.filter(sample => sample.kind === 'stroke')).toHaveLength(24);
+            expect(playwrightInteriorSamples).toHaveLength(electronInteriorSamples.length);
+            const electronInteriorPixels = readInteriorPixels(
+                ELECTRON_SCREENSHOT_PATH,
+                electronInteriorSamples,
+                electronPageOrigin,
+            );
+            const playwrightInteriorPixels = readInteriorPixels(
+                PLAYWRIGHT_SCREENSHOT_PATH,
+                playwrightInteriorSamples,
+                playwrightPageOrigin,
+            );
+            const interiorMismatchLimit = Math.ceil(
+                electronInteriorPixels.length * INTERIOR_PIXEL_MISMATCH_RATIO,
+            );
+            const interiorMismatchCount = countInteriorMismatches(
+                electronInteriorPixels,
+                playwrightInteriorPixels,
+            );
+            console.info(`ANNOTATION_INTERIOR_PARITY ${JSON.stringify({
+                mismatchCount: interiorMismatchCount,
+                mismatchLimit: interiorMismatchLimit,
+                sampleCount: electronInteriorPixels.length,
+            })}`);
+            // Compare only shape interiors. One device pixel is excluded at each
+            // boundary, where the two screenshot surfaces legitimately antialias.
+            // The measured ICC conversion differs by at most 10 channels in the
+            // interior; the mismatch-count threshold remains the existing 0.5%.
+            expect(interiorMismatchCount).toBeLessThanOrEqual(interiorMismatchLimit);
+
+            await webPage.evaluate(() => {
+                const visual = document.querySelector<SVGGElement>(
+                    '.editor-pane.is-active .page_container[data-page="1"] '
+                    + '.pdf-annotation-editor-shape[data-annotation-id] [data-annotation-visual]',
+                );
+                if (!visual) {
+                    throw new Error('Missing fill visual for opacity negative control');
+                }
+                visual.parentElement?.style.setProperty('opacity', '0.2');
+            });
+            await webPage.screenshot({
+                path: PLAYWRIGHT_WRONG_OPACITY_SCREENSHOT_PATH,
+                type: 'png',
+            });
+            const wrongOpacityPixels = readInteriorPixels(
+                PLAYWRIGHT_WRONG_OPACITY_SCREENSHOT_PATH,
+                playwrightInteriorSamples,
+                playwrightPageOrigin,
+            );
+            const wrongOpacityMismatchCount = countInteriorMismatches(
+                electronInteriorPixels,
+                wrongOpacityPixels,
+            );
+            console.info(`ANNOTATION_INTERIOR_NEGATIVE_CONTROL ${JSON.stringify({
+                mismatchCount: wrongOpacityMismatchCount,
+                mismatchLimit: interiorMismatchLimit,
+            })}`);
+            expect(wrongOpacityMismatchCount).toBeGreaterThan(interiorMismatchLimit);
         } finally {
             await browser.close();
         }

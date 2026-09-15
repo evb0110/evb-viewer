@@ -2217,7 +2217,7 @@ export async function createManagedInkStrokeFixturePdf(filename: string) {
             99 / 255,
             235 / 255,
         ],
-        CA: 1,
+        CA: 0.55,
         Border: [
             0,
             0,
@@ -2225,8 +2225,39 @@ export async function createManagedInkStrokeFixturePdf(filename: string) {
         ],
         EVBShapeKey: PDFHexString.fromText('evb-shape:annotation-stroke-parity'),
     });
+    const fill = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Square'),
+        Rect: [
+            420,
+            500,
+            500,
+            580,
+        ],
+        C: [
+            37 / 255,
+            99 / 255,
+            235 / 255,
+        ],
+        IC: [
+            37 / 255,
+            99 / 255,
+            235 / 255,
+        ],
+        CA: 0.55,
+        Border: [
+            0,
+            0,
+            1,
+        ],
+        EVBShapeKey: PDFHexString.fromText('evb-shape:annotation-fill-parity'),
+    });
     const inkRef = doc.context.register(ink);
-    page.node.set(PDFName.of('Annots'), doc.context.obj([inkRef]));
+    const fillRef = doc.context.register(fill);
+    page.node.set(PDFName.of('Annots'), doc.context.obj([
+        inkRef,
+        fillRef,
+    ]));
     writeFileSync(filePath, await doc.save());
     return filePath;
 }
