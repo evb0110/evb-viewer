@@ -1,5 +1,6 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
+    readFile,
     stat,
     statfs,
 } from 'node:fs/promises';
@@ -162,12 +163,12 @@ export async function readUtmScreenshotPreference(
     );
     const containerPath = options.containerPath ?? UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH;
     const containerTarget = containerPath.slice(0, -'.plist'.length);
-    const containerError = await stat(containerPath).then(() => null, (error: unknown) => error);
+    const containerError = await readFile(containerPath).then(() => null, (error: unknown) => error);
     if (containerError !== null && (containerError as NodeJS.ErrnoException).code !== 'ENOENT') {
         return {
             enabled: false,
-            detail: `Could not inspect ${containerPath}: ${getErrorMessage(containerError)}.`,
-            remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+            detail: `Could not read ${containerPath}: ${getErrorMessage(containerError)}.`,
+            remedy: 'Resolve the file-read error for the current launcher and rerun doctor before changing the UTM screenshot preference.',
         };
     }
     const target = containerError === null ? containerTarget : UTM_SCREENSHOT_PREFERENCE_DOMAIN;
