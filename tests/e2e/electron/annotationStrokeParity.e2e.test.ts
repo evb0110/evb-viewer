@@ -451,6 +451,26 @@ describe('Electron and Playwright annotation opacity parity', () => {
             );
             expect(electronBluePixels.count).toBeGreaterThan(0);
             expect(playwrightBluePixels.count).toBeGreaterThan(0);
+            // Keep the content's location and extent strict while allowing
+            // the two screenshot surfaces to round an edge to adjacent pixels.
+            const electronBounds = electronBluePixels.bounds;
+            const playwrightBounds = playwrightBluePixels.bounds;
+            expect(electronBounds).not.toBeNull();
+            expect(playwrightBounds).not.toBeNull();
+            for (const edge of [
+                'bottom',
+                'left',
+                'right',
+                'top',
+            ] as const) {
+                expect(
+                    Math.abs(electronBounds![edge] - playwrightBounds![edge]),
+                    `${edge}: ${JSON.stringify({
+                        electronBounds,
+                        playwrightBounds,
+                    })}`,
+                ).toBeLessThanOrEqual(1);
+            }
             console.info(`ANNOTATION_EDGE_DIAGNOSTIC ${JSON.stringify({
                 electron: electronBluePixels,
                 playwright: playwrightBluePixels,
