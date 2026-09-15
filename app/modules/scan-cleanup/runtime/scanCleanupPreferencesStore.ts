@@ -575,7 +575,6 @@ function registerLifecycleListeners() {
         return;
     }
     lifecycleListenersRegistered = true;
-    window.addEventListener('beforeunload', handleWindowLifecycle);
     window.addEventListener('pagehide', handleWindowLifecycle);
 }
 
@@ -584,7 +583,6 @@ function unregisterLifecycleListeners() {
         return;
     }
     lifecycleListenersRegistered = false;
-    window.removeEventListener('beforeunload', handleWindowLifecycle);
     window.removeEventListener('pagehide', handleWindowLifecycle);
 }
 

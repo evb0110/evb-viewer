@@ -141,7 +141,10 @@ const isolatedNuxtBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
 const isolatedNuxtViteCacheDir = process.env.EVB_NUXT_VITE_CACHE_DIR?.trim();
 const enableNuxtCompatibilityV5 = process.env.EVB_NUXT_COMPATIBILITY_VERSION === '5';
 const appShellCacheHeaders = {
-    'cache-control': 'no-store, max-age=0, must-revalidate',
+    // Firefox excludes no-store documents from BFCache. The clean browser
+    // workspace must be restorable offline; revalidation still keeps a new
+    // navigation current without disabling in-memory history restoration.
+    'cache-control': 'no-cache, max-age=0, must-revalidate',
     'pragma': 'no-cache',
     'expires': '0',
 } as const;

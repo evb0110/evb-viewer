@@ -159,14 +159,12 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         void flushPersistence().catch(() => undefined);
     };
     if (typeof window !== 'undefined') {
-        window.addEventListener('beforeunload', handleWindowLifecycle);
         window.addEventListener('pagehide', handleWindowLifecycle);
     }
     tryOnScopeDispose(() => {
         documentLoadGeneration += 1;
         void flushPersistence().catch(() => undefined);
         if (typeof window !== 'undefined') {
-            window.removeEventListener('beforeunload', handleWindowLifecycle);
             window.removeEventListener('pagehide', handleWindowLifecycle);
         }
     });
