@@ -1,0 +1,23 @@
+scripts/windows-test/host/doctor.ts
+  s_b6c5e21fed5360::t_346a06cb7b9225 3,166,170-171
+tests/unit/scripts/windows-test/hostDoctor.test.ts
+  s_b6c5e21fed5360::t_346a06cb7b9225 471-473,492,497,590-592,605
+  s_b6c5e21fed5360::t_c872aca5609598 501-504,562-585,610-613
+  s_b6c5e21fed5360::t_f20c11b4ef3280 586-588
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4a195e970611efd8502d84ee047c21edb6711c67",
+  "prompts": {},
+  "sessions": {
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
