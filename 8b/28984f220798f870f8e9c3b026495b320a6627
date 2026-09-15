@@ -1,0 +1,26 @@
+app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionInteractionController.ts
+  s_b6c5e21fed5360::t_771fb1505d173b 60-78,113,120-132,233
+  s_b6c5e21fed5360::t_2f7f3b28451588 26-31,35,38-39,43-46,49-52,79-81,87,90,110,150-152,161,172,178,183,196
+  s_b6c5e21fed5360::t_030d6db6b5b596 36-37,40-42,47-48
+  s_b6c5e21fed5360::t_af3242f998624d 53-59,154,156-157
+  s_b6c5e21fed5360::t_8d1699ec6e3b0c 226
+  s_b6c5e21fed5360::t_5af57027f0e8eb 232
+  s_b6c5e21fed5360::t_6a4c4a79ba58ea 32-34,114-119,153,155
+  s_b6c5e21fed5360::t_22084b246c3614 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8b28984f220798f870f8e9c3b026495b320a6627",
+  "prompts": {},
+  "sessions": {
+    "s_b6c5e21fed5360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a39b-c652-7d81-bfc4-48aa947e40d5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
