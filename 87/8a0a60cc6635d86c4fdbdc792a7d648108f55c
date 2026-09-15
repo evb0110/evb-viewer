@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/startElectronE2ESession.ts
+  s_c18ebb4e9cc5b7::t_4dee0ebc2a4f99 608-611
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "878a0a60cc6635d86c4fdbdc792a7d648108f55c",
+  "prompts": {},
+  "sessions": {
+    "s_c18ebb4e9cc5b7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a29b-d2da-78a2-a5d8-f24fef66b77d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
