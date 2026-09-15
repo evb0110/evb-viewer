@@ -288,7 +288,9 @@ async function expectMarkupPaint(page: Page, subtype: string, lineCount: number)
 async function expectMarkupHitTesting(page: Page) {
     await clickAnnotationTool(page, 'Select');
     const selector = '.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]';
-    await page.$eval(selector, group => group.scrollIntoView({block: 'center'}));
+    await page.$eval(selector, group => {
+        group.querySelector<SVGRectElement>('[data-annotation-hit-target]')?.scrollIntoView({block: 'center'});
+    });
     const hits = await page.$eval(selector, group => {
         const targets = Array.from(group.querySelectorAll('[data-annotation-hit-target]'));
         const bounds = targets.map(target => target.getBoundingClientRect());
@@ -442,6 +444,7 @@ describe('Electron E2E - EVB text markup', () => {
             expect(result.called).toBe(true);
             await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: zoom}, {timeoutMs: 20_000});
             await waitForPageWidthAtZoom(page, basePageWidth, zoom);
+            await waitForViewerInteractive(page);
             const visuals = await readEvbTextMarkupVisuals(page);
             expect(visuals).toHaveLength(1);
             expect(visuals[0]?.rects).toHaveLength(3);
