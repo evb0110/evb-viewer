@@ -23,6 +23,7 @@ import {
     parseUtmctlVersion,
     readUtmScreenshotPreference,
     resolveWindowsTestLauncher,
+    UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH,
     runWindowsTestDoctor,
 } from '@scripts/windows-test/host/doctor';
 import type {
@@ -491,10 +492,60 @@ describe('windows test doctor', () => {
             command: '/usr/bin/defaults',
             args: [
                 'read',
-                'com.utmapp.UTM',
+                UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH.slice(0, -'.plist'.length),
                 'NoScreenshot',
             ],
         }]);
+    });
+
+    it('falls back to the plain domain only when the container plist is absent', async () => {
+        const calls: string[][] = [];
+        const runner: ICommandRunner = {run: async (_command, args) => {
+            calls.push(args);
+            return calls.length === 1
+                ? {
+                    exitCode: 1,
+                    stdout: '',
+                    stderr: 'Domain not found',
+                    timedOut: false,
+                    signal: null,
+                }
+                : {
+                    exitCode: 0,
+                    stdout: '1\n',
+                    stderr: '',
+                    timedOut: false,
+                    signal: null,
+                };
+        }};
+
+        await expect(readUtmScreenshotPreference(runner)).resolves.toMatchObject({enabled: true});
+        expect(calls).toHaveLength(2);
+        expect(calls[1]).toEqual([
+            'read',
+            'com.utmapp.UTM',
+            'NoScreenshot',
+        ]);
+    });
+
+    it('fails closed on a container permission error without falling back', async () => {
+        const calls: string[][] = [];
+        const runner: ICommandRunner = {run: async (_command, args) => {
+            calls.push(args);
+            return {
+                exitCode: 1,
+                stdout: '',
+                stderr: 'Operation not permitted',
+                timedOut: false,
+                signal: null,
+            };
+        }};
+
+        await expect(readUtmScreenshotPreference(runner)).resolves.toMatchObject({
+            enabled: false,
+            detail: expect.stringContaining('Operation not permitted'),
+        });
+        expect(calls).toHaveLength(1);
     });
 
     it('fails closed when NoScreenshot is unset', async () => {

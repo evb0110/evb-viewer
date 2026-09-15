@@ -3,6 +3,7 @@ import {
     stat,
     statfs,
 } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { detectsAutomationConsentFailure } from '@scripts/windows-test/host/utmctlClient';
 import type {
@@ -97,6 +98,16 @@ export const UTMCTL_VERSION_PATTERN = /\d+\.\d+(?:\.\d+)?/u;
 export const UTM_SCREENSHOT_PREFERENCE_DOMAIN = 'com.utmapp.UTM';
 export const UTM_SCREENSHOT_PREFERENCE_KEY = 'NoScreenshot';
 export const UTM_SCREENSHOT_PREFERENCE_COMMAND = '/usr/bin/defaults';
+export const UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH = path.join(
+    homedir(),
+    'Library',
+    'Containers',
+    UTM_SCREENSHOT_PREFERENCE_DOMAIN,
+    'Data',
+    'Library',
+    'Preferences',
+    `${UTM_SCREENSHOT_PREFERENCE_DOMAIN}.plist`,
+);
 export const UTM_SCREENSHOT_PREFERENCE_REMEDY = 'Before changing the preference, verify every VM is stopped and UTM has been quit normally. Then enable UTM Settings > Display > Disable VM screenshot, or run defaults write com.utmapp.UTM NoScreenshot -bool YES. Never target a personal VM.';
 const UTM_SCREENSHOT_PREFERENCE_MIN_VERSION = [
     4,
@@ -139,36 +150,59 @@ export function isUtmScreenshotPreferenceRequired(version: string | null) {
 export async function readUtmScreenshotPreference(
     runner: ICommandRunner,
 ): Promise<IUtmScreenshotPreferenceStatus> {
+    const read = async (target: string) => runner.run(
+        UTM_SCREENSHOT_PREFERENCE_COMMAND,
+        [
+            'read',
+            target,
+            UTM_SCREENSHOT_PREFERENCE_KEY,
+        ],
+        {timeoutMs: 5_000},
+    );
     let result;
+    let target = UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH.slice(0, -'.plist'.length);
     try {
-        result = await runner.run(
-            UTM_SCREENSHOT_PREFERENCE_COMMAND,
-            [
-                'read',
-                UTM_SCREENSHOT_PREFERENCE_DOMAIN,
-                UTM_SCREENSHOT_PREFERENCE_KEY,
-            ],
-            {timeoutMs: 5_000},
-        );
+        result = await read(target);
     } catch (error) {
         return {
             enabled: false,
-            detail: `Could not read ${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
+            detail: `Could not read ${UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
             remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
         };
     }
     if (result.exitCode !== 0 || result.timedOut) {
         const detail = result.stderr.trim() || 'defaults read failed';
         if (!result.timedOut && /(?:does not exist|not found)/iu.test(detail)) {
+            target = UTM_SCREENSHOT_PREFERENCE_DOMAIN;
+            try {
+                result = await read(target);
+            } catch (error) {
+                return {
+                    enabled: false,
+                    detail: `Could not read ${target} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
+                    remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+                };
+            }
+        } else {
             return {
                 enabled: false,
-                detail: `${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} is unset; UTM periodic screenshot capture remains enabled.`,
+                detail: `The ${UTM_SCREENSHOT_PREFERENCE_CONTAINER_PATH} ${UTM_SCREENSHOT_PREFERENCE_KEY} preference is unavailable: ${detail}.`,
+                remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+            };
+        }
+    }
+    if (result.exitCode !== 0 || result.timedOut) {
+        const detail = result.stderr.trim() || 'defaults read failed';
+        if (!result.timedOut && /(?:does not exist|not found)/iu.test(detail)) {
+            return {
+                enabled: false,
+                detail: `${target} ${UTM_SCREENSHOT_PREFERENCE_KEY} is unset; UTM periodic screenshot capture remains enabled.`,
                 remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
             };
         }
         return {
             enabled: false,
-            detail: `The ${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} preference is unavailable: ${detail}.`,
+            detail: `The ${target} ${UTM_SCREENSHOT_PREFERENCE_KEY} preference is unavailable: ${detail}.`,
             remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
         };
     }
@@ -177,8 +211,8 @@ export async function readUtmScreenshotPreference(
     return {
         enabled,
         detail: value.length === 0
-            ? `${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} is unset; UTM periodic screenshot capture remains enabled.`
-            : `${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} is ${value}; ${enabled ? 'periodic screenshot capture is disabled.' : 'periodic screenshot capture remains enabled.'}`,
+            ? `${target} ${UTM_SCREENSHOT_PREFERENCE_KEY} is unset; UTM periodic screenshot capture remains enabled.`
+            : `${target} ${UTM_SCREENSHOT_PREFERENCE_KEY} is ${value}; ${enabled ? 'periodic screenshot capture is disabled.' : 'periodic screenshot capture remains enabled.'}`,
         remedy: enabled ? 'No action needed.' : UTM_SCREENSHOT_PREFERENCE_REMEDY,
     };
 }
