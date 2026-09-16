@@ -37,7 +37,9 @@ case "$target_project" in
     ;;
 esac
 
-required_paths+=("${native_paths[@]}")
+if [ "${#native_paths[@]}" -gt 0 ]; then
+  required_paths+=("${native_paths[@]}")
+fi
 missing_paths=()
 for required_path in "${required_paths[@]}"; do
   if [ ! -f "$required_path" ]; then
@@ -52,8 +54,10 @@ if [ "${#missing_paths[@]}" -gt 0 ]; then
   exit 1
 fi
 
-for native_path in "${native_paths[@]}"; do
-  chmod +x "$native_path"
-done
+if [ "${#native_paths[@]}" -gt 0 ]; then
+  for native_path in "${native_paths[@]}"; do
+    chmod +x "$native_path"
+  done
+fi
 
 printf '%s\n' "[electron-e2e-build] Prepared shared build for $target_project ($platform_arch)."
