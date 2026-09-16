@@ -642,6 +642,15 @@ describe('windows test run coordinator', () => {
         });
     });
 
+    it('adds the golden-image healing command when the guest has no fresh interactive heartbeat', async () => {
+        const harness = await createHarness({script: {heartbeat: null}});
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.failures.map(failure => failure.reason).join('\n')).toContain('pnpm windows:test:heal');
+    });
+
     it('records a forward-only transition ledger and an immutable summary on disk', async () => {
         const harness = await createHarness();
 

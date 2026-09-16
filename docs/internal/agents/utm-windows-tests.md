@@ -9,11 +9,44 @@ the gate status in
 Read the ledger before claiming anything about the lane's maturity: a package
 is only Qualified when every gate links to evidence.
 
+## Easy path from a fresh checkout
+
+Run the first three commands from the same granted terminal in the logged-in
+Mac GUI session, then run the smoke suite:
+
+```sh
+pnpm windows:test:prepare
+pnpm windows:test:doctor
+pnpm windows:test:heal
+pnpm windows:test --suite smoke
+```
+
+`windows:test:heal` is the one-command golden-image repair. It starts only the
+configured golden UUID, waits for QEMU guest-agent transport, skips work when a
+fresh interactive unlocked EVBTester heartbeat is already present, or stages
+and runs the checked-in SYSTEM bootstrap, prepared worker, Node archive,
+PowerShell helpers, startup policy and generated account secret before a
+reboot. It waits for a new boot ID and heartbeat, records image qualification,
+and always leaves the golden stopped. It does not use native input or ask for
+a credential. The generated secret stays under the external lab data root and
+is absent from output and evidence.
+
+Guest operations need Screen Recording, Accessibility and UTM Automation
+consent for the responsible launcher. Ghostty works when those permissions are
+granted to Ghostty. Run `doctor` from that same launcher; an SSH shell or
+another app's consent cannot operate the guest channel.
+
+The equivalent explicit form is `pnpm windows:test:provision --heal-golden`.
+
+The manual native-input and image-recovery procedures remain below as fallback
+paths for a missing guest agent or a newly built lab image.
+
 ## Commands
 
 ```sh
 pnpm windows:test:prepare
 pnpm windows:test:doctor
+pnpm windows:test:heal
 pnpm windows:test
 pnpm windows:test --suite critical --artifact /absolute/path/to/candidate.exe
 pnpm windows:test --suite all --environment utm-win11-arm64-app-arm64
@@ -29,7 +62,7 @@ and never starts, stops, or modifies a VM.
 
 Use the prepared, hash-verified standalone `utmctl` under the host tools cache.
 
-If the guest agent is missing, read the native-input recovery section in
+If the guest agent is missing, read the native-input recovery fallback section in
 docs/contributing/windows-tests/setup-and-repair.md before declaring computer
 use unavailable. The retained command is
 pnpm windows:test:provision --plan /absolute/path/to/.devkit/plan.json.
@@ -56,8 +89,9 @@ without changing its bytes; doctor must reject a missing or stale copy. Read
 [the transport investigation](../research/utm-windows-live-transport-2026-09-05.md)
 when diagnosing Dock activity, false zero exits, or VM lookup failures.
 
-For a copied image whose Group Policy Startup directory is absent, use the
-SYSTEM route in the setup and repair guide. Stage the checked-in
+For a copied image whose Group Policy Startup directory is absent, the
+`pnpm windows:test:heal` command uses the SYSTEM route in the setup and repair
+guide. Stage the checked-in
 `install-system-bootstrap.cmd`, `system-bootstrap-worker.cmd`,
 `start-worker.cmd`, worker bundle, Node archive, account secret, and startup
 INI through the guarded provision CLI. The installer creates the missing

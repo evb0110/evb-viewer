@@ -5,6 +5,51 @@ versioned with the runner. A repository pull must never overwrite the
 machine-specific configuration it describes, because that configuration lives
 outside the checkout.
 
+## Easy path: doctor, heal, smoke
+
+Run these commands from a granted terminal in the logged-in Mac GUI session:
+
+```sh
+# Once after a fresh checkout or runner update:
+pnpm windows:test:prepare
+pnpm windows:test:doctor
+
+# The one headless golden-image provisioning command (the provision CLI also
+# accepts `--heal-golden`):
+pnpm windows:test:heal
+
+# The smoke run:
+pnpm windows:test --suite smoke
+```
+
+`windows:test:heal` starts the configured golden VM, waits for QEMU guest-agent
+transport, and first checks whether a fresh interactive unlocked EVBTester
+heartbeat already appears. If it does not, the command generates a strong
+ASCII test-account password, stages the checked-in SYSTEM bootstrap together
+with the prepared worker, Node archive, PowerShell helpers, startup policy and
+secret, runs the bootstrap as the guest-agent SYSTEM service, reboots, and
+waits for a new boot ID and interactive heartbeat. It then stops the golden
+VM and records its qualification in the image manifest. Re-running the command
+is safe and skips staging when the heartbeat is already healthy.
+
+The command never asks for a password and never prints one. The generated
+secret is written only to
+`~/Library/Application Support/EVBViewerWindowsTests/secrets/test-account.secret`
+(or the selected `EVB_WINDOWS_TESTS_ROOT`) and redacted provisioning evidence
+is kept under that same data root. Nothing is written under the checkout.
+
+Guest operations require a granted terminal with Screen Recording, Accessibility
+and UTM Automation consent for the responsible launcher. Ghostty works when
+those permissions are granted to Ghostty. Run `doctor` in that same launcher;
+an SSH shell or a different app's consent is not equivalent. The heal path is
+headless and uses only `utmctl` guest-agent file, exec and read operations; it
+does not type into the VM or require a human click.
+
+If `windows:test:heal` reports a missing prepared Windows Node archive or
+another cache artifact, repair that host prerequisite first. The deep manual
+image recovery below remains the fallback for a VM without a usable guest
+agent.
+
 ## Host requirements
 
 | Item | Requirement | How doctor checks it |
@@ -38,6 +83,8 @@ EVBViewerWindowsTests/
     artifacts/           candidate installers by SHA-256
     fixtures/            generated fixture packs by manifest hash
     tools/               pinned guest tools (Node runtime, winapp CLI)
+  secrets/               generated lab-only account secret (mode 600)
+  provisioning/          redacted golden-heal evidence
   runs/<RUN_ID>/         job.json, transitions.ndjson, host.log, guest-result.json,
                          evidence/, evidence-manifest.json, summary.json
   mailbox/               cancellation requests from `windows:test:stop`
@@ -104,7 +151,7 @@ EVBViewerWindowsTests/
    image and candidate checks until those prerequisites exist. Run it again
    after completing setup.
 
-## Golden image build
+## Manual golden image build fallback
 
 The normal source is Microsoft Windows 11 Pro ARM64 media in a new UTM VM.
 The existing lab on this host is a recorded exception: the user authorized a
@@ -257,7 +304,7 @@ pnpm windows:test --suite critical
 pnpm windows:test:report --run RUN_ID
 ```
 
-### Native-input provisioning recovery
+### Native-input provisioning recovery fallback
 
 Use the retained windows:test:provision command when a stopped or newly
 copied QEMU VM has no QEMU guest agent. This route needs a logged-in Aqua

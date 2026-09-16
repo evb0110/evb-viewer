@@ -70,6 +70,10 @@ import type {
 } from '@scripts/windows-test/host/runCoordinator';
 import { requestWindowsTestStop } from '@scripts/windows-test/host/stopRun';
 import type { IWindowsTestStopResult } from '@scripts/windows-test/host/stopRun';
+import {readHostLease} from '@scripts/windows-test/host/hostLease';
+import { withHostLock } from '@scripts/windows-test/host/hostLock';
+import {healWindowsTestGoldenImage} from '@scripts/windows-test/host/goldenImageProvisioning';
+import type {IWindowsTestGoldenProvisionResult} from '@scripts/windows-test/host/goldenImageProvisioning';
 import {
     createProcessCommandRunner,
     createUtmctlClient,
@@ -346,6 +350,7 @@ function createProductionUtmTransport(
         validateUtmctlPath?: () => Promise<string>;
         layout?: ReturnType<typeof windowsTestHostLayout>;
         deniedVmIds?: readonly string[];
+        guestExecStateDirectory?: string;
     } = {},
 ): IProductionUtmTransport {
     const rawRunner = createProcessCommandRunner();
@@ -368,6 +373,7 @@ function createProductionUtmTransport(
     const rawUtmctl = createUtmctlClient({
         runner,
         utmctlPath,
+        ...(options.guestExecStateDirectory === undefined ? {} : {guestExecStateDirectory: options.guestExecStateDirectory}),
     });
     const inputCapture = createUtmInputCaptureGuard({
         runner,
@@ -654,6 +660,64 @@ export async function executeWindowsTestRunOnHost(
                 randomRunSuffix: () => randomBytes(6).toString('hex'),
             },
         );
+    } finally {
+        await transport.inputCapture.restoreHostInput();
+    }
+}
+
+export interface IWindowsTestGoldenProvisionHostOptions {
+    dataRoot: string | null;
+    env: NodeJS.ProcessEnv;
+    repositoryRoot?: string;
+}
+
+/**
+ * Runs the headless golden-image healing routine with the same supervised UTM
+ * transport and host lock as the normal lane. The guest channel is the only
+ * provisioning path; no host keyboard or mouse event is sent here.
+ */
+export async function healWindowsTestGoldenOnHost(
+    options: IWindowsTestGoldenProvisionHostOptions,
+): Promise<IWindowsTestGoldenProvisionResult> {
+    const layout = windowsTestHostLayout(options.dataRoot ?? resolveWindowsTestDataRoot(options.env));
+    const config = await loadWindowsTestHostConfig(layout.configFile);
+    const manifestPath = path.join(layout.baselinesDir, `${config.goldenImageId}.json`);
+    const imageManifest = await loadWindowsTestImageManifest(manifestPath);
+    const utmctlPath = await resolvePreparedStandaloneUtmctl({layout});
+    const transport = createProductionUtmTransport(utmctlPath, {
+        layout,
+        deniedVmIds: config.personalVmIdsDenied,
+        guestExecStateDirectory: 'C:\\Windows\\Temp',
+    });
+    const clock = createSystemClock();
+    const probe = transport.processProbe;
+    try {
+        await transport.runner.assertUtmProcess();
+        return await withHostLock(layout.lockFile, {
+            hostId: hostname(),
+            pid: process.pid,
+            probe,
+            nowIso: () => clock.nowIso(),
+            sleep: milliseconds => clock.sleep(milliseconds),
+        }, async () => {
+            if (await readHostLease(layout.leaseFile) !== null) {
+                throw new Error('A Windows test lease exists. Finish or recover that run with windows:test:stop before healing the golden image.');
+            }
+            const guest = createUtmctlGuestChannel({
+                client: transport.utmctl,
+                temporaryFilePath: label => path.join(tmpdir(), `evb-windows-golden-${randomBytes(8).toString('hex')}-${label}`),
+            });
+            return healWindowsTestGoldenImage({
+                config,
+                layout,
+                imageManifest,
+                manifestPath,
+                utmctl: transport.utmctl,
+                guest,
+                clock,
+                sources: {repositoryRoot: options.repositoryRoot ?? defaultRepositoryRoot()},
+            });
+        });
     } finally {
         await transport.inputCapture.restoreHostInput();
     }

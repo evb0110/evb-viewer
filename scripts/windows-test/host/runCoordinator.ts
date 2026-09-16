@@ -283,7 +283,7 @@ function classifyTests(result: IWindowsTestResult | null) {
     };
 }
 
-async function pollUntil<T>(
+export async function pollUntil<T>(
     clock: IWindowsTestClock,
     budgetMs: number,
     intervalMs: number,
@@ -705,7 +705,7 @@ export async function executeWindowsTestRun(
                         'guest-ready',
                         bootId.length === 0
                             ? 'The guest never published a boot ID, so no result could be tied to this boot.'
-                            : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey.',
+                            : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey. Remedy: run `pnpm windows:test:heal` from a granted terminal, then retry the smoke command.',
                     );
                 }
                 if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {

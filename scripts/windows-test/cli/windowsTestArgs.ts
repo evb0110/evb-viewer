@@ -55,6 +55,18 @@ export const WINDOWS_TEST_STOP_USAGE = [
     'Exit codes: 0 cancel requested, 1 usage, 3 stale-owner recovery failed.',
 ].join('\n');
 
+export const WINDOWS_TEST_PROVISION_USAGE = [
+    'Usage: pnpm windows:test:provision (--plan <absolute path> | --heal-golden) [options]',
+    '',
+    '  --plan <absolute path>        Run the existing native-input provision plan.',
+    '  --heal-golden                 Headlessly provision the configured golden image through the guest agent.',
+    '  --data-root <absolute path>   Override the Windows test data root.',
+    '  --json                        Print a machine-readable result.',
+    '  --help                        Print this message.',
+    '',
+    'The --heal-golden path never sends native keyboard or mouse input and generates its local test-account secret itself.',
+].join('\n');
+
 export interface IWindowsTestRunArgs {
     suite: TWindowsTestSuite;
     artifact: string | null;
@@ -81,6 +93,14 @@ export interface IWindowsTestReportArgs {
 export interface IWindowsTestStopArgs {
     runId: string | null;
     reason: string;
+    dataRoot: string | null;
+    json: boolean;
+    help: boolean;
+}
+
+export interface IWindowsTestProvisionArgs {
+    planPath: string | null;
+    healGolden: boolean;
     dataRoot: string | null;
     json: boolean;
     help: boolean;
@@ -301,6 +321,49 @@ export function parseWindowsTestStopArgs(argv: readonly string[]): TWindowsTestA
         args: {
             runId,
             reason: raw.values.get('--reason') ?? 'Canceled from the command line.',
+            dataRoot,
+            json: raw.flags.has('--json'),
+            help: raw.flags.has('--help'),
+        },
+    };
+}
+
+export function parseWindowsTestProvisionArgs(argv: readonly string[]): TWindowsTestArgsParse<IWindowsTestProvisionArgs> {
+    const raw = readRawArgs(
+        argv,
+        [
+            '--plan',
+            '--data-root',
+        ],
+        [
+            '--heal-golden',
+            '--json',
+            '--help',
+        ],
+    );
+    if (typeof raw === 'string') {
+        return failure(raw);
+    }
+    const dataRoot = readDataRoot(raw);
+    if (dataRoot instanceof Error) {
+        return failure(getErrorMessage(dataRoot));
+    }
+    const planPath = raw.values.get('--plan') ?? null;
+    if (planPath !== null && !path.isAbsolute(planPath)) {
+        return failure(`--plan must be an absolute path, received "${planPath}".`);
+    }
+    const healGolden = raw.flags.has('--heal-golden');
+    if (planPath === null && !healGolden && !raw.flags.has('--help')) {
+        return failure('Choose exactly one provisioning mode: --plan or --heal-golden.');
+    }
+    if (planPath !== null && healGolden) {
+        return failure('--plan and --heal-golden cannot be used together.');
+    }
+    return {
+        ok: true,
+        args: {
+            planPath,
+            healGolden,
             dataRoot,
             json: raw.flags.has('--json'),
             help: raw.flags.has('--help'),

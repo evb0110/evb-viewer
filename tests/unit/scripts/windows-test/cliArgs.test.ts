@@ -22,8 +22,10 @@ import {
 } from '@scripts/windows-test/contracts/windowsTestPaths';
 import {
     WINDOWS_TEST_CLI_USAGE,
+    WINDOWS_TEST_PROVISION_USAGE,
     parseWindowsTestArgs,
     parseWindowsTestDoctorArgs,
+    parseWindowsTestProvisionArgs,
     parseWindowsTestReportArgs,
     parseWindowsTestStopArgs,
 } from '@scripts/windows-test/cli/windowsTestArgs';
@@ -36,6 +38,7 @@ import {
 } from '@scripts/windows-test/cli/runWindowsTestDoctorCli';
 import { runWindowsTestReportCli } from '@scripts/windows-test/cli/runWindowsTestReportCli';
 import { runWindowsTestStopCli } from '@scripts/windows-test/cli/runWindowsTestStopCli';
+import { runWindowsTestProvisionCli } from '@scripts/windows-test/cli/runWindowsTestProvisionCli';
 import type { IWindowsTestRunReport } from '@scripts/windows-test/host/runCoordinator';
 
 const RUN_ID = '20260904T120000Z-0123456789ab';
@@ -218,6 +221,44 @@ describe('windows test argument parsing', () => {
         });
         expect(parseWindowsTestStopArgs(['--run'])).toMatchObject({ok: false});
     });
+
+    it('parses headless golden healing while preserving the native-input plan mode', () => {
+        expect(parseWindowsTestProvisionArgs([
+            '--heal-golden',
+            '--data-root',
+            '/tmp/windows-tests',
+        ])).toEqual({
+            ok: true,
+            args: {
+                planPath: null,
+                healGolden: true,
+                dataRoot: '/tmp/windows-tests',
+                json: false,
+                help: false,
+            },
+        });
+        expect(parseWindowsTestProvisionArgs([
+            '--plan',
+            '/tmp/provision-plan.json',
+        ])).toMatchObject({
+            ok: true,
+            args: {
+                planPath: '/tmp/provision-plan.json',
+                healGolden: false,
+            },
+        });
+        expect(parseWindowsTestProvisionArgs([])).toMatchObject({ok: false});
+        expect(parseWindowsTestProvisionArgs([
+            '--plan',
+            '/tmp/plan.json',
+            '--heal-golden',
+        ])).toMatchObject({ok: false});
+        expect(parseWindowsTestProvisionArgs([
+            '--heal-golden',
+            '--plan',
+            'relative.json',
+        ])).toMatchObject({ok: false});
+    });
 });
 
 describe('windows test CLI exit codes', () => {
@@ -366,6 +407,46 @@ describe('windows test CLI exit codes', () => {
             () => Promise.reject(new Error('never executed')),
             {},
         )).toBe(0);
+        expect(await runWindowsTestProvisionCli(
+            ['--help'],
+            recorder.io,
+            {healGolden: () => Promise.reject(new Error('never executed'))},
+        )).toBe(0);
+        expect(recorder.out.join('\n')).toContain(WINDOWS_TEST_PROVISION_USAGE);
+    });
+
+    it('runs the headless mode through the host callback and keeps failures secret-free', async () => {
+        const success = createRecordingIo();
+        let observedDataRoot: string | null = null;
+        expect(await runWindowsTestProvisionCli(
+            [
+                '--heal-golden',
+                '--data-root',
+                '/tmp/windows-tests',
+                '--json',
+            ],
+            success.io,
+            {healGolden: async options => {
+                observedDataRoot = options.dataRoot;
+                return {
+                    alreadyProvisioned: false,
+                    evidencePath: '/tmp/windows-tests/provisioning/redacted.json',
+                };
+            }},
+        )).toBe(0);
+        expect(observedDataRoot).toBe('/tmp/windows-tests');
+        expect(JSON.parse(success.out[0] ?? '')).toEqual({
+            alreadyProvisioned: false,
+            evidencePath: '/tmp/windows-tests/provisioning/redacted.json',
+        });
+
+        const failure = createRecordingIo();
+        expect(await runWindowsTestProvisionCli(
+            ['--heal-golden'],
+            failure.io,
+            {healGolden: () => Promise.reject(new Error('transport detail is suppressed'))},
+        )).toBe(windowsTestExitCodes.infrastructureFailed);
+        expect(failure.err.join('\n')).not.toContain('transport detail');
     });
 
     it('returns 0 for a healthy doctor report and 3 for a failing one', async () => {

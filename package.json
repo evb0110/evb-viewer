@@ -140,6 +140,7 @@
     "windows:test:report": "node --import tsx scripts/windows-test/cli/runWindowsTestReportCli.ts",
     "windows:test:stop": "node --import tsx scripts/windows-test/cli/runWindowsTestStopCli.ts",
     "windows:test:provision": "node --import tsx scripts/windows-test/cli/runWindowsTestProvisionCli.ts",
+    "windows:test:heal": "node --import tsx scripts/windows-test/cli/runWindowsTestProvisionCli.ts --heal-golden",
     "preversion": "pnpm run check:resources:matrix",
     "prepare": "pnpm run fetch:runtime-binaries --if-published && pnpm run generate:build-artifacts && husky"
   },
