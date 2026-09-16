@@ -651,7 +651,10 @@ export const usePdfThumbnailRenderRuntime = (
                 void activeScheduler?.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
                 return;
             }
-            effects.scheduleActivePaneRefresh('pane-active');
+            // Forced: the pane was hidden, so its canvases are gone and the
+            // manual-scroll stabilising guard would otherwise race the re-render
+            // and leave the rail wherever the user last dragged it.
+            effects.scheduleActivePaneRefresh('pane-active', {force: true});
         },
         {
             flush: 'post',

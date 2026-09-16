@@ -113,6 +113,7 @@ import {
     usePdfThumbnailRenderRuntime,
 } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
 import { createThumbnailMeasurementDiagnostics } from '@app/modules/pdf-viewer/thumbnails/createThumbnailMeasurementDiagnostics';
+import type { IPdfThumbnailPaneRefreshOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
 import type {IDocumentThumbnailLayoutAnchor} from '@app/modules/document-viewer/public';
@@ -768,7 +769,10 @@ function handleContainerWheel() {
 function handleContainerPointerDown() {
     markManualThumbnailScroll('pointerdown');
 }
-async function refreshVisibleThumbnailPane(reason: string) {
+async function refreshVisibleThumbnailPane(
+    reason: string,
+    options: IPdfThumbnailPaneRefreshOptions = {},
+) {
     if (!isThumbnailPaneActive()) {
         return;
     }
@@ -781,7 +785,7 @@ async function refreshVisibleThumbnailPane(reason: string) {
             return;
         }
         updateViewportMetrics();
-        await syncCurrentPageIntoView(reason);
+        await syncCurrentPageIntoView(reason, options);
         await nextTick();
         if (refreshRunId !== activePaneRefreshRunId || !isThumbnailPaneActive()) {
             return;
@@ -801,13 +805,16 @@ function cancelActivePaneRefresh() {
     activePaneRefreshRunId += 1;
 }
 
-function scheduleActivePaneRefresh(reason: string) {
+function scheduleActivePaneRefresh(
+    reason: string,
+    options: IPdfThumbnailPaneRefreshOptions = {},
+) {
     if (!isThumbnailPaneActive()) {
         cancelActivePaneRefresh();
         return;
     }
 
-    void refreshVisibleThumbnailPane(reason);
+    void refreshVisibleThumbnailPane(reason, options);
 }
 
 const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({

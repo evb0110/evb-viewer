@@ -43,13 +43,26 @@ interface IPdfThumbnailRenderRuntimeDom {
     resolveVisibleContainer: (reason: string) => HTMLElement | null;
 }
 
+/**
+ * A forced refresh reveals the current page even while the rail would normally
+ * leave a manually scrolled viewport alone. Reactivating the pane is such a
+ * moment: the user asked to see the sidebar again, not the spot they left.
+ */
+export interface IPdfThumbnailPaneRefreshOptions {force?: boolean;}
+
 interface IPdfThumbnailRenderRuntimeEffects {
     cancelActivePaneRefresh: () => void;
     measureThumbnailHeight: () => void | Promise<void>;
     onSourceCycleStarted: () => void;
-    refreshVisibleThumbnailPane: (reason: string) => void | Promise<void>;
+    refreshVisibleThumbnailPane: (
+        reason: string,
+        options?: IPdfThumbnailPaneRefreshOptions,
+    ) => void | Promise<void>;
     resetMeasurementState: () => void;
-    scheduleActivePaneRefresh: (reason: string) => void;
+    scheduleActivePaneRefresh: (
+        reason: string,
+        options?: IPdfThumbnailPaneRefreshOptions,
+    ) => void;
 }
 
 export interface IUsePdfThumbnailRenderRuntimeOptions {

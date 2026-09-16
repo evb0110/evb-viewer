@@ -51,6 +51,7 @@ const PassThroughStub = defineComponent({setup: (_props, {slots}) => () => h('sp
 
 interface IThumbnailHarnessState {
     currentPage: number;
+    isActive: boolean;
     selectedPages: number[];
     totalPages: number;
 }
@@ -59,6 +60,7 @@ const activeUnmounts = new Set<() => void>();
 const geometryRestores: Array<() => void> = [];
 
 afterEach(() => {
+    vi.restoreAllMocks();
     for (const unmount of [...activeUnmounts]) {
         unmount();
     }
@@ -157,6 +159,7 @@ async function mountThumbnails(
 ) {
     const state = reactive<IThumbnailHarnessState>({
         currentPage: 3,
+        isActive: true,
         selectedPages: [2],
         totalPages: 12,
         ...overrides,
@@ -173,7 +176,7 @@ async function mountThumbnails(
         currentPage: state.currentPage,
         totalPages: state.totalPages,
         selectedPages: state.selectedPages,
-        isActive: true,
+        isActive: state.isActive,
         'onGo-to-page': (page: number, options?: IScrollToPageOptions) => goToPage.push({
             page,
             options,
@@ -455,5 +458,57 @@ describe('PdfThumbnails keyboard navigation', () => {
             expect(document.activeElement).toBe(row(host, 1));
         });
         expect(rail.scrollTop).toBe(0);
+    });
+});
+
+/**
+ * Rows are absolutely positioned by a translateY, so a row is inside the rail
+ * viewport when that offset falls within the scrolled 400px window.
+ */
+function isRowInsideRailViewport(host: HTMLElement, rail: HTMLElement, page: number) {
+    const style = row(host, page).style;
+    const top = Number.parseFloat(/translateY\((-?[\d.]+)px\)/.exec(style.transform)?.[1] ?? 'NaN');
+    const height = Number.parseFloat(style.minHeight) || 0;
+    return top >= rail.scrollTop && top + height <= rail.scrollTop + RAIL_VIEWPORT_HEIGHT_PX;
+}
+
+describe('PdfThumbnails pane reactivation', () => {
+    it('reveals the current page again when the pane is reactivated after a manual scroll', async () => {
+        stubRailGeometry();
+        // The rail's own scroll guard and the auto-follow cooldown are wall-clock
+        // windows. Advancing the clock past them leaves only the "manual scroll
+        // while the layout is still stabilising" rule in play, which is the one
+        // a hidden pane trips because its canvases were torn down.
+        const realNow = Date.now.bind(Date);
+        let clockOffsetMs = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + clockOffsetMs);
+        const {
+            host,
+            rail,
+            state,
+        } = await mountThumbnails({
+            currentPage: 3,
+            selectedPages: [],
+            totalPages: 300,
+        });
+        await vi.waitFor(() => {
+            expect(isRowInsideRailViewport(host, rail, 3)).toBe(true);
+        });
+
+        clockOffsetMs += 1_000;
+        rail.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
+        rail.scrollTop = 20_000;
+        rail.dispatchEvent(new Event('scroll'));
+        await nextTick();
+        expect(isRowInsideRailViewport(host, rail, 3)).toBe(false);
+
+        clockOffsetMs += 1_000;
+        state.isActive = false;
+        await nextTick();
+        state.isActive = true;
+
+        await vi.waitFor(() => {
+            expect(isRowInsideRailViewport(host, rail, 3)).toBe(true);
+        });
     });
 });
