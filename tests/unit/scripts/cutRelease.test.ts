@@ -7,6 +7,7 @@ import {
     assertArtifactCanaryGreen,
     assertReleaseCutPreconditions,
     carryVersionToMain,
+    createArtifactEvidenceLookup,
     cutRelease,
     getArtifactEvidencePolicy,
     parseCutReleaseArgs,
@@ -495,6 +496,112 @@ describe('selectReleaseCandidate', () => {
             readGatesFn: () => 'failure',
             runCommand: () => '',
         })).toThrow(/No commit on origin\/main has a successful ci\.yml push run.*gates_ok 'failure'/u);
+    });
+
+    it('prefers the newest green commit with a successful artifact canary over newer untested ones', () => {
+        const gatesRead: number[] = [];
+
+        const candidate = selectReleaseCandidate(UPSTREAM, {
+            hasArtifactEvidenceFn: (sha: string) => sha === OLDER_SHA,
+            isAncestorFn: () => true,
+            listRunsFn: () => [
+                createGreenRun(TIP_SHA, 12),
+                createGreenRun(HEAD_SHA, 11),
+                createGreenRun(OLDER_SHA, 10),
+            ],
+            readGatesFn: (id: number) => {
+                gatesRead.push(id);
+                return 'success';
+            },
+            runCommand: () => '',
+        });
+
+        expect(candidate.sha).toBe(OLDER_SHA);
+        expect(gatesRead).toEqual([10]);
+    });
+
+    it('falls back to the newest green commit when no commit has a canary so the canary check can name it', () => {
+        const candidate = selectReleaseCandidate(UPSTREAM, {
+            hasArtifactEvidenceFn: () => false,
+            isAncestorFn: () => true,
+            listRunsFn: () => [
+                createGreenRun(HEAD_SHA, 11),
+                createGreenRun(OLDER_SHA, 10),
+            ],
+            readGatesFn: (id: number) => (id === 11 ? 'failure' : 'success'),
+            runCommand: () => '',
+        });
+
+        expect(candidate.sha).toBe(OLDER_SHA);
+    });
+
+    it('names the untested green candidate and its dispatch command when only it contains a required commit', () => {
+        const requiredSha = 'f'.repeat(40);
+        const ancestorPairs = new Set([
+            `${requiredSha}:${HEAD_SHA}`,
+            `${HEAD_SHA}:origin/main`,
+            `${OLDER_SHA}:origin/main`,
+        ]);
+
+        expect(() => selectReleaseCandidate(UPSTREAM, {
+            hasArtifactEvidenceFn: (sha: string) => sha === OLDER_SHA,
+            isAncestorFn: (ancestorSha: string, descendantRef: string) => ancestorPairs.has(`${ancestorSha}:${descendantRef}`),
+            listRunsFn: () => [
+                createGreenRun(HEAD_SHA, 11),
+                createGreenRun(OLDER_SHA, 10),
+            ],
+            readGatesFn: () => 'success',
+            requiredCommits: [requiredSha],
+            runCommand: () => '',
+        })).toThrow(new RegExp(
+            `Selected green release candidate ${OLDER_SHA}.*newest green candidate that does is ${HEAD_SHA}`
+            + `.*gh workflow run release-artifacts\\.yml --ref main --field target_ref=${HEAD_SHA}`,
+            'u',
+        ));
+    });
+});
+
+describe('createArtifactEvidenceLookup', () => {
+    it('lists canary runs once and accepts only a completed successful run for the exact sha', () => {
+        let listCalls = 0;
+        const hasEvidence = createArtifactEvidenceLookup(() => {
+            listCalls += 1;
+            return JSON.stringify([
+                {
+                    conclusion: 'success',
+                    createdAt: '2026-09-16T16:22:02Z',
+                    databaseId: 2,
+                    headBranch: 'main',
+                    headSha: HEAD_SHA,
+                    status: 'completed',
+                    url: 'https://github.com/example/canary/runs/2',
+                },
+                {
+                    conclusion: 'failure',
+                    createdAt: '2026-09-16T15:26:29Z',
+                    databaseId: 1,
+                    headBranch: 'main',
+                    headSha: PARENT_SHA,
+                    status: 'completed',
+                    url: 'https://github.com/example/canary/runs/1',
+                },
+                {
+                    conclusion: '',
+                    createdAt: '2026-09-16T19:55:42Z',
+                    databaseId: 3,
+                    headBranch: 'main',
+                    headSha: TIP_SHA,
+                    status: 'in_progress',
+                    url: 'https://github.com/example/canary/runs/3',
+                },
+            ]);
+        });
+
+        expect(hasEvidence(HEAD_SHA)).toBe(true);
+        expect(hasEvidence(PARENT_SHA)).toBe(false);
+        expect(hasEvidence(TIP_SHA)).toBe(false);
+        expect(hasEvidence(RELEASE_SHA)).toBe(false);
+        expect(listCalls).toBe(1);
     });
 });
 

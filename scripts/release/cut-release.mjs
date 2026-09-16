@@ -352,6 +352,26 @@ function describeArtifactCanary(runInfo) {
     return `run ${getArtifactCanaryId(runInfo)} (${getArtifactCanaryUrl(runInfo)})`;
 }
 
+/** @param {IArtifactCanaryRun | null} runInfo @returns {boolean} */
+function isSatisfiedArtifactCanary(runInfo) {
+    return runInfo?.status === 'completed' && runInfo.conclusion === 'success';
+}
+
+/**
+ * Answers "does this commit have a green canary" for candidate selection.
+ * The run list is fetched once per cut and shared across every candidate
+ * the selection considers.
+ */
+/** @param {TCommandRunner} runCommand @returns {(sha: string) => boolean} */
+export function createArtifactEvidenceLookup(runCommand) {
+    /** @type {IArtifactCanaryRun[] | undefined} */
+    let runs;
+    return sha => {
+        runs ??= /** @type {IArtifactCanaryRun[]} */ (listWorkflowRuns(ARTIFACT_CANARY_WORKFLOW_FILE, {runCommand}));
+        return isSatisfiedArtifactCanary(findCandidateArtifactCanary(runs, sha));
+    };
+}
+
 /**
  * Push CI proves packaging on Linux only. Artifact evidence is deliberately
  * exact-SHA: this repository does not publish a separately verifiable
@@ -369,7 +389,7 @@ export function assertArtifactCanaryGreen(candidateSha, upstream, runCommand, {
     }
     const runs = /** @type {IArtifactCanaryRun[]} */ (listWorkflowRuns(ARTIFACT_CANARY_WORKFLOW_FILE, {runCommand}));
     const matching = findCandidateArtifactCanary(runs, candidateSha);
-    if (matching?.status === 'completed' && matching.conclusion === 'success') {
+    if (matching && isSatisfiedArtifactCanary(matching)) {
         stderr.write(
             `Artifact canary satisfied for candidate ${candidateSha}: ${describeArtifactCanary(matching)}.\n`,
         );
@@ -421,9 +441,17 @@ export function assertArtifactCanaryGreen(candidateSha, upstream, runCommand, {
  * unverified, and a cutter that insists on releasing the tip loses the race
  * against the next push. A verified ancestor is always available and never
  * moves.
+ *
+ * When artifact evidence is mandatory, `hasArtifactEvidenceFn` narrows the
+ * choice further to the newest green commit that already has a successful
+ * exact-SHA artifact canary: the release ships what was packaged and smoke
+ * tested, not whatever landed since. Only when no green commit has a canary
+ * does the newest green commit come back, so the canary check can name it
+ * and the dispatch command that would qualify it.
  */
-/** @param {IUpstream} upstream @param {{isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean, listRunsFn?: (runCommand: TCommandRunner) => ICiRun[], readGatesFn?: (runId: number, runCommand: TCommandRunner) => string | undefined, requiredCommits?: string[], runCommand?: TCommandRunner}} [options] @returns {IReleaseCandidate} */
+/** @param {IUpstream} upstream @param {{hasArtifactEvidenceFn?: (sha: string) => boolean, isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean, listRunsFn?: (runCommand: TCommandRunner) => ICiRun[], readGatesFn?: (runId: number, runCommand: TCommandRunner) => string | undefined, requiredCommits?: string[], runCommand?: TCommandRunner}} [options] @returns {IReleaseCandidate} */
 export function selectReleaseCandidate(upstream, {
+    hasArtifactEvidenceFn,
     isAncestorFn,
     listRunsFn = listSuccessfulMainPushRuns,
     readGatesFn = readGatesOkConclusion,
@@ -433,9 +461,35 @@ export function selectReleaseCandidate(upstream, {
     const isAncestor = isAncestorFn ?? (
         (ancestorSha, descendantRef) => isAncestorCommit(ancestorSha, descendantRef, {runCommand})
     );
+    /** @param {string} sha */
+    const containsRequiredCommits = sha => requiredCommits.every(requiredCommit => isAncestor(requiredCommit, sha));
     const runs = listRunsFn(runCommand);
+    /** @type {string[]} */
     const rejected = [];
+    /**
+     * Green runs on main without a successful artifact canary, newest first.
+     * Their gates are read only when no canary-backed commit qualifies.
+     * @type {ICiRun[]}
+     */
+    const untestedRuns = [];
+    /** @type {IReleaseCandidate[]} */
     const greenCandidates = [];
+
+    /** @param {ICiRun} runInfo @returns {IReleaseCandidate | null} */
+    const qualifyGreen = runInfo => {
+        const sha = runInfo.head_sha ?? '';
+        const gates = readGatesFn(runInfo.id, runCommand);
+        if (gates !== 'success') {
+            rejected.push(`${sha.slice(0, 9)} gates_ok '${gates ?? 'missing'}' (${runInfo.html_url ?? `run ${runInfo.id}`})`);
+            return null;
+        }
+
+        return {
+            run: runInfo,
+            sha,
+        };
+    };
+
     for (const runInfo of runs) {
         const sha = runInfo.head_sha;
         if (!sha) {
@@ -445,34 +499,32 @@ export function selectReleaseCandidate(upstream, {
             rejected.push(`${sha.slice(0, 9)} is not on ${upstream.ref}`);
             continue;
         }
-        const gates = readGatesFn(runInfo.id, runCommand);
-        if (gates !== 'success') {
-            rejected.push(`${sha.slice(0, 9)} gates_ok '${gates ?? 'missing'}' (${runInfo.html_url ?? `run ${runInfo.id}`})`);
+        if (hasArtifactEvidenceFn && !hasArtifactEvidenceFn(sha)) {
+            untestedRuns.push(runInfo);
             continue;
         }
-        const candidate = {
-            run: runInfo,
-            sha,
-        };
+        const candidate = qualifyGreen(runInfo);
+        if (!candidate) {
+            continue;
+        }
         greenCandidates.push(candidate);
         if (requiredCommits.length === 0) {
             return candidate;
         }
-
-        const missingRequiredCommits = requiredCommits.filter(requiredCommit => (
-            !isAncestor(requiredCommit, sha)
-        ));
-        if (missingRequiredCommits.length === 0) {
-            if (greenCandidates.length === 1) {
-                return candidate;
-            }
-            // A newer green candidate was already selected but did not contain
-            // the required commits. Report that mismatch instead of silently
-            // cutting the older candidate that does.
+        if (greenCandidates.length === 1 && containsRequiredCommits(sha)) {
+            return candidate;
         }
+        // A newer green candidate was already selected but did not contain
+        // the required commits. Report that mismatch instead of silently
+        // cutting the older candidate that does.
     }
 
-    if (requiredCommits.length > 0 && greenCandidates.length > 0) {
+    const untestedCandidates = untestedRuns
+        .map(runInfo => qualifyGreen(runInfo))
+        .filter(candidate => candidate !== null);
+    const newestUntestedWithRequired = untestedCandidates.find(candidate => containsRequiredCommits(candidate.sha));
+
+    if (greenCandidates.length > 0) {
         const selected = greenCandidates.at(0);
         if (!selected) {
             throw new Error('No green release candidate remained after required-commit evaluation.');
@@ -480,19 +532,37 @@ export function selectReleaseCandidate(upstream, {
         const selectedMissing = requiredCommits.filter(requiredCommit => (
             !isAncestor(requiredCommit, selected.sha)
         ));
-        const matching = greenCandidates.find(candidate => requiredCommits.every(requiredCommit => (
-            isAncestor(requiredCommit, candidate.sha)
-        )));
+        const matching = greenCandidates.find(candidate => containsRequiredCommits(candidate.sha));
         const selectedRun = `ci.yml run ${selected.run.id} (${selected.run.html_url ?? `run ${selected.run.id}`})`;
         const missingText = selectedMissing.join(', ');
         const alternative = matching
             ? ` Newest green candidate containing every required commit is ${matching.sha} `
                 + `(ci.yml run ${matching.run.id}, ${matching.run.html_url ?? `run ${matching.run.id}`}), `
                 + 'but the selected newest green candidate is not that commit.'
-            : ' No green candidate in the available CI history contains every required commit yet.';
+            : newestUntestedWithRequired
+                ? ` No green candidate with a successful ${ARTIFACT_CANARY_WORKFLOW_FILE} canary contains every `
+                    + `required commit yet. The newest green candidate that does is ${newestUntestedWithRequired.sha} `
+                    + `(ci.yml run ${newestUntestedWithRequired.run.id}); dispatch its canary with `
+                    + `\`gh workflow run ${ARTIFACT_CANARY_WORKFLOW_FILE} --ref ${upstream.branch} `
+                    + `--field target_ref=${newestUntestedWithRequired.sha}\` and rerun once it is green.`
+                : ' No green candidate in the available CI history contains every required commit yet.';
         throw new Error(
             `Selected green release candidate ${selected.sha} (${selectedRun}) does not contain required commit(s): `
             + `${missingText}.${alternative}`,
+        );
+    }
+
+    if (newestUntestedWithRequired) {
+        // No green commit has a canary. Hand back the newest green commit so
+        // the canary check names it and its dispatch command.
+        return newestUntestedWithRequired;
+    }
+
+    if (untestedCandidates.length > 0) {
+        throw new Error(
+            `Selected green release candidate ${untestedCandidates[0]?.sha} does not contain required commit(s): `
+            + `${requiredCommits.join(', ')}. No green candidate in the available CI history contains every `
+            + 'required commit yet.',
         );
     }
 
@@ -586,8 +656,12 @@ export async function assertReleaseCutPreconditions(options = {}) {
     const isAncestorFn = options.isAncestorFn ?? (
         (ancestorSha, descendantRef) => isAncestorCommit(ancestorSha, descendantRef, {runCommand})
     );
+    const artifactEvidencePolicy = getArtifactEvidencePolicy(level, options.artifactEvidence);
     const selectReleaseCandidateFn = options.selectReleaseCandidateFn ?? (
         upstream => selectReleaseCandidate(upstream, {
+            ...artifactEvidencePolicy === 'mandatory'
+                ? {hasArtifactEvidenceFn: createArtifactEvidenceLookup(runCommand)}
+                : {},
             isAncestorFn,
             runCommand,
             requiredCommits,
@@ -633,7 +707,6 @@ export async function assertReleaseCutPreconditions(options = {}) {
             runCommand,
         });
     }
-    const artifactEvidencePolicy = getArtifactEvidencePolicy(level, options.artifactEvidence);
     const artifactEvidenceOptions = options.stderr === undefined
         ? {policy: artifactEvidencePolicy}
         : {
