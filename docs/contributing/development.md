@@ -199,9 +199,9 @@ such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Use `pnpm validate` for affected local acceptance. Select
-`node scripts/run-all-gates.mjs` when full local release verification is needed. Every pull request and every
-push to `main` runs the hosted checks; the release cutter trusts only the
-exact-SHA push run. The dormant Python page-processor was
+`node scripts/run-all-gates.mjs` when full local release verification is needed. Every pull request, every
+push to `main`, and every integration-candidate push runs the hosted checks;
+the release cutter trusts only the exact-SHA push run. The dormant Python page-processor was
 removed after the native scan-cleanup pipeline superseded it and remains
 recoverable from git history. CI selects the relevant Electron behavior lanes by changed area. Broader
 PDF tab diagnostics remain available through their dedicated workflow.

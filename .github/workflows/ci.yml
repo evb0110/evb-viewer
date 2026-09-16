@@ -6,9 +6,16 @@ concurrency:
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
   push:
     branches:
       - main
+      - '*/integration'
+      - 't3code/*integration*'
     # Every push to main gets its own exact-SHA run that runs to completion.
     # The release cutter trusts only push runs, so a path filter would leave
     # commits it cannot release from, and cancelling the previous run on a
@@ -16,6 +23,10 @@ on:
     # writers pushed minutes apart. The changed-area classifier diffs from
     # the last push whose run finished, so a run that starts while the
     # previous one is unfinished or was cancelled by hand covers both.
+    # Integration candidates also run the macOS Electron qualification jobs
+    # below. Promote an integration candidate to main only after all three
+    # suites pass on that candidate SHA. A pull request opts into the same
+    # qualification with the `qualify-platform` label.
   workflow_dispatch:
 
 permissions:
@@ -595,9 +606,15 @@ jobs:
       - pr_rust_tests_arm64
       - pr_scan_cleanup_oracles
       - pr_landing_quality
-      # Required on push to main, skipped on pull requests: these are the only
-      # jobs proving an Electron journey ran on the platform that ships signed.
-      # Large PDF stays manual until #552 turns that lane green.
+      # The shared build is a prerequisite for the three platform suites. It
+      # follows the same required/skippable candidate policy as those suites.
+      - push_electron_e2e_build
+      # Required on main and candidate runs, skipped on ordinary pull requests.
+      # These are the only jobs proving an Electron journey ran on the platform
+      # that ships signed.
+      # They are also required for integration candidates and labelled
+      # qualify-platform pull requests. Large PDF stays manual until #552 turns
+      # that lane green.
       - push_electron_e2e_regression
       - push_electron_e2e_save_pipeline
       - push_electron_e2e_rapid_navigation
@@ -615,7 +632,7 @@ jobs:
           NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
           SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}
           LANDING_CHANGED: ${{ needs.pr_changed_areas.outputs.landing }}
-          ELECTRON_E2E_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          ELECTRON_E2E_REQUIRED: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || endsWith(github.ref, '/integration') || (startsWith(github.ref, 'refs/heads/t3code/') && contains(github.ref, 'integration')))) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'qualify-platform')) }}
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
@@ -631,6 +648,7 @@ jobs:
             ['pr_rust_tests_arm64', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_scan_cleanup_oracles', process.env.SCAN_CLEANUP_EXPORT_CHANGED],
             ['pr_landing_quality', process.env.LANDING_CHANGED],
+            ['push_electron_e2e_build', process.env.ELECTRON_E2E_REQUIRED],
             ['push_electron_e2e_regression', process.env.ELECTRON_E2E_REQUIRED],
             ['push_electron_e2e_save_pipeline', process.env.ELECTRON_E2E_REQUIRED],
             ['push_electron_e2e_rapid_navigation', process.env.ELECTRON_E2E_REQUIRED],
@@ -685,11 +703,90 @@ jobs:
             cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
           done
 
-  push_electron_e2e_regression:
-    name: Electron E2E Regression
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+  push_electron_e2e_build:
+    name: macOS Electron E2E Shared Build
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event_name == 'push'
+          && (
+            github.ref == 'refs/heads/main'
+            || endsWith(github.ref, '/integration')
+            || (
+              startsWith(github.ref, 'refs/heads/t3code/')
+              && contains(github.ref, 'integration')
+            )
+          )
+        )
+        || (
+          github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
+        )
+      }}
     runs-on: macos-14
     timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          verify-electron: 'true'
+
+      # build:native:e2e is the union of the native outputs used by the
+      # regression suite (pdf-image-combine, pdf-page-ops, scan-cleanup) and
+      # the save suite's pdf-page-ops output. Build it once before bundling
+      # Electron so every suite consumes the same exact checkout.
+      - name: Build shared macOS Electron E2E inputs
+        run: |
+          pnpm run build:native:e2e
+          pnpm run build:electron
+
+      - name: Upload shared Electron E2E build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-e2e-build-${{ github.run_id }}
+          path: |
+            .tmp/pdf-image-combine/**
+            .tmp/pdf-page-ops/**
+            .tmp/scan-cleanup/**
+            dist-electron/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+  push_electron_e2e_regression:
+    name: Electron E2E Regression
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event_name == 'push'
+          && (
+            github.ref == 'refs/heads/main'
+            || endsWith(github.ref, '/integration')
+            || (
+              startsWith(github.ref, 'refs/heads/t3code/')
+              && contains(github.ref, 'integration')
+            )
+          )
+        )
+        || (
+          github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
+        )
+      }}
+    needs: push_electron_e2e_build
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      ELECTRON_E2E_REQUIRED: 'true'
 
     steps:
       - name: Checkout
@@ -706,8 +803,14 @@ jobs:
       - name: Install PDF test tools
         run: brew install imagemagick poppler qpdf
 
+      - name: Download shared Electron E2E build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-build-${{ github.run_id }}
+          path: .
+
       - name: Electron E2E regression
-        run: pnpm run test:e2e:electron:regression
+        run: pnpm run test:e2e:electron:regression:no-build
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -717,9 +820,30 @@ jobs:
 
   push_electron_e2e_save_pipeline:
     name: Electron E2E Save Pipeline
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event_name == 'push'
+          && (
+            github.ref == 'refs/heads/main'
+            || endsWith(github.ref, '/integration')
+            || (
+              startsWith(github.ref, 'refs/heads/t3code/')
+              && contains(github.ref, 'integration')
+            )
+          )
+        )
+        || (
+          github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
+        )
+      }}
+    needs: push_electron_e2e_build
     runs-on: macos-14
     timeout-minutes: 60
+    env:
+      ELECTRON_E2E_REQUIRED: 'true'
 
     steps:
       - name: Checkout
@@ -733,8 +857,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
 
+      - name: Download shared Electron E2E build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-build-${{ github.run_id }}
+          path: .
+
       - name: Electron E2E save pipeline
-        run: pnpm run test:e2e:electron:save-pipeline
+        run: pnpm run test:e2e:electron:save-pipeline:no-build
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -744,9 +874,30 @@ jobs:
 
   push_electron_e2e_rapid_navigation:
     name: Electron E2E Rapid Navigation
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event_name == 'push'
+          && (
+            github.ref == 'refs/heads/main'
+            || endsWith(github.ref, '/integration')
+            || (
+              startsWith(github.ref, 'refs/heads/t3code/')
+              && contains(github.ref, 'integration')
+            )
+          )
+        )
+        || (
+          github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
+        )
+      }}
+    needs: push_electron_e2e_build
     runs-on: macos-14
     timeout-minutes: 45
+    env:
+      ELECTRON_E2E_REQUIRED: 'true'
 
     steps:
       - name: Checkout
@@ -760,8 +911,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
 
+      - name: Download shared Electron E2E build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-build-${{ github.run_id }}
+          path: .
+
       - name: Electron E2E rapid navigation
-        run: pnpm run test:e2e:electron:rapid-navigation
+        run: pnpm run test:e2e:electron:rapid-navigation:no-build
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}

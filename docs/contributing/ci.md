@@ -6,10 +6,11 @@ run before opening a pull request.
 
 ## Merge verdict
 
-`ci.yml` runs on every pull request, every push to `main`, and manual dispatch.
-It has no workflow-level path filter. `pr_changed_areas` classifies changed
-files, so the affected-area jobs can skip cleanly while the aggregate still
-checks the result.
+`ci.yml` runs on the selected pull-request events, pushes to `main` and the
+integration-candidate branch patterns `*/integration` and
+`t3code/*integration*`, and manual dispatch. It has no workflow-level path
+filter. `pr_changed_areas` classifies changed files, so the affected-area jobs
+can skip cleanly while the aggregate still checks the result.
 
 `gates_ok` is the required aggregate for pull requests and pushes. Its `needs`
 list currently contains these jobs:
@@ -20,13 +21,21 @@ list currently contains these jobs:
 `pr_windows_atomic_pdf_replacement`, `pr_browser_integration`,
 `pr_native_build_safety`, `pr_scan_cleanup_heavy`, `pr_rust_tests_arm64`,
 `pr_scan_cleanup_oracles`, `pr_landing_quality`,
+`push_electron_e2e_build`,
 `push_electron_e2e_regression`, `push_electron_e2e_save_pipeline`, and
 `push_electron_e2e_rapid_navigation`.
 
 The `pr_*` jobs run when the changed-area classifier selects their contract.
-The three `push_electron_e2e_*` jobs run on pushes to `main` and manual
-dispatch, not on pull requests. The `gates_ok` script knows which conditional
-jobs may be skipped. A failure in an applicable job fails the aggregate.
+The shared macOS Electron build and the three `push_electron_e2e_*` jobs run on
+pushes to `main`, pushes matching the integration-candidate patterns above,
+and manual dispatch. They run on a pull request only when it carries the
+`qualify-platform` label; other pull requests keep these jobs skipped. The
+three suites download `electron-e2e-build-${{ github.run_id }}` and run with
+`--no-build`, while each macOS job keeps its own isolated checkout and Electron
+session state. Promote an integration candidate to `main` only after all
+three suites pass on the candidate SHA. The `gates_ok` script knows which
+conditional jobs may be skipped. A failure in an applicable job fails the
+aggregate.
 
 The classifier's path policy lives in
 [`scripts/release/policy.mjs`](../../scripts/release/policy.mjs). Its CI areas
@@ -67,8 +76,9 @@ instead of inventing a runtime.
 
 ### `.github/workflows/ci.yml`
 
-Triggers: `pull_request`, pushes to `main`, and `workflow_dispatch`. No path
-filter. The changed-area classifier uses the repository's changed-file policy.
+Triggers: selected `pull_request` events, pushes to `main` and the integration
+candidate branch patterns, and `workflow_dispatch`. No path filter. The
+changed-area classifier uses the repository's changed-file policy.
 
 | Job ID and name | What it gates | `gates_ok` | Typical runtime |
 | --- | --- | --- | ---: |
@@ -86,11 +96,12 @@ filter. The changed-area classifier uses the repository's changed-file policy.
 | `pr_rust_tests_arm64`, Rust Tests (Linux arm64) | Rust workspace tests on Linux ARM64 | Yes, conditional | 7 min |
 | `pr_scan_cleanup_oracles`, Scan Cleanup Export Oracles | Scan-cleanup preview, export, and word-loss oracles | Yes, conditional | 3 min |
 | `pr_landing_quality`, Landing Quality Gates For Changed Sources | Landing lint, typecheck, and build | Yes, conditional | 2 min |
-| `gates_ok`, gates_ok | Required aggregate for the pull-request and main-push CI verdict | N/A | seconds |
+| `gates_ok`, gates_ok | Required aggregate for pull-request, integration-candidate-push, and main-push CI verdicts | N/A | seconds |
+| `push_electron_e2e_build`, macOS Electron E2E Shared Build | Builds the shared Electron bundle plus pdf-image-combine, pdf-page-ops, and scan-cleanup outputs | Yes for main/integration candidates and labelled PRs | n/a, 60 min timeout |
+| `push_electron_e2e_regression`, Electron E2E Regression | macOS regression suite using the shared build | Yes for main/integration candidates and labelled PRs, manual | n/a in recent sampled push runs |
+| `push_electron_e2e_save_pipeline`, Electron E2E Save Pipeline | macOS save pipeline suite using the shared build | Yes for main/integration candidates and labelled PRs, manual | n/a in recent sampled push runs |
+| `push_electron_e2e_rapid_navigation`, Electron E2E Rapid Navigation | macOS rapid-navigation suite using the shared build | Yes for main/integration candidates and labelled PRs, manual | n/a in recent sampled push runs |
 | `nightly_rust_fuzz`, Native Parser Fuzz Canaries | Manual parser fuzz canaries | No | n/a, 20 min timeout |
-| `push_electron_e2e_regression`, Electron E2E Regression | Main-push Electron regression suite | Yes on main push, manual | n/a in recent sampled push runs |
-| `push_electron_e2e_save_pipeline`, Electron E2E Save Pipeline | Main-push Electron save pipeline suite | Yes on main push, manual | n/a in recent sampled push runs |
-| `push_electron_e2e_rapid_navigation`, Electron E2E Rapid Navigation | Main-push Electron rapid-navigation suite | Yes on main push, manual | n/a in recent sampled push runs |
 | `nightly_electron_e2e_large_pdf`, Manual Electron E2E Large PDF | Manual large-PDF Electron acceptance | No | n/a, 90 min timeout |
 | `nightly_electron_e2e_quarantine`, Manual Electron E2E Quarantine | Manual quarantined Electron scenarios | No | n/a, 60 min timeout |
 | `nightly_electron_e2e_visible_window`, Manual Electron E2E Visible Window | Manual visible-window lifecycle acceptance | No | n/a, 30 min timeout |

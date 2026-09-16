@@ -34,6 +34,7 @@ interface IWorkflowStep {
 
 interface IWorkflowJob {
     'continue-on-error'?: boolean;
+    env?: Record<string, unknown>;
     environment?: string;
     if?: string;
     needs?: string | string[];
@@ -45,6 +46,10 @@ interface IWorkflowJob {
 interface IWorkflowDocument {
     jobs?: Record<string, IWorkflowJob>;
     name?: string;
+    on?: {
+        pull_request?: {types?: string[];};
+        push?: {branches?: string[];};
+    };
 }
 
 interface IWorkflowSource {
@@ -77,9 +82,9 @@ function workflowNeeds(job: IWorkflowJob) {
 
 /**
  * Two shapes qualify as a required gate. Most jobs run for both pull requests
- * and pushes. The Electron end-to-end suites run only on push to main, because
- * a macOS runner per pull request costs more than the signal is worth there;
- * gates_ok accepts their pull-request skip through ELECTRON_E2E_REQUIRED.
+ * and pushes. The macOS Electron build and suites run for main and integration
+ * pushes, plus labelled qualification pull requests; gates_ok accepts their
+ * skip on ordinary pull requests through ELECTRON_E2E_REQUIRED.
  */
 function runsAsRequiredGate(condition: string | undefined) {
     if (condition === undefined) {
@@ -220,6 +225,48 @@ function runLintFallback(script: string, scenario: {
 }
 
 describe('CI topology policy', () => {
+    it('qualifies the shared macOS Electron build and suites for candidate events', async () => {
+        const source = await readProjectFile('.github/workflows/ci.yml');
+        const workflow = parseWorkflow(source);
+        expect(workflow.on?.push?.branches).toEqual([
+            'main',
+            '*/integration',
+            't3code/*integration*',
+        ]);
+        expect(workflow.on?.pull_request?.types).toEqual([
+            'opened',
+            'synchronize',
+            'reopened',
+            'labeled',
+        ]);
+
+        const candidateJobs = [
+            'push_electron_e2e_build',
+            'push_electron_e2e_regression',
+            'push_electron_e2e_save_pipeline',
+            'push_electron_e2e_rapid_navigation',
+        ];
+        const jobs = parseWorkflowJobs(source);
+        for (const jobName of candidateJobs) {
+            const job = jobs[jobName];
+            if (job === undefined) {
+                throw new Error(`CI workflow is missing ${jobName}.`);
+            }
+            expect(job.if, jobName).toContain('endsWith(github.ref, \'/integration\')');
+            expect(job.if, jobName).toContain('startsWith(github.ref, \'refs/heads/t3code/\')');
+            expect(job.if, jobName).toContain('contains(github.event.pull_request.labels.*.name, \'qualify-platform\')');
+        }
+
+        for (const jobName of candidateJobs.slice(1)) {
+            expect(jobs[jobName]?.env?.ELECTRON_E2E_REQUIRED, jobName).toBe('true');
+        }
+
+        expect(source).toContain('name: electron-e2e-build-${{ github.run_id }}');
+        expect(source).toContain('test:e2e:electron:regression:no-build');
+        expect(source).toContain('test:e2e:electron:save-pipeline:no-build');
+        expect(source).toContain('test:e2e:electron:rapid-navigation:no-build');
+    });
+
     it('aggregates required PR and push jobs and enforces failure and skip results', async () => {
         const jobs = parseWorkflowJobs(await readProjectFile('.github/workflows/ci.yml'));
         const gatesOk = jobs.gates_ok;
