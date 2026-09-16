@@ -129,22 +129,34 @@ describe('Electron automation graceful shutdown policy', () => {
         });
     });
 
-    it('closes the renderer window before browser and process-tree fallbacks', () => {
+    it('requests coordinated Electron quit before the process-tree fallback', () => {
         const sessionSource = readProjectSource('scripts/electron-run/sessionController.ts');
         const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-        const gracefulCloseIndex = sessionSource.indexOf('electronAPI?.windowTabs.closeCurrentWindow');
-        const browserFallbackIndex = sessionSource.indexOf('state.browser.close()');
+        const gracefulQuitIndex = sessionSource.indexOf('void state.browser.close().catch(error => {');
+        const processWaitIndex = sessionSource.indexOf('waitForProcessExit(electronPid');
         const electronFallbackIndex = sessionSource.indexOf('killSpawnedProcessTree(state.electronProcess');
         const shutdownCommandIndex = stopSource.indexOf('info, \'shutdown\'');
         const controllerFallbackIndex = stopSource.indexOf('killVerifiedSessionProcess', shutdownCommandIndex);
 
-        expect(gracefulCloseIndex).toBeGreaterThan(-1);
-        expect(browserFallbackIndex).toBeGreaterThan(gracefulCloseIndex);
-        expect(electronFallbackIndex).toBeGreaterThan(browserFallbackIndex);
+        expect(gracefulQuitIndex).toBeGreaterThan(-1);
+        expect(sessionSource).not.toContain('electronAPI?.windowTabs.closeCurrentWindow');
+        expect(processWaitIndex).toBeGreaterThan(gracefulQuitIndex);
+        expect(electronFallbackIndex).toBeGreaterThan(processWaitIndex);
         expect(shutdownCommandIndex).toBeGreaterThan(-1);
         expect(controllerFallbackIndex).toBeGreaterThan(shutdownCommandIndex);
         expect(sessionSource).toContain('Graceful app shutdown complete');
         expect(sessionSource).toContain('Graceful shutdown timed out; using process-tree fallback');
+    });
+
+    it('nests controller shutdown fallbacks inside the 15 second E2E stop budget', () => {
+        const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
+        const sessionRunnerSource = readProjectSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
+
+        expect(stopSource).toContain('const SESSION_SHUTDOWN_COMMAND_TIMEOUT_MS = 2_000;');
+        expect(stopSource).toContain('const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 9_000;');
+        expect(stopSource).toContain('graceMs: 1500');
+        expect(sessionRunnerSource).toContain('const SESSION_STOP_TIMEOUT_MS = 15_000;');
+        expect(2_000 + 9_000 + 1_500).toBeLessThan(15_000);
     });
 
     it('removes only the crash-recovery checkpoint on an intentional automation stop', () => {

@@ -41,7 +41,7 @@ import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes
 import { sendCommandToSession } from '@scripts/electron-run/sendCommand';
 import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
-const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 12_000;
+const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 9_000;
 const SESSION_SHUTDOWN_COMMAND_TIMEOUT_MS = 2_000;
 
 interface IVerifiedTerminationResult {

@@ -16,6 +16,13 @@ type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 interface IShutdownSaveFlushReportingDeps {
     workingCopyPath: TReadableRef<TDocumentRef | null>;
     hasPendingUnsavedChanges: TReadableRef<boolean>;
+    /**
+     * True when a plain save would have to ask the user for a destination
+     * (a generated or otherwise unsaved document). Shutdown cannot answer a
+     * Save As dialog, so such a document is reported dirty for recovery
+     * instead of being saved.
+     */
+    requiresInteractiveDestination?: TReadableRef<boolean>;
     saveForExternalRead: () => Promise<boolean> | boolean;
     flushAdditionalState?: () => Promise<void> | void;
     systemCapability?: Pick<ISystemCapability, 'onShutdownSaveFlushRequest'>;
@@ -82,6 +89,10 @@ export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingD
         await deps.flushAdditionalState?.();
         if (!capturedWorkingCopyPath || !deps.hasPendingUnsavedChanges.value) {
             return {};
+        }
+        if (deps.requiresInteractiveDestination?.value === true) {
+            BrowserLogger.warn('workspace', 'Dirty document has no saved destination; leaving it to crash recovery during shutdown', {workingCopyPath: capturedWorkingCopyPath});
+            return {dirtyWorkingCopyPaths: [capturedWorkingCopyPath]};
         }
 
         try {

@@ -515,6 +515,19 @@ describe('workspace checkpoint latest-only writer', () => {
         expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(3);
     });
 
+    it('does not let a failed checkpoint write block the shutdown flush barrier', async () => {
+        mocks.atomicReplace.mockRejectedValueOnce(new Error('checkpoint write failed'));
+        const {
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        const saveError = saveWorkspaceCheckpoint(createCheckpoint(1), 10).catch(error => error);
+
+        await expect(flushPendingWorkspaceCheckpointSave()).resolves.toBeUndefined();
+        await expect(saveError).resolves.toMatchObject({message: 'checkpoint write failed'});
+    });
+
     it('rolls back suppression when checkpoint deletion fails', async () => {
         mocks.atomicReplace.mockImplementation(async (source: string) => {
             mocks.persisted = mocks.staged.get(source) ?? null;

@@ -506,6 +506,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     useShutdownSaveFlushReporting({
         workingCopyPath,
         hasPendingUnsavedChanges,
+        requiresInteractiveDestination: requiresSaveAsOnFirstSave,
         saveForExternalRead,
         flushAdditionalState: async () => {
             await saveSettings();

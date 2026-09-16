@@ -32,6 +32,7 @@ function createHarness(options: {
     workingCopyPath?: string | null;
     saveForExternalRead?: () => Promise<boolean> | boolean;
     flushAdditionalState?: () => Promise<void> | void;
+    requiresInteractiveDestination?: boolean;
 } = {}) {
     let callback: TShutdownSaveFlushCallback | null = null;
     const unsubscribe = vi.fn();
@@ -59,6 +60,9 @@ function createHarness(options: {
             ...(options.flushAdditionalState === undefined
                 ? {}
                 : {flushAdditionalState: options.flushAdditionalState}),
+            ...(options.requiresInteractiveDestination === undefined
+                ? {}
+                : {requiresInteractiveDestination: ref(options.requiresInteractiveDestination)}),
             systemCapability,
         });
     });
@@ -147,6 +151,20 @@ describe('useShutdownSaveFlushReporting', () => {
         harness.workingCopyPath.value = requireDocumentRef('/tmp/document-working-copy-after-registration.pdf');
         await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy-after-registration.pdf']});
         expect(harness.saveForExternalRead).toHaveBeenCalledTimes(1);
+
+        harness.scope.stop();
+    });
+
+    it('leaves a dirty document without a saved destination to recovery instead of prompting', async () => {
+        const harness = createHarness({requiresInteractiveDestination: true});
+
+        await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy.pdf']});
+        expect(harness.saveForExternalRead).not.toHaveBeenCalled();
+        expect(mocks.warn).toHaveBeenCalledWith(
+            'workspace',
+            expect.stringContaining('no saved destination'),
+            expect.objectContaining({workingCopyPath: '/tmp/document-working-copy.pdf'}),
+        );
 
         harness.scope.stop();
     });

@@ -10,7 +10,6 @@ import {
 } from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import { safeJsonParse } from '@contracts/safeJsonParse';
-import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { attachPageDiagnostics } from '@scripts/electron-run/attachPageDiagnostics';
@@ -193,21 +192,13 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
     const shutdownStartedAt = Date.now();
     if (state.browser.connected) {
         console.log('[Electron] Requesting graceful app shutdown...');
-        const didRequestWindowClose = await Promise.race([
-            state.page.evaluate(() => {
-                const rendererWindow = window as Window & {electronAPI?: {windowTabs: IWindowTabsCapability}};
-                const closeCurrentWindow = rendererWindow.electronAPI?.windowTabs.closeCurrentWindow;
-                if (!closeCurrentWindow) {
-                    return false;
-                }
-                void closeCurrentWindow();
-                return true;
-            }).catch(() => false),
-            delay(1_000).then(() => false),
-        ]);
-        if (!didRequestWindowClose) {
-            console.warn('[Electron] Renderer window close request did not complete before the deadline');
-        }
+        // Browser.close enters Electron's coordinated before-quit path. Calling
+        // windowTabs.closeCurrentWindow here would instead run the user-facing
+        // dirty-document close handshake, which cannot receive a dialog decision
+        // from a hidden automation session.
+        void state.browser.close().catch(error => {
+            console.warn(`[Electron] Graceful app shutdown request failed: ${getErrorMessage(error)}`);
+        });
     }
 
     if (electronPid) {
@@ -225,9 +216,6 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
         }
     }
 
-    if (state.browser.connected) {
-        await state.browser.close().catch(() => {});
-    }
     await state.browser.disconnect().catch(() => {});
     console.warn('[Electron] Graceful shutdown timed out; using process-tree fallback');
     await killSpawnedProcessTree(state.electronProcess, 800);

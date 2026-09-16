@@ -101,6 +101,7 @@ describe('requestShutdownSaveFlush', () => {
             failedWindowIds: [1],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         });
     });
 
@@ -148,6 +149,7 @@ describe('requestShutdownSaveFlush', () => {
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         });
         expect(logger.error).toHaveBeenCalledWith(
             expect.stringContaining('WORKING_COPY_SHUTDOWN_FLUSH_UNMATERIALIZED'),
@@ -184,6 +186,7 @@ describe('requestShutdownSaveFlush', () => {
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         });
         expect(logger.error).toHaveBeenCalledWith(
             expect.stringContaining('both dirty and flushed'),
@@ -198,12 +201,22 @@ describe('requestShutdownSaveFlush', () => {
         [
             'a malformed response',
             () => ({callbackCount: 'one'}),
+            {
+                failedWindowIds: [1],
+                unhandledWindowIds: [],
+                logged: 'error',
+            },
         ],
         [
             'a renderer with no registered handler',
             () => ({callbackCount: 0}),
+            {
+                failedWindowIds: [],
+                unhandledWindowIds: [1],
+                logged: 'warn',
+            },
         ],
-    ])('preserves owned working copies for %s', async (_label, response) => {
+    ])('preserves owned working copies for %s', async (_label, response, expected) => {
         const workingCopyPath = '/tmp/pdf-work-untrusted/working.pdf';
         state.workingCopyMap.set(workingCopyPath, {
             backingState: 'materialized',
@@ -223,11 +236,12 @@ describe('requestShutdownSaveFlush', () => {
             isTrustedSender: trustedSender,
         })).resolves.toEqual({
             dirtyWorkingCopyPaths: [workingCopyPath],
-            failedWindowIds: [1],
+            failedWindowIds: expected.failedWindowIds,
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: expected.unhandledWindowIds,
         });
-        expect(logger.error).toHaveBeenCalledOnce();
+        expect(expected.logged === 'warn' ? logger.warn : logger.error).toHaveBeenCalledOnce();
     });
 
     it('ignores a matching response from an untrusted sender frame', async () => {
@@ -251,6 +265,7 @@ describe('requestShutdownSaveFlush', () => {
         await expect(flush).resolves.toMatchObject({
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [1],
+            unhandledWindowIds: [],
         });
         expect(isTrustedSender).toHaveBeenCalledWith(expect.anything(), state.senderFrame);
     });
@@ -296,18 +311,28 @@ describe('requestShutdownSaveFlush', () => {
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         },
         {
             dirtyWorkingCopyPaths: [],
             failedWindowIds: [7],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         },
         {
             dirtyWorkingCopyPaths: [],
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [7],
+            unhandledWindowIds: [],
+        },
+        {
+            dirtyWorkingCopyPaths: [],
+            failedWindowIds: [],
+            flushedWorkingCopyPaths: [],
+            timedOutWindowIds: [],
+            unhandledWindowIds: [7],
         },
     ])('requires recovery preservation for incomplete renderer flush outcome %#', summary => {
         expect(shutdownSaveFlushRequiresRecoveryPreservation(summary)).toBe(true);
@@ -319,6 +344,17 @@ describe('requestShutdownSaveFlush', () => {
             failedWindowIds: [],
             flushedWorkingCopyPaths: ['/tmp/flushed.pdf'],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
+        })).toBe(false);
+    });
+
+    it('does not hold the quit for a renderer that has no flush handler', () => {
+        expect(shutdownSaveFlushRequiresRetryableQuit({
+            dirtyWorkingCopyPaths: [],
+            failedWindowIds: [],
+            flushedWorkingCopyPaths: [],
+            timedOutWindowIds: [],
+            unhandledWindowIds: [1],
         })).toBe(false);
     });
 
@@ -328,12 +364,14 @@ describe('requestShutdownSaveFlush', () => {
             failedWindowIds: [1],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         })).toBe(true);
         expect(shutdownSaveFlushRequiresRetryableQuit({
             dirtyWorkingCopyPaths: ['/tmp/dirty.pdf'],
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         })).toBe(false);
     });
 });

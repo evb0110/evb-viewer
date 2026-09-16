@@ -15,6 +15,13 @@ export interface IShutdownSaveFlushSummary {
     failedWindowIds: number[];
     flushedWorkingCopyPaths: string[];
     timedOutWindowIds: number[];
+    /**
+     * Windows whose renderer answered with no registered flush handler.
+     * Nothing can be flushed there, so their working copies are preserved
+     * for recovery, but a retry cannot change the outcome and must not hold
+     * the quit.
+     */
+    unhandledWindowIds: number[];
 }
 
 export function shutdownSaveFlushRequiresRecoveryPreservation(
@@ -22,7 +29,8 @@ export function shutdownSaveFlushRequiresRecoveryPreservation(
 ) {
     return summary.dirtyWorkingCopyPaths.length > 0
         || summary.failedWindowIds.length > 0
-        || summary.timedOutWindowIds.length > 0;
+        || summary.timedOutWindowIds.length > 0
+        || summary.unhandledWindowIds.length > 0;
 }
 
 export function shutdownSaveFlushRequiresRetryableQuit(
@@ -68,6 +76,7 @@ export async function requestShutdownSaveFlush(options: {
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
+            unhandledWindowIds: [],
         };
     }
 
@@ -78,6 +87,7 @@ export async function requestShutdownSaveFlush(options: {
     ]));
     const dirtyWorkingCopyPaths = new Set<string>();
     const failedWindowIds = new Set<number>();
+    const unhandledWindowIds = new Set<number>();
     const flushedWorkingCopyPaths = new Set<string>();
 
     return new Promise(resolve => {
@@ -113,6 +123,7 @@ export async function requestShutdownSaveFlush(options: {
                 failedWindowIds: Array.from(failedWindowIds),
                 flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
                 timedOutWindowIds,
+                unhandledWindowIds: Array.from(unhandledWindowIds),
             });
         }, options.timeoutMs);
         const cleanup = () => {
@@ -131,6 +142,7 @@ export async function requestShutdownSaveFlush(options: {
                 failedWindowIds: Array.from(failedWindowIds),
                 flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
                 timedOutWindowIds: [],
+                unhandledWindowIds: Array.from(unhandledWindowIds),
             });
         };
 
@@ -199,12 +211,16 @@ export async function requestShutdownSaveFlush(options: {
                     dirtyWorkingCopyPaths.delete(path);
                 }
             }
-            if (payload.callbackCount === 0 || payload.error) {
+            if (payload.callbackCount === 0) {
+                preserveOwnedWorkingCopies(event.sender.id);
+                unhandledWindowIds.add(windowId);
+                options.logger.warn(
+                    `Renderer shutdown save flush had no registered handlers for window ${windowId}; preserving its working copies for recovery`,
+                );
+            } else if (payload.error) {
                 preserveOwnedWorkingCopies(event.sender.id);
                 failedWindowIds.add(windowId);
-                options.logger.error(payload.callbackCount === 0
-                    ? 'Renderer shutdown save flush had no registered handlers'
-                    : `Renderer shutdown save flush failed: ${payload.error ?? 'unknown error'}`, {
+                options.logger.error(`Renderer shutdown save flush failed: ${payload.error}`, {
                     code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
                     context: {},
                 });
