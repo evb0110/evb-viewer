@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     formatReleaseStatus,
+    getReleaseStatusState,
     summarizeReleaseStatus,
 } from '@scripts/release/release-status.mjs';
 
@@ -256,5 +257,180 @@ describe('release-status', () => {
         expect(() => summarizeReleaseStatus('latest', {runCommand: () => {
             throw new Error('must not run');
         }})).toThrow(/Expected a release tag/u);
+    });
+});
+
+interface IWorkflowState {
+    conclusion: string | null;
+    createdAt: string | null;
+    error: string | null;
+    found: boolean;
+    status: string;
+    url: string;
+}
+
+interface IAssetSummary {
+    complete: boolean;
+    expected: string[];
+    missing: string[];
+    present: string[];
+}
+
+interface IReleaseStatusStateInput {
+    assets: string[];
+    blocker: string | null;
+    checksumManifestPresent: boolean;
+    core: IAssetSummary;
+    coreComplete: boolean;
+    isDraft: boolean | null;
+    isPublic: boolean;
+    mirror: {
+        checked: boolean;
+        error: string | null;
+        matchesTag: boolean | null;
+        tag: string | null
+    };
+    publishedAt: string | null;
+    releaseError: string | null;
+    releaseExists: boolean;
+    releaseTag: string;
+    state: 'blocked' | 'complete' | 'core-published-supplemental-pending' | 'in-progress' | 'ready';
+    supplemental: IAssetSummary;
+    supplementalComplete: boolean;
+    tag: string;
+    tagError: string | null;
+    tagExists: boolean;
+    workflows: {
+        release: IWorkflowState;
+        supplemental: IWorkflowState
+    };
+}
+
+function createWorkflowState(): IWorkflowState {
+    return {
+        conclusion: null,
+        createdAt: null,
+        error: null,
+        found: false,
+        status: 'not found',
+        url: '',
+    };
+}
+
+function createStatus(overrides: Partial<IReleaseStatusStateInput> = {}): IReleaseStatusStateInput {
+    const base: IReleaseStatusStateInput = {
+        assets: [],
+        blocker: null,
+        checksumManifestPresent: false,
+        core: {
+            complete: false,
+            expected: ['artifact'],
+            missing: ['artifact'],
+            present: [],
+        },
+        coreComplete: false,
+        isDraft: false,
+        isPublic: false,
+        mirror: {
+            checked: false,
+            error: null,
+            matchesTag: null,
+            tag: null,
+        },
+        publishedAt: null,
+        releaseError: null,
+        releaseExists: false,
+        releaseTag: 'v1.2.3',
+        state: 'in-progress',
+        supplemental: {
+            complete: false,
+            expected: [],
+            missing: [],
+            present: [],
+        },
+        supplementalComplete: false,
+        tag: 'v1.2.3',
+        tagError: null,
+        tagExists: false,
+        workflows: {
+            release: createWorkflowState(),
+            supplemental: createWorkflowState(),
+        },
+    };
+
+    return {
+        ...base,
+        ...overrides,
+        workflows: {
+            ...base.workflows,
+            ...overrides.workflows,
+        },
+    };
+}
+
+describe('release-status lifecycle states', () => {
+    it.each([
+        [
+            'ready',
+            createStatus(),
+        ],
+        [
+            'in-progress',
+            createStatus({
+                isDraft: true,
+                releaseExists: true,
+            }),
+        ],
+        [
+            'core-published-supplemental-pending',
+            createStatus({
+                coreComplete: true,
+                releaseExists: true,
+                supplementalComplete: false,
+                tagExists: true,
+            }),
+        ],
+        [
+            'complete',
+            createStatus({
+                coreComplete: true,
+                releaseExists: true,
+                supplementalComplete: true,
+                tagExists: true,
+            }),
+        ],
+    ] as const)('reports %s', (expectedState, status) => {
+        expect(getReleaseStatusState(status)).toEqual({
+            blocker: null,
+            state: expectedState,
+        });
+    });
+
+    it('reports a failed workflow as blocked with the run URL', () => {
+        const status = createStatus({
+            releaseExists: true,
+            tagExists: true,
+            workflows: {
+                release: {
+                    conclusion: 'failure',
+                    createdAt: '2026-09-01T08:00:00.000Z',
+                    error: null,
+                    found: true,
+                    status: 'completed',
+                    url: 'https://github.com/example/repo/actions/runs/42',
+                },
+                supplemental: createWorkflowState(),
+            },
+        });
+
+        const result = getReleaseStatusState(status);
+
+        expect(result.state).toBe('blocked');
+        expect(result.blocker).toContain('actions/runs/42');
+        expect(formatReleaseStatus({
+            ...status,
+            blocker: result.blocker,
+            state: result.state,
+        })).toContain(`state: blocked (${result.blocker})`);
     });
 });

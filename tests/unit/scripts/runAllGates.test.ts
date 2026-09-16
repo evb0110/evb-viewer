@@ -19,6 +19,11 @@ interface IRunAllGatesModule {
         receiptPath: string;
         receiptReady: boolean;
     }) => Record<string, string>;
+    selectGates: (gates: IGateDefinition[], options: {
+        from?: string | undefined;
+        only?: string | undefined;
+        skip: Set<string>;
+    }) => IGateDefinition[];
 }
 
 interface IStagePoolModule {runStagePool: <T extends {
@@ -40,10 +45,23 @@ const {runStagePool} = await import(pathToFileURL(
 
 describe('all-gates orchestration', () => {
     it('uses one consolidated validation phase before release verification', () => {
-        expect(runner.getAllGateDefinitions().map(gate => gate.id)).toEqual([
+        const gates = runner.getAllGateDefinitions();
+        expect(gates.map(gate => gate.id)).toEqual([
+            'release-cut-preflight',
             'validate',
             'release-verify',
-            'release-cut-preflight',
+        ]);
+
+        expect(runner.selectGates(gates, {
+            only: 'validate',
+            skip: new Set(),
+        }).map(gate => gate.id)).toEqual(['validate']);
+        expect(runner.selectGates(gates, {
+            from: 'validate',
+            skip: new Set(),
+        }).map(gate => gate.id)).toEqual([
+            'validate',
+            'release-verify',
         ]);
     });
 

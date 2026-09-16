@@ -1,8 +1,12 @@
-import { spawnSync } from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {
     chmodSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -24,28 +28,37 @@ import {
 const releaseScript = resolve(process.cwd(), 'scripts/release/cut-release.mjs');
 const temporaryRoots: string[] = [];
 
-interface IReleaseHandoffModule { printReleaseWorkflowHandoff: (
-    options: {
-        dispatchStartedAt: string;
-        tag: string;
-        targetSha: string;
-    },
-    dependencies: {
-        nowFn: () => number;
-        readHandoffTimeoutMs: () => number;
-        sleepFn: (duration: number) => Promise<void>;
-        stdout: { write: (message: string) => void };
-        waitForRun: (options: Record<string, unknown>) => Promise<{
-            conclusion: string | null;
-            status: string;
-            url: string;
-        }>;
-    },
-) => Promise<void>; }
+interface IReleaseModule {
+    cutRelease: (
+        level: 'patch',
+        options: Record<string, unknown>,
+    ) => Promise<void>;
+    printReleaseWorkflowHandoff: (
+        options: {
+            dispatchStartedAt: string;
+            tag: string;
+            targetSha: string;
+        },
+        dependencies: {
+            nowFn: () => number;
+            readHandoffTimeoutMs: () => number;
+            sleepFn: (duration: number) => Promise<void>;
+            stdout: { write: (message: string) => void };
+            waitForRun: (options: Record<string, unknown>) => Promise<{
+                conclusion: string | null;
+                status: string;
+                url: string;
+            }>;
+        },
+    ) => Promise<void>;
+}
 
-const { printReleaseWorkflowHandoff } = await import(
+const {
+    cutRelease,
+    printReleaseWorkflowHandoff,
+} = await import(
     pathToFileURL(releaseScript).href,
-) as IReleaseHandoffModule;
+) as IReleaseModule;
 
 function writeExecutable(filePath: string, source: string): void {
     writeFileSync(filePath, source);
@@ -165,8 +178,10 @@ describe('release branch safety', () => {
         }
     });
 
-    it('rejects a non-main branch before verification or repository mutation', () => {
+    it('does not require a clean named main branch before read-only verification', () => {
         const fixture = createReleaseFixture('feature/release');
+        const dirtyPath = join(fixture.root, 'caller-dirty.txt');
+        writeFileSync(dirtyPath, 'keep me');
         const result = spawnSync(process.execPath, [
             fixture.cliRunner,
             'patch',
@@ -182,12 +197,14 @@ describe('release branch safety', () => {
         });
 
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain('requires the current branch to be main');
-        expect(readFileSync(fixture.commandLog, 'utf8')).toBe('git rev-parse --abbrev-ref HEAD\n');
+        expect(result.stderr).toContain('requires an authenticated GitHub CLI session');
+        expect(result.stderr).not.toContain('requires the current branch to be main');
+        expect(readFileSync(fixture.commandLog, 'utf8')).toBe('gh auth status\n');
+        expect(readFileSync(dirtyPath, 'utf8')).toBe('keep me');
         expect(JSON.parse(readFileSync(fixture.packageJson, 'utf8')).version).toBe('9.9.9');
     });
 
-    it('rejects main with a non-canonical upstream before verification or mutation', () => {
+    it('does not inspect the caller upstream when resuming from another checkout', () => {
         const fixture = createReleaseFixture('main', 'fork/main');
         const result = spawnSync(process.execPath, [
             fixture.cliRunner,
@@ -204,13 +221,143 @@ describe('release branch safety', () => {
         });
 
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain('requires main to track origin/main');
-        expect(readFileSync(fixture.commandLog, 'utf8')).toBe([
-            'git rev-parse --abbrev-ref HEAD',
-            'git rev-parse --abbrev-ref --symbolic-full-name @{upstream}',
-            '',
-        ].join('\n'));
+        expect(result.stderr).toContain('Command failed: git fetch --no-tags origin');
+        expect(result.stderr).not.toContain('requires main to track origin/main');
+        expect(readFileSync(fixture.commandLog, 'utf8')).toContain('git fetch --no-tags origin');
+        expect(readFileSync(fixture.commandLog, 'utf8')).not.toContain('rev-parse --abbrev-ref');
         expect(JSON.parse(readFileSync(fixture.packageJson, 'utf8')).version).toBe('9.9.9');
+    });
+
+    it('runs release mutations in a disposable detached worktree and leaves a dirty caller untouched', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-release-worktree-'));
+        temporaryRoots.push(root);
+        const runGit = (args: string[]) => execFileSync('git', args, {
+            cwd: root,
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        }).trim();
+        runGit([
+            'init',
+            '--quiet',
+            '--initial-branch=feature/release',
+        ]);
+        runGit([
+            'config',
+            'user.email',
+            'release-test@example.test',
+        ]);
+        runGit([
+            'config',
+            'user.name',
+            'Release Test',
+        ]);
+        writeFileSync(join(root, '.gitignore'), '.devkit/\n');
+        writeFileSync(join(root, 'package.json'), JSON.stringify({version: '1.2.3'}, null, 2));
+        runGit([
+            'add',
+            '.gitignore',
+            'package.json',
+        ]);
+        runGit([
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '--quiet',
+            '-m',
+            'candidate',
+        ]);
+        const candidateSha = runGit([
+            'rev-parse',
+            'HEAD',
+        ]);
+        const dirtyPath = join(root, 'caller-dirty.txt');
+        writeFileSync(dirtyPath, 'preserve this file');
+
+        const originalCwd = process.cwd();
+        const mutationCwds: string[] = [];
+        const runCommand = (command: string, args: string[], options: object = {}) => {
+            const output = execFileSync(command, args, {
+                cwd: process.cwd(),
+                encoding: 'utf8',
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+                ...options,
+            });
+            return output == null ? '' : String(output).trim();
+        };
+
+        try {
+            process.chdir(root);
+            await cutRelease('patch', {
+                assertArtifactCanaryGreenFn: () => ({state: 'satisfied'}),
+                assertCurrentReleaseIsNotDraftFn: () => undefined,
+                assertGitHubCliReadyFn: async () => undefined,
+                assertNodeBaselineFn: () => undefined,
+                assertTagAbsentFn: async () => undefined,
+                assertVersionNotBehindAncestorFn: () => undefined,
+                carryVersionToMainFn: async () => {
+                    mutationCwds.push(process.cwd());
+                    return {
+                        carried: true,
+                        sha: 'd'.repeat(40),
+                    };
+                },
+                createReleaseCommitFn: () => {
+                    mutationCwds.push(process.cwd());
+                    return 'd'.repeat(40);
+                },
+                fetchReleaseMainFn: () => undefined,
+                getUpstreamFn: () => ({
+                    branch: 'main',
+                    ref: 'origin/main',
+                    remote: 'origin',
+                }),
+                isAncestorFn: () => true,
+                level: 'patch',
+                publishReleaseCommitFn: async () => {
+                    mutationCwds.push(process.cwd());
+                    return 'd'.repeat(40);
+                },
+                readGreatestReleaseTagFn: () => null,
+                readVersionAtFn: () => '1.2.3',
+                runCommand,
+                selectReleaseCandidateFn: () => ({
+                    run: {
+                        conclusion: 'success',
+                        event: 'push',
+                        head_branch: 'main',
+                        head_sha: candidateSha,
+                        html_url: 'https://github.com/example/ci/runs/1',
+                        id: 1,
+                        status: 'completed',
+                    },
+                    sha: candidateSha,
+                }),
+                stderr: {write: () => true},
+            });
+        } finally {
+            process.chdir(originalCwd);
+        }
+
+        expect(mutationCwds).toHaveLength(3);
+        expect(mutationCwds.every(cwd => /[\\/]\.devkit[\\/]release[\\/]candidate-/u.test(cwd))).toBe(true);
+        expect(readFileSync(dirtyPath, 'utf8')).toBe('preserve this file');
+        expect(runGit([
+            'branch',
+            '--show-current',
+        ])).toBe('feature/release');
+        expect(runGit([
+            'status',
+            '--short',
+        ])).toContain('?? caller-dirty.txt');
+        expect(readdirSync(join(root, '.devkit', 'release'))).toEqual([]);
     });
 
     it.each([

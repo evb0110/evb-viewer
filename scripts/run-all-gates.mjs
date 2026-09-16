@@ -22,6 +22,12 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export function getAllGateDefinitions() {
     return [
         {
+            args: ['scripts/release/release-cut-preflight.mjs'],
+            command: 'node',
+            description: 'Cheap publication prerequisites and candidate eligibility, including hosted CI and artifact evidence',
+            id: 'release-cut-preflight',
+        },
+        {
             args: [
                 'scripts/validation-gates.mjs',
                 'acceptance',
@@ -38,12 +44,6 @@ export function getAllGateDefinitions() {
             command: 'pnpm',
             description: 'Unique release checks and local package verification using the validated build',
             id: 'release-verify',
-        },
-        {
-            args: ['scripts/release/release-cut-preflight.mjs'],
-            command: 'node',
-            description: 'Clean worktree, upstream, GitHub auth, Node baseline, and next patch tag checks',
-            id: 'release-cut-preflight',
         },
     ];
 }
@@ -127,7 +127,7 @@ function parseArgs(argv) {
     return options;
 }
 
-function selectGates(gates, options) {
+export function selectGates(gates, options) {
     const knownIds = new Set(gates.map(gate => gate.id));
     for (const id of [
         options.only,

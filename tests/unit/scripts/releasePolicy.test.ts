@@ -261,7 +261,9 @@ interface IReleaseSharedModule {
 }
 
 interface ICutReleaseArgs {
+    artifactEvidence?: 'advisory' | 'mandatory';
     level: string | null;
+    requiredCommits: string[];
     resume: boolean;
 }
 
@@ -1312,17 +1314,36 @@ describe('release policy', () => {
 
     it('supports release resume without requiring a new version bump level', () => {
         expect(parseCutReleaseArgs(['patch'])).toEqual({
+            artifactEvidence: undefined,
             level: 'patch',
+            requiredCommits: [],
             resume: false,
         });
         expect(parseCutReleaseArgs(['--resume'])).toEqual({
+            artifactEvidence: undefined,
             level: null,
+            requiredCommits: [],
             resume: true,
         });
         expect(() => parseCutReleaseArgs([
             'patch',
             '--resume',
         ])).toThrow('does not accept a release level');
+        expect(parseCutReleaseArgs([
+            'patch',
+            '--require-commit',
+            'fix/release-candidate',
+            '--require-commit=abc123',
+            '--artifact-evidence=advisory',
+        ])).toEqual({
+            artifactEvidence: 'advisory',
+            level: 'patch',
+            requiredCommits: [
+                'fix/release-candidate',
+                'abc123',
+            ],
+            resume: false,
+        });
         expect(() => parseCutReleaseArgs(['--full-verify'])).toThrow('Unknown release option');
     });
 

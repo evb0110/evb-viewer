@@ -1,26 +1,34 @@
 # Releasing
 
-Run one command from a clean `main` checkout:
+Run the command from any checkout of the repository:
 
 ```sh
-pnpm run release:cut patch
+pnpm run release:cut -- patch
 ```
 
-Use `minor` or `major` when that is the intended version change. The checkout does not have to sit at the `origin/main` tip, and nothing has to be green at the moment you run it: the cutter releases the newest commit on `origin/main` that CI has already verified.
+Use `minor` or `major` when that is the intended version change. The checkout may be on another branch, detached, or dirty. The cutter releases the newest commit on `origin/main` that CI has already verified and performs its release mutations in a detached worktree under `.devkit/release`.
+
+To require one or more fixes in the selected candidate, repeat `--require-commit`:
+
+```sh
+pnpm run release:cut -- patch --require-commit <sha-or-ref> --require-commit <another-sha-or-ref>
+```
+
+The cutter keeps the ordinary newest-green-ancestor selection. If that candidate omits a required commit, it stops, names the newest green candidate containing all required commits when one exists, and otherwise says that none exists yet.
 
 ## What the command does
 
 The cutter picks the release candidate, checks it, then publishes a release commit built from it.
 
-- **Candidate.** The newest commit on freshly fetched `origin/main` whose `ci.yml` push run succeeded with a green `gates_ok`. Only push runs count; a `workflow_dispatch` run carries no `gates_ok`. A tip whose run is still in progress is skipped in favour of the newest finished green commit behind it, so a cut never waits on CI. If no commit qualifies, the cutter names every run it rejected and stops.
+- **Candidate.** The newest commit on freshly fetched `origin/main` whose `ci.yml` push run succeeded with a green `gates_ok`. Only push runs count; a `workflow_dispatch` run carries no `gates_ok`. A tip whose run is still in progress is skipped in favour of the newest finished green commit behind it, so a cut never waits on CI. If no commit qualifies, the cutter names every run it rejected and stops. The preflight prints the candidate SHA and its qualifying CI run id and URL.
 - **Newer than the last release.** The candidate must descend from the commit the newest release tag was built from, and must not be that commit. Otherwise there is nothing to cut.
 - **Version.** The next version is bumped from the greater of the candidate's `package.json` version and the newest `vX.Y.Z` tag. The tag wins when main was released from a commit that predates the last version carry.
-- **Canary.** The latest artifact canary run (`release-artifacts.yml`) on `main` succeeded. Push CI proves packaging on Linux only; the canary is the macOS and Windows proof, and a red one means the release would fail at the same platform step.
+- **Canary.** For patch releases, a successful `release-artifacts.yml` canary whose `head_sha` exactly equals the selected candidate is mandatory. The repository has no separately verifiable packaging-input tree hash, so a canary for another commit is not reusable. Use `--artifact-evidence=advisory` on the cut or the read-only preflight to report missing, running, or failed candidate evidence without blocking. The command prints the run that satisfied or failed this check.
 - **Release state.** The current-version GitHub release is not a draft, and the next tag does not exist.
 
-The release commit is `release: <version> [skip ci]` with the candidate as its parent. It changes exactly one line, the `package.json` version, and is written with git plumbing, so the checkout and its worktree stay untouched. The cutter scans that one commit with the publication policy checker, pushes the lightweight tag `vX.Y.Z` at it, and dispatches `release.yml` with the commit SHA. The command prints the run and release links once the workflow appears.
+The release commit is `release: <version> [skip ci]` with the candidate as its parent. It changes exactly one line, the `package.json` version, and is written with git plumbing in the release-owned worktree. The caller's worktree, index, branch, and checkout position are never changed. The cutter scans that one commit with the publication policy checker, pushes the lightweight tag `vX.Y.Z` at it, and dispatches `release.yml` with the commit SHA. The command prints the run and release links once the workflow appears.
 
-The version is then carried to `main`. When `origin/main` still sits at the candidate, the release commit fast-forwards it, as before. When main moved on, a fresh version-only commit on the current tip carries the number instead, and a push that loses to another writer is retried from the new tip. Finally the local `main` is fast-forwarded to `origin/main`. Should every carry attempt fail, the release is still tagged and dispatched; `pnpm run release:resume` retries the carry, and the next cut reads the newest tag, so a stale `package.json` on main cannot reuse a version.
+The version is then carried to remote `main`. When `origin/main` still sits at the candidate, the release commit fast-forwards it, as before. When main moved on, a fresh version-only commit on the current tip carries the number instead, and a push that loses to another writer is retried from the new tip. The caller's local branch is not fast-forwarded. Should every carry attempt fail, the release is still tagged and dispatched; `pnpm run release:resume` retries the carry, and the next cut reads the newest tag, so a stale `package.json` on main cannot reuse a version.
 
 The cutter owns the tag because the workflow cannot create it. GitHub requires the `workflows` scope to point a new ref at a commit that is behind the `main` tip in `.github/workflows/`, and the built-in workflow token never has that scope. The workflow requires the tag at the target and creates the release against it without naming a target commit.
 
@@ -32,7 +40,7 @@ The supplemental workflow attaches the macOS Intel ZIP and the Windows ARM64 ins
 gh workflow run release-supplemental.yml -f tag=vX.Y.Z
 ```
 
-The release preflight (`node scripts/release/release-cut-preflight.mjs`, also a `run-all-gates` stage) answers every question above without publishing anything. `pnpm run release:verify` remains available as a developer tool when a packaging change needs local proof. Neither is part of `release:cut`.
+The release preflight (`node scripts/release/release-cut-preflight.mjs`, also the first `run-all-gates` stage) answers every question above without publishing anything. It accepts the same `--require-commit <sha-or-ref>` and `--artifact-evidence=advisory` options. `pnpm run release:verify` remains available as a developer tool when a packaging change needs local proof. Neither is part of `release:cut`.
 
 ## What is proven before the cut
 
@@ -42,7 +50,7 @@ A release run must never be the first execution of one of its own checks. Three 
 - The artifact canary (`release-artifacts.yml`) packages the current `main` tip on every platform once a day when `main` changed in the last 24 hours. It covers drift the path filter does not catch.
 - The dependency audit runs daily in `dependency-audit.yml`, never on push CI or the release path. It maintains one open issue labelled `dependency-audit`. An advisory published five minutes ago is not a reason to stop a cut; fix it as ordinary dependency work.
 
-Windows-, macOS-, and signing-specific steps run in the canary and in the release. When one of them fails on a code or verifier change, fix it, push, run `pnpm run release:artifacts` from the fixed `main` tip, and cut once that canary run is green. The cutter refuses a red or running canary, so a platform break can no longer ride into a release unnoticed.
+Windows-, macOS-, and signing-specific steps run in the canary and in the release. When one of them fails on a code or verifier change, fix it, push, run `pnpm run release:artifacts` from the fixed `main` tip, and cut once a canary for that exact candidate is green. A red or running canary for another commit is ignored; a missing or non-green canary for the candidate blocks a patch cut unless advisory evidence was selected.
 
 ## Check a release
 
@@ -52,17 +60,17 @@ Use the read-only status command for one-screen state:
 pnpm run release:status vX.Y.Z
 ```
 
-It reports the tag, draft or public release state, publication time, core and supplemental assets, `SHA256SUMS`, both workflow runs, and the mirror pointer when local mirror credentials are configured. Exit code 0 means the public core release is complete. Exit code 1 means it is not.
+It reports a state of `ready`, `in-progress`, `core-published-supplemental-pending`, `complete`, or `blocked` with its blocker, followed by the tag, draft or public release state, publication time, core and supplemental assets, `SHA256SUMS`, both workflow runs, and the mirror pointer when local mirror credentials are configured. `ready` means no release activity for that tag has started. `complete` means the public core and supplemental assets are complete. Exit code 0 still means the public core release is complete, including the supplemental-pending state. Exit code 1 means it is not.
 
 ## Resume a failed release
 
-Resume repairs the newest release tag from any clean `main` checkout:
+Resume repairs the newest release tag from any repository checkout:
 
 ```sh
 pnpm run release:resume
 ```
 
-It fetches tags, takes the newest `vX.Y.Z`, and checks that the tagged commit is a version-only commit whose parent is on `origin/main`. While the release is missing or still a draft, the same tag and SHA are dispatched again and any accepted assets remain in place; if a run for that tag is still queued or in progress, the resume waits on it instead of dispatching a second one. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. Then the version is carried to `main` if main is still behind it. A release that is already public and already carried is not touched; check it with `release:status` and repair only the missing supplemental work.
+It fetches tags, takes the newest `vX.Y.Z`, and checks that the tagged commit is a version-only commit whose parent is on `origin/main`. The tagged commit is checked out in a release-owned detached worktree under `.devkit/release`; the caller's checkout is not switched or cleaned. While the release is missing or still a draft, the same tag and SHA are dispatched again and any accepted assets remain in place; if a run for that tag is still queued or in progress, the resume waits on it instead of dispatching a second one. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. Then the version is carried to `main` if main is still behind it. A release that is already public and already carried is not touched; check it with `release:status` and repair only the missing supplemental work.
 
 ## When a release run is red
 

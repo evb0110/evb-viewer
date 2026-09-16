@@ -17,6 +17,7 @@ import {
 } from './shared.mjs';
 
 const MIRROR_CHANNEL_KEY = 'evb-viewer/channels/stable.json';
+/** @typedef {'blocked' | 'complete' | 'core-published-supplemental-pending' | 'in-progress' | 'ready'} TReleaseStatusState */
 /** @type {ReadonlyArray<{arch: string, label: string, platform: NodeJS.Platform}>} */
 const CORE_TARGETS = [
     {
@@ -51,7 +52,7 @@ const CORE_TARGETS = [
 /** @typedef {{databaseId?: number, displayTitle?: unknown, eventPayload?: {inputs?: {tag?: unknown}}, inputs?: {tag?: unknown}, name?: unknown, workflowName?: unknown, createdAt?: string, conclusion?: string | null, status?: string, url?: string}} IWorkflowStatusRun */
 /** @typedef {{tag: string, runCommand: TCommandRunner}} ITagCommandOptions */
 /** @typedef {{env?: NodeJS.ProcessEnv, getLocalReleaseTargetsFn?: typeof getLocalReleaseTargets, getRequiredArtifactPatternsFn?: typeof getRequiredArtifactPatterns, getSupplementalReleaseAssetNamesFn?: typeof getSupplementalReleaseAssetNames, listWorkflowRunsFn?: typeof listWorkflowRuns, readMirrorChannelFn?: (options: {env: NodeJS.ProcessEnv, runCommand: TCommandRunner}) => {checked: boolean, error: string | null, tag: string | null}, readReleaseStateFn?: (tag: string, runCommand: TCommandRunner) => IReleaseState, readTagStateFn?: (tag: string, runCommand: TCommandRunner) => ITagState, runCommand?: TCommandRunner}} IReleaseStatusDependencies */
-/** @typedef {{assets: string[], checksumManifestPresent: boolean, core: IAssetSummary, coreComplete: boolean, isDraft: boolean | null, isPublic: boolean, mirror: IMirrorSummary, publishedAt: string | null, releaseExists: boolean, releaseError: string | null, releaseTag: string, supplemental: IAssetSummary, supplementalComplete: boolean, tag: string, tagError: string | null, tagExists: boolean, workflows: {release: IWorkflowSummary, supplemental: IWorkflowSummary}}} IReleaseStatus */
+/** @typedef {{assets: string[], blocker: string | null, checksumManifestPresent: boolean, core: IAssetSummary, coreComplete: boolean, isDraft: boolean | null, isPublic: boolean, mirror: IMirrorSummary, publishedAt: string | null, releaseExists: boolean, releaseError: string | null, releaseTag: string, state: TReleaseStatusState, supplemental: IAssetSummary, supplementalComplete: boolean, tag: string, tagError: string | null, tagExists: boolean, workflows: {release: IWorkflowSummary, supplemental: IWorkflowSummary}}} IReleaseStatus */
 
 /** @param {unknown} error @returns {boolean} */
 
@@ -360,6 +361,99 @@ function summarizeMirror(tag, env, runCommand, readMirrorChannelFn) {
     }
 }
 
+/** @param {string} label @param {IWorkflowSummary} workflow @returns {string | null} */
+function getWorkflowBlocker(label, workflow) {
+    if (workflow.error) {
+        return `${label} lookup failed: ${workflow.error}`;
+    }
+    if (!workflow.found) {
+        return null;
+    }
+    if (workflow.status === 'completed' && workflow.conclusion !== 'success') {
+        return `${label} concluded '${workflow.conclusion ?? 'missing'}' (${workflow.url || 'no URL'})`;
+    }
+    return null;
+}
+
+/** @param {IReleaseStatus} status @returns {{blocker: string | null, state: TReleaseStatusState}} */
+export function getReleaseStatusState(status) {
+    const tagBlocker = status.tagError
+        ? `tag lookup failed: ${status.tagError}`
+        : null;
+    const releaseBlocker = status.releaseError
+        ? `release lookup failed: ${status.releaseError}`
+        : null;
+    const releaseWorkflowBlocker = getWorkflowBlocker('release workflow', status.workflows.release);
+    const supplementalWorkflowBlocker = getWorkflowBlocker(
+        'supplemental workflow',
+        status.workflows.supplemental,
+    );
+    const mirrorBlocker = status.mirror.checked && (
+        status.mirror.error
+        || status.mirror.matchesTag !== true
+    )
+        ? status.mirror.error
+            ? `mirror lookup failed: ${status.mirror.error}`
+            : `mirror points at ${status.mirror.tag ?? 'no release tag'}, not ${status.tag}`
+        : null;
+
+    const blocker = tagBlocker
+        ?? releaseBlocker
+        ?? releaseWorkflowBlocker
+        ?? supplementalWorkflowBlocker
+        ?? mirrorBlocker;
+    if (blocker) {
+        return {
+            blocker,
+            state: 'blocked',
+        };
+    }
+
+    const hasReleaseActivity = status.tagExists
+        || status.releaseExists
+        || status.workflows.release.found
+        || status.workflows.supplemental.found;
+    if (!hasReleaseActivity) {
+        return {
+            blocker: null,
+            state: 'ready',
+        };
+    }
+
+    if (status.coreComplete) {
+        if (status.supplementalComplete) {
+            return {
+                blocker: null,
+                state: 'complete',
+            };
+        }
+
+        return {
+            blocker: null,
+            state: 'core-published-supplemental-pending',
+        };
+    }
+
+    if (status.releaseExists && status.isDraft) {
+        return {
+            blocker: null,
+            state: 'in-progress',
+        };
+    }
+
+    if (status.workflows.release.found && status.workflows.release.conclusion === 'success') {
+        return {
+            blocker: `core publication is incomplete: ${status.core.missing.join('; ') || 'required assets are missing'}`,
+            state: 'blocked',
+        };
+    }
+
+    return {
+        blocker: null,
+        state: 'in-progress',
+    };
+}
+
 /** @param {string} tag @param {IReleaseStatusDependencies} [deps] @returns {IReleaseStatus} */
 export function summarizeReleaseStatus(tag, deps = {}) {
     if (!RELEASE_TAG_PATTERN.test(tag)) {
@@ -409,8 +503,10 @@ export function summarizeReleaseStatus(tag, deps = {}) {
             runCommand,
         ),
     };
-    return {
+    /** @type {IReleaseStatus} */
+    const status = {
         assets: [...release.assets].sort(),
+        blocker: null,
         checksumManifestPresent,
         core,
         coreComplete,
@@ -423,10 +519,16 @@ export function summarizeReleaseStatus(tag, deps = {}) {
         releaseTag: release.tagName,
         supplemental,
         supplementalComplete: supplemental.complete,
+        state: 'in-progress',
         tag,
         tagError: tagState.error,
         tagExists: tagState.exists,
         workflows,
+    };
+    const releaseState = getReleaseStatusState(status);
+    return {
+        ...status,
+        ...releaseState,
     };
 }
 
@@ -464,6 +566,7 @@ export function formatReleaseStatus(status) {
 
     return [
         `Release status: ${status.tag}`,
+        `state: ${status.state}${status.blocker ? ` (${status.blocker})` : ''}`,
         `tag: ${status.tagExists ? 'present' : 'missing'}${status.tagError ? ` (${status.tagError})` : ''}`,
         `release: ${releaseState}${publishedAt}`,
         `assets present: ${presentAssets}`,

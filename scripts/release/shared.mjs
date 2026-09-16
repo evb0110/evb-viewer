@@ -537,13 +537,22 @@ function assertReleaseMainUpstream(upstream, context) {
 
 /**
  * @param {string} [context]
- * @param {{readBranch?: (context: string) => string, readUpstream?: (context: string) => IUpstream, runCommand?: TCommandRunner}} [options]
+ * @param {{readBranch?: (context: string) => string, readUpstream?: (context: string) => IUpstream, requireCurrentBranch?: boolean, runCommand?: TCommandRunner}} [options]
  */
 export function getReleaseMainUpstream(context = 'Release', {
     readBranch,
     readUpstream,
+    requireCurrentBranch = true,
     runCommand = run,
 } = {}) {
+    if (!requireCurrentBranch) {
+        return {
+            branch: 'main',
+            ref: 'origin/main',
+            remote: 'origin',
+        };
+    }
+
     const branch = (readBranch ?? (contextName => requireNamedBranch(contextName, {runCommand})))(context);
     assertReleaseMainBranchName(branch, context);
 

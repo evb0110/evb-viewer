@@ -3,43 +3,69 @@
 import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {assertReleaseCutPreconditions} from './cut-release.mjs';
+import {
+    assertReleaseCutPreconditions,
+    parseCutReleaseArgs,
+} from './cut-release.mjs';
 
 /** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
-/** @typedef {{currentVersion: string, nextVersion: string, upstream: {ref: string}}} IPreflightResult */
-/** @typedef {(options: {context: string, level: TReleaseLevel}) => Promise<IPreflightResult>} TAssertPreconditions */
+/** @typedef {{candidateCiRunId: number, candidateCiRunUrl: string, candidateSha: string, currentVersion: string, nextVersion: string, upstream: {ref: string}}} IPreflightResult */
+/** @typedef {'mandatory' | 'advisory'} TArtifactEvidencePolicy */
+/** @typedef {(options: {artifactEvidence?: TArtifactEvidencePolicy | undefined, context: string, level: TReleaseLevel, requiredCommits: string[]}) => Promise<IPreflightResult>} TAssertPreconditions */
 
-/** @param {{assertPreconditions?: TAssertPreconditions, level?: TReleaseLevel, write?: (message: string) => unknown}} [options] @returns {Promise<IPreflightResult>} */
+/** @param {string[]} argv @returns {{artifactEvidence?: TArtifactEvidencePolicy | undefined, requiredCommits: string[]}} */
+export function parseReleasePreflightArgs(argv) {
+    const parsed = parseCutReleaseArgs([
+        'patch',
+        ...argv,
+    ]);
+    return {
+        artifactEvidence: parsed.artifactEvidence,
+        requiredCommits: parsed.requiredCommits,
+    };
+}
+
+/** @param {{artifactEvidence?: TArtifactEvidencePolicy | undefined, assertPreconditions?: TAssertPreconditions, level?: TReleaseLevel, requiredCommits?: string[], write?: (message: string) => unknown}} [options] @returns {Promise<IPreflightResult>} */
 export async function runReleasePreflight({
+    artifactEvidence,
     assertPreconditions = assertReleaseCutPreconditions,
     level = 'patch',
+    requiredCommits = [],
     write = message => {
         process.stdout.write(message);
     },
 } = {}) {
-    const {
-        currentVersion,
-        nextVersion,
-        upstream,
-    } = await assertPreconditions({
+    const result = await assertPreconditions({
+        artifactEvidence,
         context: 'Release preflight',
         level,
+        requiredCommits,
     });
-
-    write(`Release ${level} preflight passed: ${currentVersion} -> ${nextVersion} on ${upstream.ref}.\n`);
-    return {
+    const {
+        candidateCiRunId,
+        candidateCiRunUrl,
+        candidateSha,
         currentVersion,
         nextVersion,
         upstream,
-    };
+    } = result;
+
+    write(
+        `Release ${level} preflight passed for candidate ${candidateSha} `
+        + `(ci.yml run ${candidateCiRunId}: ${candidateCiRunUrl}): `
+        + `${currentVersion} -> ${nextVersion} on ${upstream.ref}.\n`,
+    );
+    return result;
 }
 
 const isMain = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isMain) {
-    runReleasePreflight().catch(error => {
-        process.stderr.write(`${getCliErrorMessage(error)}\n`);
-        process.exitCode = 1;
-    });
+    Promise.resolve()
+        .then(() => runReleasePreflight(parseReleasePreflightArgs(process.argv.slice(2))))
+        .catch(error => {
+            process.stderr.write(`${getCliErrorMessage(error)}\n`);
+            process.exitCode = 1;
+        });
 }

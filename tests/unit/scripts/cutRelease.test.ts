@@ -4,15 +4,20 @@ import {
     it,
 } from 'vitest';
 import {
+    assertArtifactCanaryGreen,
     assertReleaseCutPreconditions,
     carryVersionToMain,
     cutRelease,
+    getArtifactEvidencePolicy,
     parseCutReleaseArgs,
     publishReleaseCommit,
     resumeRelease,
     selectReleaseCandidate,
 } from '@scripts/release/cut-release.mjs';
-import {runReleasePreflight} from '@scripts/release/release-cut-preflight.mjs';
+import {
+    parseReleasePreflightArgs,
+    runReleasePreflight,
+} from '@scripts/release/release-cut-preflight.mjs';
 
 const HEAD_SHA = 'a'.repeat(40);
 const PARENT_SHA = 'b'.repeat(40);
@@ -41,7 +46,10 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
     const events: string[] = [];
 
     return {
-        assertArtifactCanaryGreenFn: () => events.push('canary'),
+        assertArtifactCanaryGreenFn: () => {
+            events.push('canary');
+            return {state: 'satisfied' as const};
+        },
         assertCleanWorktreeFn: () => events.push('clean'),
         assertCurrentReleaseIsNotDraftFn: (tag: string) => events.push(`draft:${tag}`),
         assertGitHubCliReadyFn: async () => {
@@ -84,13 +92,55 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
 describe('cut-release', () => {
     it('accepts a release level without the rejected separator form', () => {
         expect(parseCutReleaseArgs(['patch'])).toEqual({
+            artifactEvidence: undefined,
             level: 'patch',
+            requiredCommits: [],
             resume: false,
         });
         expect(parseCutReleaseArgs(['minor'])).toEqual({
+            artifactEvidence: undefined,
             level: 'minor',
+            requiredCommits: [],
             resume: false,
         });
+    });
+
+    it('parses repeatable required commits and artifact evidence policy', () => {
+        expect(parseCutReleaseArgs([
+            'patch',
+            '--require-commit',
+            'fix/ref',
+            '--require-commit=abc123',
+            '--artifact-evidence',
+            'advisory',
+        ])).toEqual({
+            artifactEvidence: 'advisory',
+            level: 'patch',
+            requiredCommits: [
+                'fix/ref',
+                'abc123',
+            ],
+            resume: false,
+        });
+    });
+
+    it('rejects candidate and artifact options for resume', () => {
+        expect(parseCutReleaseArgs(['--resume'])).toEqual({
+            artifactEvidence: undefined,
+            level: null,
+            requiredCommits: [],
+            resume: true,
+        });
+        expect(() => parseCutReleaseArgs([
+            '--resume',
+            '--require-commit',
+            HEAD_SHA,
+        ])).toThrow(/does not accept candidate/u);
+        expect(() => parseCutReleaseArgs([
+            '--artifact-evidence',
+            'unknown',
+            'patch',
+        ])).toThrow(/must be one of/u);
     });
 
     it('removes the old local verification flag', () => {
@@ -105,6 +155,8 @@ describe('cut-release', () => {
         const result = await assertReleaseCutPreconditions(options);
 
         expect(result).toEqual({
+            candidateCiRunId: 10,
+            candidateCiRunUrl: 'https://github.com/example/ci/runs/10',
             candidateSha: HEAD_SHA,
             currentVersion: '0.1.445',
             nextVersion: '0.1.446',
@@ -113,13 +165,40 @@ describe('cut-release', () => {
         expect(options.events).toEqual([
             'node',
             'github',
-            'clean',
             'fetch',
             'candidate',
             'ancestor-version',
             'canary',
             'draft:v0.1.445',
             'tag:v0.1.446',
+        ]);
+    });
+
+    it('passes required commits and the selected candidate to the precondition hooks', async () => {
+        const requiredCommit = PARENT_SHA;
+        let selectedOptions: unknown;
+        let canaryCall: unknown;
+        const options = createPreconditionOptions({
+            assertArtifactCanaryGreenFn: (...args: unknown[]) => {
+                canaryCall = args;
+            },
+            requiredCommits: [requiredCommit],
+            selectReleaseCandidateFn: (...args: unknown[]) => {
+                selectedOptions = args[1];
+                return {
+                    run: createGreenRun(HEAD_SHA, 10),
+                    sha: HEAD_SHA,
+                };
+            },
+        });
+
+        await assertReleaseCutPreconditions(options);
+
+        expect(selectedOptions).toEqual({requiredCommits: [requiredCommit]});
+        expect(canaryCall).toEqual([
+            HEAD_SHA,
+            UPSTREAM,
+            {policy: 'mandatory'},
         ]);
     });
 
@@ -163,7 +242,7 @@ describe('cut-release', () => {
             .rejects.toThrow(/not newer than v0\.1\.445 \(built from b{40}\)/u);
     });
 
-    it('refuses a red artifact canary on main with its URL', async () => {
+    it('refuses a red artifact canary for the selected candidate with its URL', async () => {
         const options = createPreconditionOptions({
             assertArtifactCanaryGreenFn: undefined,
             readGreatestReleaseTagFn: () => null,
@@ -174,7 +253,7 @@ describe('cut-release', () => {
                 displayTitle: 'Build Release Artifacts',
                 event: 'schedule',
                 headBranch: 'main',
-                headSha: PARENT_SHA,
+                headSha: HEAD_SHA,
                 name: 'Build Release Artifacts',
                 status: 'completed',
                 url: 'https://github.com/example/canary/runs/7',
@@ -183,7 +262,80 @@ describe('cut-release', () => {
         });
 
         await expect(assertReleaseCutPreconditions(options))
-            .rejects.toThrow(/release:artifacts.*https:\/\/github\.com\/example\/canary\/runs\/7/u);
+            .rejects.toThrow(new RegExp(`candidate ${HEAD_SHA}.*runs/7`, 'u'));
+    });
+
+    it('requires exact candidate artifact evidence and makes missing evidence distinct', () => {
+        const stderr: string[] = [];
+        const candidateRun = {
+            conclusion: 'success',
+            createdAt: '2026-09-10T08:54:36Z',
+            databaseId: 8,
+            headBranch: 'main',
+            headSha: HEAD_SHA,
+            status: 'completed',
+            url: 'https://github.com/example/canary/runs/8',
+        };
+        const differentCommitRun = {
+            ...candidateRun,
+            conclusion: 'failure',
+            databaseId: 7,
+            headSha: PARENT_SHA,
+            status: 'completed',
+            url: 'https://github.com/example/canary/runs/7',
+        };
+        const runCommand = () => JSON.stringify([
+            differentCommitRun,
+            candidateRun,
+        ]);
+
+        expect(assertArtifactCanaryGreen(HEAD_SHA, UPSTREAM, runCommand, {stderr: {write: (message: string) => stderr.push(message)}})).toMatchObject({
+            run: candidateRun,
+            state: 'satisfied',
+        });
+        expect(stderr.join('')).toContain(`candidate ${HEAD_SHA}`);
+        expect(stderr.join('')).toContain('runs/8');
+
+        const missing = assertArtifactCanaryGreen(HEAD_SHA, UPSTREAM, () => JSON.stringify([differentCommitRun]), {
+            policy: 'advisory',
+            stderr: {write: (message: string) => stderr.push(message)},
+        });
+        expect(missing).toEqual({
+            run: undefined,
+            state: 'missing',
+        });
+        expect(stderr.join('')).toContain(`no release-artifacts.yml run has head_sha ${HEAD_SHA}`);
+    });
+
+    it('reports a running candidate canary as a mandatory failure but ignores a running different commit', () => {
+        const runningCandidate = {
+            conclusion: null,
+            databaseId: 9,
+            headBranch: 'main',
+            headSha: HEAD_SHA,
+            status: 'in_progress',
+            url: 'https://github.com/example/canary/runs/9',
+        };
+        const runningDifferentCommit = {
+            ...runningCandidate,
+            databaseId: 10,
+            headSha: PARENT_SHA,
+            url: 'https://github.com/example/canary/runs/10',
+        };
+        const stderr: string[] = [];
+
+        expect(() => assertArtifactCanaryGreen(HEAD_SHA, UPSTREAM, () => JSON.stringify([runningCandidate]), {stderr: {write: (message: string) => stderr.push(message)}})).toThrow(new RegExp(`candidate ${HEAD_SHA}.*runs/9`, 'u'));
+        expect(() => assertArtifactCanaryGreen(HEAD_SHA, UPSTREAM, () => JSON.stringify([runningDifferentCommit]), {
+            policy: 'advisory',
+            stderr: {write: (message: string) => stderr.push(message)},
+        })).not.toThrow();
+        expect(stderr.join('')).not.toContain('runs/10');
+    });
+
+    it('makes patch artifact evidence mandatory by default and allows the advisory override', () => {
+        expect(getArtifactEvidencePolicy('patch')).toBe('mandatory');
+        expect(getArtifactEvidencePolicy('patch', 'advisory')).toBe('advisory');
+        expect(getArtifactEvidencePolicy('minor')).toBe('advisory');
     });
 
     it('builds the release commit off the candidate, tags it, then carries the version to main', async () => {
@@ -211,6 +363,7 @@ describe('cut-release', () => {
                 published = request;
                 return RELEASE_SHA;
             },
+            releaseWorktreeFn: async ({operation}: {operation: () => Promise<unknown>}) => operation(),
             stderr: {write: () => true},
         });
 
@@ -220,7 +373,6 @@ describe('cut-release', () => {
             'create',
             'publish',
             'carry',
-            'fast-forward',
         ]);
         expect(created).toEqual({
             parentSha: HEAD_SHA,
@@ -241,6 +393,26 @@ describe('cut-release', () => {
             upstream: UPSTREAM,
             version: '0.1.446',
         });
+    });
+
+    it('keeps the old local-main fast-forward as an explicit opt-in', async () => {
+        const events: string[] = [];
+        const options = createPreconditionOptions({
+            carryVersionToMainFn: async () => ({
+                carried: true,
+                sha: RELEASE_SHA,
+            }),
+            createReleaseCommitFn: () => RELEASE_SHA,
+            fastForwardLocalMainFn: () => events.push('fast-forward'),
+            publishReleaseCommitFn: async () => RELEASE_SHA,
+            releaseWorktreeFn: async ({operation}: {operation: () => Promise<unknown>}) => operation(),
+            stderr: {write: () => true},
+            updateLocalMain: true,
+        });
+
+        await cutRelease('patch', options);
+
+        expect(events).toEqual(['fast-forward']);
     });
 });
 
@@ -276,6 +448,44 @@ describe('selectReleaseCandidate', () => {
 
         expect(candidate.sha).toBe(OLDER_SHA);
         expect(candidate.run.id).toBe(10);
+    });
+
+    it('does not silently cut an older green candidate when a required commit is missing from the newest one', () => {
+        const requiredSha = 'f'.repeat(40);
+        const newest = createGreenRun(HEAD_SHA, 11);
+        const older = createGreenRun(OLDER_SHA, 10);
+        const ancestorPairs = new Set([
+            `${requiredSha}:${OLDER_SHA}`,
+            `${OLDER_SHA}:origin/main`,
+            `${HEAD_SHA}:origin/main`,
+        ]);
+
+        expect(() => selectReleaseCandidate(UPSTREAM, {
+            isAncestorFn: (ancestorSha: string, descendantRef: string) => ancestorPairs.has(`${ancestorSha}:${descendantRef}`),
+            listRunsFn: () => [
+                newest,
+                older,
+            ],
+            readGatesFn: () => 'success',
+            requiredCommits: [requiredSha],
+            runCommand: () => '',
+        })).toThrow(new RegExp(
+            `Selected green release candidate ${HEAD_SHA}.*Newest green candidate containing every required commit is ${OLDER_SHA}`,
+            'u',
+        ));
+    });
+
+    it('reports when no green candidate contains every required commit yet', () => {
+        const requiredSha = 'f'.repeat(40);
+
+        expect(() => selectReleaseCandidate(UPSTREAM, {
+            isAncestorFn: (ancestorSha: string, descendantRef: string) => descendantRef === 'origin/main'
+                && ancestorSha === HEAD_SHA,
+            listRunsFn: () => [createGreenRun(HEAD_SHA, 11)],
+            readGatesFn: () => 'success',
+            requiredCommits: [requiredSha],
+            runCommand: () => '',
+        })).toThrow(/No green candidate in the available CI history contains every required commit yet/u);
     });
 
     it('names every rejected run when no commit qualifies', () => {
@@ -346,6 +556,7 @@ describe('resumeRelease', () => {
                 }
                 return '';
             },
+            releaseWorktreeFn: async ({operation}: {operation: () => Promise<unknown>}) => operation(),
             stderr: {write: () => true},
             ...overrides,
         };
@@ -362,7 +573,6 @@ describe('resumeRelease', () => {
             'fetch-tags',
             'publish',
             'carry',
-            'fast-forward',
         ]);
         expect(options.commands).toContain(`publish ${JSON.stringify({
             parentSha: PARENT_SHA,
@@ -393,8 +603,25 @@ describe('resumeRelease', () => {
             'fetch-main',
             'fetch-tags',
             'carry',
-            'fast-forward',
         ]);
+    });
+
+    it('binds resume mutations to the tagged commit worktree', async () => {
+        let worktreeCandidate: string | undefined;
+        const options = createResumeOptions({releaseWorktreeFn: async ({
+            candidateSha, operation,
+        }: {
+            candidateSha: string;
+            operation: () => Promise<unknown>;
+        }) => {
+            worktreeCandidate = candidateSha;
+            await operation();
+        }});
+
+        await resumeRelease(options);
+
+        expect(worktreeCandidate).toBe(RELEASE_SHA);
+        expect(options.events).not.toContain('fast-forward');
     });
 
     it('only carries the version for a public release whose main is behind', async () => {
@@ -678,6 +905,17 @@ describe('publishReleaseCommit tag ownership', () => {
 });
 
 describe('runReleasePreflight', () => {
+    it('accepts the candidate inclusion and artifact evidence options', () => {
+        expect(parseReleasePreflightArgs([
+            '--require-commit',
+            HEAD_SHA,
+            '--artifact-evidence=advisory',
+        ])).toEqual({
+            artifactEvidence: 'advisory',
+            requiredCommits: [HEAD_SHA],
+        });
+    });
+
     it('runs the patch preconditions and reports the version step', async () => {
         const calls: unknown[] = [];
         const output: string[] = [];
@@ -686,6 +924,8 @@ describe('runReleasePreflight', () => {
             assertPreconditions: async (options: unknown) => {
                 calls.push(options);
                 return {
+                    candidateCiRunId: 42,
+                    candidateCiRunUrl: 'https://github.com/example/ci/runs/42',
                     candidateSha: HEAD_SHA,
                     currentVersion: '1.2.3',
                     nextVersion: '1.2.4',
@@ -698,10 +938,12 @@ describe('runReleasePreflight', () => {
         });
 
         expect(calls).toEqual([{
+            artifactEvidence: undefined,
             context: 'Release preflight',
             level: 'patch',
+            requiredCommits: [],
         }]);
-        expect(output).toEqual(['Release patch preflight passed: 1.2.3 -> 1.2.4 on origin/main.\n']);
+        expect(output).toEqual([`Release patch preflight passed for candidate ${HEAD_SHA} (ci.yml run 42: https://github.com/example/ci/runs/42): 1.2.3 -> 1.2.4 on origin/main.\n`]);
         expect(result.nextVersion).toBe('1.2.4');
     });
 });
