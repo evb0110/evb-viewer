@@ -1,0 +1,79 @@
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_89bffa343cf664::t_a6016a3f1a7daf 359
+  s_89bffa343cf664::t_b9d08a7156b5f7 34-37,321-358,360-363
+  s_89bffa343cf664::t_8fc0d18cfb2ba4 33,364
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_89bffa343cf664::t_a6016a3f1a7daf 384
+  s_89bffa343cf664::t_2b4685ec4cdd95 35-37,80,313-315,340,343
+  s_89bffa343cf664::t_23bd188205ef53 383
+  s_89bffa343cf664::t_ce75d81b1de479 371,382
+scripts/release/verify-sentry-sourcemap-canaries.mjs
+  s_89bffa343cf664::t_bc5dc2165c93da 699-720,725-772,783-786,794-797,800-828
+  s_89bffa343cf664::t_a6016a3f1a7daf 297-301,721-724
+  s_89bffa343cf664::t_23ae818b606d88 262,265-269,273-276,279-283,294-296,302-307,343-348,358
+  s_89bffa343cf664::t_3c6645384092cf 2,24,37-38,252-261,263-264,270-272,277-278,284-293,308-342,349-357,359-366
+  s_89bffa343cf664::t_398f671250b870 367
+docs/internal/operations/sentry-agent-check.md
+  s_89bffa343cf664::t_640ad903799968 150-152
+  s_89bffa343cf664::t_13d82b69bedb12 29-61
+  s_89bffa343cf664::t_1f504cdbb91497 153
+packages/contracts/diagnostics/sentryClosedEvent.ts
+  s_89bffa343cf664::t_01877cd1af7b22 24
+  s_89bffa343cf664::t_2b4685ec4cdd95 8-23,25-26,33,49-51,73-75
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_89bffa343cf664::t_119006f0a923b7 99-103,437-445,458-466,503-506
+  s_89bffa343cf664::t_2b4685ec4cdd95 41-45,47,208-209,322-324,368-387,424-430
+  s_89bffa343cf664::t_a6016a3f1a7daf 48-49,186-189,423,446-457
+docs/internal/operations/sentry-runbook.md
+  s_89bffa343cf664::t_b7ba2d2da2b568 337-364
+  s_89bffa343cf664::t_b6a0d2577f09bb 326-329
+  s_89bffa343cf664::t_63838e21ab7470 63-89
+  s_b32797d3797b44::t_43a7352d948e31 365-372
+  s_b32797d3797b44::t_036c1cd4fd8b9d 373
+tests/unit/scripts/verifySentrySourcemapCanaries.test.ts
+  s_89bffa343cf664::t_a6016a3f1a7daf 186-189,202-213,255-258,275-278
+  s_89bffa343cf664::t_b9d08a7156b5f7 180-185,190-201,214-218,250-254,259-274,279-282
+  s_89bffa343cf664::t_3e36ce2f45708a 283-284
+tests/unit/scripts/verifyPackagedDiagnosticsSmoke.test.ts
+  s_89bffa343cf664::t_a6016a3f1a7daf 24-27
+  s_89bffa343cf664::t_119006f0a923b7 6-9,21-23,28
+  s_89bffa343cf664::t_3a174f8f3ec224 29
+.github/workflows/build-target.yml
+  s_89bffa343cf664::t_a567763289c523 607-608,701-702
+  s_b32797d3797b44::t_43a7352d948e31 647-654,667,676
+  s_89bffa343cf664::t_de176a0e0cc002 577-580,583-584,604-605,610-615,617-621,638-646,655-666,668-675
+  s_89bffa343cf664::t_37372b93d6a992 703
+  s_b32797d3797b44::t_49884804188a61 677
+.github/workflows/release-artifacts.yml
+  s_89bffa343cf664::t_de176a0e0cc002 16,225-229,247-251,265-269,283-287
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_89bffa343cf664::t_b9d08a7156b5f7 391-413,420-434
+  s_89bffa343cf664::t_a6016a3f1a7daf 414-419
+electron/bootstrap/mainProcess.ts
+  s_89bffa343cf664::t_2b4685ec4cdd95 75,217-241
+  s_89bffa343cf664::t_f4ddd9477a8398 242-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e52da38bf7140b7060ba5069964fbb5fdb3626bf",
+  "prompts": {},
+  "sessions": {
+    "s_89bffa343cf664": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a91f-a422-7552-bdd0-1d73a14d0a1c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b32797d3797b44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d84b3e55-bbb4-4d74-bfe2-05f66ecdceb2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
