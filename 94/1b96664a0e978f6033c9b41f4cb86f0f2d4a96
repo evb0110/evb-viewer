@@ -1,0 +1,50 @@
+electron/bootstrap/requestShutdownSaveFlush.ts
+  s_b32797d3797b44::t_13fbe6b776d604 18-24,32-33,79,90,126,145,214-220,223
+scripts/electron-run/stopSession.ts
+  s_c77af134cd2fb8::t_ceeddea76c869f 44
+scripts/electron-run/sessionController.ts
+  s_c77af134cd2fb8::t_ceeddea76c869f 195-198,200-201
+  s_c77af134cd2fb8::t_073b0a01338b3c 199
+tests/unit/electron/requestShutdownSaveFlush.test.ts
+  s_b32797d3797b44::t_1043b994fe54c4 244
+  s_b32797d3797b44::t_13fbe6b776d604 104,152,189,219,239,242,268,314,321,328-335,347-357,367,374
+  s_b32797d3797b44::t_3ee82d0b2598e8 204-208,213-217
+tests/unit/scripts/electronRunGracefulShutdownPolicy.test.ts
+  s_c77af134cd2fb8::t_073b0a01338b3c 135
+  s_c77af134cd2fb8::t_ceeddea76c869f 132,136,141-144,151-159
+  s_c77af134cd2fb8::t_286010357900e2 160-161
+app/modules/workspace-shell/composables/useShutdownSaveFlushReporting.ts
+  s_b32797d3797b44::t_6511d455140e4b 19-25,93-95
+  s_b32797d3797b44::t_2c8d2f8b5ce642 96
+tests/unit/app/modules/workspace-shell/composables/useShutdownSaveFlushReporting.test.ts
+  s_b32797d3797b44::t_6511d455140e4b 35,63-65,158-167
+  s_b32797d3797b44::t_145f7cbfe6aeb4 168-171
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_b32797d3797b44::t_6511d455140e4b 509
+tests/unit/electron/workspaceCheckpointLatestOnly.test.ts
+  s_c77af134cd2fb8::t_42890d3de6e46b 518-530
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "941b96664a0e978f6033c9b41f4cb86f0f2d4a96",
+  "prompts": {},
+  "sessions": {
+    "s_b32797d3797b44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d84b3e55-bbb4-4d74-bfe2-05f66ecdceb2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c77af134cd2fb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a99e-71a5-7b61-bd65-e4b6b9ec47b3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
