@@ -1,0 +1,19 @@
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_b32797d3797b44::t_a13c3b5031a777 261-280,5361,5420,5484
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "67ab5e06ac813dff2afbc1e3b2ba1df62591fdb4",
+  "prompts": {},
+  "sessions": {
+    "s_b32797d3797b44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d84b3e55-bbb4-4d74-bfe2-05f66ecdceb2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
