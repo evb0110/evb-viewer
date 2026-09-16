@@ -3,7 +3,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning && !isExporting"
-        :ui="{ content: 'sm:max-w-3xl top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
+        :ui="{ content: 'sm:max-w-2xl top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
     >
         <template #description>
             <span class="sr-only">
@@ -141,9 +141,6 @@
                                 <span class="policy-option-description">{{ item.description }}</span>
                             </template>
                         </URadioGroup>
-                        <p class="policy-hint" aria-live="polite">
-                            {{ selectedSupersessionDescription }}
-                        </p>
                         <UCollapsible
                             v-if="supersessionChoiceModel === 'repeat'"
                             v-model:open="repeatAdvancedOpen"
@@ -308,7 +305,7 @@
                                         value-key="value"
                                         size="sm"
                                         variant="card"
-                                        orientation="vertical"
+                                        orientation="horizontal"
                                         indicator="hidden"
                                         :ui="languageChipGroupUi"
                                     >
@@ -316,6 +313,7 @@
                                             <span class="chip-name">{{ item.label }}</span>
                                             <span class="chip-code">{{ item.value }}</span>
                                             <span
+                                                v-if="item.modelState !== 'ready'"
                                                 class="chip-state"
                                                 :class="{ 'is-error': item.modelState === 'error' }"
                                             >
@@ -526,9 +524,10 @@ const ocrPageSegmentationOptions = [
 }>;
 const formFieldUi = { label: 'label ocr-setting-legend' } as const;
 const listRadioGroupUi = {
-    fieldset: 'gap-y-1.5',
+    fieldset: 'gap-y-2',
     legend: 'label ocr-setting-legend',
-    item: 'items-center',
+    item: 'items-start',
+    container: 'mt-0.5',
     label: 'font-normal',
 } as const;
 const segmentedRadioGroupUi = {
@@ -538,7 +537,7 @@ const segmentedRadioGroupUi = {
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
 const languageChipGroupUi = {
-    fieldset: 'w-full gap-1.5',
+    fieldset: 'w-full flex-wrap gap-x-1.5 gap-y-1.5',
     legend: 'sr-only',
     item: 'language-chip',
     label: 'language-chip-label font-normal text-xs',
@@ -701,10 +700,6 @@ const supersessionPolicyHelpItems = computed(() => ocrSupersessionChoices.map(ch
     label: t(getSupersessionChoiceLabelKey(choice), undefined),
     description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
 })));
-const selectedSupersessionDescription = computed(() => t(
-    getSupersessionChoiceDescriptionKey(supersessionChoiceModel.value),
-    undefined,
-));
 const pageSegmentationItems = computed<Array<{
     value: string;
     label: string;
@@ -913,16 +908,6 @@ defineExpose<IOcrPopupAgentExpose>({
     align-items: start;
 }
 
-.policy-hint {
-    min-height: 2lh;
-    margin-top: var(--app-space-3xl);
-    padding-inline-start: var(--app-space-6xl);
-    border-inline-start: 2px solid var(--ui-border);
-    font-size: var(--app-text-size-kicker);
-    line-height: 1.4;
-    color: var(--ui-text-muted);
-}
-
 .language-picker-header {
     display: flex;
     align-items: center;
@@ -958,10 +943,11 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .language-group-heading {
-    margin: var(--app-space-3xl) var(--app-space-2xs) var(--app-space-xs);
-    color: var(--ui-text-muted);
+    margin: var(--app-space-6xl) var(--app-space-2xs) var(--app-space-sm);
+    color: var(--ui-text-dimmed);
     font-size: var(--app-text-size-micro);
     font-weight: var(--app-font-weight-semibold);
+    letter-spacing: 0.05em;
     text-transform: uppercase;
 }
 
@@ -972,8 +958,12 @@ defineExpose<IOcrPopupAgentExpose>({
 :deep(.language-chip) {
     flex: none;
     width: auto;
-    padding: var(--app-space-xs) var(--app-space-8xl);
+    max-width: 100%;
+    padding: var(--app-space-md) var(--app-space-9xl);
+    border-color: var(--ui-border);
     border-radius: var(--app-radius-full);
+    background: var(--ui-bg);
+    cursor: pointer;
     transition:
         border-color 0.12s ease,
         background-color 0.12s ease;
@@ -990,6 +980,11 @@ defineExpose<IOcrPopupAgentExpose>({
 
 :deep(.language-chip:has([data-state="checked"]) .language-chip-label) {
     color: var(--ui-primary);
+}
+
+:deep(.language-chip:has([data-state="checked"]) .chip-code) {
+    border-color: color-mix(in srgb, var(--ui-primary) 35%, transparent);
+    color: color-mix(in srgb, var(--ui-primary) 70%, var(--ui-text-muted));
 }
 
 :deep(.language-chip-label) {
@@ -1012,16 +1007,14 @@ defineExpose<IOcrPopupAgentExpose>({
     display: inline-flex;
     align-items: center;
     gap: var(--app-space-3xs);
+    padding-inline-start: var(--app-space-sm);
+    border-inline-start: var(--app-hairline-height) solid var(--ui-border);
     font-size: var(--app-text-size-micro);
     color: var(--ui-text-muted);
 }
 
 .chip-state.is-error {
     color: var(--ui-error);
-}
-
-.chip-spinner {
-    color: var(--ui-primary);
 }
 
 .language-empty {
