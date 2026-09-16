@@ -32,6 +32,9 @@ import {decodeDiagnosticsSuppressedCount} from '@contracts/diagnostics/diagnosti
 import {
     buildSentryClosedEvent,
     EVB_DIAGNOSTIC_SCHEMA_MARKER,
+    EVB_SENTRY_RUNTIME_PROBE_ENV,
+    readSentryRuntimeProbe,
+    type TSentryRuntimeProbe,
 } from '@contracts/diagnostics/sentryClosedEvent';
 import {
     assertSentryBuildIdentity,
@@ -74,6 +77,7 @@ export interface ISentryNodeAdapterOptions {
     audit?: (entry: ISentryNodeAuditEntry) => void;
     resolveFilenameDebugIds?: () => Readonly<Record<string, string>>;
     rendererStaticRoot?: string;
+    runtimeProbe?: TSentryRuntimeProbe;
 }
 
 export type TSentryNodeRuntimeOptions = Omit<
@@ -306,6 +310,9 @@ export function createSentryNodeDiagnosticsTransport(
         throw new Error('Desktop diagnostics require an exact desktop build identity');
     }
     const dsn = requireEuDsn(options.dsn);
+    if (options.runtimeProbe !== undefined && identity.environment === 'production') {
+        throw new Error('Packaged diagnostics probes require a non-production Sentry environment');
+    }
     const makeTransport = options.makeTransport ?? createNodeEnvelopeTransport;
     const transport = makeTransport({
         url: getEnvelopeEndpointWithUrlEncodedAuth(dsn),
@@ -330,15 +337,10 @@ export function createSentryNodeDiagnosticsTransport(
                 identity,
                 buildRuntimeContext(options),
                 filenameToDebugId,
+                options.runtimeProbe,
             );
             const markedEvent = event.tags?.evb_schema === EVB_DIAGNOSTIC_SCHEMA_MARKER
-                ? buildSentryClosedEvent(
-                    record,
-                    suppressedCount,
-                    identity,
-                    buildRuntimeContext(options),
-                    filenameToDebugId,
-                )
+                ? event
                 : null;
             if (markedEvent === null) {
                 return false;
@@ -366,6 +368,7 @@ export function createSentryNodeDiagnosticsTransportFromEnvironment(
     options: TSentryNodeRuntimeOptions,
 ) {
     const audit = createEnvironmentAuditSink();
+    const runtimeProbe = readSentryRuntimeProbe(process.env[EVB_SENTRY_RUNTIME_PROBE_ENV]);
     return createSentryNodeDiagnosticsTransport({
         ...options,
         dsn: process.env.SENTRY_DESKTOP_DSN ?? '',
@@ -376,5 +379,8 @@ export function createSentryNodeDiagnosticsTransportFromEnvironment(
             environment: process.env.EVB_SENTRY_ENVIRONMENT as SentryBuildIdentity['environment'],
         },
         ...(audit === undefined ? {} : {audit}),
+        ...(runtimeProbe === undefined
+            ? {}
+            : {runtimeProbe}),
     });
 }

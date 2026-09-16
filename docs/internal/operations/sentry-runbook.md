@@ -60,6 +60,33 @@ remains subject to the account's normal usage accounting. The repository has
 no alert-rule declarations, so the repository owner must apply this filter in
 Sentry for both projects.
 
+## Routine CLI issue triage
+
+An ordinary issue investigation does not require the full telemetry acceptance
+audit. Use the installed, pinned repository CLI and bounded issue listing:
+
+```sh
+pnpm exec sentry-cli issues list \
+  --org "$SENTRY_ORG" \
+  --project "$SENTRY_DESKTOP_PROJECT" \
+  --query 'is:unresolved environment:production' \
+  --pages 5 \
+  --max-rows 500
+```
+
+Repeat with `SENTRY_WEB_PROJECT` for the hosted-browser project. Inspect named
+events only as needed and retain the allowlisted release, dist, environment,
+diagnostic code, Error ID, and safe application-frame facts. The command is
+read-only for routine triage. Treat page caps, rate limits, and unavailable
+authorization as evidence limits, not empty queues. Use the existing issue or
+task record for ownership and reproduction status; do not add a required
+triage manifest.
+
+An event is a lead, not defect proof. Reproduce from repository code, tests, a
+public fixture, or a maintainer-made synthetic fixture before filing a defect.
+Resolve or delete only under the separate explicitly authorized operation and
+after the shipped-fix evidence described below.
+
 Record completion without private links:
 
 | Control | Owner | Verified date | State |
@@ -296,14 +323,53 @@ Store installed-smoke jobs also passed.
 
 The local packaged macOS arm64 matrix runs through
 `pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts`. It uses isolated user data and a
-deliberately non-existent EU test project, so the audit records six attempted
-one-event envelopes and six terminal rejections without adding account data.
+deliberately isolated automation profile. Routine artifact builds invoke it
+with `--diagnostics-disabled`, which uses a local no-op adapter and records no
+remote audit entries. A named release-candidate run enables the packaged probe
+and requires accepted one-event envelopes.
 The six owners are UI-only, renderer, worker-parent, direct-console, main, and
 fatal UI. The same run proves the first still-live occurrence is resent only
 after durable grant, Error IDs match both UI surfaces, revocation and close add
 no envelopes, and a real uncaught main failure writes and replays the startup
 marker. Hosted release jobs require accepted delivery and cover every shipping
 identity.
+
+Packaged smoke proves transport acceptance and local correlation, not
+symbolication. To prove renderer-to-main symbolication for a runtime-generated
+event from the exact tested artifact, run the accepted named artifact candidate
+with the packaged probe enabled, retain its credential-free
+`packaged-diagnostics-receipt.json`, and select an event whose receipt runtime
+is `electron-renderer`. Then run the existing verifier against that exact
+release, dist, environment, and event ID:
+
+```sh
+EVB_SENTRY_TARGET=desktop \
+EVB_SENTRY_RELEASE=<exact-release> \
+EVB_SENTRY_DIST=<exact-dist> \
+EVB_SENTRY_ENVIRONMENT=test \
+EVB_SENTRY_RUNTIME_EVENT_ID=<event-id-from-packaged-diagnostics-receipt> \
+SENTRY_ORG=<organization-slug> \
+SENTRY_DESKTOP_PROJECT=<desktop-project-slug> \
+node scripts/release/verify-sentry-sourcemap-canaries.mjs
+```
+
+The verifier's runtime-event mode reads only the processed event, requires the
+isolated packaged-smoke marker and renderer runtime, and requires an original
+in-app application frame with source context. Optional exact checks can be
+added with `EVB_SENTRY_RUNTIME_EXPECTED_SOURCE`,
+`EVB_SENTRY_RUNTIME_EXPECTED_LINE`, and
+`EVB_SENTRY_RUNTIME_EXPECTED_FUNCTION`. This is the renderer-to-main proof;
+the packaged smoke receipt alone must remain classified as transport and local
+correlation evidence.
+
+Public releases keep the runtime DSN so shipped diagnostics stay enabled by
+default; their packaged smoke runs local-only and sends no production
+self-traffic. Routine `Build Release Artifacts` runs omit the DSN and record
+`artifactDiagnostics: disabled` in the artifact evidence. The diagnostics-disabled
+public release is a supported, deliberate option when telemetry is blocking
+unrelated product delivery: the caller omits the DSN secrets, the artifact must
+verifiably contain no diagnostics DSN, and the local consent, Error-ID,
+startup-marker, and other applicable behavior checks must still run.
 
 Artifact workflow
 [33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)

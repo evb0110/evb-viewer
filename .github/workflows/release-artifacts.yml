@@ -13,7 +13,7 @@ on:
         required: true
         type: string
       send_sentry_canaries:
-        description: Send test source-map canaries after each exact private-map upload.
+        description: For a named exact-SHA release candidate only, enable remote packaged smoke and source-map canaries.
         required: false
         default: false
         type: boolean
@@ -222,11 +222,11 @@ jobs:
       sentry_environment: test
       send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
     secrets:
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+      SENTRY_AUTH_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_AUTH_TOKEN || '' }}
+      SENTRY_VERIFICATION_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_VERIFICATION_TOKEN || '' }}
+      SENTRY_ORG: ${{ inputs.send_sentry_canaries && secrets.SENTRY_ORG || '' }}
+      SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
+      SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
 
   build_win_arm64:
     name: Package Supplemental Windows ARM64 Assets
@@ -244,11 +244,11 @@ jobs:
       arch: arm64
       artifact_group: supplemental-win-arm64
     secrets:
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+      SENTRY_AUTH_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_AUTH_TOKEN || '' }}
+      SENTRY_VERIFICATION_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_VERIFICATION_TOKEN || '' }}
+      SENTRY_ORG: ${{ inputs.send_sentry_canaries && secrets.SENTRY_ORG || '' }}
+      SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
+      SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
 
   build_mac_intel:
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
@@ -262,11 +262,11 @@ jobs:
       sentry_environment: test
       send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
     secrets:
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+      SENTRY_AUTH_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_AUTH_TOKEN || '' }}
+      SENTRY_VERIFICATION_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_VERIFICATION_TOKEN || '' }}
+      SENTRY_ORG: ${{ inputs.send_sentry_canaries && secrets.SENTRY_ORG || '' }}
+      SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
+      SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
 
   build_store:
     name: Package Microsoft Store AppX
@@ -280,11 +280,11 @@ jobs:
       sentry_environment: test
       send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
     secrets:
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+      SENTRY_AUTH_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_AUTH_TOKEN || '' }}
+      SENTRY_VERIFICATION_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_VERIFICATION_TOKEN || '' }}
+      SENTRY_ORG: ${{ inputs.send_sentry_canaries && secrets.SENTRY_ORG || '' }}
+      SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
+      SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
 
   summarize:
     name: Summarize Artifact Downloads

@@ -31,6 +31,11 @@ import {
     DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
 } from '@contracts/diagnostics/diagnosticsCapability';
 import {
+    buildSentryClosedEvent,
+    PACKAGED_SMOKE_RUNTIME_PROBE,
+    readSentryRuntimeProbe,
+} from '@contracts/diagnostics/sentryClosedEvent';
+import {
     decodeStartupCrashMarkerRecord,
     STARTUP_CRASH_MARKER_SCHEMA_VERSION,
     type StartupCrashMarkerRecord,
@@ -311,6 +316,50 @@ describe('diagnostic contracts', () => {
             tagKey: 'evb_canary',
             tagValue: 'sourcemap-v8',
         });
+    });
+
+    it('keeps ordinary closed events byte-identical when the runtime probe is off', () => {
+        const identity = {
+            target: 'desktop',
+            release: 'evb-viewer-desktop@0.1.449',
+            dist: 'macos-arm64',
+            environment: 'test',
+        } as const;
+        const ordinary = buildSentryClosedEvent(BASE_RECORD, 0, identity, {target: 'electron'}, {});
+        const explicitOff = buildSentryClosedEvent(BASE_RECORD, 0, identity, {target: 'electron'}, {}, undefined);
+
+        expect(JSON.stringify(explicitOff)).toBe(JSON.stringify(ordinary));
+        expect(explicitOff).toEqual(ordinary);
+        expect(readSentryRuntimeProbe(undefined)).toBeUndefined();
+        expect(readSentryRuntimeProbe('')).toBeUndefined();
+    });
+
+    it('adds a governed identity only for the packaged runtime probe', () => {
+        const identity = {
+            target: 'desktop',
+            release: 'evb-viewer-desktop@0.1.449',
+            dist: 'macos-arm64',
+            environment: 'test',
+        } as const;
+        const event = buildSentryClosedEvent(
+            BASE_RECORD,
+            0,
+            identity,
+            {target: 'electron'},
+            {},
+            PACKAGED_SMOKE_RUNTIME_PROBE.tagValue,
+        );
+
+        expect(event.fingerprint).toEqual([
+            PACKAGED_SMOKE_RUNTIME_PROBE.fingerprintPrefix,
+            BASE_RECORD.runtime,
+            BASE_RECORD.code,
+            BASE_FRAME.module,
+        ]);
+        expect(event.tags).toMatchObject({[PACKAGED_SMOKE_RUNTIME_PROBE.tagKey]: PACKAGED_SMOKE_RUNTIME_PROBE.tagValue});
+        expect(readSentryRuntimeProbe(PACKAGED_SMOKE_RUNTIME_PROBE.tagValue))
+            .toBe(PACKAGED_SMOKE_RUNTIME_PROBE.tagValue);
+        expect(() => readSentryRuntimeProbe('unknown-probe')).toThrow();
     });
 
     it('decodes only the bounded context declared by the registry', () => {

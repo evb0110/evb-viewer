@@ -177,6 +177,45 @@ function eventPayload({
     };
 }
 
+function runtimeEventPayload(overrides: Record<string, unknown> = {}) {
+    return {
+        dist: identity.dist,
+        entries: [{
+            data: {values: [{stacktrace: {frames: [{
+                absPath: 'app/plugins/rendererErrorGuard.client.ts',
+                context: [[
+                    42,
+                    'const receipt = captureFailure();',
+                ]],
+                filename: 'app/plugins/rendererErrorGuard.client.ts',
+                function: 'captureFailure',
+                inApp: true,
+                lineNo: 42,
+            }]}}]},
+            type: 'exception',
+        }],
+        environment: identity.environment,
+        eventID: 'abcdefabcdefabcdefabcdefabcdefab',
+        logger: 'evb-viewer.diagnostics',
+        release: {version: identity.release},
+        tags: [
+            {
+                key: 'evb_schema',
+                value: 'evb-diagnostic-v1',
+            },
+            {
+                key: 'evb_probe',
+                value: 'packaged-smoke',
+            },
+            {
+                key: 'diagnostic_runtime',
+                value: 'electron-renderer',
+            },
+        ],
+        ...overrides,
+    };
+}
+
 afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, {
         force: true,
@@ -206,6 +245,41 @@ describe('verifySentrySourcemapCanaries', () => {
         );
 
         expect(output).toBe('loaded');
+    });
+
+    it('verifies a processed runtime renderer event instead of requiring a canary receipt', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-sentry-runtime-verify-'));
+        roots.push(root);
+        const fetchImpl = vi.fn(async () => new Response(
+            JSON.stringify(runtimeEventPayload()),
+            {
+                headers: {'content-type': 'application/json'},
+                status: 200,
+            },
+        ));
+
+        await expect(verifySentrySourcemapCanaries({
+            environment: {
+                ...environment(),
+                EVB_SENTRY_RUNTIME_EVENT_ID: 'abcdefabcdefabcdefabcdefabcdefab',
+            },
+            fetchImpl,
+            projectRoot: root,
+            sleep: vi.fn(async () => undefined),
+        })).resolves.toMatchObject({
+            eventId: 'abcdefabcdefabcdefabcdefabcdefab',
+            status: 'verified',
+        });
+        expect(fetchImpl).toHaveBeenCalledOnce();
+        const receiptText = await readFile(path.join(
+            path.dirname(getPrivateSourcemapManifestPath({
+                projectRoot: root,
+                identity,
+            })),
+            'runtime-event-verification-receipt.json',
+        ), 'utf8');
+        expect(receiptText).toContain('verified');
+        expect(receiptText).not.toContain('private-verification-token');
     });
 
     it('verifies source-map lookup and processed source context for every event', async () => {

@@ -388,6 +388,50 @@ describe('Sentry Node diagnostics adapter', () => {
         expect(send).toHaveBeenCalledOnce();
     });
 
+    it('isolates packaged runtime probes and refuses production probe identities', async () => {
+        vi.stubEnv('SENTRY_DESKTOP_DSN', 'https://publickey@o123.ingest.de.sentry.io/456');
+        vi.stubEnv('EVB_SENTRY_RELEASE', 'evb-viewer-desktop@0.1.449');
+        vi.stubEnv('EVB_SENTRY_DIST', 'macos-arm64');
+        vi.stubEnv('EVB_SENTRY_ENVIRONMENT', 'test');
+        vi.stubEnv('EVB_SENTRY_RUNTIME_PROBE', 'packaged-smoke');
+        const envelopes: unknown[] = [];
+        const adapter = createSentryNodeDiagnosticsTransportFromEnvironment({
+            appVersion: '0.1.449',
+            platform: 'darwin',
+            architecture: 'arm64',
+            makeTransport: () => ({
+                send: (envelope: unknown) => {
+                    envelopes.push(envelope);
+                    return Promise.resolve({statusCode: 200});
+                },
+                flush: () => Promise.resolve(true),
+            } as Transport),
+        });
+
+        await expect(adapter.send?.(RECORD)).resolves.toBe(true);
+        const event = (envelopes[0] as [unknown, Array<[unknown, Record<string, unknown>]>])[1][0]![1];
+        expect(event).toMatchObject({
+            fingerprint: [
+                'evb-viewer-packaged-smoke-v1',
+                'electron-main',
+                'MAIN_STARTUP_CRASH',
+                'electron/main.ts',
+            ],
+            tags: {evb_probe: 'packaged-smoke'},
+        });
+        expect(() => createSentryNodeDiagnosticsTransport({
+            dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
+            identity: {
+                target: 'desktop',
+                release: 'evb-viewer-desktop@0.1.449',
+                dist: 'macos-arm64',
+                environment: 'production',
+            },
+            appVersion: '0.1.449',
+            runtimeProbe: 'packaged-smoke',
+        })).toThrow('non-production');
+    });
+
     it('rejects malformed records before transport', () => {
         const {
             adapter,

@@ -26,6 +26,39 @@ Read [sentry-runbook.md](./sentry-runbook.md) for policy and the
 for acceptance criteria. This file is the agent entry point, not a replacement
 for either source of truth.
 
+Routine issue triage is narrower than a telemetry acceptance audit. Use the
+installed repository CLI path for an ordinary, read-only issue investigation;
+read the full canonical documents only when the request is to audit telemetry
+acceptance, a release, account controls, or source maps.
+
+### Routine CLI issue triage
+
+Run the pinned local CLI through the repository package manager. Keep the query
+bounded and run each viewer project separately:
+
+```sh
+pnpm exec sentry-cli issues list \
+  --org "$SENTRY_ORG" \
+  --project "$SENTRY_DESKTOP_PROJECT" \
+  --query 'is:unresolved environment:production' \
+  --pages 5 \
+  --max-rows 500
+```
+
+Use `SENTRY_WEB_PROJECT` for the hosted-browser project. `--pages` defaults to
+five pages and `--max-rows` bounds the returned issue rows; do not treat a page
+cap as a complete population. For one named issue, inspect only the minimum
+bounded event surface needed to classify its project, release, dist,
+environment, diagnostic code, and safe application frame. Keep the command
+read-only, redact raw messages and stacks, and report rate limiting or missing
+authorization as `Unknown`.
+
+An event is a lead, not defect proof. Before filing or settling anything,
+reproduce from repository code, an existing test, a public fixture, or a
+maintainer-made synthetic fixture. Reuse the existing issue or task record for
+ownership and evidence pointers; do not create a mandatory triage manifest or
+automatically mutate Sentry or GitHub state.
+
 ## Read-only procedure
 
 Complete these steps in order. A check is complete only when every applicable
@@ -113,6 +146,10 @@ The sender, `scripts/release/send-sentry-sourcemap-canaries.mjs`, is not part
 of a plain check. If the private stage or receipt is missing, report
 `Unknown: exact verification inputs unavailable`; do not generate new events
 to fill the gap.
+
+Packaged diagnostics smoke is not this proof. It proves local consent and Error
+ID correlation plus transport acceptance when enabled; it does not prove that
+Sentry processed a renderer frame through the tested artifact's source map.
 
 ### 4. Inspect Sentry issues only when issue health is in scope
 

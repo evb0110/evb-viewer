@@ -5,12 +5,32 @@ import {buildSentrySourceMapDebugImages} from '@contracts/diagnostics/sentryDebu
 
 export const EVB_DIAGNOSTIC_SCHEMA_MARKER = 'evb-diagnostic-v1';
 
+export const EVB_SENTRY_RUNTIME_PROBE_ENV = 'EVB_SENTRY_RUNTIME_PROBE';
+export const PACKAGED_SMOKE_RUNTIME_PROBE = Object.freeze({
+    fingerprintPrefix: 'evb-viewer-packaged-smoke-v1',
+    tagKey: 'evb_probe',
+    tagValue: 'packaged-smoke',
+});
+
+export type TSentryRuntimeProbe = typeof PACKAGED_SMOKE_RUNTIME_PROBE.tagValue;
+
+export function readSentryRuntimeProbe(value: unknown): TSentryRuntimeProbe | undefined {
+    if (value === undefined || value === '') {
+        return undefined;
+    }
+    if (value === PACKAGED_SMOKE_RUNTIME_PROBE.tagValue) {
+        return PACKAGED_SMOKE_RUNTIME_PROBE.tagValue;
+    }
+    throw new Error('Unsupported Sentry runtime probe');
+}
+
 export function buildSentryClosedEvent(
     record: DiagnosticRecord,
     suppressedCount: number,
     identity: SentryBuildIdentity,
     runtimeContext: Readonly<Record<string, string | number>>,
     filenameToDebugId: Readonly<Record<string, string>>,
+    runtimeProbe?: TSentryRuntimeProbe,
 ) {
     const definition = DIAGNOSTIC_DEFINITIONS[record.code];
     const topFrame = record.frames[0];
@@ -26,6 +46,9 @@ export function buildSentryClosedEvent(
         dist: identity.dist,
         environment: identity.environment,
         fingerprint: [
+            ...(runtimeProbe === PACKAGED_SMOKE_RUNTIME_PROBE.tagValue
+                ? [PACKAGED_SMOKE_RUNTIME_PROBE.fingerprintPrefix]
+                : []),
             record.runtime,
             record.code,
             topFrame?.module ?? 'no-application-frame',
@@ -47,6 +70,9 @@ export function buildSentryClosedEvent(
             diagnostic_code: record.code,
             diagnostic_runtime: record.runtime,
             ...(record.operation === undefined ? {} : {diagnostic_operation: record.operation}),
+            ...(runtimeProbe === PACKAGED_SMOKE_RUNTIME_PROBE.tagValue
+                ? {[PACKAGED_SMOKE_RUNTIME_PROBE.tagKey]: PACKAGED_SMOKE_RUNTIME_PROBE.tagValue}
+                : {}),
         },
         contexts: {evb_runtime: runtimeContext},
         ...(debugImages.length === 0 ? {} : {debug_meta: {images: debugImages}}),

@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {parseExecutableArgument} from '@scripts/release/verifyPackagedDiagnosticsSmoke';
+import {
+    parseExecutableArgument,
+    parseReceiptArgument,
+} from '@scripts/release/verifyPackagedDiagnosticsSmoke';
 import {waitForPackagedRendererPage} from '@scripts/release/waitForPackagedCdpEndpoint';
 
 describe('packaged diagnostics smoke arguments', () => {
@@ -14,6 +17,15 @@ describe('packaged diagnostics smoke arguments', () => {
             '/tmp/EVB Viewer',
         ])).toBe('/tmp/EVB Viewer');
         expect(parseExecutableArgument(['--executable'])).toBeNull();
+    });
+
+    it('reads an optional credential-free evidence receipt path', () => {
+        expect(parseReceiptArgument([])).toBeNull();
+        expect(parseReceiptArgument([
+            '--receipt',
+            '.devkit/receipt.json',
+        ])).toBe('.devkit/receipt.json');
+        expect(parseReceiptArgument(['--receipt'])).toBeNull();
     });
 });
 

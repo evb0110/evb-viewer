@@ -574,11 +574,15 @@ jobs:
             if [ -n "$value" ]; then configured=$((configured + 1)); fi
           done
           if [ "$configured" -eq 4 ]; then
-            if [ "${{ inputs.send_sentry_canaries }}" = 'true' ] && [ "$SENTRY_VERIFICATION_CONFIGURED" != 'true' ]; then
+            if [ "${{ inputs.send_sentry_canaries }}" != 'true' ]; then
+              echo 'enabled=false' >> "$GITHUB_OUTPUT"
+              echo '::notice::Routine artifact builds keep diagnostics disabled; a named release-candidate probe is required for remote Sentry acceptance.'
+            elif [ "$SENTRY_VERIFICATION_CONFIGURED" != 'true' ]; then
               echo '::error::SENTRY_VERIFICATION_TOKEN is required when source-map canaries are enabled.'
               exit 1
+            else
+              echo 'enabled=true' >> "$GITHUB_OUTPUT"
             fi
-            echo 'enabled=true' >> "$GITHUB_OUTPUT"
           elif [ "$configured" -eq 0 ]; then
             echo 'enabled=false' >> "$GITHUB_OUTPUT"
             echo '::notice::Private Sentry upload is not configured; diagnostics remain disabled.'
@@ -597,13 +601,24 @@ jobs:
         run: node scripts/release/upload-sentry-sourcemaps.mjs
 
       - name: Verify packaged diagnostics consent and crash matrix
-        if: steps.sentry_upload.outputs.enabled == 'true'
+        id: packaged_diagnostics
+        if: ${{ inputs.upload_artifacts }}
         shell: bash
+        env:
+          EVB_PACKAGED_DIAGNOSTICS_RECEIPT: .devkit/release/packaged-diagnostics-receipt.json
         run: |
-          if [ "${{ runner.os }}" = 'Linux' ]; then
-            xvfb-run -a pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts
+          if [ "${{ steps.sentry_upload.outputs.enabled }}" = 'true' ]; then
+            if [ "${{ runner.os }}" = 'Linux' ]; then
+              EVB_SENTRY_RUNTIME_PROBE=packaged-smoke xvfb-run -a pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts
+            else
+              EVB_SENTRY_RUNTIME_PROBE=packaged-smoke pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts
+            fi
           else
-            pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts
+            if [ "${{ runner.os }}" = 'Linux' ]; then
+              xvfb-run -a pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts --diagnostics-disabled
+            else
+              pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts --diagnostics-disabled
+            fi
           fi
 
       - name: Send private Sentry source-map canaries
@@ -619,6 +634,46 @@ jobs:
           SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         run: node scripts/release/verify-sentry-sourcemap-canaries.mjs
+
+      - name: Record diagnostics artifact evidence
+        if: ${{ always() && inputs.upload_artifacts }}
+        shell: bash
+        env:
+          SENTRY_ENABLED: ${{ steps.sentry_upload.outputs.enabled }}
+          PACKAGED_MATRIX: ${{ steps.packaged_diagnostics.outcome }}
+          CANARIES_REQUESTED: ${{ inputs.send_sentry_canaries }}
+        run: |
+          set -euo pipefail
+          # artifactDiagnostics: whether the packaged app carries a runtime DSN
+          # (the caller decides by passing or omitting the secret).
+          # mode: whether this run exercised the remote packaged-smoke probe.
+          artifact=disabled
+          if [ -n "${SENTRY_DESKTOP_DSN:-}" ]; then
+            artifact=enabled
+          fi
+          mode=local-only
+          probe=none
+          canaries=not-run
+          if [ "$SENTRY_ENABLED" = 'true' ]; then
+            mode=remote-probe
+            probe=packaged-smoke
+            canaries=true
+          fi
+          mkdir -p .devkit/release
+          cat > .devkit/release/diagnostics-evidence.json <<EOF
+          {
+            "schemaVersion": 1,
+            "diagnostics": {
+              "artifactDiagnostics": "$artifact",
+              "mode": "$mode",
+              "runtimeProbe": "$probe",
+              "sourceMapCanaries": "$canaries",
+              "requestedCandidateProbe": "$CANARIES_REQUESTED",
+              "packagedLocalMatrix": "$PACKAGED_MATRIX"
+            }
+          }
+          EOF
+          echo "Diagnostics artifact evidence recorded: artifact=$artifact, mode=$mode, local_matrix=$PACKAGED_MATRIX"
 
       - name: Upload Sentry source-map verification receipt
         if: ${{ always() && steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries }}
@@ -643,6 +698,9 @@ jobs:
             release/latest*.yml
             release/*.blockmap
             release/*-provenance.json
+            .devkit/release/diagnostics-evidence.json
+            .devkit/release/packaged-diagnostics-receipt.json
+          include-hidden-files: true
           if-no-files-found: error
 
       - name: Record artifact readiness

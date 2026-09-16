@@ -72,6 +72,7 @@ import {
 import {searchWorkerService} from '@electron/features/search/public';
 import {
     captureMainFailure,
+    createNoopMainDiagnosticsTransport,
     getMainFailureReporter,
     initializeMainFailureReporter,
     setMainDiagnosticsPreference,
@@ -210,6 +211,34 @@ function ensureMainDiagnosticsAdapter() {
         && automationUserDataDir
         && process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
     ) {
+        mainDiagnosticsAdapterLoad = Promise.resolve();
+        return mainDiagnosticsAdapterLoad;
+    }
+    if (
+        process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
+        && process.env.EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER === '1'
+        && automationUserDataDir
+        && process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
+    ) {
+        const transport = createNoopMainDiagnosticsTransport();
+        mainFailureReporterForAdapter.setTransport(transport);
+        notifyStartupCrashMarkerAdapterReady({
+            preference: () => mainFailureReporterForAdapter.getPreference(),
+            release: desktopDiagnosticRelease,
+            dist: desktopDiagnosticDist,
+            send: marker => transport.send?.({
+                schemaVersion: 1,
+                eventId: marker.eventId,
+                code: 'MAIN_STARTUP_CRASH',
+                severity: 'fatal',
+                runtime: 'electron-main',
+                operation: 'startup-crash',
+                occurredAt: marker.timestamp,
+                frames: marker.frames,
+                context: {},
+            }),
+            onDiscard: reason => logger.debug(`Discarded startup crash marker: ${reason}`),
+        });
         mainDiagnosticsAdapterLoad = Promise.resolve();
         return mainDiagnosticsAdapterLoad;
     }

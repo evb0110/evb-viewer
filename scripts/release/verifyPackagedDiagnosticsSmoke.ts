@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- this executable also exports its argument parser for coverage */
 import {spawn} from 'node:child_process';
 import {
     mkdir,
@@ -39,9 +38,15 @@ import {
 const STARTUP_TIMEOUT_MS = 75_000;
 const DELIVERY_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
-const REQUIRED_DELIVERY_PHASE: ISentryNodeAuditEntry['phase'] = process.argv.includes('--allow-rejected')
+const LOCAL_ONLY = process.argv.includes('--diagnostics-disabled');
+if (LOCAL_ONLY && process.argv.includes('--allow-rejected')) {
+    throw new Error('Packaged diagnostics smoke modes are mutually exclusive');
+}
+const REQUIRED_DELIVERY_PHASE: ISentryNodeAuditEntry['phase'] = LOCAL_ONLY
     ? 'attempted'
-    : 'accepted';
+    : process.argv.includes('--allow-rejected')
+        ? 'attempted'
+        : 'accepted';
 
 interface IDiagnosticsCanaryMainHealth {
     preference: TClientDiagnosticsPreference;
@@ -88,6 +93,11 @@ const activeSessions = new Set<IRunningSession>();
 
 export function parseExecutableArgument(args: string[]) {
     const index = args.indexOf('--executable');
+    return index < 0 ? null : args[index + 1] ?? null;
+}
+
+export function parseReceiptArgument(args: string[]) {
+    const index = args.indexOf('--receipt');
     return index < 0 ? null : args[index + 1] ?? null;
 }
 
@@ -173,7 +183,10 @@ async function startSession(
     root: string,
     name: string,
     preference: TClientDiagnosticsPreference,
-    options: {disableAdapter?: boolean} = {},
+    options: {
+        disableAdapter?: boolean;
+        noopAdapter?: boolean
+    } = {},
 ): Promise<IRunningSession> {
     const userDataPath = path.join(root, name);
     const auditPath = path.join(userDataPath, 'diagnostics-audit.jsonl');
@@ -192,6 +205,8 @@ async function startSession(
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_DIAGNOSTICS_CANARY_AUDIT_FILE: auditPath,
             ...(options.disableAdapter ? {EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER: '1'} : {}),
+            ...(options.noopAdapter ? {EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER: '1'} : {}),
+            ...(LOCAL_ONLY ? {} : {EVB_SENTRY_RUNTIME_PROBE: 'packaged-smoke'}),
         },
         stdio: [
             'ignore',
@@ -304,7 +319,9 @@ async function runGrantedMatrix(session: IRunningSession) {
     }
     await session.page.$eval(grantSelector, element => (element as HTMLButtonElement).click());
     await waitForMainTransportReady(session);
-    await waitForAudit(session.auditPath, entries => Boolean(deliveredEntryFor(entries, firstReceipt)));
+    if (!LOCAL_ONLY) {
+        await waitForAudit(session.auditPath, entries => Boolean(deliveredEntryFor(entries, firstReceipt)));
+    }
 
     await session.page.$eval(
         '[data-runtime-error-action="details"]',
@@ -348,22 +365,26 @@ async function runGrantedMatrix(session: IRunningSession) {
         throw new Error('Fatal error UI did not render the captured Error ID');
     }
 
-    const delivered = await waitForAudit(session.auditPath, entries => (
-        receipts.every(receipt => Boolean(deliveredEntryFor(entries, receipt)))
-        && entries.some(entry => entry.phase === REQUIRED_DELIVERY_PHASE && entry.code === 'UNCLASSIFIED_CONSOLE_ERROR')
-    ));
-    const attempted = delivered.filter(entry => entry.phase === 'attempted');
-    const completed = delivered.filter(entry => entry.phase === REQUIRED_DELIVERY_PHASE);
-    if (attempted.length !== 6 || completed.length !== 6) {
-        throw new Error(`Expected six one-item event attempts and ${REQUIRED_DELIVERY_PHASE} records, observed ${attempted.length}/${completed.length}`);
-    }
-    if (completed.some(entry => entry.itemType !== 'event')) {
-        throw new Error('Packaged diagnostics emitted a non-event envelope item');
-    }
-    if (REQUIRED_DELIVERY_PHASE === 'attempted') {
-        await waitForAudit(session.auditPath, entries => entries.filter(entry => (
-            entry.phase === 'accepted' || entry.phase === 'rejected'
-        )).length === 6);
+    if (!LOCAL_ONLY) {
+        const delivered = await waitForAudit(session.auditPath, entries => (
+            receipts.every(receipt => Boolean(deliveredEntryFor(entries, receipt)))
+            && entries.some(entry => entry.phase === REQUIRED_DELIVERY_PHASE && entry.code === 'UNCLASSIFIED_CONSOLE_ERROR')
+        ));
+        const attempted = delivered.filter(entry => entry.phase === 'attempted');
+        const completed = delivered.filter(entry => entry.phase === REQUIRED_DELIVERY_PHASE);
+        if (attempted.length !== 6 || completed.length !== 6) {
+            throw new Error(`Expected six one-item event attempts and ${REQUIRED_DELIVERY_PHASE} records, observed ${attempted.length}/${completed.length}`);
+        }
+        if (completed.some(entry => entry.itemType !== 'event')) {
+            throw new Error('Packaged diagnostics emitted a non-event envelope item');
+        }
+        if (REQUIRED_DELIVERY_PHASE === 'attempted') {
+            await waitForAudit(session.auditPath, entries => entries.filter(entry => (
+                entry.phase === 'accepted' || entry.phase === 'rejected'
+            )).length === 6);
+        }
+    } else if ((await readAudit(session.auditPath)).length !== 0) {
+        throw new Error('Diagnostics-disabled packaged smoke produced a remote audit entry');
     }
 
     const revoked = await session.page.evaluate(() => (
@@ -399,14 +420,48 @@ async function runStartupMarkerMatrix(launch: TPackagedAutomationLaunch, root: s
         throw new Error('Startup marker canary did not persist its one-shot marker');
     }
 
-    const replayed = await startSession(launch, root, 'startup-marker', 'granted');
-    await waitForAudit(replayed.auditPath, entries => entries.some(entry => (
-        entry.phase === REQUIRED_DELIVERY_PHASE && entry.code === 'MAIN_STARTUP_CRASH'
-    )));
+    const replayed = await startSession(launch, root, 'startup-marker', 'granted', {noopAdapter: LOCAL_ONLY});
+    if (!LOCAL_ONLY) {
+        await waitForAudit(replayed.auditPath, entries => entries.some(entry => (
+            entry.phase === REQUIRED_DELIVERY_PHASE && entry.code === 'MAIN_STARTUP_CRASH'
+        )));
+    } else if ((await readAudit(replayed.auditPath)).length !== 0) {
+        throw new Error('Diagnostics-disabled startup-marker smoke produced a remote audit entry');
+    }
     if (await stat(markerPath).catch(() => null)) {
         throw new Error('Startup marker remained after the replay launch');
     }
     await stopSession(replayed);
+}
+
+async function writeSmokeReceipt(entries: ISentryNodeAuditEntry[]) {
+    const receiptPath = parseReceiptArgument(process.argv.slice(2))
+        ?? process.env.EVB_PACKAGED_DIAGNOSTICS_RECEIPT?.trim();
+    if (!receiptPath) {
+        return;
+    }
+    const events = [...new Map(
+        entries
+            .filter(entry => entry.phase === 'accepted' || entry.phase === 'attempted')
+            .map(entry => [
+                entry.eventId,
+                {
+                    code: entry.code,
+                    dist: entry.dist,
+                    environment: entry.environment,
+                    eventId: entry.eventId,
+                    phase: entry.phase,
+                    release: entry.release,
+                    runtime: entry.runtime,
+                },
+            ]),
+    ).values()];
+    await mkdir(path.dirname(path.resolve(receiptPath)), {recursive: true});
+    await writeFile(path.resolve(receiptPath), `${JSON.stringify({
+        events,
+        mode: LOCAL_ONLY ? 'diagnostics-disabled' : 'packaged-smoke',
+        schemaVersion: 1,
+    }, null, 2)}\n`, {mode: 0o600});
 }
 
 async function run() {
@@ -445,7 +500,10 @@ async function run() {
         }
 
         await runStartupMarkerMatrix(launch, root);
-        process.stdout.write('Packaged diagnostics consent matrix passed\n');
+        await writeSmokeReceipt(await readAudit(granted.auditPath));
+        process.stdout.write(LOCAL_ONLY
+            ? 'Packaged diagnostics local matrix passed; remote transport was disabled\n'
+            : 'Packaged diagnostics smoke passed: transport acceptance and local correlation only\n');
         passed = true;
     } finally {
         let sessionsQuiescent = true;

@@ -1,4 +1,5 @@
 import {
+    mkdir,
     readFile,
     writeFile,
 } from 'node:fs/promises';
@@ -20,6 +21,7 @@ import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 export const SENTRY_EU_API_ORIGIN = 'https://de.sentry.io';
 export const SENTRY_CANARY_VERIFICATION_SCHEMA_VERSION = 1;
+export const SENTRY_RUNTIME_EVENT_VERIFICATION_SCHEMA_VERSION = 1;
 
 const SAFE_CONFIGURATION_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const VERIFY_ATTEMPTS = 12;
@@ -32,6 +34,8 @@ const VERIFY_REQUEST_TIMEOUT_MS = 30_000;
 const VERIFY_CONCURRENCY = 2;
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const SOURCE_MAP_CANARY = DIAGNOSTIC_EVENT_DEFINITIONS.SENTRY_SOURCE_MAP_CANARY;
+const RUNTIME_EVENT_ID_PATTERN = /^[0-9a-f]{32}$/u;
+const RUNTIME_SOURCE_PATTERN = /^[A-Za-z0-9._/-]+$/u;
 
 class SentryApiError extends Error {
     constructor(kind, status, cause) {
@@ -243,6 +247,122 @@ function eventFrames(payload) {
         .flatMap(entry => entry?.data?.values ?? [])
         .flatMap(value => value?.stacktrace?.frames ?? [])
         .filter(frame => frame && typeof frame === 'object');
+}
+
+function readRuntimeEventConfiguration(environment, overrides = {}) {
+    const eventId = overrides.eventId ?? environment.EVB_SENTRY_RUNTIME_EVENT_ID?.trim() ?? '';
+    if (!eventId) {
+        return null;
+    }
+    if (!RUNTIME_EVENT_ID_PATTERN.test(eventId)) {
+        throw new Error('Runtime Sentry event ID must be 32 lowercase hexadecimal characters');
+    }
+    const expectedSource = overrides.expectedSource
+        ?? environment.EVB_SENTRY_RUNTIME_EXPECTED_SOURCE?.trim()
+        ?? undefined;
+    const expectedLineValue = overrides.expectedLine
+        ?? environment.EVB_SENTRY_RUNTIME_EXPECTED_LINE;
+    const expectedLine = expectedLineValue === undefined || expectedLineValue === ''
+        ? undefined
+        : typeof expectedLineValue === 'number'
+            ? expectedLineValue
+            : Number(expectedLineValue);
+    const expectedFunction = overrides.expectedFunction
+        ?? environment.EVB_SENTRY_RUNTIME_EXPECTED_FUNCTION?.trim()
+        ?? undefined;
+    if (
+        expectedSource !== undefined
+        && (!RUNTIME_SOURCE_PATTERN.test(expectedSource) || expectedSource.includes('..'))
+    ) {
+        throw new Error('Runtime Sentry verification requires a safe expected source path');
+    }
+    if (
+        expectedLine !== undefined
+        && (!Number.isSafeInteger(expectedLine) || expectedLine < 1)
+    ) {
+        throw new Error('Runtime Sentry verification expected source line must be positive');
+    }
+    if (expectedFunction !== undefined && !RUNTIME_SOURCE_PATTERN.test(expectedFunction)) {
+        throw new Error('Runtime Sentry verification expected function is unsafe');
+    }
+    return {
+        eventId,
+        expectedFunction,
+        expectedLine,
+        expectedSource,
+    };
+}
+
+function isApplicationSourcePath(frame) {
+    const source = [
+        frame?.absPath,
+        frame?.filename,
+        frame?.module,
+    ]
+        .find(value => typeof value === 'string');
+    if (typeof source !== 'string') {
+        return false;
+    }
+    const normalized = normalizePath(source);
+    return /^(?:app|electron|packages|server|landing)\//u.test(normalized);
+}
+
+function inspectRuntimeEventPayload(payload, identity, evidence) {
+    if (
+        payload?.eventID !== evidence.eventId
+        || payload?.dist !== identity.dist
+        || payload?.release?.version !== identity.release
+    ) {
+        return {
+            ok: false,
+            terminal: true,
+            reason: 'runtime event identity does not match the tested artifact',
+        };
+    }
+    if (!eventEnvironmentMatches(payload, identity.environment)) {
+        return {
+            ok: false,
+            terminal: true,
+            reason: 'runtime event environment does not match the tested artifact',
+        };
+    }
+    if (
+        !eventLoggerMatches(payload, 'evb-viewer.diagnostics')
+        || !eventTagMatches(payload, 'evb_schema', 'evb-diagnostic-v1')
+        || !eventTagMatches(payload, 'evb_probe', 'packaged-smoke')
+        || !eventTagMatches(payload, 'diagnostic_runtime', 'electron-renderer')
+    ) {
+        return {
+            ok: false,
+            terminal: true,
+            reason: 'runtime event is not an isolated packaged renderer probe',
+        };
+    }
+    const frame = eventFrames(payload).find(candidate => (
+        candidate.inApp === true
+        && Number.isSafeInteger(candidate.lineNo)
+        && candidate.lineNo >= 1
+        && isApplicationSourcePath(candidate)
+        && (evidence.expectedSource === undefined
+            || sourcePathMatches(candidate, evidence.expectedSource))
+        && (evidence.expectedLine === undefined || candidate.lineNo === evidence.expectedLine)
+        && (evidence.expectedFunction === undefined || candidate.function === evidence.expectedFunction)
+    ));
+    if (!frame) {
+        return {
+            ok: false,
+            terminal: false,
+            reason: 'runtime event has no matching symbolicated renderer frame',
+        };
+    }
+    if (!hasSourceContext(frame, frame.lineNo)) {
+        return {
+            ok: false,
+            terminal: false,
+            reason: 'runtime renderer frame has no source context',
+        };
+    }
+    return {ok: true};
 }
 
 function eventEnvironmentMatches(payload, expectedEnvironment) {
@@ -576,6 +696,80 @@ async function mapWithConcurrency(items, callback, concurrency = VERIFY_CONCURRE
     return results;
 }
 
+async function verifyRuntimeEvent({
+    identity,
+    projectRoot,
+    organization,
+    project,
+    token,
+    fetchImpl,
+    sleep,
+    evidence,
+}) {
+    let lastReason = 'Sentry has not finished processing the runtime event';
+    let verified = false;
+    for (let attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt += 1) {
+        try {
+            const payload = await requestJson(
+                apiPath({
+                    organization,
+                    project,
+                    eventId: evidence.eventId,
+                    kind: 'event',
+                }),
+                'event',
+                {
+                    fetchImpl,
+                    token,
+                },
+            );
+            const result = inspectRuntimeEventPayload(payload, identity, evidence);
+            if (result.terminal) {
+                throw new Error(result.reason);
+            }
+            if (result.ok) {
+                verified = true;
+                break;
+            }
+            lastReason = result.reason;
+        } catch (error) {
+            if (!isRetryableApiError(error) || attempt === VERIFY_ATTEMPTS) {
+                throw error;
+            }
+            lastReason = error.message;
+        }
+        await sleep(retryDelay(attempt));
+    }
+
+    const verificationReceipt = {
+        eventId: evidence.eventId,
+        expectedFunction: evidence.expectedFunction,
+        expectedLine: evidence.expectedLine,
+        expectedSource: evidence.expectedSource,
+        identity,
+        schemaVersion: SENTRY_RUNTIME_EVENT_VERIFICATION_SCHEMA_VERSION,
+        status: verified ? 'verified' : 'failed',
+    };
+    const outputRoot = path.dirname(getPrivateSourcemapManifestPath({
+        projectRoot: path.resolve(projectRoot),
+        identity,
+    }));
+    await mkdir(outputRoot, {recursive: true});
+    await writeFile(
+        path.join(outputRoot, 'runtime-event-verification-receipt.json'),
+        `${JSON.stringify(verificationReceipt, null, 2)}\n`,
+        {mode: 0o600},
+    );
+    if (!verified) {
+        throw new Error(lastReason);
+    }
+    process.stdout.write(
+        `Sentry verified the packaged renderer event ${evidence.eventId} for `
+        + `${identity.release}, ${identity.dist}.\n`,
+    );
+    return verificationReceipt;
+}
+
 /**
  * Verifies every event in the latest credential-free canary receipt against
  * Sentry's source-map debug and processed-event APIs. The verification receipt
@@ -586,6 +780,10 @@ async function mapWithConcurrency(items, callback, concurrency = VERIFY_CONCURRE
  *   projectRoot?: string,
  *   fetchImpl?: typeof fetch,
  *   sleep?: (milliseconds: number) => Promise<void>,
+ *   runtimeEventId?: string,
+ *   runtimeExpectedSource?: string,
+ *   runtimeExpectedLine?: number,
+ *   runtimeExpectedFunction?: string,
  * }} options
  */
 export async function verifySentrySourcemapCanaries({
@@ -593,8 +791,41 @@ export async function verifySentrySourcemapCanaries({
     projectRoot = process.cwd(),
     fetchImpl = globalThis.fetch,
     sleep = defaultSleep,
+    runtimeEventId,
+    runtimeExpectedSource,
+    runtimeExpectedLine,
+    runtimeExpectedFunction,
 } = {}) {
     const identity = readIdentity(environment);
+    const runtimeEvidence = readRuntimeEventConfiguration(environment, {
+        eventId: runtimeEventId,
+        expectedFunction: runtimeExpectedFunction,
+        expectedLine: runtimeExpectedLine,
+        expectedSource: runtimeExpectedSource,
+    });
+    const organization = requiredPrivateConfiguration(
+        environment,
+        'SENTRY_ORG',
+        'organization',
+    );
+    const project = requiredPrivateConfiguration(
+        environment,
+        projectEnvironmentKey(identity.target),
+        'project',
+    );
+    const token = requiredVerificationToken(environment);
+    if (runtimeEvidence !== null) {
+        return verifyRuntimeEvent({
+            identity,
+            projectRoot,
+            organization,
+            project,
+            token,
+            fetchImpl,
+            sleep,
+            evidence: runtimeEvidence,
+        });
+    }
     const root = path.resolve(projectRoot);
     const stageRoot = path.dirname(getPrivateSourcemapManifestPath({
         projectRoot: root,
@@ -608,17 +839,6 @@ export async function verifySentrySourcemapCanaries({
         throw new Error('Private Sentry canary receipt contains no verifiable events');
     }
 
-    const organization = requiredPrivateConfiguration(
-        environment,
-        'SENTRY_ORG',
-        'organization',
-    );
-    const project = requiredPrivateConfiguration(
-        environment,
-        projectEnvironmentKey(identity.target),
-        'project',
-    );
-    const token = requiredVerificationToken(environment);
     const results = await mapWithConcurrency(receipt.events, async evidence => {
         try {
             return {
