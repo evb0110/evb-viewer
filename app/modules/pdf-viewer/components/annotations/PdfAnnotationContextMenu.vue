@@ -337,8 +337,8 @@ function pasteImageFromClipboard() {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--app-space-2xl);
-    padding: var(--app-space-4xl) var(--app-space-5xl);
-    background: var(--app-pdf-context-menu-item-bg);
+    margin: var(--app-space-sm) var(--app-space-2xs);
+    padding: var(--app-space-4xl) calc(var(--pdf-context-menu-inline-padding) - var(--app-space-2xs));
     font-size: var(--app-text-size-body-sm);
     border-block: var(--app-hairline-height) solid var(--app-pdf-context-menu-divider);
 }

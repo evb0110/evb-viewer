@@ -303,7 +303,9 @@
     --app-floating-panel-max-width: 28rem;
     --app-floating-panel-max-inline-size: min(var(--app-floating-panel-max-width), var(--app-floating-panel-viewport-width));
     --app-context-menu-preferred-width: 13rem;
-    --app-context-menu-radius: var(--app-radius-sm);
+    --app-context-menu-radius: var(--app-radius-2xl);
+    --app-pdf-context-menu-grid-padding: var(--app-space-sm);
+    --app-pdf-context-menu-item-radius: var(--app-radius-md);
     --app-settings-dialog-width: 52rem;
     --app-settings-select-max-size: 24rem;
     --app-runtime-report-width: 32rem;
@@ -827,10 +829,10 @@
     --app-pdf-context-menu-title-fg: var(--ui-text-dimmed);
     --app-pdf-context-menu-item-bg: var(--ui-bg);
     --app-pdf-context-menu-item-fg: var(--ui-text);
-    --app-pdf-context-menu-item-hover-bg: color-mix(in oklab, var(--ui-bg) 93%, var(--ui-primary) 7%);
-    --app-pdf-context-menu-item-disabled-bg: var(--ui-bg-muted);
+    --app-pdf-context-menu-item-hover-bg: color-mix(in oklab, var(--ui-bg) 90%, var(--ui-primary) 10%);
     --app-pdf-context-menu-item-disabled-fg: var(--ui-text-dimmed);
     --app-pdf-context-menu-danger-fg: color-mix(in oklab, var(--ui-error) 72%, var(--ui-text) 28%);
+    --app-pdf-context-menu-danger-hover-bg: color-mix(in oklab, var(--ui-bg) 90%, var(--ui-error) 10%);
     --app-pdf-context-menu-swatch-border: color-mix(in oklab, var(--ui-border) 74%, var(--ui-text-muted) 26%);
     --app-pdf-context-menu-grid-shadow: 0 10px 24px rgb(0 0 0 / 15%), 0 3px 8px rgb(0 0 0 / 10%);
     --app-pdf-context-menu-panel-bg: var(--ui-bg);
@@ -1027,6 +1029,7 @@
     --app-pdf-search-result-highlight-bg: var(--app-document-search-result-highlight-bg);
     --app-pdf-context-menu-item-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-primary) 16%);
     --app-pdf-context-menu-danger-fg: color-mix(in oklab, var(--ui-error) 78%, var(--ui-text) 22%);
+    --app-pdf-context-menu-danger-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-error) 16%);
     --app-pdf-context-menu-swatch-border: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text-muted) 32%);
     --app-pdf-context-menu-grid-shadow: 0 12px 28px rgb(0 0 0 / 40%), 0 4px 12px rgb(0 0 0 / 28%);
     --app-pdf-context-menu-panel-shadow: 0 18px 34px color-mix(in srgb, black 55%, transparent 45%);

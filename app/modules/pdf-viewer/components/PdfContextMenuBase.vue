@@ -180,7 +180,10 @@ onBeforeUnmount(() => {
 }
 
 .pdf-context-menu-base--grid {
+    --pdf-context-menu-inline-padding: var(--app-space-3xl);
+
     display: grid;
+    padding: var(--app-pdf-context-menu-grid-padding);
 }
 
 .pdf-context-menu-base--panel {
@@ -195,7 +198,7 @@ onBeforeUnmount(() => {
 
 .pdf-context-menu-base :deep(.pdf-context-menu__section-title) {
     margin: 0;
-    padding: var(--app-space-4xl) var(--app-space-5xl) var(--app-space-md);
+    padding: var(--app-space-3xl) var(--app-space-5xl) var(--app-space-sm);
     color: var(--app-pdf-context-menu-title-fg);
     font-size: var(--app-text-size-menu-shortcut);
     letter-spacing: 0.08em;
@@ -210,9 +213,17 @@ onBeforeUnmount(() => {
     overflow-wrap: anywhere;
 }
 
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__section-title) {
+    padding-inline: var(--pdf-context-menu-inline-padding);
+}
+
 .pdf-context-menu-base :deep(.pdf-context-menu__divider) {
     height: var(--app-hairline-height);
     background: var(--app-pdf-context-menu-divider);
+}
+
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__divider) {
+    margin: var(--app-space-sm) var(--app-space-2xs);
 }
 
 .pdf-context-menu-base--panel :deep(.pdf-context-menu__divider) {
@@ -233,20 +244,24 @@ onBeforeUnmount(() => {
 
 .pdf-context-menu-base--grid :deep(.pdf-context-menu__action) {
     border: none;
-    background: var(--app-pdf-context-menu-item-bg);
+    border-radius: var(--app-pdf-context-menu-item-radius);
+    background: transparent;
     min-height: var(--app-control-height-sm);
-    padding: 0 var(--app-space-5xl);
+    padding: 0 var(--pdf-context-menu-inline-padding);
     cursor: pointer;
     font-size: var(--app-text-size-body-sm);
+    transition: background-color 120ms ease, color 120ms ease;
 }
 
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:hover:not(:disabled)) {
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:hover:not(:disabled)),
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:focus-visible) {
+    outline: none;
     background: var(--app-pdf-context-menu-item-hover-bg);
 }
 
 .pdf-context-menu-base--grid :deep(.pdf-context-menu__action:disabled) {
     color: var(--app-pdf-context-menu-item-disabled-fg);
-    background: var(--app-pdf-context-menu-item-disabled-bg);
+    background: transparent;
     cursor: default;
 }
 
@@ -274,9 +289,19 @@ onBeforeUnmount(() => {
     color: var(--app-pdf-context-menu-danger-fg);
 }
 
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__action--danger:hover:not(:disabled)),
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__action--danger:focus-visible) {
+    background: var(--app-pdf-context-menu-danger-hover-bg);
+}
+
 .pdf-context-menu-base :deep(.pdf-context-menu__icon) {
     width: var(--app-icon-size-xs);
     height: var(--app-icon-size-xs);
     flex-shrink: 0;
+    color: var(--ui-text-muted);
+}
+
+.pdf-context-menu-base :deep(.pdf-context-menu__action--danger .pdf-context-menu__icon) {
+    color: inherit;
 }
 </style>
