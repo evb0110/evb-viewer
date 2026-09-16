@@ -623,4 +623,31 @@ describe('useOcrPopupPresenter', () => {
             stopHarness(harness.scope);
         }
     });
+
+    it('keeps the loaded language inventory visible while a reopen refreshes it', async () => {
+        const ocr = createOcrMock();
+        ocr.languageLoadState.value = 'idle';
+        ocr.loadLanguages.mockImplementation(async () => {
+            ocr.languageLoadState.value = 'loading';
+        });
+        const harness = createPresenterHarness(ocr);
+
+        try {
+            expect(harness.presenter.languageInventoryState.value).toBe('ready');
+
+            harness.isOpen.value = true;
+            await nextTick();
+            expect(ocr.loadLanguages).toHaveBeenCalledTimes(1);
+            expect(ocr.languageLoadState.value).toBe('loading');
+            expect(harness.presenter.languageInventoryState.value).toBe('ready');
+
+            ocr.availableLanguages.value = [];
+            expect(harness.presenter.languageInventoryState.value).toBe('loading');
+
+            ocr.languageLoadState.value = 'error';
+            expect(harness.presenter.languageInventoryState.value).toBe('unavailable');
+        } finally {
+            harness.scope.stop();
+        }
+    });
 });

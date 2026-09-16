@@ -1,4 +1,5 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 
 export type TGuardAsyncCategory = 'background-diagnostic' | 'user-visible-operation';
 
@@ -68,8 +69,11 @@ function logGuardAsyncError(
     }
 
     if (options.category === 'background-diagnostic') {
+        // Console captures often serialize Error instances as `{}`; keep the
+        // message as a plain string so the diagnostic stays readable there.
         BrowserLogger.warn(options.scope, options.message, {
             category: options.category,
+            errorMessage: getErrorMessage(error),
             error,
         });
         return;

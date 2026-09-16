@@ -403,7 +403,9 @@ export const useOcrPopupPresenter = ({
         items: languagePickerItems.value.filter(item => item.group === group),
     })));
     const languageInventoryState = computed(() => {
-        if (languageLoadState.value === 'ready' && availableLanguages.value.length > 0) {
+        // A refresh keeps the already-loaded inventory on screen so reopening
+        // the popup does not collapse the picker to a loading placeholder.
+        if (availableLanguages.value.length > 0 && languageLoadState.value !== 'error') {
             return 'ready' as const;
         }
         if (languageLoadState.value === 'error'

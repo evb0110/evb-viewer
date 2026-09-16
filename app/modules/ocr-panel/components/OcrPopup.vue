@@ -927,15 +927,21 @@ defineExpose<IOcrPopupAgentExpose>({
 
 /* The scroll region must stay on this element rather than the checkbox group's
    <fieldset>: a scrollable fieldset ignores the wheel everywhere except over a
-   chip, so the gaps and padding swallowed it. */
+   chip, so the gaps and padding swallowed it.
+   The height is fixed rather than capped so the dialog keeps one footprint
+   while the inventory loads, errors, or is filtered by search. */
 .language-picker-list {
-    max-height: var(--app-ocr-language-picker-max-height);
+    height: var(--app-ocr-language-picker-max-height);
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: var(--app-space-3xs);
 }
 
 .language-inventory-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
     padding: var(--app-space-6xl);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);

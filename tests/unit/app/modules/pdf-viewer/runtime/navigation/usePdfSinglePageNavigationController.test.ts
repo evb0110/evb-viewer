@@ -1924,4 +1924,132 @@ describe('usePdfSinglePageNavigationController', () => {
             scope.stop();
         }
     });
+
+    it('cancels instead of throwing when the document closes while a viewport raster is pending', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = pageNumber === 1
+                ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
+                : '<div class="document-page-skeleton"></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 3}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 3,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const numPages = ref(3);
+        const documentRevision = ref(1);
+        const freshPages = new Set([1]);
+        const isPageFreshlyRenderedForNavigation = vi.fn((pageNumber: number) => freshPages.has(pageNumber));
+        const viewportWrites = createTestPdfViewportWritePort();
+        const renderVisiblePages = vi.fn(async (range: {
+            start: number;
+            end: number
+        }) => {
+            if (renderVisiblePages.mock.calls.length === 1) {
+                freshPages.add(range.start);
+                return;
+            }
+            // Closing the file tears the document down while the target
+            // raster is still awaited: no live page range remains.
+            numPages.value = 0;
+            documentRevision.value += 1;
+        });
+        const unhandledRejections: unknown[] = [];
+        const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+            unhandledRejections.push(event.reason);
+        };
+        window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages,
+                currentPage: ref(2),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
+                getMostVisiblePage: vi.fn(() => 2),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 2),
+                renderVisiblePages,
+                isPageFreshlyRenderedForNavigation,
+                visibleRange: ref({
+                    start: 2,
+                    end: 2,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => documentRevision.value,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            controller.scrollToPage(requirePageNumber(2));
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+                expect(controller.viewportAuthority.activeIntent.value).toBeNull();
+            });
+            expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+            // A zoom change invalidates the committed raster of page 2.
+            freshPages.delete(2);
+
+            // Ambient zoom/fit/activation intents are fire-and-forget: a
+            // rejection here surfaces as an unhandled promise rejection.
+            await expect(controller.submitViewportStateIntent('zoom', {zoom: 2})).resolves.toMatchObject({outcome: 'cancelled'});
+            expect(renderVisiblePages).toHaveBeenCalledTimes(2);
+            await nextTick();
+
+            expect(controller.viewportAuthority.phase.value).toBe('cancelled');
+            expect(unhandledRejections).toEqual([]);
+            // The freshness probe must never receive a page the closed
+            // document cannot validate.
+            for (const [pageNumber] of isPageFreshlyRenderedForNavigation.mock.calls) {
+                expect(pageNumber).toBeGreaterThanOrEqual(1);
+                expect(pageNumber).toBeLessThanOrEqual(3);
+            }
+        } finally {
+            window.removeEventListener('unhandledrejection', onUnhandledRejection);
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
 });

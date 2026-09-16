@@ -1,4 +1,6 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    parsePageNumber, requirePageNumber, 
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {clamp} from 'es-toolkit/math';
@@ -91,6 +93,16 @@ export function shouldSubmitRequestedCurrentPage(
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
     const pageCount = () => Math.max(1, options.numPages.value);
     const toPageNumber = (page: number) => requirePageNumber(page, pageCount());
+    // Readiness probes run after awaited renders. A document that was closed
+    // mid-flight leaves no live page range, so report "not fresh" rather than
+    // throwing a page-number contract violation into the viewport authority.
+    const isPageFreshForNavigation = (page: number) => {
+        const pageNumber = options.numPages.value > 0 ? parsePageNumber(page, options.numPages.value) : null;
+        if (pageNumber === null) {
+            return false;
+        }
+        return options.isPageFreshlyRenderedForNavigation?.(pageNumber) ?? true;
+    };
     // The viewport authority's committed page outlives a document swap by a
     // tick. requirePageNumber rejects rather than clamps, so branding that stale
     // page unbounded would throw the viewport update away instead of letting it
@@ -329,7 +341,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 container,
                 page,
                 readiness,
-                pageNumber => options.isPageFreshlyRenderedForNavigation?.(toPageNumber(pageNumber)) ?? true,
+                isPageFreshForNavigation,
             )) {
                 await ensureTextLayerReady();
                 options.onPageVisualReady?.(page);
@@ -348,12 +360,15 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 suppressResidentRasterDemand: false,
                 ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
             });
+            if (signal.aborted || options.numPages.value <= 0) {
+                throw new DOMException('PDF navigation visual wait ended with the document torn down', 'AbortError');
+            }
             await ensureTextLayerReady();
             if (container && !isPdfNavigationReady(
                 container,
                 page,
                 readiness,
-                pageNumber => options.isPageFreshlyRenderedForNavigation?.(toPageNumber(pageNumber)) ?? true,
+                isPageFreshForNavigation,
             )) {
                 logPdfRenderTrace('navigation-await-visual-exit', {
                     intentId: intent.id,
