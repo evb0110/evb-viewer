@@ -318,8 +318,12 @@ async function runGrantedMatrix(session: IRunningSession) {
         throw new Error(`Diagnostics grant control is not an enabled button: ${JSON.stringify(grantControl)}`);
     }
     await session.page.$eval(grantSelector, element => (element as HTMLButtonElement).click());
-    await waitForMainTransportReady(session);
     if (!LOCAL_ONLY) {
+        // A diagnostics-disabled artifact ships no DSN, so no real transport can
+        // become ready. The granted matrix still proves local consent and
+        // Error-ID rendering below; only the remote transport and audit checks
+        // are skipped.
+        await waitForMainTransportReady(session);
         await waitForAudit(session.auditPath, entries => Boolean(deliveredEntryFor(entries, firstReceipt)));
     }
 
