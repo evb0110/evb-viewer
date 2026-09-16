@@ -394,6 +394,28 @@ interface IMacWheelE2EWindow extends Window {
 const djvuFixture = resolveDjvuFixturePath();
 const runDjvuSmokeOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
+async function copyDjvuFixtureForMutation(
+    source: typeof djvuFixture,
+    slug: string,
+) {
+    if (!source.path) {
+        return source;
+    }
+    const copyPath = resolve(
+        process.cwd(),
+        '.devkit',
+        'tmp',
+        `djvu-${slug}-source-${Date.now()}.djvu`,
+    );
+    mkdirSync(dirname(copyPath), {recursive: true});
+    await copyFile(source.path, copyPath);
+    return {
+        ...source,
+        path: copyPath,
+        reason: `Using copied DjVu fixture: ${copyPath}`,
+    };
+}
+
 function readSplitResizeViewportAnchorFromPage(
     paneId: string,
     documentKind: TSplitResizeDocumentKind,
@@ -5432,11 +5454,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('restores a valid focus target after native DjVu conversion completes', async () => {
         let session = sessionFixture.getSession();
-        const completionFixture = resolveDjvuFixturePath({
-            corpusFixturePath: null,
-            devkitFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
-            trackedFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
-        });
+        const completionFixture = await copyDjvuFixtureForMutation(djvuFixture, 'completion');
         if (!session || !completionFixture.path) {
             throw new Error(completionFixture.reason);
         }
@@ -5495,11 +5513,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('restores focus and presents the native error surface after DjVu conversion fails', async () => {
         let session = sessionFixture.getSession();
-        const failureFixture = resolveDjvuFixturePath({
-            corpusFixturePath: null,
-            devkitFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
-            trackedFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
-        });
+        const failureFixture = await copyDjvuFixtureForMutation(djvuFixture, 'failure');
         if (!session || !failureFixture.path) {
             throw new Error(failureFixture.reason);
         }
