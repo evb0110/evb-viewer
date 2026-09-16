@@ -1,0 +1,26 @@
+docs/contributing/windows-tests/setup-and-repair.md
+  s_b32797d3797b44::t_df50219240ffc0 22,450
+tests/unit/scripts/windows-test/hostDoctor.test.ts
+  s_b32797d3797b44::t_a64485c65bd58f 25,228-249
+scripts/windows-test/host/doctor.ts
+  s_b32797d3797b44::t_966258681eb9ba 39-72
+scripts/windows-test/host/hostRunner.ts
+  s_b32797d3797b44::t_a64485c65bd58f 51
+  s_b32797d3797b44::t_966258681eb9ba 704,708-709,742,745
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d6e6eb1f6538b8abdce37acf9c949174b6bf279e",
+  "prompts": {},
+  "sessions": {
+    "s_b32797d3797b44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d84b3e55-bbb4-4d74-bfe2-05f66ecdceb2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
