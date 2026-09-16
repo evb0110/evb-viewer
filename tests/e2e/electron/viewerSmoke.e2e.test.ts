@@ -258,6 +258,26 @@ const DJVU_HIGH_ZOOM_REGRESSION_ZOOM = 4.72;
 const DJVU_HIGH_ZOOM_PRESSURE_DURATION_MS = 5_500;
 const SPLIT_RESIZE_ANCHOR_TOLERANCE = 0.08;
 
+async function clickEnabledDialogButton(page: IElectronE2ESession['page'], label: string) {
+    // The dialog re-renders while its native conversion controls settle, so an
+    // element handle captured before the click can be detached by the time it
+    // is clicked. Locate and click in one page evaluation instead.
+    await waitForFunctionInPage(page, text => Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ).some(button => button.textContent?.trim() === text && !button.disabled), {timeout: 30_000}, label);
+    const clicked = await page.evaluate(text => {
+        const button = Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).find(candidate => candidate.textContent?.trim() === text && !candidate.disabled);
+        if (!button) {
+            return false;
+        }
+        button.click();
+        return true;
+    }, label);
+    expect(clicked).toBe(true);
+}
+
 async function clickActiveTabCloseWithPointer(session: IElectronE2ESession) {
     await session.page.waitForFunction(() => {
         const button = document.querySelector<HTMLButtonElement>(
@@ -5338,23 +5358,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(cancelInitiator).not.toBeNull();
         await cancelInitiator!.click();
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
-        await waitForFunctionInPage(session.page, () => Array.from(
-            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-        ).some(button => (
-            button.textContent?.trim() === 'Convert'
-            && !button.disabled
-        )), {timeout: 30_000});
-
-        const dialogButtons = await session.page.$$('[role="dialog"] button');
-        let convertButton: (typeof dialogButtons)[number] | null = null;
-        for (const button of dialogButtons) {
-            if (await button.evaluate(element => element.textContent?.trim() === 'Convert')) {
-                convertButton = button;
-                break;
-            }
-        }
-        expect(convertButton).not.toBeNull();
-        await convertButton!.click();
+        await clickEnabledDialogButton(session.page, 'Convert');
 
         const progressSelector = '.app-progress-overlay[role="dialog"]';
         try {
@@ -5413,15 +5417,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(successfulInitiator).not.toBeNull();
         await successfulInitiator!.click();
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
-        await waitForFunctionInPage(session.page, () => Array.from(
-            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-        ).some(button => button.textContent?.trim() === 'Convert' && !button.disabled), {timeout: 30_000});
-        const switchDialogButtons = await session.page.$$('[role="dialog"] button');
-        const switchConvertButton = (await Promise.all(switchDialogButtons.map(async button => (
-            await button.evaluate(element => element.textContent?.trim() === 'Convert') ? button : null
-        )))).find(Boolean);
-        expect(switchConvertButton).not.toBeNull();
-        await switchConvertButton!.click();
+        await clickEnabledDialogButton(session.page, 'Convert');
         await session.page.waitForSelector(progressSelector, {
             visible: true,
             timeout: 30_000,
@@ -5485,15 +5481,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(initiator).not.toBeNull();
         await initiator!.click();
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
-        await waitForFunctionInPage(session.page, () => Array.from(
-            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-        ).some(button => button.textContent?.trim() === 'Convert' && !button.disabled), {timeout: 30_000});
-        const buttons = await session.page.$$('[role="dialog"] button');
-        const convert = (await Promise.all(buttons.map(async button => (
-            await button.evaluate(element => element.textContent?.trim() === 'Convert') ? button : null
-        )))).find(Boolean);
-        expect(convert).not.toBeNull();
-        await convert!.click();
+        await clickEnabledDialogButton(session.page, 'Convert');
         const progressSelector = '.app-progress-overlay[role="dialog"]';
         await session.page.waitForSelector(progressSelector, {
             timeout: 30_000,
