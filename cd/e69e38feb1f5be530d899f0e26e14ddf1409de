@@ -1,0 +1,24 @@
+packages/i18n-app/messages/en.ts
+  s_90fc2726561dff::t_ed17ea77d0a45f 370,372-373,376,379,381,418-420
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_90fc2726561dff::t_017a7bd370101a 6,308,316,540,946-947,950,961-963,965-966,985-989,1010-1011
+  s_90fc2726561dff::t_ae2e5ba538dc77 527,529-530
+packages/i18n-app/messages/ru.ts
+  s_90fc2726561dff::t_ed17ea77d0a45f 372,374,376-378,381,383,419-420,422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cde69e38feb1f5be530d899f0e26e14ddf1409de",
+  "prompts": {},
+  "sessions": {
+    "s_90fc2726561dff": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "029031ea-f1d4-4f2b-967f-e2fc1ad7fd0c",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
