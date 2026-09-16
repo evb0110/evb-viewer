@@ -19,6 +19,7 @@ outside the checkout.
 | Printed page markers | Tesseract available to the host runner for rasterized print outputs | Missing OCR makes marker verification inconclusive, never passing |
 | Python oracle | `python3` with Pillow for the generated-PDF verifier | Missing tooling makes the render oracle inconclusive, never passing |
 | Host input ownership | UTM `Capture Input` is off for the active lab window | Accessibility probe reads the checkbox before launch and after cleanup; a remaining on state blocks the run |
+| Launcher window permissions | The launcher holds Screen Recording and Accessibility permission | `launcher-window-permissions` runs the window snapshot probe from the launcher; a missing permission fails doctor because the launch guard cannot verify Capture Input on a new clone window |
 
 Set `EVB_WINDOWS_TESTS_ROOT` only for tests or a second lab root. The default
 root is the one above.
@@ -446,6 +447,7 @@ and baseline images.
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
+| `doctor` reports `launcher-window-permissions` with Screen Recording or Accessibility missing, or a run fails in `booting` with "Capture Input cannot be verified without Screen Recording or Accessibility permission" | The launcher process lacks one of the two permissions the window guard needs | Open System Settings, Privacy and Security, allow the launcher under Screen Recording and under Accessibility; rerun doctor from that launcher before starting a run |
 | `doctor` reports `automation-consent-missing` with OSStatus -1743 | The current launcher has no Automation permission for UTM | Open System Settings, Privacy and Security, Automation, allow the launcher to control UTM; run doctor from that launcher; add it to `qualifiedLaunchers` only after its documented live qualification passes |
 | A second UTM Dock icon appears and disappears while polling | The bundled CLI registers as a foreground application | Run preparation and use the verified standalone CLI. Do not edit UTM.app, re-sign it, or change TCC. See the [live transport report](../../internal/research/utm-windows-live-transport-2026-09-05.md). |
 | UTM closes during a run | Host application crash or exit | Preserve the crash report and run evidence. The runner refuses commands after the pinned UTM process disappears or changes. Reopen UTM normally, inspect the stopped clone, and use a new run ID. |

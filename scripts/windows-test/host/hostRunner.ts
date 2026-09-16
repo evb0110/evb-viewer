@@ -48,6 +48,7 @@ import type {
 import {
     createLaunchctlSessionProbe,
     isUtmScreenshotPreferenceRequired,
+    launcherWindowPermissionCheck,
     parseUtmctlVersion,
     readUtmScreenshotPreference,
     runWindowsTestDoctor,
@@ -700,9 +701,12 @@ export async function runWindowsTestDoctorOnHost(
         detail: 'The host configuration was unavailable, so the UTM Capture Input control could not be checked.',
         remedy: 'Run doctor from the logged-in host session after preparing the lab; the test launcher will fail closed if Capture Input cannot be released.',
     };
+    let permissionCheck = launcherWindowPermissionCheck(options.launcherPath, null);
     if (config !== null) {
         const goldenStopped = report.checks.find(check => check.id === 'golden-image-stopped')?.ok === true;
         try {
+            const snapshot = await transport.inputCapture.snapshotBeforeStart();
+            permissionCheck = launcherWindowPermissionCheck(options.launcherPath, snapshot);
             const result = await transport.inputCapture.ensureReleased(config.goldenVmId);
             inputCaptureCheck = {
                 id: 'utm-input-capture',
@@ -735,8 +739,10 @@ export async function runWindowsTestDoctorOnHost(
                     detail: `${check.detail} Transport: ${utmctlPath}.`,
                 }
                 : check),
+            permissionCheck,
             inputCaptureCheck,
         ],
+        ok: report.ok && permissionCheck.ok && inputCaptureCheck.ok,
     };
 }
 

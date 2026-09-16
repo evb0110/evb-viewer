@@ -36,6 +36,40 @@ export interface IWindowsTestDoctorReport {
 
 export interface IWindowsTestSessionProbe {managerName(): Promise<string | null>;}
 
+export interface IWindowsTestLauncherWindowPermissions {
+    enumerationAvailable: boolean;
+    screenCapturePreflight?: boolean;
+    accessibilityTrusted?: boolean;
+}
+
+/**
+ * The clone launch guard refuses to verify Capture Input on a new UTM window
+ * unless the launcher process holds both Screen Recording and Accessibility
+ * permission. Doctor surfaces that requirement before a run boots a clone.
+ */
+export function launcherWindowPermissionCheck(
+    launcherPath: string,
+    snapshot: IWindowsTestLauncherWindowPermissions | null,
+): IWindowsTestDoctorCheck {
+    const remedy = `Open System Settings, Privacy and Security, and allow ${launcherPath} under both Screen Recording and Accessibility, then rerun doctor from that launcher. The launch guard fails closed on a new UTM window without both permissions.`;
+    if (snapshot === null) {
+        return check(
+            'launcher-window-permissions',
+            false,
+            'The UTM window snapshot probe did not run, so Screen Recording and Accessibility permission for the launcher could not be verified.',
+            remedy,
+        );
+    }
+    const screen = snapshot.screenCapturePreflight === true;
+    const accessibility = snapshot.accessibilityTrusted === true;
+    return check(
+        'launcher-window-permissions',
+        snapshot.enumerationAvailable && screen && accessibility,
+        `Launcher ${launcherPath}: Screen Recording ${screen ? 'granted' : 'missing'}, Accessibility ${accessibility ? 'granted' : 'missing'}, window enumeration ${snapshot.enumerationAvailable ? 'available' : 'unavailable'}.`,
+        remedy,
+    );
+}
+
 export async function resolveWindowsTestLauncher(
     env: NodeJS.ProcessEnv,
     runner: ICommandRunner,

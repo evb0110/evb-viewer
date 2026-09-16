@@ -22,6 +22,7 @@ import {
     createLaunchctlSessionProbe,
     parseUtmctlVersion,
     readUtmScreenshotPreference,
+    launcherWindowPermissionCheck,
     resolveWindowsTestLauncher,
     runWindowsTestDoctor,
 } from '@scripts/windows-test/host/doctor';
@@ -224,6 +225,28 @@ function checkById(report: IWindowsTestDoctorReport, id: string) {
 }
 
 describe('windows test doctor', () => {
+    it('requires Screen Recording and Accessibility for the launcher before a clone can boot', () => {
+        const granted = launcherWindowPermissionCheck(LAUNCHER, {
+            enumerationAvailable: true,
+            screenCapturePreflight: true,
+            accessibilityTrusted: true,
+        });
+        expect(granted.ok).toBe(true);
+        expect(granted.id).toBe('launcher-window-permissions');
+        const missingAccessibility = launcherWindowPermissionCheck(LAUNCHER, {
+            enumerationAvailable: true,
+            screenCapturePreflight: true,
+            accessibilityTrusted: false,
+        });
+        expect(missingAccessibility.ok).toBe(false);
+        expect(missingAccessibility.detail).toContain('Accessibility missing');
+        expect(missingAccessibility.remedy).toContain(LAUNCHER);
+        expect(launcherWindowPermissionCheck(LAUNCHER, {
+            enumerationAvailable: true,
+            accessibilityTrusted: true,
+        }).ok).toBe(false);
+        expect(launcherWindowPermissionCheck(LAUNCHER, null).ok).toBe(false);
+    });
     it('finds the enclosing app through the CLI process ancestry', async () => {
         const runner: ICommandRunner = { run: async (_command, args) => ({
             exitCode: 0,
