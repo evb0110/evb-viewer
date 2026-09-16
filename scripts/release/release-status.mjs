@@ -52,7 +52,7 @@ const CORE_TARGETS = [
 /** @typedef {{databaseId?: number, displayTitle?: unknown, eventPayload?: {inputs?: {tag?: unknown}}, inputs?: {tag?: unknown}, name?: unknown, workflowName?: unknown, createdAt?: string, conclusion?: string | null, status?: string, url?: string}} IWorkflowStatusRun */
 /** @typedef {{tag: string, runCommand: TCommandRunner}} ITagCommandOptions */
 /** @typedef {{env?: NodeJS.ProcessEnv, getLocalReleaseTargetsFn?: typeof getLocalReleaseTargets, getRequiredArtifactPatternsFn?: typeof getRequiredArtifactPatterns, getSupplementalReleaseAssetNamesFn?: typeof getSupplementalReleaseAssetNames, listWorkflowRunsFn?: typeof listWorkflowRuns, readMirrorChannelFn?: (options: {env: NodeJS.ProcessEnv, runCommand: TCommandRunner}) => {checked: boolean, error: string | null, tag: string | null}, readReleaseStateFn?: (tag: string, runCommand: TCommandRunner) => IReleaseState, readTagStateFn?: (tag: string, runCommand: TCommandRunner) => ITagState, runCommand?: TCommandRunner}} IReleaseStatusDependencies */
-/** @typedef {{assets: string[], blocker: string | null, checksumManifestPresent: boolean, core: IAssetSummary, coreComplete: boolean, isDraft: boolean | null, isPublic: boolean, mirror: IMirrorSummary, publishedAt: string | null, releaseExists: boolean, releaseError: string | null, releaseTag: string, state: TReleaseStatusState, supplemental: IAssetSummary, supplementalComplete: boolean, tag: string, tagError: string | null, tagExists: boolean, workflows: {release: IWorkflowSummary, supplemental: IWorkflowSummary}}} IReleaseStatus */
+/** @typedef {{assets: string[], blocker: string | null, checksumManifestPresent: boolean, core: IAssetSummary, coreComplete: boolean, isDraft: boolean | null, isPublic: boolean, mirror: IMirrorSummary, note?: string | null, publishedAt: string | null, releaseExists: boolean, releaseError: string | null, releaseTag: string, state: TReleaseStatusState, supplemental: IAssetSummary, supplementalComplete: boolean, tag: string, tagError: string | null, tagExists: boolean, workflows: {release: IWorkflowSummary, supplemental: IWorkflowSummary}}} IReleaseStatus */
 
 /** @param {unknown} error @returns {boolean} */
 
@@ -375,7 +375,7 @@ function getWorkflowBlocker(label, workflow) {
     return null;
 }
 
-/** @param {IReleaseStatus} status @returns {{blocker: string | null, state: TReleaseStatusState}} */
+/** @param {IReleaseStatus} status @returns {{blocker: string | null, note?: string | null, state: TReleaseStatusState}} */
 export function getReleaseStatusState(status) {
     const tagBlocker = status.tagError
         ? `tag lookup failed: ${status.tagError}`
@@ -396,6 +396,25 @@ export function getReleaseStatusState(status) {
             ? `mirror lookup failed: ${status.mirror.error}`
             : `mirror points at ${status.mirror.tag ?? 'no release tag'}, not ${status.tag}`
         : null;
+
+    // Published assets are the outcome; a failed run whose assets were later
+    // completed by a rerun is a note, not a blocker. Lookup and mirror
+    // failures still block because completeness cannot be trusted then.
+    const assetsComplete = status.coreComplete
+        && status.supplementalComplete
+        && status.isPublic
+        && !status.isDraft
+        && tagBlocker === null
+        && releaseBlocker === null
+        && mirrorBlocker === null;
+    if (assetsComplete) {
+        const note = releaseWorkflowBlocker ?? supplementalWorkflowBlocker;
+        return {
+            blocker: null,
+            note: note === null ? null : `${note}; its assets are present`,
+            state: 'complete',
+        };
+    }
 
     const blocker = tagBlocker
         ?? releaseBlocker
@@ -566,7 +585,7 @@ export function formatReleaseStatus(status) {
 
     return [
         `Release status: ${status.tag}`,
-        `state: ${status.state}${status.blocker ? ` (${status.blocker})` : ''}`,
+        `state: ${status.state}${status.blocker ? ` (${status.blocker})` : ''}${status.note ? ` (note: ${status.note})` : ''}`,
         `tag: ${status.tagExists ? 'present' : 'missing'}${status.tagError ? ` (${status.tagError})` : ''}`,
         `release: ${releaseState}${publishedAt}`,
         `assets present: ${presentAssets}`,

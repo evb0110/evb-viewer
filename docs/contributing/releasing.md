@@ -60,7 +60,7 @@ Use the read-only status command for one-screen state:
 pnpm run release:status vX.Y.Z
 ```
 
-It reports a state of `ready`, `in-progress`, `core-published-supplemental-pending`, `complete`, or `blocked` with its blocker, followed by the tag, draft or public release state, publication time, core and supplemental assets, `SHA256SUMS`, both workflow runs, and the mirror pointer when local mirror credentials are configured. `ready` means no release activity for that tag has started. `complete` means the public core and supplemental assets are complete. Exit code 0 still means the public core release is complete, including the supplemental-pending state. Exit code 1 means it is not.
+It reports a state of `ready`, `in-progress`, `core-published-supplemental-pending`, `complete`, or `blocked` with its blocker, followed by the tag, draft or public release state, publication time, core and supplemental assets, `SHA256SUMS`, both workflow runs, and the mirror pointer when local mirror credentials are configured. `ready` means no release activity for that tag has started. `complete` means the public core and supplemental assets are complete; a failed workflow run whose assets were completed by a later run is reported as a note, not a blocker. Exit code 0 still means the public core release is complete, including the supplemental-pending state. Exit code 1 means it is not.
 
 ## Resume a failed release
 

@@ -406,6 +406,38 @@ describe('release-status lifecycle states', () => {
         });
     });
 
+    it('calls a fully published release complete and keeps a failed run as a note', () => {
+        const status = createStatus({
+            coreComplete: true,
+            isDraft: false,
+            isPublic: true,
+            releaseExists: true,
+            supplementalComplete: true,
+            tagExists: true,
+            workflows: {
+                release: createWorkflowState(),
+                supplemental: {
+                    conclusion: 'failure',
+                    createdAt: '2026-09-01T08:00:00.000Z',
+                    error: null,
+                    found: true,
+                    status: 'completed',
+                    url: 'https://github.com/example/repo/actions/runs/43',
+                },
+            },
+        });
+
+        const result = getReleaseStatusState(status);
+
+        expect(result.state).toBe('complete');
+        expect(result.blocker).toBeNull();
+        expect(result.note).toContain('actions/runs/43');
+        expect(formatReleaseStatus({
+            ...status,
+            ...result,
+        })).toContain('state: complete (note: ');
+    });
+
     it('reports a failed workflow as blocked with the run URL', () => {
         const status = createStatus({
             releaseExists: true,
