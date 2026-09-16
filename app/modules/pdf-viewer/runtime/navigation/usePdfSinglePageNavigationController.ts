@@ -360,7 +360,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 suppressResidentRasterDemand: false,
                 ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
             });
-            if (signal.aborted || options.numPages.value <= 0) {
+            if (options.numPages.value <= 0) {
                 throw new DOMException('PDF navigation visual wait ended with the document torn down', 'AbortError');
             }
             await ensureTextLayerReady();
