@@ -106,6 +106,10 @@ const OVERLAY_EDGE_LIMIT = 0.03;
 const OVERLAY_INK_TOLERANCE = 0.01;
 const PLACEMENT_PIXEL_TOLERANCE = 1.5;
 const FORCED_PLACEMENT_DIVERGENCE_PX = 8;
+const INDEPENDENT_INK_THRESHOLD = 160;
+const INDEPENDENT_READER_THRESHOLD = 220;
+const INDEPENDENT_INK_SAMPLE_LIMIT = 64;
+const INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX = 40;
 
 function printUsage() {
     process.stderr.write([
@@ -669,6 +673,55 @@ function comparePlacementSignatures(preview, final) {
     };
 }
 
+async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, metadata, finalGeometry) {
+    const expected = await loadGrayscaleImage(nativeOutputPath);
+    const actual = await loadGrayscaleImage(finalRasterPath);
+    const scaleX = actual.width / metadata.canvasWidthPx;
+    const scaleY = actual.height / metadata.canvasHeightPx;
+    const finalPlacement = finalPlacementSignature(finalGeometry, actual.width, actual.height);
+    const points = [];
+    for (let y = 3; y < expected.height - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; y += 5) {
+        for (let x = 3; x < expected.width - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; x += 5) {
+            if (expected.data[y * expected.width + x] >= INDEPENDENT_INK_THRESHOLD) continue;
+            points.push({
+                expectedX: x,
+                expectedY: y,
+                finalX: Math.round(finalPlacement.destinationOrigin.xPx + x * scaleX),
+                finalY: Math.round(finalPlacement.destinationOrigin.yPx + y * scaleY),
+            });
+        }
+    }
+    if (points.length < 16) {
+        throw new Error(`Independent reader ink oracle found only ${String(points.length)} interior samples`);
+    }
+    const read = (x, y) => x >= 0 && y >= 0 && x < actual.width && y < actual.height
+        ? actual.data[y * actual.width + x]
+        : 255;
+    const matches = points.filter(point => {
+        for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dx = -1; dx <= 1; dx += 1) {
+                if (read(point.finalX + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
+            }
+        }
+        return false;
+    }).length;
+    const wrongCalibrationMatches = points.filter(point => {
+        for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dx = -1; dx <= 1; dx += 1) {
+                if (read(point.finalX + INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
+            }
+        }
+        return false;
+    }).length;
+    return {
+        matchCount: matches,
+        matchRatio: round(matches / points.length),
+        sampleCount: points.length,
+        wrongCalibrationMatchCount: wrongCalibrationMatches,
+        wrongCalibrationMatchRatio: round(wrongCalibrationMatches / points.length),
+    };
+}
+
 function grayBitmapFromContext(context, width, height) {
     const rgba = context.getImageData(0, 0, width, height).data;
     const data = new Uint8Array(width * height);
@@ -825,6 +878,7 @@ async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
     return {
         height: canvas.height,
         imageStyle,
+        metadata,
         overlayContainment,
         sourceContentContainment,
         overlayRect,
@@ -1252,6 +1306,22 @@ async function main() {
                 ...comparePlacementSignatures(leaf.placementSignature, final),
             };
         });
+        const independentReaderInk = args.check ? [] : null;
+        for (let index = 0; args.check && index < previewLeaves.length; index += 1) {
+            const previewLeaf = previewLeaves[index];
+            const finalLeaf = finalLeaves[index];
+            const nativeOutput = outputMetadata.find(output => output.metadata.half === previewLeaf.half);
+            if (!nativeOutput) throw new Error(`Missing native output for ${previewLeaf.half}`);
+            independentReaderInk.push({
+                half: previewLeaf.half,
+                ...await compareIndependentReaderInk(
+                    nativeOutput.outputPath,
+                    finalLeaf.path,
+                    previewLeaf.metadata,
+                    finalLeaf.renderGeometry,
+                ),
+            });
+        }
         const leafResults = [];
         for (let index = 0; index < previewLeaves.length; index += 1) {
             const previewBitmap = await readGray(previewLeaves[index].metricsPath);
@@ -1308,6 +1378,7 @@ async function main() {
             manifest: manifestPath,
             previewPageMetadata: pageMetadataPath,
             placementSignatures,
+            independentReaderInk,
             leaves: leafResults,
         });
     }
@@ -1335,6 +1406,20 @@ async function main() {
             mode: 'settled',
             pageNumber: page.pageNumber,
         })),
+        ...(page.independentReaderInk ?? []).flatMap(ink => [
+            ...(ink.matchRatio < 0.9 ? [{
+                code: 'independent-reader-ink-mismatch',
+                half: ink.half,
+                mode: 'settled',
+                pageNumber: page.pageNumber,
+            }] : []),
+            ...(ink.wrongCalibrationMatchRatio >= 0.5 ? [{
+                code: 'independent-reader-negative-control',
+                half: ink.half,
+                mode: 'settled',
+                pageNumber: page.pageNumber,
+            }] : []),
+        ]),
     ]);
     report.violations = violations;
     report.status = violations.length === 0 ? 'pass' : 'fail';
@@ -1353,6 +1438,7 @@ async function main() {
                 deltas: signature.deltas,
                 tolerances: signature.tolerances,
             })),
+            independentReaderInk: page.independentReaderInk,
             leaves: page.leaves.map(leaf => ({
                 half: leaf.half,
                 preview: leaf.previewWeight,

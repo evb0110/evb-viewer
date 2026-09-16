@@ -127,4 +127,25 @@ describe('DjvuConversionOverlay', () => {
         expect(workspaceAction.hasAttribute('inert')).toBe(false);
         expect(document.activeElement).toBe(workspaceAction);
     });
+
+    it('focuses a visible fallback when the initiating control was replaced', async () => {
+        const mounted = mountOverlay();
+        const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
+        workspaceAction.focus();
+        mounted.open.value = true;
+        await nextTick();
+        await nextTick();
+
+        workspaceAction.remove();
+        const fallback = document.createElement('button');
+        fallback.type = 'button';
+        fallback.id = 'replacement-action';
+        document.body.append(fallback);
+        mounted.open.value = false;
+        await nextTick();
+        await nextTick();
+
+        expect(document.activeElement).toBe(fallback);
+        fallback.remove();
+    });
 });
