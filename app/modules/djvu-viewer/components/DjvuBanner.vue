@@ -11,6 +11,7 @@
             <div class="djvu-banner-actions">
                 <UButton
                     :label="t('djvu.convertToPdf')"
+                    data-focus-restore="djvu-convert"
                     variant="soft"
                     color="primary"
                     size="xs"

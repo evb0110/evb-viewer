@@ -4,7 +4,12 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
-import {rm} from 'node:fs/promises';
+import {
+    copyFile,
+    readFile,
+    rm,
+    truncate,
+} from 'node:fs/promises';
 import {mkdirSync} from 'node:fs';
 import {
     dirname,
@@ -1157,7 +1162,7 @@ describe('Electron E2E - Viewer Smoke', () => {
     it('closes and reopens an annotated PDF without crashing its workspace host', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Failure session did not start');
         }
 
         const fixturePath = await createAnnotatedLinkFixturePdf(
@@ -3715,7 +3720,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             visualContinuity.settledItems.every(item => item.painted),
             JSON.stringify(visualContinuity.settledItems),
         ).toBe(true);
-    }, 180_000);
+    }, 120_000);
 
     it('opens a PNG image through the same document entrypoint', async () => {
         let session = sessionFixture.getSession();
@@ -5307,7 +5312,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
         ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
 
-        await callWorkspaceCommand(session.page, 'handleConvertToPdf');
+        const cancelInitiator = await session.page.$('.djvu-banner button');
+        expect(cancelInitiator).not.toBeNull();
+        await cancelInitiator!.click();
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await waitForFunctionInPage(session.page, () => Array.from(
             document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
@@ -5380,7 +5387,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         })).toBe(false);
         expect(await session.page.$('.editor-pane.is-active .djvu-banner')).not.toBeNull();
 
-        await callWorkspaceCommand(session.page, 'handleConvertToPdf');
+        const successfulInitiator = await session.page.$('.djvu-banner button');
+        expect(successfulInitiator).not.toBeNull();
+        await successfulInitiator!.click();
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await waitForFunctionInPage(session.page, () => Array.from(
             document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
@@ -5395,7 +5404,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             visible: true,
             timeout: 30_000,
         });
-
         await openPdfInApp(
             session.page,
             resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
@@ -5419,5 +5427,177 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         const switchedSnapshot = await getWorkspaceToolbarSnapshot(session.page);
         expect(switchedSnapshot?.hasPdf).toBe(true);
         expect(switchedSnapshot?.isOpeningDocument).toBe(false);
+
+    }, 120_000);
+
+    it('restores a valid focus target after native DjVu conversion completes', async () => {
+        let session = sessionFixture.getSession();
+        const completionFixture = resolveDjvuFixturePath({
+            corpusFixturePath: null,
+            devkitFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
+            trackedFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
+        });
+        if (!session || !completionFixture.path) {
+            throw new Error(completionFixture.reason);
+        }
+        onTestFinished(() => rm(completionFixture.path!, {force: true}));
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-completion-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(destinationPath), {recursive: true});
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-completion-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+        });
+        if (!session) {
+            throw new Error('Completion session did not start');
+        }
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, completionFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const initiator = await session.page.$('.djvu-banner button');
+        expect(initiator).not.toBeNull();
+        await initiator!.click();
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).some(button => button.textContent?.trim() === 'Convert' && !button.disabled), {timeout: 30_000});
+        const buttons = await session.page.$$('[role="dialog"] button');
+        const convert = (await Promise.all(buttons.map(async button => (
+            await button.evaluate(element => element.textContent?.trim() === 'Convert') ? button : null
+        )))).find(Boolean);
+        expect(convert).not.toBeNull();
+        await convert!.click();
+        const progressSelector = '.app-progress-overlay[role="dialog"]';
+        await session.page.waitForSelector(progressSelector, {
+            timeout: 30_000,
+            visible: true,
+        });
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector('.editor-pane.is-active .djvu-banner') === null
+            && document.querySelector('.app-progress-overlay[role="dialog"]') === null
+        ), {timeout: 30_000});
+        expect((await readFile(destinationPath)).subarray(0, 5).toString()).toBe('%PDF-');
+        expect(await session.page.evaluate(() => (
+            document.activeElement instanceof HTMLElement
+            && document.activeElement !== document.body
+            && document.activeElement.isConnected
+        ))).toBe(true);
+    }, 120_000);
+
+    it('restores focus and presents the native error surface after DjVu conversion fails', async () => {
+        let session = sessionFixture.getSession();
+        const failureFixture = resolveDjvuFixturePath({
+            corpusFixturePath: null,
+            devkitFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
+            trackedFixtureDir: resolve(process.cwd(), '.devkit', 'missing-djvu-fixtures'),
+        });
+        if (!session || !failureFixture.path) {
+            throw new Error(failureFixture.reason);
+        }
+
+        const corruptFixturePath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-failure-${Date.now()}.djvu`,
+        );
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-failure-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(corruptFixturePath), {recursive: true});
+        await copyFile(failureFixture.path, corruptFixturePath);
+        onTestFinished(async () => {
+            await Promise.all([
+                rm(failureFixture.path!, {force: true}),
+                rm(corruptFixturePath, {force: true}),
+                rm(destinationPath, {force: true}),
+            ]);
+        });
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-failure-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+        });
+        if (!session) {
+            throw new Error('Failure session did not start');
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, corruptFixturePath, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const failureInitiator = await session.page.$('.djvu-banner button');
+        expect(failureInitiator).not.toBeNull();
+        await failureInitiator!.click();
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await truncate(corruptFixturePath, 0);
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).some(button => button.textContent?.trim() === 'Convert' && !button.disabled), {timeout: 30_000});
+        const dialogButtons = await session.page.$$('[role="dialog"] button');
+        let convertButton: (typeof dialogButtons)[number] | null = null;
+        for (const button of dialogButtons) {
+            if (await button.evaluate(element => element.textContent?.trim() === 'Convert')) {
+                convertButton = button;
+                break;
+            }
+        }
+        expect(convertButton).not.toBeNull();
+        await convertButton!.click();
+
+        const progressSelector = '.app-progress-overlay[role="dialog"]';
+        await session.page.waitForSelector(progressSelector, {
+            timeout: 30_000,
+            visible: true,
+        });
+        await session.page.waitForSelector(progressSelector, {
+            hidden: true,
+            timeout: 30_000,
+        });
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('.app-toast'),
+        ).some(toast => toast.textContent?.includes('Conversion failed')), {timeout: 30_000});
+        await waitForFunctionInPage(session.page, () => !Array.from(
+            document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+        ).some(dialog => {
+            const style = window.getComputedStyle(dialog);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && dialog.getClientRects().length > 0;
+        }), {timeout: 30_000});
+        expect(await session.page.$(progressSelector)).toBeNull();
+        expect(await session.page.$('.editor-pane.is-active .djvu-banner')).not.toBeNull();
+        const focusState = await session.page.evaluate(() => ({
+            active: document.activeElement instanceof HTMLElement
+                ? {
+                    className: document.activeElement.className,
+                    id: document.activeElement.id,
+                    text: document.activeElement.textContent?.trim(),
+                    restoreTarget: document.activeElement.getAttribute('data-focus-restore'),
+                }
+                : null,
+            bannerButtonCount: document.querySelectorAll('.djvu-banner button').length,
+        }));
+        expect(await session.page.evaluate(() => (
+            document.activeElement instanceof HTMLElement
+            && document.activeElement.matches('[data-focus-restore="djvu-convert"]')
+            && document.activeElement.isConnected
+        )), JSON.stringify(focusState)).toBe(true);
+        expect(await session.page.$('.app-toast')).not.toBeNull();
     }, 120_000);
 });

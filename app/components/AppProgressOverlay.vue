@@ -142,12 +142,28 @@ function containOverlayFocus(event: FocusEvent) {
     }
 }
 
+function findFocusFallback() {
+    return Array.from(document.querySelectorAll<HTMLElement>(
+        '[data-focus-restore], button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    )).find(element => {
+        const style = window.getComputedStyle(element);
+        return !element.hasAttribute('disabled')
+            && element.getAttribute('aria-hidden') !== 'true'
+            && element.closest('[aria-hidden="true"], [hidden], [inert]') === null
+            && !element.inert
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && element.getClientRects().length > 0;
+    }) ?? null;
+}
+
 function restoreFocus() {
     const element = previouslyFocusedElement;
     previouslyFocusedElement = null;
-    if (element?.isConnected) {
-        void nextTick(() => element.focus({preventScroll: true}));
-    }
+    void nextTick(() => {
+        const target = element?.isConnected ? element : findFocusFallback();
+        target?.focus({preventScroll: true});
+    });
 }
 
 function handleKeydown(event: KeyboardEvent) {
