@@ -14,6 +14,7 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    IScanCleanupOptions,
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputMode,
@@ -523,6 +524,7 @@ export interface IScanCleanupPreviewDependencies {
     getAvailableScratchBytes?: (directory: string) => Promise<number | null>;
     resolveRasterAdmissionPolicy: (
         supportsRasterStreaming: boolean,
+        options?: IScanCleanupOptions,
     ) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
     /**
@@ -572,11 +574,13 @@ export interface IScanCleanupPreviewDependencies {
         jobId: string,
         signal: AbortSignal,
         rasterPolicy: IScanCleanupRasterAdmissionPolicy,
+        options?: IScanCleanupOptions,
     ) => Promise<{release: () => boolean}>;
     acquirePreviewLease?: (
         ownerId: string,
         visibility: TPreviewVisibility,
         signal: AbortSignal,
+        options?: IScanCleanupOptions,
     ) => Promise<{release: () => boolean}>;
     getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;

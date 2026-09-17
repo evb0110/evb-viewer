@@ -214,6 +214,7 @@ export function scanCleanupPreviewRenderingOwner(
         documentPrefix: string,
         admission: IPreviewAdmission,
         signal: AbortSignal,
+        options: IScanCleanupPreviewRequest['options'],
         run: () => Promise<T>,
     ) => {
         signal.throwIfAborted();
@@ -226,7 +227,7 @@ export function scanCleanupPreviewRenderingOwner(
             signal.addEventListener('abort', abortAttempt, {once: true});
             admission.reissue = () => attempt.abort(PREVIEW_ADMISSION_REISSUED);
             try {
-                lease = await acquire(documentPrefix, admission.visibility, attempt.signal);
+                lease = await acquire(documentPrefix, admission.visibility, attempt.signal, options);
                 admission.granted = true;
                 break;
             } catch (error) {
@@ -452,28 +453,34 @@ export function scanCleanupPreviewRenderingOwner(
                         }
                         throw error;
                     }
-                    return withPreviewLease(brokerOwnerId(sender, request), admission, context.signal, async () => {
-                        const result = await scanCleanupPreviewRenderer(
-                            materialized,
-                            context.signal,
-                            rawRasterRetention,
-                            baseAnalysisCache,
-                            dependencies,
-                            raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
-                            scratchPath,
-                            baseAnalysisPins,
-                            scheduleBaseAnalysisRemoval,
-                            handle.jobId,
-                            releaseBaseAnalysisPin,
-                        );
-                        if (context.signal.aborted) throw context.signal.reason;
-                        return result.canceled === true
-                            ? result
-                            : {
-                                ...result,
-                                requestId: materialized.requestId,
-                            };
-                    });
+                    return withPreviewLease(
+                        brokerOwnerId(sender, request),
+                        admission,
+                        context.signal,
+                        request.options,
+                        async () => {
+                            const result = await scanCleanupPreviewRenderer(
+                                materialized,
+                                context.signal,
+                                rawRasterRetention,
+                                baseAnalysisCache,
+                                dependencies,
+                                raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
+                                scratchPath,
+                                baseAnalysisPins,
+                                scheduleBaseAnalysisRemoval,
+                                handle.jobId,
+                                releaseBaseAnalysisPin,
+                            );
+                            if (context.signal.aborted) throw context.signal.reason;
+                            return result.canceled === true
+                                ? result
+                                : {
+                                    ...result,
+                                    requestId: materialized.requestId,
+                                };
+                        },
+                    );
                 })).catch(error => {
                     if (isPreviewCancellation(error)) {
                         throw error;

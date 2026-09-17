@@ -534,8 +534,14 @@ export function scanCleanupDetectionOwner(
                         const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
                             process.platform !== 'win32'
                                 && dependencies.createRasterPipes !== undefined,
+                            request.options,
                         );
-                        lease = await acquire(brokerOwnerId(sender, request), job.signal, rasterPolicy);
+                        lease = await acquire(
+                            brokerOwnerId(sender, request),
+                            job.signal,
+                            rasterPolicy,
+                            request.options,
+                        );
                         const materializedRequest = await dependencies.materializeRequest(
                             request,
                             sender.id,

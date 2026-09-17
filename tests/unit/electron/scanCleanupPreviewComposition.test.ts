@@ -15,6 +15,10 @@ import {join} from 'path';
 import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
 import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
+    type TScanCleanupRasterBudgetOptions,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {
     scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt,
     scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime,
     scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolvesAnotherOutputMode,
@@ -100,6 +104,24 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 force: true,
             });
         }
+    });
+    it('derives raster residency from the configured canvas pixel budget', () => {
+        const bilevel: TScanCleanupRasterBudgetOptions = {
+            preserveOriginalQuality: false,
+            outputMode: 'bw',
+            pageOverrides: {},
+        };
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(bilevel)).toBe(640_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'color',
+        }))
+            .toBe(320_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            preserveOriginalQuality: true,
+        }))
+            .toBe(320_000_000);
     });
     const scenarios = [
         [
