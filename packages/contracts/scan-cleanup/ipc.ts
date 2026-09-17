@@ -716,8 +716,9 @@ export type TScanCleanupJobState =
         status: 'failed';
         error: string;
         errorCode: TScanCleanupErrorCode;
+        /** Free and required scratch space for an insufficient-scratch run. */
+        scratchShortfall?: IScanCleanupScratchShortfall;
         failure?: FailureReceipt;
-        scratchShortfall?: IScanCleanupScratchShortfall
     };
 
 export type TScanCleanupStartResult =

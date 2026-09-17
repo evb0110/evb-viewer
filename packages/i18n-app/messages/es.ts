@@ -433,6 +433,8 @@ export default {
             'runRecoveryFailed': 'No se pudo recuperar la limpieza del escaneo después de restaurar la sesión del proceso de renderizado.',
             'insufficientScratch': 'No hay suficiente espacio libre en el disco temporal para analizar este documento.',
             'insufficientScratchSpace': 'Libere espacio en disco e inténtelo de nuevo: se necesitan {required} y hay {available} libres.',
+            'previewFrameDropped': 'La vista previa limpiada se descartó antes de iniciar la limpieza. Revísala e inténtalo de nuevo.',
+            'previewFrameTimeout': 'La vista previa limpiada no terminó de cargarse antes de iniciar la limpieza. Inténtalo de nuevo.',
         },
         'cancelingDetection': 'Deteniendo el análisis en segundo plano…',
         'startingCleanup': 'Iniciando la limpieza…',

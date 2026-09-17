@@ -488,6 +488,7 @@ export function createArrayBackedPdfPageSizeStore(
         get pageCount() {
             return pageCount;
         },
+        fork: () => createArrayBackedPdfPageSizeStore(pageSizes, pageCount),
         getPage: pageNumber => {
             assertOpen();
             validatePageNumber(pageNumber);

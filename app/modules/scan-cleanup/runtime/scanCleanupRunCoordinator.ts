@@ -1,6 +1,7 @@
 import { getErrorMessage } from '@app/utils/error';
 import type {
     IScanCleanupStartRequest,
+    IScanCleanupScratchShortfall,
     TScanCleanupStartResult as TBridgeScanCleanupStartResult,
     TScanCleanupJobState,
     TScanCleanupErrorCode,
@@ -91,6 +92,7 @@ interface IScanCleanupRunError {
     errorCode: TScanCleanupErrorCode;
     ownerId: string;
     sourceDocumentRef: string | null;
+    scratchShortfall?: IScanCleanupScratchShortfall;
     failure?: FailureReceipt;
 }
 
@@ -171,6 +173,7 @@ export function setScanCleanupRunError(
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
     documentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
     failure?: FailureReceipt,
+    scratchShortfall?: IScanCleanupScratchShortfall,
 ) {
     scanCleanupRun.lastError = error ? {
         documentRevision,
@@ -178,6 +181,7 @@ export function setScanCleanupRunError(
         errorCode,
         ownerId,
         sourceDocumentRef,
+        ...(scratchShortfall === undefined ? {} : {scratchShortfall}),
         ...(failure === undefined ? {} : {failure}),
     } : null;
 }
@@ -189,6 +193,7 @@ export function reportScanCleanupRunError(
     errorCode: TScanCleanupErrorCode = 'internal',
     sourceDocumentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
     existingFailure?: FailureReceipt,
+    scratchShortfall?: IScanCleanupScratchShortfall,
 ) {
     const failure = existingFailure ?? BrowserLogger.error(
         'scan-cleanup',
@@ -206,6 +211,7 @@ export function reportScanCleanupRunError(
         sourceDocumentRef,
         sourceDocumentRevision,
         failure,
+        scratchShortfall,
     );
     if (!dependencies) {
         return;
@@ -640,6 +646,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 state.errorCode,
                 scanCleanupRun.ownerDocumentRevision,
                 state.failure,
+                state.scratchShortfall,
             );
         } else {
             const failure = state.failure ?? BrowserLogger.error(

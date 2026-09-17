@@ -6,9 +6,10 @@ use crate::engine::staged_input::{invalid, map_raster_error};
 use crate::ink_consistency::PageInkConsistencyContext;
 use crate::io::{pbm, png, raster};
 use crate::pipeline::{
-    analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
-    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
-    CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources, LayeredForegroundKind,
+    analyze_page_with_color_and_document_prior_cached_cancellable,
+    clean_detail_page_with_color_cancellable, clean_page_with_color_and_document_prior_cached,
+    downscale_rgb_to_dimensions, CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources,
+    LayeredForegroundKind,
 };
 use crate::protocol::{
     manifest_v3::{CanvasScope, DocumentCanvas, Page, PageOutput},
@@ -23,13 +24,17 @@ use std::{
     error::Error,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Instant,
 };
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PageResultMetadata {
+    pub(crate) version: u32,
     pub(crate) source_page_index: usize,
     pub(crate) layout_classification: LayoutClassification,
     pub(crate) layout_confidence: f64,
@@ -97,6 +102,7 @@ pub(crate) fn map_analysis_error(error: crate::pipeline::AnalysisError) -> Nativ
             (NativeErrorCode::InvalidRequest, message)
         }
         crate::pipeline::AnalysisError::TooLarge(message) => (NativeErrorCode::TooLarge, message),
+        crate::pipeline::AnalysisError::Canceled(message) => (NativeErrorCode::Io, message),
     };
     NativeError::new(code, message)
 }
@@ -259,7 +265,11 @@ pub(crate) fn run_page(
     fallback_destination: Option<(&Path, &Path)>,
     page_ink_consistency: Option<PageInkConsistencyContext>,
     cache: &PageCache,
+    is_canceled: &AtomicBool,
 ) -> Result<PageRunResult, Box<dyn Error>> {
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
     let options = page.options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
@@ -273,6 +283,9 @@ pub(crate) fn run_page(
         OutputMode::Color | OutputMode::Mixed | OutputMode::Auto
     );
     let (color_input, gray_input) = decode_page_inputs(page, &options, cache, false, decode_color)?;
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
     timings.decode_ms += decode_started.elapsed().as_secs_f64() * 1_000.0;
     let input_gray = color_input
         .as_ref()
@@ -438,7 +451,7 @@ pub(crate) fn run_page(
                     page.source_page_index,
                 )
             })?;
-        clean_detail_page_with_color(
+        clean_detail_page_with_color_cancellable(
             DetailRenderSources {
                 source_crop: input_gray,
                 color_source_crop: color_input.as_ref().map(|input| &input.rgb),
@@ -453,6 +466,7 @@ pub(crate) fn run_page(
             detail_plan,
             &base_metadata,
             &mut timings,
+            is_canceled,
         )
         .map_err(map_analysis_error)?
     } else {
@@ -473,9 +487,13 @@ pub(crate) fn run_page(
             // pages without reusable evidence still compute it here.
             options.output_mode == OutputMode::Auto,
             &mut timings,
+            is_canceled,
         )
         .map_err(map_analysis_error)?
     };
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
     if final_render && result.classification == LayoutClassification::TwoPageSpread {
         // The matched-canvas planner must measure the same visible raster that
         // the compact manifest will publish. Mixed layers are useful for the
@@ -499,6 +517,7 @@ pub(crate) fn run_page(
         return Err(invalid("OCR mode changed output dimensions").into());
     }
     let page_metadata = PageResultMetadata {
+        version: crate::protocol::manifest_v3::VERSION,
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.layout_confidence,
@@ -561,14 +580,9 @@ pub(crate) fn run_page(
     let matched_canvas = if final_render && options.match_page_size && !options.ocr_mode {
         let canvas = document_canvas
             .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
-        // PDF page matching is a physical-points contract, not a
-        // same-number-of-pixels contract. Reusing the document's finest raster
-        // grid upscaled lower-DPI B&W/Mixed pages after cleanup, adding no
-        // information while changing stroke geometry and bloating masks. Each
-        // page keeps the DPI at which it was actually cleaned.
-        let mut canvas = geometry_canvas(&canvas);
-        canvas = canvas.at_dpi(options.dpi);
-        validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
+        // PDF page matching is a physical-points contract. Each page keeps
+        // the DPI at which it was actually cleaned.
+        let canvas = matched_canvas_for_options(canvas, &options)?;
         Some(canvas)
     } else {
         None
@@ -608,6 +622,9 @@ pub(crate) fn run_page(
             .zip(&destinations)
             .zip(matched_placements.into_iter())
         {
+            if is_canceled.load(Ordering::Acquire) {
+                return Err(crate::engine::cancellation_error().into());
+            }
             let layer_destinations_available = final_render
                 && output.mixed_layers.as_ref().is_some_and(|layers| {
                     destination.background_output_path.is_some()
@@ -860,8 +877,7 @@ pub(crate) fn run_page(
             let fold_side_near_paper_run =
                 if matched_placement.is_some() || !options.match_page_size || options.ocr_mode {
                     0
-                } else if let Some(canvas) = document_canvas.map(|canvas| geometry_canvas(&canvas))
-                {
+                } else if let Some(canvas) = document_canvas {
                     let fit = canvas_fit_for(
                         output.image.width(),
                         output.image.height(),
@@ -920,6 +936,9 @@ pub(crate) fn run_page(
                 matched_in_memory: matched_placement.is_some(),
             });
         }
+        if is_canceled.load(Ordering::Acquire) {
+            return Err(crate::engine::cancellation_error().into());
+        }
         Ok(())
     })();
     if let Err(error) = publication_result {
@@ -964,7 +983,11 @@ pub(crate) fn run_classification(
     recommend_output_mode: bool,
     plan_content: bool,
     cache: &PageCache,
+    is_canceled: &AtomicBool,
 ) -> Result<PageRunResult, Box<dyn Error>> {
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
     let options = page.options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
@@ -974,13 +997,16 @@ pub(crate) fn run_classification(
     // recommendations, so keep that lane grayscale-only.
     let (color_input, gray_input) =
         decode_page_inputs(page, &options, cache, true, recommend_output_mode)?;
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
     timings.decode_ms += decode_started.elapsed().as_secs_f64() * 1_000.0;
     let input = color_input
         .as_ref()
         .map(|decoded| &decoded.gray)
         .or(gray_input.as_deref())
         .expect("classification input is initialized");
-    let result = analyze_page_with_color_and_document_prior_cached(
+    let result = analyze_page_with_color_and_document_prior_cached_cancellable(
         input,
         color_input.as_ref().map(|decoded| &decoded.rgb),
         &options,
@@ -989,9 +1015,14 @@ pub(crate) fn run_classification(
         plan_content,
         cache,
         &mut timings,
+        is_canceled,
     )
     .map_err(map_analysis_error)?;
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
     let page_metadata = PageResultMetadata {
+        version: crate::protocol::manifest_v3::VERSION,
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.confidence,

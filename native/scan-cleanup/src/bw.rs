@@ -2895,6 +2895,20 @@ enum RescueAdmission {
     HaloStrip,
 }
 
+/// Checks the extent perpendicular to a horizontal morphology bridge.
+///
+/// A bridge can join a whole text line or several rule fragments, so the
+/// component width is not a trustworthy thickness measure after that pass.
+/// Keeping this predicate shared makes the halo and rule recovery passes use
+/// the same fusion-aware admission rule without changing either threshold.
+pub(crate) fn is_horizontally_fused_extent_admissible(
+    component: &scan_primitives::Component,
+    maximum_cross_bridge_extent: usize,
+) -> bool {
+    let height = component.bottom - component.top + 1;
+    height <= maximum_cross_bridge_extent
+}
+
 fn is_text_like_rescue_component(
     component: &scan_primitives::Component,
     dpi: f64,
@@ -2916,7 +2930,9 @@ fn is_text_like_rescue_component(
         RescueAdmission::Additive => {
             major <= maximum_extent && aspect <= 10.0 && component.area <= maximum_area
         }
-        RescueAdmission::HaloStrip => height <= maximum_extent,
+        RescueAdmission::HaloStrip => {
+            is_horizontally_fused_extent_admissible(component, maximum_extent)
+        }
     };
 
     component.area >= 2
@@ -3797,6 +3813,29 @@ mod tests {
             }
         }
         binary
+    }
+
+    #[test]
+    fn horizontal_bridge_admission_uses_cross_bridge_extent() {
+        let fused_text = scan_primitives::Component {
+            label: 1,
+            area: 200,
+            left: 0,
+            top: 0,
+            right: 199,
+            bottom: 19,
+        };
+        let thick_fused_blob = scan_primitives::Component {
+            bottom: 39,
+            ..fused_text.clone()
+        };
+
+        assert!(is_horizontally_fused_extent_admissible(&fused_text, 20));
+        assert!(!is_horizontally_fused_extent_admissible(&fused_text, 19));
+        assert!(!is_horizontally_fused_extent_admissible(
+            &thick_fused_blob,
+            20
+        ));
     }
 
     fn assert_binary_eq(left: &BinaryImage, right: &BinaryImage) {

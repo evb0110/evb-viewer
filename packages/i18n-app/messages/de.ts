@@ -433,6 +433,8 @@ export default {
             'runRecoveryFailed': 'Die Scanbereinigung konnte nach der Wiederherstellung der Renderersitzung nicht wiederhergestellt werden.',
             'insufficientScratch': 'Auf dem temporären Datenträger ist nicht genug freier Speicher, um dieses Dokument zu analysieren.',
             'insufficientScratchSpace': 'Geben Sie Speicherplatz frei und versuchen Sie es erneut: {required} werden benötigt, {available} sind frei.',
+            'previewFrameDropped': 'Die bereinigte Vorschau wurde vor Beginn der Bereinigung verworfen. Prüfen Sie die Vorschau und versuchen Sie es erneut.',
+            'previewFrameTimeout': 'Die bereinigte Vorschau wurde vor Beginn der Bereinigung nicht rechtzeitig geladen. Versuchen Sie es erneut.',
         },
         'cancelingDetection': 'Hintergrundanalyse wird beendet…',
         'startingCleanup': 'Bereinigung wird gestartet…',

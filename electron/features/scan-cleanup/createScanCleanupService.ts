@@ -448,6 +448,9 @@ function terminalProgress(
             status,
             error: error.message,
             errorCode: error.code,
+            ...(error.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: error.scratchShortfall}),
             ...(error.failure === undefined ? {} : {failure: error.failure}),
             ...(error.scratchShortfall === undefined ? {} : {scratchShortfall: error.scratchShortfall}),
         };
@@ -480,6 +483,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
             return {
                 code: classifyPreviewError(cause, false),
                 message,
+                ...scanCleanupScratchShortfall(cause),
                 ...(failure === undefined ? {} : {failure}),
                 ...scanCleanupScratchShortfall(cause),
             };

@@ -433,6 +433,8 @@ export default {
             'runRecoveryFailed': 'Le nettoyage du scan n’a pas pu être récupéré après la restauration de la session du moteur de rendu.',
             'insufficientScratch': 'Espace libre insuffisant sur le disque temporaire pour analyser ce document.',
             'insufficientScratchSpace': 'Libérez de l’espace disque et réessayez : {required} sont nécessaires, {available} sont libres.',
+            'previewFrameDropped': 'L’aperçu nettoyé a été abandonné avant le début du nettoyage. Vérifiez l’aperçu et réessayez.',
+            'previewFrameTimeout': 'Le chargement de l’aperçu nettoyé n’est pas terminé avant le début du nettoyage. Réessayez.',
         },
         'cancelingDetection': 'Arrêt de l’analyse en arrière-plan…',
         'startingCleanup': 'Démarrage du nettoyage…',

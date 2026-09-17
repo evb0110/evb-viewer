@@ -20,6 +20,15 @@ import {
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
 } from '@contracts/scan-cleanup/inputLimits';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
+import type {
+    IScanCleanupNormalizedRect,
+    IScanCleanupNormalizedSplit,
+} from '@contracts/scan-cleanup/geometry';
+import {
+    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+    SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+} from '@contracts/scan-cleanup/geometry';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {
     IScanCleanupOutputMapping,
@@ -38,8 +47,6 @@ export const SCAN_CLEANUP_STAMP_SCHEMA_ID = 'urn:evb:scan-cleanup:stamp:v2';
 export const SCAN_CLEANUP_CORE_BUILD_ID = 'evb-viewer-scan-cleanup-core-v1';
 export const SCAN_CLEANUP_GIT_SHA_HEX_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
-type TNormalizedRect = NonNullable<INativeScanCleanupOptionsV3['renderCrop']>;
-type TNormalizedSplit = NonNullable<INativeScanCleanupOptionsV3['manualSplit']>;
 type TTextToneDiagnostics = NonNullable<INativeScanCleanupOptionsV3['resolvedTextToneDiagnostics']>;
 
 export interface IScanCleanupStampEffectiveOptions {
@@ -52,7 +59,7 @@ export interface IScanCleanupStampEffectiveOptions {
     sourceHasBilevelLayer: boolean;
     sourceBackgroundDpi: number | null;
     requestedRenderDpi: number;
-    renderCrop: TNormalizedRect | null;
+    renderCrop: IScanCleanupNormalizedRect | null;
     binarization: 'auto' | 'otsu' | 'sauvola' | 'wolf';
     thickness: number;
     normalizeIllumination: boolean;
@@ -63,8 +70,8 @@ export interface IScanCleanupStampEffectiveOptions {
     resolvedTextToneDiagnostics: TTextToneDiagnostics | null;
     ocrMode: boolean;
     layout: INativeScanCleanupOptionsV3['layout'];
-    manualSplit: TNormalizedSplit | null;
-    automaticSplit: TNormalizedSplit | null;
+    manualSplit: IScanCleanupNormalizedSplit | null;
+    automaticSplit: IScanCleanupNormalizedSplit | null;
     manualSkewDegrees: number | null;
     manualContentBoxes: NonNullable<INativeScanCleanupOptionsV3['manualContentBoxes']>;
     automaticSkewDegrees: NonNullable<INativeScanCleanupOptionsV3['automaticSkewDegrees']>;
@@ -770,8 +777,17 @@ function assertStampEffectiveOptions(
         fail('pageAlignment is invalid');
     }
     if (value.renderCrop !== null) assertNormalizedRect(value.renderCrop, 'renderCrop');
-    if (value.manualSplit !== null) assertNormalizedSplit(value.manualSplit, 'manualSplit');
-    if (value.automaticSplit !== null) assertNormalizedSplit(value.automaticSplit, 'automaticSplit');
+    if (value.manualSplit !== null) {
+        assertNormalizedSplit(
+            value.manualSplit,
+            'manualSplit',
+            SCAN_CLEANUP_MANUAL_SPLIT_MIN,
+            SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+        );
+    }
+    if (value.automaticSplit !== null) {
+        assertNormalizedSplit(value.automaticSplit, 'automaticSplit');
+    }
     if (value.manualSkewDegrees !== null && !boundedNumber(value.manualSkewDegrees, -15, 15)) fail('manualSkewDegrees is invalid');
     assertNormalizedRectMap(value.manualContentBoxes, 'manualContentBoxes');
     assertNumberMap(value.automaticSkewDegrees, 'automaticSkewDegrees');
@@ -866,7 +882,10 @@ function boundedNumber(value: unknown, minimum: number, maximum: number): value 
     return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
 }
 
-function assertNormalizedRect(value: unknown, label: string): asserts value is TNormalizedRect {
+function assertNormalizedRect(
+    value: unknown,
+    label: string,
+): asserts value is IScanCleanupNormalizedRect {
     if (!isRecord(value)) fail(`${label} is invalid`);
     assertExactKeys(value, [
         'xNormalized',
@@ -875,11 +894,29 @@ function assertNormalizedRect(value: unknown, label: string): asserts value is T
         'heightNormalized',
         'rotationDegrees',
     ]);
-    if (!boundedNumber(value.xNormalized, 0, 1) || !boundedNumber(value.yNormalized, 0, 1)
-        || !boundedNumber(value.widthNormalized, 0, 1) || !boundedNumber(value.heightNormalized, 0, 1)
+    if (!boundedNumber(
+        value.xNormalized,
+        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+        1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+    ) || !boundedNumber(
+        value.yNormalized,
+        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+        1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+    )
+        || !boundedNumber(
+            value.widthNormalized,
+            -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+            1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+        ) || !boundedNumber(
+        value.heightNormalized,
+        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+        1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+    )
         || (value.widthNormalized) <= 0 || (value.heightNormalized) <= 0
-        || (value.xNormalized) + (value.widthNormalized) > 1 + Number.EPSILON * 8
-        || (value.yNormalized) + (value.heightNormalized) > 1 + Number.EPSILON * 8
+        || (value.xNormalized) + (value.widthNormalized)
+            > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || (value.yNormalized) + (value.heightNormalized)
+            > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
         || ![
             0,
             90,
@@ -890,7 +927,12 @@ function assertNormalizedRect(value: unknown, label: string): asserts value is T
     }
 }
 
-function assertNormalizedSplit(value: unknown, label: string): asserts value is TNormalizedSplit {
+function assertNormalizedSplit(
+    value: unknown,
+    label: string,
+    minimum = -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+    maximum = 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
+): asserts value is IScanCleanupNormalizedSplit {
     if (!isRecord(value)) fail(`${label} is invalid`);
     assertExactKeys(value, [
         'rotationDegrees',
@@ -902,9 +944,7 @@ function assertNormalizedSplit(value: unknown, label: string): asserts value is 
         180,
         270,
     ].includes(value.rotationDegrees as number)
-        || !boundedNumber(value.xNormalized, 0, 1)
-        || (value.xNormalized) <= 0
-        || (value.xNormalized) >= 1) {
+        || !boundedNumber(value.xNormalized, minimum, maximum)) {
         fail(`${label} is invalid`);
     }
 }

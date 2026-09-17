@@ -71,7 +71,7 @@
     "test:scan-cleanup:affected-oracles": "scripts/ci/scan-cleanup-oracles.sh affected",
     "test:scan-cleanup:canonical-identity": "cargo test --release --locked --manifest-path native/Cargo.toml -p evb-scan-cleanup --bin scan-cleanup-harness tests::tracked_corpus_routes_reconciliation_and_leaf_resolution_are_dpi_identical -- --ignored --exact",
     "test:e2e:electron": "pnpm run test:e2e:electron:regression",
-    "test:e2e:electron:blocking-smoke": "pnpm run build:scan-cleanup && pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke --reporter verbose",
+    "test:e2e:electron:blocking-smoke": "pnpm run build:scan-cleanup && pnpm run build:pdf-image-combine && pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke --reporter verbose",
     "test:e2e:electron:blocking-smoke:headless": "pnpm run test:e2e:electron:blocking-smoke",
     "test:packaged-core-pdf-smoke": "pnpm exec tsx scripts/release/verifyPackagedCorePdfSmoke.ts",
     "test:e2e:electron:draw-shapes": "pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-draw-shapes --reporter verbose",

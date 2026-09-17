@@ -27,6 +27,8 @@ export interface IScanCleanupRasterHandoffPlan {
     additionalRenderDpis?: readonly number[];
     /** Simultaneous raw copies of the primary render (producer/native). */
     renderCopies?: number;
+    /** Scratch retained by bounded native outputs for this page. */
+    additionalScratchBytes?: number;
     raster: {
         dpi: number;
         width: number;
@@ -44,7 +46,7 @@ export async function readAvailableScratchBytes(directory: string) {
     }
 }
 
-function estimateRawRasterBytes(
+export function estimateRawRasterBytes(
     plans: readonly IScanCleanupRasterHandoffPlan[],
     residentScratchRasterCount: number,
 ) {
@@ -98,6 +100,14 @@ function estimateRawRasterBytes(
             }
             pageBytes += additionalBytes;
         }
+        const additionalScratchBytes = plan.additionalScratchBytes ?? 0;
+        if (
+            !Number.isSafeInteger(additionalScratchBytes)
+            || additionalScratchBytes < 0
+        ) {
+            return null;
+        }
+        pageBytes += additionalScratchBytes;
         if (!Number.isSafeInteger(pageBytes)) {
             return null;
         }
@@ -134,6 +144,68 @@ export function resolveRequiredScratchBytes(windowBytes: number) {
     return windowBytes <= RAW_RASTER_BUDGET_FLOOR_BYTES
         ? windowBytes + RAW_RASTER_FREE_SPACE_RESERVE_BYTES
         : Math.ceil(windowBytes / RAW_RASTER_FREE_SPACE_SHARE);
+}
+
+export interface IScanCleanupScratchAdmission {
+    admitted: boolean;
+    /** Scratch occupied by the largest simultaneously active raster batch. */
+    batchBytes: number | null;
+    /** Fixed scratch retained by batch outputs and the final merge. */
+    mergeWorkingSetBytes: number;
+    /** Combined estimate used for admission, or null when it is unmeasurable. */
+    estimatedBytes: number | null;
+    budgetBytes: number;
+    availableBytes: number | null;
+    /** Free scratch that would admit the combined estimate. */
+    requiredBytes: number | null;
+}
+
+/**
+ * Admit a run whose batch rasters remain on disk until a later merge.
+ *
+ * The raster handoff itself is bounded, but a streaming run also retains every
+ * completed child PDF and needs a working copy while qpdf assembles them. Keep
+ * that fixed merge requirement beside the largest child batch so a run cannot
+ * spend the space that its final merge still needs.
+ */
+export async function resolveScanCleanupScratchAdmission(
+    batchBytes: number | null,
+    mergeWorkingSetBytes: number,
+    scratch: string,
+    getAvailableScratchBytes: typeof readAvailableScratchBytes,
+): Promise<IScanCleanupScratchAdmission> {
+    const availableBytes = await getAvailableScratchBytes(scratch);
+    const budgetBytes = resolveRasterBudgetBytes(availableBytes);
+    const estimatedBytes = batchBytes === null
+        || !Number.isSafeInteger(mergeWorkingSetBytes)
+        || mergeWorkingSetBytes < 0
+        || !Number.isSafeInteger(batchBytes)
+        || batchBytes < 0
+        || batchBytes > Number.MAX_SAFE_INTEGER - mergeWorkingSetBytes
+        ? null
+        : batchBytes + mergeWorkingSetBytes;
+    // An unreadable filesystem is an unknown, not a measured shortfall. Keep
+    // the existing fail-open behavior used by raster handoff and detection.
+    if (availableBytes === null || estimatedBytes === null || estimatedBytes <= budgetBytes) {
+        return {
+            admitted: true,
+            batchBytes,
+            mergeWorkingSetBytes,
+            estimatedBytes,
+            budgetBytes,
+            availableBytes,
+            requiredBytes: null,
+        };
+    }
+    return {
+        admitted: false,
+        batchBytes,
+        mergeWorkingSetBytes,
+        estimatedBytes,
+        budgetBytes,
+        availableBytes,
+        requiredBytes: resolveRequiredScratchBytes(estimatedBytes),
+    };
 }
 
 export interface IScanCleanupStagedWindowAdmission {

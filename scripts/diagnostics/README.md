@@ -133,8 +133,9 @@ session fixture and Rome pages 1, 2, and 49.
 
 ## Standing scan-cleanup regression net
 
-The standing loop is one non-Electron command. Create the ignored
-`.devkit/scan-cleanup-regress.json` manifest with `corpora.acceptance2`,
+The standing loop is one non-Electron command. It requires the machine-local,
+ignored `.devkit/scan-cleanup-regress.json` manifest; keep that manifest under
+`.devkit/` and do not commit it. Create it with `corpora.acceptance2`,
 `corpora.regress`, `corpora.canvas-trio`, and `corpora.headers2` config paths,
 `cli.acceptance2` and `cli.linguae-layouts` source entries, and a `rome.source`
 entry. Then run:

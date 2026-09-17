@@ -18,6 +18,9 @@ export interface IScanCleanupNormalizedRect {
     rotationDegrees: TScanCleanupPageRotation;
 }
 
+/** Shared tolerance for normalized coordinates and rectangle edge sums. */
+export const SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON = 1e-9;
+
 export interface IScanCleanupPixelRect {
     xPx: number;
     yPx: number;

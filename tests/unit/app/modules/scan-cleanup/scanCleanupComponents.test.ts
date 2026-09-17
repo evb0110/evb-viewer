@@ -3251,7 +3251,7 @@ describe('Scan cleanup components', () => {
 
     it('reveals the latest pinned frame atomically through the run gate', async () => {
         const result = shallowRef(spreadPreviewResult(1));
-        const previewPane = ref<{revealLatestFrame: () => Promise<void>} | null>(null);
+        const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;} | null>(null);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             ref: previewPane,
             result: result.value,
@@ -3290,12 +3290,47 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).not.toBeNull();
         await loadPendingCleanedFrame(harness.host);
-        await revealed;
+        await expect(revealed).resolves.toBe('published');
 
         expect(frameWidth()).toBe('800');
         expect(displayedUrl()).not.toBe(initialUrl);
         expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
             .toBe('');
+    });
+
+    it('settles a forced reveal when its cleaned frame is dropped during preload', async () => {
+        const result = shallowRef(spreadPreviewResult(1));
+        const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;} | null>(null);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            ref: previewPane,
+            result: result.value,
+            resultCurrent: true,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            layoutDetectionComplete: true,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const latest = structuredClone(result.value);
+        for (const output of latest.outputs) {
+            output.imageData = new Uint8Array([9]);
+            output.metadata.canvasWidthPx = 800;
+        }
+        result.value = latest;
+        await nextTick();
+
+        const revealed = previewPane.value!.revealLatestFrame();
+        await nextTick();
+        const preload = harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')!;
+        preload.dispatchEvent(new Event('error'));
+
+        await expect(revealed).resolves.toBe('dropped');
     });
 
     it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {

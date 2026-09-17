@@ -13,7 +13,7 @@ fn prepare_analysis_page(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     prepare_quality_raster: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'_>,
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
     cache: Option<&PageCache>,
@@ -32,6 +32,7 @@ fn prepare_analysis_page(
         trusted_mrc_background,
         timings,
     })
+    .expect("synthetic analysis page should render")
 }
 
 fn crop_gray_to_fit(

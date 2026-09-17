@@ -70,11 +70,28 @@ export interface IScanCleanupJobErrorEnvelope extends IMainJobErrorEnvelope<TSca
 export function scanCleanupScratchShortfall(
     error: unknown,
 ): Pick<IScanCleanupJobErrorEnvelope, 'scratchShortfall'> {
-    if (!isRecord(error) || error.scratchShortfall === undefined) {
+    if (error instanceof ScanCleanupInsufficientScratchError) {
+        return {scratchShortfall: {
+            availableBytes: error.availableBytes,
+            requiredBytes: error.requiredBytes,
+        }};
+    }
+    if (!isRecord(error)) {
+        return {};
+    }
+    const scratchShortfall = error.scratchShortfall ?? (
+        error.code === 'insufficient-scratch'
+            ? {
+                availableBytes: error.availableBytes,
+                requiredBytes: error.requiredBytes,
+            }
+            : undefined
+    );
+    if (scratchShortfall === undefined) {
         return {};
     }
     try {
-        return {scratchShortfall: decodeScanCleanupScratchShortfall(error.scratchShortfall)};
+        return {scratchShortfall: decodeScanCleanupScratchShortfall(scratchShortfall)};
     } catch {
         return {};
     }

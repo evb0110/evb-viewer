@@ -36,6 +36,7 @@ import {
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
+import {isNativeScanCleanupOpticalPlacementValid} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
@@ -622,10 +623,6 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     // content box, and there the two are the same thing.
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const intrinsicWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
-    const opticalScaleX = contentWidthPx / intrinsicWidthPx;
-    const opticalLeft = metadata.matchedCanvasOpticalContentLeftPx;
-    const opticalRight = metadata.matchedCanvasOpticalContentRightPx;
     const recordedIntrinsicOverflowLeft = metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0;
     const recordedIntrinsicOverflowRight = metadata.matchedCanvasIntrinsicOverflowRightPx ?? 0;
     const recordedIntrinsicOverflowTop = metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0;
@@ -651,17 +648,11 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || effectivePlacementOffsetX + contentWidthPx <= 0
         || effectivePlacementOffsetY >= metadata.canvasHeightPx
         || effectivePlacementOffsetY + contentHeightPx <= 0
-        || (metadata.matchedCanvasOpticalPlacement === true && (
-            opticalLeft === null
-            || opticalLeft === undefined
-            || opticalRight === null
-            || opticalRight === undefined
-            || opticalLeft >= opticalRight
-            || effectivePlacementOffsetX + opticalLeft * opticalScaleX < metadata.appliedMargins.leftPx
-            || effectivePlacementOffsetX + opticalRight * opticalScaleX > metadata.canvasWidthPx - metadata.appliedMargins.rightPx
-        ))
         || effectivePlacementOffsetY + contentHeightPx > metadata.canvasHeightPx
     ) {
+        throw new Error('invalid scan-cleanup preview intrinsic/canvas placement');
+    }
+    if (!isNativeScanCleanupOpticalPlacementValid(metadata)) {
         throw new Error('invalid scan-cleanup preview intrinsic/canvas placement');
     }
     if (
@@ -1034,6 +1025,9 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
             status: 'failed',
             error: value.error,
             errorCode: value.errorCode,
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
             ...(failure === undefined ? {} : {failure}),
             ...(value.scratchShortfall === undefined
                 ? {}

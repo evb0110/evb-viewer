@@ -102,6 +102,13 @@ function serializeRecord<TRecord>(record: TRecord) {
     };
 }
 
+/**
+ * The records file is append-only. Replacements update the fixed index and
+ * append a fresh JSONL record, so the file can retain superseded bytes until
+ * the store is closed. Callers keep replacements bounded to their replay
+ * window; compacting this durable store belongs to a separate materialization
+ * policy.
+ */
 class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultStore<TRecord> {
     private readonly recordsFile: Awaited<ReturnType<typeof open>>;
     private readonly indexFile: Awaited<ReturnType<typeof open>>;
@@ -183,10 +190,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
 
     private async readRecordAt(offset: number) {
         const chunks: Buffer[] = [];
+        const chunk = Buffer.allocUnsafe(RESULT_STORE_READ_CHUNK_BYTES);
         let totalBytes = 0;
         let position = offset;
         while (totalBytes <= RESULT_STORE_MAX_LINE_BYTES) {
-            const chunk = Buffer.alloc(RESULT_STORE_READ_CHUNK_BYTES);
             const {bytesRead} = await this.recordsFile.read(
                 chunk,
                 0,
@@ -194,7 +201,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
                 position,
             );
             if (bytesRead === 0) break;
-            const part = chunk.subarray(0, bytesRead);
+            // `recordsFile.read` reuses `chunk` on the next iteration. Copy the
+            // bytes before retaining them so a record that spans reads cannot
+            // have its earlier chunks overwritten by the final read.
+            const part = Buffer.from(chunk.subarray(0, bytesRead));
             const newline = part.indexOf(0x0a);
             if (newline >= 0) {
                 chunks.push(part.subarray(0, newline));

@@ -3,6 +3,7 @@ import type {
     IScanCleanupNormalizedRect,
     IScanCleanupPlacementAnchor,
 } from '@contracts/electronApiScanCleanup';
+import {SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON} from '@contracts/scan-cleanup/geometry';
 
 function describeRect(rect: IScanCleanupNormalizedRect) {
     return `x=${String(rect.xNormalized)}, y=${String(rect.yNormalized)}, `
@@ -26,17 +27,20 @@ function assertRect(
         rect.heightNormalized,
     ];
     // Complements computed as `1 - x` in a different rounding order overshoot
-    // 1.0 by ~1e-16; mirror the native validator's BOUNDS_EPSILON so a box
+    // 1.0 by ~1e-16; mirror the native validator's shared bounds tolerance so a box
     // the sidecar itself authored cannot abort the run at the preflight.
-    const boundsEpsilon = 1e-9;
     if (
         !values.every(Number.isFinite)
-        || rect.xNormalized < 0
-        || rect.yNormalized < 0
+        || rect.xNormalized < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.yNormalized < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
         || rect.widthNormalized <= 0
         || rect.heightNormalized <= 0
-        || rect.xNormalized + rect.widthNormalized > 1 + boundsEpsilon
-        || rect.yNormalized + rect.heightNormalized > 1 + boundsEpsilon
+        || rect.xNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.yNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.widthNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.heightNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.xNormalized + rect.widthNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.yNormalized + rect.heightNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
         || rect.rotationDegrees !== pageRotation
     ) {
         throw new Error(
@@ -55,7 +59,11 @@ function assertAnchor(
         return;
     }
     const value = anchor.yNormalized;
-    if (!Number.isFinite(value) || value < 0 || value > 1) {
+    if (
+        !Number.isFinite(value)
+        || value < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || value > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+    ) {
         throw new Error(
             `Scan cleanup page ${String(pageNumber)} has invalid ${half} placement anchor `
             + `(y=${String(value)})`,

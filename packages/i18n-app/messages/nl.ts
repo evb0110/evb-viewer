@@ -433,6 +433,8 @@ export default {
             'runRecoveryFailed': 'Scanopschoning kon niet worden hersteld nadat de renderersessie was hersteld.',
             'insufficientScratch': 'Er is niet genoeg vrije ruimte op de tijdelijke schijf om dit document te analyseren.',
             'insufficientScratchSpace': 'Maak schijfruimte vrij en probeer het opnieuw: {required} is nodig, {available} is vrij.',
+            'previewFrameDropped': 'De opgeschoonde voorbeeldweergave is verwijderd voordat de opschoning kon beginnen. Controleer de voorbeeldweergave en probeer het opnieuw.',
+            'previewFrameTimeout': 'De opgeschoonde voorbeeldweergave was niet geladen voordat de opschoning begon. Probeer het opnieuw.',
         },
         'cancelingDetection': 'Achtergrondanalyse stoppen…',
         'startingCleanup': 'Opschoning starten…',

@@ -42,6 +42,7 @@ import type {
     IScanCleanupDetectionSubscriber,
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
@@ -238,7 +239,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getSourceStatIdentity: async () => 'fixture-source',
         resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES)),
         publishRaster: atomicReplace,
         // pdftoppm names its own output by dropping the extension and adding
         // the format's, so a caller that asks for anything else gets nothing.
@@ -1380,6 +1381,11 @@ export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds()
     expect(owner.listenerCount('render-process-gone')).toBe(1);
     releases.get(2)!.resolve(undefined);
     await second;
+    expect(owner.listenerCount('destroyed')).toBe(1);
+    expect(owner.listenerCount('render-process-gone')).toBe(1);
+
+    owner.destroyed = true;
+    owner.emit('destroyed');
     expect(owner.listenerCount('destroyed')).toBe(0);
     expect(owner.listenerCount('render-process-gone')).toBe(0);
 

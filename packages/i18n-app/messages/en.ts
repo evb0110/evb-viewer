@@ -882,6 +882,8 @@ export default {
             'detectionResultsUnavailable': 'The page detection results are no longer available. Detect the pages again.',
             'internal': 'Scan cleanup failed unexpectedly.',
             'inkPlacementMissing': 'Ink placement evidence is unavailable for a selected page. Run detection again or choose another alignment.',
+            'previewFrameDropped': 'The cleaned preview was discarded before cleanup could start. Review the preview and try again.',
+            'previewFrameTimeout': 'The cleaned preview did not finish loading before cleanup started. Try again.',
         },
         'cancelingDetection': 'Stopping background analysis…',
         'startingCleanup': 'Starting cleanup…',

@@ -10,10 +10,7 @@ import type {
     IScanCleanupRetainedRaster,
 } from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/types';
-import type {
-    IPdfPageSizeStore,
-    readPdfPageSizes,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 /** One CLI run's document: a directory of staged rasters and its source. */
 export interface IScanCleanupCliDocument {
@@ -33,20 +30,9 @@ export function createCliRetention(
     temporaryRoot: string,
     sourcePdfPath: string,
     getPageCount: (path: string, signal: AbortSignal) => Promise<number>,
-    getPageSizes: (path: string, signal: AbortSignal) => Promise<Awaited<ReturnType<typeof readPdfPageSizes>>>,
     detectRasterPages: (path: string, signal: AbortSignal) => Promise<IScanCleanupPageRasterSource>,
-    getPageSizeStore?: (path: string, signal: AbortSignal) => Promise<IPdfPageSizeStore>,
+    getPageSizeStore: (path: string, signal: AbortSignal) => Promise<IPdfPageSizeStore>,
 ): IScanCleanupDetectionRetention<IScanCleanupCliDocument> {
-    const pageSizeRetention: Pick<
-        IScanCleanupDetectionRetention<IScanCleanupCliDocument>,
-        'pageSizes' | 'pageSizeStore'
-    > = {};
-    if (getPageSizeStore === undefined) {
-        pageSizeRetention.pageSizes = (_document, signal) => getPageSizes(sourcePdfPath, signal);
-    } else {
-        const openPageSizeStore = getPageSizeStore;
-        pageSizeRetention.pageSizeStore = (_document, signal) => openPageSizeStore(sourcePdfPath, signal);
-    }
     const retention: IScanCleanupDetectionRetention<IScanCleanupCliDocument> = {
         async openDocument() {
             return {
@@ -60,7 +46,9 @@ export function createCliRetention(
         async pageCount(_document, signal) {
             return getPageCount(sourcePdfPath, signal);
         },
-        ...pageSizeRetention,
+        pageSizeStore(_document, signal) {
+            return getPageSizeStore(sourcePdfPath, signal);
+        },
         async rasterPages(_document, signal) {
             return detectRasterPages(sourcePdfPath, signal);
         },

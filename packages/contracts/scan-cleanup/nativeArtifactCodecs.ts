@@ -1,6 +1,5 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {
-    IScanCleanupContentDiagnostics,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
 } from '@contracts/scan-cleanup/ipc';
@@ -71,14 +70,9 @@ export class InvalidScanCleanupNativeArtifactError extends Error {
     }
 }
 
-export interface INativeScanCleanupAnalysisArtifactOutputV3 extends INativeScanCleanupAnalysisOutputV3 {
-    appliedMargins?: IScanCleanupAppliedMargins;
-    contentDiagnostics?: IScanCleanupContentDiagnostics;
-}
-
 export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCleanupPageMetadataV3 {
     sourcePageIndex?: number;
-    outputs?: INativeScanCleanupAnalysisArtifactOutputV3[];
+    outputs?: INativeScanCleanupAnalysisOutputV3[];
     tier1Verdict?: INativeScanCleanupPageMetadataV3['layoutClassification'];
     reconciled?: boolean;
     clusterAgreement?: number;
@@ -86,7 +80,7 @@ export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCle
 
 export type TNativeScanCleanupPreviewPageArtifactMetadataV3 = IScanCleanupPreviewPageMetadata
     & Omit<INativeScanCleanupPageArtifactMetadataV3, 'outputs'>
-    & {outputs?: Array<INativeScanCleanupAnalysisArtifactOutputV3 & {
+    & {outputs?: Array<INativeScanCleanupAnalysisOutputV3 & {
         appliedMargins: IScanCleanupAppliedMargins;
         contentBox: IScanCleanupPreviewMetadata['contentBox'];
     }>};
@@ -97,6 +91,61 @@ export type TNativeScanCleanupPreviewOutputArtifactMetadataV3 = IScanCleanupPrev
     & {dewarpModel?: INativeScanCleanupDewarpModelV3 | null;};
 
 type TArtifact = InvalidScanCleanupNativeArtifactError['artifact'];
+
+export interface INativeScanCleanupOpticalPlacementMetadataV3 {
+    matchedCanvasOpticalPlacement?: boolean;
+    matchedCanvasOpticalContentLeftPx?: number | null;
+    matchedCanvasOpticalContentRightPx?: number | null;
+    matchedCanvasContentWidthPx?: number | null;
+    intrinsicRasterWidthPx?: number;
+    matchedCanvasIntrinsicOverflowLeftPx?: number;
+    appliedMargins?: IScanCleanupAppliedMargins;
+    placementOffsetXPx: number;
+    outputWidthPx: number;
+    canvasWidthPx: number;
+}
+
+/**
+ * Checks that optical content stays inside the requested horizontal margins.
+ * `softMarginsPx` records observed free space after placement, so it cannot
+ * express this requested-margin invariant and is intentionally not an input.
+ */
+export function isNativeScanCleanupOpticalPlacementValid(
+    metadata: INativeScanCleanupOpticalPlacementMetadataV3,
+): boolean {
+    if (metadata.matchedCanvasOpticalPlacement !== true) return true;
+    const opticalLeft = metadata.matchedCanvasOpticalContentLeftPx;
+    const opticalRight = metadata.matchedCanvasOpticalContentRightPx;
+    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const intrinsicWidth = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
+    const appliedMargins = metadata.appliedMargins;
+    if (
+        opticalLeft === undefined
+        || opticalLeft === null
+        || opticalRight === undefined
+        || opticalRight === null
+        || appliedMargins === undefined
+        || !Number.isFinite(opticalLeft)
+        || !Number.isFinite(opticalRight)
+        || !Number.isFinite(contentWidth)
+        || !Number.isFinite(intrinsicWidth)
+        || intrinsicWidth <= 0
+        || contentWidth <= 0
+        || !Number.isFinite(metadata.placementOffsetXPx)
+        || !Number.isFinite(metadata.outputWidthPx)
+        || !Number.isFinite(metadata.canvasWidthPx)
+        || !Number.isFinite(metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0)
+        || !Number.isFinite(appliedMargins.leftPx)
+        || !Number.isFinite(appliedMargins.rightPx)
+    ) return false;
+    if (opticalLeft >= opticalRight) return false;
+    const opticalScaleX = contentWidth / intrinsicWidth;
+    const effectivePlacementOffsetX = metadata.placementOffsetXPx
+        - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
+    return effectivePlacementOffsetX + opticalLeft * opticalScaleX >= appliedMargins.leftPx
+        && effectivePlacementOffsetX + opticalRight * opticalScaleX
+        <= metadata.canvasWidthPx - appliedMargins.rightPx;
+}
 
 function fail(artifact: TArtifact, detail: string): never {
     throw new InvalidScanCleanupNativeArtifactError(artifact, detail);
@@ -353,6 +402,18 @@ function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) 
         }
         source.protectedBlocks.forEach((item, index) => block(item, `${label}.protectedBlocks[${String(index)}]`));
     }
+}
+
+function inkConsistencyDiagnostics(value: unknown, artifact: TArtifact, label: string) {
+    const source = record(value, artifact, label);
+    integer(source.priorSampleCount, artifact, `${label}.priorSampleCount`);
+    for (const key of [
+        'priorSurvivalMedian',
+        'survivalBefore',
+        'survivalAfter',
+    ] as const) unit(source[key], artifact, `${label}.${key}`);
+    integer(source.addedInkPixels, artifact, `${label}.addedInkPixels`);
+    if (typeof source.applied !== 'boolean') fail(artifact, `${label}.applied must be boolean`);
 }
 
 function outputModeDiagnostics(value: unknown, artifact: TArtifact, label: string) {
@@ -763,8 +824,6 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'detectedSkewDegrees',
         'skewConfidence',
         'cutterXPx',
-        'cropX',
-        'cropY',
     ] as const) if (source[key] !== undefined && source[key] !== null) finite(source[key], artifact, key);
     if (source.layoutConfidence !== undefined) unit(source.layoutConfidence, artifact, 'layoutConfidence');
     if (source.dewarpConfidence !== undefined && source.dewarpConfidence !== null) unit(source.dewarpConfidence, artifact, 'dewarpConfidence');
@@ -790,7 +849,6 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'uniformCanvas',
         'canvasOverflow',
         'rasterScaleLimited',
-        'matchedInMemory',
         'matchedCanvasOpticalPlacement',
     ] as const) optionalBoolean(source, key, artifact);
     if (source.layeredForegroundKind !== undefined) oneOf(source.layeredForegroundKind, [
@@ -802,6 +860,9 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
     if (source.binarizationMode !== undefined && source.binarizationMode !== null) oneOf(source.binarizationMode, BINARIZATION_MODES, artifact, 'binarizationMode');
     if (source.binarizationDiagnostics !== undefined && source.binarizationDiagnostics !== null) binarizationDiagnostics(source.binarizationDiagnostics, artifact, 'binarizationDiagnostics');
     if (source.textToneDiagnostics !== undefined) textToneDiagnostics(source.textToneDiagnostics, artifact, 'textToneDiagnostics');
+    if (source.inkConsistencyDiagnostics !== undefined) {
+        inkConsistencyDiagnostics(source.inkConsistencyDiagnostics, artifact, 'inkConsistencyDiagnostics');
+    }
     if (source.pdfImagePlacement !== undefined) {
         const placement = record(source.pdfImagePlacement, artifact, 'pdfImagePlacement');
         for (const key of [
@@ -937,14 +998,7 @@ export function decodeNativeScanCleanupOutputMetadata(
         : rewrittenWarningEvents(source.warningEvents, artifact);
     const contentWidth = source.matchedCanvasContentWidthPx ?? outputWidthPx;
     const contentHeight = source.matchedCanvasContentHeightPx ?? outputHeightPx;
-    const intrinsicWidth = source.intrinsicRasterWidthPx ?? outputWidthPx;
     const intrinsicHeight = source.intrinsicRasterHeightPx ?? outputHeightPx;
-    const opticalPlacement = source.matchedCanvasOpticalPlacement === true;
-    const opticalLeft = source.matchedCanvasOpticalContentLeftPx;
-    const opticalRight = source.matchedCanvasOpticalContentRightPx;
-    const opticalScaleX = typeof contentWidth === 'number' && typeof intrinsicWidth === 'number'
-        ? contentWidth / intrinsicWidth
-        : Number.NaN;
     const contentWidthNumber = typeof contentWidth === 'number' ? contentWidth : Number.NaN;
     const foldClipLeft = typeof source.foldClipLeftPx === 'number' ? source.foldClipLeftPx : 0;
     const foldClipRight = typeof source.foldClipRightPx === 'number' ? source.foldClipRightPx : 0;
@@ -964,13 +1018,9 @@ export function decodeNativeScanCleanupOutputMetadata(
         ? Math.max(0, effectivePlacementOffsetX + contentWidthNumber - canvasWidthPx)
         : Number.NaN;
     const actualIntrinsicOverflowTop = Math.max(0, -effectivePlacementOffsetY);
-    const softMargins: unknown[] = Array.isArray(source.softMarginsPx) ? source.softMarginsPx : [];
-    const marginLeft = typeof softMargins[0] === 'number' ? softMargins[0] : 0;
-    const marginRight = typeof softMargins[2] === 'number' ? softMargins[2] : 0;
     if (
         typeof contentWidth !== 'number'
         || typeof contentHeight !== 'number'
-        || typeof intrinsicWidth !== 'number'
         || typeof intrinsicHeight !== 'number'
         || recordedIntrinsicOverflowLeft > contentWidthNumber
         || foldClipLeft + foldClipRight >= contentWidthNumber
@@ -982,13 +1032,6 @@ export function decodeNativeScanCleanupOutputMetadata(
         || effectivePlacementOffsetX + contentWidthNumber <= 0
         || effectivePlacementOffsetY >= canvasHeightPx
         || effectivePlacementOffsetY + contentHeight <= 0
-        || (opticalPlacement && (
-            typeof opticalLeft !== 'number'
-            || typeof opticalRight !== 'number'
-            || opticalLeft >= opticalRight
-            || effectivePlacementOffsetX + opticalLeft * opticalScaleX < marginLeft
-            || effectivePlacementOffsetX + opticalRight * opticalScaleX > canvasWidthPx - marginRight
-        ))
         || effectivePlacementOffsetY + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
     const normalizedSource = warningEvents === undefined
@@ -999,6 +1042,9 @@ export function decodeNativeScanCleanupOutputMetadata(
         };
     if (!isNativeScanCleanupOutputMetadata(normalizedSource)) {
         return fail(artifact, 'decoded output metadata has an invalid shape');
+    }
+    if (!isNativeScanCleanupOpticalPlacementValid(normalizedSource)) {
+        return fail(artifact, 'intrinsic content placement exceeds its canvas');
     }
     return normalizedSource;
 }

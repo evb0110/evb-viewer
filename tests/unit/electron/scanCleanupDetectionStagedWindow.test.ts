@@ -31,7 +31,10 @@ import type {
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupRunSidecar} from '@evb/scan-cleanup/core/types';
-import type {IPdfPageSize} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {
+    createArrayBackedPdfPageSizeStore,
+    type IPdfPageSize,
+} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const MIB = 1024 * 1024;
 const PNG_1X1 = Buffer.from(
@@ -224,10 +227,10 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
     const retention: IScanCleanupDetectionRetention<{id: string}> = {
         openDocument: vi.fn(async () => ({id: 'document'})),
         pageCount: vi.fn(async () => options.pageSizes.length),
-        pageSizes: vi.fn(async () => options.pageSizes),
+        pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(options.pageSizes)),
         rasterPages: vi.fn(async () => ({
             detected: false,
-            pages: new Set<number>(),
+            getPageRaster: () => undefined,
         })),
         retainedPaths: vi.fn(async () => new Map()),
         rasterScratchPath: vi.fn(async (_document, pageNumber, dpi) => {
@@ -330,7 +333,11 @@ function createLeaseSidecar(options: {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TStagedManifest;
         manifests.push(manifest);
         const totalPages = manifest.pages.length;
-        const acquire = async (pageNumber: number, inputPath: string) => {
+        const acquire = async (
+            pageNumber: number,
+            inputPath: string,
+            sourcePageNumber = pageNumber,
+        ) => {
             leases.push({
                 event: 'acquired',
                 pageNumber,
@@ -345,8 +352,8 @@ function createLeaseSidecar(options: {
             for (;;) {
                 signal.throwIfAborted();
                 try {
-                    readBytes.set(pageNumber, (await readFile(inputPath)).toString('base64'));
-                    options.onLeaseAcquired?.(pageNumber);
+                    readBytes.set(sourcePageNumber, (await readFile(inputPath)).toString('base64'));
+                    options.onLeaseAcquired?.(sourcePageNumber);
                     return;
                 } catch (error) {
                     if (Date.now() > deadline) throw error;
@@ -372,19 +379,21 @@ function createLeaseSidecar(options: {
             {length: Math.min(options.concurrency ?? 1, manifest.stagedInputWindow ?? 1, totalPages)},
             async () => {
                 while (nextIndex < totalPages) {
-                    const page = manifest.pages[nextIndex]!;
+                    const manifestIndex = nextIndex;
+                    const page = manifest.pages[manifestIndex]!;
                     nextIndex += 1;
-                    const pageNumber = page.sourcePageIndex + 1;
-                    await acquire(pageNumber, page.inputPath);
+                    const sourcePageNumber = page.sourcePageIndex + 1;
+                    const pageNumber = manifestIndex + 1;
+                    await acquire(pageNumber, page.inputPath, sourcePageNumber);
                     await writeFile(page.pageMetadataPath, JSON.stringify({
-                        layoutClassification: pageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
+                        layoutClassification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
                         layoutConfidence: 0.8,
-                        cutterXPx: pageNumber % 3 === 0 ? 100 : null,
+                        cutterXPx: sourcePageNumber % 3 === 0 ? 100 : null,
                         rotationDegrees: 0,
                         canvasScope: 'page',
                         excluded: false,
                         blankOutputsSkipped: 0,
-                        outputCount: pageNumber % 3 === 0 ? 2 : 1,
+                        outputCount: sourcePageNumber % 3 === 0 ? 2 : 1,
                     }));
                     completedPages += 1;
                     onProgress({
@@ -392,7 +401,7 @@ function createLeaseSidecar(options: {
                         completedPages,
                         totalPages,
                         pageNumber: requirePageNumber(pageNumber),
-                        classification: pageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
+                        classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
                         confidence: 0.8,
                     });
                     release(pageNumber);
@@ -402,21 +411,26 @@ function createLeaseSidecar(options: {
         // The document-level pass revisits pages the window has long dropped.
         for (const pageNumber of options.reconcilePages ?? []) {
             const page = manifest.pages.find(candidate => candidate.sourcePageIndex + 1 === pageNumber)!;
-            await acquire(pageNumber, page.inputPath);
-            release(pageNumber);
+            const manifestPageNumber = manifest.pages.indexOf(page) + 1;
+            await acquire(manifestPageNumber, page.inputPath, pageNumber);
+            release(manifestPageNumber);
         }
-        for (const page of manifest.pages) {
-            const pageNumber = page.sourcePageIndex + 1;
+        for (const [
+            manifestIndex,
+            page,
+        ] of manifest.pages.entries()) {
+            const pageNumber = manifestIndex + 1;
+            const sourcePageNumber = page.sourcePageIndex + 1;
             onProgress({
                 stage: 'page-complete',
                 completedPages: totalPages,
                 totalPages,
                 pageNumber: requirePageNumber(pageNumber),
-                classification: pageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
+                classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
                 confidence: 0.8,
                 // Progress carries a cutter only for the pages that have one:
                 // the protocol has no null here, unlike page metadata.
-                ...(pageNumber % 3 === 0 ? {cutterXPx: 100} : {}),
+                ...(sourcePageNumber % 3 === 0 ? {cutterXPx: 100} : {}),
                 reconciled: true,
                 clusterAgreement: 1,
             });
