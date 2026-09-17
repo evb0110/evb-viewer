@@ -1,0 +1,53 @@
+packages/scan-cleanup/core/buildManifest.ts
+  s_40f60a7925c9a4::t_6d68a3357f519e 2,9,14,25,31,38,40-44,68-102,114,117-124,129
+app/modules/scan-cleanup/persistence/preferencesRepository.ts
+  s_40f60a7925c9a4::t_c9aea1d48719d6 29,145-151
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_40f60a7925c9a4::t_a4717978103b30 19,42-46,111-115,385,387
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_40f60a7925c9a4::t_fd5afc2b301595 14,21,225,258,364-368,561-565,641
+app/modules/scan-cleanup/composables/useScanCleanupPreviewSession.ts
+  s_40f60a7925c9a4::t_2782b0296635ba 32,231-235
+  s_40f60a7925c9a4::t_37de16b1b1b5fe 142
+packages/contracts/scan-cleanup/createScanCleanupDetectionSignature.ts
+  s_40f60a7925c9a4::t_f1c3dcd9dc5a08 5,43-44,48,83-84,88
+packages/contracts/scan-cleanup/ipcRequestCodecs.ts
+  s_40f60a7925c9a4::t_e545ded4dfdb7b 66,793
+electron/features/scan-cleanup/worker/runScanCleanupPipeline.ts
+  s_40f60a7925c9a4::t_04c5dd01d5d163 24,62-66
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_40f60a7925c9a4::t_d2c7380eae7eba 203,471
+app/modules/scan-cleanup/composables/useScanCleanupSelection.ts
+  s_40f60a7925c9a4::t_ae1c1e0fb198d9 17,67-71,145,365-369,430-434
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_40f60a7925c9a4::t_fe4420d95b3e80 13,110-116,118-129
+app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides.ts
+  s_40f60a7925c9a4::t_39a7412cbefcab 92
+  s_40f60a7925c9a4::t_5add6ad1e8e2c5 67,74-80,82-86,97
+packages/contracts/scanCleanupPageOverrides.ts
+  s_40f60a7925c9a4::t_1a641bf1e481bc 558,570-572,580-582
+  s_40f60a7925c9a4::t_c379dd26f7a933 610-617,658
+  s_40f60a7925c9a4::t_0ad7d116da0ad9 44-51,91-124,128-131,133-139,145,149-151,153
+app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings.ts
+  s_40f60a7925c9a4::t_48755ca38543be 11,278-282,289,310-314,376-380,510-514
+app/modules/scan-cleanup/composables/useScanCleanupDetectionSession.ts
+  s_40f60a7925c9a4::t_82bcfedfff9a41 14,31-35,114-118,350,352-356,358-360,417
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_40f60a7925c9a4::t_b5160cf6e57f1e 20,23,421,431,441,444,513-514,516-517,521,528-532,542-613,617,1192-1257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1e3a611dc45014850d5b1324adacea2eebfa786d",
+  "prompts": {},
+  "sessions": {
+    "s_40f60a7925c9a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeaa-f29d-72a1-9da7-1a0ca3b39a38",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
