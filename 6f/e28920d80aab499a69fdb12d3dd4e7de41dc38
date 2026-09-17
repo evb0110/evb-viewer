@@ -1,0 +1,9 @@
+scripts/ci/scan-cleanup-oracles.sh
+  ai_agent 100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6fe28920d80aab499a69fdb12d3dd4e7de41dc38",
+  "prompts": {}
+}
