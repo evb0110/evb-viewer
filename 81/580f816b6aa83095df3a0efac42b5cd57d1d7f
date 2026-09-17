@@ -1,0 +1,30 @@
+packages/contracts/scan-cleanup/nativeArtifactCodecs.ts
+  s_3138f4d0221d8b::t_e0caa4cd3e0822 352-363
+  s_3138f4d0221d8b::t_86330a4208c1c5 808-810
+  s_3138f4d0221d8b::t_fb3562f50773ed 75,83
+tests/unit/contracts/scanCleanupNativeArtifactCodecs.test.ts
+  s_3138f4d0221d8b::t_f21dde7620bbae 252-282
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_3138f4d0221d8b::t_41c88ede85e99f 264-265
+  s_3138f4d0221d8b::t_b8578fe68cecff 479,497-501
+  s_3138f4d0221d8b::t_f93aed2ae0ecc6 945,954-956
+  s_3138f4d0221d8b::t_2eac6e5f36d975 148,158-160,173,183-189,198-204,230-236
+  s_3138f4d0221d8b::t_907a441ab9d937 11,34
+  s_3138f4d0221d8b::t_3ca0dd459e978c 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "81580f816b6aa83095df3a0efac42b5cd57d1d7f",
+  "prompts": {},
+  "sessions": {
+    "s_3138f4d0221d8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ec-77e3-9fbf-3d95baf66ec8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
