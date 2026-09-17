@@ -422,6 +422,25 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('keeps zero-sized canvas overlays finite', () => {
+        const placement = resolvePreviewMetadataPlacement(metadata({
+            canvasWidthPx: 0,
+            canvasHeightPx: 0,
+        }));
+
+        expect(toPreviewStyleRect({
+            xPx: 0,
+            yPx: 0,
+            widthPx: 0,
+            heightPx: 0,
+        }, placement)).toEqual({
+            left: '0%',
+            top: '0%',
+            width: '0%',
+            height: '0%',
+        });
+    });
+
     it('does not apply canvas insets to intrinsic rasters that already contain their margins', () => {
         const intrinsicMetadata = metadata({
             outputWidthPx: 230,

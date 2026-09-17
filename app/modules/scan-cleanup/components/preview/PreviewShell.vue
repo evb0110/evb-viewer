@@ -1153,9 +1153,9 @@ function startCutterDrag(event: PointerEvent) {
         fitScale: sourceFrame.width * transformScale / Math.max(1, analysisWidth.value),
         update: (pointerEvent, snapshot) => {
             const ratio = (
-                (pointerEvent.clientX - snapshot.stageRect.x) / transformScale
-                - sourceFrame.left
-            ) / sourceFrame.width;
+                (pointerEvent.clientX - snapshot.stageRect.x) / snapshot.fitScale
+                / Math.max(1, analysisWidth.value)
+            ) - sourceFrame.left / sourceFrame.width;
             return {
                 kind: 'cutter',
                 value: normalizeManualSplitX(
