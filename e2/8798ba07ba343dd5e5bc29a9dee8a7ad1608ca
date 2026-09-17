@@ -1,0 +1,37 @@
+tests/unit/contracts/scanCleanupIpcRequestCodecs.test.ts
+  s_3138f4d0221d8b::t_920442dc34a978 283-288,290-294,296-300,302-306,308-312,314-318,320-351
+native/scan-cleanup/src/domain/options_tests.rs
+  s_3138f4d0221d8b::t_51bc487a83ef94 5,158-161
+  s_3138f4d0221d8b::t_82f6163a619ef6 126-157,162-164
+packages/contracts/scan-cleanup/geometry.ts
+  s_3138f4d0221d8b::t_2a06368092baf0 21-23
+native/scan-cleanup/src/domain/options.rs
+  s_3138f4d0221d8b::t_03c35f384a79e6 284-286,721-723,796-801,820-823,858-863
+  s_3138f4d0221d8b::t_672d54ae4f9bd0 792-793
+  s_3138f4d0221d8b::t_c43f8a8a1e2cbc 824
+packages/contracts/scan-cleanup/ipcRequestCodecs.ts
+  s_3138f4d0221d8b::t_e4e4b5977b9aa0 35,623-629,659-660
+packages/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry.ts
+  s_3138f4d0221d8b::t_c4c5e5497f3e5b 30
+  s_3138f4d0221d8b::t_bbde3e3ee1b2b1 6,34-35,38-43,62-66
+tests/unit/electron/scanCleanupProvenanceStamp.test.ts
+  s_3138f4d0221d8b::t_9c6f10429b6a6e 556-592,594-616
+packages/scan-cleanup/core/provenanceStamp.ts
+  s_3138f4d0221d8b::t_c854f756e253f4 23-31,62,73-74,780-790,885-888,897-914,916-919,930-935,947
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e28798ba07ba343dd5e5bc29a9dee8a7ad1608ca",
+  "prompts": {},
+  "sessions": {
+    "s_3138f4d0221d8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ec-77e3-9fbf-3d95baf66ec8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
