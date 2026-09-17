@@ -15,11 +15,9 @@ import {
 import type {IScanCleanupPreviewRequest} from '@contracts/electronApiScanCleanup';
 import {requireRequestId} from '@contracts/shared';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
-import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {
-    createScanCleanupPreviewDependencies,
-    createScanCleanupPreviewTestDirectory,
+    createScanCleanupPreviewTestContext,
     detectionRequest,
     DOCUMENT_PAGE_SIZES,
     PNG,
@@ -28,20 +26,7 @@ import {
     SETTLED_SINGLE_LAYOUT_BY_PAGE,
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {configureMainJobBroker} from '@electron/resources/jobBroker';
 
-
-
-
-
-configureMainJobBroker({
-    logicalCpus: 11,
-    totalRamBytes: 32 * 1024 ** 3,
-    safeMode: false,
-    detectedTier: 'high',
-    performanceMode: 'auto',
-    tier: 'high',
-});
 
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
@@ -69,26 +54,13 @@ function isCapturedPreviewManifest(value: unknown): value is ICapturedPreviewMan
     return typeof candidate.operation === 'string' && Array.isArray(candidate.pages);
 }
 
-async function setup() {
-    const dir = await createScanCleanupPreviewTestDirectory();
-    dirs.push(dir);
-    return dir;
-}
-
-function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return createScanCleanupPreviewDependencies(dir, {resolveRasterAdmissionPolicy: () => ({
-        rasterConcurrency: 2,
-        rasterStreaming: false,
-    })});
-}
+const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({
+    rasterConcurrency: 2,
+    rasterStreaming: false,
+})};
 
 async function previewDependencies() {
-    const dir = await setup();
-    const deps = dependencies(dir);
-    return {
-        dir,
-        deps,
-    };
+    return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
 }
 
 afterEach(async () => {
@@ -238,8 +210,10 @@ export async function scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBef
 
 export async function scenarioNeverUnlinksAnAdoptedRasterHoweverOftenItsSlotIsGivenBack(): Promise<void> {
 
-    const dir = await setup();
-    const retention = scanCleanupRasterRetention(dependencies(dir));
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
         documentRevision: 'revision-1',
@@ -553,6 +527,8 @@ export async function scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPa
     await retention.sourceDpi(document, 1, signal);
 
     expect(detectSourceDpi).toHaveBeenCalledTimes(301);
+    await expect(retention.sourceDpi(document, 300, signal)).resolves.toBe(300);
+    expect(detectSourceDpi).toHaveBeenCalledTimes(301);
     await retention.release(document);
     await retention.dispose();
 
@@ -560,7 +536,7 @@ export async function scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPa
 
 export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndPageRasterMetadata(): Promise<void> {
 
-    const dir = await setup();
+    const {deps} = await previewDependencies();
     const pageSizes = [
         {
             ...DOCUMENT_PAGE_SIZES[0]!,
@@ -624,7 +600,6 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
         stores.push(store);
         return store;
     };
-    const deps = dependencies(dir);
     deps.getPageCount = vi.fn(async () => pageSizes.length);
     deps.getPageSizeStore = vi.fn(createStore);
     deps.getPageSizes = vi.fn(async () => {
@@ -701,7 +676,9 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
 
 export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingWindows(): Promise<void> {
 
-    const dir = await setup();
+    const {
+        dir, deps,
+    } = await previewDependencies();
     const pageSizes = Array.from({length: 1_025}, (_, index) => ({
         ...DOCUMENT_PAGE_SIZES[0]!,
         pageNumber: index + 1,
@@ -715,7 +692,6 @@ export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingW
         close: vi.fn(async () => undefined),
     };
     const probeCalls: number[][] = [];
-    const deps = dependencies(dir);
     deps.getPageSizeStore = vi.fn(() => store);
     deps.isRasterDetectionAvailable = () => true;
     deps.detectRasterPages = vi.fn(async (
@@ -756,7 +732,9 @@ export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingW
 
 export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursorOnlyPageSizeStore(): Promise<void> {
 
-    const dir = await setup();
+    const {
+        dir, deps,
+    } = await previewDependencies();
     const pageSizes = [
         1,
         2,
@@ -795,7 +773,6 @@ export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursor
         }),
         close: vi.fn(async () => undefined),
     };
-    const deps = dependencies(dir);
     deps.getPageSizeStore = vi.fn(() => store);
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
@@ -871,8 +848,10 @@ export async function scenarioRefusesLegacyArrayGeometryForMillionPagePreviews()
 
 export async function scenarioStopsProtectingAnAdoptedRasterOnceTheIndexHasForgottenIt(): Promise<void> {
 
-    const dir = await setup();
-    const retention = scanCleanupRasterRetention(dependencies(dir));
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
         documentRevision: 'revision-1',
@@ -1179,8 +1158,10 @@ export async function scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads()
 }
 
 export async function scenarioProtectsDetectionClaimFromUnscopedInvalidation(): Promise<void> {
-    const dir = await setup();
-    const retention = scanCleanupRasterRetention(dependencies(dir));
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const retention = scanCleanupRasterRetention(deps);
     const sourcePdfPath = join(dir, 'source.pdf');
     const document = await retention.openDocument({
         sourcePdfPath,
@@ -1209,8 +1190,9 @@ export async function scenarioProtectsDetectionClaimFromUnscopedInvalidation(): 
 }
 
 export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled(): Promise<void> {
-    const dir = await setup();
-    const deps = dependencies(dir);
+    const {
+        dir, deps,
+    } = await previewDependencies();
     const originalPublish = deps.publishRaster;
     const publicationWritten = Promise.withResolvers<undefined>();
     const publicationContinue = Promise.withResolvers<undefined>();
@@ -1285,8 +1267,9 @@ export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCance
 }
 
 export async function scenarioRetiresSupersededDocumentsForSameSourcePath(): Promise<void> {
-    const dir = await setup();
-    const deps = dependencies(dir);
+    const {
+        dir, deps,
+    } = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const sourcePdfPath = join(dir, 'source.pdf');
     const unpinned = await retention.openDocument({
@@ -1336,8 +1319,9 @@ export async function scenarioRetiresSupersededDocumentsForSameSourcePath(): Pro
 async function scenarioReleasesClaimAfterExceptionalRetainedRead(
     mode: 'bytes' | 'metadata',
 ): Promise<void> {
-    const dir = await setup();
-    const deps = dependencies(dir);
+    const {
+        dir, deps,
+    } = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const documentRequest = {
         sourcePdfPath: join(dir, 'source.pdf'),

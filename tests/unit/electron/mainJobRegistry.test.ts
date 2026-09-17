@@ -44,6 +44,7 @@ const start = (jobs: ReturnType<typeof registry>, actor: IMainJobActor, jobId: s
 describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
     beforeEach(() => { mocks.appTempDir = mkdtempSync(join(tmpdir(), 'main-job-registry-')); });
     afterEach(async () => {
+        vi.useRealTimers();
         await Promise.all([...registries].map(jobs => jobs.dispose()));
         registries.clear();
         try {
@@ -52,7 +53,6 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
             teardownAssertions.clear();
             resetMainOperationLifecycleForTests();
             rmSync(mocks.appTempDir, {force: true, recursive: true});
-            vi.useRealTimers();
         }
     });
     it('keeps cancellation ownership until the runner and cancel adapter settle', async () => {

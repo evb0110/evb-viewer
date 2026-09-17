@@ -14,12 +14,11 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
-import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import type {TPreviewVisibility} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
-    createScanCleanupPreviewDependencies,
-    createScanCleanupPreviewTestDirectory,
+    createScanCleanupPreviewTestContext,
     detectionRequest,
     DOCUMENT_CANVAS,
     DOCUMENT_PAGE_SIZES,
@@ -31,66 +30,47 @@ import {
     sender,
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {
-    configureMainJobBroker, mainJobBroker,
-} from '@electron/resources/jobBroker';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
-
-
-
-
-
-configureMainJobBroker({
-    logicalCpus: 11,
-    totalRamBytes: 32 * 1024 ** 3,
-    safeMode: false,
-    detectedTier: 'high',
-    performanceMode: 'auto',
-    tier: 'high',
-});
 
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
 const dirs: string[] = [];
-async function setup() {
-    const dir = await createScanCleanupPreviewTestDirectory();
-    dirs.push(dir);
-    return dir;
-}
-
-function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return createScanCleanupPreviewDependencies(dir, {
-        acquirePreviewLease: (ownerId, visibility, signal) => mainJobBroker.acquire({
-            ownerId,
-            kind: 'scan-cleanup-preview',
-            priority: visibility === 'prefetch' ? 'background' : 'visible',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
-                nativeProcesses: 1,
-                ioWeight: 1,
-            },
-            signal,
-        }),
-        acquireDetectionLease: (ownerId, signal, policy) => mainJobBroker.acquire({
-            ownerId,
-            kind: 'scan-cleanup-detect-all',
-            priority: 'user',
-            resources: {
-                cpuTokens: policy.rasterConcurrency,
-                estimatedResidentBytes: policy.rasterConcurrency * SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
-                nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming),
-                ioWeight: 2,
-            },
-            perOwnerLimit: 1,
-            signal,
-        }),
-    });
-}
+const dependenciesOverride = {
+    acquirePreviewLease: (ownerId: string, visibility: TPreviewVisibility, signal: AbortSignal) => mainJobBroker.acquire({
+        ownerId,
+        kind: 'scan-cleanup-preview',
+        priority: visibility === 'prefetch' ? 'background' as const : 'visible' as const,
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        },
+        signal,
+    }),
+    acquireDetectionLease: (ownerId: string, signal: AbortSignal, policy: {
+        rasterConcurrency: number;
+        rasterStreaming: boolean
+    }) => mainJobBroker.acquire({
+        ownerId,
+        kind: 'scan-cleanup-detect-all',
+        priority: 'user' as const,
+        resources: {
+            cpuTokens: policy.rasterConcurrency,
+            estimatedResidentBytes: policy.rasterConcurrency * SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+            nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming),
+            ioWeight: 2,
+        },
+        perOwnerLimit: 1,
+        signal,
+    }),
+};
 
 async function previewFixture() {
-    const dir = await setup();
-    const deps = dependencies(dir);
+    const {
+        dir, deps,
+    } = await createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
     const service = scanCleanupPreviewLifecycle(deps);
     return {
         dir,
@@ -100,12 +80,7 @@ async function previewFixture() {
 }
 
 async function previewDependencies() {
-    const dir = await setup();
-    const deps = dependencies(dir);
-    return {
-        dir,
-        deps,
-    };
+    return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
 }
 
 afterEach(async () => {

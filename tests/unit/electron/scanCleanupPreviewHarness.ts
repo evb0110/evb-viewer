@@ -228,7 +228,19 @@ export function decodePpm(bytes: Buffer) {
     };
 }
 
-type TScanCleanupPreviewDependenciesOverride = Partial<IScanCleanupPreviewDependencies> & {fileSystem?: Partial<NonNullable<IScanCleanupPreviewDependencies['fileSystem']>>;};
+export type TScanCleanupPreviewDependenciesOverride = Partial<IScanCleanupPreviewDependencies> & {fileSystem?: Partial<NonNullable<IScanCleanupPreviewDependencies['fileSystem']>>;};
+
+export async function createScanCleanupPreviewTestContext(
+    directories: string[],
+    overrides: TScanCleanupPreviewDependenciesOverride = {},
+) {
+    const dir = await createScanCleanupPreviewTestDirectory();
+    directories.push(dir);
+    return {
+        dir,
+        deps: createScanCleanupPreviewDependencies(dir, overrides),
+    };
+}
 
 export function createScanCleanupPreviewDependencies(
     dir: string,

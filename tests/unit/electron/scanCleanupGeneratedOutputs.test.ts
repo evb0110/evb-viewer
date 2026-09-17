@@ -128,6 +128,7 @@ describe('scan cleanup generated output pruning', () => {
         tempDirs.push(outputBaseDir);
         const outputPath = await writeGeneratedOutput(outputBaseDir, RUN_ID, Date.now());
         const journalPath = getScanCleanupCompletedOutputJournalPath(outputBaseDir);
+        await mkdir(dirname(journalPath), {recursive: true});
         await writeFile(journalPath, JSON.stringify([
             {
                 version: 1,

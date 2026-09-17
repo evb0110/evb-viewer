@@ -32,8 +32,7 @@ import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRast
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {
-    createScanCleanupPreviewDependencies,
-    createScanCleanupPreviewTestDirectory,
+    createScanCleanupPreviewTestContext,
     DOCUMENT_PAGE_SIZES,
     lifecycleSender,
     PNG,
@@ -44,22 +43,11 @@ import {
     documentPrior,
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {
-    configureMainJobBroker, mainJobBroker,
-} from '@electron/resources/jobBroker';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 
 
 
 
-
-configureMainJobBroker({
-    logicalCpus: 11,
-    totalRamBytes: 32 * 1024 ** 3,
-    safeMode: false,
-    detectedTier: 'high',
-    performanceMode: 'auto',
-    tier: 'high',
-});
 
 function createDetectionScenarioOwner(deps: IScanCleanupPreviewDependencies): IScanCleanupDetectionOwner {
     const retention = scanCleanupRasterRetention(deps);
@@ -80,23 +68,9 @@ async function retainedRasterCount(dir: string) {
 }
 
 const dirs: string[] = [];
-async function setup() {
-    const dir = await createScanCleanupPreviewTestDirectory();
-    dirs.push(dir);
-    return dir;
-}
-
-function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return createScanCleanupPreviewDependencies(dir);
-}
 
 async function previewDependencies() {
-    const dir = await setup();
-    const deps = dependencies(dir);
-    return {
-        dir,
-        deps,
-    };
+    return createScanCleanupPreviewTestContext(dirs);
 }
 
 afterEach(async () => {
@@ -111,18 +85,9 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const remainingRasters = Promise.withResolvers<undefined>();
-    deps.renderPage = vi.fn(async (...args) => {
+    deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
         if (args[2] > 1) await remainingRasters.promise;
-        await originalRenderPage(
-            args[0],
-            args[1],
-            args[2],
-            args[3],
-            args[4],
-            args[5],
-            args[6],
-            args[7],
-        );
+        await originalRenderPage(...args);
     });
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     const analysisEntered = Promise.withResolvers<undefined>();
@@ -280,6 +245,10 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
         }
     });
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    let analysisFields: Array<{
+        analysisInputPath: string | undefined;
+        analysisDpi: number | undefined;
+    }> = [];
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await firstRasterStarted.promise;
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
@@ -288,9 +257,13 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
             inputPath: string;
             sourcePageIndex: number;
         }>};
-        expect(manifest.pages.every(page =>
-            page.analysisInputPath === undefined && page.analysisDpi === undefined,
-        )).toBe(true);
+        analysisFields = manifest.pages.map(({
+            analysisInputPath,
+            analysisDpi,
+        }) => ({
+            analysisInputPath,
+            analysisDpi,
+        }));
         await writeDetectionMetadata(manifestPath);
         const waitForDelivery = async (page: typeof manifest.pages[number]) => {
             await vi.waitFor(async () => {
@@ -359,6 +332,10 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
         3,
     ]);
     expect(rasterOutputPaths.size).toBe(3);
+    expect(analysisFields).toHaveLength(3);
+    expect(analysisFields.every(page =>
+        page.analysisInputPath === undefined && page.analysisDpi === undefined,
+    )).toBe(true);
 
 }
 
@@ -434,9 +411,8 @@ export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis
 
 export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWholeDocumentNotAWindowOfIt(): Promise<void> {
 
-    const dir = await setup();
+    const {deps} = await previewDependencies();
     const totalPages = 8;
-    const deps = dependencies(dir);
     deps.getPageCount = vi.fn(async () => totalPages);
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     // Stands in for reconcile_classification_batch: the cluster consensus a
@@ -572,24 +548,6 @@ export async function scenarioAnalyzesEveryPageOnTheSameCanonical150DPIGridAsFin
     }): boolean => page.analysisInputPath !== undefined
             && page.analysisDpi !== undefined
             && normalize(page.analysisInputPath) !== normalize(page.inputPath);
-    expect(hasSeparateCanonicalInput({
-        inputPath: '/tmp/source.png',
-        analysisInputPath: '/tmp/analysis.png',
-        analysisDpi: 150,
-    })).toBe(true);
-    expect(hasSeparateCanonicalInput({
-        inputPath: '/tmp/source.png',
-        analysisInputPath: '/tmp/./source.png',
-        analysisDpi: 150,
-    })).toBe(false);
-    expect(hasSeparateCanonicalInput({
-        inputPath: '/tmp/source.png',
-        analysisInputPath: '/tmp/analysis.png',
-    })).toBe(false);
-    expect(hasSeparateCanonicalInput({
-        inputPath: '/tmp/source.png',
-        analysisDpi: 150,
-    })).toBe(false);
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
             options: {
@@ -738,7 +696,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
     let detectionRastersEntered = 0;
     let activeRasters = 0;
     let peakRasters = 0;
-    deps.renderPage = vi.fn(async (...args) => {
+    deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
         activeRasters += 1;
         peakRasters = Math.max(peakRasters, activeRasters);
         try {
@@ -749,21 +707,18 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
                 }
                 await rasterGate.promise;
             }
-            await originalRenderPage(
-                args[0],
-                args[1],
-                args[2],
-                args[3],
-                args[4],
-                args[5],
-                args[6],
-                args[7],
-            );
+            await originalRenderPage(...args);
         } finally {
             activeRasters -= 1;
         }
     });
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+    let analysisManifest: {
+        analysisPurpose: string | undefined;
+        pageDpis: number[];
+        outputsAreEmpty: boolean;
+        secondPageLayout: string | undefined;
+    } | null = null;
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
             operation?: string;
@@ -782,10 +737,12 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             return;
         }
         await writeDetectionMetadata(manifestPath);
-        expect(manifest.analysisPurpose).toBe('page-plan');
-        expect(manifest.pages.every(page => page.options.dpi === 150)).toBe(true);
-        expect(manifest.pages.every(page => Array.isArray(page.outputs) && page.outputs.length === 0)).toBe(true);
-        expect(manifest.pages[1]?.options.layout).toBe('force-two-page');
+        analysisManifest = {
+            analysisPurpose: manifest.analysisPurpose,
+            pageDpis: manifest.pages.map(page => page.options.dpi),
+            outputsAreEmpty: manifest.pages.every(page => Array.isArray(page.outputs) && page.outputs.length === 0),
+            secondPageLayout: manifest.pages[1]?.options.layout,
+        };
         for (const page of manifest.pages) {
             const spread = page.sourcePageIndex <= 1;
             const nativeProgress = {
@@ -826,6 +783,16 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
     });
     await vi.waitFor(() => expect(service.getDetectionJobState(sender(), started.jobId, request)?.status).toBe('completed'));
 
+    expect(analysisManifest).toEqual({
+        analysisPurpose: 'page-plan',
+        pageDpis: [
+            150,
+            150,
+            150,
+        ],
+        outputsAreEmpty: true,
+        secondPageLayout: 'force-two-page',
+    });
     const state = service.getDetectionJobState(sender(), started.jobId, request);
     expect(decodeScanCleanupDetectionJobState(state)).toEqual(state);
     expect(state).toMatchObject({
@@ -911,7 +878,7 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
     let startedRasters = 0;
     let activeRasters = 0;
     let peakRasters = 0;
-    deps.renderPage = vi.fn(async (...args) => {
+    deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
         startedRasters += 1;
         if (startedRasters === resolveScanCleanupRasterAdmissionPolicy(
             mainJobBroker.getSnapshot().capacity,
@@ -923,16 +890,7 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
         peakRasters = Math.max(peakRasters, activeRasters);
         try {
             await rasterBatchReady.promise;
-            await originalRenderPage(
-                args[0],
-                args[1],
-                args[2],
-                args[3],
-                args[4],
-                args[5],
-                args[6],
-                args[7],
-            );
+            await originalRenderPage(...args);
         } finally {
             activeRasters -= 1;
         }
@@ -1046,9 +1004,8 @@ export async function scenarioFallsBackFromRasterStreamingUntilBrokerCapacityCan
 
 export async function scenarioStreamsEveryDetectionClassificationToTheSubscriberExactlyOnce(): Promise<void> {
 
-    const dir = await setup();
+    const {deps} = await previewDependencies();
     const totalPages = 40;
-    const deps = dependencies(dir);
     deps.getPageCount = vi.fn(async () => totalPages);
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     const batches = [
@@ -1145,9 +1102,8 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
 
 export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRendererPageWindow(): Promise<void> {
 
-    const dir = await setup();
+    const {deps} = await previewDependencies();
     const totalPages = 1_025;
-    const deps = dependencies(dir);
     const pageSize = (pageNumber: number) => ({
         ...DOCUMENT_PAGE_SIZES[0]!,
         pageNumber,

@@ -26,14 +26,13 @@ import {
 import {
     forgetRetiredWorkingCopyOriginal, rememberRetiredWorkingCopyOriginal,
 } from '@electron/file-access/workingCopyStore';
-import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     decodeScanCleanupDetectionJobState, decodeScanCleanupPreviewResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
     createScanCleanupPreviewDependencies,
-    createScanCleanupPreviewTestDirectory,
+    createScanCleanupPreviewTestContext,
     lifecycleSender,
     PNG,
     pngWithDimensions,
@@ -42,7 +41,6 @@ import {
     sender,
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {configureMainJobBroker} from '@electron/resources/jobBroker';
 
 
 
@@ -52,41 +50,16 @@ const trustedSender = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => trustedSender);
-
-
-
-configureMainJobBroker({
-    logicalCpus: 11,
-    totalRamBytes: 32 * 1024 ** 3,
-    safeMode: false,
-    detectedTier: 'high',
-    performanceMode: 'auto',
-    tier: 'high',
-});
-
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
 const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
 const dirs: string[] = [];
-async function setup() {
-    const dir = await createScanCleanupPreviewTestDirectory();
-    dirs.push(dir);
-    return dir;
-}
-
-function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return createScanCleanupPreviewDependencies(dir, {resolveRasterAdmissionPolicy: () => ({
-        rasterConcurrency: 2,
-        rasterStreaming: false,
-    })});
-}
+const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({
+    rasterConcurrency: 2,
+    rasterStreaming: false,
+})};
 
 async function previewDependencies() {
-    const dir = await setup();
-    const deps = dependencies(dir);
-    return {
-        dir,
-        deps,
-    };
+    return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
 }
 
 afterEach(async () => {
@@ -577,8 +550,8 @@ export async function scenarioKeepsEagerScanCleanupPreviewPathsUnchanged(): Prom
 
 export async function scenarioAcceptsUnboundedNonnegativeSkewEvidenceAndRejectsInvalidValuesAtBothMetadataBoundaries(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
     expect(decodeScanCleanupPreviewResult(result)).toMatchObject({
         outputs: [{metadata: {skewConfidence: 2.4}}],
         pageMetadata: {skewConfidence: 2.4},
@@ -612,8 +585,8 @@ export async function scenarioAcceptsUnboundedNonnegativeSkewEvidenceAndRejectsI
 
 export async function scenarioValidatesAdditiveRenderRegionMetadataAgainstTheFullIntrinsicOutput(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
     const withRegion = {
         ...result,
         outputs: result.outputs.map(output => ({
@@ -689,8 +662,8 @@ export async function scenarioRejectsOversizedEncodedImageResponsesAtTheIPCBound
 
 export async function scenarioRejectsLayoutConfidenceOutsideTheUnitIntervalAtTheIPCBoundary(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
 
     expect(() => decodeScanCleanupPreviewResult({
         ...result,
@@ -707,8 +680,8 @@ export async function scenarioRejectsLayoutConfidenceOutsideTheUnitIntervalAtThe
 
 export async function scenarioRejectsMalformedCleanupDiagnosticFlagsAtTheIPCBoundary(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
 
     expect(() => decodeScanCleanupPreviewResult({
         ...result,
@@ -749,8 +722,8 @@ export async function scenarioRejectsMalformedCleanupDiagnosticFlagsAtTheIPCBoun
 
 export async function scenarioRejectsNonNumericRotationsAndUnsafePixelGeometryAtTheIPCBoundary(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
 
     for (const rotationDegrees of [
         '0',
@@ -816,8 +789,8 @@ export async function scenarioRejectsNonNumericRotationsAndUnsafePixelGeometryAt
 
 export async function scenarioRequiresNamedFiniteAppliedMarginsAtTheIPCBoundary(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
     const withMargins = (appliedMargins: unknown) => ({
         ...result,
         outputs: result.outputs.map(output => ({
@@ -846,8 +819,8 @@ export async function scenarioRequiresNamedFiniteAppliedMarginsAtTheIPCBoundary(
 
 export async function scenarioRejectsFullyOffCanvasAndInconsistentIntrinsicOverflowIntervalsAtTheIPCBoundary(): Promise<void> {
 
-    const dir = await setup();
-    const result = await previewOf(scanCleanupPreviewLifecycle(dependencies(dir)), sender(), request);
+    const {deps} = await previewDependencies();
+    const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
     const withGeometry = (geometry: Record<string, number>) => ({
         ...result,
         outputs: result.outputs.map(output => ({
@@ -1026,7 +999,7 @@ export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds()
 
 export async function scenarioCancelsAPreviewImmediatelyWhenItsWebContentsIsAlreadyDestroyed(): Promise<void> {
 
-    const deps = dependencies('/unused');
+    const deps = createScanCleanupPreviewDependencies('/unused', dependenciesOverride);
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = lifecycleSender();
     owner.destroyed = true;

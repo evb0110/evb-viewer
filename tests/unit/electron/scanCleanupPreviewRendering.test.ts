@@ -22,8 +22,7 @@ import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanC
 import {fitScanCleanupMarginAxisPx} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {decodeScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
-    createScanCleanupPreviewDependencies,
-    createScanCleanupPreviewTestDirectory,
+    createScanCleanupPreviewTestContext,
     decodePpm,
     detectionRequest,
     DOCUMENT_CANVAS,
@@ -39,21 +38,11 @@ import {
     sender,
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {configureMainJobBroker} from '@electron/resources/jobBroker';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 
 
 
 
-
-configureMainJobBroker({
-    logicalCpus: 11,
-    totalRamBytes: 32 * 1024 ** 3,
-    safeMode: false,
-    detectedTier: 'high',
-    performanceMode: 'auto',
-    tier: 'high',
-});
 
 type TDetailPreviewManifest = Record<'pages', Array<{
     options: Record<string, unknown>;
@@ -93,22 +82,15 @@ function createRenderingScenarioOwner(deps: IScanCleanupPreviewDependencies): IS
 }
 
 const dirs: string[] = [];
-async function setup() {
-    const dir = await createScanCleanupPreviewTestDirectory();
-    dirs.push(dir);
-    return dir;
-}
-
-function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return createScanCleanupPreviewDependencies(dir, {resolveRasterAdmissionPolicy: () => ({
-        rasterConcurrency: 2,
-        rasterStreaming: false,
-    })});
-}
+const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({
+    rasterConcurrency: 2,
+    rasterStreaming: false,
+})};
 
 async function previewFixture() {
-    const dir = await setup();
-    const deps = dependencies(dir);
+    const {
+        dir, deps,
+    } = await createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
     const service = createRenderingScenarioOwner(deps);
     return {
         dir,
@@ -118,12 +100,7 @@ async function previewFixture() {
 }
 
 async function previewDependencies() {
-    const dir = await setup();
-    const deps = dependencies(dir);
-    return {
-        dir,
-        deps,
-    };
+    return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
 }
 
 afterEach(async () => {
