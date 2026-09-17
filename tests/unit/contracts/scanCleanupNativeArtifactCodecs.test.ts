@@ -1,4 +1,3 @@
-import {readFileSync} from 'node:fs';
 import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnostics';
 import {
     decodeNativeScanCleanupOutputMetadata,
@@ -38,11 +37,6 @@ const appliedMargins = {
     rightPx: 0,
     bottomPx: 0,
 };
-const legacyProtocolV3Page = readFileSync(
-    new URL('../../fixtures/scan-cleanup/protocol-v3-page-before-fold-band.json', import.meta.url),
-    'utf8',
-);
-
 function pageMetadata() {
     return {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
@@ -101,6 +95,7 @@ function outputMetadata() {
         canvasScope: 'page',
         resamplePasses: 0,
         warnings: [],
+        warningEvents: [],
     };
 }
 
@@ -174,16 +169,6 @@ function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 describe('scan-cleanup native artifact codecs', () => {
-    it('normalizes a real pre-fold-band protocol-v3 artifact to an honest legacy state', () => {
-        const decoded = decodeNativeScanCleanupPageMetadataJson(legacyProtocolV3Page);
-
-        expect(decoded.splitDiagnostics?.foldBand).toEqual({
-            status: 'unmeasured',
-            reason: 'legacy-protocol-v3',
-            nominalHalfWidthPx: 0,
-        });
-    });
-
     it('decodes split diagnostics carrying every field the native binary emits, and rejects a payload missing one', () => {
         const diagnostics = fullSplitDiagnostics();
         const page = {
@@ -338,7 +323,7 @@ describe('scan-cleanup native artifact codecs', () => {
         })).toThrow('protocol limit');
     });
 
-    it('bounds structured warning events and accepts an artifact written without them', () => {
+    it('bounds structured warning events and rejects an artifact written without them', () => {
         const fitted = {
             code: 'matched-canvas-content-fitted',
             unit: 'px',
@@ -454,12 +439,10 @@ describe('scan-cleanup native artifact codecs', () => {
         // The ceiling is a bound the contract states, not a number this test
         // decides: one output may report exactly that many conditions.
         expect(decodeNativeScanCleanupOutputMetadata(atLimit)).toBe(atLimit);
-        // An artifact written before the structured channel existed keeps its
-        // sentences and decodes unchanged.
-        expect(decodeNativeScanCleanupOutputMetadata({
+        expect(() => decodeNativeScanCleanupOutputMetadata({
             ...outputMetadata(),
-            warnings: ['Matched page size reduced requested margins because they leave no drawable canvas'],
-        }).warningEvents).toBeUndefined();
+            warningEvents: undefined,
+        })).toThrow(InvalidScanCleanupNativeArtifactError);
 
         // Each rejection names itself. A bare loop reports only the assertion
         // that failed, which for twenty-odd malformed payloads is not enough to

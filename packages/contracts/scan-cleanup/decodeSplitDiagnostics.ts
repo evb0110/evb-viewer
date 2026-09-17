@@ -1,9 +1,6 @@
 import {isRecord} from '@contracts/runtimeGuards';
 import type {TScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipc';
-import {
-    isNativeScanCleanupFoldBandV3,
-    legacyNativeScanCleanupFoldBandV3,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {isNativeScanCleanupFoldBandV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 
 type TSplitDiagnostics = NonNullable<
     TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']
@@ -11,12 +8,7 @@ type TSplitDiagnostics = NonNullable<
 
 export function decodeSplitDiagnostics(value: unknown): TSplitDiagnostics {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup split diagnostics');
-    const candidate = value.foldBand === undefined
-        ? {
-            ...value,
-            foldBand: legacyNativeScanCleanupFoldBandV3(),
-        }
-        : value;
+    const candidate = value;
     const integerKeys = [
         'leftInkPixels',
         'rightInkPixels',

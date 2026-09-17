@@ -21,7 +21,6 @@ import type {
     IScanCleanupPixelPoint,
 } from '@contracts/scan-cleanup/geometry';
 import {
-    legacyNativeScanCleanupFoldBandV3,
     NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENTS_SCHEMA,
@@ -550,10 +549,7 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         'sparseSpreadRecovered',
         'abstained',
     ] as const) if (typeof source[key] !== 'boolean') fail(artifact, `${label}.${key} must be boolean`);
-    const foldBandValue = source.foldBand === undefined
-        ? legacyNativeScanCleanupFoldBandV3()
-        : source.foldBand;
-    const foldBand = record(foldBandValue, artifact, `${label}.foldBand`);
+    const foldBand = record(source.foldBand, artifact, `${label}.foldBand`);
     if (foldBand.status === 'measured') {
         const unknownKey = Object.keys(foldBand).find(key => (
             key !== 'status' && key !== 'leftXPx' && key !== 'rightXPx'
@@ -579,12 +575,7 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
     } else {
         fail(artifact, `${label}.foldBand.status must be measured or unmeasured`);
     }
-    return foldBandValue === source.foldBand
-        ? source
-        : {
-            ...source,
-            foldBand: foldBandValue,
-        };
+    return source;
 }
 
 function analysisOutput(value: unknown, artifact: TArtifact, label: string) {
@@ -892,10 +883,10 @@ function statesLegacyWarningEventFields(value: unknown): boolean {
  * in a copy rather than into the object that was handed in. Every payload is
  * decoded either way, because that decode is what validates it.
  */
-function rewrittenWarningEvents(value: unknown, artifact: TArtifact) {
+function decodeWarningEvents(value: unknown, artifact: TArtifact) {
     try {
         const events = SCAN_CLEANUP_WARNING_EVENTS_SCHEMA.decode(value);
-        return statesLegacyWarningEventFields(value) ? events : undefined;
+        return events;
     } catch (error) {
         return fail(artifact, error instanceof Error ? getErrorMessage(error) : 'warningEvents is invalid');
     }
@@ -940,13 +931,7 @@ export function decodeNativeScanCleanupOutputMetadata(
             if (typeof warning !== 'string' || warning.length > MAX_WARNING_LENGTH) fail(artifact, `warnings[${String(index)}] is invalid`);
         });
     }
-    // Absence is how an artifact written before the structured channel existed
-    // reports its conditions: those runs left the same sentences in `warnings`,
-    // which stays readable and logged. Live runs carry the array when the
-    // sidecar advertises the structured-warning-events capability.
-    const warningEvents = source.warningEvents === undefined
-        ? undefined
-        : rewrittenWarningEvents(source.warningEvents, artifact);
+    const warningEvents = decodeWarningEvents(source.warningEvents, artifact);
     const contentWidth = source.matchedCanvasContentWidthPx ?? outputWidthPx;
     const contentHeight = source.matchedCanvasContentHeightPx ?? outputHeightPx;
     const intrinsicHeight = source.intrinsicRasterHeightPx ?? outputHeightPx;
@@ -985,12 +970,12 @@ export function decodeNativeScanCleanupOutputMetadata(
         || effectivePlacementOffsetY + contentHeight <= 0
         || effectivePlacementOffsetY + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
-    const normalizedSource = warningEvents === undefined
-        ? source
-        : {
+    const normalizedSource = statesLegacyWarningEventFields(source.warningEvents)
+        ? {
             ...source,
             warningEvents,
-        };
+        }
+        : source;
     if (!isNativeScanCleanupOutputMetadata(normalizedSource)) {
         return fail(artifact, 'decoded output metadata has an invalid shape');
     }

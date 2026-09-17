@@ -1799,6 +1799,7 @@ describe('Scan cleanup components', () => {
         };
         const retainedViewport = readerState.viewport;
         const cleanupSession = ref<IScanCleanupTabSessionState>({
+            ownerId: 'cleanup-owner',
             previewPage: 31,
             previewViewMode: 'original',
         });

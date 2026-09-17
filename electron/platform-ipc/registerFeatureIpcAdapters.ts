@@ -260,21 +260,6 @@ export function registerLazyPlatformFeature(
     };
 }
 
-let disposeRegisteredScanCleanupBindings: (() => Promise<void>) | null = null;
-
-/**
- * Preserve the legacy shutdown hook for callers that only need to dispose the
- * scan-cleanup feature when it has already been loaded. The registration table
- * owns the lazy loader, so this hook never imports the feature by itself.
- */
-export async function disposeScanCleanupMainBindingsIfLoaded(): Promise<void> {
-    const dispose = disposeRegisteredScanCleanupBindings;
-    if (dispose === null) {
-        return;
-    }
-    await dispose();
-}
-
 export interface IFeatureIpcAdapterOptions extends IFeatureRegistrationContext {}
 
 export function registerFeatureIpcAdapters(
@@ -283,7 +268,6 @@ export function registerFeatureIpcAdapters(
 ): IFeatureRegistrationRuntime {
     const registrations: IFeatureRegistrationResult[] = [];
     let documentsRegistered = false;
-    disposeRegisteredScanCleanupBindings = null;
     for (const descriptor of FEATURE_REGISTRATION_DESCRIPTORS) {
         if (descriptor.kind === 'documents') {
             if (!documentsRegistered) {
@@ -309,9 +293,6 @@ export function registerFeatureIpcAdapters(
             descriptor as typeof platformDescriptors[number],
             options,
         );
-        if (descriptor.name === 'scan-cleanup') {
-            disposeRegisteredScanCleanupBindings = dispose;
-        }
         registrations.push({
             descriptor,
             dispose,

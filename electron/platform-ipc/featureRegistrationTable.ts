@@ -87,7 +87,7 @@ const scanCleanupDescriptor: TPlatformDescriptor<TScanCleanupMainBindings> = {
     lifecycle: {
         create: 'scanCleanupMainBindings',
         ipcRegistration: 'registerPlatformFeatureHandlers',
-        shutdown: 'disposeScanCleanupMainBindingsIfLoaded',
+        shutdown: 'disposeScanCleanupMainBindings',
     },
     disposeBindingKey: 'disposeScanCleanupMainBindings',
 };

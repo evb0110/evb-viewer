@@ -3,8 +3,6 @@ import type { ICoreIpcHandlerOptions } from '@electron/platform-ipc/registerCore
 import { createAgentService } from '@electron/features/agent/createAgentService';
 import { registerFeatureIpcAdapters } from '@electron/platform-ipc/featureIpcAdapters';
 
-export { disposeScanCleanupMainBindingsIfLoaded } from '@electron/platform-ipc/featureIpcAdapters';
-
 export { normalizeRendererLogEntry } from '@electron/platform-ipc/rendererLogBridge';
 
 export function registerIpcHandlers(options: ICoreIpcHandlerOptions = {}) {

@@ -351,8 +351,7 @@ export type TNativeScanCleanupFoldBandUnmeasuredReasonV3 =
     | 'no-fold-evidence'
     | 'fold-evidence-unquantified'
     | 'cutter-invalidated'
-    | 'measurement-unavailable'
-    | 'legacy-protocol-v3';
+    | 'measurement-unavailable';
 
 export type TNativeScanCleanupFoldBandV3 =
     | {
@@ -372,17 +371,7 @@ export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
     'fold-evidence-unquantified',
     'cutter-invalidated',
     'measurement-unavailable',
-    'legacy-protocol-v3',
 ] as const satisfies readonly TNativeScanCleanupFoldBandUnmeasuredReasonV3[];
-
-/** Compatibility state synthesized when early protocol-v3 data has no typed fold outcome. */
-export function legacyNativeScanCleanupFoldBandV3(): TNativeScanCleanupFoldBandV3 {
-    return {
-        status: 'unmeasured',
-        reason: 'legacy-protocol-v3',
-        nominalHalfWidthPx: 0,
-    };
-}
 
 export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeScanCleanupFoldBandV3 {
     if (!isRecord(value)) {

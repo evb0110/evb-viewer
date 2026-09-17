@@ -6,7 +6,6 @@ pub mod bw;
 mod cache;
 #[doc(hidden)]
 pub mod calibration;
-pub mod cli;
 pub mod content;
 pub mod deskew;
 pub mod dewarp;
