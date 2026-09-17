@@ -647,6 +647,7 @@ const previewPresentationNoticeCurrent = computed(() => (props.resultCurrent ===
     && (props.resultPresentationKey === undefined
         || displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value));
 const previewEditsEnabled = computed(() => presentationResult.value?.pageNumber === props.pageNumber
+    && previewPresentationCurrent.value
     && displayedFrameIdentityCurrent.value
     && effectiveError.value === ''
     && !props.disabled);
@@ -739,6 +740,7 @@ const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.lossless !== true
     // Deliberate degradation while pinned: detail tiles describe the live
     // generation and must not be composited onto a different displayed base.
+    && previewPresentationCurrent.value
     && displayedCleanedFrameCurrent.value
     && Boolean(presentationResult.value?.outputs.length)
     && detailDensityExceeded.value);
@@ -1513,6 +1515,7 @@ function scheduleDetailRequest() {
         || props.lossless === true
         || !presentationResult.value
         || presentationResult.value.outputs.length === 0
+        || !previewPresentationCurrent.value
         || !displayedCleanedFrameCurrent.value
         || props.loading
         || isStalePage.value
