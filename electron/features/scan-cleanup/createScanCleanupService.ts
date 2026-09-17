@@ -589,6 +589,7 @@ export function createScanCleanupService(
             };
             let startedHandle: ReturnType<TScanCleanupJobRegistry['start']> | null = null;
             let detectionResultStoreLease: ReturnType<typeof claimScanCleanupDetectionResultStore> = null;
+            let runScratchPath: string | null = null;
             // A job can be canceled by its owner before the registry invokes
             // run(). Keep the claimed store owned by this start attempt until
             // that boundary; once run() begins, its finally block owns the
@@ -702,6 +703,12 @@ export function createScanCleanupService(
                     }
                 }
                 const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
+                // Allocate the run-owned scratch before handing the job to the
+                // registry. This keeps the start reservation ordered through
+                // all main-owned setup, so a second start cannot observe the
+                // handoff while the first run is still preparing its worker.
+                const scratchPath = await createScanCleanupScratchDir(getAppTempDir());
+                runScratchPath = scratchPath;
                 const {
                     detectionResultStoreId: _detectionResultStoreId,
                     ...requestWithoutDetectionStoreId
@@ -760,6 +767,12 @@ export function createScanCleanupService(
                         }
                         await detectionResultStoreLease?.release();
                         detectionResultStoreLease = null;
+                        if (runScratchPath !== null) {
+                            await rm(runScratchPath, {
+                                recursive: true,
+                                force: true,
+                            }).catch(() => undefined);
+                        }
                         await rm(dirname(outputPdfPath), {
                             recursive: true,
                             force: true,
@@ -769,7 +782,6 @@ export function createScanCleanupService(
                         runStarted = true;
                         let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
                         let detectionResultStoreDescriptor: IScanCleanupDetectionResultStoreDescriptor | null = null;
-                        let runScratchPath: string | null = null;
                         let retainRunArtifacts = false;
                         try {
                             lease = await mainJobBroker.acquire({
@@ -822,8 +834,6 @@ export function createScanCleanupService(
                                     getAppTempDir(),
                                 );
                             }
-                            const scratchPath = await createScanCleanupScratchDir(getAppTempDir());
-                            runScratchPath = scratchPath;
                             const summary = await runScanCleanupWorkerTask(
                                 {
                                     ...workerRequest,
@@ -902,8 +912,8 @@ export function createScanCleanupService(
                             }
                             throw error;
                         } finally {
-                            if (runScratchPath !== null && !retainRunArtifacts) {
-                                await rm(runScratchPath, {
+                            if (!retainRunArtifacts) {
+                                await rm(scratchPath, {
                                     recursive: true,
                                     force: true,
                                 }).catch(error => {
@@ -941,6 +951,12 @@ export function createScanCleanupService(
             } catch (error) {
                 if (startedHandle === null) {
                     await detectionResultStoreLease?.release();
+                    if (runScratchPath !== null) {
+                        await rm(runScratchPath, {
+                            recursive: true,
+                            force: true,
+                        }).catch(() => undefined);
+                    }
                 }
                 throw error;
             } finally {
