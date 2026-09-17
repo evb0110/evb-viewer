@@ -943,29 +943,6 @@ a {
   text-decoration: none;
 }
 
-.installer-item-store:hover {
-  background: color-mix(in srgb, var(--landing-accent) 12%, var(--landing-surface));
-}
-
-.installer-item-store .installer-item-chip {
-  background: var(--landing-accent);
-  border-color: var(--landing-accent);
-  color: var(--landing-on-accent);
-}
-
-.installer-direct-label {
-  padding: 0.5rem 1.0625rem;
-  border-top: 1px solid var(--landing-border);
-  border-bottom: 1px solid var(--landing-border);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-align: left;
-  text-transform: uppercase;
-  color: var(--landing-muted);
-}
-
 .installer-item-recommended:hover {
   background: color-mix(in srgb, var(--landing-accent) 12%, transparent);
 }

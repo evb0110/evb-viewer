@@ -120,52 +120,6 @@
                 :class="{ 'installer-list-mirrored': hasMirrorForSelectedPlatform }"
               >
                 <div
-                  v-if="selectedInstallerTab === 'windows'"
-                  class="installer-row installer-row-recommended"
-                >
-                  <a
-                    class="installer-item installer-item-store"
-                    :href="MICROSOFT_STORE_URL"
-                    target="_blank"
-                    rel="noreferrer"
-                    :aria-label="t('home.installers.store.ariaLabel')"
-                  >
-                    <div class="installer-item-info">
-                      <div class="installer-item-header">
-                        <span class="installer-item-variant">{{ t('home.installers.store.title') }}</span>
-                        <span class="installer-badge">
-                          {{ t('home.installers.recommended') }}
-                        </span>
-                      </div>
-                      <span class="installer-item-detail">
-                        {{ t('home.installers.store.detail') }}
-                      </span>
-                      <span class="installer-item-meta">
-                        {{ t('home.installers.store.meta') }}
-                      </span>
-                    </div>
-                    <span class="installer-item-chip">
-                      <UIcon
-                        name="i-simple-icons-microsoft"
-                        class="installer-item-icon"
-                      />
-                    </span>
-                  </a>
-                  <span
-                    v-if="hasMirrorForSelectedPlatform"
-                    class="installer-mirror-cell"
-                    aria-hidden="true"
-                  />
-                </div>
-
-                <div
-                  v-if="selectedInstallerTab === 'windows'"
-                  class="installer-direct-label"
-                >
-                  {{ t('home.installers.store.directDownloads') }}
-                </div>
-
-                <div
                   v-for="installer in installersForSelectedPlatform"
                   :key="installer.id"
                   class="installer-row"
@@ -219,6 +173,43 @@
                     />
                   </template>
                 </div>
+
+                <div
+                  v-if="selectedInstallerTab === 'windows'"
+                  class="installer-row"
+                >
+                  <a
+                    class="installer-item installer-item-store"
+                    :href="MICROSOFT_STORE_URL"
+                    target="_blank"
+                    rel="noreferrer"
+                    :aria-label="t('home.installers.store.ariaLabel')"
+                  >
+                    <div class="installer-item-info">
+                      <div class="installer-item-header">
+                        <span class="installer-item-variant">{{ t('home.installers.store.title') }}</span>
+                      </div>
+                      <span class="installer-item-detail">
+                        {{ t('home.installers.store.detail') }}
+                      </span>
+                      <span class="installer-item-meta">
+                        {{ t('home.installers.store.meta') }}
+                      </span>
+                    </div>
+                    <span class="installer-item-chip">
+                      <UIcon
+                        name="i-simple-icons-microsoft"
+                        class="installer-item-icon"
+                      />
+                    </span>
+                  </a>
+                  <span
+                    v-if="hasMirrorForSelectedPlatform"
+                    class="installer-mirror-cell"
+                    aria-hidden="true"
+                  />
+                </div>
+
               </div>
             </div>
 

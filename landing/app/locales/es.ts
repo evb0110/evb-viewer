@@ -63,7 +63,6 @@ export default {
                 detail: 'Aplicación para Windows firmada por Microsoft',
                 meta: 'Actualizaciones automáticas mediante Store',
                 ariaLabel: 'Obtener EVB Viewer en Microsoft Store',
-                directDownloads: 'Descargas directas',
             },
             macArchHint: 'Elige Apple Silicon para Macs recientes, Intel para modelos antiguos.',
             packageSize: '{package} · {size}',

@@ -63,7 +63,6 @@ export default {
                 detail: 'Microsoft-signed Windows app',
                 meta: 'Automatic updates through the Store',
                 ariaLabel: 'Get EVB Viewer from Microsoft Store',
-                directDownloads: 'Direct downloads',
             },
             macArchHint: 'Choose Apple Silicon for newer Macs, Intel for older models.',
             packageSize: '{package} · {size}',
