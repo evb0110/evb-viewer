@@ -4114,7 +4114,10 @@ mod tests {
             .as_deref()
             .expect("the halftone plate must publish a vetted owner");
         assert!(owner.count_black() > 2_000);
-        assert_ne!(prepared.resolved_output_mode, OutputMode::Bw);
+        assert_ne!(
+            prepared.resolved_output_mode,
+            crate::ResolvedOutputMode::Bw
+        );
         assert!(
             prepared
                 .tonal_protection_mask
@@ -4133,7 +4136,10 @@ mod tests {
             .as_deref()
             .expect("rotation must not erase the tonal owner");
         assert!(rotated_owner.count_black() > 2_000);
-        assert_ne!(rotated.resolved_output_mode, OutputMode::Bw);
+        assert_ne!(
+            rotated.resolved_output_mode,
+            crate::ResolvedOutputMode::Bw
+        );
         let rotated_components = ComponentMap::from_binary(rotated_owner);
         let rotated_component = rotated_components
             .components()

@@ -364,6 +364,8 @@ fn normalized_render_crop_is_optional_bounded_and_resolves_outward() {
         options.resolved_render_crop(1_000, 500),
         Some(Rect::new(101.0, 101.0, 303.0, 203.0)),
     );
+    assert_eq!(options.resolved_render_crop(0, 500), None);
+    assert_eq!(options.resolved_render_crop(1_000, 0), None);
 
     for crop in [
         NormalizedRect {

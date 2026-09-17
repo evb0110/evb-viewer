@@ -130,6 +130,44 @@ pub enum OutputMode {
     Auto,
 }
 
+/// Output mode after automatic selection. `Auto` belongs to authored settings
+/// and cannot cross into the render stage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ResolvedOutputMode {
+    Bw,
+    Mixed,
+    Grayscale,
+    Color,
+}
+
+impl ResolvedOutputMode {
+    pub(crate) fn as_output_mode(self) -> OutputMode {
+        self.into()
+    }
+}
+
+impl From<OutputMode> for ResolvedOutputMode {
+    fn from(mode: OutputMode) -> Self {
+        match mode {
+            OutputMode::Bw | OutputMode::Auto => Self::Bw,
+            OutputMode::Mixed => Self::Mixed,
+            OutputMode::Grayscale => Self::Grayscale,
+            OutputMode::Color => Self::Color,
+        }
+    }
+}
+
+impl From<ResolvedOutputMode> for OutputMode {
+    fn from(mode: ResolvedOutputMode) -> Self {
+        match mode {
+            ResolvedOutputMode::Bw => Self::Bw,
+            ResolvedOutputMode::Mixed => Self::Mixed,
+            ResolvedOutputMode::Grayscale => Self::Grayscale,
+            ResolvedOutputMode::Color => Self::Color,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PageAlignment {
@@ -830,6 +868,9 @@ impl CleanupOptions {
 
     pub fn resolved_render_crop(&self, width: usize, height: usize) -> Option<Rect> {
         let crop = self.render_crop?;
+        if width == 0 || height == 0 {
+            return None;
+        }
         let left = (crop.x * width as f64).floor() as usize;
         let top = (crop.y * height as f64).floor() as usize;
         let right = ((crop.x + crop.width) * width as f64).ceil() as usize;

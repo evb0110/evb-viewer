@@ -60,7 +60,7 @@ use crate::{
         apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
         outside_tonal_evidence_with_mask, OutsideTonalEvidence, TextToneDiagnostics,
     },
-    CleanupOptions, OrthogonalRotation, OutputMode,
+    CleanupOptions, OrthogonalRotation, OutputMode, ResolvedOutputMode,
 };
 use rayon::prelude::*;
 use scan_primitives::{
@@ -1131,7 +1131,7 @@ struct PreparedPage<'a> {
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
 }
 
 struct PreparedAnalysis {
@@ -1163,7 +1163,7 @@ struct PreparedAnalysis {
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
 }
 
 struct AnalysisArtifact {
@@ -1192,7 +1192,7 @@ struct AnalysisArtifact {
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
     analysis_threshold: Option<u8>,
     text_axis: Option<TextAxisHint>,
 }
@@ -2223,19 +2223,20 @@ fn prepare_page<'a>(
     // illumination normalization enabled here made preview invent a visual
     // change while the compact PDF assembler correctly wanted to preserve the
     // source objects. Explicit Color remains user-controlled and may normalize.
-    let auto_resolved_color =
-        options.output_mode == OutputMode::Auto && resolved_output_mode == OutputMode::Color;
+    let auto_resolved_color = options.output_mode == OutputMode::Auto
+        && resolved_output_mode == ResolvedOutputMode::Color;
     let mut resolved_options;
-    let options = if resolved_output_mode == options.output_mode && !auto_resolved_color {
-        options
-    } else {
-        resolved_options = options.clone();
-        resolved_options.output_mode = resolved_output_mode;
-        if auto_resolved_color {
-            resolved_options.normalize_illumination = false;
-        }
-        &resolved_options
-    };
+    let options =
+        if resolved_output_mode.as_output_mode() == options.output_mode && !auto_resolved_color {
+            options
+        } else {
+            resolved_options = options.clone();
+            resolved_options.output_mode = resolved_output_mode.as_output_mode();
+            if auto_resolved_color {
+                resolved_options.normalize_illumination = false;
+            }
+            &resolved_options
+        };
     let rotated_source = match options.rotation {
         OrthogonalRotation::None => Cow::Borrowed(source),
         rotation => Cow::Owned(rotate_orthogonal(source, rotation)),
