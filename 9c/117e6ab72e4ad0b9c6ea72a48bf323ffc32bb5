@@ -1,0 +1,19 @@
+landing/app/assets/css/main.css
+  s_7fbccdf1482ee4::t_63a14643b50fda 759-761,777-779
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9c117e6ab72e4ad0b9c6ea72a48bf323ffc32bb5",
+  "prompts": {},
+  "sessions": {
+    "s_7fbccdf1482ee4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0f4-88d8-7971-ae25-831c659a2a80",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
