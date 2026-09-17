@@ -400,12 +400,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             && previousDocumentContext.legacyDocumentKey === currentLegacyDocumentKey
             && previousDocumentContext.sourceSha256 === null
             && isScanCleanupSourceSha256(currentSourceSha256);
-        const previousUnresolvedLegacyDocumentKey = !sourceWasPromoted && !retry
-            && previousDocumentContext?.sourceSha256 === null
-            ? previousDocumentContext.legacyDocumentKey
-            : undefined;
-        const persistenceFlush = flushPersistence();
         if (!sourceWasPromoted && !retry) {
+            if (
+                previousDocumentContext?.sourceSha256 === null
+                && previousDocumentContext.legacyDocumentKey === currentLegacyDocumentKey
+            ) {
+                invalidateScanCleanupDocumentPersistence(
+                    null,
+                    previousDocumentContext.legacyDocumentKey,
+                );
+            }
             documentIntents.clear();
             marginIntent = {};
             defaultsIntent = {};
@@ -429,16 +433,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         };
         documentSettingsReady.value = false;
         documentSettingsLoadFailure.value = null;
-        void persistenceFlush
-            .finally(() => {
-                if (previousUnresolvedLegacyDocumentKey !== undefined) {
-                    invalidateScanCleanupDocumentPersistence(
-                        null,
-                        previousUnresolvedLegacyDocumentKey,
-                    );
-                }
-            })
-            .catch(() => undefined);
+        void flushPersistence().catch(() => undefined);
         loadingDocument.value = true;
         const persistenceToken = captureScanCleanupDocumentPersistenceToken(currentSourceSha256, currentLegacyDocumentKey);
         const snapshot = retry
