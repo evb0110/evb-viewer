@@ -213,6 +213,13 @@ describe('electron-run-headless.sh startd interruption', () => {
                 expect(await waitUntil(() => existsSync(`/proc/${String(fixturePid)}/stat`), 2_000)).toBe(true);
                 const executable = readlinkSync(`/proc/${String(fixturePid)}/exe`);
                 const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+                expect(await waitUntil(() => {
+                    try {
+                        return readProcessCommandline(fixturePid).length > 0;
+                    } catch {
+                        return false;
+                    }
+                }, 2_000)).toBe(true);
                 mkdirSync(join(host.root, '.devkit', 'headless-xvfb', SESSION_NAME), {recursive: true});
                 writeFileSync(host.xvfbOwnerPath, [
                     `pid=${String(fixturePid)}`,
