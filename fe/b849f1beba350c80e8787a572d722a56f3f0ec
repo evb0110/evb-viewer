@@ -1,0 +1,72 @@
+native/scan-cleanup/src/engine/render/document_analysis_tests.rs
+  s_5f9cf006655e45::t_8b7b7facebc180 21-22
+native/scan-cleanup/src/engine/page_workflow.rs
+  s_5f9cf006655e45::t_c9aa030a38ea82 9-10,1016
+  s_5f9cf006655e45::t_ac6c929a74f7c6 27-28,30,267,269-271,285-287
+  s_5f9cf006655e45::t_c9b85e34fc587a 104
+  s_5f9cf006655e45::t_60875d8da69fe8 493-495,628-630,943-945,975-977,1028-1030
+  s_5f9cf006655e45::t_c09d69a6bc0580 453,468,489
+  s_5f9cf006655e45::t_3f272c019b7549 993,995-997,1007-1009,1025
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_5f9cf006655e45::t_3f272c019b7549 39
+  s_5f9cf006655e45::t_0ff21434615274 275-277,463-465,475-477
+  s_5f9cf006655e45::t_4a52e5af7050b6 371-372,435-441
+  s_5f9cf006655e45::t_75ce6772130419 356,381,408,415,417,452
+  s_5f9cf006655e45::t_d36c52cfb0eb2d 150-158,166-169,191,227,232-236,245-247,271-274
+native/scan-cleanup/src/engine/staged_input.rs
+  s_5f9cf006655e45::t_60875d8da69fe8 464-466
+  s_5f9cf006655e45::t_0ad81c647bbd9a 122,136-140,207-211,217,524,526-528,538,553,557-559,592,595,605,624-626,628-629,648-653,685-687,707,711,723-727,746-748
+  s_5f9cf006655e45::t_e1531b6e040941 848,926,989-992,1019-1023,1047-1048,1066,1113-1120,1195,1251,1731
+  s_5f9cf006655e45::t_516f7c00a63f86 762-763,765,1076-1095
+native/scan-cleanup/src/cli.rs
+  s_5f9cf006655e45::t_d36c52cfb0eb2d 3
+native/scan-cleanup/src/engine/render_tests/mod.rs
+  s_5f9cf006655e45::t_838d9586bd7dc6 16,35
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_5f9cf006655e45::t_46673f554aa057 291,324-325,521,526,1663,1698,3371,3407,3410,3427,3466,3497,3521,3555,3580,3582,3630-3632
+  s_5f9cf006655e45::t_2306c888b8713d 12,25,158-160,172,259,270,275
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_5f9cf006655e45::t_d686bc370cfe2a 9-10,12,48-52,86-90,97,101-107,120,168-172,199,212-216,229-231
+  s_5f9cf006655e45::t_448b9d9accb948 467-471,490-502
+  s_5f9cf006655e45::t_b9947c3f25bae5 435-436,697,903-906,961,1028-1035,1056,1116
+  s_5f9cf006655e45::t_62c53621c150b6 707
+native/scan-cleanup/src/engine/mod.rs
+  s_5f9cf006655e45::t_ac6c929a74f7c6 1-8
+native/scan-cleanup/src/engine/render_tests.rs
+  s_5f9cf006655e45::t_7d854ed5e9bef1 17-33
+  s_5f9cf006655e45::t_516f7c00a63f86 7-16,34-36
+  s_5f9cf006655e45::t_8b7b7facebc180 5943,6896,6899-6900,6938,6941-6942
+native/scan-cleanup/src/main.rs
+  s_5f9cf006655e45::t_d36c52cfb0eb2d 1-22,24,29
+native/scan-cleanup/src/engine/render/region_rendering_tests.rs
+  s_5f9cf006655e45::t_8b7b7facebc180 47,100,156
+native/scan-cleanup/src/engine/render.rs
+  s_5f9cf006655e45::t_970b1777fe2a3d 2219-2220,2246-2247,2383-2384,2413
+  s_5f9cf006655e45::t_27d6d533634257 1702
+  s_5f9cf006655e45::t_bac54faddfb99d 554,1707
+  s_5f9cf006655e45::t_7f385366f361d7 1644
+  s_5f9cf006655e45::t_1c9ca413ea509b 73-76,78-80,1121,1127-1129,1781,1790,1793,1799,1807,1811-1832
+  s_5f9cf006655e45::t_ff497235d2e662 563-601,609,1973,1994,2012
+  s_5f9cf006655e45::t_b1820f3e997638 1651-1652,1727-1752,1765,1776,2217
+native/scan-cleanup/src/engine/render/document_analysis.rs
+  s_5f9cf006655e45::t_3b24e7462c53fb 514,520,1741,1934
+  s_5f9cf006655e45::t_f2e24b8d2133f2 7,16,20,31,69,76,316
+  s_5f9cf006655e45::t_9d1f94f87a3c5d 297,302,322-323,357,372,481,511
+  s_5f9cf006655e45::t_37e66430e6cacc 602,608,629,775,777,786,806,811,826-828,1263,1275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "feb849f1beba350c80e8787a572d722a56f3f0ec",
+  "prompts": {},
+  "sessions": {
+    "s_5f9cf006655e45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6aa-7980-a146-18c0f10d46c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
