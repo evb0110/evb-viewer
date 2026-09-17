@@ -169,12 +169,9 @@ export function isScanCleanupDocumentPersistenceTokenCurrent(
 ) {
     return token.sourceSha256Epoch === readDocumentPersistenceEpoch(
         documentPersistenceEpochKey('sha256', token.sourceSha256),
-    ) && (token.sourceSha256 !== null
-        // Legacy invalidation retires only pre-hash writes. A source-bound
-        // token has its own epoch, so source promotion can keep its new write.
-        || token.legacyDocumentKeyEpoch === readDocumentPersistenceEpoch(
-            documentPersistenceEpochKey('legacy', token.legacyDocumentKey),
-        ));
+    ) && token.legacyDocumentKeyEpoch === readDocumentPersistenceEpoch(
+        documentPersistenceEpochKey('legacy', token.legacyDocumentKey),
+    );
 }
 
 export function invalidateScanCleanupDocumentPersistence(
