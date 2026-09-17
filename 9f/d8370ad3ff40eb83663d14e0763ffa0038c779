@@ -1,0 +1,31 @@
+native/protocol-fixtures/scan-cleanup-manifest-v3-newer-to-older.json
+  s_3138f4d0221d8b::t_3562d4bd27cdc0 16-21
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_3138f4d0221d8b::t_9b3cdd8c4ba69e 1268-1269,1271-1272,1299-1300,1324-1326,1343-1344,1388-1389
+  s_3138f4d0221d8b::t_0f91d22e50544a 1469-1471,1778-1781,1783
+  s_3138f4d0221d8b::t_909c0c433b1c8a 1184-1186,1188-1191,1227-1229
+native/protocol-fixtures/scan-cleanup-manifest-v3-older-to-newer.json
+  s_3138f4d0221d8b::t_3562d4bd27cdc0 11-18
+packages/contracts/scan-cleanup/ipcRequestCodecs.ts
+  s_3138f4d0221d8b::t_ad24fabd177762 750-754,776,802
+native/scan-cleanup/src/domain/options_tests.rs
+  s_3138f4d0221d8b::t_8db948b94c1c26 149-153,241-246,303-308,510-513,517-520,527-528,530-532,557-560,571-595
+native/scan-cleanup/src/domain/options.rs
+  s_3138f4d0221d8b::t_5f24ed2aa782e2 13-24,464,468,489,491,493,496,503,505,507,515,517,520,523,528,530,538,541,543,545,547,550
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9fd8370ad3ff40eb83663d14e0763ffa0038c779",
+  "prompts": {},
+  "sessions": {
+    "s_3138f4d0221d8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ec-77e3-9fbf-3d95baf66ec8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
