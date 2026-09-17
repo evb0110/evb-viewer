@@ -337,19 +337,31 @@ fn admission_precedes_allocation_and_inflate() {
 }
 
 #[test]
-fn ordinary_decode_rejects_excessive_inflation_before_reserving() {
-    let row = vec![0; 100_000 + 1];
-    let compressed_png = make_png(100_000, 1, PngColorType::Gray8, &row, None, false);
+fn ordinary_decode_enforces_pixel_limits_without_a_compression_ratio_ceiling() {
+    let width = 1_000;
+    let height = 1_000;
+    let row = vec![0; (width + 1) * height];
+    let compressed_png = make_png(width, height, PngColorType::Gray8, &row, None, false);
     let limits = DecodeLimits {
-        max_pixels: u64::MAX,
-        max_dimension: u32::MAX,
+        max_pixels: 1_000_000,
+        max_dimension: 1_000,
         max_compressed_bytes: 1024 * 1024,
     };
 
+    let decoded = decode_png(compressed_png.as_slice(), limits).unwrap();
+    assert_eq!(
+        (decoded.gray.width(), decoded.gray.height()),
+        (width, height)
+    );
+
+    let too_few_pixels = DecodeLimits {
+        max_pixels: 999_999,
+        ..limits
+    };
     assert!(matches!(
-        decode_png(compressed_png.as_slice(), limits),
+        decode_png(compressed_png.as_slice(), too_few_pixels),
         Err(RasterError::TooLarge(message))
-            if message.contains("expansion limit")
+            if message.contains("dimensions exceed pixel guardrails")
     ));
 }
 

@@ -6,10 +6,6 @@ use scan_primitives::{BinaryImage, GrayImage, RgbImage};
 use thiserror::Error;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const METERS_PER_INCH: f64 = 0.0254;
-// A compressed IDAT stream may be highly repetitive, but a header must not
-// make the ordinary decoder reserve an arbitrarily large filtered buffer before
-// the stream has demonstrated that it contains that much data.
-const MAX_PNG_INFLATION_RATIO: usize = 256;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PassthroughLimits {
     pub max_pixels: u64,
@@ -256,7 +252,6 @@ fn decode_png_gray_ordinary(parsed: WalkedPng) -> Result<GrayImage, RasterError>
         .checked_add(1)
         .and_then(|value| value.checked_mul(header.height as usize))
         .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
-    bounded_png_buffer_len(expected, parsed.idat.len())?;
     let mut filtered = Vec::with_capacity(expected);
     ZlibDecoder::new(parsed.idat.as_slice())
         .take(expected.saturating_add(1) as u64)
@@ -350,7 +345,6 @@ impl PngPixels {
                 .checked_add(1)
                 .and_then(|value| value.checked_mul(header.height as usize))
                 .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
-            bounded_png_buffer_len(expected, parsed.idat.len())?;
             let mut filtered = Vec::with_capacity(expected);
             ZlibDecoder::new(parsed.idat.as_slice())
                 .take(expected as u64)
@@ -1355,18 +1349,6 @@ fn validate_decoded_rows(idat: &[u8], header: PngHeader) -> Result<(), RasterErr
     validate_inflated_rows(idat, expected, row_bytes, header.height as usize)
 }
 
-fn bounded_png_buffer_len(expected: usize, compressed_len: usize) -> Result<(), RasterError> {
-    let compressed_bound = compressed_len
-        .max(1)
-        .checked_mul(MAX_PNG_INFLATION_RATIO)
-        .ok_or_else(|| RasterError::too_large("PNG decompressed payload is too large"))?;
-    if expected > compressed_bound {
-        return Err(RasterError::too_large(format!(
-            "PNG decompressed payload exceeds the {MAX_PNG_INFLATION_RATIO}:1 expansion limit"
-        )));
-    }
-    Ok(())
-}
 fn skip_chunk_bytes<R: Read>(
     reader: &mut R,
     mut length: usize,
