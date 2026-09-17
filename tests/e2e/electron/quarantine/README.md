@@ -15,9 +15,7 @@ failure needs investigation.
   the harness or environment before restoring the test.
 - Keep each policy-tracked quarantine test and target current in
   `graduation-policy.json`. The `unit-policy` tests verify that each listed
-  test appears in the quarantine reporter output. Operator-only diagnostics
-  remain listed separately because they require a supplied document and are
-  not part of the quarantine lane.
+  test appears in the quarantine reporter output.
 - Every entry names its tracking issue, an expiry date, and the JSON reporter
   suite that must supply its assertions. The wrapper rejects an expired entry,
   a suite missing from the report, or a reported suite with no live policy
@@ -27,12 +25,7 @@ failure needs investigation.
   pass. The wrapper fails on failed, pending, skipped, or todo assertions, and
   on missing, empty, malformed, or internally inconsistent report counters.
 
-The scan-cleanup AppTruth and uniformity probes remain available as
-operator-only diagnostics. They require an operator-supplied PDF through their
-documented environment variables and are listed under `operatorDiagnostics`;
-they remain separate from the checked-in test inventory. The uniformity
-probe seeds the scoped user-data `scan-cleanup-settings.json` with Sauvola
-binarization, then compares the app conversion with a parity CLI conversion.
-With its source path or page count absent, it is skipped before an Electron
-session fixture is created. The AppTruth probe has the same operator-supplied
-fixture requirement.
+Operator-only scan-cleanup diagnostics are not kept in this quarantine. The
+blocking toolbar contract is the checked-in scan-cleanup acceptance path; any
+new diagnostic must have a named owner and an explicit policy entry before it
+is added here.
