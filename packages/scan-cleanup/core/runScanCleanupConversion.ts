@@ -186,6 +186,7 @@ import {
 export type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
+    IScanCleanupProvenanceInputs,
     IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/types';
 
@@ -1400,6 +1401,7 @@ async function runStreamingScanCleanupConversion({
     documentCanvas,
     options,
     requirePublishedRaster,
+    provenance,
 }: {
     request: IRunScanCleanupPipelineRequest;
     paths: IScanCleanupWorkerPaths;
@@ -1423,6 +1425,7 @@ async function runStreamingScanCleanupConversion({
     documentCanvas: TScanCleanupDocumentCanvas | null;
     options: IRunScanCleanupPipelineRequest['options'];
     requirePublishedRaster: NonNullable<IRunScanCleanupPipelineDependencies['requirePublishedRaster']>;
+    provenance: IScanCleanupProvenanceInputs;
 }) {
     if (documentPageCount <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
         throw new Error('Streaming scan cleanup requires an xlarge document');
@@ -1473,6 +1476,7 @@ async function runStreamingScanCleanupConversion({
                 outputPdfPath: batchOutputPath,
                 sourcePageNumbers: batchPageNumbers,
                 options,
+                provenance,
                 ...buildBoundedDetectionRequestFields(request, batchDetectionResults, batchPageNumbers),
             };
             const {
@@ -2320,6 +2324,23 @@ export async function runScanCleanupConversion(
             if (geometrySidecarPath === null) {
                 throw new Error('Scan cleanup streaming run has no geometry sidecar');
             }
+            const provenance = request.provenance ?? {
+                sourceSha256: await sha256ScanCleanupFile(prepared.pdfPath),
+                buildIds: await buildScanCleanupStampBuildIds({
+                    paths,
+                    assemblerBackend: request.assemblyBackend
+                        ?? paths.assemblyBackend
+                        ?? (isScanCleanupCliFallbackSentinel(paths.pdfImageCombineBinary)
+                            ? 'cli-fallback-wasm-or-img2pdf-qpdf'
+                            : 'native-pdf-image-combine'),
+                    transportMode: request.transportMode
+                        ?? paths.transportMode
+                        ?? (supportsRasterStreaming ? 'fifo-ppm' : 'file-png'),
+                    ...(dependencies.hashNativeBinary === undefined
+                        ? {}
+                        : {hashNativeBinary: dependencies.hashNativeBinary}),
+                }),
+            } satisfies IScanCleanupProvenanceInputs;
             return await runStreamingScanCleanupConversion({
                 request,
                 paths,
@@ -2345,6 +2366,7 @@ export async function runScanCleanupConversion(
                 documentCanvas,
                 options,
                 requirePublishedRaster,
+                provenance,
             });
         }
         const pagePlanResolver = createPagePlanResolver(request, log, 'final');
@@ -3271,7 +3293,7 @@ export async function runScanCleanupConversion(
             ?? (canStreamRasters && rasterHandoff.format === 'ppm'
                 ? 'fifo-ppm'
                 : rasterHandoff.format === 'ppm' ? 'file-ppm' : 'file-png');
-        const buildIds = await buildScanCleanupStampBuildIds({
+        const buildIds = request.provenance?.buildIds ?? await buildScanCleanupStampBuildIds({
             paths,
             assemblerBackend,
             transportMode,
@@ -3280,7 +3302,7 @@ export async function runScanCleanupConversion(
                 : {hashNativeBinary: dependencies.hashNativeBinary}),
         });
         const stamp = buildScanCleanupProvenanceStamp({
-            sourceSha256: await sha256ScanCleanupFile(prepared.pdfPath),
+            sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(prepared.pdfPath),
             effectiveOptions,
             outputMappings,
             pagePlanDigests,

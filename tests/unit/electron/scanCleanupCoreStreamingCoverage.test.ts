@@ -1116,6 +1116,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         let truncateBatchSummarySidecar = false;
         let didTruncateBatchSummarySidecar = false;
         let thirdRunSidecarCalls = 0;
+        const hashNativeBinary = vi.fn(async () => 'a'.repeat(64));
         const runSidecar = vi.fn(async (
             _binaryPath,
             manifestPath,
@@ -1193,7 +1194,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             runSidecar,
             runCommand,
             getAvailableScratchBytes: vi.fn(async () => null),
-            hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
+            hashNativeBinary,
         };
         const previousEvidenceDir = process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidenceDir;
@@ -1222,6 +1223,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                 inputPages: documentPageCount,
                 outputPages: documentPageCount,
             });
+            expect(hashNativeBinary).toHaveBeenCalledTimes(2);
 
             sourceDpi = {
                 documentDpi: 300,

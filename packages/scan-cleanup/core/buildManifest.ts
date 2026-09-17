@@ -1,6 +1,5 @@
 /* eslint-disable custom/file-naming -- This module is the shared build-manifest boundary. */
 
-import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import type {
     IScanCleanupWorkerPaths,
@@ -11,7 +10,7 @@ import {
     SCAN_CLEANUP_CORE_BUILD_ID,
     SCAN_CLEANUP_GIT_SHA_HEX_PATTERN,
     SCAN_CLEANUP_STAMP_SCHEMA_ID,
-    SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
+    SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,sha256ScanCleanupFile,
 } from '@evb/scan-cleanup/core/provenanceStamp';
 import type {TScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/provenanceStamp';
 import {embeddedScanCleanupBuildGitSha} from '@evb/scan-cleanup/core/buildGitSha';
@@ -91,7 +90,7 @@ async function hashBinaryOrBackendMarker(
         if (hashNativeBinary !== undefined) {
             return await hashNativeBinary(path);
         }
-        return createHash('sha256').update(await readFile(path)).digest('hex');
+        return await sha256ScanCleanupFile(path);
     } catch (error) {
         throw new Error(
             `Provenance stamp requires a readable ${role} binary at ${path}: `
