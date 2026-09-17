@@ -123,6 +123,10 @@ pub(crate) fn reconcile_classification_batch(
             .iter()
             .filter_map(|&index| {
                 let metadata = results[index];
+                // Layout analysis may use the 150 DPI working raster, but its
+                // cutter is scaled back to the rotated input plane before it
+                // reaches page metadata. `rotated_width` is that same plane,
+                // so this ratio remains comparable across pages.
                 (metadata.tier1_verdict == LayoutClassification::TwoPageSpread)
                     .then_some(metadata.cutter_x)
                     .flatten()
@@ -174,6 +178,9 @@ pub(crate) fn reconcile_classification_batch(
             stroke_width_median_px: document_stroke_width_px,
             x_height_median_px: document_x_height_px,
         };
+        if prior.validate().is_err() {
+            continue;
+        }
 
         for index in cluster {
             let metadata = results[index];
@@ -473,6 +480,43 @@ mod tests {
         assert!(!update.6);
         assert!(update.7 > 0.0);
         assert_eq!(update.8, 2);
+    }
+
+    #[test]
+    fn invalid_cluster_prior_is_dropped_before_actions_are_built() {
+        let mut candidates = vec![
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.92,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.91,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.90,
+                Some(120.0),
+                Some(0.5),
+            ),
+        ];
+        for candidate in &mut candidates {
+            candidate.rotated_width = 0;
+            candidate.rotated_height = 0;
+        }
+
+        assert!(reconcile_classification_batch(
+            &candidates,
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 2,
+            },
+        )
+        .is_empty());
     }
 }
 #[cfg(test)]
