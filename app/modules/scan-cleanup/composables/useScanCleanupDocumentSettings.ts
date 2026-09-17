@@ -172,18 +172,9 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         await flushScanCleanupPreferencesStore();
     }
 
-    const handleWindowLifecycle = () => {
-        void flushPersistence().catch(() => undefined);
-    };
-    if (typeof window !== 'undefined') {
-        window.addEventListener('pagehide', handleWindowLifecycle);
-    }
     tryOnScopeDispose(() => {
         documentLoadGeneration += 1;
         void flushPersistence().catch(() => undefined);
-        if (typeof window !== 'undefined') {
-            window.removeEventListener('pagehide', handleWindowLifecycle);
-        }
     });
     const firstRunGuidanceDismissed = toRef(preferences, 'firstRunGuidanceDismissed');
     const marginsLinked = ref(true);

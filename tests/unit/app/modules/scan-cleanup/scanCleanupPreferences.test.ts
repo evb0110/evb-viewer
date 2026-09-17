@@ -180,6 +180,35 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
     });
 
+    it('keeps migration and reset writes within the document-entry bound', () => {
+        const storage = memoryStorage();
+        const entries = Object.fromEntries(Array.from({length: 55}, (_, index) => [
+            `document-${index}`,
+            {
+                updatedAt: index,
+                overrides: index === 54 ? {'2': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplit: 320,
+                }} : {},
+                ...(index === 54 ? {rasterDimensionsByPage: {'2': {
+                    width: 1200,
+                    height: 800,
+                }}} : {}),
+            },
+        ]));
+        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify(entries));
+
+        loadScanCleanupDocumentOverrides('document-54', storage);
+        expect(Object.keys(JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}')))
+            .toHaveLength(50);
+
+        resetScanCleanupDocumentOverrides('document-54', storage);
+        expect(Object.keys(JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}')))
+            .toHaveLength(49);
+    });
+
     it('persists concrete page output-mode overrides and prunes Auto', () => {
         const storage = memoryStorage();
         saveScanCleanupDocumentOverrides('document-a', {

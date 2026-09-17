@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -5,12 +7,15 @@ import {
     vi,
 } from 'vitest';
 import {
+    createApp,
     effectScope,
+    h,
     nextTick,
     ref,
     shallowRef,
 } from 'vue';
 import type {
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
@@ -20,6 +25,8 @@ import {
     createPreviewImageSwap,
     loadPreviewImageSwap,
     queuePreviewImageSwap,
+    SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS,
+    useScanCleanupPreviewImages,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {
     expandPreviewRectByMargins,
@@ -206,6 +213,58 @@ describe('scan cleanup preview geometry', () => {
         expect(revoke).toHaveBeenCalledOnce();
         expect(revoke).toHaveBeenCalledWith('blob:old');
         expect(swap.outgoingUrl).toBe('');
+    });
+
+    it('retires a raw blob when the browser skips the transition event', async () => {
+        vi.useFakeTimers();
+        const revokeObjectURL = vi.fn();
+        let nextUrl = 0;
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => `blob:preview-${String(++nextUrl)}`),
+            revokeObjectURL,
+        });
+        const rawResult = shallowRef<IScanCleanupRawPreviewResult>({
+            pageNumber: requirePageNumber(1),
+            totalPages: 1,
+            rawImageData: new Uint8Array([1]),
+            rawWidthPx: 600,
+            rawHeightPx: 640,
+        });
+        let images: ReturnType<typeof useScanCleanupPreviewImages> | undefined;
+        const app = createApp({setup() {
+            images = useScanCleanupPreviewImages(
+                shallowRef<IScanCleanupPreviewResult | null>(null),
+                undefined,
+                rawResult,
+            );
+            return () => h('div');
+        }});
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        app.mount(host);
+        try {
+            await nextTick();
+            const mountedImages = images!;
+            const oldUrl = mountedImages.rawPixelSwap.value.currentUrl;
+            rawResult.value = {
+                ...rawResult.value,
+                rawImageData: new Uint8Array([2]),
+            };
+            await nextTick();
+            const incomingUrl = mountedImages.rawPixelSwap.value.incomingUrl;
+
+            mountedImages.loadRawPixelSwap(incomingUrl);
+            expect(mountedImages.rawPixelSwap.value.outgoingUrl).toBe(oldUrl);
+            await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS);
+
+            expect(revokeObjectURL).toHaveBeenCalledWith(oldUrl);
+            expect(mountedImages.rawPixelSwap.value.outgoingUrl).toBe('');
+        } finally {
+            app.unmount();
+            host.remove();
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
     });
 
     it('maps the half-local detected content box through the source-to-output affine', () => {

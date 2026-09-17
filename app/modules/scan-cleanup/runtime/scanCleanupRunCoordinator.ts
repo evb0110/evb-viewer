@@ -261,6 +261,12 @@ export interface IScanCleanupCoordinatorDependencies {
     toast: IScanCleanupToast;
 }
 
+interface IScanCleanupCoordinatorInstallation {
+    dependencies: IScanCleanupCoordinatorDependencies;
+    active: boolean;
+}
+
+const installations: IScanCleanupCoordinatorInstallation[] = [];
 let installed = false;
 let unsubscribe: (() => void) | null = null;
 let dependencies: IScanCleanupCoordinatorDependencies | null = null;
@@ -706,13 +712,38 @@ export async function pruneScanCleanupOutputs() {
 }
 
 export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupCoordinatorDependencies) {
+    const installation: IScanCleanupCoordinatorInstallation = {
+        dependencies: nextDependencies,
+        active: true,
+    };
+    installations.push(installation);
     dependencies = nextDependencies;
+
+    const dispose = () => {
+        if (!installation.active) {
+            return;
+        }
+        installation.active = false;
+        const index = installations.indexOf(installation);
+        if (index >= 0) installations.splice(index, 1);
+        const latest = installations.at(-1);
+        if (latest) {
+            dependencies = latest.dependencies;
+            return;
+        }
+        unsubscribe?.();
+        unsubscribe = null;
+        installed = false;
+        dependencies = null;
+        invalidateGeneratedPdfHandoff();
+    };
+
     if (installed) {
-        return () => undefined;
+        return dispose;
     }
     const capability = getScanCleanupCapability();
     if (!capability) {
-        return () => undefined;
+        return dispose;
     }
     installed = true;
     unsubscribe = capability.onJobState(acceptScanCleanupJobState);
@@ -751,11 +782,5 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
             })();
         }
     }
-    return () => {
-        unsubscribe?.();
-        unsubscribe = null;
-        installed = false;
-        dependencies = null;
-        invalidateGeneratedPdfHandoff();
-    };
+    return dispose;
 }

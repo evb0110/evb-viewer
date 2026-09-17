@@ -1270,4 +1270,47 @@ describe('scan cleanup run coordinator', () => {
             firstCleanup();
         }
     });
+
+    it('keeps the live coordinator subscription until the last installation disposes', async () => {
+        const unsubscribe = vi.fn();
+        const pruneGeneratedOutputs = vi.fn(async () => 3);
+        capability.value = {
+            onPreviewRaw: vi.fn(() => () => undefined),
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(),
+            cancel: vi.fn(),
+            getJobState: vi.fn(),
+            subscribeJob: vi.fn(),
+            reconnectJob: vi.fn(),
+            pruneGeneratedOutputs,
+            onJobState: vi.fn(() => unsubscribe),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const firstCleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        const secondCleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+
+        firstCleanup();
+        expect(unsubscribe).not.toHaveBeenCalled();
+        await expect(coordinator.pruneScanCleanupOutputs()).resolves.toBe(3);
+
+        secondCleanup();
+        expect(unsubscribe).toHaveBeenCalledOnce();
+        firstCleanup();
+    });
 });

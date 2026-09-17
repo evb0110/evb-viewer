@@ -770,7 +770,13 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
 
     watch(options.active, active => setScanCleanupWorkspaceOwnerOpen(options.ownerId, active), {immediate: true});
     watch(isScanCleanupRunning, running => {
-        if (!running && scanCleanupRun.jobState?.status === 'completed') options.onCompleted();
+        if (
+            !running
+            && scanCleanupRun.ownerId === options.ownerId
+            && scanCleanupRun.jobState?.status === 'completed'
+        ) {
+            options.onCompleted();
+        }
     });
     onBeforeUnmount(() => setScanCleanupWorkspaceOwnerOpen(options.ownerId, false));
 

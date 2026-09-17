@@ -15,6 +15,7 @@
             :src="pixelSwap.currentUrl"
             :alt="alt"
             @transitionend="$emit('complete', pixelSwap.currentUrl)"
+            @transitioncancel="$emit('complete', pixelSwap.currentUrl)"
         >
         <img
             v-if="pixelSwap.incomingUrl"

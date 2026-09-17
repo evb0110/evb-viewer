@@ -166,7 +166,7 @@ export function loadScanCleanupDocumentOverrides(
             ...(entry ?? {}),
             overrides: migration.overrides,
         };
-        storage.set(OVERRIDES_KEY, JSON.stringify(entries));
+        storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
         warnScanCleanupOverrideMigrationV1();
     }
     return migration.overrides;
@@ -368,5 +368,5 @@ export function resetScanCleanupDocumentOverrides(
     } else {
         Reflect.deleteProperty(entries, documentKey);
     }
-    storage.set(OVERRIDES_KEY, JSON.stringify(entries));
+    storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
 }
