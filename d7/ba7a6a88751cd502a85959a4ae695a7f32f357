@@ -1,0 +1,61 @@
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_8adb599a641687::t_18c551ab93b356 1243
+  s_8adb599a641687::t_ea1e2c51afba7b 1215-1242,1244
+packages/scan-cleanup/core/resolveRasterHandoff.ts
+  s_8adb599a641687::t_598741b6d4d38e 187-189
+  s_8adb599a641687::t_b58d47a8de7d93 49,149-186,190-208
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_8adb599a641687::t_d0dbc0fd78d077 17,70,110-113,443-445,476
+tests/unit/electron/resolveRasterHandoff.test.ts
+  s_8adb599a641687::t_d44e8d76cf3a82 12,290-312
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_8adb599a641687::t_e1a6577f480199 495-537
+packages/scan-cleanup/core/errors.ts
+  s_8adb599a641687::t_eb1d25f228d20e 78-79,97
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_8adb599a641687::t_a15231f7f62542 1425,1435-1437
+  s_8adb599a641687::t_14d7245ddad459 1429
+  s_8adb599a641687::t_f50c7077b29c6e 1398-1400
+  s_8adb599a641687::t_088476947e98b3 167
+  s_8adb599a641687::t_996a98cb3fac95 1401-1424,1426-1428,1430-1434,1438-1484
+  s_8adb599a641687::t_c21da7e069f435 86,162,165
+tests/unit/contracts/scanCleanupIpcResultCodecs.test.ts
+  s_8adb599a641687::t_256a4d50ca7f61 47-58
+electron/features/scan-cleanup/scanCleanupPreviewPolicy.ts
+  s_8adb599a641687::t_bb0e7eefb045b4 41-46,67-68,71-76,78-83
+  s_8adb599a641687::t_302cb63b35b0e0 7,77
+tests/unit/electron/scanCleanupService.test.ts
+  s_8adb599a641687::t_9d2e17e71381f3 39-42,223-231
+  s_8adb599a641687::t_b9488339790b59 232
+app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts
+  s_8adb599a641687::t_88caca129001fe 4,20,89,169,177,189,207,504-509,518
+packages/contracts/scan-cleanup/ipc.ts
+  s_8adb599a641687::t_e080748ccbb6df 705-706
+tests/unit/electron/workerTask.test.ts
+  s_8adb599a641687::t_51682452c5334c 280-304,306-309,313-320
+  s_8adb599a641687::t_e8b9ded4bcb2b7 305,310-312
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_8adb599a641687::t_ef367c92f6da57 1027-1029
+app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage.ts
+  s_8adb599a641687::t_be400ecc6e526c 9-13
+electron/utils/workerTask.ts
+  s_8adb599a641687::t_bb0e7eefb045b4 206-213,221
+  s_8adb599a641687::t_fad78c32016f9a 9-10,28-29,90,99
+  s_8adb599a641687::t_eb0e3f2661450c 116-138,168-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d7ba7a6a88751cd502a85959a4ae695a7f32f357",
+  "prompts": {},
+  "sessions": {
+    "s_8adb599a641687": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ea-79a2-87b4-3542db609d01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
