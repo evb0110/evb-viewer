@@ -1,0 +1,55 @@
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_5f9cf006655e45::t_6abcc2e49e07af 529-533
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_5f9cf006655e45::t_f725056c831b75 575-589,594-598
+  s_5f9cf006655e45::t_f5caf206bf84d0 110-118,170-175,260-265,269-270,305,321,659-663
+  s_5f9cf006655e45::t_36cb1d0c82fe80 973,977-979,981,1011-1014,1018
+  s_5f9cf006655e45::t_bcbe199fbd608b 590-593
+  s_5f9cf006655e45::t_2e95a1b265d4a1 785-798,839-850
+  s_5f9cf006655e45::t_43dc4f516d8416 74-83,273-276,314,320,974-976,980,982-992,1010,1015,1017,1019-1023
+  s_5f9cf006655e45::t_6abcc2e49e07af 1016
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_5f9cf006655e45::t_c17d4b7971f2a4 442,473,507,569
+  s_5f9cf006655e45::t_2a52cafbcac752 360
+  s_5f9cf006655e45::t_714ce9c6436b5c 361
+  s_5f9cf006655e45::t_a1b6244d4a5b69 217,413,533
+  s_5f9cf006655e45::t_1228b850f7bfeb 344-345,350-355
+  s_5f9cf006655e45::t_bcbe199fbd608b 346-349,362-365
+  s_5f9cf006655e45::t_b11e311add9fbe 34-51
+  s_5f9cf006655e45::t_6abcc2e49e07af 466-469
+  s_5f9cf006655e45::t_d2fc12dc754bfd 61
+electron/features/scan-cleanup/scanCleanupRasterMeasurement.ts
+  s_5f9cf006655e45::t_f5caf206bf84d0 165-193
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_5f9cf006655e45::t_2a52cafbcac752 613
+  s_5f9cf006655e45::t_43dc4f516d8416 172-175
+  s_5f9cf006655e45::t_f5caf206bf84d0 140-143,258
+  s_5f9cf006655e45::t_6abcc2e49e07af 617
+electron/bootstrap/mainProcess.ts
+  s_5f9cf006655e45::t_b11e311add9fbe 668
+electron/features/scan-cleanup/scanCleanupRasterRetentionIo.ts
+  s_5f9cf006655e45::t_8a037cee3a3ff7 34
+electron/features/scan-cleanup/scanCleanupPreviewLifecycle.ts
+  s_5f9cf006655e45::t_bcbe199fbd608b 86-89,130-133
+  s_5f9cf006655e45::t_d2fc12dc754bfd 83
+  s_5f9cf006655e45::t_6abcc2e49e07af 124
+  s_5f9cf006655e45::t_e282140bc12fea 70-71,101,107-112
+  s_5f9cf006655e45::t_ff7981e54c088b 68-69,73,94-100,102-106,113,119-121,128-129
+  s_5f9cf006655e45::t_1228b850f7bfeb 63-67,72,74-82,84-85,90-93,118,122-123,125-126,134-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "72ec0388f35b5d7aa860e6fbdbf92ebe2ec68ebc",
+  "prompts": {},
+  "sessions": {
+    "s_5f9cf006655e45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6aa-7980-a146-18c0f10d46c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
