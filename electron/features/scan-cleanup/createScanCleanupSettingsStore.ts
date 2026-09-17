@@ -386,13 +386,15 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             }
             throw error;
         }
-        let parsed: unknown;
         try {
-            parsed = JSON.parse(raw) as unknown;
-        } catch (error) {
-            if (!(error instanceof SyntaxError)) {
-                throw error;
-            }
+            const parsed = JSON.parse(raw) as unknown;
+            const state = decodeScanCleanupSettingsFile(parsed);
+            return {
+                state,
+                exists: true,
+                schemaUpgraded: scanCleanupPreferenceRecord(parsed)?.schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+            };
+        } catch {
             const quarantinePath = await quarantineCorruptFile(options.filePath);
             const state = createDefaultScanCleanupSettingsFile();
             await writeState(state);
@@ -403,11 +405,6 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                 schemaUpgraded: false,
             };
         }
-        return {
-            state: decodeScanCleanupSettingsFile(parsed),
-            exists: true,
-            schemaUpgraded: scanCleanupPreferenceRecord(parsed)?.schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
-        };
     }
 
     async function writeState(state: IScanCleanupSettingsFile) {

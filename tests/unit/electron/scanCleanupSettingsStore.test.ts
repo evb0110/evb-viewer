@@ -92,7 +92,7 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
     });
 
-    it('rejects an unsupported future schema without quarantining or overwriting it', async () => {
+    it('quarantines an unsupported future schema and replaces it with defaults', async () => {
         const filePath = await createStoreFile();
         const futureRaw = `${JSON.stringify({
             schemaVersion: 99,
@@ -106,10 +106,36 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).rejects.toThrow('Unsupported scan-cleanup settings schema version: 99');
-        expect(await readFile(filePath, 'utf8')).toBe(futureRaw);
-        expect(await readdir(join(filePath, '..'))).toEqual(['scan-cleanup-settings.json']);
-        expect(logger.warn).not.toHaveBeenCalled();
+        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
+        const directory = join(filePath, '..');
+        const quarantinedName = (await readdir(directory))
+            .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
+        expect(quarantinedName).toBeDefined();
+        await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(futureRaw);
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
+    });
+
+    it('quarantines settings whose document overrides are not an object', async () => {
+        const filePath = await createStoreFile();
+        const corruptRaw = `${JSON.stringify({
+            ...createDefaultScanCleanupSettingsFile(),
+            documentOverrides: [],
+        }, null, 2)}\n`;
+        await writeFile(filePath, corruptRaw, 'utf8');
+        const logger = {warn: vi.fn()};
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            logger,
+        });
+
+        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        const directory = join(filePath, '..');
+        const quarantinedName = (await readdir(directory))
+            .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
+        expect(quarantinedName).toBeDefined();
+        await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(corruptRaw);
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
     });
 
     it('rewrites a pre-ink settings file at the current schema with ink as its alignment', async () => {
