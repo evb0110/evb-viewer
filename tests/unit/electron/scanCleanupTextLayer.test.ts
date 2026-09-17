@@ -1,5 +1,6 @@
 import {
     buildScanCleanupTextLayerPlan,
+    buildScanCleanupTextLayerPlanFromPageSizeMap,
     resolveScanCleanupTextLayerInstruction,
 } from '@evb/scan-cleanup/core/sourceTextLayer';
 import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
@@ -369,6 +370,18 @@ describe('scan-cleanup source text layer', () => {
             skippedNonAffine: [1],
             alreadyPreserved: [2],
         });
+    });
+
+    it('builds the same plan from geometry materialized by a bounded child', () => {
+        const outputs = [output()];
+
+        expect(buildScanCleanupTextLayerPlanFromPageSizeMap(
+            outputs,
+            new Map([[
+                pageSize.pageNumber,
+                pageSize,
+            ]]),
+        )).toEqual(buildScanCleanupTextLayerPlan(outputs, [pageSize]));
     });
 
     it('rejects page geometry that is not in document order', () => {

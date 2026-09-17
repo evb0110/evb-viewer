@@ -100,7 +100,7 @@ import {
 } from '@evb/scan-cleanup/core/compactManifest';
 import {
     buildScanCleanupTextLayerPlan,
-    buildScanCleanupTextLayerPlanFromPageSizeStore,
+    buildScanCleanupTextLayerPlanFromPageSizeMap,
 } from '@evb/scan-cleanup/core/sourceTextLayer';
 import {buildScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/buildManifest';
 import {
@@ -1434,10 +1434,10 @@ async function runStreamingScanCleanupConversion({
     if (documentPageCount <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
         throw new Error('Streaming scan cleanup requires an xlarge document');
     }
-    // The native geometry sidecar has already been consumed once by the
-    // parent canvas pass. A separate sequential reader lets each bounded
-    // child advance through exactly its own range without reopening qpdf or
-    // retaining all page records in JavaScript.
+    // The native geometry sidecar was materialized during the parent canvas
+    // pass. Children share a sequential cursor and advance it through each
+    // batch; a child serves backward reads from geometry it materialized while
+    // planning that batch so no consumer reopens the sidecar from page one.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
     const boundedDpiSource = resolvePageRasterSource(dpiDetails, documentPageCount);
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
@@ -3389,11 +3389,7 @@ export async function runScanCleanupConversion(
         // any source image or paint operators. Cylindrically dewarped pages do
         // not have one PDF matrix and intentionally remain raster-only.
         const textLayerPlan = pageSizes === null
-            ? await buildScanCleanupTextLayerPlanFromPageSizeStore(
-                outputPages,
-                geometryPageSizeStore,
-                signal,
-            )
+            ? buildScanCleanupTextLayerPlanFromPageSizeMap(outputPages, pageGeometryByNumber)
             : buildScanCleanupTextLayerPlan(outputPages, pageSizes);
         if (
             textLayerPlan.pages.length > 0
