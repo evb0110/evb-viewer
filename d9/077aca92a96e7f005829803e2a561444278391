@@ -1,0 +1,23 @@
+tests/unit/electron/scanCleanupService.test.ts
+  s_08d12d38d8c771::t_3de37d7e7e4312 1045-1052
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_08d12d38d8c771::t_be60e31434da3e 227
+tests/unit/electron/ipcClient.test.ts
+  s_08d12d38d8c771::t_a62e1e232289e5 94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d9077aca92a96e7f005829803e2a561444278391",
+  "prompts": {},
+  "sessions": {
+    "s_08d12d38d8c771": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae68-e8f7-7c70-995a-c6c58460c682",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
