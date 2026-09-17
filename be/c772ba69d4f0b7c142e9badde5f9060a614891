@@ -1,0 +1,37 @@
+packages/scan-cleanup/core/policy/scanCleanupRepresentationPolicy.ts
+  s_8adb599a641687::t_8fd066dff18ed2 6-9,67
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_8adb599a641687::t_ae58dcdad1123d 127-128
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_8adb599a641687::t_fad1b6849f30c0 272-275
+  s_8adb599a641687::t_8e1386cc8a3a6d 276
+  s_8adb599a641687::t_da1184d6652d00 464-465
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_8adb599a641687::t_d7201e81fee724 27-29,129-130
+packages/scan-cleanup/core/detection.ts
+  s_8adb599a641687::t_bb65566858b6af 32,244
+packages/scan-cleanup/core/sourceDpiDetection.ts
+  s_8adb599a641687::t_213163904d090b 8,324-331,335-336,355,371,400,417,428
+packages/scan-cleanup/core/types.ts
+  s_8adb599a641687::t_37aad19be25673 142-143,185-187,193-197
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_8adb599a641687::t_677491f063db6e 71,1115-1129,1139,1151,1156,1180
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_8adb599a641687::t_8a796639e28f5f 29,151-153,157-158,167-173,254-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bec772ba69d4f0b7c142e9badde5f9060a614891",
+  "prompts": {},
+  "sessions": {
+    "s_8adb599a641687": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ea-79a2-87b4-3542db609d01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
