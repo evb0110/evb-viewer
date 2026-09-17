@@ -459,9 +459,9 @@ jobs:
     # The cargo-release-heavy canonical identity gate ran serially inside
     # Native And Build Safety and helped push that lane to 45-49 minutes
     # (issue #109's root growth). It runs as a parallel sibling, blocking
-    # through gates_ok, off the native lane's serial path. The 18-minute
-    # real-corpus suite was moved to manual maintenance after two blocking days with
-    # zero catches (the Checks rules in AGENTS.md).
+    # through gates_ok, off the native lane's serial path. The optional
+    # real-corpus suite is not invoked by this workflow, so it cannot affect
+    # this lane's blocking result.
     name: Scan Cleanup Heavy Gates
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
