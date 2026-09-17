@@ -136,7 +136,7 @@ describe('createScanCleanupRenderers', () => {
         );
     });
 
-    it('shares an in-flight geometry read without sharing caller cancellation', async () => {
+    it('shares an in-flight geometry read while keeping it alive for another caller', async () => {
         const pdfInfo = [
             'Pages:           3',
             ...Array.from({length: 3}, (_, index) => [
@@ -181,7 +181,10 @@ describe('createScanCleanupRenderers', () => {
             expect(runCommand.mock.calls.some(([command]) => command === '/bin/pdfinfo')).toBe(true);
         });
         const pdfInfoCall = runCommand.mock.calls.find(([command]) => command === '/bin/pdfinfo');
-        expect(pdfInfoCall?.[2]).not.toHaveProperty('signal');
+        const geometrySignal = pdfInfoCall?.[2]?.signal;
+        expect(geometrySignal).toBeInstanceOf(AbortSignal);
+        expect(geometrySignal).not.toBe(cancelled.signal);
+        expect(geometrySignal?.aborted).toBe(false);
         const retainedRender = renderPagePpm(
             {pdftoppmBinary: '/bin/pdftoppm'},
             vi.fn(),
@@ -194,6 +197,7 @@ describe('createScanCleanupRenderers', () => {
         );
         cancelled.abort(new Error('cancel only this caller'));
         await expect(cancelledRender).rejects.toThrow('cancel only this caller');
+        expect(geometrySignal?.aborted).toBe(false);
         geometryRead.resolve({
             exitCode: 0,
             stdout: pdfInfo,
