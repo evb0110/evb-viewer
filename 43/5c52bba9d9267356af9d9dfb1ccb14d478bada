@@ -1,0 +1,21 @@
+vitest.shared.config.ts
+  s_275fc4b35d2a08::t_df6005a92b8ff2 122
+docs/internal/reliability/large-document-audit-ledger-2026-08-27.md
+  s_275fc4b35d2a08::t_8912c51d173c23 136-141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "435c52bba9d9267356af9d9dfb1ccb14d478bada",
+  "prompts": {},
+  "sessions": {
+    "s_275fc4b35d2a08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6b4-7013-86d6-2b8f5ec6a7b1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
