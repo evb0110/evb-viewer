@@ -150,6 +150,7 @@ describe('runLosslessScanCleanup', () => {
         const sourceDpi: IScanCleanupPageRasterSource = {
             detected: true,
             documentDpi: 300,
+            compactLayeredPageCountComplete: false,
             getPageRaster: vi.fn((pageNumber: number) => ({
                 dpi: 300,
                 width: 2_550,

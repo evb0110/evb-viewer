@@ -213,7 +213,9 @@ export async function runLosslessScanCleanup(
         : dpiSource.compactLayeredPageCount ?? 0;
     const shouldCountCompactPages = sourceReportedIncompleteCompactCount
         || dpiSource.compactLayeredPageCount === undefined;
-    let compactLayeredPageCountComplete = !sourceReportedIncompleteCompactCount;
+    let compactLayeredPageCountComplete = !shouldCountCompactPages;
+    const fullDocumentRun = request.sourcePageNumbers === undefined
+        && request.sourcePageRange === undefined;
     const pagePlanResolver = createPagePlanResolver(request, log, 'lossless');
     emitProgress('rasterizing', 0, pageNumbers.length, []);
     const summary = createEmptyScanCleanupSummary(pageNumbers.length, preparedWarnings);
@@ -483,6 +485,26 @@ export async function runLosslessScanCleanup(
         } finally {
             await Promise.all(pages.map(page => rm(page.pageMetadataPath, {force: true})));
         }
+    }
+    if (
+        fullDocumentRun
+        && request.options.outputMode === 'auto'
+        && shouldCountCompactPages
+    ) {
+        // Every page in a full run has now been probed by the bounded loop, so
+        // the recount is complete even when the source metadata was partial.
+        compactLayeredPageCountComplete = true;
+    }
+    if (
+        fullDocumentRun
+        && request.options.outputMode === 'auto'
+        && !compactLayeredPageCountComplete
+    ) {
+        throw new ScanCleanupStreamingEvidenceError(
+            join(scratch, 'scan-cleanup-representation-report.json'),
+            'Automatic scan cleanup could not establish a bounded compact-source budget for the full lossless document; '
+            + 'source raster probing was incomplete, so publication was refused',
+        );
     }
     pagePlanResolver.report();
     const allOutputs = analyzedPages.flatMap(page => page.outputs.map(output => ({
@@ -863,26 +885,6 @@ export async function runLosslessScanCleanup(
         stat(preparedPdfPath),
         stat(stagedPdfPath),
     ]);
-    const fullDocumentRun = request.sourcePageNumbers === undefined
-        && request.sourcePageRange === undefined;
-    if (
-        fullDocumentRun
-        && request.options.outputMode === 'auto'
-        && !sourceReportedIncompleteCompactCount
-    ) {
-        compactLayeredPageCountComplete = true;
-    }
-    if (
-        fullDocumentRun
-        && request.options.outputMode === 'auto'
-        && !compactLayeredPageCountComplete
-    ) {
-        throw new ScanCleanupStreamingEvidenceError(
-            join(scratch, 'scan-cleanup-representation-report.json'),
-            'Automatic scan cleanup could not establish a bounded compact-source budget for the full lossless document; '
-            + 'source raster probing was incomplete, so publication was refused',
-        );
-    }
     const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
         documentPageCount: pageNumbers.length,
         options: request.options,
