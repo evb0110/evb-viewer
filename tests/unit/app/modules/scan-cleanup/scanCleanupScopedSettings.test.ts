@@ -18,7 +18,10 @@ import {
     resolveScanCleanupMixedValue,
     updateScanCleanupPageOverrides,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
-import {reactive} from 'vue';
+import {
+    reactive,
+    ref,
+} from 'vue';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {resolveScanCleanupMarginPatch} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
@@ -173,6 +176,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 1,
             previewResult: () => null,
             previewTotalPages: () => 1_000_000,
+            marginsLinked: ref(true),
             settings,
         });
 
@@ -229,6 +233,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 1,
             previewResult: () => null,
             previewTotalPages: () => 2,
+            marginsLinked: ref(true),
             settings,
         });
         const manualZones = {
@@ -315,6 +320,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 1,
             previewResult: () => null,
             previewTotalPages: () => 1,
+            marginsLinked: ref(true),
             settings,
         });
 
@@ -369,6 +375,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 2,
             previewResult: () => null,
             previewTotalPages: () => 3,
+            marginsLinked: ref(true),
             settings,
         });
 

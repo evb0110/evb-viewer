@@ -130,6 +130,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         initialPage: initialPreviewPage,
         previewResult: () => previewResult?.result.value ?? null,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
+        marginsLinked: settings.marginsLinked,
         settings: settings.values,
     });
     watch(options.active, active => {

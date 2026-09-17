@@ -137,6 +137,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             updatePageOverride: session.updatePageOverride,
             updatePlacement: session.updateSelectionPlacement,
             updateRotation: session.updateSelectionRotation,
+            updateOverrides: session.updateSelectionOverrides ?? vi.fn(),
         },
         detection: {
             authoritativeLayoutByPage: session.authoritativeLayoutByPage,
@@ -2105,24 +2106,6 @@ describe('Scan cleanup components', () => {
         const resetScopeOverrides = vi.fn((pages: Iterable<number>) => {
             updateScanCleanupPageOverrides(pageOverrides, pages, () => createScanCleanupPageOverride());
         });
-        const resetControlOverride = vi.fn((control: string, pages: Iterable<number>) => {
-            updateScanCleanupPageOverrides(pageOverrides, pages, current => {
-                if (control === 'margins') {
-                    const {
-                        marginsMm: _marginsMm,
-                        ...withoutMargins
-                    } = current;
-                    return createScanCleanupPageOverride(withoutMargins);
-                }
-                if (control === 'layout') {
-                    return createScanCleanupPageOverride({
-                        ...current,
-                        layoutOverride: 'auto',
-                    });
-                }
-                return current;
-            });
-        });
         const updateSelectionMargins = vi.fn((
             _target: string,
             value: number,
@@ -2235,7 +2218,6 @@ describe('Scan cleanup components', () => {
             setSettingsScope: (value: 'all' | 'page' | 'selected') => { settingsScope.value = value; },
             settingsScope,
             resetScopeOverrides,
-            resetControlOverride,
             settings,
             thicknessLabel: ref('0'),
             updateCurrentManualContentBox: vi.fn(),
@@ -2261,6 +2243,10 @@ describe('Scan cleanup components', () => {
             updateSelectionMargins,
             updateSelectionPlacement: vi.fn(),
             updateSelectionRotation: vi.fn(),
+            updateSelectionOverrides: (
+                pages: Iterable<number>,
+                update: (current: ReturnType<typeof createScanCleanupPageOverride>, page: number) => ReturnType<typeof createScanCleanupPageOverride>,
+            ) => updateScanCleanupPageOverrides(pageOverrides, pages, update, settings.marginsMm),
         };
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
             sourcePath: null,
@@ -2374,7 +2360,7 @@ describe('Scan cleanup components', () => {
         expect(resetMarginsButton?.getAttribute('aria-label')).toBe('Reset to document');
         resetMarginsButton?.click();
         await nextTick();
-        expect(resetControlOverride).toHaveBeenCalledWith('margins', [2]);
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2)).marginsMm).toBeUndefined();
         expect(harness.host.querySelector('[data-override-marker="margins"]')).toBeNull();
         expect(harness.host.querySelector('[data-reset-override="margins"]')).toBeNull();
         expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')?.value).toBe('5');
