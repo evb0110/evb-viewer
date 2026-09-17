@@ -141,6 +141,7 @@ export interface INativeScanCleanupDewarpModelV3 {
 }
 
 export interface INativeScanCleanupOutputMetadataV3 {
+    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     sourcePageIndex?: number;
     half?: TScanCleanupOutputHalf;
     sourceRegion?: IScanCleanupPixelRect;
@@ -476,6 +477,7 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 export interface INativeScanCleanupPageMetadataV3 {
+    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     sourcePageIndex?: number;
     layoutClassification: TScanCleanupLayoutClassification;
     layoutConfidence?: number;

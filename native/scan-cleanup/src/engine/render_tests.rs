@@ -38,6 +38,7 @@ mod tests {
             mixed_layers: None,
             effectively_blank: true,
             metadata: CleanupMetadata {
+                version: crate::protocol::manifest_v3::VERSION,
                 source_page_index: 4,
                 half: PageHalf::Right,
                 detected_skew_degrees: 1.5,

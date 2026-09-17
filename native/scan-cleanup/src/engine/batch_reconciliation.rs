@@ -536,6 +536,7 @@ mod moved_tests {
             points: vec![Point::new(120.0, 0.0), Point::new(121.0, 200.0)],
         };
         let metadata = || PageResultMetadata {
+            version: crate::protocol::manifest_v3::VERSION,
             source_page_index: 3,
             layout_classification: LayoutClassification::TwoPageSpread,
             layout_confidence: 0.92,
@@ -692,6 +693,7 @@ mod moved_tests {
         let result = |index: usize, verdict, confidence: f64, timings| PageRunResult {
             outputs: Vec::new(),
             metadata: PageResultMetadata {
+                version: crate::protocol::manifest_v3::VERSION,
                 source_page_index: index,
                 layout_classification: verdict,
                 layout_confidence: confidence,
@@ -861,6 +863,7 @@ mod moved_tests {
                 .collect(),
         };
         let metadata = |index, verdict, confidence| PageResultMetadata {
+            version: crate::protocol::manifest_v3::VERSION,
             source_page_index: index,
             layout_classification: verdict,
             layout_confidence: confidence,

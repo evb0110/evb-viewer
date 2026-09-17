@@ -220,6 +220,7 @@ pub(crate) fn quantize_decimal(value: f64, decimals: u32) -> i64 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupMetadata {
+    pub version: u32,
     pub source_page_index: usize,
     pub half: PageHalf,
     pub detected_skew_degrees: f64,

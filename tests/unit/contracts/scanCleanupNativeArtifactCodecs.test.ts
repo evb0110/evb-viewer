@@ -11,6 +11,7 @@ import {
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     MAX_SCAN_CLEANUP_WARNING_EVENTS,
+    SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENT_CODES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -43,6 +44,7 @@ const legacyProtocolV3Page = readFileSync(
 
 function pageMetadata() {
     return {
+        version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         sourcePageIndex: 0,
         layoutClassification: 'single-uncut-page',
         layoutConfidence: 0.9,
@@ -69,6 +71,7 @@ function pageMetadata() {
 
 function outputMetadata() {
     return {
+        version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         sourcePageIndex: 0,
         half: 'full',
         layoutClassification: 'single-uncut-page',
@@ -283,6 +286,10 @@ describe('scan-cleanup native artifact codecs', () => {
     it('rejects malformed JSON and unsupported artifact versions as native failures', () => {
         for (const decode of [
             () => decodeNativeScanCleanupPageMetadataJson('{'),
+            () => decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                version: 4,
+            }),
             () => decodeNativeScanCleanupOutputMetadataJson(JSON.stringify({
                 ...outputMetadata(),
                 version: 4,

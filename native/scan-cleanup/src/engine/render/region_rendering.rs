@@ -663,6 +663,7 @@ fn assemble_region_result(
         mixed_layers,
         effectively_blank,
         metadata: CleanupMetadata {
+            version: crate::protocol::manifest_v3::VERSION,
             source_page_index,
             half,
             detected_skew_degrees: deskew.angle_degrees,

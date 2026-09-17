@@ -30,6 +30,7 @@ use std::{
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PageResultMetadata {
+    pub(crate) version: u32,
     pub(crate) source_page_index: usize,
     pub(crate) layout_classification: LayoutClassification,
     pub(crate) layout_confidence: f64,
@@ -499,6 +500,7 @@ pub(crate) fn run_page(
         return Err(invalid("OCR mode changed output dimensions").into());
     }
     let page_metadata = PageResultMetadata {
+        version: crate::protocol::manifest_v3::VERSION,
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.layout_confidence,
@@ -986,6 +988,7 @@ pub(crate) fn run_classification(
     )
     .map_err(map_analysis_error)?;
     let page_metadata = PageResultMetadata {
+        version: crate::protocol::manifest_v3::VERSION,
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.confidence,

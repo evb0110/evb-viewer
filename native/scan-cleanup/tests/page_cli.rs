@@ -546,6 +546,7 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         .all(|event| event["progress"]["recommendedOutputMode"].is_null()));
     for page_metadata in [&bw_page_metadata, &gray_page_metadata] {
         let page: Value = serde_json::from_slice(&fs::read(page_metadata).unwrap()).unwrap();
+        assert_eq!(page["version"], 3);
         assert!(page["recommendedOutputMode"].is_null());
     }
     assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
@@ -557,6 +558,10 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         serde_json::from_slice::<Value>(&fs::read(&bw_metadata).unwrap()).unwrap()
             ["bilevelWritten"],
         true
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&bw_metadata).unwrap()).unwrap()["version"],
+        3
     );
     assert!(gray_output.exists());
     assert!(!gray_pbm.exists());
