@@ -1248,8 +1248,8 @@ watch(isRunning, running => {
 .scan-cleanup-option-group h3 {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
-    font-weight: 700;
-    letter-spacing: 0.06em;
+    font-weight: var(--app-font-weight-bold);
+    letter-spacing: var(--app-letter-spacing-caps);
     text-transform: uppercase;
 }
 
