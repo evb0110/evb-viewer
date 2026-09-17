@@ -1,0 +1,73 @@
+tests/unit/electron/scanCleanupResultStore.test.ts
+  s_8adb599a641687::t_5076ff9c3e43d0 250-253,255-258
+  s_8adb599a641687::t_655587d3a2a661 241-249,254,259-261
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_8adb599a641687::t_d1d25a2dffa032 52-55
+  s_8adb599a641687::t_b1fcc6f3f236a4 23,61,66
+  s_8adb599a641687::t_5076ff9c3e43d0 56-60
+electron/utils/workerTask.ts
+  s_8adb599a641687::t_3f806cac34fdd5 245,248
+  s_8adb599a641687::t_320682c45807ed 241-244
+tests/unit/electron/workerTask.test.ts
+  s_8adb599a641687::t_320682c45807ed 956-957,965-989
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_8adb599a641687::t_655587d3a2a661 529-531,533
+  s_8adb599a641687::t_52fddcf82d91be 532
+app/modules/scan-cleanup/runtime/formatScanCleanupProgress.ts
+  s_8adb599a641687::t_b1fcc6f3f236a4 47
+packages/scan-cleanup/core/fileBackedResultStore.ts
+  s_8adb599a641687::t_655587d3a2a661 204-206
+packages/scan-cleanup/core/assertScanCleanupPathWithinRoot.ts
+  s_8adb599a641687::t_1cbe53f2c42a0a 34-39,51-59
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_8adb599a641687::t_be0ba5a2ac5eb5 413,423,433,436,493-494,496-497,501,512,522,549,558-566,584
+  s_8adb599a641687::t_abadeba683ef39 508-511,575-580,1162
+  s_8adb599a641687::t_0021b0dbb577af 1153,1160-1161,1163-1168,1170-1171,1178,1194-1198
+tests/unit/app/modules/scan-cleanup/scanCleanupPageEta.test.ts
+  s_8adb599a641687::t_b1fcc6f3f236a4 49
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_8adb599a641687::t_6ded2cccbe20ea 255,257
+  s_8adb599a641687::t_655587d3a2a661 151-152,157,166-171,253-254,256
+tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts
+  s_8adb599a641687::t_5076ff9c3e43d0 1144-1147
+  s_8adb599a641687::t_4c1ea75e260920 38
+  s_8adb599a641687::t_db46e4bfa8b27c 30,55
+  s_8adb599a641687::t_1cbe53f2c42a0a 37,39-41,1097,1132-1143,1148-1155
+tests/unit/electron/scanCleanupDocumentCanvas.test.ts
+  s_8adb599a641687::t_d1d25a2dffa032 1612
+  s_8adb599a641687::t_f62afbf9abfab5 1565
+  s_8adb599a641687::t_5076ff9c3e43d0 1574-1577,1585-1588,1591-1594,1599-1602
+  s_8adb599a641687::t_45352760b965b2 25,39
+  s_8adb599a641687::t_453d6017d973ea 1542-1564,1566-1573,1578-1584,1589-1590,1595-1598,1603-1611,1613-1635
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_8adb599a641687::t_73071b4f8e8874 4874-4876
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_8adb599a641687::t_be0ba5a2ac5eb5 1918,1973,1978-1980
+  s_8adb599a641687::t_0021b0dbb577af 247-253,1463,2403-2405
+  s_8adb599a641687::t_78b8acf9788659 268,316
+packages/scan-cleanup/core/createStagedRasterWindow.ts
+  s_8adb599a641687::t_6383aecdd588d1 294-296
+  s_8adb599a641687::t_c83dc83f958288 291,293
+tests/unit/electron/scanCleanupStagedRasterWindow.test.ts
+  s_8adb599a641687::t_6383aecdd588d1 121-150
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_8adb599a641687::t_db46e4bfa8b27c 343,508-520
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_8adb599a641687::t_78b8acf9788659 467-469
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9fbfef327373030d59236be1ea15a919299272d0",
+  "prompts": {},
+  "sessions": {
+    "s_8adb599a641687": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ea-79a2-87b4-3542db609d01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
