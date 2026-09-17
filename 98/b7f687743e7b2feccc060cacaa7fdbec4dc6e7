@@ -1,0 +1,27 @@
+electron/features/scan-cleanup/detectionResultStoreDescriptor.ts
+  s_40f60a7925c9a4::t_51ed2cff5d09d1 48-54,68-69,123-124,128-130
+  s_40f60a7925c9a4::t_055814fbc75665 55-67
+tests/unit/electron/scanCleanupDetectionResultStoreDescriptor.test.ts
+  s_40f60a7925c9a4::t_b2c6edcd8ba2d0 29,103-125,127-147
+  s_40f60a7925c9a4::t_bda252bf5f0d73 31-32
+  s_40f60a7925c9a4::t_30d7fc674bc707 30,33,40
+  s_40f60a7925c9a4::t_b5d86553fefd1c 34-39,41
+  s_40f60a7925c9a4::t_078b9a9e4c1414 126
+  s_40f60a7925c9a4::t_51ed2cff5d09d1 3,77,89,95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "98b7f687743e7b2feccc060cacaa7fdbec4dc6e7",
+  "prompts": {},
+  "sessions": {
+    "s_40f60a7925c9a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeaa-f29d-72a1-9da7-1a0ca3b39a38",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
