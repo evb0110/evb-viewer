@@ -1,0 +1,48 @@
+packages/i18n-app/messages/en.ts
+  s_5f9cf006655e45::t_daf5ffe86f0464 869-870
+packages/i18n-app/messages/fr.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_5f9cf006655e45::t_593c406d7f6d14 3244,3283,3291-3323
+app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts
+  s_5f9cf006655e45::t_f19f5d94dadea9 27-35,138,158-161,206,214,228-231,236-237,275,331,337-340,357-361,363-373
+  s_5f9cf006655e45::t_eb165f5b946cb5 362
+packages/i18n-app/messages/ru.ts
+  s_5f9cf006655e45::t_daf5ffe86f0464 881-882
+packages/i18n-app/messages/ptBr.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+packages/i18n-app/messages/nl.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+packages/i18n-app/messages/es.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_5f9cf006655e45::t_daf5ffe86f0464 267
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_5f9cf006655e45::t_daf5ffe86f0464 72,712
+packages/i18n-app/messages/pt.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_5f9cf006655e45::t_d19f52ddcaf85f 72
+  s_5f9cf006655e45::t_410d9eb7e3a44c 27,86
+  s_5f9cf006655e45::t_daf5ffe86f0464 28,31-32,272,274-285,287-298
+packages/i18n-app/messages/de.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+packages/i18n-app/messages/it.ts
+  s_5f9cf006655e45::t_eb165f5b946cb5 420-421
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a3cb87e138ba27c1391a4a3dd5419ff38a55a34f",
+  "prompts": {},
+  "sessions": {
+    "s_5f9cf006655e45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6aa-7980-a146-18c0f10d46c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
