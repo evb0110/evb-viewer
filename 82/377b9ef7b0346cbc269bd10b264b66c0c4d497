@@ -1,0 +1,19 @@
+tests/unit/scripts/electronRunHeadlessStartdInterrupt.test.ts
+  s_08d12d38d8c771::t_666f0e5d99d2cb 216-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "82377b9ef7b0346cbc269bd10b264b66c0c4d497",
+  "prompts": {},
+  "sessions": {
+    "s_08d12d38d8c771": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae68-e8f7-7c70-995a-c6c58460c682",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
