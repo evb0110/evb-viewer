@@ -316,9 +316,20 @@ async function streamScanCleanupSidecar(
     let childClosed = false;
     let runDeferredRecovery: (() => void) | null = null;
     let sidecarRegistration: IScanCleanupSidecarRegistration | null = null;
+    let sidecarUnregistration: Promise<void> | null = null;
+    const unregisterSidecar = () => {
+        if (sidecarRegistration === null) {
+            return Promise.resolve();
+        }
+        sidecarUnregistration ??= sidecarRegistration.unregister().catch(error => {
+            log('warn', `Could not remove scan-cleanup sidecar pid record: ${String(error)}`);
+        });
+        return sidecarUnregistration;
+    };
     child.once('close', () => {
         childClosed = true;
         runDeferredRecovery?.();
+        void unregisterSidecar();
     });
     if (options.sidecarRegistryRoot !== undefined && child.pid !== undefined) {
         try {
@@ -327,6 +338,9 @@ async function streamScanCleanupSidecar(
                 binaryPath,
                 manifestPath,
             });
+            if (childClosed) {
+                await unregisterSidecar();
+            }
         } catch (error) {
             log('warn', `Could not record scan-cleanup sidecar pid ${String(child.pid)}: ${String(error)}`);
         }
@@ -590,9 +604,11 @@ async function streamScanCleanupSidecar(
         if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         signal.removeEventListener('abort', handleAbort);
         protocol.lines.close();
-        await sidecarRegistration?.unregister().catch(error => {
-            log('warn', `Could not remove scan-cleanup sidecar pid record: ${String(error)}`);
-        });
+        if (childClosed) {
+            await unregisterSidecar();
+        } else if (sidecarRegistration !== null) {
+            log('warn', `Retaining scan-cleanup sidecar pid record until close is observed: ${String(child.pid)}`);
+        }
         const stageTotalsMs: TScanCleanupStageTotalsMs = {
             decode: 0,
             analysisLevel: 0,
