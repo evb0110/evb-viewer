@@ -9,6 +9,7 @@ pub(crate) struct DetailPageInput<'a> {
     pub source_page_index: usize,
     pub plan: &'a DetailRenderPlan,
     pub base_metadata: &'a CleanupMetadata,
+    pub cancellation: Option<&'a AtomicBool>,
     pub timings: &'a mut PageStageTimings,
 }
 
@@ -21,6 +22,7 @@ pub(crate) fn render_detail_page(
         source_page_index,
         plan,
         base_metadata,
+        cancellation,
         timings,
     } = input;
     let DetailRenderSources {
@@ -153,6 +155,9 @@ pub(crate) fn render_detail_page(
     // the ordinary pipeline and then a second time after geometry replay.
     tile_options.resolved_text_tone_diagnostics = Default::default();
     tile_options.skip_blank_pages = false;
+    let render_policy = cancellation.map_or(PageRenderPolicy::DETAIL_TILE, |flag| {
+        PageRenderPolicy::DETAIL_TILE.with_cancellation(flag)
+    });
     let mut processed = clean_page_with_color_and_calibration_config(
         &mapped_gray,
         mapped_color.as_ref(),
@@ -164,7 +169,7 @@ pub(crate) fn render_detail_page(
         CalibrationConfig::default(),
         None,
         None,
-        PageRenderPolicy::DETAIL_TILE,
+        render_policy,
         timings,
     )?;
     let mut output = processed
@@ -251,7 +256,7 @@ pub(crate) fn render_detail_page(
     })
 }
 
-pub(crate) struct PageRenderInput<'a, 'b> {
+pub(crate) struct PageRenderInput<'a, 'b, 'p> {
     pub source: &'a GrayImage,
     pub color_source: Option<&'a RgbImage>,
     pub canonical_analysis: Option<CanonicalAnalysisPlane<'b>>,
@@ -262,12 +267,12 @@ pub(crate) struct PageRenderInput<'a, 'b> {
     pub calibration_config: CalibrationConfig,
     pub document_prior: Option<DocumentPrior>,
     pub cache: Option<&'a PageCache>,
-    pub render_policy: PageRenderPolicy,
+    pub render_policy: PageRenderPolicy<'p>,
     pub timings: &'a mut PageStageTimings,
 }
 
 pub(crate) fn render_page(
-    input: PageRenderInput<'_, '_>,
+    input: PageRenderInput<'_, '_, '_>,
 ) -> Result<PageCleanupResult, super::AnalysisError> {
     let PageRenderInput {
         source,
@@ -283,6 +288,7 @@ pub(crate) fn render_page(
         render_policy,
         timings,
     } = input;
+    render_policy.check_canceled()?;
     options.validate()?;
     if options.excluded {
         return Ok(PageCleanupResult {
@@ -315,7 +321,8 @@ pub(crate) fn render_page(
         cache,
         render_policy,
         timings,
-    );
+    )?;
+    render_policy.check_canceled()?;
     let auto_resolved_color = options.output_mode == OutputMode::Auto
         && prepared.resolved_output_mode == OutputMode::Color;
     let mut resolved_options;
@@ -511,10 +518,12 @@ pub(crate) fn render_page(
                 source_effectively_blank,
                 create_mixed_layers: render_policy.create_mixed_layers,
                 create_mixed_composite: render_policy.create_mixed_composite,
+                render_policy,
                 timings,
             })
             .map(map_region_semantic_output)?,
         );
+        render_policy.check_canceled()?;
     }
     let before_blank_filter = outputs.len();
     if options.skip_blank_pages && options.render_crop.is_none() {
@@ -1651,7 +1660,7 @@ fn detect_region_content(
     Ok(detected)
 }
 
-pub(crate) struct Input<'a> {
+pub(crate) struct Input<'a, 'p> {
     pub source: &'a GrayImage,
     pub routing_source: &'a GrayImage,
     pub normalized: &'a GrayImage,
@@ -1686,6 +1695,7 @@ pub(crate) struct Input<'a> {
     pub source_effectively_blank: bool,
     pub create_mixed_layers: bool,
     pub create_mixed_composite: bool,
+    pub render_policy: PageRenderPolicy<'p>,
     pub timings: &'a mut PageStageTimings,
 }
 
@@ -3358,7 +3368,7 @@ pub(crate) struct RegionSemanticOutput {
     pub(crate) metadata: CleanupMetadata,
 }
 
-pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::AnalysisError> {
+pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::AnalysisError> {
     let Input {
         source,
         routing_source,
@@ -3394,8 +3404,10 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         source_effectively_blank,
         create_mixed_layers,
         create_mixed_composite,
+        render_policy,
         timings,
     } = input;
+    render_policy.check_canceled()?;
     let working_width = region.width.round().max(1.0) as usize;
     let working_height = region.height.round().max(1.0) as usize;
     let region_preparation = region_preparation::prepare(region_preparation::Input {
@@ -3412,6 +3424,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         working_width,
         working_height,
     });
+    render_policy.check_canceled()?;
     let region_preparation::Output {
         analysis_working,
         analysis_picture_working,
@@ -3450,6 +3463,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         split_cache_key,
         timings,
     })?;
+    render_policy.check_canceled()?;
     let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
     let content_picture_mask = dewarped_picture_mask
         .as_ref()
@@ -3480,6 +3494,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         half,
         timings,
     })?;
+    render_policy.check_canceled()?;
     let RenderGeometryOutput {
         content,
         source_content_box,
@@ -3503,6 +3518,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         local_deskew_inverse,
         dewarp_model: dewarp_model.clone(),
     })?;
+    render_policy.check_canceled()?;
 
     let render_started = Instant::now();
     let RasterPlaneOutput {
@@ -3536,6 +3552,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         dewarp_model,
         timings,
     })?;
+    render_policy.check_canceled()?;
     let MaskPreparationOutput {
         rendered_picture_mask,
         rendered_chroma_picture_mask,
@@ -3560,8 +3577,9 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         text_line_count: text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
         timings,
     });
+    render_policy.check_canceled()?;
     let content_present = content.content.is_some();
-    process_region_output(OutputProcessingInput {
+    let output = process_region_output(OutputProcessingInput {
         rendered_gray,
         rendered_source_gray,
         rendered_color,
@@ -3609,7 +3627,9 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         force_clean_blank: source_effectively_blank,
         normalized_width: normalized.width(),
         normalized_height: normalized.height(),
-    })
+    });
+    render_policy.check_canceled()?;
+    output
 }
 
 #[cfg(test)]

@@ -119,6 +119,7 @@ pub(crate) fn run_one_staged_page_job<T, F>(
     manifest: &ManifestV3,
     index: usize,
     stream_input: bool,
+    is_canceled: &AtomicBool,
     task: F,
 ) -> Result<T, Box<dyn Error>>
 where
@@ -132,11 +133,12 @@ where
             stream_input,
         )],
     };
-    let mut results = crate::engine::staged_input::run_stream_page_jobs(&batch, |(_, staged)| {
-        let original = planning_page(&manifest.pages[index]);
-        let descriptor = planning_page_from_staged(&original, staged);
-        task((index, &descriptor))
-    })?;
+    let mut results =
+        crate::engine::staged_input::run_stream_page_jobs(&batch, is_canceled, |(_, staged)| {
+            let original = planning_page(&manifest.pages[index]);
+            let descriptor = planning_page_from_staged(&original, staged);
+            task((index, &descriptor))
+        })?;
     results.pop().ok_or_else(|| {
         NativeError::new(
             NativeErrorCode::NativeFailure,
@@ -202,13 +204,17 @@ impl PlanningManifest for ManifestV3 {
         planning_page(&self.pages[index])
     }
 
-    fn run_stream_page_jobs<T, F>(&self, task: F) -> Result<Vec<T>, Box<dyn Error>>
+    fn run_stream_page_jobs<T, F>(
+        &self,
+        is_canceled: &AtomicBool,
+        task: F,
+    ) -> Result<Vec<T>, Box<dyn Error>>
     where
         T: Send,
         F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
     {
         let batch = staged_input_batch(self);
-        crate::engine::staged_input::run_stream_page_jobs(&batch, |(index, staged)| {
+        crate::engine::staged_input::run_stream_page_jobs(&batch, is_canceled, |(index, staged)| {
             let original = planning_page(&self.pages[index]);
             let descriptor = planning_page_from_staged(&original, staged);
             task((index, &descriptor))
@@ -455,6 +461,9 @@ pub(crate) fn materialize_stream_page(
     })();
     if let Err(error) = copy_result {
         let _ = fs::remove_file(&temporary_input);
+        if matches!(error, BoundedIoError::Canceled) {
+            return Err(crate::engine::cancellation_error());
+        }
         let code = match &error {
             #[cfg(unix)]
             BoundedIoError::ConnectTimeout => NativeErrorCode::Timeout,
@@ -512,7 +521,11 @@ pub(crate) fn staged_input_is_ready(path: &Path, page_number: usize) -> Result<b
 pub(crate) fn acquire_staged_page_input(
     lease: &StagedLeaseDescriptor,
     announce: LeaseAnnouncer<'_>,
+    is_canceled: &AtomicBool,
 ) -> Result<(), NativeError> {
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error());
+    }
     if !lease.enabled {
         return Ok(());
     }
@@ -522,6 +535,7 @@ pub(crate) fn acquire_staged_page_input(
         lease.page_number,
         STAGED_INPUT_WAIT_TIMEOUT,
         STAGED_INPUT_POLL_INTERVAL,
+        is_canceled,
     )
 }
 
@@ -536,9 +550,13 @@ pub(crate) fn wait_for_staged_page_input(
     page_number: usize,
     timeout: Duration,
     poll_interval: Duration,
+    is_canceled: &AtomicBool,
 ) -> Result<(), NativeError> {
     let deadline = Instant::now() + timeout;
     loop {
+        if is_canceled.load(Ordering::Acquire) {
+            return Err(crate::engine::cancellation_error());
+        }
         if staged_input_is_ready(path, page_number)? {
             return Ok(());
         }
@@ -571,9 +589,10 @@ pub(crate) fn release_staged_page_input(
 pub(crate) fn with_announced_staged_page_input<T>(
     lease: &StagedLeaseDescriptor,
     announce: LeaseAnnouncer<'_>,
+    is_canceled: &AtomicBool,
     read: impl FnOnce() -> Result<T, NativeError>,
 ) -> Result<T, NativeError> {
-    acquire_staged_page_input(lease, announce)?;
+    acquire_staged_page_input(lease, announce, is_canceled)?;
     let outcome = read();
     // The lease is released even when the read failed: the owning process must
     // be able to reclaim that scratch raster before it rolls the run back.
@@ -583,6 +602,7 @@ pub(crate) fn with_announced_staged_page_input<T>(
 
 pub(crate) fn run_stream_page_jobs<T, F>(
     batch: &StagedInputBatch,
+    is_canceled: &AtomicBool,
     task: F,
 ) -> Result<Vec<T>, Box<dyn Error>>
 where
@@ -601,8 +621,12 @@ where
             let reader_canceled = Arc::clone(&canceled);
             scope.spawn(move || {
                 for (index, page) in batch.pages.iter().enumerate() {
+                    if is_canceled.load(Ordering::Acquire) {
+                        break;
+                    }
                     let materialized = materialize_stream_page(index, page, || {
-                        reader_canceled.load(Ordering::Acquire)
+                        is_canceled.load(Ordering::Acquire)
+                            || reader_canceled.load(Ordering::Acquire)
                     });
                     let failed = materialized.is_err();
                     if sender.send(materialized).is_err() || failed {
@@ -621,6 +645,12 @@ where
             let mut results = Vec::with_capacity(batch.pages.len());
             let mut first_error = None;
             for (index, materialized) in receiver.into_iter().enumerate() {
+                if is_canceled.load(Ordering::Acquire) {
+                    canceled.store(true, Ordering::Release);
+                    first_error = Some(crate::engine::cancellation_error());
+                    let _ = acknowledge.send(false);
+                    break;
+                }
                 match materialized {
                     Ok(materialized) if first_error.is_none() => {
                         match task((index, &materialized.page)) {
@@ -652,6 +682,9 @@ where
             }
             match first_error {
                 Some(error) => Err(error.into()),
+                None if is_canceled.load(Ordering::Acquire) => {
+                    Err(crate::engine::cancellation_error().into())
+                }
                 None if results.len() == batch.pages.len() => Ok(results),
                 None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
             }
@@ -671,11 +704,11 @@ where
         let reader_canceled = Arc::clone(&canceled);
         scope.spawn(move || {
             for (index, page) in batch.pages.iter().enumerate() {
-                if reader_canceled.load(Ordering::Acquire) {
+                if is_canceled.load(Ordering::Acquire) || reader_canceled.load(Ordering::Acquire) {
                     break;
                 }
                 let materialized = materialize_stream_page(index, page, || {
-                    reader_canceled.load(Ordering::Acquire)
+                    is_canceled.load(Ordering::Acquire) || reader_canceled.load(Ordering::Acquire)
                 });
                 let failed = materialized.is_err();
                 if sender.send(materialized).is_err() || failed {
@@ -687,6 +720,11 @@ where
         let mut results = Vec::with_capacity(batch.pages.len());
         let mut first_error = None;
         for (index, materialized) in receiver.into_iter().enumerate() {
+            if is_canceled.load(Ordering::Acquire) {
+                canceled.store(true, Ordering::Release);
+                first_error = Some(crate::engine::cancellation_error());
+                break;
+            }
             match materialized {
                 Ok(materialized) => match task((index, &materialized.page)) {
                     Ok(result) => results.push(result),
@@ -705,6 +743,9 @@ where
         }
         match first_error {
             Some(error) => Err(error.into()),
+            None if is_canceled.load(Ordering::Acquire) => {
+                Err(crate::engine::cancellation_error().into())
+            }
             None if results.len() == batch.pages.len() => Ok(results),
             None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
         }
@@ -718,7 +759,10 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
-        sync::{atomic::AtomicUsize, Mutex},
+        sync::{
+            atomic::{AtomicBool, AtomicUsize},
+            Mutex,
+        },
         thread,
         time::Duration,
     };
@@ -801,7 +845,7 @@ mod tests {
             }
         });
 
-        let processed = run_stream_page_jobs(&batch, |(index, page)| {
+        let processed = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, page)| {
             let metadata = fs::metadata(&page.input_path).unwrap();
             assert!(metadata.is_file(), "the task must never reopen a FIFO");
             let bytes = fs::read(&page.input_path).unwrap();
@@ -879,7 +923,7 @@ mod tests {
                 .count()
         };
 
-        let processed = run_stream_page_jobs(&batch, |(index, page)| {
+        let processed = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, page)| {
             if index == 0 {
                 let producer_signaled = producer_signaled.lock().unwrap();
                 for _ in 0..batch.raster_window {
@@ -942,9 +986,12 @@ mod tests {
             Ok(())
         };
         for _ in 0..2 {
-            let bytes = with_announced_staged_page_input(&lease, &announce, || {
-                Ok(fs::read(&input_path).unwrap())
-            })
+            let bytes = with_announced_staged_page_input(
+                &lease,
+                &announce,
+                &AtomicBool::new(false),
+                || Ok(fs::read(&input_path).unwrap()),
+            )
             .unwrap();
             assert_eq!(bytes, b"deterministic");
         }
@@ -969,10 +1016,11 @@ mod tests {
             leases.lock().unwrap().push(stage);
             Ok(())
         };
-        let error = with_announced_staged_page_input(&lease, &announce, || {
-            Err::<(), _>(NativeError::new(NativeErrorCode::Io, "page failed"))
-        })
-        .unwrap_err();
+        let error =
+            with_announced_staged_page_input(&lease, &announce, &AtomicBool::new(false), || {
+                Err::<(), _>(NativeError::new(NativeErrorCode::Io, "page failed"))
+            })
+            .unwrap_err();
         assert_eq!(error.to_string(), "page failed");
         assert_eq!(
             leases.into_inner().unwrap(),
@@ -996,7 +1044,8 @@ mod tests {
             announced.fetch_add(1, Ordering::AcqRel);
             Ok(())
         };
-        with_announced_staged_page_input(&lease, &announce, || Ok(())).unwrap();
+        with_announced_staged_page_input(&lease, &announce, &AtomicBool::new(false), || Ok(()))
+            .unwrap();
         assert_eq!(announced.load(Ordering::Acquire), 0);
         let _ = fs::remove_dir_all(dir);
     }
@@ -1014,12 +1063,36 @@ mod tests {
             7,
             Duration::from_millis(40),
             Duration::from_millis(5),
+            &AtomicBool::new(false),
         )
         .unwrap_err();
         assert!(
             error.to_string().contains("page 7 input was not published"),
             "{error}"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cancellation_stops_a_staged_input_wait_before_its_timeout() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-staged-cancel-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let canceled = AtomicBool::new(true);
+        let error = wait_for_staged_page_input(
+            &dir.join("absent.png"),
+            7,
+            Duration::from_secs(15 * 60),
+            Duration::from_millis(5),
+            &canceled,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, NativeErrorCode::Io);
+        assert_eq!(error.message, crate::engine::CANCELLATION_MESSAGE);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -1037,8 +1110,14 @@ mod tests {
             thread::sleep(Duration::from_millis(60));
             fs::write(&producer_path, b"late").unwrap();
         });
-        wait_for_staged_page_input(&path, 1, Duration::from_secs(30), Duration::from_millis(5))
-            .unwrap();
+        wait_for_staged_page_input(
+            &path,
+            1,
+            Duration::from_secs(30),
+            Duration::from_millis(5),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
         producer.join().unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"late");
         let _ = fs::remove_dir_all(dir);
@@ -1113,7 +1192,7 @@ mod tests {
         let first_fifo = fifo_paths[0].clone();
         let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
 
-        let error = run_stream_page_jobs(&batch, |(index, _)| {
+        let error = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, _)| {
             Err::<(), _>(NativeError::new(
                 NativeErrorCode::NativeFailure,
                 format!("page {} failed", index + 1),
@@ -1169,7 +1248,7 @@ mod tests {
         let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
         let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
         let run = std::thread::spawn(move || {
-            let result = run_stream_page_jobs(&batch, |(index, _)| {
+            let result = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, _)| {
                 Err::<(), _>(NativeError::new(
                     NativeErrorCode::NativeFailure,
                     format!("page {} failed", index + 1),
@@ -1649,7 +1728,7 @@ mod moved_tests {
         });
 
         let reads = manifest
-            .run_stream_page_jobs(|(_, descriptor)| {
+            .run_stream_page_jobs(&AtomicBool::new(false), |(_, descriptor)| {
                 assert_ne!(descriptor.input_path, fifo);
                 assert!(!descriptor.stream_input);
                 Ok::<_, NativeError>(fs::read(&descriptor.input_path).unwrap())

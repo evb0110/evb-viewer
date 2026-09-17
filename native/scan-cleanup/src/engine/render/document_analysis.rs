@@ -4,7 +4,7 @@ use super::*;
 use crate::background::IlluminationPreparation;
 use crate::protocol::manifest_v3::ContentBlockEvidence;
 
-pub(crate) struct PageAnalysisInput<'a> {
+pub(crate) struct PageAnalysisInput<'a, 'p> {
     pub source: &'a GrayImage,
     pub color_source: Option<&'a RgbImage>,
     pub options: &'a CleanupOptions,
@@ -13,10 +13,11 @@ pub(crate) struct PageAnalysisInput<'a> {
     pub plan_content: bool,
     pub cache: Option<&'a PageCache>,
     pub timings: &'a mut PageStageTimings,
+    pub cancellation: Option<&'p AtomicBool>,
 }
 
 pub(crate) fn analyze_page(
-    input: PageAnalysisInput<'_>,
+    input: PageAnalysisInput<'_, '_>,
 ) -> Result<PageAnalysisResult, super::AnalysisError> {
     let PageAnalysisInput {
         source,
@@ -27,6 +28,7 @@ pub(crate) fn analyze_page(
         plan_content,
         cache,
         timings,
+        cancellation,
     } = input;
     options.validate()?;
     if options.excluded {
@@ -64,13 +66,14 @@ pub(crate) fn analyze_page(
             create_mixed_composite: false,
             recommend_output_mode,
             analyze_layout: true,
+            cancellation,
         },
         document_prior,
         calibration_config: CalibrationConfig::default(),
         cache,
         trusted_mrc_background: None,
         timings,
-    });
+    })?;
     let mut split = prepared.split;
     let needs_raw_gutter_remeasurement = gutter_band_needs_raw_remeasurement(&split);
     if plan_content
@@ -291,12 +294,12 @@ pub(crate) fn analyze_page(
     })
 }
 
-pub(crate) struct Input<'a> {
+pub(crate) struct Input<'a, 'p> {
     pub source: &'a GrayImage,
     pub color_source: Option<&'a RgbImage>,
     pub options: &'a CleanupOptions,
     pub prepare_quality_raster: bool,
-    pub render_policy: PageRenderPolicy,
+    pub render_policy: PageRenderPolicy<'p>,
     pub document_prior: Option<DocumentPrior>,
     pub calibration_config: CalibrationConfig,
     pub cache: Option<&'a PageCache>,
@@ -310,13 +313,14 @@ fn prepare_analysis_page_impl(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     prepare_quality_raster: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'_>,
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
     cache: Option<&PageCache>,
     trusted_mrc_background: Option<&GrayImage>,
     timings: &mut PageStageTimings,
-) -> PreparedAnalysis {
+) -> Result<PreparedAnalysis, super::AnalysisError> {
+    render_policy.check_canceled()?;
     debug_assert!(
         render_policy.analyze_layout
             || matches!(options.layout, crate::LayoutMode::Single) && !options.has_split_evidence(),
@@ -350,6 +354,7 @@ fn prepare_analysis_page_impl(
             timings,
         })
     });
+    render_policy.check_canceled()?;
     let applicable_prior = document_prior
         .filter(|prior| prior.applies_to_dimensions(analysis.full_width, analysis.full_height));
     let split_key = cache.map(|cache| {
@@ -364,6 +369,7 @@ fn prepare_analysis_page_impl(
             document_prior,
         )
     });
+    render_policy.check_canceled()?;
     let cached_split = cache
         .zip(split_key.as_ref())
         .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<SplitResult>(key));
@@ -472,7 +478,7 @@ fn prepare_analysis_page_impl(
     let candidate_cutter_ratio = (split.diagnostics.decision_x > 0.0)
         .then_some(split.diagnostics.decision_x / analysis.normalized.width().max(1) as f64);
     let whitespace_score = split.diagnostics.whitespace_score;
-    PreparedAnalysis {
+    Ok(PreparedAnalysis {
         normalized: Arc::clone(&analysis.normalized),
         canonical_routing_source: Arc::clone(&analysis.canonical_routing_source),
         split,
@@ -502,16 +508,16 @@ fn prepare_analysis_page_impl(
         preserve_confirmed_photo_tones: analysis.preserve_confirmed_photo_tones,
         use_soft_alpha_foreground: analysis.use_soft_alpha_foreground,
         resolved_output_mode: analysis.resolved_output_mode,
-    }
+    })
 }
 
-struct ArtifactInput<'a> {
+struct ArtifactInput<'a, 'p> {
     analysis_key: Option<StageCacheKey>,
     source: &'a GrayImage,
     color_source: Option<&'a RgbImage>,
     options: &'a CleanupOptions,
     prepare_quality_raster: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     calibration_config: CalibrationConfig,
     cache: Option<&'a PageCache>,
     trusted_mrc_background: Option<&'a GrayImage>,
@@ -593,13 +599,13 @@ fn prepare_analysis_plane(input: AnalysisPlaneInput<'_>) -> AnalysisPlaneOutput 
     }
 }
 
-struct LayoutPictureEvidenceInput<'a> {
+struct LayoutPictureEvidenceInput<'a, 'p> {
     rotated: &'a GrayImage,
     effective_dpi: f64,
     full_width: usize,
     full_height: usize,
     blank_scan_candidate: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     calibration_config: CalibrationConfig,
     options: &'a CleanupOptions,
     trusted_mrc_background: Option<&'a GrayImage>,
@@ -620,7 +626,7 @@ struct LayoutPictureEvidenceOutput {
 }
 
 fn prepare_layout_picture_evidence(
-    input: LayoutPictureEvidenceInput<'_>,
+    input: LayoutPictureEvidenceInput<'_, '_>,
 ) -> LayoutPictureEvidenceOutput {
     let LayoutPictureEvidenceInput {
         rotated,
@@ -766,9 +772,9 @@ fn prepare_layout_picture_evidence(
     }
 }
 
-struct TextEvidenceInput<'a> {
+struct TextEvidenceInput<'a, 'p> {
     layout_normalized: &'a GrayImage,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     timings: &'a mut PageStageTimings,
 }
 
@@ -777,7 +783,7 @@ struct TextEvidenceOutput {
     text_axis: Option<TextAxisHint>,
 }
 
-fn prepare_text_evidence(input: TextEvidenceInput<'_>) -> TextEvidenceOutput {
+fn prepare_text_evidence(input: TextEvidenceInput<'_, '_>) -> TextEvidenceOutput {
     let TextEvidenceInput {
         layout_normalized,
         render_policy,
@@ -797,12 +803,12 @@ fn prepare_text_evidence(input: TextEvidenceInput<'_>) -> TextEvidenceOutput {
     }
 }
 
-struct ContentTextEvidenceInput<'a> {
+struct ContentTextEvidenceInput<'a, 'p> {
     rotated: &'a GrayImage,
     layout_normalized: &'a GrayImage,
     picture_mask: Option<&'a BinaryImage>,
     trusted_mrc_tone_mask: Option<&'a BinaryImage>,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     prepare_quality_raster: bool,
     options: &'a CleanupOptions,
     effective_dpi: f64,
@@ -817,7 +823,9 @@ struct ContentTextEvidenceOutput {
     trusted_mrc_owned_tone_mask: Option<Arc<BinaryImage>>,
 }
 
-fn prepare_content_text_evidence(input: ContentTextEvidenceInput<'_>) -> ContentTextEvidenceOutput {
+fn prepare_content_text_evidence(
+    input: ContentTextEvidenceInput<'_, '_>,
+) -> ContentTextEvidenceOutput {
     let ContentTextEvidenceInput {
         rotated,
         layout_normalized,
@@ -1252,7 +1260,7 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
     }
 }
 
-struct ModePreservationInput<'a> {
+struct ModePreservationInput<'a, 'p> {
     rotated: &'a GrayImage,
     layout_normalized: &'a GrayImage,
     analysis_rgb: Option<&'a RgbImage>,
@@ -1264,7 +1272,7 @@ struct ModePreservationInput<'a> {
     independent_picture_evidence: bool,
     calibration: PageCalibration,
     options: &'a CleanupOptions,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     tonal_protection_mask: Option<Arc<BinaryImage>>,
     tone_semantic_preservation_alpha: Option<Arc<GrayImage>>,
     semantic_preservation_alpha: Option<Arc<GrayImage>>,
@@ -1481,7 +1489,7 @@ fn normalize_and_assemble_analysis_artifact(
     QualityNormalizationOutput { artifact }
 }
 
-fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreservationOutput {
+fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePreservationOutput {
     let ModePreservationInput {
         rotated,
         layout_normalized,
@@ -1730,7 +1738,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
     }
 }
 
-fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
+fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact> {
     let ArtifactInput {
         analysis_key,
         source,
@@ -1923,7 +1931,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         });
     artifact
 }
-pub(crate) fn run(input: Input<'_>) -> PreparedAnalysis {
+pub(crate) fn run(input: Input<'_, '_>) -> Result<PreparedAnalysis, super::AnalysisError> {
     let Input {
         source,
         color_source,

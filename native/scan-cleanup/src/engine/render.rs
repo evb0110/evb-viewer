@@ -70,7 +70,14 @@ use scan_primitives::{
     Affine, BinaryImage, ComponentMap, GrayImage, Point, Polygon, Rect,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{borrow::Cow, sync::Arc, time::Instant};
+use std::{
+    borrow::Cow,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
 #[path = "render/document_analysis.rs"]
 mod document_analysis;
@@ -544,6 +551,7 @@ pub(crate) struct DetailRenderSources<'a> {
     pub base_cleaned: Option<(&'a GrayImage, Option<&'a RgbImage>)>,
 }
 
+#[cfg(test)]
 pub(crate) fn clean_detail_page_with_color(
     sources: DetailRenderSources<'_>,
     options: &CleanupOptions,
@@ -552,12 +560,53 @@ pub(crate) fn clean_detail_page_with_color(
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, AnalysisError> {
+    clean_detail_page_with_color_impl(
+        sources,
+        options,
+        source_page_index,
+        plan,
+        base_metadata,
+        timings,
+        None,
+    )
+}
+
+pub(crate) fn clean_detail_page_with_color_cancellable(
+    sources: DetailRenderSources<'_>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    plan: &DetailRenderPlan,
+    base_metadata: &CleanupMetadata,
+    timings: &mut PageStageTimings,
+    is_canceled: &AtomicBool,
+) -> Result<PageCleanupResult, AnalysisError> {
+    clean_detail_page_with_color_impl(
+        sources,
+        options,
+        source_page_index,
+        plan,
+        base_metadata,
+        timings,
+        Some(is_canceled),
+    )
+}
+
+fn clean_detail_page_with_color_impl(
+    sources: DetailRenderSources<'_>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    plan: &DetailRenderPlan,
+    base_metadata: &CleanupMetadata,
+    timings: &mut PageStageTimings,
+    cancellation: Option<&AtomicBool>,
+) -> Result<PageCleanupResult, AnalysisError> {
     region_rendering::render_detail_page(region_rendering::DetailPageInput {
         sources,
         options,
         source_page_index,
         plan,
         base_metadata,
+        cancellation,
         timings,
     })
 }
@@ -1069,12 +1118,15 @@ pub struct PageAnalysisResult {
 pub(crate) enum AnalysisError {
     Invalid(String),
     TooLarge(String),
+    Canceled(String),
 }
 
 impl std::fmt::Display for AnalysisError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Invalid(message) | Self::TooLarge(message) => formatter.write_str(message),
+            Self::Invalid(message) | Self::TooLarge(message) | Self::Canceled(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }
@@ -1589,13 +1641,15 @@ fn classify_page_with_document_prior_impl(
             create_mixed_composite: false,
             recommend_output_mode: true,
             analyze_layout: true,
+            cancellation: None,
         },
         document_prior,
         calibration_config: CalibrationConfig::default(),
         cache,
         trusted_mrc_background: None,
         timings,
-    });
+    })
+    .map_err(|error| error.to_string())?;
     Ok(PageClassificationResult {
         classification: prepared.split.classification,
         confidence: prepared.split.confidence,
@@ -1645,10 +1699,12 @@ pub fn analyze_page_with_color_and_document_prior(
         true,
         None,
         &mut timings,
+        None,
     )
     .map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 pub(crate) fn analyze_page_with_color_and_document_prior_cached(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
@@ -1668,6 +1724,32 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
         plan_content,
         Some(cache),
         timings,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn analyze_page_with_color_and_document_prior_cached_cancellable(
+    source: &GrayImage,
+    color_source: Option<&RgbImage>,
+    options: &CleanupOptions,
+    document_prior: Option<DocumentPrior>,
+    recommend_output_mode: bool,
+    plan_content: bool,
+    cache: &PageCache,
+    timings: &mut PageStageTimings,
+    is_canceled: &AtomicBool,
+) -> Result<PageAnalysisResult, AnalysisError> {
+    analyze_page_with_color_and_document_prior_impl(
+        source,
+        color_source,
+        options,
+        document_prior,
+        recommend_output_mode,
+        plan_content,
+        Some(cache),
+        timings,
+        Some(is_canceled),
     )
 }
 
@@ -1680,6 +1762,7 @@ fn analyze_page_with_color_and_document_prior_impl(
     plan_content: bool,
     cache: Option<&PageCache>,
     timings: &mut PageStageTimings,
+    cancellation: Option<&AtomicBool>,
 ) -> Result<PageAnalysisResult, AnalysisError> {
     document_analysis::analyze_page(document_analysis::PageAnalysisInput {
         source,
@@ -1690,11 +1773,12 @@ fn analyze_page_with_color_and_document_prior_impl(
         plan_content,
         cache,
         timings,
+        cancellation,
     })
 }
 
 #[derive(Clone, Copy)]
-struct PageRenderPolicy {
+struct PageRenderPolicy<'a> {
     create_mixed_layers: bool,
     create_mixed_composite: bool,
     recommend_output_mode: bool,
@@ -1703,14 +1787,16 @@ struct PageRenderPolicy {
     /// binarization without paying for them. Only legal when the layout is
     /// already resolved to a single region.
     analyze_layout: bool,
+    cancellation: Option<&'a AtomicBool>,
 }
 
-impl PageRenderPolicy {
+impl PageRenderPolicy<'static> {
     const COMPLETE: Self = Self {
         create_mixed_layers: true,
         create_mixed_composite: true,
         recommend_output_mode: true,
         analyze_layout: true,
+        cancellation: None,
     };
 
     const DETAIL_TILE: Self = Self {
@@ -1718,7 +1804,32 @@ impl PageRenderPolicy {
         create_mixed_composite: true,
         recommend_output_mode: false,
         analyze_layout: false,
+        cancellation: None,
     };
+}
+
+impl<'a> PageRenderPolicy<'a> {
+    fn with_cancellation<'b>(self, cancellation: &'b AtomicBool) -> PageRenderPolicy<'b> {
+        PageRenderPolicy {
+            create_mixed_layers: self.create_mixed_layers,
+            create_mixed_composite: self.create_mixed_composite,
+            recommend_output_mode: self.recommend_output_mode,
+            analyze_layout: self.analyze_layout,
+            cancellation: Some(cancellation),
+        }
+    }
+
+    fn check_canceled(&self) -> Result<(), AnalysisError> {
+        if self
+            .cancellation
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
+        {
+            return Err(AnalysisError::Canceled(
+                crate::engine::CANCELLATION_MESSAGE.to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 pub fn clean_page(
@@ -1859,6 +1970,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     create_mixed_layers: bool,
     recommend_output_mode: bool,
     timings: &mut PageStageTimings,
+    is_canceled: &AtomicBool,
 ) -> Result<PageCleanupResult, AnalysisError> {
     clean_page_with_color_and_calibration_config(
         source,
@@ -1879,6 +1991,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
             create_mixed_composite: !create_mixed_layers,
             recommend_output_mode,
             analyze_layout: true,
+            cancellation: Some(is_canceled),
         },
         timings,
     )
@@ -1896,7 +2009,7 @@ fn clean_page_with_color_and_calibration_config(
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
     cache: Option<&PageCache>,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'_>,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, AnalysisError> {
     region_rendering::render_page(region_rendering::PageRenderInput {
@@ -2101,9 +2214,10 @@ fn prepare_page<'a>(
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
     cache: Option<&PageCache>,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'_>,
     timings: &mut PageStageTimings,
-) -> PreparedPage<'a> {
+) -> Result<PreparedPage<'a>, AnalysisError> {
+    render_policy.check_canceled()?;
     let has_canonical_analysis = canonical_analysis.is_some();
     let (analysis_source, analysis_color_source, analysis_dpi) = canonical_analysis
         .as_ref()
@@ -2129,7 +2243,8 @@ fn prepare_page<'a>(
         cache,
         trusted_mrc_background,
         timings,
-    });
+    })?;
+    render_policy.check_canceled()?;
     let (working_width, working_height) = match options.rotation {
         OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
             (source.width(), source.height())
@@ -2265,7 +2380,8 @@ fn prepare_page<'a>(
         trusted_foreground_mask,
         timings,
     });
-    PreparedPage {
+    render_policy.check_canceled()?;
+    Ok(PreparedPage {
         rotated_source,
         normalized,
         analysis_normalized,
@@ -2294,7 +2410,7 @@ fn prepare_page<'a>(
         preserve_confirmed_photo_tones,
         use_soft_alpha_foreground,
         resolved_output_mode,
-    }
+    })
 }
 
 fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {

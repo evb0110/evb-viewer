@@ -18,7 +18,8 @@ fn analysis_stage_preserves_synthetic_page_dimensions() {
         cache: None,
         trusted_mrc_background: None,
         timings: &mut PageStageTimings::default(),
-    });
+    })
+    .expect("synthetic analysis should succeed");
     assert_eq!((prepared.full_width, prepared.full_height), (24, 16));
     assert_eq!(
         prepared.split.classification,
