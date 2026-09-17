@@ -59,6 +59,7 @@ import {
     type IScanCleanupWorkerPaths,
     type IScanCleanupOutputPageForSummary,
     type IScanCleanupOutputMapping,
+    type IScanCleanupProvenanceInputs,
     type IScanCleanupRepresentationReport,
     type IPdfMrcLayers,
     type IPdfPageSize,
