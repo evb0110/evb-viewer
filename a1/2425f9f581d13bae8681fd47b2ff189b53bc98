@@ -1,0 +1,56 @@
+electron-builder.yml
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 82-86
+scripts/release/policy.mjs
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 10-11,24-25,621,680,689
+.github/workflows/release.yml
+  s_42386f3dfc2fd1::t_287040ca6b8d62 548-549
+docs/user/formats-and-languages.md
+  s_42386f3dfc2fd1::t_287040ca6b8d62 14
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_42386f3dfc2fd1::t_30606edd0c8075 866-869,875-876,920-921,932-933
+electron/updates.ts
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 192-193,197-198,205,261-263,282
+.github/workflows/release-supplemental.yml
+  s_42386f3dfc2fd1::t_287040ca6b8d62 404-410,415,428-438,461-464,466,468,529-530
+.github/workflows/release-drill.yml
+  s_42386f3dfc2fd1::t_287040ca6b8d62 123-138
+docs/contributing/release-guardrails.md
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 42
+scripts/release/make-drill-release-assets.mjs
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 162
+  s_42386f3dfc2fd1::t_0976ee664c7e0c 23
+app/modules/workspace-shell/components/AppUpdatesDialog.vue
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 61,68
+  s_42386f3dfc2fd1::t_e29ed8f3deb446 24
+tests/unit/electron/updates.test.ts
+  s_42386f3dfc2fd1::t_eb6afc72596b1f 475-478,483-486,505,507-508
+  s_42386f3dfc2fd1::t_7b4f6cdfd3e1e0 487-490,495-504,510-512
+tests/unit/scripts/releasePolicy.test.ts
+  s_42386f3dfc2fd1::t_287040ca6b8d62 481-482,539-541,547,552-555,563-566,629,2010
+  s_42386f3dfc2fd1::t_eb6afc72596b1f 531-538,542-546,548-551,556-562
+tests/unit/app/modules/workspace-shell/components/appUpdatesDialog.test.ts
+  s_42386f3dfc2fd1::t_eb6afc72596b1f 54-75,77-78,84-90
+  s_42386f3dfc2fd1::t_7b4f6cdfd3e1e0 53,80-83,91-104,123
+  s_42386f3dfc2fd1::t_bfcd0d0f21b7ce 76,79
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 143
+scripts/release/assert-build-artifacts.mjs
+  s_42386f3dfc2fd1::t_ae5d95938e0d56 16,47,89-94,96-98
+  s_42386f3dfc2fd1::t_4b796d4055fbb9 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a12425f9f581d13bae8681fd47b2ff189b53bc98",
+  "prompts": {},
+  "sessions": {
+    "s_42386f3dfc2fd1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b10b-f6d1-72a2-b0b3-811cee57f974",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
