@@ -950,11 +950,17 @@ describe('scan-cleanup native artifact codecs', () => {
             matchedCanvasOpticalContentRightPx: 950,
             matchedCanvasIntrinsicOverflowLeftPx: 125,
             softMarginsPx: [
+                200,
                 0,
-                0,
-                0,
+                200,
                 0,
             ],
+            appliedMargins: {
+                leftPx: 100,
+                topPx: 0,
+                rightPx: 100,
+                bottomPx: 0,
+            },
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,
         };
@@ -963,6 +969,13 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(() => decodeNativeScanCleanupOutputMetadata({
             ...output,
             matchedCanvasIntrinsicOverflowLeftPx: 1001,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            appliedMargins: {
+                ...output.appliedMargins,
+                leftPx: 200,
+            },
         })).toThrow('intrinsic content placement exceeds its canvas');
     });
 
