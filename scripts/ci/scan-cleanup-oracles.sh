@@ -107,6 +107,14 @@ run_export_oracles() {
     --to 1 \
     --out "$rgb_output/word-loss.json" \
     --fail-on any
+
+  local release_output="$output_root/release-grayscale"
+  mkdir -p "$release_output"
+  node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
+    --source tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf \
+    --pages 1-4 \
+    --out "$release_output/preview" \
+    --check
 }
 
 run_affected_oracles() {

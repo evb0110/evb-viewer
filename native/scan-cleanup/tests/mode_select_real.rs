@@ -5,7 +5,6 @@ use evb_scan_cleanup::{
 use std::{fs, path::Path};
 
 #[test]
-#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn luther_low_resolution_scans_keep_soft_text_in_grayscale() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/split");
     let mut recommendations = Vec::new();

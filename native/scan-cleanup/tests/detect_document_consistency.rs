@@ -70,7 +70,6 @@ fn unique_scratch() -> PathBuf {
 }
 
 #[test]
-#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn luther_soft_gutter_batch_is_consistently_high_confidence() {
     let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/split");
     let scratch = unique_scratch();
@@ -147,7 +146,6 @@ fn luther_soft_gutter_batch_is_consistently_high_confidence() {
 }
 
 #[test]
-#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn document_reconciliation_never_touches_manual_layouts() {
     let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/split");
     let scratch = unique_scratch();
