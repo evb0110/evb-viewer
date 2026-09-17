@@ -270,7 +270,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
     // of queueing IPC against a working copy the main process has already
     // retired. Switching tabs pauses that work without changing identity.
     active: () => workspaceActive.value,
-    beforeRun: () => previewPane.value?.revealLatestFrame(),
+    beforeRun: signal => previewPane.value?.revealLatestFrame(signal),
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,

@@ -263,12 +263,29 @@ export function scanCleanupRasterRetention(
             sourceStatIdentity,
         );
         const current = documents.get(key);
+        const retireSupersededDocuments = () => {
+            for (const [
+                existingKey,
+                existing,
+            ] of documents) {
+                if (
+                    existingKey !== key
+                    && existing.sourcePdfPath === request.sourcePdfPath
+                ) {
+                    // A pinned superseded document remains usable until its
+                    // last owner releases it; discard() marks it for removal
+                    // and the final release closes its stores and scratch.
+                    discard(existing);
+                }
+            }
+        };
         if (
             current
             && current.documentRevision === request.documentRevision
             && current.sourceStatIdentity === sourceStatIdentity
             && !current.removeWhenIdle
         ) {
+            retireSupersededDocuments();
             current.pinned += 1;
             if (claimId !== undefined) {
                 current.claims.set(claimId, (current.claims.get(claimId) ?? 0) + 1);
@@ -277,6 +294,7 @@ export function scanCleanupRasterRetention(
             return current;
         }
         if (current) discard(current);
+        retireSupersededDocuments();
         if (disposed) {
             throw new DOMException('Scan cleanup raster retention is disposed', 'AbortError');
         }

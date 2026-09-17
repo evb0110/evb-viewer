@@ -1,3 +1,4 @@
+use evb_native_support::{NativeError, NativeErrorCode};
 use evb_raster_io::{decode_ppm, DecodeLimits};
 use evb_scan_cleanup::{
     io::pbm::decode_p4,
@@ -13,7 +14,10 @@ use std::{
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -1970,6 +1974,108 @@ fn failed_second_page_rolls_back_every_manifest_destination() {
             destination.display()
         );
     }
+}
+
+#[test]
+fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal() {
+    let scratch = Scratch::new("publication-cancel");
+    let input = scratch.path("publication-cancel-input.png");
+    let manifest = scratch.path("publication-cancel-manifest.json");
+    let output = scratch.path("publication-cancel-output.png");
+    let metadata = scratch.path("publication-cancel-output.json");
+    let page_metadata = scratch.path("publication-cancel-page.json");
+    let journal = PathBuf::from(format!(
+        "{}{}",
+        manifest.display(),
+        ".evb-publication-journal.json"
+    ));
+    let original = b"previous output survives cancellation";
+    fs::write(
+        &input,
+        encode_gray(&GrayImage::new(1_600, 1_200, 220)).unwrap(),
+    )
+    .unwrap();
+    fs::write(&output, original).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    layout: LayoutMode::Single,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                "outputs": [{
+                    "outputPath": output,
+                    "metadataPath": metadata,
+                }],
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let canceled = Arc::new(AtomicBool::new(false));
+    let finished = Arc::new(AtomicBool::new(false));
+    let observed_publication = Arc::new(AtomicBool::new(false));
+    let observer_canceled = Arc::clone(&canceled);
+    let observer_finished = Arc::clone(&finished);
+    let observer_publication = Arc::clone(&observed_publication);
+    let observed_output = output.clone();
+    let observer = std::thread::spawn(move || {
+        let mut output_was_staged = false;
+        while !observer_finished.load(Ordering::Acquire) {
+            if !observed_output.exists() {
+                output_was_staged = true;
+            } else if output_was_staged {
+                observer_publication.store(true, Ordering::Release);
+                observer_canceled.store(true, Ordering::Release);
+                return;
+            }
+            std::thread::yield_now();
+        }
+    });
+    let result = evb_scan_cleanup::cli::run_with_cancellation(
+        vec![
+            "--manifest".to_string(),
+            manifest.to_string_lossy().into_owned(),
+        ],
+        &canceled,
+    );
+    finished.store(true, Ordering::Release);
+    observer.join().unwrap();
+
+    assert!(
+        observed_publication.load(Ordering::Acquire),
+        "cancellation observer never saw the destination reappear during publication"
+    );
+    let error = result.unwrap_err();
+    let native_error = error
+        .downcast_ref::<NativeError>()
+        .expect("cancellation should remain a typed native error");
+    assert_eq!(native_error.code, NativeErrorCode::Io);
+    assert_eq!(native_error.message, "Scan-cleanup canceled by SIGTERM");
+    assert_eq!(fs::read(&output).unwrap(), original);
+    assert!(!metadata.exists());
+    assert!(!page_metadata.exists());
+    assert!(!journal.exists());
+    assert!(fs::read_dir(scratch.dir.clone()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".evb-tmp-")
+    }));
 }
 
 #[test]

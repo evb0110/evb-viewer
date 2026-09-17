@@ -12,6 +12,8 @@ import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {createJobId} from '@contracts/shared';
 import {
     createMainJobRegistry,
+    RENDERER_DESTROYED_CANCELLATION_REASON,
+    RENDER_PROCESS_GONE_CANCELLATION_REASON,
     type IMainJobErrorEnvelope,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 
@@ -347,7 +349,7 @@ export function scanCleanupPreviewRenderingOwner(
                 key,
                 entry,
             ] of active) {
-                if (key.startsWith(senderPrefix)) entry.cancel('Renderer destroyed');
+                if (key.startsWith(senderPrefix)) entry.cancel(RENDERER_DESTROYED_CANCELLATION_REASON);
             }
             for (const key of visiblePages.keys()) {
                 if (key.startsWith(senderPrefix)) visiblePages.delete(key);
@@ -464,7 +466,8 @@ export function scanCleanupPreviewRenderingOwner(
                     mainFrameNavigation: 'cancel',
                 },
                 onCancel: reason => {
-                    if (reason === 'Renderer destroyed' || reason === 'Renderer process gone') {
+                    if (reason === RENDERER_DESTROYED_CANCELLATION_REASON
+                        || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
                         rawRasterRetention.invalidateSender(sender.id);
                     }
                     if (entryStateRef.current && manuallyCanceled.has(entryStateRef.current)) return;

@@ -25,6 +25,7 @@ import {
     scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRetainedAgain,
     scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads,
     scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled,
+    scenarioRetiresSupersededDocumentsForSameSourcePath,
     scenarioReleasesClaimAfterExceptionalRetainedByteRead,
     scenarioReleasesClaimAfterExceptionalRetainedMetadataRead,
 } from '@tests/unit/electron/scanCleanupRasterRetentionScenarios';
@@ -111,6 +112,10 @@ describe('scanCleanupRasterRetentionTest', () => {
         [
             'preserve another owner during canceled publication',
             scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled,
+        ],
+        [
+            'retire superseded documents for one source path',
+            scenarioRetiresSupersededDocumentsForSameSourcePath,
         ],
         [
             'release claims after byte-read failure',

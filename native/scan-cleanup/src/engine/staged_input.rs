@@ -530,13 +530,29 @@ pub(crate) fn acquire_staged_page_input(
         return Ok(());
     }
     announce(LeaseEvent::Required, lease.page_number, lease.total_pages)?;
-    wait_for_staged_page_input(
+    let waited = wait_for_staged_page_input(
         &lease.input_path,
         lease.page_number,
         STAGED_INPUT_WAIT_TIMEOUT,
         STAGED_INPUT_POLL_INTERVAL,
         is_canceled,
-    )
+    );
+    if let Err(error) = waited {
+        // The producer must be told that the failed wait no longer owns a
+        // lease, including the prompt cancellation path. Preserve the wait
+        // error as the primary result if that acknowledgement also fails.
+        return match announce(LeaseEvent::Released, lease.page_number, lease.total_pages) {
+            Ok(()) => Err(error),
+            Err(release_error) => Err(NativeError::new(
+                error.code,
+                format!(
+                    "{}; releasing staged-input lease failed: {}",
+                    error.message, release_error.message
+                ),
+            )),
+        };
+    }
+    Ok(())
 }
 
 /// Block until the producer has published this page's raster.
@@ -1093,6 +1109,39 @@ mod tests {
 
         assert_eq!(error.code, NativeErrorCode::Io);
         assert_eq!(error.message, crate::engine::CANCELLATION_MESSAGE);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cancellation_during_staged_input_acquisition_releases_its_lease() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-staged-acquire-cancel-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let canceled = AtomicBool::new(false);
+        let leases: Mutex<Vec<LeaseEvent>> = Mutex::new(Vec::new());
+        let announce = |stage: LeaseEvent, _page: usize, _total: usize| {
+            leases.lock().unwrap().push(stage);
+            if stage == LeaseEvent::Required {
+                canceled.store(true, Ordering::Release);
+            }
+            Ok(())
+        };
+        let error = acquire_staged_page_input(
+            &staged_lease(dir.join("absent.png"), 7, 1, true),
+            &announce,
+            &canceled,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, NativeErrorCode::Io);
+        assert_eq!(error.message, crate::engine::CANCELLATION_MESSAGE);
+        assert_eq!(
+            leases.into_inner().unwrap(),
+            vec![LeaseEvent::Required, LeaseEvent::Released]
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

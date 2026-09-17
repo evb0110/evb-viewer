@@ -972,9 +972,6 @@ pub(crate) fn run_page(
         return Err(error);
     }
     timings.write_ms += write_started.elapsed().as_secs_f64() * 1_000.0;
-    if is_canceled.load(Ordering::Acquire) {
-        return Err(crate::engine::cancellation_error().into());
-    }
     Ok(PageRunResult {
         outputs: written,
         metadata: page_metadata,

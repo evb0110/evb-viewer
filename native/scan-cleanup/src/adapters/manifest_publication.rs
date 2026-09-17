@@ -18,7 +18,8 @@ const PUBLICATION_JOURNAL_SUFFIX: &str = ".evb-publication-journal.json";
 #[serde(rename_all = "camelCase")]
 struct PublicationJournalEntry {
     original: PathBuf,
-    backup: PathBuf,
+    backup: Option<PathBuf>,
+    remove: bool,
 }
 
 #[derive(Serialize)]
@@ -26,6 +27,7 @@ struct PublicationJournalEntry {
 struct PublicationJournal {
     version: u32,
     manifest_path: PathBuf,
+    committed: bool,
     entries: Vec<PublicationJournalEntry>,
 }
 
@@ -46,11 +48,13 @@ fn remove_publication_journal(path: &Path) -> Result<(), String> {
 fn write_publication_journal(
     path: &Path,
     manifest_path: &Path,
+    committed: bool,
     entries: &[PublicationJournalEntry],
 ) -> Result<(), String> {
     let journal = PublicationJournal {
         version: PUBLICATION_JOURNAL_VERSION,
         manifest_path: manifest_path.to_path_buf(),
+        committed,
         entries: entries.to_vec(),
     };
     let bytes = serde_json::to_vec(&journal).map_err(|error| error.to_string())?;
@@ -101,11 +105,13 @@ impl ManifestPublicationTransaction {
                     match StagedFileBackup::stage_with_hook(&path, |original, backup| {
                         transaction.journal_entries.push(PublicationJournalEntry {
                             original: original.to_path_buf(),
-                            backup: backup.to_path_buf(),
+                            backup: Some(backup.to_path_buf()),
+                            remove: false,
                         });
                         if let Err(error) = write_publication_journal(
                             &transaction.journal_path,
                             &transaction.manifest_path,
+                            false,
                             &transaction.journal_entries,
                         ) {
                             transaction.journal_entries.pop();
@@ -129,7 +135,25 @@ impl ManifestPublicationTransaction {
                         path.display()
                     )));
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    transaction.journal_entries.push(PublicationJournalEntry {
+                        original: path.clone(),
+                        backup: None,
+                        remove: true,
+                    });
+                    if let Err(error) = write_publication_journal(
+                        &transaction.journal_path,
+                        &transaction.manifest_path,
+                        false,
+                        &transaction.journal_entries,
+                    ) {
+                        transaction.journal_entries.pop();
+                        return Err(transaction.abort_begin(format!(
+                            "Unable to record absent output destination {}: {error}",
+                            path.display()
+                        )));
+                    }
+                }
                 Err(error) => {
                     return Err(transaction.abort_begin(format!(
                         "Unable to inspect output destination {}: {error}",
@@ -172,6 +196,22 @@ impl ManifestPublicationTransaction {
     }
 
     fn commit(mut self) -> Result<(), String> {
+        if let Err(error) = write_publication_journal(
+            &self.journal_path,
+            &self.manifest_path,
+            true,
+            &self.journal_entries,
+        ) {
+            let rollback = self.rollback();
+            return match rollback {
+                Ok(()) => Err(format!(
+                    "marking publication recovery journal committed failed: {error}"
+                )),
+                Err(rollback_error) => Err(format!(
+                    "marking publication recovery journal committed failed: {error}; rollback was incomplete: {rollback_error}"
+                )),
+            };
+        }
         let mut failures = Vec::new();
         for backup in self.backups.drain(..) {
             let original = backup.original().to_path_buf();
@@ -282,6 +322,7 @@ mod tests {
         },
         CleanupOptions,
     };
+    use serde_json::Value;
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -348,6 +389,13 @@ mod tests {
             ".evb-publication-journal.json"
         ));
         let error = run_manifest_transaction(&manifest_path, &manifest, || {
+            let journal: Value = serde_json::from_slice(&fs::read(&journal_path)?)?;
+            let entries = journal["entries"].as_array().unwrap();
+            assert_eq!(journal["committed"], Value::Bool(false));
+            assert_eq!(entries.len(), destinations.len());
+            assert!(entries.iter().all(|entry| {
+                entry["remove"] == Value::Bool(true) && entry["backup"].is_null()
+            }));
             // Page one publishes every raster/layer/metadata role. Page two
             // then leaves a partial publication before processing fails.
             for path in &destinations[..9] {
@@ -401,6 +449,89 @@ mod tests {
             b"successful replacement"
         );
         assert!(!journal_path.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn committed_journal_keeps_new_output_when_backup_cleanup_fails() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-commit-journal-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("input.png");
+        let output = dir.join("output.png");
+        let metadata = dir.join("output.json");
+        let page_metadata = dir.join("page.json");
+        fs::write(&input, b"input").unwrap();
+        fs::write(&output, b"old output").unwrap();
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: vec![Page {
+                input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: page_metadata,
+                options: CleanupOptions::default(),
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: vec![PageOutput {
+                    output_path: output.clone(),
+                    metadata_path: metadata,
+                    bilevel_output_path: None,
+                    background_output_path: None,
+                    foreground_mask_output_path: None,
+                    foreground_alpha_output_path: None,
+                    picture_mask_output_path: None,
+                    tone_preservation_alpha_output_path: None,
+                }],
+            }],
+        };
+        let manifest_path = dir.join("manifest.json");
+        let journal_path = PathBuf::from(format!(
+            "{}{}",
+            manifest_path.display(),
+            ".evb-publication-journal.json"
+        ));
+        let result = run_manifest_transaction(&manifest_path, &manifest, || {
+            fs::write(&output, b"new output")?;
+            let backup = fs::read_dir(&dir)?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .find(|path| {
+                    path.file_name().is_some_and(|name| {
+                        name.to_string_lossy().starts_with("output.png.evb-tmp-")
+                    })
+                })
+                .ok_or_else(|| std::io::Error::other("staged output backup was not found"))?;
+            fs::remove_file(&backup)?;
+            fs::create_dir(&backup)?;
+            Ok(())
+        });
+
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Unable to finalize"));
+        assert_eq!(fs::read(&output).unwrap(), b"new output");
+        let journal: Value = serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+        assert_eq!(journal["committed"], Value::Bool(true));
+        assert!(journal["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["original"] == output.to_string_lossy().as_ref() }));
         fs::remove_dir_all(dir).unwrap();
     }
 }

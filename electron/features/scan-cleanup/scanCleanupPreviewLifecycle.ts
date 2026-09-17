@@ -21,6 +21,10 @@ import {
     type IScanCleanupPreviewRenderingOwner,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
+import {
+    RENDERER_DESTROYED_CANCELLATION_REASON,
+    RENDER_PROCESS_GONE_CANCELLATION_REASON,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
 
 export interface IScanCleanupPreviewService
     extends IScanCleanupPreviewRenderingOwner, IScanCleanupDetectionOwner {
@@ -68,7 +72,8 @@ export function scanCleanupPreviewLifecycle(
     const pendingPreviews = new Map<number, Set<Promise<unknown>>>();
     let disposed = false;
     const isRendererGoneError = (error: unknown) => error instanceof Error
-        && (error.message === 'Renderer destroyed' || error.message === 'Renderer process gone');
+        && (error.message === RENDERER_DESTROYED_CANCELLATION_REASON
+            || error.message === RENDER_PROCESS_GONE_CANCELLATION_REASON);
     const watchSender = (sender: IScanCleanupDetectionSubscriber) => {
         if (disposed) return;
         const previous = watchedSenders.get(sender.id);

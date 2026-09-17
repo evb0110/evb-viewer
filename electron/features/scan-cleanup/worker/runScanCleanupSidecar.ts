@@ -61,12 +61,14 @@ const SCAN_CLEANUP_PUBLICATION_JOURNAL_SUFFIX = '.evb-publication-journal.json';
 
 interface IScanCleanupPublicationJournalEntry {
     original: string;
-    backup: string;
+    backup: string | null;
+    remove: boolean;
 }
 
 interface IScanCleanupPublicationJournal {
     version: number;
     manifestPath: string;
+    committed: boolean;
     entries: IScanCleanupPublicationJournalEntry[];
 }
 
@@ -82,22 +84,33 @@ function parsePublicationJournal(value: unknown): IScanCleanupPublicationJournal
     if (!isRecord(value)
         || value.version !== 1
         || typeof value.manifestPath !== 'string'
+        || (value.committed !== undefined && typeof value.committed !== 'boolean')
         || !Array.isArray(value.entries)) {
         throw new Error('scan-cleanup publication recovery journal has an invalid shape');
     }
     const entries: IScanCleanupPublicationJournalEntry[] = [];
     for (const entry of value.entries) {
-        if (!isRecord(entry) || typeof entry.original !== 'string' || typeof entry.backup !== 'string') {
+        if (!isRecord(entry)
+            || typeof entry.original !== 'string'
+            || (entry.remove !== undefined && typeof entry.remove !== 'boolean')) {
+            throw new Error('scan-cleanup publication recovery journal contains an invalid entry');
+        }
+        const remove = entry.remove === true;
+        if (remove
+            ? entry.backup !== undefined && entry.backup !== null
+            : typeof entry.backup !== 'string') {
             throw new Error('scan-cleanup publication recovery journal contains an invalid entry');
         }
         entries.push({
             original: entry.original,
-            backup: entry.backup,
+            backup: typeof entry.backup === 'string' ? entry.backup : null,
+            remove,
         });
     }
     return {
         version: value.version,
         manifestPath: value.manifestPath,
+        committed: value.committed === true,
         entries,
     };
 }
@@ -121,10 +134,44 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
     if (resolve(journal.manifestPath) !== resolve(manifestPath)) {
         throw new Error('scan-cleanup publication recovery journal belongs to another manifest');
     }
+    if (journal.committed) {
+        for (const entry of journal.entries) {
+            if (entry.backup === null) continue;
+            let backupStats;
+            try {
+                backupStats = await lstat(entry.backup);
+            } catch (error) {
+                if (isNotFound(error)) continue;
+                throw error;
+            }
+            if (!backupStats.isFile()) {
+                throw new Error(`publication backup is not a regular file: ${entry.backup}`);
+            }
+            await unlink(entry.backup);
+        }
+        await unlink(journalPath);
+        return true;
+    }
     for (const entry of [...journal.entries].reverse()) {
+        if (entry.remove) {
+            try {
+                const originalStats = await lstat(entry.original);
+                if (originalStats.isDirectory()) {
+                    throw new Error(`cannot remove ${entry.original}, it is a directory`);
+                }
+                await unlink(entry.original);
+            } catch (error) {
+                if (!isNotFound(error)) throw error;
+            }
+            continue;
+        }
+        const backup = entry.backup;
+        if (backup === null) {
+            throw new Error(`publication recovery entry has no backup: ${entry.original}`);
+        }
         let backupStats;
         try {
-            backupStats = await lstat(entry.backup);
+            backupStats = await lstat(backup);
         } catch (error) {
             if (!isNotFound(error)) throw error;
             try {
@@ -135,13 +182,13 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
                 continue;
             } catch (originalError) {
                 if (isNotFound(originalError)) {
-                    throw new Error(`publication backup is missing: ${entry.backup}`);
+                    throw new Error(`publication backup is missing: ${backup}`);
                 }
                 throw originalError;
             }
         }
         if (!backupStats.isFile()) {
-            throw new Error(`publication backup is not a regular file: ${entry.backup}`);
+            throw new Error(`publication backup is not a regular file: ${backup}`);
         }
         try {
             const originalStats = await lstat(entry.original);
@@ -152,7 +199,7 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
         } catch (error) {
             if (!isNotFound(error)) throw error;
         }
-        await rename(entry.backup, entry.original);
+        await rename(backup, entry.original);
     }
     await unlink(journalPath);
     return true;
@@ -255,6 +302,10 @@ async function streamScanCleanupSidecar(
         'pipe',
         'pipe',
     ]}));
+    let childClosed = false;
+    child.once('close', () => {
+        childClosed = true;
+    });
     if (options.priority === 'background' && child.pid !== undefined) {
         try {
             setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
@@ -312,7 +363,11 @@ async function streamScanCleanupSidecar(
     const withTerminationProof = <T>(error: T, terminated: boolean) => (
         terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
     );
-    const replayPublicationJournal = async () => {
+    const replayPublicationJournal = async (terminationConfirmed = false) => {
+        if (!terminationConfirmed && !childClosed) {
+            log('warn', 'Retaining scan-cleanup publication journal until the sidecar close is observed');
+            return;
+        }
         try {
             if (await replayScanCleanupPublicationJournal(manifestPath)) {
                 log('warn', `Recovered staged scan-cleanup destinations from ${basename(manifestPath)}`);
@@ -327,7 +382,7 @@ async function streamScanCleanupSidecar(
                 if (!terminated) {
                     log('warn', describeUnprovenTermination());
                 }
-                await replayPublicationJournal();
+                await replayPublicationJournal(terminated);
                 if (protocolError !== null) {
                     reject(withTerminationProof(protocolError, terminated));
                     return;
@@ -391,7 +446,7 @@ async function streamScanCleanupSidecar(
         if (!terminated) {
             log('warn', describeUnprovenTermination());
         }
-        await replayPublicationJournal();
+        await replayPublicationJournal(terminated);
         throw withTerminationProof(terminal, terminated);
     };
     let aborting = false as boolean;
@@ -451,7 +506,7 @@ async function streamScanCleanupSidecar(
             if (!terminated) {
                 log('warn', describeUnprovenTermination());
             }
-            await replayPublicationJournal();
+            await replayPublicationJournal(terminated);
             throw withTerminationProof(abortErrorFromSignal(signal), terminated);
         }
         if (nativeFailure !== null) await replayPublicationJournal();

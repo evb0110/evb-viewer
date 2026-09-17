@@ -1592,6 +1592,55 @@ export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCance
     expect(existsSync(ownerTwoRaster.path)).toBe(false);
 }
 
+export async function scenarioRetiresSupersededDocumentsForSameSourcePath(): Promise<void> {
+    const dir = await setup();
+    const deps = dependencies(dir);
+    const retention = scanCleanupRasterRetention(deps);
+    const sourcePdfPath = join(dir, 'source.pdf');
+    const unpinned = await retention.openDocument({
+        sourcePdfPath,
+        documentRevision: 'revision-1',
+    }, 'owner-1');
+    await retention.release(unpinned, 'owner-1');
+
+    const current = await retention.openDocument({
+        sourcePdfPath,
+        documentRevision: 'revision-2',
+    }, 'owner-2');
+    expect(unpinned.lifetime.signal.aborted).toBe(true);
+
+    const pinned = await retention.openDocument({
+        sourcePdfPath,
+        documentRevision: 'revision-3',
+    }, 'owner-3');
+    const pinnedScratch = await retention.rasterScratchPath(pinned, 1, 150);
+    await writeFile(pinnedScratch, PNG);
+    const pinnedRaster = await retention.retain({
+        document: pinned,
+        dpi: 150,
+        height: 1,
+        pageNumber: 1,
+        scratchPath: pinnedScratch,
+        sizeBytes: PNG.byteLength,
+        width: 1,
+    }, 'owner-3');
+
+    const replacement = await retention.openDocument({
+        sourcePdfPath,
+        documentRevision: 'revision-4',
+    }, 'owner-4');
+    expect(pinned.removeWhenIdle).toBe(true);
+    expect(pinned.lifetime.signal.aborted).toBe(false);
+    expect(existsSync(pinnedRaster.path)).toBe(true);
+
+    await retention.release(pinned, 'owner-3');
+    expect(pinned.lifetime.signal.aborted).toBe(true);
+    await retention.release(current, 'owner-2');
+    await retention.release(replacement, 'owner-4');
+    await retention.dispose();
+    expect(existsSync(pinnedRaster.path)).toBe(false);
+}
+
 async function scenarioReleasesClaimAfterExceptionalRetainedRead(
     mode: 'bytes' | 'metadata',
 ): Promise<void> {
