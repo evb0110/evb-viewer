@@ -2183,18 +2183,19 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
-    it('shares global preferences while keeping output mode scoped to its document', async () => {
+    it('snapshots global preferences while keeping output mode and detection scoped to its document', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const firstKey = `preferences-a-${Date.now()}`;
         const secondKey = `preferences-b-${Date.now()}`;
         const first = mountSession(firstKey);
         const second = mountSession(secondKey);
+        await nextTick();
 
         first.session.settings.values.outputMode = 'color';
         expect(second.session.settings.values.outputMode).toBe('auto');
         second.session.settings.values.readingOrder = 'rtl';
-        expect(first.session.settings.values.readingOrder).toBe('rtl');
+        expect(first.session.settings.values.readingOrder).toBe('ltr');
 
         await vi.waitFor(() => expect(JSON.parse(
             localStorage.getItem('evb.scanCleanup.settings.v1') ?? '{}',
