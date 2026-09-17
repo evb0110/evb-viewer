@@ -267,6 +267,65 @@ describe('scan cleanup preview geometry', () => {
         }
     });
 
+    it('does not let a stale raw swap timer cancel the current transition', async () => {
+        vi.useFakeTimers();
+        const revokeObjectURL = vi.fn();
+        let nextUrl = 0;
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => `blob:preview-${String(++nextUrl)}`),
+            revokeObjectURL,
+        });
+        const rawResult = shallowRef<IScanCleanupRawPreviewResult>({
+            pageNumber: requirePageNumber(1),
+            totalPages: 1,
+            rawImageData: new Uint8Array([1]),
+            rawWidthPx: 600,
+            rawHeightPx: 640,
+        });
+        let images: ReturnType<typeof useScanCleanupPreviewImages> | undefined;
+        const app = createApp({setup() {
+            images = useScanCleanupPreviewImages(
+                shallowRef<IScanCleanupPreviewResult | null>(null),
+                undefined,
+                rawResult,
+            );
+            return () => h('div');
+        }});
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        app.mount(host);
+        try {
+            await nextTick();
+            const mountedImages = images!;
+            rawResult.value = {
+                ...rawResult.value,
+                rawImageData: new Uint8Array([2]),
+            };
+            await nextTick();
+            const firstIncomingUrl = mountedImages.rawPixelSwap.value.incomingUrl;
+            mountedImages.loadRawPixelSwap(firstIncomingUrl);
+
+            rawResult.value = {
+                ...rawResult.value,
+                rawImageData: new Uint8Array([3]),
+            };
+            await nextTick();
+            const secondIncomingUrl = mountedImages.rawPixelSwap.value.incomingUrl;
+            mountedImages.loadRawPixelSwap(secondIncomingUrl);
+            mountedImages.completeRawPixelSwap(firstIncomingUrl);
+
+            await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS);
+
+            expect(revokeObjectURL).toHaveBeenCalledWith(firstIncomingUrl);
+            expect(mountedImages.rawPixelSwap.value.outgoingUrl).toBe('');
+        } finally {
+            app.unmount();
+            host.remove();
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('maps the half-local detected content box through the source-to-output affine', () => {
         expect(transformPreviewContentBox(metadata())).toEqual({
             xPx: 10,

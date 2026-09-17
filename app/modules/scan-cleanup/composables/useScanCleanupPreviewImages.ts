@@ -161,7 +161,6 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         clearRawPixelSwapCompletionTimer();
         if (!rawPixelSwap.value.entering || rawPixelSwap.value.currentUrl !== url) return;
         rawPixelSwapCompletionTimer = setTimeout(() => {
-            rawPixelSwapCompletionTimer = null;
             completeRawPixelSwap(url);
         }, SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS);
     }
@@ -203,6 +202,10 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     }
 
     function completeRawPixelSwap(url: string) {
+        if (!rawPixelSwap.value.entering || rawPixelSwap.value.currentUrl !== url) {
+            rawPixelSwap.value = completePreviewImageSwap(rawPixelSwap.value, url, revokeBlobUrl);
+            return;
+        }
         clearRawPixelSwapCompletionTimer();
         rawPixelSwap.value = completePreviewImageSwap(rawPixelSwap.value, url, revokeBlobUrl);
     }
