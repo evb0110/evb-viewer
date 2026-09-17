@@ -1,0 +1,31 @@
+app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue
+  s_08d12d38d8c771::t_f92b6720cc9445 131,145,152,167
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_08d12d38d8c771::t_f92b6720cc9445 1251-1252
+app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue
+  s_08d12d38d8c771::t_f92b6720cc9445 1143,1160
+app/modules/scan-cleanup/components/preview/PreviewShell.css
+  s_08d12d38d8c771::t_f92b6720cc9445 154,404,803
+app/assets/css/main.css
+  s_08d12d38d8c771::t_f92b6720cc9445 227-228
+app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue
+  s_08d12d38d8c771::t_f92b6720cc9445 1010,1017
+app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue
+  s_08d12d38d8c771::t_f92b6720cc9445 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a99fa2a6d844a97c230e9263e095619d42399294",
+  "prompts": {},
+  "sessions": {
+    "s_08d12d38d8c771": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae68-e8f7-7c70-995a-c6c58460c682",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
