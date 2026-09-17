@@ -1,0 +1,19 @@
+scripts/diagnostics/README.md
+  s_275fc4b35d2a08::t_982deefa8d09ba 136-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5c39c731925b04e30684b040bc4dea87204c657d",
+  "prompts": {},
+  "sessions": {
+    "s_275fc4b35d2a08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6b4-7013-86d6-2b8f5ec6a7b1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
