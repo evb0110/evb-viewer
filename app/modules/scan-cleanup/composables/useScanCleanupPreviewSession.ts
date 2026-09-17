@@ -815,6 +815,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // Original must never keep painting the raw bytes from the page that
         // was just left while this page has no cached raster of its own.
         if (!cached && viewMode.value === 'original') rawResult.value = null;
+        if (cached) {
+            resultKey.value = key;
+            resultPresentationKey.value = presentationKey(key);
+            result.value = cached;
+            rawResult.value = cached;
+            loading.value = false;
+            error.value = '';
+            errorCode.value = null;
+            void scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
+            return;
+        }
         if (!navigated) prefetcher.supersede();
         void capability.cancelPreview({
             sourcePdfPath: requestSourcePath,
@@ -840,17 +851,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             loading.value = true;
             error.value = '';
             errorCode.value = null;
-            return;
-        }
-        if (cached) {
-            resultKey.value = key;
-            resultPresentationKey.value = presentationKey(key);
-            result.value = cached;
-            rawResult.value = cached;
-            loading.value = false;
-            error.value = '';
-            errorCode.value = null;
-            void scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
             return;
         }
         loading.value = true;
