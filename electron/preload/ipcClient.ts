@@ -13,6 +13,12 @@ import type {
     TFeatureCapability,
     TFeatureDirectBindings,
 } from '@contracts/platformFeature';
+import {buildDiagnosticRecord} from '@contracts/diagnostics/buildDiagnosticRecord';
+import {
+    createDiagnosticFallbackEventId,
+    createSafeDiagnosticEventId,
+} from '@contracts/diagnostics/diagnosticReporterIdentity';
+import {createDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import {createRequestId} from '@contracts/shared';
 import {
     CORE_IPC_SEND_CHANNELS,
@@ -33,10 +39,46 @@ type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<R
 
 interface IIpcInvokerOptions<TChannel extends string = string> { invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>; }
 
+let fallbackDiagnosticEventCounter = 0;
+
+function createFallbackDiagnosticEventId() {
+    fallbackDiagnosticEventCounter = (fallbackDiagnosticEventCounter + 1) >>> 0;
+    return createDiagnosticFallbackEventId(() => fallbackDiagnosticEventCounter);
+}
+
+function createIpcDecodeFailureDiagnostic(channel: string, decoderMessage: string) {
+    const message = `Dropped invalid decoded IPC event payload for ${channel}`;
+    return buildDiagnosticRecord(
+        {
+            code: 'RENDERER_IPC_EVENT_DECODE_FAILED',
+            severity: 'error',
+            operation: 'renderer-error',
+            context: {},
+            local: {
+                source: 'ipc-client',
+                message: `${message}: ${decoderMessage}`,
+                data: {
+                    channel,
+                    decoderMessage,
+                },
+            },
+        },
+        createSafeDiagnosticEventId(createDiagnosticEventId, createFallbackDiagnosticEventId),
+        Date.now(),
+        {
+            fallbackCode: 'RENDERER_IPC_EVENT_DECODE_FAILED',
+            fallbackOperation: 'renderer-error',
+            internalFrameSuffixes: [],
+            runtime: 'electron-renderer',
+        },
+    );
+}
+
 function logDecodedEventValidationFailure(
     ipcRenderer: Partial<Pick<IpcRenderer, 'send'>>,
     channel: string,
     payload: unknown,
+    decoderMessage: string,
 ) {
     const message = `Dropped invalid decoded IPC event payload for ${channel}`;
     if (process.env.NODE_ENV !== 'production') {
@@ -48,10 +90,22 @@ function logDecodedEventValidationFailure(
             section: 'ipc-client',
             message,
             timestamp: new Date().toISOString(),
-            data: { channel },
+            data: {
+                channel,
+                decoderMessage,
+            },
         });
     } catch {
         // Ignore logging failures in preload.
+    }
+    try {
+        ipcRenderer.send?.(
+            CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
+            createIpcDecodeFailureDiagnostic(channel, decoderMessage),
+            0,
+        );
+    } catch {
+        // Ignore diagnostics failures in preload.
     }
 }
 
@@ -249,12 +303,23 @@ export function createTypedIpcEventSubscriber<
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {
             return subscribe(channel, (_event, payload) => {
-                const decoded = decode(payload);
+                let decoded: TEventMap[TChannel] | null;
+                try {
+                    decoded = decode(payload);
+                } catch (error) {
+                    logDecodedEventValidationFailure(
+                        ipcRenderer,
+                        channel,
+                        payload,
+                        getErrorMessage(error) || 'decoder threw without a message',
+                    );
+                    return;
+                }
                 if (decoded !== null) {
                     callback(decoded);
                     return;
                 }
-                logDecodedEventValidationFailure(ipcRenderer, channel, payload);
+                logDecodedEventValidationFailure(ipcRenderer, channel, payload, 'decoder returned null');
             });
         },
     };
@@ -316,13 +381,7 @@ export function createPlatformFeaturePreloadClient<
         client[name] = (callback: (payload: unknown) => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(
                 spec.channel,
-                value => {
-                    try {
-                        return spec.payload.decode(value);
-                    } catch {
-                        return null;
-                    }
-                },
+                value => spec.payload.decode(value),
                 callback,
             );
             const subscription = spec.subscription;

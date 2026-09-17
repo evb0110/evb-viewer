@@ -26,6 +26,13 @@ const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
 const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
 const RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
 /**
+ * Probe the authoritative job record often enough to recover a dropped event,
+ * while staying well below the main-process replay and terminal retention
+ * windows. A slow conversion therefore gets several chances to answer before
+ * an absent record can be treated as abandoned.
+ */
+export const SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS = 10_000;
+/**
  * How long the coordinator keeps the completed run's guard, active job id, and
  * session persistence alive while the generated PDF is handed to the workspace.
  * Kept at the bounded document-open stage budget the workspace controller uses,
@@ -273,6 +280,8 @@ let dependencies: IScanCleanupCoordinatorDependencies | null = null;
 let pendingStart: Pick<IScanCleanupStartRequest, 'documentRevision' | 'ownerId' | 'sourcePdfPath'> | null = null;
 let startRequestPromise: Promise<TScanCleanupRendererStartResult> | null = null;
 let activeStartResult: Extract<TBridgeScanCleanupStartResult, {started: true}> | null = null;
+let runLivenessTimer: ReturnType<typeof setTimeout> | null = null;
+let runLivenessGeneration = 0;
 
 interface IGeneratedPdfHandoff {
     controller: AbortController;
@@ -326,11 +335,29 @@ function invalidateGeneratedPdfHandoff() {
     handoff.controller.abort(new Error('Scan cleanup coordinator was disposed'));
 }
 
+function clearScanCleanupRunLivenessTimer() {
+    if (runLivenessTimer !== null) {
+        clearTimeout(runLivenessTimer);
+        runLivenessTimer = null;
+    }
+    runLivenessGeneration += 1;
+}
+
+function isLiveScanCleanupJobState(state: TScanCleanupJobState | null) {
+    return state === null || [
+        'queued',
+        'running',
+        'canceling',
+        'handoff',
+    ].includes(state.status);
+}
+
 function clearRunGuard() {
     scanCleanupRun.inFlight = false;
     pendingStart = null;
     startRequestPromise = null;
     activeStartResult = null;
+    clearScanCleanupRunLivenessTimer();
 }
 
 function yieldToRunReconciliation() {
@@ -383,6 +410,87 @@ async function abandonUnobservedScanCleanupRun(
     clearRunGuard();
     persistActiveJob(null);
     return true;
+}
+
+function scheduleScanCleanupRunLivenessCheck() {
+    clearScanCleanupRunLivenessTimer();
+    if (
+        !scanCleanupRun.activeJobId
+        || !scanCleanupRun.ownerId
+        || !scanCleanupRun.ownerDocumentRevision
+        || !isLiveScanCleanupJobState(scanCleanupRun.jobState)
+    ) {
+        return;
+    }
+
+    const jobId = scanCleanupRun.activeJobId;
+    const owner = {
+        ownerId: scanCleanupRun.ownerId,
+        documentRevision: scanCleanupRun.ownerDocumentRevision,
+    };
+    const generation = runLivenessGeneration;
+    runLivenessTimer = setTimeout(() => {
+        runLivenessTimer = null;
+        void (async () => {
+            if (
+                generation !== runLivenessGeneration
+                || scanCleanupRun.activeJobId !== jobId
+                || scanCleanupRun.ownerId !== owner.ownerId
+                || scanCleanupRun.ownerDocumentRevision !== owner.documentRevision
+            ) {
+                return;
+            }
+
+            const capability = getScanCleanupCapability();
+            if (!capability) {
+                scheduleScanCleanupRunLivenessCheck();
+                return;
+            }
+
+            let state: TScanCleanupJobState | null = null;
+            try {
+                state = await capability.getJobState(jobId, owner);
+            } catch {
+                // A transient transport failure is not evidence that the main
+                // process forgot the job. Keep the guard and try again.
+                if (
+                    generation === runLivenessGeneration
+                    && scanCleanupRun.activeJobId === jobId
+                    && scanCleanupRun.ownerId === owner.ownerId
+                    && scanCleanupRun.ownerDocumentRevision === owner.documentRevision
+                ) {
+                    scheduleScanCleanupRunLivenessCheck();
+                }
+                return;
+            }
+
+            if (
+                generation !== runLivenessGeneration
+                || scanCleanupRun.activeJobId !== jobId
+                || scanCleanupRun.ownerId !== owner.ownerId
+                || scanCleanupRun.ownerDocumentRevision !== owner.documentRevision
+            ) {
+                return;
+            }
+            if (state) {
+                acceptScanCleanupJobState(state);
+                return;
+            }
+
+            const sourceDocumentRef = scanCleanupRun.ownerDocumentRef;
+            const reset = await abandonUnobservedScanCleanupRun(capability, jobId, owner);
+            if (reset) {
+                reportScanCleanupRunError(
+                    owner.ownerId,
+                    dependencies?.t('scanCleanup.errors.runRecoveryFailed') ?? 'scanCleanup.errors.runRecoveryFailed',
+                    sourceDocumentRef,
+                    'internal',
+                    owner.documentRevision,
+                );
+            }
+        })();
+    }, SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+    runLivenessTimer.unref?.();
 }
 
 function persistActiveJob(jobId: TJobId | null, documentRef: string | null = scanCleanupRun.ownerDocumentRef) {
@@ -564,6 +672,11 @@ function acceptScanCleanupJobState(state: TScanCleanupJobState) {
         persistActiveJob(state.jobId, pendingStart.sourcePdfPath);
     }
     scanCleanupRun.jobState = state;
+    if (isLiveScanCleanupJobState(state)) {
+        scheduleScanCleanupRunLivenessCheck();
+    } else {
+        clearScanCleanupRunLivenessTimer();
+    }
     if ([
         'completed',
         'failed',
@@ -603,6 +716,7 @@ async function startScanCleanupRequest(
     }
     activeStartResult = result;
     scanCleanupRun.activeJobId = result.jobId;
+    scanCleanupRun.jobState = null;
     scanCleanupRun.ownerDocumentRef = request.sourcePdfPath;
     scanCleanupRun.ownerId = request.ownerId;
     scanCleanupRun.ownerDocumentRevision = request.documentRevision;
@@ -612,6 +726,7 @@ async function startScanCleanupRequest(
         ownerId: request.ownerId,
         documentRevision: request.documentRevision,
     };
+    scheduleScanCleanupRunLivenessCheck();
     let restored: TScanCleanupJobState | null;
     try {
         restored = await capability.subscribeJob(result.jobId, owner);
@@ -735,6 +850,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
         unsubscribe = null;
         installed = false;
         dependencies = null;
+        clearScanCleanupRunLivenessTimer();
         invalidateGeneratedPdfHandoff();
     };
 
@@ -763,6 +879,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                 ownerId: scanCleanupRun.ownerId,
                 documentRevision: scanCleanupRun.ownerDocumentRevision,
             };
+            scheduleScanCleanupRunLivenessCheck();
             void (async () => {
                 const state = await reconcileScanCleanupRunState(capability, storedJobId, owner);
                 if (state) acceptScanCleanupJobState(state);

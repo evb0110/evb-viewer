@@ -259,6 +259,95 @@ describe('scan cleanup run coordinator', () => {
         expect(coordinator.isScanCleanupRunning.value).toBe(true);
     });
 
+    it('recovers a dropped terminal state through the liveness probe', async () => {
+        vi.useFakeTimers();
+        const running = runningJobState(requireJobId('liveness-terminal-job'));
+        const getJobState = vi.fn(async () => completedState('liveness-terminal-job'));
+        const value = stubCapability(() => undefined, () => 'liveness-terminal-job');
+        vi.mocked(value.getJobState).mockImplementation(getJobState);
+        vi.mocked(value.subscribeJob).mockResolvedValue(running);
+        capability.value = value;
+        const openGeneratedPdf = vi.fn(async () => true);
+        const toastAdd = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: toastAdd},
+        });
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/liveness-terminal.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+
+            expect(getJobState).toHaveBeenCalledWith('liveness-terminal-job', ownerContext);
+            expect(openGeneratedPdf).toHaveBeenCalledWith(
+                '/managed/liveness-terminal-job.pdf',
+                expect.any(AbortSignal),
+            );
+            expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'}));
+            expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps a slow live job guarded until the liveness probe finds no record', async () => {
+        vi.useFakeTimers();
+        const running = runningJobState(requireJobId('liveness-slow-job'));
+        const responses: Array<TScanCleanupJobState | null> = [
+            running,
+            running,
+            null,
+        ];
+        const getJobState = vi.fn(async () => responses.shift() ?? null);
+        const value = stubCapability(() => undefined, () => 'liveness-slow-job');
+        vi.mocked(value.getJobState).mockImplementation(getJobState);
+        vi.mocked(value.subscribeJob).mockResolvedValue(running);
+        capability.value = value;
+        const cancel = vi.mocked(value.cancel);
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(async () => true),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/liveness-slow.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS * 2);
+
+            expect(getJobState).toHaveBeenCalledTimes(2);
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('liveness-slow-job');
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(cancel).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+
+            expect(getJobState).toHaveBeenCalledTimes(3);
+            expect(cancel).toHaveBeenCalledWith('liveness-slow-job', ownerContext);
+            expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
     it('resets the run guard and cancels when a subscription cannot be reconciled', async () => {
         const cancel = vi.fn(async () => true);
         capability.value = {
