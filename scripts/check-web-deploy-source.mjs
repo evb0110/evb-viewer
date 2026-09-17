@@ -1,3 +1,7 @@
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     lstat,
@@ -168,6 +172,24 @@ function shouldSkipSourcePath(dirent, relativeDirectory) {
     return isExcludedWebDeploySourcePath(dirent.name, relativeDirectory);
 }
 
+// A file: dependency is a build input even when vendor archives are otherwise excluded.
+export function getWebDeployVendorDependencies(projectRoot = defaultProjectRoot) {
+    const manifestPath = path.join(projectRoot, 'package.json');
+    if (!existsSync(manifestPath)) return new Set();
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const dependencies = {
+        ...manifest.dependencies,
+        ...manifest.devDependencies,
+        ...manifest.optionalDependencies,
+    };
+    return new Set(Object.values(dependencies)
+        .filter(value => typeof value === 'string' && value.startsWith('file:vendor/'))
+        .map(value => value.slice('file:'.length))
+        .filter(relativePath => !relativePath.split('/').includes('..')
+            && !relativePath.includes('\\')
+            && /\.(?:tgz|tar\.gz)$/u.test(relativePath)));
+}
+
 export function getTrackedWebDeploySourcePaths(projectRoot = defaultProjectRoot) {
     const output = execFileSync('git', [
         'ls-files',
@@ -211,6 +233,7 @@ export async function collectWebDeploySourceStats({
     projectRoot = defaultProjectRoot,
     trackedOnly = true,
 } = {}) {
+    const vendorDependencies = getWebDeployVendorDependencies(projectRoot);
     const stats = {
         byteLength: 0,
         fileCount: 0,
@@ -238,11 +261,13 @@ export async function collectWebDeploySourceStats({
         const entries = await readdir(directory, {withFileTypes: true});
 
         for (const dirent of entries) {
-            if (shouldSkipSourcePath(dirent, relativeDirectory)) {
+            const relativePath = path.posix.join(relativeDirectory, dirent.name);
+            const dependencyInput = [...vendorDependencies].some(dependency => dependency === relativePath
+                || dependency.startsWith(`${relativePath}/`));
+            if (!dependencyInput && (relativePath.startsWith('vendor/') || shouldSkipSourcePath(dirent, relativeDirectory))) {
                 continue;
             }
 
-            const relativePath = path.join(relativeDirectory, dirent.name);
             const absolutePath = path.join(directory, dirent.name);
             const fileStat = await lstat(absolutePath);
 
@@ -259,7 +284,7 @@ export async function collectWebDeploySourceStats({
 
     if (trackedOnly) {
         for (const relativePath of getTrackedWebDeploySourcePaths(projectRoot)) {
-            if (!shouldIncludeTrackedPath(relativePath)) {
+            if (!vendorDependencies.has(relativePath) && !shouldIncludeTrackedPath(relativePath)) {
                 continue;
             }
             await addFile(path.join(projectRoot, relativePath), relativePath);

@@ -989,6 +989,40 @@ describe('private Vercel deployment source', () => {
         ]);
     });
 
+    it.each([
+        'viewer',
+        'landing',
+    ] as const)('keeps declared vendor archives installable for %s', (deployTarget) => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+        try {
+            const dependency = 'vendor/pdfjs-dist/current.tgz';
+            mkdirSync(path.join(projectRoot, 'vendor/pdfjs-dist'), {recursive: true});
+            writeFileSync(path.join(projectRoot, dependency), 'required package');
+            writeFileSync(path.join(projectRoot, 'vendor/pdfjs-dist/old.tgz'), 'obsolete package');
+            const manifest = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+            manifest.dependencies = {'pdfjs-dist': `file:${dependency}`};
+            writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify(manifest));
+            writeFileSync(path.join(projectRoot, '.vercelignore'), 'vendor/\n*.tgz\n');
+            commitFixtureChanges(projectRoot);
+            prepared = preparePrivateDeploySource({
+                projectRoot,
+                deployTarget,
+            });
+            expect(readFileSync(path.join(prepared.sourceRoot, dependency), 'utf8')).toBe('required package');
+            expect(existsSync(path.join(prepared.sourceRoot, 'vendor/pdfjs-dist/old.tgz'))).toBe(false);
+            expect(readFileSync(path.join(prepared.sourceRoot, '.vercelignore'), 'utf8')).toContain(
+                '!vendor/\n!vendor/pdfjs-dist/\n!vendor/pdfjs-dist/current.tgz',
+            );
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('preserves the landing workspace and uses its separate project linkage', () => {
         const projectRoot = createProjectFixture();
         let prepared: IPreparedPrivateDeploySource | undefined;

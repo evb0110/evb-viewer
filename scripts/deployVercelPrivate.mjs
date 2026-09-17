@@ -29,6 +29,7 @@ import {
 import {
     assertCleanTrackedWebDeploySource,
     getTrackedWebDeploySourcePaths,
+    getWebDeployVendorDependencies,
     isExcludedWebDeploySourceDirectoryName,
     isExcludedWebDeploySourceFileName,
 } from './check-web-deploy-source.mjs';
@@ -63,10 +64,10 @@ const PRODUCTION_DEPLOY_LOCK_POLL_MS = 250;
 // predicate, so what this deploy uploads is what that check measured: local-only
 // artifacts (in any ASCII case, at any depth), env files that are not templates,
 // and the deploy-specific build files are all excluded from both.
-export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget = 'viewer') {
-    const relativePath = path.relative(projectRoot, sourcePath);
+export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget = 'viewer', vendorDependencies = getWebDeployVendorDependencies(projectRoot)) {
+    const relativePath = path.relative(projectRoot, sourcePath).replaceAll(path.sep, '/');
 
-    if (relativePath === '') {
+    if (relativePath === '' || vendorDependencies.has(relativePath)) {
         return true;
     }
 
@@ -114,6 +115,13 @@ function sanitizeVercelIgnore(sourceRoot, deployTarget) {
         return shouldKeepVercelIgnoreLine(line, sourceRoot);
     });
 
+    for (const dependency of getWebDeployVendorDependencies(sourceRoot)) {
+        const segments = dependency.split('/');
+        for (let length = 1; length < segments.length; length += 1) {
+            filteredLines.push(`!${segments.slice(0, length).join('/')}/`);
+        }
+        filteredLines.push(`!${dependency}`);
+    }
     writeFileSync(vercelIgnorePath, filteredLines.join('\n'), 'utf8');
 }
 
@@ -163,9 +171,10 @@ function configureLandingBuild(sourceRoot) {
 }
 
 function copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget) {
+    const vendorDependencies = getWebDeployVendorDependencies(projectRoot);
     for (const relativePath of getTrackedWebDeploySourcePaths(projectRoot)) {
         const sourcePath = path.join(projectRoot, relativePath);
-        if (!shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget)) {
+        if (!shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget, vendorDependencies)) {
             continue;
         }
 
