@@ -556,7 +556,7 @@ jobs:
 
       - name: Install PDF audit tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils python3-numpy python3-opencv python3-pil qpdf
+        run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
