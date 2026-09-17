@@ -1,3 +1,6 @@
+import type {IScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+
 export const SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE = 'SCAN_CLEANUP_OUTPUT_MISSING' as const;
 export const SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE = 'SCAN_CLEANUP_PDF_VALIDATION_FAILED' as const;
 export const SCAN_CLEANUP_CONTRACT_ERROR_CODE = 'SCAN_CLEANUP_CONTRACT_VIOLATION' as const;
@@ -53,7 +56,7 @@ export class ScanCleanupTooLargeError extends Error {
     readonly code = 'too-large' as const;
 
     constructor() {
-        super('Scan cleanup ink placement exceeds the supported 20,000-page document capacity');
+        super(`Scan cleanup ink placement exceeds the supported ${SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES.toLocaleString('en-US')}-page document capacity`);
         this.name = 'ScanCleanupTooLargeError';
     }
 }
@@ -90,12 +93,15 @@ export class ScanCleanupNativeToolUnavailableError extends Error {
  */
 export class ScanCleanupInsufficientScratchError extends Error {
     readonly code = 'insufficient-scratch' as const;
-    readonly availableBytes: number | null;
-    readonly requiredBytes: number | null;
-    readonly scratchShortfall: {
-        availableBytes: number | null;
-        requiredBytes: number | null;
-    };
+    readonly scratchShortfall: IScanCleanupScratchShortfall;
+
+    get availableBytes() {
+        return this.scratchShortfall.availableBytes;
+    }
+
+    get requiredBytes() {
+        return this.scratchShortfall.requiredBytes;
+    }
 
     constructor(availableBytes: number | null, requiredBytes: number | null) {
         const figures = [
@@ -107,8 +113,6 @@ export class ScanCleanupInsufficientScratchError extends Error {
             + (figures.length === 0 ? '' : ` (${figures.join(', ')})`),
         );
         this.name = 'ScanCleanupInsufficientScratchError';
-        this.availableBytes = availableBytes;
-        this.requiredBytes = requiredBytes;
         this.scratchShortfall = {
             availableBytes,
             requiredBytes,

@@ -55,7 +55,10 @@ import type {
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {
+    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
+    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+} from '@contracts/scan-cleanup/inputLimits';
 
 const roots: string[] = [];
 const PPM = Buffer.concat([
@@ -623,7 +626,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             policy,
             vi.fn<TScanCleanupLog>(),
             dependencies,
-        )).rejects.toThrow('20,000');
+        )).rejects.toThrow(`${SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES.toLocaleString('en-US')}-page`);
         expect(dependencies.getPageSizeStore).toBeUndefined();
         expect(runCommand).not.toHaveBeenCalled();
         expect(await readdir(root)).not.toContain('output.pdf');
