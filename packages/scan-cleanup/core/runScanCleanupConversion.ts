@@ -1438,6 +1438,7 @@ async function runStreamingScanCleanupConversion({
     const outputHandle = await open(batchOutputsPath, 'w');
     const summaryHandle = await open(batchSummariesPath, 'w');
     const summary = createEmptyScanCleanupSummary(pageCount, warnings, warningEvents);
+    const completedPageNumbers = new Set<number>();
     let batchCount = 0;
     try {
         for (const batch of iterateScanCleanupPageBatches(
@@ -1494,11 +1495,28 @@ async function runStreamingScanCleanupConversion({
                 childRequest,
                 paths,
                 signal,
-                progress => emitProgress(
-                    progress.stage,
-                    Math.min(pageCount, batch.startOffset + progress.completedUnits),
-                    pageCount,
-                ),
+                progress => {
+                    if (
+                        progress.completedPageNumbers !== undefined
+                        && progress.completedPageNumbersTruncated !== true
+                    ) {
+                        for (const pageNumber of progress.completedPageNumbers) {
+                            completedPageNumbers.add(pageNumber);
+                        }
+                    }
+                    const completedUnits = Math.min(
+                        pageCount,
+                        batch.startOffset + progress.completedUnits,
+                    );
+                    emitProgress(
+                        'rendering',
+                        completedUnits,
+                        pageCount,
+                        completedPageNumbers.size === completedUnits
+                            ? completedPageNumbers
+                            : undefined,
+                    );
+                },
                 policy,
                 log,
                 childDependencies,
@@ -1632,9 +1650,9 @@ async function runStreamingScanCleanupConversion({
         await copyFile(stagedPdfPath, publishTempPath);
         signal.throwIfAborted();
         await rename(publishTempPath, request.outputPdfPath);
-        // Publication completed, so report the aggregate count without an
-        // empty page list that would contradict completedUnits.
-        emitProgress('handoff', pageCount, pageCount);
+        // Publication completed, so report the aggregate count with the full
+        // page list that backs completedUnits.
+        emitProgress('handoff', pageCount, pageCount, pageNumbers);
         return summary;
     } finally {
         await Promise.all([

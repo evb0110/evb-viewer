@@ -1031,10 +1031,25 @@ describe('scan-cleanup-core conversion coverage', () => {
             {full: {yNormalized: 0.19999999999999998}},
         ]]);
         expect(renderPagePpm).toHaveBeenCalledTimes(4);
+        const renderingReports = progress.filter(report => report.stage === 'rendering');
+        expect(renderingReports.length).toBeGreaterThan(0);
+        expect(renderingReports.every(report => report.completedUnits <= report.totalUnits)).toBe(true);
+        expect(renderingReports.at(-1)).toMatchObject({
+            completedUnits: 2,
+            totalUnits: 2,
+            completedPageNumbers: [
+                1,
+                2,
+            ],
+        });
         expect(progress.at(-1)).toMatchObject({
             stage: 'handoff',
             completedUnits: 2,
             totalUnits: 2,
+            completedPageNumbers: [
+                1,
+                2,
+            ],
         });
     });
 
