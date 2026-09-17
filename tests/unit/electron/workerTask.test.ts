@@ -772,8 +772,11 @@ describe('workerTask', () => {
             runResultWorkerTask,
         } = await import('@electron/utils/workerTask');
         const {ScanCleanupInsufficientScratchError} = await import('@evb/scan-cleanup/core/errors');
+        const scratchError = new ScanCleanupInsufficientScratchError(512, 1_024);
+        expect(scratchError.availableBytes).toBe(scratchError.scratchShortfall.availableBytes);
+        expect(scratchError.requiredBytes).toBe(scratchError.scratchShortfall.requiredBytes);
         const workerFrame = createWorkerTaskErrorFrame(
-            new ScanCleanupInsufficientScratchError(512, 1_024),
+            scratchError,
             {source: 'scan-cleanup'},
         );
         expect(workerFrame).toMatchObject({
@@ -812,7 +815,7 @@ describe('workerTask', () => {
             availableBytes: 'decoded by the contract',
             requiredBytes: 'decoded by the contract',
         };
-        scanCleanupIpcMocks.decodeScratchShortfall.mockReturnValue({
+        scanCleanupIpcMocks.decodeScratchShortfall.mockReturnValueOnce({
             availableBytes: 512,
             requiredBytes: 1_024,
         });
