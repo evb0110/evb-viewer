@@ -45,6 +45,28 @@ function serialize(result: IScanCleanupDetectionResult) {
     return line;
 }
 
+type TScanCleanupFileHandle = Awaited<ReturnType<typeof open>>;
+
+async function writeFully(
+    handle: TScanCleanupFileHandle,
+    data: Buffer,
+    position?: number,
+) {
+    let offset = 0;
+    while (offset < data.byteLength) {
+        const {bytesWritten} = await handle.write(
+            data,
+            offset,
+            data.byteLength - offset,
+            position === undefined ? undefined : position + offset,
+        );
+        if (bytesWritten <= 0) {
+            throw new Error('Scan cleanup detection result handoff made no write progress');
+        }
+        offset += bytesWritten;
+    }
+}
+
 function assertDescriptor(descriptor: unknown): asserts descriptor is IScanCleanupDetectionResultStoreDescriptor {
     if (
         !isRecord(descriptor)
@@ -98,14 +120,14 @@ export async function persistScanCleanupDetectionResultStore(
                 const line = serialize(result);
                 const encodedOffset = Buffer.alloc(RESULT_STORE_INDEX_BYTES);
                 encodedOffset.writeBigUInt64LE(BigInt(nextOffset) + 1n, 0);
-                await indexHandle!.write(
+                await writeFully(
+                    indexHandle!,
                     encodedOffset,
-                    0,
-                    encodedOffset.byteLength,
                     (result.pageNumber - 1) * RESULT_STORE_INDEX_BYTES,
                 );
-                await recordsHandle!.write(line);
-                nextOffset += Buffer.byteLength(line, 'utf8');
+                const encodedLine = Buffer.from(line, 'utf8');
+                await writeFully(recordsHandle!, encodedLine);
+                nextOffset += encodedLine.byteLength;
                 if (!Number.isSafeInteger(nextOffset)) {
                     throw new RangeError('Scan cleanup detection result handoff exceeds the offset limit');
                 }
