@@ -5,6 +5,12 @@ import {
     type TInferSchema,
 } from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
+import {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
+import {
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+    SCAN_CLEANUP_OUTPUT_MODES,
+} from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
@@ -19,6 +25,8 @@ import type {
     TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
+    TScanCleanupSpreadBinarizationDecision,
+    TScanCleanupTextToneRule,
 } from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupAppliedMargins,
@@ -237,12 +245,7 @@ export interface INativeScanCleanupInkConsistencyDiagnosticsV3 {
     applied: boolean;
 }
 
-export type TNativeScanCleanupTextToneRuleV3 =
-    | 'applied'
-    | 'picture-evidence'
-    | 'insufficient-text'
-    | 'tonal-mass-outside-text'
-    | 'already-dark';
+export type TNativeScanCleanupTextToneRuleV3 = TScanCleanupTextToneRule;
 
 export interface INativeScanCleanupTextToneDiagnosticsV3 {
     applied: boolean;
@@ -529,12 +532,7 @@ export interface INativeScanCleanupBinarizationDiagnosticsV3 {
     spreadPlan?: INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3;
 }
 
-export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 =
-    | 'sharedJoint'
-    | 'perLeafRouteMismatch'
-    | 'perLeafAnchorDrift'
-    | 'perLeafRadiusDrift'
-    | 'perLeafFaintInkDrift';
+export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 = TScanCleanupSpreadBinarizationDecision;
 
 export interface INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3 {
     route: TScanCleanupBinarizationMethod;
@@ -707,46 +705,22 @@ const confidence = (message: string) => s.number({
     max: 1,
     message,
 });
-const classification = s.oneOf([
-    'single-uncut-page',
-    'page-with-offcut',
-    'two-page-spread',
-] as const, 'Invalid evb-scan-cleanup progress classification');
-const documentPrior = s.refine(s.object({
-    dominantLayout: classification,
-    cutterRatioMedian: s.nullable(s.number({
-        min: 0.2,
-        max: 0.8,
-        message: 'Invalid evb-scan-cleanup document prior',
-    })),
-    clusterDims: s.object({
-        widthPx: s.number({
-            min: Number.MIN_VALUE,
-            message: 'Invalid evb-scan-cleanup document prior',
-        }),
-        heightPx: s.number({
-            min: Number.MIN_VALUE,
-            message: 'Invalid evb-scan-cleanup document prior',
-        }),
-    }, {
-        exact: true,
-        message: 'Invalid evb-scan-cleanup document prior',
+const classification = s.oneOf(
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    'Invalid evb-scan-cleanup progress classification',
+);
+const documentPrior = s.fromParser(
+    decodeDocumentPrior,
+    () => ({
+        dominantLayout: 'single-uncut-page' as const,
+        cutterRatioMedian: null,
+        clusterDims: {
+            widthPx: 1,
+            heightPx: 1,
+        },
+        agreementStrength: 0,
     }),
-    agreementStrength: confidence('Invalid evb-scan-cleanup document prior'),
-    strokeWidthMedianPx: s.optional(s.number({
-        min: Number.MIN_VALUE,
-        message: 'Invalid evb-scan-cleanup document prior',
-    })),
-    xHeightMedianPx: s.optional(s.number({
-        min: Number.MIN_VALUE,
-        message: 'Invalid evb-scan-cleanup document prior',
-    })),
-}, {
-    exact: true,
-    message: 'Invalid evb-scan-cleanup document prior',
-}), value =>
-    value.dominantLayout !== 'two-page-spread' || value.cutterRatioMedian !== null,
-'Invalid evb-scan-cleanup document prior');
+);
 const textAxis = s.object({
     sideways: s.boolean(),
     confidence: confidence('Invalid evb-scan-cleanup text axis'),
@@ -888,23 +862,17 @@ const progress = s.refine(s.refine(s.object({
     documentPrior: s.optional(documentPrior),
     textAxis: s.optional(textAxis),
     stageTimings: s.optional(pageStageTimings),
-    recommendedOutputMode: s.optional(s.oneOf([
-        'bw',
-        'mixed',
-        'grayscale',
-        'color',
-    ] as const, 'Invalid evb-scan-cleanup recommended output mode')),
+    recommendedOutputMode: s.optional(s.oneOf(
+        SCAN_CLEANUP_OUTPUT_MODES,
+        'Invalid evb-scan-cleanup recommended output mode',
+    )),
     recommendedOutputModeConfidence: s.optional(confidence(
         'Invalid evb-scan-cleanup output mode confidence',
     )),
-    recommendedOutputModeReason: s.optional(s.oneOf([
-        'blank',
-        'color-chroma',
-        'text-with-pictures',
-        'continuous-tone',
-        'bimodal-text',
-        'uncertain-tonal',
-    ] as const, 'Invalid evb-scan-cleanup output mode recommendation reason')),
+    recommendedOutputModeReason: s.optional(s.oneOf(
+        SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+        'Invalid evb-scan-cleanup output mode recommendation reason',
+    )),
     softAlphaForegroundRecommendation: s.optional(s.boolean()),
     outputModeDiagnostics: s.optional(outputModeDiagnostics),
 }), value => value.completedPages <= value.totalPages,

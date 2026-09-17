@@ -1,4 +1,6 @@
-export type TScanCleanupPageRotation = 0 | 90 | 180 | 270;
+import type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/domain';
+
+export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/domain';
 
 /** A vertical cutter authored in normalized rotated-analysis-page space. */
 export interface IScanCleanupNormalizedSplit {

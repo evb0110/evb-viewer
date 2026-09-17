@@ -21,6 +21,7 @@ fn zone_polygon(points: &[(f64, f64)]) -> NormalizedZonePolygon {
 fn manual_zone_polygons_must_be_simple_and_non_degenerate() {
     for points in [
         vec![(0.1, 0.1), (0.8, 0.1), (0.8, 0.1)],
+        vec![(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9), (0.9, 0.1)],
         vec![(0.1, 0.1), (0.5, 0.5), (0.9, 0.9)],
         vec![(0.1, 0.1), (0.9, 0.9), (0.1, 0.9), (0.9, 0.1)],
     ] {

@@ -1,19 +1,18 @@
 import type {IScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipc';
-import type {TScanCleanupOutputModeRecommendationReason} from '@contracts/scan-cleanup/domain';
+import {
+    SCAN_CLEANUP_OUTPUT_MODES,
+    SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+    type TScanCleanupOutputModeRecommendationReason,
+} from '@contracts/scan-cleanup/domain';
 
 export function isScanCleanupOutputMode(
     value: unknown,
 ): value is NonNullable<IScanCleanupPreviewResult['pageMetadata']['recommendedOutputMode']> {
-    return value === 'bw' || value === 'mixed' || value === 'grayscale' || value === 'color';
+    return SCAN_CLEANUP_OUTPUT_MODES.some(mode => mode === value);
 }
 
 export function isScanCleanupOutputModeRecommendationReason(
     value: unknown,
 ): value is TScanCleanupOutputModeRecommendationReason {
-    return value === 'blank'
-        || value === 'color-chroma'
-        || value === 'text-with-pictures'
-        || value === 'continuous-tone'
-        || value === 'bimodal-text'
-        || value === 'uncertain-tonal';
+    return SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS.some(reason => reason === value);
 }

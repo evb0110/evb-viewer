@@ -13,7 +13,9 @@ import type {
     IScanCleanupReconciliationMetadata,
     IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
+    TScanCleanupCanvasPolicy,
     TScanCleanupCanvasScope,
+    TScanCleanupContentTrimSide,
     TScanCleanupLayoutByPage,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
@@ -51,6 +53,10 @@ import type {
     TRequestId,
 } from '@contracts/shared';
 import type {TEpochMs} from '@contracts/timestamps';
+export type {
+    TScanCleanupCanvasPolicy,
+    TScanCleanupContentTrimSide,
+} from '@contracts/scan-cleanup/domain';
 
 export interface IScanCleanupOwnerContext {
     /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
@@ -195,8 +201,6 @@ export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerConte
     retainPages?: readonly number[];
 }
 
-export type TScanCleanupCanvasPolicy = 'intrinsic' | 'strict-maximum';
-
 /**
  * The single rectangle and pixel grid every matched output of a document is
  * normalized onto: the same absolute PDF points and the same pixel dimensions
@@ -225,8 +229,6 @@ export interface IScanCleanupContentTextMaskSummary {
     lineCount: number;
     bounds?: IScanCleanupPixelRect;
 }
-
-export type TScanCleanupContentTrimSide = 'left' | 'top' | 'right' | 'bottom';
 
 export interface IScanCleanupContentBlockEvidence {
     bounds: IScanCleanupPixelRect;

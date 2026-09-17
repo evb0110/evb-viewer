@@ -1,4 +1,17 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
+import {
+    SCAN_CLEANUP_BINARIZATION_METHODS,
+    SCAN_CLEANUP_CANVAS_POLICIES,
+    SCAN_CLEANUP_CANVAS_SCOPES,
+    SCAN_CLEANUP_CONTENT_TRIM_SIDES,
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    SCAN_CLEANUP_OUTPUT_HALVES,
+    SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+    SCAN_CLEANUP_OUTPUT_MODES,
+    SCAN_CLEANUP_PAGE_ROTATIONS,
+    SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS,
+} from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
@@ -27,35 +40,6 @@ const MAX_GEOMETRY_POINTS = 65_536;
 const MAX_DIAGNOSTIC_ITEMS = 4_096;
 const MAX_PAGE_METADATA_JSON_LENGTH = 2 * 1024 * 1024;
 const MAX_OUTPUT_METADATA_JSON_LENGTH = 16 * 1024 * 1024;
-
-const HALVES = [
-    'full',
-    'left',
-    'right',
-] as const;
-const LAYOUTS = [
-    'single-uncut-page',
-    'page-with-offcut',
-    'two-page-spread',
-] as const;
-const ROTATIONS = [
-    0,
-    90,
-    180,
-    270,
-] as const;
-const OUTPUT_MODES = [
-    'bw',
-    'mixed',
-    'grayscale',
-    'color',
-] as const;
-const BINARIZATION_MODES = [
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const;
 
 export class InvalidScanCleanupNativeArtifactError extends Error {
     // Stable typed-error discriminator consumed across process boundaries.
@@ -187,9 +171,9 @@ function isNativeScanCleanupPageArtifactMetadata(
     value: unknown,
 ): value is INativeScanCleanupPageArtifactMetadataV3 {
     return isRecord(value)
-        && isOneOfValue(value.layoutClassification, LAYOUTS)
+        && isOneOfValue(value.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS)
         && (value.cutterXPx === null || typeof value.cutterXPx === 'number')
-        && isOneOfValue(value.rotationDegrees, ROTATIONS)
+        && isOneOfValue(value.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS)
         && isOneOfValue(value.canvasScope, [
             'page',
             'document',
@@ -207,12 +191,12 @@ function isNativeScanCleanupOutputMetadata(
         && typeof value.outputHeightPx === 'number'
         && typeof value.canvasWidthPx === 'number'
         && typeof value.canvasHeightPx === 'number'
-        && isOneOfValue(value.layoutClassification, LAYOUTS)
+        && isOneOfValue(value.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS)
         && typeof value.skewApplied === 'boolean'
         && typeof value.placementOffsetXPx === 'number'
         && typeof value.placementOffsetYPx === 'number'
         && (value.forwardTransform === null || isRecord(value.forwardTransform))
-        && isOneOfValue(value.rotationDegrees, ROTATIONS);
+        && isOneOfValue(value.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS);
 }
 
 function optionalBoolean(source: Record<string, unknown>, key: string, artifact: TArtifact) {
@@ -313,7 +297,7 @@ function textToneDiagnostics(value: unknown, artifact: TArtifact, label: string)
 
 function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
-    oneOf(source.route, BINARIZATION_MODES, artifact, `${label}.route`);
+    oneOf(source.route, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.route`);
     for (const key of [
         'robustContrast',
         'illuminationDeviation',
@@ -324,10 +308,10 @@ function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: str
     ] as const) finite(source[key], artifact, `${label}.${key}`);
     if (source.spreadPlan !== undefined) {
         const plan = record(source.spreadPlan, artifact, `${label}.spreadPlan`);
-        oneOf(plan.route, BINARIZATION_MODES, artifact, `${label}.spreadPlan.route`);
-        oneOf(plan.jointCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.jointCandidateRoute`);
-        oneOf(plan.leftCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.leftCandidateRoute`);
-        oneOf(plan.rightCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.rightCandidateRoute`);
+        oneOf(plan.route, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.route`);
+        oneOf(plan.jointCandidateRoute, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.jointCandidateRoute`);
+        oneOf(plan.leftCandidateRoute, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.leftCandidateRoute`);
+        oneOf(plan.rightCandidateRoute, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.rightCandidateRoute`);
         const thresholdAnchor = integer(plan.thresholdAnchor, artifact, `${label}.spreadPlan.thresholdAnchor`);
         if (thresholdAnchor > 255) fail(artifact, `${label}.spreadPlan.thresholdAnchor must be <= 255`);
         integer(plan.thresholdRadius, artifact, `${label}.spreadPlan.thresholdRadius`, 1);
@@ -336,13 +320,7 @@ function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: str
             fail(artifact, `${label}.spreadPlan anchors must be positive`);
         }
         if (typeof plan.documentAnchor !== 'boolean') fail(artifact, `${label}.spreadPlan.documentAnchor must be boolean`);
-        oneOf(plan.decision, [
-            'sharedJoint',
-            'perLeafRouteMismatch',
-            'perLeafAnchorDrift',
-            'perLeafRadiusDrift',
-            'perLeafFaintInkDrift',
-        ] as const, artifact, `${label}.spreadPlan.decision`);
+        oneOf(plan.decision, SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS, artifact, `${label}.spreadPlan.decision`);
     }
 }
 
@@ -379,12 +357,7 @@ function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) 
         source.acceptedTrims.forEach((item, index) => {
             const trimLabel = `${label}.acceptedTrims[${String(index)}]`;
             const trim = record(item, artifact, trimLabel);
-            oneOf(trim.side, [
-                'left',
-                'top',
-                'right',
-                'bottom',
-            ] as const, artifact, `${trimLabel}.side`);
+            oneOf(trim.side, SCAN_CLEANUP_CONTENT_TRIM_SIDES, artifact, `${trimLabel}.side`);
             integer(trim.iteration, artifact, `${trimLabel}.iteration`);
             unit(trim.score, artifact, `${trimLabel}.score`);
             unit(trim.threshold, artifact, `${trimLabel}.threshold`);
@@ -614,29 +587,9 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         };
 }
 
-function documentPrior(value: unknown, artifact: TArtifact, label: string) {
-    const source = record(value, artifact, label);
-    oneOf(source.dominantLayout, LAYOUTS, artifact, `${label}.dominantLayout`);
-    nullableFinite(source.cutterRatioMedian, artifact, `${label}.cutterRatioMedian`);
-    if (source.strokeWidthMedianPx !== undefined
-        && finite(source.strokeWidthMedianPx, artifact, `${label}.strokeWidthMedianPx`) <= 0) {
-        fail(artifact, `${label}.strokeWidthMedianPx must be positive`);
-    }
-    if (source.xHeightMedianPx !== undefined
-        && finite(source.xHeightMedianPx, artifact, `${label}.xHeightMedianPx`) <= 0) {
-        fail(artifact, `${label}.xHeightMedianPx must be positive`);
-    }
-    const dimensions = record(source.clusterDims, artifact, `${label}.clusterDims`);
-    if (finite(dimensions.widthPx, artifact, `${label}.clusterDims.widthPx`) <= 0
-        || finite(dimensions.heightPx, artifact, `${label}.clusterDims.heightPx`) <= 0) {
-        fail(artifact, `${label}.clusterDims must be positive`);
-    }
-    unit(source.agreementStrength, artifact, `${label}.agreementStrength`);
-}
-
 function analysisOutput(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
-    oneOf(source.half, HALVES, artifact, `${label}.half`);
+    oneOf(source.half, SCAN_CLEANUP_OUTPUT_HALVES, artifact, `${label}.half`);
     pixelRect(source.sourceRegion, artifact, `${label}.sourceRegion`);
     if (source.contentBox !== undefined && source.contentBox !== null) pixelRect(source.contentBox, artifact, `${label}.contentBox`);
     if (source.contentDiagnostics !== undefined) contentDiagnostics(source.contentDiagnostics, artifact, `${label}.contentDiagnostics`);
@@ -678,16 +631,13 @@ export function decodeNativeScanCleanupPageMetadata(
         : decodedSource;
     validateVersion(source, artifact);
     if (source.sourcePageIndex !== undefined) integer(source.sourcePageIndex, artifact, 'sourcePageIndex');
-    oneOf(source.layoutClassification, LAYOUTS, artifact, 'layoutClassification');
+    oneOf(source.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS, artifact, 'layoutClassification');
     if (source.layoutConfidence !== undefined) unit(source.layoutConfidence, artifact, 'layoutConfidence');
     nullableFinite(source.cutterXPx, artifact, 'cutterXPx');
     if (source.splitSeam !== undefined) splitSeam(source.splitSeam, artifact, 'splitSeam');
     optionalBoolean(source, 'splitAbstained', artifact);
-    oneOf(source.rotationDegrees, ROTATIONS, artifact, 'rotationDegrees');
-    oneOf(source.canvasScope, [
-        'page',
-        'document',
-    ] as const, artifact, 'canvasScope');
+    oneOf(source.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS, artifact, 'rotationDegrees');
+    oneOf(source.canvasScope, SCAN_CLEANUP_CANVAS_SCOPES, artifact, 'canvasScope');
     if (typeof source.excluded !== 'boolean') fail(artifact, 'excluded must be boolean');
     integer(source.blankOutputsSkipped, artifact, 'blankOutputsSkipped');
     const outputCount = integer(source.outputCount, artifact, 'outputCount');
@@ -703,16 +653,14 @@ export function decodeNativeScanCleanupPageMetadata(
         ).half);
         if (new Set(halves).size !== halves.length) fail(artifact, 'outputs contains duplicate halves');
     }
-    if (source.recommendedOutputMode !== undefined) oneOf(source.recommendedOutputMode, OUTPUT_MODES, artifact, 'recommendedOutputMode');
+    if (source.recommendedOutputMode !== undefined) oneOf(source.recommendedOutputMode, SCAN_CLEANUP_OUTPUT_MODES, artifact, 'recommendedOutputMode');
     if (source.recommendedOutputModeConfidence !== undefined) unit(source.recommendedOutputModeConfidence, artifact, 'recommendedOutputModeConfidence');
-    if (source.recommendedOutputModeReason !== undefined) oneOf(source.recommendedOutputModeReason, [
-        'blank',
-        'color-chroma',
-        'text-with-pictures',
-        'continuous-tone',
-        'bimodal-text',
-        'uncertain-tonal',
-    ] as const, artifact, 'recommendedOutputModeReason');
+    if (source.recommendedOutputModeReason !== undefined) oneOf(
+        source.recommendedOutputModeReason,
+        SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+        artifact,
+        'recommendedOutputModeReason',
+    );
     optionalBoolean(source, 'softAlphaForegroundRecommendation', artifact);
     if (source.outputModeDiagnostics !== undefined) outputModeDiagnostics(source.outputModeDiagnostics, artifact, 'outputModeDiagnostics');
     if (source.splitDiagnostics !== undefined) {
@@ -724,13 +672,22 @@ export function decodeNativeScanCleanupPageMetadata(
             };
         }
     }
-    if (source.tier1Verdict !== undefined) oneOf(source.tier1Verdict, LAYOUTS, artifact, 'tier1Verdict');
+    if (source.tier1Verdict !== undefined) oneOf(source.tier1Verdict, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS, artifact, 'tier1Verdict');
     optionalBoolean(source, 'reconciled', artifact);
     if (source.clusterAgreement !== undefined) {
         const agreement = finite(source.clusterAgreement, artifact, 'clusterAgreement');
         if (agreement < -1 || agreement > 1) fail(artifact, 'clusterAgreement must be between -1 and 1');
     }
-    if (source.documentPrior !== undefined) documentPrior(source.documentPrior, artifact, 'documentPrior');
+    if (source.documentPrior !== undefined) {
+        try {
+            decodeDocumentPrior(source.documentPrior);
+        } catch (error) {
+            fail(
+                artifact,
+                `documentPrior is invalid: ${error instanceof Error ? getErrorMessage(error) : 'invalid value'}`,
+            );
+        }
+    }
     if (source.textAxis !== undefined) {
         const axis = record(source.textAxis, artifact, 'textAxis');
         if (typeof axis.sideways !== 'boolean') fail(artifact, 'textAxis.sideways must be boolean');
@@ -782,7 +739,7 @@ function isNativeScanCleanupPreviewPageArtifactMetadata(
 
 function validateOutputOptionals(source: Record<string, unknown>, artifact: TArtifact) {
     if (source.sourcePageIndex !== undefined) integer(source.sourcePageIndex, artifact, 'sourcePageIndex');
-    if (source.half !== undefined) oneOf(source.half, HALVES, artifact, 'half');
+    if (source.half !== undefined) oneOf(source.half, SCAN_CLEANUP_OUTPUT_HALVES, artifact, 'half');
     if (source.sourceRegion !== undefined) pixelRect(source.sourceRegion, artifact, 'sourceRegion');
     if (source.cropRect !== undefined) pixelRect(source.cropRect, artifact, 'cropRect');
     if (source.contentBox !== undefined && source.contentBox !== null) pixelRect(source.contentBox, artifact, 'contentBox');
@@ -856,8 +813,8 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'soft-alpha',
         'source-mrc',
     ] as const, artifact, 'layeredForegroundKind');
-    if (source.outputMode !== undefined) oneOf(source.outputMode, OUTPUT_MODES, artifact, 'outputMode');
-    if (source.binarizationMode !== undefined && source.binarizationMode !== null) oneOf(source.binarizationMode, BINARIZATION_MODES, artifact, 'binarizationMode');
+    if (source.outputMode !== undefined) oneOf(source.outputMode, SCAN_CLEANUP_OUTPUT_MODES, artifact, 'outputMode');
+    if (source.binarizationMode !== undefined && source.binarizationMode !== null) oneOf(source.binarizationMode, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, 'binarizationMode');
     if (source.binarizationDiagnostics !== undefined && source.binarizationDiagnostics !== null) binarizationDiagnostics(source.binarizationDiagnostics, artifact, 'binarizationDiagnostics');
     if (source.textToneDiagnostics !== undefined) textToneDiagnostics(source.textToneDiagnostics, artifact, 'textToneDiagnostics');
     if (source.inkConsistencyDiagnostics !== undefined) {
@@ -877,14 +834,8 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         }
     }
     if (source.renderRegion !== undefined) pixelRect(source.renderRegion, artifact, 'renderRegion');
-    if (source.canvasPolicy !== undefined) oneOf(source.canvasPolicy, [
-        'intrinsic',
-        'strict-maximum',
-    ] as const, artifact, 'canvasPolicy');
-    if (source.canvasScope !== undefined) oneOf(source.canvasScope, [
-        'page',
-        'document',
-    ] as const, artifact, 'canvasScope');
+    if (source.canvasPolicy !== undefined) oneOf(source.canvasPolicy, SCAN_CLEANUP_CANVAS_POLICIES, artifact, 'canvasPolicy');
+    if (source.canvasScope !== undefined) oneOf(source.canvasScope, SCAN_CLEANUP_CANVAS_SCOPES, artifact, 'canvasScope');
     for (const key of [
         'matchedCanvasOpticalContentLeftPx',
         'matchedCanvasOpticalContentRightPx',
@@ -976,12 +927,12 @@ export function decodeNativeScanCleanupOutputMetadata(
     const outputHeightPx = integer(source.outputHeightPx, artifact, 'outputHeightPx', 1);
     const canvasWidthPx = integer(source.canvasWidthPx, artifact, 'canvasWidthPx', 1);
     const canvasHeightPx = integer(source.canvasHeightPx, artifact, 'canvasHeightPx', 1);
-    oneOf(source.layoutClassification, LAYOUTS, artifact, 'layoutClassification');
+    oneOf(source.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS, artifact, 'layoutClassification');
     if (typeof source.skewApplied !== 'boolean') fail(artifact, 'skewApplied must be boolean');
     const placementOffsetXPx = integer(source.placementOffsetXPx, artifact, 'placementOffsetXPx');
     const placementOffsetYPx = integer(source.placementOffsetYPx, artifact, 'placementOffsetYPx');
     affine(source.forwardTransform, artifact, 'forwardTransform');
-    oneOf(source.rotationDegrees, ROTATIONS, artifact, 'rotationDegrees');
+    oneOf(source.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS, artifact, 'rotationDegrees');
     validateOutputOptionals(source, artifact);
     if (source.warnings !== undefined) {
         if (!Array.isArray(source.warnings) || source.warnings.length > MAX_WARNINGS) fail(artifact, 'warnings exceeds the protocol limit');

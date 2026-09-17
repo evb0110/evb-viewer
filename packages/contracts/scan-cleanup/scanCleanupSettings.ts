@@ -14,6 +14,11 @@ import {
     SCAN_CLEANUP_ALIGNMENTS,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
+    SCAN_CLEANUP_BINARIZATION_METHODS,
+    SCAN_CLEANUP_DESPECKLE_LEVELS,
+    SCAN_CLEANUP_LAYOUT_MODES,
+    SCAN_CLEANUP_OUTPUT_MODE_SETTINGS,
+    SCAN_CLEANUP_READING_ORDERS,
 } from '@contracts/scan-cleanup/domain';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
@@ -39,31 +44,6 @@ export const SCAN_CLEANUP_SETTINGS_FILE_NAME = 'scan-cleanup-settings.json';
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES = 50;
 
-const SCAN_CLEANUP_LAYOUT_MODES = [
-    'auto',
-    'force-single',
-    'force-two-page',
-] as const;
-const SCAN_CLEANUP_BINARIZATION_METHODS = [
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const;
-const SCAN_CLEANUP_DESPECKLE_LEVELS = [
-    'off',
-    'cautious',
-    'normal',
-    'aggressive',
-] as const;
-const SCAN_CLEANUP_OUTPUT_MODE_SETTINGS = [
-    'auto',
-    'bw',
-    'mixed',
-    'grayscale',
-    'color',
-] as const;
-
 function isScanCleanupLayoutMode(value: unknown): value is TScanCleanupLayoutMode {
     return SCAN_CLEANUP_LAYOUT_MODES.some(mode => mode === value);
 }
@@ -85,7 +65,7 @@ function isScanCleanupPageAlignment(value: unknown): value is TScanCleanupPageAl
 }
 
 function isScanCleanupReadingOrder(value: unknown): value is IScanCleanupGlobalPreferences['readingOrder'] {
-    return value === 'ltr' || value === 'rtl';
+    return SCAN_CLEANUP_READING_ORDERS.some(order => order === value);
 }
 
 function isScanCleanupGlobalPreferenceKey(value: string): value is keyof IScanCleanupGlobalPreferences {
