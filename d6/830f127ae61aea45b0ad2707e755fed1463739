@@ -1,0 +1,29 @@
+native/scan-cleanup/src/engine/staged_input.rs
+  s_3138f4d0221d8b::t_198e5fac1e664b 164-168,171
+packages/scan-cleanup/core/detection.ts
+  s_3138f4d0221d8b::t_198e5fac1e664b 1265,1269,1362,1378
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_3138f4d0221d8b::t_198e5fac1e664b 872
+tests/unit/electron/scanCleanupNativeProtocolCodec.test.ts
+  s_3138f4d0221d8b::t_b3ed383040a445 240-241,250
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_3138f4d0221d8b::t_198e5fac1e664b 345,405
+tests/unit/electron/scanCleanupDetectionStagedWindow.test.ts
+  s_3138f4d0221d8b::t_8ffbd14830023f 333-337,352-353,379-380,382-384,386,388,393,401,411-413,415-416,418-420,426,430
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d6830f127ae61aea45b0ad2707e755fed1463739",
+  "prompts": {},
+  "sessions": {
+    "s_3138f4d0221d8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ec-77e3-9fbf-3d95baf66ec8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
