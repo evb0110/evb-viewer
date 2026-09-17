@@ -1,0 +1,23 @@
+docs/internal/scan-cleanup/fixture-provenance.md
+  s_275fc4b35d2a08::t_7ac61a2058b043 1-14
+.github/workflows/ci.yml
+  s_275fc4b35d2a08::t_01480375b77fd4 462-465
+native/scan-cleanup/tests/fixtures/rescue/README.md
+  s_275fc4b35d2a08::t_b80bae0eb98b6b 5,7-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a45a6e9bf7496b8fa87e7feeaefd2b419b7e1bfe",
+  "prompts": {},
+  "sessions": {
+    "s_275fc4b35d2a08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6b4-7013-86d6-2b8f5ec6a7b1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
