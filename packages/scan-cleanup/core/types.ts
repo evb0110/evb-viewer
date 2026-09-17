@@ -15,7 +15,6 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
-import type {TScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/provenanceStamp';
 
 export type TScanCleanupLog = (
     level: 'debug' | 'warn' | 'error',
@@ -447,10 +446,10 @@ export interface IScanCleanupWorkerPaths {
     tempDir: string;
 }
 
-/** Provenance computed by an xlarge coordinator and reused by its children. */
+/** Provenance inputs computed by an xlarge coordinator and reused by its children. */
 export interface IScanCleanupProvenanceInputs {
     sourceSha256: string;
-    buildIds: TScanCleanupStampBuildIds;
+    nativeBinarySha256s: Readonly<Record<string, string>>;
 }
 
 export interface IRunScanCleanupPipelineRequest {

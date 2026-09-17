@@ -24,6 +24,7 @@ import {
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
+    type IScanCleanupProvenanceInputs,
     type IScanCleanupWorkerPaths,
     type IPdfPageSize,
     type IDetectedPageRaster,
@@ -115,6 +116,7 @@ function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
  */
 export interface IScanCleanupLosslessRunContext {
     documentCanvas?: IScanCleanupDocumentCanvasPlan | null;
+    provenance?: IScanCleanupProvenanceInputs;
     skipDocumentCanvasMeasurement?: boolean;
 }
 
@@ -837,9 +839,12 @@ export async function runLosslessScanCleanup(
         transportMode: request.transportMode
             ?? paths.transportMode
             ?? 'source-preserved',
+        ...(context.provenance === undefined
+            ? {}
+            : {reusableNativeBinarySha256s: context.provenance.nativeBinarySha256s}),
     });
     const stamp = buildScanCleanupProvenanceStamp({
-        sourceSha256: await sha256ScanCleanupFile(preparedPdfPath),
+        sourceSha256: context.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
         effectiveOptions,
         outputMappings,
         pagePlanDigests,

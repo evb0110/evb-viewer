@@ -103,7 +103,10 @@ import {
     buildScanCleanupTextLayerPlan,
     buildScanCleanupTextLayerPlanFromPageSizeMap,
 } from '@evb/scan-cleanup/core/sourceTextLayer';
-import {buildScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/buildManifest';
+import {
+    buildScanCleanupStampBuildIds,
+    hashScanCleanupNativeBinarySha256s,
+} from '@evb/scan-cleanup/core/buildManifest';
 import {
     buildScanCleanupPagePlanDigest,
     buildScanCleanupProvenanceStamp,
@@ -2089,13 +2092,16 @@ export async function runScanCleanupConversion(
                 log,
                 policy,
                 dependencies,
-                context === undefined
+                context === undefined && request.provenance === undefined
                     ? undefined
                     : {
-                        ...(context.documentCanvas === undefined
+                        ...(context?.documentCanvas === undefined
                             ? {}
                             : {documentCanvas: context.documentCanvas}),
-                        ...(context.skipDocumentCanvasMeasurement === undefined
+                        ...(request.provenance === undefined
+                            ? {}
+                            : {provenance: request.provenance}),
+                        ...(context?.skipDocumentCanvasMeasurement === undefined
                             ? {}
                             : {skipDocumentCanvasMeasurement: context.skipDocumentCanvasMeasurement}),
                     },
@@ -2335,16 +2341,8 @@ export async function runScanCleanupConversion(
             }
             const provenance = request.provenance ?? {
                 sourceSha256: await sha256ScanCleanupFile(prepared.pdfPath),
-                buildIds: await buildScanCleanupStampBuildIds({
+                nativeBinarySha256s: await hashScanCleanupNativeBinarySha256s({
                     paths,
-                    assemblerBackend: request.assemblyBackend
-                        ?? paths.assemblyBackend
-                        ?? (isScanCleanupCliFallbackSentinel(paths.pdfImageCombineBinary)
-                            ? 'cli-fallback-wasm-or-img2pdf-qpdf'
-                            : 'native-pdf-image-combine'),
-                    transportMode: request.transportMode
-                        ?? paths.transportMode
-                        ?? (supportsRasterStreaming ? 'fifo-ppm' : 'file-png'),
                     ...(dependencies.hashNativeBinary === undefined
                         ? {}
                         : {hashNativeBinary: dependencies.hashNativeBinary}),
@@ -3310,13 +3308,16 @@ export async function runScanCleanupConversion(
             ?? (canStreamRasters && rasterHandoff.format === 'ppm'
                 ? 'fifo-ppm'
                 : rasterHandoff.format === 'ppm' ? 'file-ppm' : 'file-png');
-        const buildIds = request.provenance?.buildIds ?? await buildScanCleanupStampBuildIds({
+        const buildIds = await buildScanCleanupStampBuildIds({
             paths,
             assemblerBackend,
             transportMode,
             ...(dependencies.hashNativeBinary === undefined
                 ? {}
                 : {hashNativeBinary: dependencies.hashNativeBinary}),
+            ...(request.provenance === undefined
+                ? {}
+                : {reusableNativeBinarySha256s: request.provenance.nativeBinarySha256s}),
         });
         const stamp = buildScanCleanupProvenanceStamp({
             sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(prepared.pdfPath),

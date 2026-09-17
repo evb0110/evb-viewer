@@ -384,6 +384,41 @@ describe('scan-cleanup source text layer', () => {
         )).toEqual(buildScanCleanupTextLayerPlan(outputs, [pageSize]));
     });
 
+    it('keys materialized geometry by source page when map insertion is reversed', () => {
+        const secondPageSize = {
+            ...pageSize,
+            pageNumber: 2,
+            widthPoints: 400,
+            heightPoints: 240,
+        };
+        const outputs = [
+            output(),
+            {
+                ...output(),
+                sourcePageNumber: 2,
+            },
+        ];
+        const plan = buildScanCleanupTextLayerPlanFromPageSizeMap(
+            outputs,
+            new Map([
+                [
+                    secondPageSize.pageNumber,
+                    secondPageSize,
+                ],
+                [
+                    pageSize.pageNumber,
+                    pageSize,
+                ],
+            ]),
+        );
+
+        expect(plan).toEqual(buildScanCleanupTextLayerPlan(outputs, [
+            pageSize,
+            secondPageSize,
+        ]));
+        expect(plan.pages[0]?.matrix).not.toEqual(plan.pages[1]?.matrix);
+    });
+
     it('rejects page geometry that is not in document order', () => {
         expect(() => buildScanCleanupTextLayerPlan([output()], [
             {
