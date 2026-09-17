@@ -87,7 +87,7 @@ import {
     ScanCleanupMissingOutputError,
     ScanCleanupNativeToolUnavailableError,
     ScanCleanupPdfValidationError,
-    SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+    ScanCleanupTooLargeError,
     ScanCleanupStreamingEvidenceError,
 } from '@evb/scan-cleanup/core/errors';
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
@@ -116,7 +116,10 @@ import {
     toCropBoxPageSize,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
-import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {
+    buildRunnableNativeScanCleanupManifest,
+    buildShapeOnlyNativeScanCleanupManifest,
+} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@evb/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry';
 import {
     addScanCleanupDocumentCanvasPage,
@@ -354,7 +357,7 @@ function assertScanCleanupInkAnchorCapacity(
         && scanCleanupUsesInkPlacement(options)
         && placementAnchorSummary === undefined
     ) {
-        throw new ScanCleanupContractError(SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE);
+        throw new ScanCleanupTooLargeError();
     }
 }
 
@@ -1214,6 +1217,8 @@ function resolveBatchPlacementAnchors(
         const pageOverride = getScanCleanupPageOverride(
             baseRequest.options.pageOverrides,
             requirePageNumber(pageNumber),
+            baseRequest.options.pageOverrideDefaults,
+            baseRequest.options.marginsMm,
         );
         const evidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
         const metadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
@@ -2009,6 +2014,8 @@ export async function runScanCleanupConversion(
                         const pageOverride = getScanCleanupPageOverride(
                             request.options.pageOverrides,
                             requirePageNumber(pageNumber),
+                            request.options.pageOverrideDefaults,
+                            request.options.marginsMm,
                         );
                         // Probe every page in the ordered geometry pass, even
                         // when an override excludes its output. The full-run
@@ -2187,6 +2194,8 @@ export async function runScanCleanupConversion(
             const pageOverride = getScanCleanupPageOverride(
                 request.options.pageOverrides,
                 requirePageNumber(pageNumber),
+                request.options.pageOverrideDefaults,
+                request.options.marginsMm,
             );
             if (pageOverride.excluded) {
                 return 'color' as const;
@@ -2289,7 +2298,10 @@ export async function runScanCleanupConversion(
                     sourceDpi: resolvePageSourceDpi(pageNumber),
                     outputCarriesBinaryLayer: requiresBilevelQuality(pageNumber),
                     sourceRasterDetected: detectedRasterByPage.has(pageNumber),
-                    maxPixels: resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
+                    maxPixels: resolveScanCleanupPipelineMaxPixels(
+                        resolvedOutputMode,
+                        policy.rasterMaxPixels,
+                    ),
                     guardrail,
                 }),
                 guardrail,
@@ -2308,6 +2320,7 @@ export async function runScanCleanupConversion(
                 finestCanvasDpi,
                 request.options,
                 layoutEvidenceComplete,
+                policy.rasterMaxPixels,
             )
             : null;
         const documentCanvas = context?.documentCanvas === undefined
@@ -2422,6 +2435,53 @@ export async function runScanCleanupConversion(
             resolvePagePlan(plan.pageNumber),
         ]));
         pagePlanResolver.report();
+        // Resolve and validate the complete effective geometry before touching
+        // compact source layers or starting any final raster producer. The
+        // source can contain hundreds of expensive MRC masks; discovering one
+        // malformed page only after extracting all of them made a validation
+        // error look like a hung cleanup.
+        const geometryPageInputs = rasterPlans.map(plan => {
+            const detectedRaster = detectedRasterByPage.get(plan.pageNumber);
+            return {
+                inputPath: '',
+                pageNumber: plan.pageNumber,
+                dpi: plan.dpi,
+                sourceDpi: plan.sourceDpi,
+                sourceHasBilevelLayer: detectedRaster?.hasBilevelLayer ?? false,
+                ...(detectedRaster?.backgroundDpi === undefined
+                    ? {}
+                    : {sourceBackgroundDpi: detectedRaster.backgroundDpi}),
+                requestedRenderDpi: plan.requestedRenderDpi,
+                ...(plan.resolvedOutputMode === undefined
+                    ? {}
+                    : {resolvedOutputMode: plan.resolvedOutputMode}),
+                ...buildConversionPageMetadata({
+                    documentPriorByPage: request.documentPriorByPage,
+                    layoutByPage: request.layoutByPage,
+                    pageMetadataPath: '',
+                    pageNumber: plan.pageNumber,
+                    resolvedPagePlan: resolvedPagePlanByNumber.get(plan.pageNumber),
+                }),
+            };
+        });
+        for (const batch of iterateScanCleanupPageBatches(geometryPageInputs.length)) {
+            assertNativeScanCleanupManifestGeometry(buildShapeOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                hostMemoryBytes: policy.totalRamBytes,
+                options: request.options,
+                ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
+                experimental: {
+                    autoDewarp: request.options.autoDewarp ?? false,
+                    ...(request.options.autoDewarpDepth === undefined
+                        ? {}
+                        : {autoDewarpDepth: request.options.autoDewarpDepth}),
+                },
+                pages: collectScanCleanupPageBatch(geometryPageInputs, batch),
+            }));
+        }
         const canonicalAnalysisDpi = DETECTION_DPI;
         const estimateNativeOutputScratchBytes = (plan: ReturnType<typeof capRasterPlanDpi>) => {
             const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
@@ -2450,6 +2510,8 @@ export async function runScanCleanupConversion(
             const pageOverride = getScanCleanupPageOverride(
                 request.options.pageOverrides,
                 requirePageNumber(plan.pageNumber),
+                request.options.pageOverrideDefaults,
+                request.options.marginsMm,
             );
             const geometryRejection = resolveSourceMrcReuseRejection(
                 pageGeometryByNumber.get(plan.pageNumber)!,
@@ -2694,6 +2756,7 @@ export async function runScanCleanupConversion(
                 hostMemoryBytes: policy.totalRamBytes,
                 ...(canStreamRasters ? {rasterWindow: policy.rasterConcurrency} : {}),
                 options,
+                ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
                 ...(documentCanvas === null ? {} : {documentCanvas}),
                 experimental: {
                     autoDewarp: request.options.autoDewarp ?? false,
@@ -2727,7 +2790,10 @@ export async function runScanCleanupConversion(
                     const limits: IScanCleanupRasterRenderLimits = {
                         expectedWidthPx: Math.max(1, Math.ceil(guardrail.width * plan.dpi / guardrail.dpi)),
                         expectedHeightPx: Math.max(1, Math.ceil(guardrail.height * plan.dpi / guardrail.dpi)),
-                        maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
+                        maxPixels: resolveScanCleanupPipelineMaxPixels(
+                            plan.resolvedOutputMode,
+                            policy.rasterMaxPixels,
+                        ),
                         maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
                     };
                     const analysisLimits: IScanCleanupRasterRenderLimits = {
@@ -2739,7 +2805,10 @@ export async function runScanCleanupConversion(
                             1,
                             Math.ceil(guardrail.height * canonicalAnalysisDpi / guardrail.dpi),
                         ),
-                        maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
+                        maxPixels: resolveScanCleanupPipelineMaxPixels(
+                            plan.resolvedOutputMode,
+                            policy.rasterMaxPixels,
+                        ),
                         maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
                     };
                     await renderer(

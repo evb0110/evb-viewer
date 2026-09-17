@@ -13,6 +13,7 @@ import type {
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {Ref} from 'vue';
 import {
     attachScanCleanupPageOverrideDefaults,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
@@ -33,6 +34,7 @@ import {
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupApplyScope';
 import {
     resolveScanCleanupMixedValue,
+    updateScanCleanupPageOverrideRotation,
     updateScanCleanupPageOverrides,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import {
@@ -46,6 +48,7 @@ interface IUseScanCleanupSelectionOptions {
     previewResult: () => IScanCleanupPreviewResult | null;
     previewTotalPages: () => number;
     settings: IScanCleanupOptions;
+    marginsLinked: Ref<boolean>;
 }
 
 interface IScanCleanupDocumentReplacement {
@@ -74,7 +77,6 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     const selectedPages = shallowRef<ReadonlySet<number>>(new Set([options.initialPage]));
     const settingsScope = ref<TScanCleanupSettingsScope>('all');
     const highlightedScope = ref<TScanCleanupSettingsScope | null>(null);
-    const marginsLinked = ref(true);
     let highlightTimer: ReturnType<typeof setTimeout> | null = null;
     const currentPageOverride = computed(() => getScanCleanupPageOverride(
         options.settings.pageOverrides,
@@ -146,18 +148,13 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function updatePageOverride(page: number, value: IScanCleanupPageOverride) {
-        updateOverrides([page], previous => previous.rotationDegrees === value.rotationDegrees
-            ? value
-            : {
+        updateOverrides([page], previous => updateScanCleanupPageOverrideRotation(
+            {
                 ...value,
-                manualSplit: null,
-                manualSkewDegrees: undefined,
-                manualContentBoxes: {},
-                manualZones: {
-                    picture: [],
-                    fill: [],
-                },
-            });
+                rotationDegrees: previous.rotationDegrees,
+            },
+            value.rotationDegrees,
+        ));
     }
 
     function updateLayoutOverride(
@@ -174,20 +171,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         value: TScanCleanupPageRotation,
         pages: Iterable<number> = selectedPages.value,
     ) {
-        updateOverrides(pages, current => ({
-            ...current,
-            rotationDegrees: value,
-            manualSplit: current.rotationDegrees === value ? current.manualSplit : null,
-            manualSkewDegrees: current.rotationDegrees === value ? current.manualSkewDegrees : undefined,
-            manualContentBoxes: current.rotationDegrees === value ? current.manualContentBoxes ?? {} : {},
-            manualZones: current.rotationDegrees === value ? current.manualZones ?? {
-                picture: [],
-                fill: [],
-            } : {
-                picture: [],
-                fill: [],
-            },
-        }));
+        updateOverrides(pages, current => updateScanCleanupPageOverrideRotation(current, value));
     }
 
     function updateExcluded(value: boolean, pages: Iterable<number> = selectedPages.value) {
@@ -249,7 +233,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         value: number,
         pages: Iterable<number> = selectedPages.value,
     ) {
-        const effectiveTarget = marginsLinked.value ? 'all' : target;
+        const effectiveTarget = options.marginsLinked.value ? 'all' : target;
         updateOverrides(pages, current => ({
             ...current,
             marginsMm: {
@@ -264,7 +248,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         pages: Iterable<number> = selectedPages.value,
         effectiveMargins?: IScanCleanupMarginsMm,
     ) {
-        marginsLinked.value = linked;
+        options.marginsLinked.value = linked;
         const effective = effectiveMargins === undefined
             ? margins.value
             : resolveScanCleanupMixedValue([effectiveMargins]);
@@ -295,22 +279,10 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                 };
             }
             if (control === 'rotation') {
-                const rotationChanged = current.rotationDegrees
-                    !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees;
-                return {
-                    ...current,
-                    rotationDegrees: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees,
-                    manualSplit: rotationChanged ? null : current.manualSplit,
-                    manualSkewDegrees: rotationChanged ? undefined : current.manualSkewDegrees,
-                    manualContentBoxes: rotationChanged ? {} : current.manualContentBoxes ?? {},
-                    manualZones: rotationChanged ? {
-                        picture: [],
-                        fill: [],
-                    } : current.manualZones ?? {
-                        picture: [],
-                        fill: [],
-                    },
-                };
+                return updateScanCleanupPageOverrideRotation(
+                    current,
+                    DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees,
+                );
             }
             if (control === 'output-mode') {
                 const {
@@ -567,12 +539,6 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         highlightedScope.value = null;
     }
 
-    watch(selectedPages, () => {
-        const effective = margins.value;
-        marginsLinked.value = effective.mixed || !effective.value
-            ? true
-            : scanCleanupMarginsUniform(effective.value);
-    });
     onScopeDispose(() => {
         if (highlightTimer !== null) {
             clearTimeout(highlightTimer);
@@ -588,7 +554,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         layoutOverride,
         leader,
         margins,
-        marginsLinked,
+        marginsLinked: options.marginsLinked,
         manualSplit,
         manualSkew,
         outputModeOverride,
@@ -621,6 +587,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         updateManualSkew,
         updateOutputModeOverride,
         updatePageOverride,
+        updateOverrides,
         updatePlacement,
         updateRotation,
     };

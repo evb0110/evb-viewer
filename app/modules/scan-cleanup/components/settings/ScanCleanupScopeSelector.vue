@@ -128,7 +128,7 @@ const scopeItems = computed(() => [
 .scan-cleanup-scope-row--all-active {
     background: color-mix(in srgb, var(--ui-primary) 14%, var(--ui-bg));
     box-shadow: inset 0 0 0 var(--app-hairline-height) var(--ui-primary);
-    font-weight: 700;
+    font-weight: var(--app-font-weight-bold);
 }
 
 .scan-cleanup-scope-row--highlighted {
@@ -142,14 +142,14 @@ const scopeItems = computed(() => [
     height: var(--app-space-5xl);
     place-items: center;
     border: var(--app-hairline-height) solid var(--ui-border);
-    border-radius: 50%;
+    border-radius: var(--app-radius-full);
     background: var(--ui-bg);
 }
 
 .scan-cleanup-scope-radio > span {
     width: var(--app-space-xl);
     height: var(--app-space-xl);
-    border-radius: 50%;
+    border-radius: var(--app-radius-full);
     background: var(--ui-primary);
 }
 
@@ -164,7 +164,7 @@ const scopeItems = computed(() => [
     padding: var(--app-space-xs) var(--app-space-xl);
     color: var(--ui-primary);
     font-size: var(--app-text-size-kicker);
-    font-weight: 700;
+    font-weight: var(--app-font-weight-bold);
     white-space: nowrap;
 }
 

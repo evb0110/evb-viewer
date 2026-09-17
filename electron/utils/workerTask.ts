@@ -5,9 +5,11 @@ import {
     type ResourceLimits,
 } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    decodeScanCleanupScratchShortfall,
+    type IScanCleanupScratchShortfall,
+} from '@contracts/scan-cleanup/ipc';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import type {IScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
-import {decodeScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
@@ -25,7 +27,7 @@ export interface IWorkerTaskErrorFrame {
     canceled?: boolean;
     retryable?: boolean;
     source?: string;
-    /** Typed storage figures that must survive the worker structured-clone boundary. */
+    /** Typed storage figures that must survive a worker structured-clone boundary. */
     scratchShortfall?: IScanCleanupScratchShortfall;
     /**
      * Set when the worker stopped a native process tree without being able to
@@ -113,16 +115,15 @@ function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
         : undefined;
 }
 
-function getErrorScratchShortfall(error: unknown): IScanCleanupScratchShortfall | undefined {
-    if (!error || typeof error !== 'object') {
+function getScratchShortfallProperty(error: unknown): IScanCleanupScratchShortfall | undefined {
+    if (!isRecord(error)) {
         return undefined;
     }
-    const record = error as Record<string, unknown>;
-    const value = record.scratchShortfall ?? (
-        record.code === 'insufficient-scratch'
+    const value = error.scratchShortfall ?? (
+        error.code === 'insufficient-scratch'
             ? {
-                availableBytes: record.availableBytes,
-                requiredBytes: record.requiredBytes,
+                availableBytes: error.availableBytes,
+                requiredBytes: error.requiredBytes,
             }
             : undefined
     );
@@ -165,7 +166,7 @@ export function createWorkerTaskErrorFrame(
     if (terminationUnproven !== undefined) {
         frame.terminationUnproven = terminationUnproven;
     }
-    const scratchShortfall = getErrorScratchShortfall(error);
+    const scratchShortfall = getScratchShortfallProperty(error);
     if (scratchShortfall !== undefined) {
         frame.scratchShortfall = scratchShortfall;
     }
@@ -200,16 +201,14 @@ function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null
     if (value.source !== undefined && typeof value.source !== 'string') {
         return null;
     }
-    if (value.terminationUnproven !== undefined && typeof value.terminationUnproven !== 'string') {
+    const scratchShortfall = value.scratchShortfall === undefined
+        ? undefined
+        : getScratchShortfallProperty({scratchShortfall: value.scratchShortfall});
+    if (value.scratchShortfall !== undefined && scratchShortfall === undefined) {
         return null;
     }
-    let scratchShortfall: IScanCleanupScratchShortfall | undefined;
-    if (value.scratchShortfall !== undefined) {
-        try {
-            scratchShortfall = decodeScanCleanupScratchShortfall(value.scratchShortfall);
-        } catch {
-            return null;
-        }
+    if (value.terminationUnproven !== undefined && typeof value.terminationUnproven !== 'string') {
+        return null;
     }
     return {
         message: value.message,

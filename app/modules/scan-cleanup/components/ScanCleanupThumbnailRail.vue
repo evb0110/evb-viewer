@@ -1140,7 +1140,7 @@ watch(() => props.disabled, disabled => {
 .scan-thumbnail-exclude-toggle {
     position: relative;
     flex: none;
-    opacity: 0.55;
+    opacity: var(--app-scan-disabled-opacity);
     pointer-events: auto;
     transition: opacity var(--app-transition-fast);
 }
@@ -1157,7 +1157,7 @@ watch(() => props.disabled, disabled => {
 
 .scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-options-toggle,
 .scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-exclude-toggle {
-    opacity: 0.55;
+    opacity: var(--app-scan-disabled-opacity);
 }
 
 .scan-thumbnail-options-toggle.is-customized::after {

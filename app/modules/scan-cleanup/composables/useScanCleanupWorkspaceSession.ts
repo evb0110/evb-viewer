@@ -112,12 +112,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             () => settings.values.pageOverrides,
             () => settings.values.pageOverrideDefaults,
         ],
-        (
-            [
-                pageOverrides,
-                pageOverrideDefaults,
-            ],
-        ) => {
+        ([
+            pageOverrides,
+            pageOverrideDefaults,
+        ]) => {
             attachScanCleanupPageOverrideDefaults(
                 pageOverrides,
                 pageOverrideDefaults,
@@ -135,6 +133,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         initialPage: initialPreviewPage,
         previewResult: () => previewResult?.result.value ?? null,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
+        marginsLinked: settings.marginsLinked,
         settings: settings.values,
     });
     watch(options.active, active => {
@@ -182,7 +181,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             evidence,
         ] of included) {
             const brandedPageNumber = requirePageNumber(pageNumber);
-            const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, brandedPageNumber);
+            const pageOverride = getScanCleanupPageOverride(
+                cleanupOptions.pageOverrides,
+                brandedPageNumber,
+            );
             const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
             const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
             everySheetMeasured &&= measured;

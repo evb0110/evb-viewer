@@ -502,7 +502,11 @@ describe('scan cleanup renderer preview cache', () => {
             'rev',
             null,
             '',
-            scanCleanupMatchedCanvasOverridesSignature(overrides),
+            scanCleanupMatchedCanvasOverridesSignature(
+                overrides,
+                previewOptions.pageOverrideDefaults,
+                previewOptions.marginsMm,
+            ),
         );
         const untouched = keyFor({});
         const separator = SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR;
@@ -572,7 +576,11 @@ describe('scan cleanup renderer preview cache', () => {
             'rev',
             null,
             '',
-            scanCleanupMatchedCanvasOverridesSignature({'40': override({excluded: true})}),
+            scanCleanupMatchedCanvasOverridesSignature(
+                {'40': override({excluded: true})},
+                unmatched.pageOverrideDefaults,
+                unmatched.marginsMm,
+            ),
         )).toBe(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null));
     });
 
@@ -582,12 +590,27 @@ describe('scan cleanup renderer preview cache', () => {
         // those in from the defaults, so a signature that read the raw entry
         // would answer a different key for a document the canvas measures
         // identically — and throw away every cached page of it.
-        expect(scanCleanupMatchedCanvasOverridesSignature({'40': sparse({excluded: true})}))
-            .toBe(scanCleanupMatchedCanvasOverridesSignature({'40': override({excluded: true})}));
+        expect(scanCleanupMatchedCanvasOverridesSignature(
+            {'40': sparse({excluded: true})},
+            previewOptions.pageOverrideDefaults,
+            previewOptions.marginsMm,
+        )).toBe(scanCleanupMatchedCanvasOverridesSignature(
+            {'40': override({excluded: true})},
+            previewOptions.pageOverrideDefaults,
+            previewOptions.marginsMm,
+        ));
         // An entry with nothing the canvas reads still reduces away entirely,
         // whether it is written whole or not at all.
-        expect(scanCleanupMatchedCanvasOverridesSignature({'40': sparse({rotationDegrees: 90})})).toBe('');
-        expect(scanCleanupMatchedCanvasOverridesSignature({'40': sparse({})})).toBe('');
+        expect(scanCleanupMatchedCanvasOverridesSignature(
+            {'40': sparse({rotationDegrees: 90})},
+            previewOptions.pageOverrideDefaults,
+            previewOptions.marginsMm,
+        )).toBe('');
+        expect(scanCleanupMatchedCanvasOverridesSignature(
+            {'40': sparse({})},
+            previewOptions.pageOverrideDefaults,
+            previewOptions.marginsMm,
+        )).toBe('');
     });
 
     it('lets the byte budget bind before the entry count', () => {

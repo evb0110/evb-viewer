@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as TScanCleanupIpcModule from '@contracts/scan-cleanup/ipc';
 
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
@@ -45,6 +46,17 @@ const mocks = vi.hoisted<{
     },
     terminateResult: null,
 }));
+
+const scanCleanupIpcMocks = vi.hoisted(() => ({decodeScratchShortfall: vi.fn()}));
+
+vi.mock('@contracts/scan-cleanup/ipc', async importOriginal => {
+    const original = await importOriginal<typeof TScanCleanupIpcModule>();
+    scanCleanupIpcMocks.decodeScratchShortfall.mockImplementation(original.decodeScanCleanupScratchShortfall);
+    return {
+        ...original,
+        decodeScanCleanupScratchShortfall: scanCleanupIpcMocks.decodeScratchShortfall,
+    };
+});
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: (message: string) => mocks.logged.push({
@@ -175,6 +187,7 @@ describe('workerTask', () => {
         mocks.workerRecords.length = 0;
         mocks.terminateResult = null;
         mocks.logged.length = 0;
+        scanCleanupIpcMocks.decodeScratchShortfall.mockClear();
     });
 
     it('normalizes streaming worker constructor errors as startup errors', async () => {
@@ -791,6 +804,70 @@ describe('workerTask', () => {
         // An unproven stop of a cancelled run is still a cancellation, so it
         // must not become an application error report.
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+    });
+
+    it('carries typed scratch figures across the worker result frame', async () => {
+        mocks.throwConstructorError = false;
+        const {
+            createWorkerTaskErrorFrame,
+            runResultWorkerTask,
+        } = await import('@electron/utils/workerTask');
+        const {ScanCleanupInsufficientScratchError} = await import('@evb/scan-cleanup/core/errors');
+        const scratchError = new ScanCleanupInsufficientScratchError(512, 1_024);
+        expect(scratchError.availableBytes).toBe(scratchError.scratchShortfall.availableBytes);
+        expect(scratchError.requiredBytes).toBe(scratchError.scratchShortfall.requiredBytes);
+        const workerFrame = createWorkerTaskErrorFrame(
+            scratchError,
+            {source: 'scan-cleanup'},
+        );
+        expect(workerFrame).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        });
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: workerFrame.message,
+            errorFrame: JSON.parse(JSON.stringify(workerFrame)) as unknown,
+        };
+
+        const error = await runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        }).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        });
+    });
+
+    it('uses the shared scratch-shortfall decoder at the worker boundary', async () => {
+        const {createWorkerTaskErrorFrame} = await import('@electron/utils/workerTask');
+        const encoded = {
+            availableBytes: 'decoded by the contract',
+            requiredBytes: 'decoded by the contract',
+        };
+        scanCleanupIpcMocks.decodeScratchShortfall.mockReturnValueOnce({
+            availableBytes: 512,
+            requiredBytes: 1_024,
+        });
+
+        const frame = createWorkerTaskErrorFrame({scratchShortfall: encoded});
+
+        expect(scanCleanupIpcMocks.decodeScratchShortfall).toHaveBeenCalledWith(encoded);
+        expect(frame.scratchShortfall).toEqual({
+            availableBytes: 512,
+            requiredBytes: 1_024,
+        });
     });
 
     it('carries the cancelled worker\'s unproven termination onto the abort rejection', async () => {

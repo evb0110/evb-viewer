@@ -1,6 +1,7 @@
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
+    TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 export interface IScanCleanupPreviewSize {
@@ -13,6 +14,68 @@ export interface IScanCleanupPreviewFitArea extends IScanCleanupPreviewSize {
 }
 export interface IScanCleanupPreviewFitPlacement extends IScanCleanupPreviewFitArea {}
 export interface IScanCleanupPreviewFrameOutput extends IScanCleanupPreviewSize {half: IScanCleanupPreviewMetadata['half'];}
+
+interface IResolvePreviewCutterStyleOptions {
+    canvases: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewSize>>;
+    fallbackCanvas: IScanCleanupPreviewSize;
+    fitAreas: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewFitArea>>;
+    originalPlacement: IScanCleanupPreviewFitPlacement;
+    originalVisible: boolean;
+    outputs: readonly TScanCleanupOutputHalf[];
+    readingOrder: 'ltr' | 'rtl';
+    sourcePlacement: IScanCleanupPreviewFitPlacement;
+    sourceRatio: number;
+    sourceUnderlayVisible: boolean;
+}
+
+export function resolvePreviewCutterStyle({
+    canvases,
+    fallbackCanvas,
+    fitAreas,
+    originalPlacement,
+    originalVisible,
+    outputs,
+    readingOrder,
+    sourcePlacement,
+    sourceRatio,
+    sourceUnderlayVisible,
+}: IResolvePreviewCutterStyleOptions) {
+    if (sourceUnderlayVisible) {
+        return {
+            insetBlockEnd: 'auto',
+            insetBlockStart: `${sourcePlacement.top}px`,
+            insetInlineStart: `${sourcePlacement.left + sourcePlacement.width * sourceRatio}px`,
+            height: `${sourcePlacement.height}px`,
+        };
+    }
+    if (originalVisible) {
+        return {
+            insetBlockEnd: 'auto',
+            insetBlockStart: `${originalPlacement.top}px`,
+            insetInlineStart: `${originalPlacement.left + originalPlacement.width * sourceRatio}px`,
+            height: `${originalPlacement.height}px`,
+        };
+    }
+    const orderedHalves = readingOrder === 'rtl' && outputs.length > 1
+        ? [...outputs].reverse()
+        : [...outputs];
+    const renderedCanvases = orderedHalves.map(half => canvases[half] ?? fallbackCanvas);
+    const renderedAreas = orderedHalves
+        .map(half => fitAreas[half])
+        .filter((area): area is IScanCleanupPreviewFitArea => area !== undefined);
+    const renderedBoxes = renderedAreas.length === renderedCanvases.length
+        ? resolvePreviewOutputFitRects(renderedAreas, renderedCanvases)
+            .filter((area): area is IScanCleanupPreviewFitPlacement => 'left' in area && 'top' in area)
+        : [];
+    const renderedGapCenter = renderedBoxes.length === renderedCanvases.length
+        ? resolvePreviewSpreadCutterCenter(renderedBoxes)
+        : null;
+    if (renderedGapCenter !== null) {
+        return {insetInlineStart: `${renderedGapCenter}px`};
+    }
+    const visualRatio = readingOrder === 'rtl' ? 1 - sourceRatio : sourceRatio;
+    return {insetInlineStart: `${visualRatio * 100}%`};
+}
 
 export function resolvePreviewFitPlacement(
     containerWidth: number,

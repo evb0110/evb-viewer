@@ -247,8 +247,10 @@ pub(crate) struct ByteLru {
     budget_bytes: usize,
     resident_bytes: usize,
     clock: u64,
-    entries: HashMap<StageCacheKey, CacheEntry>,
-    lru_order: BTreeMap<u64, StageCacheKey>,
+    // Both indexes hold an Arc to the same key allocation. Keeping a deep
+    // clone in the ordering index would make the byte charge understated.
+    entries: HashMap<Arc<StageCacheKey>, CacheEntry>,
+    lru_order: BTreeMap<u64, Arc<StageCacheKey>>,
 }
 
 impl ByteLru {
@@ -263,10 +265,13 @@ impl ByteLru {
     }
 
     pub(crate) fn get<T: Any + Send + Sync>(&mut self, key: &StageCacheKey) -> Option<Arc<T>> {
-        let previous_clock = self.entries.get(key)?.last_used;
+        let (previous_clock, stored_key) = {
+            let (stored_key, entry) = self.entries.get_key_value(key)?;
+            (entry.last_used, Arc::clone(stored_key))
+        };
         let clock = self.next_clock();
         self.lru_order.remove(&previous_clock);
-        self.lru_order.insert(clock, key.clone());
+        self.lru_order.insert(clock, stored_key);
         let entry = self
             .entries
             .get_mut(key)
@@ -281,14 +286,15 @@ impl ByteLru {
         value: Arc<T>,
         bytes: usize,
     ) {
-        self.remove_key(&key);
+        let key = Arc::new(key);
+        self.remove_key(key.as_ref());
         let resident_bytes = bytes.saturating_add(key.resident_bytes());
         if resident_bytes > self.budget_bytes {
             return;
         }
         let clock = self.next_clock();
         self.resident_bytes = self.resident_bytes.saturating_add(resident_bytes);
-        self.lru_order.insert(clock, key.clone());
+        self.lru_order.insert(clock, Arc::clone(&key));
         self.entries.insert(
             key,
             CacheEntry {
@@ -301,12 +307,12 @@ impl ByteLru {
             let Some((oldest_clock, oldest)) = self
                 .lru_order
                 .first_key_value()
-                .map(|(clock, key)| (*clock, key.clone()))
+                .map(|(clock, key)| (*clock, Arc::clone(key)))
             else {
                 break;
             };
             self.lru_order.remove(&oldest_clock);
-            if let Some(evicted) = self.entries.remove(&oldest) {
+            if let Some(evicted) = self.entries.remove(oldest.as_ref()) {
                 self.resident_bytes = self.resident_bytes.saturating_sub(evicted.bytes);
             }
         }
@@ -331,7 +337,7 @@ impl ByteLru {
             self.clock = 0;
             for (_, key) in ordered {
                 self.clock += 1;
-                if let Some(entry) = self.entries.get_mut(&key) {
+                if let Some(entry) = self.entries.get_mut(key.as_ref()) {
                     entry.last_used = self.clock;
                     self.lru_order.insert(self.clock, key);
                 }
@@ -409,6 +415,17 @@ mod tests {
         let mut cache = ByteLru::new(entry_bytes * 2);
         cache.insert(key_a.clone(), Arc::new(1_u32), 4);
         cache.insert(key_b.clone(), Arc::new(2_u32), 4);
+        let stored_key = cache
+            .entries
+            .keys()
+            .find(|candidate| candidate.as_ref() == &key_a)
+            .unwrap();
+        let ordered_key = cache
+            .lru_order
+            .values()
+            .find(|candidate| candidate.as_ref() == &key_a)
+            .unwrap();
+        assert!(Arc::ptr_eq(stored_key, ordered_key));
         assert_eq!(*cache.get::<u32>(&key_a).unwrap(), 1);
         cache.insert(key_c.clone(), Arc::new(3_u32), 4);
         assert!(cache.contains(&key_a));

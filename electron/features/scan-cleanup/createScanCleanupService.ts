@@ -58,15 +58,12 @@ import {
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
-    ScanCleanupNativeToolUnavailableError,
-} from '@evb/scan-cleanup/core/errors';
+import {ScanCleanupNativeToolUnavailableError} from '@evb/scan-cleanup/core/errors';
 import {
     classifyScanCleanupPreviewError as classifyPreviewError,
     resolveScanCleanupPreviewPath as resolvePreviewPath,
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolvePreviewRasterAdmissionPolicy,
-    SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES as PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
@@ -117,8 +114,6 @@ type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {
 };
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
-
-const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = PREVIEW_RASTER_SLOT_RESIDENT_BYTES;
 
 export function grantScanCleanupOutputAccess(
     outputPdfPath: string,
@@ -223,7 +218,18 @@ function sendScanCleanupState(sender: WebContents, state: TScanCleanupJobState) 
 function publicState(
     snapshot: TMainJobSnapshot<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError> | null,
 ) {
-    return snapshot?.progress ?? null;
+    if (!snapshot) {
+        return null;
+    }
+    if (snapshot.status === 'canceling' || snapshot.status === 'committing') {
+        return {
+            jobId: snapshot.progress.jobId,
+            status: snapshot.status,
+            progress: snapshot.progress.progress,
+            updatedAtMs: createEpochMs(snapshot.updatedAtMs),
+        } satisfies TScanCleanupJobState;
+    }
+    return snapshot.progress;
 }
 
 function ownerActor(sender: WebContents, owner: IScanCleanupOwnerContext) {
@@ -348,6 +354,8 @@ async function admitScanCleanupDetectionStore(
     const pageOverride = (pageNumber: number) => getScanCleanupPageOverride(
         request.options.pageOverrides,
         requirePageNumber(pageNumber),
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
     );
     const validate = async (pageNumber: number) => {
         const record = validateScanCleanupDetectionRecord(
@@ -448,6 +456,7 @@ function terminalProgress(
                 ? {}
                 : {scratchShortfall: error.scratchShortfall}),
             ...(error.failure === undefined ? {} : {failure: error.failure}),
+            ...(error.scratchShortfall === undefined ? {} : {scratchShortfall: error.scratchShortfall}),
         };
 }
 
@@ -463,6 +472,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 return {
                     code: classifyPreviewError(cause, true),
                     message,
+                    ...scanCleanupScratchShortfall(cause),
                 };
             }
             const existingFailure = getWorkerTaskFailureReceipt(cause);
@@ -483,6 +493,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 message,
                 ...scanCleanupScratchShortfall(cause),
                 ...(failure === undefined ? {} : {failure}),
+                ...scanCleanupScratchShortfall(cause),
             };
         },
         terminalProgress: {
@@ -519,8 +530,13 @@ export interface IScanCleanupService {
 
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
+    options: IScanCleanupStartRequest['options'],
 ): IScanCleanupRuntimePolicy {
-    const rasterPolicy = resolvePreviewRasterAdmissionPolicy();
+    const rasterPolicy = resolvePreviewRasterAdmissionPolicy(
+        mainJobBroker.getSnapshot().capacity,
+        process.platform !== 'win32',
+        options,
+    );
     return {
         ...rasterPolicy,
         logicalCpus: profile.logicalCpus,
@@ -573,7 +589,7 @@ export function createScanCleanupService(
                 return {
                     started: false,
                     jobId,
-                    error: 'Source must be an absolute path',
+                    error: '',
                     errorCode: 'invalid-request',
                 };
             }
@@ -645,7 +661,7 @@ export function createScanCleanupService(
                         return {
                             started: false,
                             jobId,
-                            error: 'Placement calibration is stale for this document',
+                            error: '',
                             errorCode: 'invalid-request',
                         };
                     }
@@ -665,7 +681,7 @@ export function createScanCleanupService(
                     return {
                         started: false,
                         jobId,
-                        error: 'Detection results are no longer available for this document',
+                        error: '',
                         errorCode: isScanCleanupDetectionResultStoreRegistered(request.detectionResultStoreId)
                             ? 'invalid-request'
                             : 'detection-results-unavailable',
@@ -685,20 +701,20 @@ export function createScanCleanupService(
                     return {
                         started: false,
                         jobId,
-                        error: SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+                        error: '',
                         errorCode: 'too-large',
                     };
                 }
                 if (detectionResultStoreLease !== null) {
                     try {
                         await admitScanCleanupDetectionStore(request, detectionResultStoreLease.resultStore);
-                    } catch (error) {
+                    } catch {
                         await detectionResultStoreLease.release();
                         detectionResultStoreLease = null;
                         return {
                             started: false,
                             jobId,
-                            error: error instanceof Error ? error.message : 'Detection results are incomplete',
+                            error: '',
                             errorCode: 'invalid-request',
                         };
                     }
@@ -714,6 +730,7 @@ export function createScanCleanupService(
                 };
                 const runtimePolicy = resolveScanCleanupRuntimePolicy(
                     getHostResourceProfileSnapshot(),
+                    request.options,
                 );
                 const progress: TScanCleanupProgress = {
                     stage: 'queued' as const,
@@ -766,7 +783,11 @@ export function createScanCleanupService(
                                 priority: 'user',
                                 resources: {
                                     cpuTokens: runtimePolicy.rasterConcurrency,
-                                    estimatedResidentBytes: runtimePolicy.rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                                    estimatedResidentBytes: runtimePolicy.rasterConcurrency
+                                        * resolveScanCleanupPreviewRasterSlotResidentBytes(
+                                            request.options,
+                                            runtimePolicy.rasterMaxPixels,
+                                        ),
                                     nativeProcesses: runtimePolicy.rasterConcurrency
                                         + Number(runtimePolicy.rasterStreaming),
                                     ioWeight: 4,
@@ -941,7 +962,10 @@ export function createScanCleanupService(
             const subscription: IScanCleanupProgressSubscription = {unsubscribe: null};
             subscriptions.set(jobId, subscription);
             const unsubscribe = jobs.subscribe(jobId, actor, state => {
-                sendScanCleanupState(sender, state.progress);
+                const publicProgress = publicState(state);
+                if (publicProgress) {
+                    sendScanCleanupState(sender, publicProgress);
+                }
             }, () => {
                 forgetProgressSubscription(sender.id, jobId, subscription);
             });

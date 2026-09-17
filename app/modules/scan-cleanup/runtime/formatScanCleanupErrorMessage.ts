@@ -1,4 +1,32 @@
 import { getErrorMessage } from '@app/utils/error';
+import type {
+    IScanCleanupScratchShortfall,
+    TScanCleanupErrorCode,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    TTranslateFn,
+    TTranslationKey,
+} from '@i18n-app';
+import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
+
+const SCAN_CLEANUP_ERROR_MESSAGE_KEYS = {
+    encrypted: 'scanCleanup.errors.encrypted',
+    'needs-password': 'scanCleanup.errors.needsPassword',
+    'too-large': 'scanCleanup.errors.tooLarge',
+    'corrupt-xref': 'scanCleanup.errors.corruptXref',
+    'unsupported-filter': 'scanCleanup.errors.unsupportedFilter',
+    'invalid-request': 'scanCleanup.errors.invalidRequest',
+    io: 'scanCleanup.errors.io',
+    timeout: 'scanCleanup.errors.timeout',
+    panic: 'scanCleanup.errors.panic',
+    'native-failure': 'scanCleanup.errors.nativeFailure',
+    'tools-unavailable': 'scanCleanup.errors.toolsUnavailable',
+    'insufficient-scratch': 'scanCleanup.errors.insufficientScratch',
+    canceled: 'scanCleanup.errors.canceled',
+    'detection-results-unavailable': 'scanCleanup.errors.detectionResultsUnavailable',
+    internal: 'scanCleanup.errors.internal',
+} as const satisfies Record<TScanCleanupErrorCode, TTranslationKey>;
+
 const MAX_SCAN_CLEANUP_TECHNICAL_DETAIL_LENGTH = 240;
 
 function getScanCleanupTechnicalDetail(error: unknown) {
@@ -22,4 +50,16 @@ export function formatScanCleanupErrorMessage(message: string, error: unknown) {
     return detail && detail !== message
         ? `${message} (${detail})`
         : message;
+}
+
+export function formatScanCleanupErrorByCode(
+    t: TTranslateFn,
+    errorCode: TScanCleanupErrorCode,
+    technicalDetail: unknown,
+    scratchShortfall?: IScanCleanupScratchShortfall,
+) {
+    if (errorCode === 'insufficient-scratch') {
+        return formatScanCleanupScratchMessage(t, scratchShortfall);
+    }
+    return formatScanCleanupErrorMessage(t(SCAN_CLEANUP_ERROR_MESSAGE_KEYS[errorCode]), technicalDetail);
 }

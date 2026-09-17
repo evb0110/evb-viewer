@@ -46,10 +46,10 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
-    SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
     type IScanCleanupRasterAdmissionPolicy,
     resolveScanCleanupPreviewRasterAdmissionPolicy,
     resolveScanCleanupPreviewPath,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 const logger = createLogger('scan-cleanup-preview-defaults');
 function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
@@ -85,9 +85,10 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     open,
     stat,
     getAvailableScratchBytes: readAvailableScratchBytes,
-    resolveRasterAdmissionPolicy: supportsRasterStreaming => resolveScanCleanupPreviewRasterAdmissionPolicy(
+    resolveRasterAdmissionPolicy: (supportsRasterStreaming, options) => resolveScanCleanupPreviewRasterAdmissionPolicy(
         mainJobBroker.getSnapshot().capacity,
         supportsRasterStreaming,
+        options,
     ),
     getPageCount: getPdfPageCount,
     getPageSizeStore: createPdfPageSizeStore,
@@ -157,32 +158,51 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
-    acquireDetectionLease: (ownerId, signal, rasterPolicy: IScanCleanupRasterAdmissionPolicy) => mainJobBroker.acquire({
+    acquireDetectionLease: (
+        ownerId,
+        signal,
+        rasterPolicy: IScanCleanupRasterAdmissionPolicy,
+        options,
+    ) => mainJobBroker.acquire({
         ownerId,
         kind: 'scan-cleanup-detect-all',
         priority: 'user',
         resources: {
             cpuTokens: rasterPolicy.rasterConcurrency,
             estimatedResidentBytes: rasterPolicy.rasterConcurrency
-                * SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+                * resolveScanCleanupPreviewRasterSlotResidentBytes(
+                    options,
+                    rasterPolicy.rasterMaxPixels,
+                ),
             nativeProcesses: rasterPolicy.rasterConcurrency + Number(rasterPolicy.rasterStreaming),
             ioWeight: 2,
         },
         perOwnerLimit: 1,
         signal,
     }),
-    acquirePreviewLease: (ownerId, visibility, signal) => mainJobBroker.acquire({
-        ownerId,
-        kind: 'scan-cleanup-preview',
-        priority: visibility === 'prefetch' ? 'background' : 'visible',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
-            nativeProcesses: 1,
-            ioWeight: 1,
-        },
-        signal,
-    }),
+    acquirePreviewLease: (ownerId, visibility, signal, options, rasterMaxPixels) => {
+        const effectiveRasterMaxPixels = rasterMaxPixels
+            ?? resolveScanCleanupPreviewRasterAdmissionPolicy(
+                mainJobBroker.getSnapshot().capacity,
+                process.platform !== 'win32',
+                options,
+            ).rasterMaxPixels;
+        return mainJobBroker.acquire({
+            ownerId,
+            kind: 'scan-cleanup-preview',
+            priority: visibility === 'prefetch' ? 'background' : 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(
+                    options,
+                    effectiveRasterMaxPixels,
+                ),
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            signal,
+        });
+    },
     getSourceStatIdentity: async sourcePdfPath => {
         const sourceStat = await stat(sourcePdfPath, {bigint: true});
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;

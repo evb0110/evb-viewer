@@ -1007,14 +1007,14 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
     padding-inline: var(--app-space-xl);
     color: var(--ui-primary);
     font-size: var(--app-text-size-kicker);
-    font-weight: 700;
+    font-weight: var(--app-font-weight-bold);
 }
 
 .scan-cleanup-override-marker > span {
     width: var(--app-space-3xl);
     height: var(--app-space-3xl);
     flex: none;
-    border-radius: 50%;
+    border-radius: var(--app-radius-full);
     background: var(--ui-primary);
 }
 </style>

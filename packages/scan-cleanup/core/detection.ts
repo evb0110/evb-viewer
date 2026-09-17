@@ -623,7 +623,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
     pageSizeStore: IPdfPageSizeStore,
     resultStore: IScanCleanupDetectionResultStore,
     dependencies: IScanCleanupDetectionDependencies,
-    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency'>,
+    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency' | 'rasterMaxPixels'>,
     publish: (
         results: IScanCleanupDetectionResult[],
         progress: TScanCleanupProgress,
@@ -706,6 +706,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 canvasAccumulator,
                 matchedPreviewDpi,
                 request.options,
+                false,
+                policy.rasterMaxPixels,
             )
             : null,
     );
@@ -720,6 +722,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             matchedPreviewDpi,
             request.options,
             layoutEvidenceComplete,
+            policy.rasterMaxPixels,
         ));
         return signature === baselineCanvasSignature ? '' : signature;
     };
@@ -847,6 +850,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             resolveRasterRenderLimits(
                 batchPageByNumber.get(pageNumber),
                 detectionDpiForPage(pageNumber),
+                policy.rasterMaxPixels,
             ),
         ]));
         const stagingPlans = rasterScope.map(pageNumber => {
@@ -1151,6 +1155,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
             options: request.options,
+            ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
                 ...(request.options.autoDewarpDepth === undefined
@@ -1448,7 +1453,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
     if (mediaBoxRetryCandidates.length > 0) {
         const retryPlans = mediaBoxRetryCandidates.map(candidate => {
             const mediaPage = toMediaBoxPageSize(candidate.sourcePage);
-            const limits = resolveRasterRenderLimits(mediaPage, DETECTION_DPI);
+            const limits = resolveRasterRenderLimits(mediaPage, DETECTION_DPI, policy.rasterMaxPixels);
             return {
                 renderDpi: DETECTION_DPI,
                 raster: {
@@ -1506,7 +1511,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         undefined,
                         undefined,
                         'png',
-                        resolveRasterRenderLimits(mediaPage, DETECTION_DPI),
+                        resolveRasterRenderLimits(mediaPage, DETECTION_DPI, policy.rasterMaxPixels),
                         'MediaBox retry raster',
                         'MediaBox retry',
                         'mediabox',
@@ -1557,6 +1562,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     canvasScope: 'page',
                     qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
                     options: request.options,
+                    ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
                     experimental: {
                         autoDewarp: request.options.autoDewarp ?? false,
                         ...(request.options.autoDewarpDepth === undefined
@@ -1696,7 +1702,7 @@ export async function runScanCleanupDetection<TDocument>(
     signal: AbortSignal,
     retention: IScanCleanupDetectionRetention<TDocument>,
     dependencies: IScanCleanupDetectionDependencies,
-    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency'>,
+    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency' | 'rasterMaxPixels'>,
     publish: (
         results: IScanCleanupDetectionResult[],
         progress: TScanCleanupProgress,

@@ -571,6 +571,7 @@ describe('createElectronApi', () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
         const {
             api,
+            ipcRenderer,
             listeners,
         } = await createApiHarness();
         const callback = vi.fn();
@@ -603,6 +604,13 @@ describe('createElectronApi', () => {
         expect(warningSpy).toHaveBeenCalledWith(
             `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.debugLog}`,
             expect.objectContaining({ level: 'TRACE' }),
+        );
+        expect(ipcRenderer.send).toHaveBeenCalledWith(
+            CORE_IPC_SEND_CHANNELS.rendererLog,
+            expect.objectContaining({data: {
+                channel: CORE_IPC_EVENT_CHANNELS.debugLog,
+                decoderMessage: 'decoder returned null',
+            }}),
         );
     });
 

@@ -45,6 +45,7 @@
                                 :src="output.pixelSwap.currentUrl"
                                 :alt="altByHalf[output.metadata.half] ?? ''"
                                 @transitionend="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
+                                @transitioncancel="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
                             >
                             <img
                                 v-if="output.pixelSwap.incomingUrl"

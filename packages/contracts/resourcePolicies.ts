@@ -23,6 +23,8 @@ export interface IScanCleanupRuntimePolicy {
     rasterStreaming: boolean;
     logicalCpus: number;
     totalRamBytes: number;
+    /** Optional for compatibility with callers predating low-memory raster admission. */
+    rasterMaxPixels?: number;
 }
 
 export function parseBoundedEnvInt(
@@ -130,6 +132,7 @@ export function decodeSearchWorkerData(
 export function decodeScanCleanupRuntimePolicy(
     value: unknown,
 ): IScanCleanupRuntimePolicy | null {
+    const rasterMaxPixels = isRecord(value) ? value.rasterMaxPixels : undefined;
     if (
         !isRecord(value)
         || !isPositiveSafeIntegerAtMost(
@@ -139,6 +142,7 @@ export function decodeScanCleanupRuntimePolicy(
         || typeof value.rasterStreaming !== 'boolean'
         || !isNonNegativeSafeInteger(value.logicalCpus)
         || !isNonNegativeSafeInteger(value.totalRamBytes)
+        || (rasterMaxPixels !== undefined && !isPositiveSafeInteger(rasterMaxPixels))
     ) {
         return null;
     }
@@ -148,5 +152,6 @@ export function decodeScanCleanupRuntimePolicy(
         rasterStreaming: value.rasterStreaming,
         logicalCpus: value.logicalCpus,
         totalRamBytes: value.totalRamBytes,
+        ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
     };
 }

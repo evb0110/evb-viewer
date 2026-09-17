@@ -48,7 +48,7 @@ import type {
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy,
-    SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
     configureMainJobBroker,
@@ -286,29 +286,31 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             writeFile,
         },
         getAvailableScratchBytes: async () => Number.MAX_SAFE_INTEGER,
-        resolveRasterAdmissionPolicy: supportsRasterStreaming => resolveScanCleanupRasterAdmissionPolicy(
+        resolveRasterAdmissionPolicy: (supportsRasterStreaming, options) => resolveScanCleanupRasterAdmissionPolicy(
             mainJobBroker.getSnapshot().capacity,
             supportsRasterStreaming,
+            options,
         ),
-        acquirePreviewLease: (ownerId, visibility, signal) => mainJobBroker.acquire({
+        acquirePreviewLease: (ownerId, visibility, signal, options, rasterMaxPixels) => mainJobBroker.acquire({
             ownerId,
             kind: 'scan-cleanup-preview',
             priority: visibility === 'prefetch' ? 'background' : 'visible',
             resources: {
                 cpuTokens: 1,
-                estimatedResidentBytes: SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterMaxPixels),
                 nativeProcesses: 1,
                 ioWeight: 1,
             },
             signal,
         }),
-        acquireDetectionLease: (ownerId, signal, policy) => mainJobBroker.acquire({
+        acquireDetectionLease: (ownerId, signal, policy, options) => mainJobBroker.acquire({
             ownerId,
             kind: 'scan-cleanup-detect-all',
             priority: 'user',
             resources: {
                 cpuTokens: policy.rasterConcurrency,
-                estimatedResidentBytes: policy.rasterConcurrency * SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+                estimatedResidentBytes: policy.rasterConcurrency
+                    * resolveScanCleanupPreviewRasterSlotResidentBytes(options, policy.rasterMaxPixels),
                 nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming),
                 ioWeight: 2,
             },

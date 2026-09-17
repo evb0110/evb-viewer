@@ -656,6 +656,15 @@ export const DIAGNOSTIC_DEFINITIONS = {
         stackPolicy: 'call-site',
         context: {},
     },
+    RENDERER_IPC_EVENT_DECODE_FAILED: {
+        exceptionType: 'RendererIpcEventDecodeFailed',
+        exceptionValue: 'Renderer IPC event decode failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
     RENDERER_ASYNC_GUARD_FAILED: {
         exceptionType: 'RendererAsyncGuardFailed',
         exceptionValue: 'Renderer async guard failed',

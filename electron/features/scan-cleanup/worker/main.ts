@@ -15,7 +15,6 @@ import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { isAbortError } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {openScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     runScanCleanupPipeline,
@@ -67,11 +66,6 @@ try {
         ...requestWithoutDetectionResultStoreDescriptor,
         ...(detectionResultStore === null ? {} : {detectionResultStore}),
     };
-    attachScanCleanupPageOverrideDefaults(
-        request.options.pageOverrides,
-        request.options.pageOverrideDefaults,
-        request.options.marginsMm,
-    );
     logger.info(
         `Run started: source=${basename(data.request.sourcePdfPath)} `
         + `selectedPages=${String(data.request.sourcePageNumbers?.length ?? 'all')}`,
