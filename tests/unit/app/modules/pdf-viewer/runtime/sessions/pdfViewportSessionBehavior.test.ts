@@ -1422,6 +1422,43 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it.each([
+        false,
+        true,
+    ])('closes with pending navigation after metadata clears (continuous: %s)', async (continuousScroll) => {
+        const fixture = createViewportFixture({
+            pageCount: 100,
+            continuousScroll,
+        });
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            setCurrentPage(fixture.viewport, 38);
+            fixture.viewport.markPageMounted(requirePageNumber(38));
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(39))).toBe(true);
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value,
+            ).not.toBeNull());
+
+            fixture.documentSession.numPages.value = 0;
+            fixture.documentSession.pageMetrics.value = [];
+            fixture.documentSession.pdfDocument.value = null;
+            await fixture.documentSession.emit(transition('invalidated', {
+                isReload: false,
+                isSelectiveReload: false,
+                pagesToInvalidate: null,
+                preserveVisibleContent: false,
+                preservePageStructure: false,
+            }));
+
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            expect(fixture.viewport.demand.value.operational).toBe(false);
+        } finally {
+            metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
     it('holds the last picture when a page operation rewrites the open document', async () => {
         const fixture = createViewportFixture({pageCount: 10});
         try {

@@ -1,4 +1,7 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
@@ -112,10 +115,15 @@ export const usePdfViewerTransactionController = (
             return null;
         }
 
-        const navigationPage = requirePageNumber(
-            navigationState.targetPage,
-            Math.max(1, options.numPages.value),
-        );
+        // Navigation state can outlive the old document while synchronous
+        // teardown watchers run. It has no transaction in an empty or shorter
+        // document; do not validate that stale target as a new command.
+        const navigationPage = options.numPages.value > 0
+            ? parsePageNumber(navigationState.targetPage, options.numPages.value)
+            : null;
+        if (navigationPage === null) {
+            return null;
+        }
         const range = navigationState.source === 'paged'
             ? getPdfViewerTransactionRowRange({
                 pageNumber: navigationPage,

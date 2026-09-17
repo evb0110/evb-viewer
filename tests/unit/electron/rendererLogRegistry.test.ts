@@ -422,6 +422,30 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.serializedData).toBe('');
     });
 
+    it('retains bounded redacted details of nested errors serialized by the renderer', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const entry = normalizeRendererLogEntry({
+            level: 'error',
+            message: 'Failed to invalidate',
+            data: {
+                category: 'operation',
+                error: {
+                    name: 'RangeError',
+                    message: 'Invalid page in /Users/evb/private/document.pdf',
+                    stack: 'RangeError: Invalid page\n at navigation.ts:115:32',
+                    unrelated: {large: true},
+                },
+            },
+        });
+        const data = JSON.parse(entry.serializedData.slice(' data='.length));
+        expect(data.error).toEqual({
+            name: 'RangeError',
+            message: expect.stringContaining('Invalid page'),
+            stack: expect.stringContaining('navigation.ts:115:32'),
+        });
+        expect(entry.serializedData).not.toContain('/Users/evb/private/document.pdf');
+    });
+
     it('serializes data into serializedData with leading data= marker', async () => {
         const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
