@@ -1,4 +1,7 @@
-import {rm} from 'node:fs/promises';
+import {
+    rm,
+    stat,
+} from 'node:fs/promises';
 import type {
     IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
@@ -286,6 +289,9 @@ export function createScanCleanupRenderers(
         outputPath: string,
         limits: IScanCleanupRasterRenderLimits | undefined,
     ) => {
+        if (format === 'ppm' && !(await stat(outputPath)).isFile()) {
+            return;
+        }
         const dimensions = format === 'png'
             ? await readPngDimensions(outputPath)
             : await readPpmDimensions(outputPath);
