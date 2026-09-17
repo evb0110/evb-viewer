@@ -1,0 +1,20 @@
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_7fbccdf1482ee4::t_9f1e4e6db07bf8 1437-1454
+  s_7fbccdf1482ee4::t_fa0632ce7951c8 1389,1400-1412,1455-1466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6afa2c584f3d7b56c75cc35c47ba7907a25eee4b",
+  "prompts": {},
+  "sessions": {
+    "s_7fbccdf1482ee4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0f4-88d8-7971-ae25-831c659a2a80",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
