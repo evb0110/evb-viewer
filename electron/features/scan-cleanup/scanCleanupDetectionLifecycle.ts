@@ -11,13 +11,14 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {
     runScanCleanupDetection,
-    SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES,
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
     completedPageProgress,
 } from '@evb/scan-cleanup/core/detection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
@@ -221,7 +222,7 @@ export function scanCleanupDetectionOwner(
             send: (subscriber, channel, state) => {
                 const deliveryKey = detectionDeliveryKey(subscriber.id, state.jobId);
                 if (state.status === 'queued' || state.status === 'running' || state.status === 'canceling') {
-                    if (state.progress.totalUnits > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
+                    if (state.progress.totalUnits > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                         // Large runs already publish a bounded batch from core.
                         // The renderer needs only the newest classifications it
                         // can display. Full page plans remain in the file-backed
@@ -254,7 +255,7 @@ export function scanCleanupDetectionOwner(
             completed: (latest, result) => {
                 const resultCount = result.resultStore.resultCount;
                 const pageCount = result.resultStore.pageCount;
-                const results = resultCount <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+                const results = resultCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
                     ? result.results
                     : [];
                 return {
@@ -360,6 +361,11 @@ export function scanCleanupDetectionOwner(
         if (!isAbsolute(request.sourcePdfPath)) {
             throw new Error('Source must be an absolute path');
         }
+        attachScanCleanupPageOverrideDefaults(
+            request.options.pageOverrides,
+            request.options.pageOverrideDefaults,
+            request.options.marginsMm,
+        );
         const detectionSignature = createScanCleanupDetectionSignature(request.options);
         const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
         const lease = claimScanCleanupDetectionResultStore(
@@ -552,6 +558,11 @@ export function scanCleanupDetectionOwner(
                             job.signal,
                             dependencies,
                         );
+                        attachScanCleanupPageOverrideDefaults(
+                            materializedRequest.options.pageOverrides,
+                            materializedRequest.options.pageOverrideDefaults,
+                            materializedRequest.options.marginsMm,
+                        );
                         const fileSystem = dependencies.fileSystem;
                         if (fileSystem === undefined) {
                             throw new Error('Scan cleanup detection requires injected filesystem capabilities');
@@ -627,7 +638,7 @@ export function scanCleanupDetectionOwner(
                             },
                             logScanCleanupMessage,
                         );
-                        if (detection.resultStore.pageCount > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
+                        if (detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                             if (
                                 job.signal.aborted
                                 || detectionLifecycle.activeJob(ownerId)?.jobId !== jobId

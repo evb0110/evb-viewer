@@ -26,13 +26,19 @@ import type {
     TScanCleanupCanvasScope,
 } from '@contracts/electronApiScanCleanup';
 import {
-    buildGeometryOnlyNativeScanCleanupManifest,
     buildRunnableNativeScanCleanupManifest,
+    buildShapeOnlyNativeScanCleanupManifest,
     serializeNativeScanCleanupOptions,
+    type IBuildNativeScanCleanupManifestInput,
     type IScanCleanupManifestPageInput,
 } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+
 import {assertNativeScanCleanupManifestGeometry} from '@evb/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry';
-import {assertScanCleanupPathWithinCanonicalRoot} from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
+import {
+    assertScanCleanupPathWithinCanonicalRoot,
+    canonicalizeScanCleanupAllowedRoot,
+    createScanCleanupPathResolutionCache,
+} from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 import {resolveEffectiveScanCleanupOptions} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
@@ -43,6 +49,10 @@ import {
     it,
     vi,
 } from 'vitest';
+
+const buildGeometryOnlyNativeScanCleanupManifest = (
+    input: IBuildNativeScanCleanupManifestInput,
+) => buildShapeOnlyNativeScanCleanupManifest(input);
 
 const {realpathSyncCalls} = vi.hoisted(() => ({realpathSyncCalls: [] as string[]}));
 
@@ -1101,10 +1111,10 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         ]);
 
         expect(realpathSyncCalls.filter(candidate => candidate === root)).toEqual([root]);
-        // Two pages of paths were still judged, so the single root resolution
-        // is reuse rather than skipped work.
+        // Two pages of paths were still judged, so the single nested-directory
+        // resolution is reuse rather than skipped work.
         expect(realpathSyncCalls.filter(candidate => candidate === join(root, 'nested')).length)
-            .toBeGreaterThan(1);
+            .toBeGreaterThan(0);
     });
 
     it('names the allowed root in root failures and the field in candidate failures', () => {
@@ -1137,6 +1147,32 @@ describe('runnable native scan-cleanup manifest path containment', () => {
             },
             'forged root path',
         )).toThrow('forged root path was judged against a root that was never canonicalized');
+    });
+
+    it('revalidates a cached descendant before joining a missing path tail', async () => {
+        const mutableDirectory = join(root, 'mutable-descendant');
+        const allowedRoot = canonicalizeScanCleanupAllowedRoot(root);
+        const pathResolutionCache = createScanCleanupPathResolutionCache(allowedRoot);
+        await mkdir(mutableDirectory);
+
+        assertScanCleanupPathWithinCanonicalRoot(
+            join(mutableDirectory, 'first-output.png'),
+            allowedRoot,
+            'first output path',
+            pathResolutionCache,
+        );
+        await rm(mutableDirectory, {
+            recursive: true,
+            force: true,
+        });
+        await symlink(outside, mutableDirectory);
+
+        expect(() => assertScanCleanupPathWithinCanonicalRoot(
+            join(mutableDirectory, 'second-output.png'),
+            allowedRoot,
+            'second output path',
+            pathResolutionCache,
+        )).toThrow('second output path is outside its allowed root');
     });
 
 

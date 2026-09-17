@@ -10,6 +10,7 @@ import type {
     TScanCleanupPlacementAnchorsByPage,
 } from '@contracts/scanCleanupPageOverrides';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_OUTPUT_HALVES,
@@ -106,6 +107,26 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourceSha256,
         legacyDocumentKey,
     });
+    watch(
+        [
+            () => settings.values.pageOverrides,
+            () => settings.values.pageOverrideDefaults,
+        ],
+        ([
+            pageOverrides,
+            pageOverrideDefaults,
+        ]) => {
+            attachScanCleanupPageOverrideDefaults(
+                pageOverrides,
+                pageOverrideDefaults,
+                settings.values.marginsMm,
+            );
+        },
+        {
+            deep: true,
+            immediate: true,
+        },
+    );
     const resolvedOptions = computed(() => toPlainScanCleanupOptions(settings.values));
     let previewResult = null as ReturnType<typeof useScanCleanupPreviewSession> | null;
     const selection = useScanCleanupSelection({
@@ -143,8 +164,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             ([pageNumber]) => !getScanCleanupPageOverride(
                 cleanupOptions.pageOverrides,
                 requirePageNumber(pageNumber),
-                cleanupOptions.pageOverrideDefaults,
-                cleanupOptions.marginsMm,
             ).excluded,
         );
         const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(
@@ -164,8 +183,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             const pageOverride = getScanCleanupPageOverride(
                 cleanupOptions.pageOverrides,
                 brandedPageNumber,
-                cleanupOptions.pageOverrideDefaults,
-                cleanupOptions.marginsMm,
             );
             const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
             const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;

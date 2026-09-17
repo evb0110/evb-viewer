@@ -20,7 +20,7 @@ describe('ocr dpi detection', () => {
         mocks.runOcrCommand.mockReset();
     });
 
-    it('derives every page raster from verified full-page image metadata', () => {
+    it('derives every page raster from verified full-page image metadata', async () => {
         const result = detectSourceDpiFromPageSizes([
             {
                 pageNumber: 1,
@@ -49,12 +49,21 @@ describe('ocr dpi detection', () => {
         ]);
 
         expect(result?.documentDpi).toBe(360);
-        expect(result?.pageRasterByNumber.get(1)).toEqual({
+        const [
+            firstRaster,
+            secondRaster,
+        ] = await Promise.all(
+            [
+                result?.getPageRaster(1),
+                result?.getPageRaster(2),
+            ],
+        );
+        expect(firstRaster).toEqual({
             dpi: 360,
             width: 2198,
             height: 3350,
         });
-        expect(result?.pageRasterByNumber.get(2)).toEqual({
+        expect(secondRaster).toEqual({
             dpi: 360,
             width: 2120,
             height: 3202,
@@ -88,14 +97,14 @@ describe('ocr dpi detection', () => {
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
         expect(result.documentDpi).toBe(239);
-        expect(result.pageDpiByNumber.get(4)).toBe(72);
-        expect(result.pageDpiByNumber.get(5)).toBe(239);
-        expect(result.pageRasterByNumber.get(4)).toEqual({
+        expect((await result.getPageRaster(4))?.dpi).toBe(72);
+        expect((await result.getPageRaster(5))?.dpi).toBe(239);
+        expect(await result.getPageRaster(4)).toEqual({
             dpi: 72,
             width: 2630,
             height: 2159,
         });
-        expect(result.pageRasterByNumber.get(5)).toEqual({
+        expect(await result.getPageRaster(5)).toEqual({
             dpi: 239,
             width: 1617,
             height: 2800,
@@ -116,7 +125,7 @@ describe('ocr dpi detection', () => {
 
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
-        expect(result.pageRasterByNumber.get(33)).toEqual({
+        expect(await result.getPageRaster(33)).toEqual({
             dpi: 360,
             width: 2119,
             height: 3204,
@@ -124,6 +133,8 @@ describe('ocr dpi detection', () => {
             hasDominantBilevelLayer: true,
             backgroundDpi: 120,
         });
+        expect(result.compactLayeredPageCount).toBe(1);
+        expect(result.compactLayeredPageCountComplete).toBe(true);
     });
 
     it('does not treat an incidental small one-bit image as the dominant source grid', async () => {
@@ -139,7 +150,7 @@ describe('ocr dpi detection', () => {
 
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
-        expect(result.pageRasterByNumber.get(1)).toEqual({
+        expect(await result.getPageRaster(1)).toEqual({
             dpi: 300,
             width: 2400,
             height: 3600,
@@ -161,7 +172,7 @@ describe('ocr dpi detection', () => {
 
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
-        expect(result.pageRasterByNumber.get(1)).toEqual({
+        expect(await result.getPageRaster(1)).toEqual({
             dpi: 600,
             width: 4800,
             height: 7200,
@@ -184,7 +195,7 @@ describe('ocr dpi detection', () => {
 
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
-        expect(result.pageRasterByNumber.get(1)).toEqual({
+        expect(await result.getPageRaster(1)).toEqual({
             dpi: 600,
             width: 3000,
             height: 4000,
@@ -207,7 +218,7 @@ describe('ocr dpi detection', () => {
 
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
-        expect(result.pageRasterByNumber.get(1)).toEqual({
+        expect(await result.getPageRaster(1)).toEqual({
             dpi: 300,
             width: 1200,
             height: 1800,
@@ -407,10 +418,16 @@ describe('ocr dpi detection', () => {
             expect.anything(),
         );
         expect(result.documentDpi).toBe(360);
-        expect(result.pageDpiByNumber.size).toBe(4096);
-        expect(result.pageDpiByNumber.get(1)).toBe(360);
-        expect(result.pageDpiByNumber.get(196)).toBe(360);
-        expect(result.pageDpiByNumber.get(392)).toBe(360);
+        let detectedPageCount = 0;
+        for (let pageNumber = 1; pageNumber <= 4_096; pageNumber += 1) {
+            if (await result.getPageRaster(pageNumber) !== undefined) {
+                detectedPageCount += 1;
+            }
+        }
+        expect(detectedPageCount).toBe(4096);
+        expect((await result.getPageRaster(1))?.dpi).toBe(360);
+        expect((await result.getPageRaster(196))?.dpi).toBe(360);
+        expect((await result.getPageRaster(392))?.dpi).toBe(360);
     });
 
     it('downgrades recoverable pdfimages runner errors to debug logs', async () => {
@@ -423,7 +440,7 @@ describe('ocr dpi detection', () => {
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', log);
 
         expect(result.documentDpi).toBeNull();
-        expect(result.pageDpiByNumber.size).toBe(0);
+        expect(await result.getPageRaster(1)).toBeUndefined();
         expect(log).toHaveBeenCalledWith(
             'debug',
             expect.stringContaining('pdfimages(-list) timed out after 30000ms'),

@@ -3,17 +3,12 @@ import type {
     IPdfPageSize,
     IPdfPageSizeStore,
 } from '@electron/pdf/pdfPageSizes';
-import {getErrorMessage} from '@electron/utils/error';
-import {createLogger} from '@electron/utils/createLogger';
 import {resolveScanCleanupRasterPageSizeStore} from '@electron/features/scan-cleanup/resolveScanCleanupRasterPageSizeStore';
-import {logScanCleanupMessage} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 import {detectPageRasterFromPageSize} from '@evb/scan-cleanup/core/types';
 import type {
     IRetainedDocument,
     IScanCleanupRasterDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-
-const logger = createLogger('scan-cleanup-raster-measurement');
 
 export function resolveScanCleanupDocumentMeasurement<TValue>(
     slot: {
@@ -95,40 +90,6 @@ export function createScanCleanupRasterMeasurements(input: {
         signal,
         () => input.dependencies.getPageCount(document.sourcePdfPath, {signal: document.lifetime.signal}),
     );
-    const resolvePreviewPageSizes = (document: IRetainedDocument, signal: AbortSignal) => resolveScanCleanupDocumentMeasurement(
-        {
-            read: () => document.previewPageSizes,
-            write: value => {
-                document.previewPageSizes = value;
-            },
-        },
-        signal,
-        async () => {
-            try {
-                const getPageSizes = input.dependencies.getPageSizes;
-                if (getPageSizes === undefined) {
-                    throw new Error('no compatibility page-size reader is available');
-                }
-                const pdfPageOpsBinary = input.dependencies.resolvePageOpsBinary();
-                const pdfinfoBinary = input.dependencies.resolvePdfInfoBinary?.();
-                if (!pdfPageOpsBinary && !pdfinfoBinary) {
-                    throw new Error('no PDF tool is available to read page geometry');
-                }
-                return await getPageSizes(document.sourcePdfPath, {
-                    ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
-                    ...(pdfinfoBinary ? {pdfinfoBinary} : {}),
-                    tempDir: await document.dir,
-                    signal: document.lifetime.signal,
-                    log: logScanCleanupMessage,
-                });
-            } catch (error) {
-                logger.warn(`Scan cleanup could not measure the document canvas: ${getErrorMessage(error)}`);
-                throw new Error(
-                    `Scan cleanup could not measure this document's page sizes, which matched page size needs: ${getErrorMessage(error)}`,
-                );
-            }
-        },
-    );
     const observePageSize = (document: IRetainedDocument, page: IPdfPageSize) => {
         const raster = detectPageRasterFromPageSize(page);
         if (raster !== undefined) {
@@ -166,38 +127,26 @@ export function createScanCleanupRasterMeasurements(input: {
             ...(fork === undefined ? {} : {fork}),
         };
     };
-    const resolvePageSizeStore = (document: IRetainedDocument, signal: AbortSignal) => (
-        resolveScanCleanupDocumentMeasurement(
-            {
-                read: () => document.pageSizeStore,
-                write: value => {
-                    document.pageSizeStore = value;
-                },
+    const resolvePageSizeStore = (document: IRetainedDocument, signal: AbortSignal) => resolveScanCleanupDocumentMeasurement(
+        {
+            read: () => document.pageSizeStore,
+            write: value => {
+                document.pageSizeStore = value;
             },
+        },
+        signal,
+        () => resolveScanCleanupRasterPageSizeStore({
+            dependencies: input.dependencies,
+            document,
             signal,
-            () => resolveScanCleanupRasterPageSizeStore({
-                dependencies: input.dependencies,
-                document,
-                signal,
-                disposed: input.disposed,
-                generation: input.documentGenerations.get(document) ?? 0,
-                currentGeneration: () => input.documentGenerations.get(document) ?? 0,
-                resolvePageCount,
-                resolvePreviewPageSizes,
-                observePageSizeStore,
-            }),
-        )
-            .then(store => {
-                signal.throwIfAborted();
-                const fork = store.fork?.();
-                if (fork === undefined) return store;
-                document.pageSizeStores.add(fork);
-                return fork;
-            })
+            disposed: input.disposed,
+            generation: input.documentGenerations.get(document) ?? 0,
+            currentGeneration: () => input.documentGenerations.get(document) ?? 0,
+            observePageSizeStore,
+        }),
     );
     return {
         resolvePageCount,
-        resolvePreviewPageSizes,
         resolvePageSizeStore,
     };
 }

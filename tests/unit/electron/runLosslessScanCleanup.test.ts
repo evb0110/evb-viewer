@@ -26,6 +26,7 @@ import type {
     IScanCleanupWorkerPaths,
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
+import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
 import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
 
@@ -147,9 +148,13 @@ describe('runLosslessScanCleanup', () => {
             forEachChunk: vi.fn(async () => undefined),
             close: vi.fn(async () => undefined),
         };
+        const observedPages = new Set<number>();
+        const compactLayeredPages = new Set<number>();
+        let compactLayeredPageCountComplete = false;
         const sourceDpi: IScanCleanupPageRasterSource = {
             detected: true,
             documentDpi: 300,
+            compactLayeredPageCount: compactLayeredPages.size,
             getPageRaster: vi.fn((pageNumber: number) => ({
                 dpi: 300,
                 width: 2_550,
@@ -158,6 +163,13 @@ describe('runLosslessScanCleanup', () => {
                 backgroundDpi: 120,
                 pageNumber,
             })),
+            recordPageRaster: (pageNumber, raster) => {
+                if (observedPages.has(pageNumber)) return;
+                observedPages.add(pageNumber);
+                if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPages.add(pageNumber);
+                compactLayeredPageCountComplete = observedPages.size === documentPageCount;
+                sourceDpi.compactLayeredPageCount = compactLayeredPages.size;
+            },
         };
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (
             _binaryPath,
@@ -238,5 +250,10 @@ describe('runLosslessScanCleanup', () => {
         } | null;};
         expect(report.compactSourceBudget).toMatchObject({compactLayeredPages: documentPageCount});
         expect(report.compactSourceBudget?.maxOutputBytes).toBeGreaterThan(0);
+        expect(observedPages.size).toBe(documentPageCount);
+        expect(compactLayeredPages.size).toBe(documentPageCount);
+        expect(compactLayeredPageCountComplete).toBe(true);
+        expect(sourceDpi.compactLayeredPageCount).toBe(compactLayeredPages.size);
+        expect(sourceDpi.compactLayeredPageCountComplete).toBeUndefined();
     }, 30_000);
 });

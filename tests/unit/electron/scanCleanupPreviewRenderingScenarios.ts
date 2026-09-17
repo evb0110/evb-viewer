@@ -41,6 +41,11 @@ import type {
     IScanCleanupDetectionSubscriber,
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {
+    IDetectedPageRaster,
+    IScanCleanupPageRasterSource,
+} from '@evb/scan-cleanup/core/types';
 
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {fitScanCleanupMarginAxisPx} from '@evb/scan-cleanup/core/policy/documentCanvas';
@@ -134,6 +139,41 @@ function decodePpm(bytes: Buffer) {
         width,
         height,
         pixels: bytes.subarray(match[0].length, match[0].length + width * height * 3),
+    };
+}
+
+function rasterSource(input: {
+    detected: boolean;
+    pages?: ReadonlySet<number>;
+    sourceDpiByPage?: ReadonlyMap<number, number>;
+    bilevelLayerPages?: ReadonlySet<number>;
+    dominantBilevelLayerPages?: ReadonlySet<number>;
+    backgroundDpiByPage?: ReadonlyMap<number, number>;
+    documentDpi?: number | null;
+}): IScanCleanupPageRasterSource {
+    const pageNumbers = new Set([
+        ...(input.pages ?? []),
+        ...(input.sourceDpiByPage?.keys() ?? []),
+        ...(input.backgroundDpiByPage?.keys() ?? []),
+    ]);
+    const rasters = new Map<number, IDetectedPageRaster>();
+    for (const pageNumber of pageNumbers) {
+        const backgroundDpi = input.backgroundDpiByPage?.get(pageNumber);
+        rasters.set(pageNumber, {
+            dpi: input.sourceDpiByPage?.get(pageNumber) ?? input.documentDpi ?? 150,
+            width: 1_000,
+            height: 1_400,
+            ...(input.bilevelLayerPages?.has(pageNumber) ? {hasBilevelLayer: true} : {}),
+            ...(input.dominantBilevelLayerPages?.has(pageNumber) ? {hasDominantBilevelLayer: true} : {}),
+            ...(backgroundDpi === undefined
+                ? {}
+                : {backgroundDpi}),
+        });
+    }
+    return {
+        detected: input.detected,
+        documentDpi: input.documentDpi ?? null,
+        getPageRaster: pageNumber => rasters.get(pageNumber),
     };
 }
 const dirs: string[] = [];
@@ -260,8 +300,15 @@ const SETTLED_SINGLE_LAYOUT_BY_PAGE = {
     '3': 'single-uncut-page',
 } as const;
 
+function pageSizesForCount(pageCount: number) {
+    return Array.from({length: pageCount}, (_value, index) => ({
+        ...DOCUMENT_PAGE_SIZES[index % DOCUMENT_PAGE_SIZES.length]!,
+        pageNumber: index + 1,
+    }));
+}
+
 function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return {
+    const result: IScanCleanupPreviewDependencies = {
         fileSystem: {
             copyFile,
             mkdir,
@@ -283,7 +330,9 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getSourceStatIdentity: async () => 'fixture-source',
         resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(
+            pageSizesForCount(await result.getPageCount('', {signal: new AbortController().signal})),
+        )),
         publishRaster: atomicReplace,
         // pdftoppm names its own output by dropping the extension and adding
         // the format's, so a caller that asks for anything else gets nothing.
@@ -489,6 +538,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         })),
         materializeRequest: materializeScanCleanupPreviewRequest,
     };
+    return result;
 }
 
 async function previewFixture() {
@@ -647,13 +697,13 @@ export async function scenarioReturnsRealSidecarBytesAndValidatedMetadata(): Pro
 export async function scenarioDoesNotUpscaleAProven72DPIRasterDocumentForItsBasePreview(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(page => ({
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.map(page => ({
         ...page,
         dominantImageWidthPx: 612,
         dominantImageHeightPx: 792,
         dominantImageWidthPoints: 612,
         dominantImageHeightPoints: 792,
-    })));
+    }))));
     const originalSidecar = deps.runSidecar;
     let manifest: {
         documentCanvas?: {
@@ -694,7 +744,8 @@ export async function scenarioDoesNotUpscaleAProven72DPIRasterDocumentForItsBase
 export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePopplerRasterizesIt(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => [{
+    deps.getPageCount = vi.fn(async () => 1);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore([{
         pageNumber: 1,
         xPoints: 0,
         yPoints: 0,
@@ -705,7 +756,7 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
         dominantImageHeightPx: 3_328,
         dominantImageWidthPoints: 4_676,
         dominantImageHeightPoints: 3_328,
-    }]);
+    }]));
     const originalSidecar = deps.runSidecar;
     let manifest: {
         documentCanvas?: {
@@ -753,7 +804,7 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
 export async function scenarioStreamsTheDisplayRasterButCleansBinaryPreviewTextOnTheSourceGrid(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set([1]),
         sourceDpiByPage: new Map([[
@@ -1337,10 +1388,10 @@ export async function scenarioProbesOnlyTheRequestedPageForTheFirstPreviewRaster
     const probedPages: number[][] = [];
     deps.detectRasterPages = vi.fn(async (_sourcePdfPath, _signal, pageNumbers) => {
         probedPages.push([...pageNumbers]);
-        return {
+        return rasterSource({
             detected: true,
             pages: new Set<number>(pageNumbers),
-        };
+        });
     });
 
     await previewOf(createRenderingScenarioOwner(deps), sender(), request);
@@ -1353,7 +1404,7 @@ export async function scenarioProbesOnlyTheRequestedPageForTheFirstPreviewRaster
 export async function scenarioKeepsIntrinsicPageCanvasesWhenTheDocumentGeometryCannotBeRead(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => []);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore([]));
     const originalSidecar = deps.runSidecar;
     let matchPageSize: boolean | undefined;
     let documentCanvas: unknown;
@@ -1382,10 +1433,10 @@ export async function scenarioPresentsAClassifiedSpreadOnAHalfSheetCanvasWithout
 
     const {deps} = await previewDependencies();
     // A document of spread sheets: every sheet carries two book pages.
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(pageSize => ({
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.map(pageSize => ({
         ...pageSize,
         widthPoints: 1_224,
-    })));
+    }))));
     const originalSidecar = deps.runSidecar;
     let documentCanvas: unknown;
     let observedPageLayout: unknown;
@@ -1461,7 +1512,7 @@ export async function scenarioReusesTheDetectedOutputModeForAnAutomaticPreview()
 export async function scenarioDoesNotTurnACanceledTrustedLayerExtractionIntoARasterFallback(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set([1]),
         bilevelLayerPages: new Set([1]),
@@ -1546,7 +1597,7 @@ export async function scenarioRendersAMatchedLosslessPageTheFinalRunCannotKeepLo
     // The document was scanned at two scales, and both pages carry their own
     // raster: matched page size cannot put them on one grid without
     // re-rendering, so the run will render — and so must the preview.
-    deps.getPageSizes = vi.fn(async () => [
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore([
         {
             pageNumber: 1,
             xPoints: 0,
@@ -1563,8 +1614,16 @@ export async function scenarioRendersAMatchedLosslessPageTheFinalRunCannotKeepLo
             heightPoints: 396,
             rotation: 0,
         },
-    ]);
-    deps.detectRasterPages = vi.fn(async () => ({
+        {
+            pageNumber: requirePageNumber(3),
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        },
+    ]));
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set([
             1,
@@ -1608,7 +1667,7 @@ export async function scenarioRendersAMatchedLosslessPageTheFinalRunCannotKeepLo
 export async function scenarioKeepsAMatchedLosslessPageLosslessWhenTheDocumentSharesOneGrid(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set([
             1,
@@ -1773,7 +1832,7 @@ export async function scenarioUsesAnalysisOnlyOutputMetadataForTheLosslessOrigin
 export async function scenarioUsesThePairWideLosslessFitWhenOneSpreadLeafReachesTheMarginBox(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => [
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore([
         1,
         2,
         3,
@@ -1784,8 +1843,8 @@ export async function scenarioUsesThePairWideLosslessFitWhenOneSpreadLeafReaches
         widthPoints: 1_057.44,
         heightPoints: 780.48,
         rotation: 0,
-    })));
-    deps.detectRasterPages = vi.fn(async () => ({
+    }))));
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set([
             1,
@@ -1986,12 +2045,12 @@ export async function scenarioSamplesTheMatchedPreviewCanvasOnTheGridTheOutputPa
     // 142.08 pt is 296.00000000000006 px at 150 DPI: the page the run
     // produces carries 296 px, and the 25 mm margin pair the request asks
     // for is exactly that width once each margin lands on the grid.
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(pageSize => ({
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.map(pageSize => ({
         ...pageSize,
         widthPoints: 142.08,
         heightPoints: 213.12,
-    })));
-    deps.detectRasterPages = vi.fn(async () => ({
+    }))));
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set<number>(),
     }));
@@ -2084,7 +2143,7 @@ export async function scenarioNamesPaperTheMatchedPreviewCanvasCannotHold(): Pro
     // Two landscape sheets settle the document rectangle; the portrait
     // sheet between them is the same area turned on its side, so it is
     // paper this canvas cannot hold at the document's scale.
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(pageSize => (
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.map(pageSize => (
         pageSize.pageNumber === 2
             ? pageSize
             : {
@@ -2092,8 +2151,8 @@ export async function scenarioNamesPaperTheMatchedPreviewCanvasCannotHold(): Pro
                 widthPoints: 792,
                 heightPoints: 612,
             }
-    )));
-    deps.detectRasterPages = vi.fn(async () => ({
+    ))));
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set<number>(),
     }));
@@ -2171,10 +2230,10 @@ export async function scenarioNamesPaperTheMatchedPreviewCanvasCannotHold(): Pro
 export async function scenarioMatchesProvisionalPreviewsFromKnownPagesWithoutGuessingUnknownLayouts(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(page => ({
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.map(page => ({
         ...page,
         widthPoints: page.widthPoints * 2,
-    })));
+    }))));
     const analysis = Promise.withResolvers<undefined>();
     const previewCanvases: unknown[] = [];
     const originalSidecar = deps.runSidecar;
@@ -2281,7 +2340,7 @@ export async function scenarioMatchesProvisionalPreviewsFromKnownPagesWithoutGue
             heightPx: 1_650,
         },
     ]);
-    expect(deps.getPageSizes).toHaveBeenCalledOnce();
+    expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
 
 }
 
@@ -2307,7 +2366,7 @@ export async function scenarioLeavesEveryPageItsOwnCropWhenPageSizesAreNotMatche
     });
 
     expect(previewCanvases).toEqual([undefined]);
-    expect(deps.getPageSizes).toHaveBeenCalledOnce();
+    expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
 
 }
 
@@ -2315,10 +2374,10 @@ export async function scenarioPreviewsWithoutMatchingWhenItCannotMeasureAndMeasu
 
     const {deps} = await previewDependencies();
     let measurements = 0;
-    deps.getPageSizes = vi.fn(async () => {
+    deps.getPageSizeStore = vi.fn(async () => {
         measurements += 1;
         if (measurements === 1) throw new Error('evb-pdf-page-ops is unavailable');
-        return DOCUMENT_PAGE_SIZES;
+        return createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
     });
     const canvases: unknown[] = [];
     const matched: Array<boolean | undefined> = [];
@@ -2376,11 +2435,11 @@ export async function scenarioMeasuresUnderTheDocumentRatherThanUnderTheRequestT
     const measuring = Promise.withResolvers<undefined>();
     const releaseMeasurement = Promise.withResolvers<undefined>();
     let measurementSignal: AbortSignal | undefined;
-    deps.getPageSizes = vi.fn(async (_path, measureOptions) => {
+    deps.getPageSizeStore = vi.fn(async (_path, measureOptions) => {
         measurementSignal = measureOptions?.signal;
         measuring.resolve(undefined);
         await releaseMeasurement.promise;
-        return DOCUMENT_PAGE_SIZES;
+        return createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
     });
     const service = createRenderingScenarioOwner(deps);
     const owner = sender();
@@ -2566,12 +2625,12 @@ export async function scenarioAnswersTheVisiblePageWhenThePrefetchThatStartedThe
     let measurements = 0;
     // The real reader passes its caller's signal to the native command, so
     // a measurement that carries one dies with that caller.
-    deps.getPageSizes = vi.fn(async (_path, options) => {
+    deps.getPageSizeStore = vi.fn(async (_path, options) => {
         measurements += 1;
         measuring.resolve(undefined);
         if (options?.signal) await waitForRelease(releaseMeasurement.promise, options.signal);
         else await releaseMeasurement.promise;
-        return DOCUMENT_PAGE_SIZES;
+        return createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
     });
     const canvases = new Map<number, unknown>();
     const originalSidecar = deps.runSidecar;
@@ -2625,12 +2684,12 @@ export async function scenarioKeepsTheSharedMeasurementAliveWhenALaterAwaiterIsC
     let measurements = 0;
     // The real reader passes its caller's signal to the native command, so
     // a measurement that carries one dies with that caller.
-    deps.getPageSizes = vi.fn(async (_path, options) => {
+    deps.getPageSizeStore = vi.fn(async (_path, options) => {
         measurements += 1;
         measuring.resolve(undefined);
         if (options?.signal) await waitForRelease(releaseMeasurement.promise, options.signal);
         else await releaseMeasurement.promise;
-        return DOCUMENT_PAGE_SIZES;
+        return createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
     });
     const canvases = new Map<number, unknown>();
     const originalSidecar = deps.runSidecar;

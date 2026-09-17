@@ -8,6 +8,7 @@ import type {ComputedRef} from 'vue';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {
+    attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
@@ -274,18 +275,18 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                 ...withoutMargins
             } = values.pageOverrideDefaults;
             values.pageOverrideDefaults = createScanCleanupPageOverride(withoutMargins);
+            attachScanCleanupPageOverrideDefaults(
+                values.pageOverrides,
+                values.pageOverrideDefaults,
+                values.marginsMm,
+            );
         }
         for (const pageNumber of Object.keys(values.pageOverrides).map(Number)) {
             const brandedPageNumber = requirePageNumber(pageNumber);
             setScanCleanupPageOverride(
                 values.pageOverrides,
                 brandedPageNumber,
-                getScanCleanupPageOverride(
-                    values.pageOverrides,
-                    brandedPageNumber,
-                    values.pageOverrideDefaults,
-                    values.marginsMm,
-                ),
+                getScanCleanupPageOverride(values.pageOverrides, brandedPageNumber),
                 values.marginsMm,
             );
         }
@@ -306,6 +307,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         documentIntents.add('pageOverrideDefaults');
         values.pageOverrides = {};
         values.pageOverrideDefaults = createScanCleanupPageOverride();
+        attachScanCleanupPageOverrideDefaults(
+            values.pageOverrides,
+            values.pageOverrideDefaults,
+            values.marginsMm,
+        );
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {
             overrides: values.pageOverrides,
             pageOverrideDefaults: values.pageOverrideDefaults,
@@ -367,6 +373,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             )).catch(() => undefined);
         }
         Object.assign(values.marginsMm, snapshot.marginsMm ?? preferences.marginsMm, marginIntent);
+        attachScanCleanupPageOverrideDefaults(
+            values.pageOverrides,
+            values.pageOverrideDefaults,
+            values.marginsMm,
+        );
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
         documentSettingsReady.value = true;
         const patch: IScanCleanupDocumentPreferencePatch = {};
@@ -496,6 +507,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {overrides});
     });
     watch(() => cloneScanCleanupPreferenceValue(values.pageOverrideDefaults), (pageOverrideDefaults, previous) => {
+        attachScanCleanupPageOverrideDefaults(
+            values.pageOverrides,
+            pageOverrideDefaults,
+            values.marginsMm,
+        );
         if (applyingDocumentSettings) {
             return;
         }

@@ -39,6 +39,11 @@ import type {
     IScanCleanupDetectionSubscriber,
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {
+    IDetectedPageRaster,
+    IScanCleanupPageRasterSource,
+} from '@evb/scan-cleanup/core/types';
 
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {
@@ -225,8 +230,50 @@ const SETTLED_SINGLE_LAYOUT_BY_PAGE = {
     '3': 'single-uncut-page',
 } as const;
 
-function dependencies(dir: string): IScanCleanupPreviewDependencies {
+function rasterSource(input: {
+    detected: boolean;
+    pages?: ReadonlySet<number>;
+    sourceDpiByPage?: ReadonlyMap<number, number>;
+    bilevelLayerPages?: ReadonlySet<number>;
+    dominantBilevelLayerPages?: ReadonlySet<number>;
+    backgroundDpiByPage?: ReadonlyMap<number, number>;
+    documentDpi?: number | null;
+}): IScanCleanupPageRasterSource {
+    const pageNumbers = new Set([
+        ...(input.pages ?? []),
+        ...(input.sourceDpiByPage?.keys() ?? []),
+        ...(input.backgroundDpiByPage?.keys() ?? []),
+    ]);
+    const rasters = new Map<number, IDetectedPageRaster>();
+    for (const pageNumber of pageNumbers) {
+        const backgroundDpi = input.backgroundDpiByPage?.get(pageNumber);
+        rasters.set(pageNumber, {
+            dpi: input.sourceDpiByPage?.get(pageNumber) ?? input.documentDpi ?? 150,
+            width: 1_000,
+            height: 1_400,
+            ...(input.bilevelLayerPages?.has(pageNumber) ? {hasBilevelLayer: true} : {}),
+            ...(input.dominantBilevelLayerPages?.has(pageNumber) ? {hasDominantBilevelLayer: true} : {}),
+            ...(backgroundDpi === undefined
+                ? {}
+                : {backgroundDpi}),
+        });
+    }
     return {
+        detected: input.detected,
+        documentDpi: input.documentDpi ?? null,
+        getPageRaster: pageNumber => rasters.get(pageNumber),
+    };
+}
+
+function pageSizesForCount(pageCount: number) {
+    return Array.from({length: pageCount}, (_value, index) => ({
+        ...DOCUMENT_PAGE_SIZES[index % DOCUMENT_PAGE_SIZES.length]!,
+        pageNumber: index + 1,
+    }));
+}
+
+function dependencies(dir: string): IScanCleanupPreviewDependencies {
+    const result: IScanCleanupPreviewDependencies = {
         fileSystem: {
             copyFile,
             mkdir,
@@ -273,7 +320,9 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getSourceStatIdentity: async () => 'fixture-source',
         resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(
+            pageSizesForCount(await result.getPageCount('', {signal: new AbortController().signal})),
+        )),
         publishRaster: atomicReplace,
         // pdftoppm names its own output by dropping the extension and adding
         // the format's, so a caller that asks for anything else gets nothing.
@@ -479,6 +528,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         })),
         materializeRequest: materializeScanCleanupPreviewRequest,
     };
+    return result;
 }
 
 async function previewFixture() {
@@ -510,7 +560,7 @@ afterEach(async () => {
 
 async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecommendation: 'mixed' | undefined): Promise<void> {
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => rasterSource({
         detected: true,
         pages: new Set([1]),
         bilevelLayerPages: new Set([1]),

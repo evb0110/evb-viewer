@@ -26,6 +26,7 @@ import {
     type IScanCleanupGlobalPreferencePatch,
     type IScanCleanupLegacyStorageExport,
 } from '@contracts/scanCleanupSettings';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {
     decodeScanCleanupPageOverride,
     decodeScanCleanupPageOverrides,
@@ -141,7 +142,13 @@ export function dismissScanCleanupFirstRunGuidance(
 }
 
 export function toPlainScanCleanupOptions(value: IScanCleanupOptions): IScanCleanupOptions {
-    return cloneScanCleanupPreferenceValue(value);
+    const plain = cloneScanCleanupPreferenceValue(value);
+    attachScanCleanupPageOverrideDefaults(
+        plain.pageOverrides,
+        plain.pageOverrideDefaults,
+        plain.marginsMm,
+    );
+    return plain;
 }
 
 export function loadScanCleanupDocumentOverrides(

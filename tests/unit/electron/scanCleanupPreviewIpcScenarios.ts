@@ -42,6 +42,7 @@ import type {
     IScanCleanupDetectionSubscriber,
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
@@ -238,7 +239,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getSourceStatIdentity: async () => 'fixture-source',
         resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES)),
         publishRaster: atomicReplace,
         // pdftoppm names its own output by dropping the extension and adding
         // the format's, so a caller that asks for anything else gets nothing.

@@ -16,6 +16,7 @@ import type {
 } from 'vue';
 import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupOutputPlacement,
     SCAN_CLEANUP_OUTPUT_HALVES,
@@ -38,7 +39,11 @@ import {
     startScanCleanup,
     type TScanCleanupRendererStartResult,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
-import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import {
+    formatScanCleanupEta,
+    formatScanCleanupProgress,
+    resolveScanCleanupEtaWidestText,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
@@ -48,11 +53,6 @@ import {
 } from '@contracts/scan-cleanup/inputLimits';
 import {formatFailurePresentationDescription} from '@app/composables/useFailureToast';
 
-const ETA_PAGE_STAGES = new Set([
-    'rasterizing',
-    'classifying',
-    'rendering',
-]);
 // Large detection jobs hand their complete result store to main through an
 // opaque id. Keep legacy object maps only for the explicit small-document
 // compatibility path, even if a misconfigured or expired handoff leaves the
@@ -108,6 +108,11 @@ interface IUseScanCleanupRunSessionOptions {
 }
 
 export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptions) => {
+    attachScanCleanupPageOverrideDefaults(
+        options.settings.pageOverrides,
+        options.settings.pageOverrideDefaults,
+        options.settings.marginsMm,
+    );
     const {t} = useTypedI18n();
 
     function formatStartFailure(
@@ -181,8 +186,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return selected.some(page => !getScanCleanupPageOverride(
                 options.settings.pageOverrides,
                 requirePageNumber(page, Math.max(1, options.totalPages.value)),
-                options.settings.pageOverrideDefaults,
-                options.settings.marginsMm,
             ).excluded);
         }
         const totalPages = runPageCount.value;
@@ -250,8 +253,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             const pageOverride = getScanCleanupPageOverride(
                 resolvedOptions.pageOverrides,
                 requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
-                resolvedOptions.pageOverrideDefaults,
-                resolvedOptions.marginsMm,
             );
             if (pageOverride.excluded) {
                 continue;
@@ -358,7 +359,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         completed: progress.value.totalUnits,
         total: progress.value.totalUnits,
     }));
-    const progressEtaPendingText = computed(() => t('scanCleanup.etaPending'));
     const pageProgressComplete = computed(() => [
         'classifying',
         'rendering',
@@ -382,21 +382,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ? t('scanCleanup.almostDone')
                 : t('scanCleanup.finishingPhase');
         }
-        const etaSeconds = progress.value.etaSeconds;
-        if (etaSeconds === undefined || !ETA_PAGE_STAGES.has(progress.value.stage)) {
-            return progressEtaPendingText.value;
-        }
-        return etaSeconds >= 60
-            ? t('scanCleanup.etaMinutes', {minutes: Math.max(1, Math.ceil(etaSeconds / 60))})
-            : t('scanCleanup.etaSeconds', {seconds: Math.max(1, etaSeconds)});
+        return formatScanCleanupEta(progress.value.etaSeconds, t, progress.value.stage);
     });
-    const progressEtaWidestText = computed(() => [
-        progressEtaPendingText.value,
-        t('scanCleanup.etaMinutes', {minutes: 999}),
-        t('scanCleanup.etaSeconds', {seconds: 999}),
-        t('scanCleanup.finishingPhase'),
-        t('scanCleanup.almostDone'),
-    ].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest));
+    const progressEtaWidestText = computed(() => resolveScanCleanupEtaWidestText(t));
     const progressText = computed(() => `${progressParts.value.text}. ${progressEtaText.value}`);
     const runLabel = computed(() => options.sourcePageNumbers.value === null
         ? t('scanCleanup.cleanUp')
@@ -671,8 +659,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 const pageOverride = getScanCleanupPageOverride(
                     requestOptions.pageOverrides,
                     requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
-                    requestOptions.pageOverrideDefaults,
-                    requestOptions.marginsMm,
                 );
                 if (
                     !pageOverride.excluded

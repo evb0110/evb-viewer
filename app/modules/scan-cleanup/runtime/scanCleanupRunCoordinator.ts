@@ -1,6 +1,7 @@
 import { getErrorMessage } from '@app/utils/error';
 import type {
     IScanCleanupStartRequest,
+    IScanCleanupScratchShortfall,
     TScanCleanupStartResult as TBridgeScanCleanupStartResult,
     TScanCleanupJobState,
     TScanCleanupErrorCode,
@@ -16,6 +17,7 @@ import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createFailureToastPresenter} from '@app/composables/useFailureToast';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {dismissScanCleanupFirstRunGuidanceInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
@@ -84,6 +86,7 @@ interface IScanCleanupRunError {
     errorCode: TScanCleanupErrorCode;
     ownerId: string;
     sourceDocumentRef: string | null;
+    scratchShortfall?: IScanCleanupScratchShortfall;
     failure?: FailureReceipt;
 }
 
@@ -163,6 +166,7 @@ export function setScanCleanupRunError(
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
     documentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
     failure?: FailureReceipt,
+    scratchShortfall?: IScanCleanupScratchShortfall,
 ) {
     scanCleanupRun.lastError = error ? {
         documentRevision,
@@ -170,6 +174,7 @@ export function setScanCleanupRunError(
         errorCode,
         ownerId,
         sourceDocumentRef,
+        ...(scratchShortfall === undefined ? {} : {scratchShortfall}),
         ...(failure === undefined ? {} : {failure}),
     } : null;
 }
@@ -181,6 +186,7 @@ export function reportScanCleanupRunError(
     errorCode: TScanCleanupErrorCode = 'internal',
     sourceDocumentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
     existingFailure?: FailureReceipt,
+    scratchShortfall?: IScanCleanupScratchShortfall,
 ) {
     const failure = existingFailure ?? BrowserLogger.error(
         'scan-cleanup',
@@ -198,6 +204,7 @@ export function reportScanCleanupRunError(
         sourceDocumentRef,
         sourceDocumentRevision,
         failure,
+        scratchShortfall,
     );
     if (!dependencies) {
         return;
@@ -497,10 +504,12 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     persistActiveJob(null);
 
     if (state.status === 'failed') {
-        const error = formatScanCleanupErrorMessage(
-            terminalDependencies.t('scanCleanup.failed'),
-            state.error,
-        );
+        const error = state.errorCode === 'insufficient-scratch'
+            ? formatScanCleanupScratchMessage(terminalDependencies.t, state.scratchShortfall)
+            : formatScanCleanupErrorMessage(
+                terminalDependencies.t('scanCleanup.failed'),
+                state.error,
+            );
         if (scanCleanupRun.ownerId) {
             reportScanCleanupRunError(
                 scanCleanupRun.ownerId,
@@ -509,6 +518,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 state.errorCode,
                 scanCleanupRun.ownerDocumentRevision,
                 state.failure,
+                state.scratchShortfall,
             );
         } else {
             const failure = state.failure ?? BrowserLogger.error(

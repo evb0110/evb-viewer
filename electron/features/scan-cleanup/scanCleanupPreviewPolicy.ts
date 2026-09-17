@@ -6,6 +6,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputModeSetting,
 } from '@contracts/electronApiScanCleanup';
+import {decodeScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
@@ -41,12 +42,15 @@ export function classifyScanCleanupPreviewError(error: unknown, aborted: boolean
     if (aborted) {
         return 'canceled';
     }
-    if (error instanceof ScanCleanupNativeToolUnavailableError || error instanceof ScanCleanupInsufficientScratchError) {
-        return error.code;
-    }
     const errorCode = error && typeof error === 'object' && 'code' in error
         ? (error as {code?: unknown}).code
         : undefined;
+    if (error instanceof ScanCleanupNativeToolUnavailableError || error instanceof ScanCleanupInsufficientScratchError) {
+        return error.code;
+    }
+    if (errorCode === 'insufficient-scratch') {
+        return 'insufficient-scratch';
+    }
     if (error instanceof ScanCleanupPageScopeError || errorCode === SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE) {
         return 'invalid-request';
     }
@@ -67,12 +71,23 @@ export interface IScanCleanupJobErrorEnvelope extends IMainJobErrorEnvelope<TSca
 export function scanCleanupScratchShortfall(
     error: unknown,
 ): Pick<IScanCleanupJobErrorEnvelope, 'scratchShortfall'> {
-    return error instanceof ScanCleanupInsufficientScratchError
-        ? {scratchShortfall: {
+    if (error instanceof ScanCleanupInsufficientScratchError) {
+        return {scratchShortfall: {
             availableBytes: error.availableBytes,
             requiredBytes: error.requiredBytes,
-        }}
-        : {};
+        }};
+    }
+    if (error && typeof error === 'object' && 'scratchShortfall' in error) {
+        const scratchShortfall = (error as {scratchShortfall?: unknown}).scratchShortfall;
+        if (scratchShortfall !== undefined) {
+            try {
+                return {scratchShortfall: decodeScanCleanupScratchShortfall(scratchShortfall)};
+            } catch {
+                return {};
+            }
+        }
+    }
+    return {};
 }
 
 const SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE = 1;

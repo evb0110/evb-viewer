@@ -40,7 +40,6 @@ import {
 } from '@electron/features/page-ops/public';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
-import {createScanCleanupDocumentRasterPages} from '@evb/scan-cleanup/core/detection';
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
@@ -113,12 +112,11 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {
         const paths = getPdfNativeToolPaths();
         const result = await detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, [pageNumber]);
-        return result.pageDpiByNumber.get(pageNumber) ?? null;
+        return (await result.getPageRaster(pageNumber))?.dpi ?? null;
     },
     detectRasterPages: async (sourcePdfPath, signal, pageNumbers) => {
         const paths = getPdfNativeToolPaths();
-        const result = await detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, pageNumbers);
-        return createScanCleanupDocumentRasterPages(paths.pdfimages !== undefined, result.pageRasterByNumber);
+        return detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, pageNumbers);
     },
     isRasterDetectionAvailable: () => getPdfNativeToolPaths().pdfimages !== undefined,
     extractMrcLayers: async (sourcePdfPath, pageNumber, selectionMaskOutputPath, backgroundOutputPath, signal, log) => {

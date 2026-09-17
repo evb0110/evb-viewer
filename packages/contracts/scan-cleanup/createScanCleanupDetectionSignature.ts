@@ -2,6 +2,7 @@ import type {
     IScanCleanupOptions, IScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/domain';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
 } from '@contracts/scanCleanupPageOverrides';
@@ -39,10 +40,12 @@ function scanCleanupSignatureToken(value: string) {
 
 /** Identifies the settings and page edits that detection evidence depends on. */
 export function createScanCleanupDetectionSignature(options: IScanCleanupOptions) {
-    const defaults = getScanCleanupPageOverrideDefaults(
+    attachScanCleanupPageOverrideDefaults(
+        options.pageOverrides,
         options.pageOverrideDefaults,
         options.marginsMm,
     );
+    const defaults = getScanCleanupPageOverrideDefaults(options.pageOverrides);
     const defaultSignature = JSON.stringify(pageOverrideSignature(defaults));
     const pageOverrides = Object.keys(options.pageOverrides)
         .map(pageKey => {
@@ -50,8 +53,6 @@ export function createScanCleanupDetectionSignature(options: IScanCleanupOptions
                 getScanCleanupPageOverride(
                     options.pageOverrides,
                     requirePageNumber(Number(pageKey)),
-                    options.pageOverrideDefaults,
-                    options.marginsMm,
                 ),
             ));
             return signature === defaultSignature ? null : [
@@ -79,10 +80,12 @@ export function createScanCleanupDetectionSignature(options: IScanCleanupOptions
 
 /** Identifies the inputs that change document-wide ink placement calibration. */
 export function createScanCleanupPlacementAnchorCalibrationSignature(options: IScanCleanupOptions) {
-    const defaults = getScanCleanupPageOverrideDefaults(
+    attachScanCleanupPageOverrideDefaults(
+        options.pageOverrides,
         options.pageOverrideDefaults,
         options.marginsMm,
     );
+    const defaults = getScanCleanupPageOverrideDefaults(options.pageOverrides);
     const defaultSignature = JSON.stringify(placementAnchorCalibrationOverrideSignature(defaults));
     const pageOverrides = Object.keys(options.pageOverrides)
         .map(pageKey => {
@@ -90,8 +93,6 @@ export function createScanCleanupPlacementAnchorCalibrationSignature(options: IS
                 getScanCleanupPageOverride(
                     options.pageOverrides,
                     requirePageNumber(Number(pageKey)),
-                    options.pageOverrideDefaults,
-                    options.marginsMm,
                 ),
             ));
             return signature === defaultSignature ? null : [

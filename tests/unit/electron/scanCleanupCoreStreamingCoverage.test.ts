@@ -54,6 +54,7 @@ import type {
     ISourceDpiDetectionResult,
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
+import {resolveSourceDpi} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
@@ -183,6 +184,13 @@ function paths(tempDir: string): IScanCleanupWorkerPaths {
     };
 }
 
+function pathsWithPageOps(tempDir: string): IScanCleanupWorkerPaths {
+    return {
+        ...paths(tempDir),
+        pdfPageOpsBinary: '/pdf-page-ops',
+    };
+}
+
 function findScratchFile(root: string, fileName: string) {
     return readdirSync(root, {withFileTypes: true})
         .filter(entry => entry.isDirectory())
@@ -309,6 +317,13 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('validates the fallback used when source DPI metadata is absent', () => {
+        expect(resolveSourceDpi(undefined, 72.4)).toBe(72);
+        expect(resolveSourceDpi(null, Number.NaN)).toBe(300);
+        expect(resolveSourceDpi(undefined, 0)).toBe(300);
+        expect(resolveSourceDpi(undefined, -150)).toBe(300);
+    });
+
     it('reads empty, sparse, and long contiguous detection windows with bounded calls', async () => {
         const records = new Map<number, IScanCleanupDetectionResult>();
         for (let pageNumber = 1; pageNumber <= 1_025; pageNumber += 1) {
@@ -601,6 +616,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         }));
         const dependencies: IRunScanCleanupPipelineDependencies = {
             getPageCount: vi.fn(async () => 20_001),
+            getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore([])),
             detectSourceDpi: vi.fn(),
             renderPage: vi.fn(),
             renderPagePpm: vi.fn(),
@@ -625,7 +641,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             vi.fn<TScanCleanupLog>(),
             dependencies,
         )).rejects.toThrow('20,000');
-        expect(dependencies.getPageSizeStore).toBeUndefined();
+        expect(dependencies.getPageSizeStore).not.toHaveBeenCalled();
         expect(runCommand).not.toHaveBeenCalled();
         expect(await readdir(root)).not.toContain('output.pdf');
     });
@@ -1032,10 +1048,25 @@ describe('scan-cleanup-core conversion coverage', () => {
             {full: {yNormalized: 0.19999999999999998}},
         ]]);
         expect(renderPagePpm).toHaveBeenCalledTimes(4);
+        const renderingReports = progress.filter(report => report.stage === 'rendering');
+        expect(renderingReports.length).toBeGreaterThan(0);
+        expect(renderingReports.every(report => report.completedUnits <= report.totalUnits)).toBe(true);
+        expect(renderingReports.at(-1)).toMatchObject({
+            completedUnits: 2,
+            totalUnits: 2,
+            completedPageNumbers: [
+                1,
+                2,
+            ],
+        });
         expect(progress.at(-1)).toMatchObject({
             stage: 'handoff',
             completedUnits: 2,
             totalUnits: 2,
+            completedPageNumbers: [
+                1,
+                2,
+            ],
         });
     });
 
@@ -1102,6 +1133,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         let truncateBatchSummarySidecar = false;
         let didTruncateBatchSummarySidecar = false;
         let thirdRunSidecarCalls = 0;
+        const hashNativeBinary = vi.fn(async () => 'a'.repeat(64));
         const runSidecar = vi.fn(async (
             _binaryPath,
             manifestPath,
@@ -1179,8 +1211,38 @@ describe('scan-cleanup-core conversion coverage', () => {
             runSidecar,
             runCommand,
             getAvailableScratchBytes: vi.fn(async () => null),
-            hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
+            hashNativeBinary,
         };
+        const refusedOutputPdfPath = join(root, 'insufficient-scratch-output.pdf');
+        dependencies.getAvailableScratchBytes = vi.fn(async () => 520 * 1024 * 1024);
+        await expect(runScanCleanupConversion(
+            {
+                sourcePdfPath,
+                outputPdfPath: refusedOutputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+                detectionResultStore,
+            },
+            {
+                ...pathsWithPageOps(root),
+                pdfimagesBinary: '/pdfimages',
+            },
+            new AbortController().signal,
+            vi.fn(),
+            policy,
+            log,
+            dependencies,
+        )).rejects.toMatchObject({
+            code: 'insufficient-scratch',
+            availableBytes: 520 * 1024 * 1024,
+            requiredBytes: expect.any(Number),
+        });
+        expect(existsSync(refusedOutputPdfPath)).toBe(false);
+        expect(runSidecar).not.toHaveBeenCalled();
+        hashNativeBinary.mockClear();
+        dependencies.getAvailableScratchBytes = vi.fn(async () => null);
         const previousEvidenceDir = process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidenceDir;
         try {
@@ -1195,7 +1257,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                     detectionResultStore,
                 },
                 {
-                    ...paths(root),
+                    ...pathsWithPageOps(root),
                     pdfimagesBinary: '/pdfimages',
                 },
                 new AbortController().signal,
@@ -1208,24 +1270,30 @@ describe('scan-cleanup-core conversion coverage', () => {
                 inputPages: documentPageCount,
                 outputPages: documentPageCount,
             });
+            expect(hashNativeBinary).toHaveBeenCalledTimes(3);
 
+            const rasterByPage = new Map([[
+                1,
+                {
+                    dpi: 300,
+                    width: 2_550,
+                    height: 3_300,
+                    hasBilevelLayer: true,
+                    backgroundDpi: 120,
+                },
+            ]]);
             sourceDpi = {
+                detected: true,
                 documentDpi: 300,
-                pageDpiByNumber: new Map([[
-                    1,
-                    300,
-                ]]),
-                pageRasterByNumber: new Map([[
-                    1,
-                    {
-                        dpi: 300,
-                        width: 2_550,
-                        height: 3_300,
-                        hasBilevelLayer: true,
-                        backgroundDpi: 120,
-                    },
-                ]]),
+                getPageRaster: pageNumber => rasterByPage.get(pageNumber),
             };
+            dependencies.detectSourceDpi = vi.fn(async (...args) => {
+                const pageNumbers = args[5];
+                if (pageNumbers?.some((pageNumber: number) => pageNumber > 1)) {
+                    throw new Error('test source raster probe was incomplete');
+                }
+                return sourceDpi;
+            });
             process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = incompleteEvidenceDir;
             try {
                 await expect(runScanCleanupConversion(
@@ -1239,7 +1307,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                         detectionResultStore,
                     },
                     {
-                        ...paths(root),
+                        ...pathsWithPageOps(root),
                         pdfimagesBinary: '/pdfimages',
                     },
                     new AbortController().signal,
@@ -1257,6 +1325,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                 documentDpi: 300,
                 getPageRaster: sourceRasterCalls,
             };
+            dependencies.detectSourceDpi = vi.fn(async () => sourceDpi);
             const truncatedEvidenceDir = join(root, 'truncated-evidence');
             truncateBatchSummarySidecar = true;
             thirdRunSidecarCalls = 0;
@@ -1272,7 +1341,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                     detectionResultStore,
                 },
                 {
-                    ...paths(root),
+                    ...pathsWithPageOps(root),
                     pdfimagesBinary: '/pdfimages',
                 },
                 new AbortController().signal,

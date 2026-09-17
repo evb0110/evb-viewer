@@ -1990,7 +1990,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('surfaces an analysis ETA after three page-complete events', async () => {
+    it('surfaces the worker-provided analysis ETA', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`analysis-eta-${Date.now()}`, {totalPages: () => 6});
@@ -2023,6 +2023,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     totalUnits: 6,
                     percent: pageNumber / 6 * 100,
                     completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
+                    ...(pageNumber === 3 ? {etaSeconds: 3} : {}),
                 },
                 results: [{
                     pageNumber: requirePageNumber(pageNumber),

@@ -1019,6 +1019,9 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
             status: 'failed',
             error: value.error,
             errorCode: value.errorCode,
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
             ...(failure === undefined ? {} : {failure}),
         };
     }

@@ -113,7 +113,6 @@
                 :selection-leader="selectionLeader"
                 :selected-pages="selectedPages"
                 :overrides="settings.pageOverrides"
-                :page-override-defaults="settings.pageOverrideDefaults"
                 :classifications="authoritativeLayoutByPage"
                 :confidences="detectedLayoutConfidenceByPage"
                 :diagnostics="previewMetadataByPage"
@@ -201,6 +200,7 @@ import {
 import {formatScanCleanupSettingsBadge} from '@app/modules/scan-cleanup/runtime/formatScanCleanupSettingsBadge';
 import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
 import {
+    attachScanCleanupPageOverrideDefaults,
     areScanCleanupMarginsMmEqual,
     createScanCleanupPageOverride,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
@@ -468,6 +468,7 @@ const allScopeDefaultOverride = computed(() => settings.pageOverrideDefaults
 function setAllScopeDefault(value: IScanCleanupPageOverride) {
     const next = createScanCleanupPageOverride(value);
     settings.pageOverrideDefaults = next;
+    attachScanCleanupPageOverrideDefaults(settings.pageOverrides, next, settings.marginsMm);
     return next;
 }
 
@@ -530,8 +531,6 @@ function getPageOverride(page: number) {
     return getScanCleanupPageOverride(
         settings.pageOverrides,
         requirePageNumber(page, Math.max(1, previewTotalPages.value)),
-        settings.pageOverrideDefaults,
-        settings.marginsMm,
     );
 }
 function existingOverridePages() {

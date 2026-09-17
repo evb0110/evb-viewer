@@ -29,6 +29,7 @@ import {
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupOutputPlacement,
     scanCleanupMatchedCanvasOverridesSignature,
@@ -138,11 +139,14 @@ export function createScanCleanupPreviewCacheKey(
     // move when another page's content box does.
     placementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
 ) {
+    attachScanCleanupPageOverrideDefaults(
+        previewOptions.pageOverrides,
+        previewOptions.pageOverrideDefaults,
+        previewOptions.marginsMm,
+    );
     const pageOverride = getScanCleanupPageOverride(
         previewOptions.pageOverrides,
         requirePageNumber(pageNumber),
-        previewOptions.pageOverrideDefaults,
-        previewOptions.marginsMm,
     );
     // The visible page's classification decides its own output count, while
     // the main process's canvas signature changes only when the shared
@@ -224,6 +228,11 @@ function carriesRaster(value: TScanCleanupPreviewWireResult): value is IScanClea
 }
 
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
+    attachScanCleanupPageOverrideDefaults(
+        options.settings.pageOverrides,
+        options.settings.pageOverrideDefaults,
+        options.settings.marginsMm,
+    );
     const {t} = useTypedI18n();
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
@@ -483,8 +492,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const pageOverride = getScanCleanupPageOverride(
                 options.settings.pageOverrides,
                 requirePageNumber(pageNumber),
-                options.settings.pageOverrideDefaults,
-                options.settings.marginsMm,
             );
             const summaryAnchors = summary.samples
                 .filter(sample => sample.pageNumber === pageNumber && resolveScanCleanupOutputPlacement(
@@ -528,7 +535,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         () => scanCleanupMatchedCanvasOverridesSignature(
             options.settings.pageOverrides,
             options.settings.pageOverrideDefaults,
-            options.settings.marginsMm,
         ),
     );
 
@@ -536,8 +542,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const pageOverride = getScanCleanupPageOverride(
             options.settings.pageOverrides,
             requirePageNumber(pageNumber),
-            options.settings.pageOverrideDefaults,
-            options.settings.marginsMm,
         );
         if (
             options.settings.preserveOriginalQuality
@@ -1006,8 +1010,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const pageOverride = getScanCleanupPageOverride(
             options.settings.pageOverrides,
             requirePageNumber(pageNumber),
-            options.settings.pageOverrideDefaults,
-            options.settings.marginsMm,
         );
         const renderedOutputMode = result.value?.pageNumber === pageNumber
             ? result.value.outputs[0]?.metadata.outputMode

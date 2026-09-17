@@ -63,25 +63,38 @@ export function updateScanCleanupPageOverrides(
     overrides: TScanCleanupPageOverrides,
     pages: Iterable<number>,
     update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    documentMargins?: IScanCleanupMarginsMm,
+): void;
+export function updateScanCleanupPageOverrides(
+    overrides: TScanCleanupPageOverrides,
+    pages: Iterable<number>,
+    update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
     pageOverrideDefaults: IScanCleanupPageOverride | undefined,
     documentMargins?: IScanCleanupMarginsMm,
+): void;
+export function updateScanCleanupPageOverrides(
+    overrides: TScanCleanupPageOverrides,
+    pages: Iterable<number>,
+    update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    pageOverrideDefaultsOrMargins?: IScanCleanupPageOverride | IScanCleanupMarginsMm,
+    documentMargins?: IScanCleanupMarginsMm,
 ) {
+    const effectiveDocumentMargins = documentMargins
+        ?? (pageOverrideDefaultsOrMargins !== undefined
+            && 'leftMm' in pageOverrideDefaultsOrMargins
+            ? pageOverrideDefaultsOrMargins
+            : undefined);
     for (const page of pages) {
         if (!Number.isInteger(page) || page < 1) {
             continue;
         }
         const pageNumber = requirePageNumber(page);
-        const current = getScanCleanupPageOverride(
-            overrides,
-            pageNumber,
-            pageOverrideDefaults,
-            documentMargins,
-        );
+        const current = getScanCleanupPageOverride(overrides, pageNumber);
         setScanCleanupPageOverride(
             overrides,
             pageNumber,
             createScanCleanupPageOverride(update(current, page)),
-            documentMargins,
+            effectiveDocumentMargins,
         );
     }
 }

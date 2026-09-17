@@ -24,6 +24,10 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
+    isScanCleanupCompactLayeredRaster,
+    type IDetectedPageRaster,
+} from '@evb/scan-cleanup/core/types';
+import {
     grantScanCleanupOutputAccess,
     materializeScanCleanupSourcePath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
@@ -104,32 +108,27 @@ const mrcPageGeometry = {
 
 function dpiDetails(
     documentDpi: number | null,
-    pages: Array<[number, number, {
-        width: number;
-        height: number
-    }?]>,
+    pages: Array<[number, number, Partial<IDetectedPageRaster>?]>,
 ) {
+    const rasterByPage = new Map(pages.map(([
+        pageNumber,
+        dpi,
+        dimensions,
+    ]) => [
+        pageNumber,
+        {
+            dpi,
+            width: dimensions?.width ?? 1_000,
+            height: dimensions?.height ?? 1_400,
+            ...dimensions,
+        } satisfies IDetectedPageRaster,
+    ] as const));
     return {
+        detected: rasterByPage.size > 0,
         documentDpi,
-        pageDpiByNumber: new Map(pages.map(([
-            pageNumber,
-            dpi,
-        ]) => [
-            pageNumber,
-            dpi,
-        ])),
-        pageRasterByNumber: new Map(pages.map(([
-            pageNumber,
-            dpi,
-            dimensions,
-        ]) => [
-            pageNumber,
-            {
-                dpi,
-                width: dimensions?.width ?? 1_000,
-                height: dimensions?.height ?? 1_400,
-            },
-        ])),
+        compactLayeredPageCount: [...rasterByPage.values()].filter(isScanCleanupCompactLayeredRaster).length,
+        compactLayeredPageCountComplete: true,
+        getPageRaster: (pageNumber: number) => rasterByPage.get(pageNumber),
     };
 }
 
@@ -289,6 +288,32 @@ function dependencies(
 ): IRunScanCleanupPipelineDependencies {
     const pipelineDependencies: IRunScanCleanupPipelineDependencies = {
         getPageCount: vi.fn(async () => 2),
+        getPageSizeStore: vi.fn(async (_pdfPath, pageSizeOptions) => {
+            if (
+                pageSizeOptions.pdfPageOpsBinary === undefined
+                && pageSizeOptions.pdfinfoBinary === undefined
+            ) {
+                throw new Error('no PDF tool is available to read page geometry');
+            }
+            const pageCount = await pipelineDependencies.getPageCount('');
+            if (pageSizeOptions.pdfPageOpsBinary === undefined) {
+                return createArrayBackedPdfPageSizeStore(documentGeometry(Array.from(
+                    {length: pageCount},
+                    (_value, index) => index + 1,
+                )).map(page => ({
+                    ...page,
+                    ...pageSize,
+                })));
+            }
+            const outputPath = join(pageSizeOptions.tempDir, 'test-page-sizes.json');
+            await pipelineDependencies.runCommand(pageSizeOptions.pdfPageOpsBinary, [
+                'page-sizes',
+                '--output',
+                outputPath,
+            ], pageSizeOptions);
+            const decoded = JSON.parse(await readFile(outputPath, 'utf8')) as {pages: ReturnType<typeof documentGeometry>};
+            return createArrayBackedPdfPageSizeStore(decoded.pages);
+        }),
         detectSourceDpi: vi.fn(async () => dpiDetails(300, [
             [
                 1,
@@ -691,7 +716,7 @@ describe('scan cleanup pipeline', () => {
                 ...options,
                 outputMode: 'auto',
             },
-            pageRasterByNumber: new Map([
+            rasterByPage: new Map([
                 [
                     1,
                     {
@@ -741,7 +766,7 @@ describe('scan cleanup pipeline', () => {
             // The xlarge coordinator supplies this scalar after probing the
             // pages in order. The policy must not require the old page-sized
             // raster map to calculate a full-run budget.
-            pageRasterByNumber: new Map(),
+            rasterByPage: new Map(),
             compactLayeredPageCount: documentPageCount,
             partialRun: false,
             sourceBytes,
@@ -774,7 +799,7 @@ describe('scan cleanup pipeline', () => {
                 ...options,
                 outputMode: 'auto' as const,
             },
-            pageRasterByNumber: layeredPages,
+            rasterByPage: layeredPages,
             sourceBytes: 40 * 1024 * 1024,
         };
         expect(resolveScanCleanupCompactSourceBudget({
@@ -791,7 +816,7 @@ describe('scan cleanup pipeline', () => {
         })).toBeNull();
         expect(resolveScanCleanupCompactSourceBudget({
             ...base,
-            pageRasterByNumber: new Map(),
+            rasterByPage: new Map(),
             partialRun: false,
         })).toBeNull();
     });
@@ -1611,23 +1636,16 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 360,
-            pageDpiByNumber: new Map([[
-                1,
-                360,
-            ]]),
-            pageRasterByNumber: new Map([[
-                1,
-                {
-                    dpi: 360,
-                    width: 1_200,
-                    height: 1_680,
-                    hasBilevelLayer: true,
-                    backgroundDpi: 120,
-                },
-            ]]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(360, [[
+            1,
+            360,
+            {
+                width: 1_200,
+                height: 1_680,
+                hasBilevelLayer: true,
+                backgroundDpi: 120,
+            },
+        ]]));
         pipelineDependencies.runCommand = vi.fn(async (command, args) => {
             if (args[0] === '--check') {
                 return {
@@ -3188,23 +3206,16 @@ describe('scan cleanup pipeline', () => {
         );
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 300,
-            pageDpiByNumber: new Map([[
-                1,
-                300,
-            ]]),
-            pageRasterByNumber: new Map([[
-                1,
-                {
-                    dpi: 300,
-                    width: 1_000,
-                    height: 1_400,
-                    hasBilevelLayer: true,
-                    backgroundDpi: 100,
-                },
-            ]]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+            {
+                width: 1_000,
+                height: 1_400,
+                hasBilevelLayer: true,
+                backgroundDpi: 100,
+            },
+        ]]));
         pipelineDependencies.extractMrcLayers = vi.fn();
         pipelineDependencies.extractMrcLayersBatch = vi.fn(async input => {
             const layers = new Map();
@@ -3388,24 +3399,17 @@ describe('scan cleanup pipeline', () => {
         );
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 300,
-            pageDpiByNumber: new Map([[
-                1,
-                300,
-            ]]),
-            pageRasterByNumber: new Map([[
-                1,
-                {
-                    dpi: 300,
-                    width: 1_000,
-                    height: 1_400,
-                    hasBilevelLayer: true,
-                    backgroundDpi: 100,
-                    ...detectedChanges,
-                },
-            ]]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+            {
+                width: 1_000,
+                height: 1_400,
+                hasBilevelLayer: true,
+                backgroundDpi: 100,
+                ...detectedChanges,
+            },
+        ]]));
         pipelineDependencies.extractMrcLayersBatch = vi.fn(async input => {
             const layers = new Map();
             for (const target of input.targets) {
@@ -3489,23 +3493,16 @@ describe('scan cleanup pipeline', () => {
         const fixture = await setup();
         const pipelineDependencies = dependencies(vi.fn());
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 300,
-            pageDpiByNumber: new Map([[
-                1,
-                300,
-            ]]),
-            pageRasterByNumber: new Map([[
-                1,
-                {
-                    dpi: 300,
-                    width: 1_000,
-                    height: 1_400,
-                    hasBilevelLayer: true,
-                    backgroundDpi: 100,
-                },
-            ]]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+            {
+                width: 1_000,
+                height: 1_400,
+                hasBilevelLayer: true,
+                backgroundDpi: 100,
+            },
+        ]]));
         pipelineDependencies.extractMrcLayers = vi.fn();
         pipelineDependencies.extractMrcLayersBatch = vi.fn();
 
@@ -3854,7 +3851,9 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+        // Accounting for retained native output rasters can move this largest
+        // page from raw PPM to PNG handoff while the DPI clamp stays intact.
+        expect(pipelineDependencies.renderPage).toHaveBeenCalled();
         expect(requestedRenderDpi).toBe(1_200);
         expect(finalDpi).toBe(948);
         expect(16_000 * 16_000 * (finalDpi / 1_200) ** 2).toBeLessThanOrEqual(160_000_000);
@@ -4047,6 +4046,17 @@ describe('scan cleanup pipeline', () => {
             renderedDpis.push(dpi);
             await writeFile(outputPath, PPM);
         });
+        pipelineDependencies.renderPage = vi.fn(async (
+            _paths,
+            _log,
+            _page,
+            _source,
+            outputPath,
+            dpi,
+        ) => {
+            renderedDpis.push(dpi);
+            await writeFile(outputPath, PNG);
+        });
 
         await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
@@ -4063,7 +4073,6 @@ describe('scan cleanup pipeline', () => {
             },
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(renderedDpis.toSorted((left, right) => left - right)).toEqual([
             150,
             150,
@@ -4862,7 +4871,9 @@ describe('scan cleanup pipeline', () => {
         // A page measured that way can still turn out to be a spread, which
         // lands it on the rectangle without being scaled to it, so the run
         // names it rather than leaving it to be found.
-        expect(partialEvidence.warnings).toEqual([expect.stringContaining('Matched page size measured 1 page(s) as whole sheets')]);
+        expect(partialEvidence.warnings).toHaveLength(1);
+        expect(partialEvidence.warnings[0]).toContain('Matched page size measured 1 page(s) as whole sheets');
+        expect(partialEvidence.warnings[0]).toContain('without being scaled to it: 2');
         // Once detection has settled there is nothing left to report.
         expect((await measuredCanvas(sheets, {}, {layoutByPage: {
             '1': 'two-page-spread',
@@ -6054,11 +6065,25 @@ describe('scan cleanup pipeline', () => {
         pipelineDependencies.getPageCount = vi.fn(async () => 3);
         // Full-length geometry for this document, out of order: page 2 would
         // be cleaned, placed and assembled against page 3's paper.
-        pipelineDependencies.getPageSizes = vi.fn(async () => documentGeometry([
+        const outOfOrderPages = documentGeometry([
             3,
             1,
             2,
-        ]));
+        ]);
+        pipelineDependencies.getPageSizeStore = vi.fn(async () => ({
+            pageCount: 3,
+            getPage: vi.fn(async pageNumber => outOfOrderPages[pageNumber - 1]!),
+            readRange: vi.fn(async () => outOfOrderPages),
+            forEachChunk: vi.fn(async onChunk => onChunk({
+                pageCount: 3,
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                offset: 0,
+                byteLength: 0,
+                pages: outOfOrderPages,
+            })),
+            close: vi.fn(async () => undefined),
+        }));
 
         await expect(runScanCleanupPipeline(
             {
@@ -6073,7 +6098,7 @@ describe('scan cleanup pipeline', () => {
             undefined,
             pipelineDependencies,
         )).rejects.toThrow(
-            'Scan cleanup conversion received page geometry out of document order: expected page 1 at index 0, received page 3',
+            'Scan cleanup page-size store returned page 3 where page 1 was expected',
         );
 
         expect(pipelineDependencies.detectSourceDpi).not.toHaveBeenCalled();
