@@ -1,0 +1,54 @@
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_3138f4d0221d8b::t_dcc206ff7e5357 661-684,872-878
+  s_3138f4d0221d8b::t_2cda4dfe7a6deb 764
+  s_3138f4d0221d8b::t_1bd61f2c5ae006 79-84,348,761
+native/scan-cleanup/src/engine/render.rs
+  s_3138f4d0221d8b::t_3efd754c7fd276 2226-2227,2229-2234
+  s_3138f4d0221d8b::t_a0ecc6ffa1f963 1134,1166,1195
+  s_3138f4d0221d8b::t_db451c3ee071ce 63
+native/scan-cleanup/src/engine/render/document_analysis.rs
+  s_3138f4d0221d8b::t_494187c4c75a01 143-164,1277,1398-1405,1407-1409,1412,1415-1422,1425-1430
+  s_3138f4d0221d8b::t_d8a180d41eedc8 1569,1572-1574,1586,1598,1606,1627,1645,1647,1684,1700
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_3138f4d0221d8b::t_00c1391a702584 320-321
+  s_3138f4d0221d8b::t_e58b937a16eb65 1080,1167
+  s_3138f4d0221d8b::t_4c56e64e054826 3588
+  s_3138f4d0221d8b::t_00b00a7f7eace9 362,506,765,815,869,899,917,928-929,981,1034,1040
+  s_3138f4d0221d8b::t_6fdb0558ac1be7 1689
+  s_3138f4d0221d8b::t_85942dabed3dfc 323-333,909-912,3398
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_3138f4d0221d8b::t_9e11d92d8c71a9 64-66,218-220
+  s_3138f4d0221d8b::t_e0b7f5cd27640b 234-235,405-410
+  s_3138f4d0221d8b::t_39056d74626af8 14,294-298,412
+  s_3138f4d0221d8b::t_b6e61291de65b8 13
+native/scan-cleanup/src/engine/render/document_analysis_tests.rs
+  s_3138f4d0221d8b::t_c16dd45358f82b 284-287,399,417-419
+native/scan-cleanup/src/engine/render/region_rendering_tests.rs
+  s_3138f4d0221d8b::t_a9cd6d96b5443c 37,91,147
+native/scan-cleanup/src/domain/options_tests.rs
+  s_3138f4d0221d8b::t_ac1fb4edf49e8e 367-368
+native/scan-cleanup/src/engine/render_tests.rs
+  s_3138f4d0221d8b::t_a9cd6d96b5443c 4117-4120,4139-4142
+native/scan-cleanup/src/domain/options.rs
+  s_3138f4d0221d8b::t_ac1fb4edf49e8e 133-170,871-873
+packages/scan-cleanup/core/types.ts
+  s_3138f4d0221d8b::t_9e11d92d8c71a9 393
+native/scan-cleanup/src/cache.rs
+  s_3138f4d0221d8b::t_4cddf4df098229 5,7,62-67,251,261,266-274,284-286,289-291,296-297,301-304,308,315-343,408-409,417,425
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fc916369e9702ecfcc6c7b0b402832afc493874c",
+  "prompts": {},
+  "sessions": {
+    "s_3138f4d0221d8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ec-77e3-9fbf-3d95baf66ec8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
