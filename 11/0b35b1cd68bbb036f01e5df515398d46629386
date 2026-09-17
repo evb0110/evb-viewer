@@ -1,0 +1,19 @@
+landing/app/assets/css/main.css
+  s_7fbccdf1482ee4::t_0e95db00ed11c7 759,775
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "110b35b1cd68bbb036f01e5df515398d46629386",
+  "prompts": {},
+  "sessions": {
+    "s_7fbccdf1482ee4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0f4-88d8-7971-ae25-831c659a2a80",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
