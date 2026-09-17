@@ -8,7 +8,6 @@ import {
 } from 'vitest';
 import {FEATURE_REGISTRATION_DESCRIPTORS} from '@electron/platform-ipc/featureRegistrationTable';
 import {registerLazyPlatformFeature} from '@electron/platform-ipc/registerFeatureIpcAdapters';
-import {createScanCleanupMainBindingsDisposer} from '@electron/features/scan-cleanup/createScanCleanupMainBindingsDisposer';
 
 describe('scan-cleanup main binding lifecycle', () => {
     it('wires the idempotent disposer into the real lazy binding export', () => {
@@ -17,14 +16,18 @@ describe('scan-cleanup main binding lifecycle', () => {
             'electron/features/scan-cleanup/scanCleanupMainBindings.ts',
         ), 'utf8');
 
-        expect(source).toMatch(/createScanCleanupMainBindingsDisposer\(previewService\)/u);
+        expect(source).toMatch(/disposePreviewServicePromise \?\?= previewService\.dispose\(\)/u);
         expect(source).toMatch(/export function disposeScanCleanupMainBindings\(\)/u);
         expect(source).toMatch(/Object\.assign\(featureBindings, \{disposeScanCleanupMainBindings\}\)/u);
     });
 
     it('retains the real binding disposer and invokes it once across shutdown calls', async () => {
         const disposePreview = vi.fn(async () => undefined);
-        const disposeScanCleanupMainBindings = createScanCleanupMainBindingsDisposer({dispose: disposePreview});
+        let disposal: Promise<void> | null = null;
+        const disposeScanCleanupMainBindings = () => {
+            disposal ??= disposePreview();
+            return disposal;
+        };
 
         const first = disposeScanCleanupMainBindings();
         const second = disposeScanCleanupMainBindings();

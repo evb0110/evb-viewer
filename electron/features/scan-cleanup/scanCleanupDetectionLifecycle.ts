@@ -51,7 +51,6 @@ import type {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {createLogger} from '@electron/utils/createLogger';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -61,17 +60,7 @@ import {
     resolveScanCleanupPlacementAnchorsFromResult,
 } from '@evb/scan-cleanup/core/placementAnchors';
 
-const logger = createLogger('scan-cleanup-detection');
-function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
-    if (level === 'error') {
-        logger.error(message, {
-            code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
-        });
-        return;
-    }
-    logger[level](message);
-}
+import {logScanCleanupMessage} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 
 export interface IScanCleanupActiveDetectionJob {
     readonly jobId: TJobId;
@@ -726,7 +715,7 @@ export function scanCleanupDetectionOwner(
         ...detectionLifecycle,
         ...ownerMethods,
         async dispose() {
-            await detectionJobs.clearForTests();
+            await detectionJobs.dispose();
             await disposeResultStoreOwnerBindings();
             await detectionLifecycle.dispose();
             placementCalibrationByStore.forEach(build => build.controller.abort());

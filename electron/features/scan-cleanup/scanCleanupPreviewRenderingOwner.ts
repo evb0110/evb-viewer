@@ -360,7 +360,7 @@ export function scanCleanupPreviewRenderingOwner(
                 entry.cancel('Scan cleanup preview service disposed');
             }
             const activeTails = Promise.allSettled([...active.values()].map(entry => entry.tail)).then(() => undefined);
-            const registryReset = previewJobs.clearForTests().catch(() => undefined);
+            const registryReset = previewJobs.dispose().catch(() => undefined);
             await waitForPreviewDisposal(Promise.all([
                 activeTails,
                 registryReset,
@@ -478,7 +478,7 @@ export function scanCleanupPreviewRenderingOwner(
                     );
                     visiblePages.delete(documentPrefix);
                 },
-                run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('pdfExport-', async scratchPath => {
+                run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('scan-cleanup-preview-', async scratchPath => {
                     let materialized;
                     try {
                         materialized = await dependencies.materializeRequest(

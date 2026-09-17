@@ -80,12 +80,14 @@ import {baseAnalysisKey} from '@electron/features/scan-cleanup/scanCleanupPrevie
 import {
     persistBaseAnalysisArtifacts,
     pruneBaseAnalysisCache,
-    readPreviewBytes,
     removeBaseAnalysisArtifacts,
     resolveFallbackDetailDpi,
     runDetailPreview,
-    logScanCleanupMessage,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
+import {
+    logScanCleanupMessage,
+    readPreviewBytes,
+} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 const logger = createLogger('scan-cleanup-preview-renderer');
 export async function scanCleanupPreviewRenderer(
     request: IScanCleanupPreviewRequest,

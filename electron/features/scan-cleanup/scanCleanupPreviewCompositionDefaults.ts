@@ -30,7 +30,6 @@ import {
     getWorkingCopyBackingMetadata,
 } from '@electron/file-access/workingCopyStore';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {createLogger} from '@electron/utils/createLogger';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import {
@@ -55,17 +54,7 @@ import {
     resolveScanCleanupPreviewRasterAdmissionPolicy,
     resolveScanCleanupPreviewPath,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-const logger = createLogger('scan-cleanup-preview-defaults');
-function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
-    if (level === 'error') {
-        logger.error(message, {
-            code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
-        });
-        return;
-    }
-    logger[level](message);
-}
+import {logScanCleanupMessage} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 
 const fileSystem = {
     copyFile,

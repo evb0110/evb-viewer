@@ -26,6 +26,7 @@ const MANAGED_SCRATCH_PREFIXES = [
     'pdf-page-ops-',
     'djvu-image-export-',
     'djvu-tiff-export-',
+    'scan-cleanup-preview-',
 ] as const;
 const MANAGED_SCRATCH_STALE_MAX_AGE_MS = parseIntegerEnv(
     'EVB_MANAGED_SCRATCH_STALE_MAX_AGE_MS',
