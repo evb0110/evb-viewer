@@ -1,0 +1,19 @@
+.github/workflows/ci.yml
+  s_165a14c709169a::t_cfa248d70aeb8a 559
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "49e73a18eddee721bceb25253925b7f7cb0e7019",
+  "prompts": {},
+  "sessions": {
+    "s_165a14c709169a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeec-6067-7cd3-bf06-41c0e0ee8496",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
