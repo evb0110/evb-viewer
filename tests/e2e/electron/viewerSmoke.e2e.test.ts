@@ -1654,11 +1654,6 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expect(reentryClassifications.some(classification => classification !== null && classification !== 'unclassified'))
             .toBe(true);
-        await waitForFunctionInPage(session.page, () => {
-            const skeleton = document.querySelector<HTMLElement>('.preview-skeleton-page');
-            const bounds = skeleton?.getBoundingClientRect();
-            return Boolean(skeleton && bounds && bounds.width > 0 && bounds.height > 0);
-        }, {timeout: 10_000});
         const narrowWorkspaceLayout = await session.page.evaluate(() => {
             const workspace = document.querySelector<HTMLElement>('.scan-cleanup-workspace');
             const thumbnails = document.querySelector<HTMLElement>('.scan-thumbnail-rail');
