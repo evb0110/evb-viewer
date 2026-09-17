@@ -1,0 +1,23 @@
+native/scan-cleanup/src/io/raster.rs
+  s_3138f4d0221d8b::t_c6d63aa3833ed6 146,156-160,164-166,177,181-185,189-195,427-466
+tests/unit/electron/scanCleanupRenderers.test.ts
+  s_3138f4d0221d8b::t_c6d63aa3833ed6 14,18-21,39-43,384-407
+packages/scan-cleanup/adapters/createScanCleanupRenderers.ts
+  s_3138f4d0221d8b::t_c6d63aa3833ed6 14-16,284-303,333,355-376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f33382b362e1da10a38a22015e1a68dcd309ed29",
+  "prompts": {},
+  "sessions": {
+    "s_3138f4d0221d8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ec-77e3-9fbf-3d95baf66ec8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
