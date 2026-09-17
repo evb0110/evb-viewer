@@ -1020,7 +1020,7 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
     });
 
     expect(result.pageNumber).toBe(1);
-    expect(deps.getPageSizeStore).toHaveBeenCalledTimes(2);
+    expect(deps.getPageSizeStore).toHaveBeenCalledTimes(1);
     expect(deps.getPageSizes).not.toHaveBeenCalled();
     expect(deps.runSidecar).toHaveBeenCalledOnce();
     expect(capturedManifest?.documentCanvas?.widthPoints).toBe(1_224);
