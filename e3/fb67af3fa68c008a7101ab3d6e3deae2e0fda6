@@ -1,0 +1,25 @@
+scripts/diagnostics/generate-scan-cleanup-rgb-fixture.mjs
+  s_275fc4b35d2a08::t_43897c39d14727 152-159,163,190-191
+  s_275fc4b35d2a08::t_11faa170e85efb 187
+tests/helpers/renderPdfCanvasFidelityMetrics.ts
+  s_275fc4b35d2a08::t_39204e0d38120a 24-35,59
+tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts
+  s_275fc4b35d2a08::t_39204e0d38120a 15-18,152-157,162-166
+  s_275fc4b35d2a08::t_ba2e5cb7198edc 158-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e3fb67af3fa68c008a7101ab3d6e3deae2e0fda6",
+  "prompts": {},
+  "sessions": {
+    "s_275fc4b35d2a08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6b4-7013-86d6-2b8f5ec6a7b1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
