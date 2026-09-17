@@ -3294,6 +3294,48 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('refreshes a large partial run until an authoritative result store is available', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const pageNumbers = Array.from({length: 1_025}, (_, index) => index + 1);
+        const mounted = mountSession(`partial-large-run-${Date.now()}`, {totalPages: () => pageNumbers.length});
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.values.pageAlignment = 'top-center';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const initial = detectionState('detect-1', 'completed', pageNumbers.length);
+        initial.resultCount = pageNumbers.length;
+        harness.emitDetection(initial);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        mounted.session.selection.selectPage(pageNumbers.at(-1)!, 'range', pageNumbers);
+        expect(mounted.session.selection.settingsScope.value).toBe('selected');
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: false,
+            jobId: requireJobId('partial-large-run-start'),
+            error: 'test stop',
+            errorCode: 'internal',
+        });
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+
+        const refreshed = detectionState('detect-2', 'completed', pageNumbers.length);
+        refreshed.resultCount = pageNumbers.length;
+        refreshed.detectionResultStoreId = 'partial-large-run-store';
+        harness.emitDetection(refreshed);
+        await run;
+
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        const request = vi.mocked(harness.value.start).mock.calls[0]?.[0];
+        expect(request).toMatchObject({
+            detectionResultStoreId: 'partial-large-run-store',
+            sourcePageNumbers: pageNumbers,
+        });
+        expect(request).not.toHaveProperty('layoutByPage');
+        expect(request).not.toHaveProperty('pagePlanEvidenceByPage');
+    });
+
     it('records a thrown cleanup bridge error for the global toast coordinator', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

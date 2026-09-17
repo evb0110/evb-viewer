@@ -73,6 +73,42 @@ describe('scan-cleanup native protocol codec', () => {
         }});
     });
 
+    it('rejects progress confidence outside the unit interval and negative cutter positions', () => {
+        const progress = {
+            stage: 'page-analyzed',
+            completedPages: 1,
+            totalPages: 2,
+            pageNumber: 2,
+            classification: 'single-uncut-page',
+        };
+        for (const confidence of [
+            -0.1,
+            1.1,
+        ]) {
+            expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
+                version: 3,
+                type: 'progress',
+                progress: {
+                    ...progress,
+                    confidence,
+                },
+            }))).toThrow('progress confidence');
+        }
+        for (const cutterXPx of [
+            -1,
+            Number.MAX_SAFE_INTEGER + 1,
+        ]) {
+            expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
+                version: 3,
+                type: 'progress',
+                progress: {
+                    ...progress,
+                    cutterXPx,
+                },
+            }))).toThrow('progress cutter');
+        }
+    });
+
     it('decodes reconciliation diagnostics and the reusable document prior', () => {
         const golden = readFileSync(
             'native/scan-cleanup/tests/fixtures/protocol/page-complete-progress-v3.json',
@@ -237,8 +273,8 @@ describe('scan-cleanup native protocol codec', () => {
         }
     });
 
-    it('accepts global source page numbers in bounded batch progress', () => {
-        expect(decodeNativeScanCleanupEnvelope(JSON.stringify({
+    it('rejects page numbers beyond the bounded batch', () => {
+        expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
             version: 3,
             type: 'progress',
             progress: {
@@ -247,11 +283,7 @@ describe('scan-cleanup native protocol codec', () => {
                 totalPages: 1_024,
                 pageNumber: 1_025,
             },
-        }))).toMatchObject({progress: {
-            stage: 'page-input-required',
-            pageNumber: 1_025,
-            totalPages: 1_024,
-        }});
+        }))).toThrow('page number');
     });
 
     it('rejects an invalid spread prior without a cutter median', () => {

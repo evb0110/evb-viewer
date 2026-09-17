@@ -282,7 +282,10 @@ fn mode_stage_pins_mixed_line_art_soft_foreground_override() {
         semantic_preservation_alpha: None,
         text_soft_edge_ratio: None,
     });
-    assert_eq!(output.resolved_output_mode, crate::OutputMode::Mixed);
+    assert_eq!(
+        output.resolved_output_mode,
+        crate::ResolvedOutputMode::Mixed
+    );
     assert!(output.use_soft_alpha_foreground);
     assert_eq!(output.output_picture_mask, Some(owner));
 }
@@ -394,7 +397,7 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
             },
             mode: ModePreservationOutput {
                 output_mode_recommendation: None,
-                resolved_output_mode: crate::OutputMode::Grayscale,
+                resolved_output_mode: crate::ResolvedOutputMode::Grayscale,
                 chroma_picture_mask: None,
                 significant_picture: false,
                 output_picture_mask: None,
@@ -412,7 +415,10 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
         (artifact.normalized.width(), artifact.normalized.height()),
         (32, 24)
     );
-    assert_eq!(artifact.resolved_output_mode, crate::OutputMode::Grayscale);
+    assert_eq!(
+        artifact.resolved_output_mode,
+        crate::ResolvedOutputMode::Grayscale
+    );
     assert_eq!(artifact.analysis_threshold, Some(128));
     assert!(timings.quality_normalization_ms >= 0.0);
     assert!(cache

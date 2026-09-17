@@ -1211,7 +1211,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         let mayStartMissingDetection = jobState.value === null;
         const belongsToWaitedDocument = () => waitSourcePath === options.sourcePath.value
             && waitDocumentRevision === options.documentRevision.value;
-        while (!lifecycle.isDisposed() && options.active() && belongsToWaitedDocument()) {
+        // A run owns this wait even when its workspace is hidden. Disposal and
+        // document identity still end the wait.
+        while (!lifecycle.isDisposed() && belongsToWaitedDocument()) {
             if (terminalStatus.value !== null) {
                 return;
             }
@@ -1246,7 +1248,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     autoPending.value = false;
                 }
                 await waitForDetectionRetirements();
-                if (!belongsToWaitedDocument() || Boolean(lifecycle.isDisposed()) || !options.active()) {
+                if (!belongsToWaitedDocument() || Boolean(lifecycle.isDisposed())) {
                     return;
                 }
                 const generation = requestGeneration;

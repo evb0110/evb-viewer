@@ -249,7 +249,7 @@ fn randomized_temporary_path(path: &Path, random: &[u8]) -> PathBuf {
     path.with_file_name(PathBuf::from(name))
 }
 
-fn open_randomized_temporary(
+pub(crate) fn open_randomized_temporary(
     path: &Path,
     fill_random: &mut impl FnMut(&mut [u8]) -> Result<(), String>,
 ) -> Result<(File, PathBuf), String> {

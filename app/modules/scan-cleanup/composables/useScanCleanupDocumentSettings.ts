@@ -401,7 +401,10 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             && previousDocumentContext.sourceSha256 === null
             && isScanCleanupSourceSha256(currentSourceSha256);
         if (!sourceWasPromoted && !retry) {
-            if (previousDocumentContext?.sourceSha256 === null) {
+            if (
+                previousDocumentContext?.sourceSha256 === null
+                && previousDocumentContext.legacyDocumentKey === currentLegacyDocumentKey
+            ) {
                 invalidateScanCleanupDocumentPersistence(
                     null,
                     previousDocumentContext.legacyDocumentKey,

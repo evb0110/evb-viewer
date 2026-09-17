@@ -7,7 +7,6 @@
     "$schema",
     "version",
     "lane",
-    "operatorDiagnostics",
     "tests"
   ],
   "properties": {
@@ -36,27 +35,6 @@
         },
         "infraRetryCount": {
           "const": 2
-        }
-      }
-    },
-    "operatorDiagnostics": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "path",
-          "reason"
-        ],
-        "properties": {
-          "path": {
-            "type": "string",
-            "pattern": "^tests/e2e/electron/quarantine/.+\\.e2e\\.test\\.ts$"
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1
-          }
         }
       }
     },

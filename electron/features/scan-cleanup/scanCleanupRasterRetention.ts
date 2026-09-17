@@ -1004,7 +1004,7 @@ export function scanCleanupRasterRetention(
                 }
             } else {
                 for (const document of matchingDocuments) {
-                    if (document.pinned > 1) continue;
+                    if (document.claims.size > 0) continue;
                     document.removeWhenIdle = true;
                     documentGenerations.set(document, (documentGenerations.get(document) ?? 0) + 1);
                     if (document.pinned === 0) documentsToDiscard.push(document);

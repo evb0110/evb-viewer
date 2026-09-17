@@ -84,6 +84,10 @@ function isScanCleanupPageAlignment(value: unknown): value is TScanCleanupPageAl
     return SCAN_CLEANUP_ALIGNMENTS.some(alignment => alignment === value);
 }
 
+function isScanCleanupReadingOrder(value: unknown): value is IScanCleanupGlobalPreferences['readingOrder'] {
+    return value === 'ltr' || value === 'rtl';
+}
+
 function isScanCleanupGlobalPreferenceKey(value: string): value is keyof IScanCleanupGlobalPreferences {
     return Object.hasOwn(DEFAULT_SCAN_CLEANUP_PREFERENCES, value);
 }
@@ -135,6 +139,14 @@ export interface IScanCleanupSettingsFile {
     schemaVersion: typeof SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION;
     settings: IScanCleanupGlobalPreferences;
     documentOverrides: Record<string, IScanCleanupDocumentOverrideEntry>;
+}
+
+/** Result returned over the platform boundary after the main process reads the file. */
+export interface IScanCleanupSettingsResult extends IScanCleanupSettingsFile {repaired?: true;}
+
+export interface IScanCleanupSettingsFileDecodeResult {
+    settingsFile: IScanCleanupSettingsFile;
+    repaired: boolean;
 }
 
 /**
@@ -482,6 +494,212 @@ function decodeOutputMode(value: unknown): TScanCleanupOutputModeSetting | undef
     return isScanCleanupOutputModeSetting(value) ? value : undefined;
 }
 
+const SCAN_CLEANUP_SETTINGS_RESULT_GLOBAL_KEYS = [
+    'preserveOriginalQuality',
+    'layoutMode',
+    'binarization',
+    'normalizeIllumination',
+    'readingOrder',
+    'thickness',
+    'crop',
+    'matchPageSize',
+    'pageAlignment',
+    'marginsMm',
+    'despeckleLevel',
+    'autoDewarp',
+    'autoDewarpDepth',
+    'skipBlankPages',
+    'firstRunGuidanceDismissed',
+] as const;
+const SCAN_CLEANUP_SETTINGS_RESULT_REQUIRED_GLOBAL_KEYS = [
+    'preserveOriginalQuality',
+    'layoutMode',
+    'binarization',
+    'normalizeIllumination',
+    'readingOrder',
+    'thickness',
+    'crop',
+    'matchPageSize',
+    'pageAlignment',
+    'marginsMm',
+    'despeckleLevel',
+    'autoDewarp',
+    'skipBlankPages',
+    'firstRunGuidanceDismissed',
+] as const;
+
+function assertScanCleanupExactKeys(
+    value: Record<string, unknown>,
+    allowedKeys: readonly string[],
+    label: string,
+) {
+    if (Object.keys(value).some(key => !allowedKeys.includes(key))) {
+        throw new Error(`Invalid scan-cleanup ${label}`);
+    }
+}
+
+function decodeStrictScanCleanupMarginsMm(value: unknown, label: string): IScanCleanupMarginsMm {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        throw new Error(`Invalid scan-cleanup ${label}`);
+    }
+    assertScanCleanupExactKeys(stored, [
+        'leftMm',
+        'topMm',
+        'rightMm',
+        'bottomMm',
+    ], label);
+    const decodeMargin = (candidate: unknown) => {
+        if (
+            typeof candidate !== 'number'
+            || !Number.isFinite(candidate)
+            || candidate < 0
+            || candidate > SCAN_CLEANUP_MARGIN_MAX_MM
+        ) {
+            throw new Error(`Invalid scan-cleanup ${label}`);
+        }
+        return candidate;
+    };
+    return {
+        leftMm: decodeMargin(stored.leftMm),
+        topMm: decodeMargin(stored.topMm),
+        rightMm: decodeMargin(stored.rightMm),
+        bottomMm: decodeMargin(stored.bottomMm),
+    };
+}
+
+function decodeStrictScanCleanupGlobalPreferences(value: unknown): IScanCleanupGlobalPreferences {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        throw new Error('Invalid scan-cleanup settings result preferences');
+    }
+    assertScanCleanupExactKeys(stored, SCAN_CLEANUP_SETTINGS_RESULT_GLOBAL_KEYS, 'settings result preferences');
+    for (const key of SCAN_CLEANUP_SETTINGS_RESULT_REQUIRED_GLOBAL_KEYS) {
+        if (!Object.hasOwn(stored, key) || stored[key] === undefined) {
+            throw new Error(`Invalid scan-cleanup settings result preference: ${key}`);
+        }
+    }
+    if (
+        typeof stored.preserveOriginalQuality !== 'boolean'
+        || !isScanCleanupLayoutMode(stored.layoutMode)
+        || !isScanCleanupBinarizationMethod(stored.binarization)
+        || typeof stored.normalizeIllumination !== 'boolean'
+        || !isScanCleanupReadingOrder(stored.readingOrder)
+        || typeof stored.thickness !== 'number'
+        || !Number.isSafeInteger(stored.thickness)
+        || stored.thickness < -5
+        || stored.thickness > 5
+        || typeof stored.crop !== 'boolean'
+        || typeof stored.matchPageSize !== 'boolean'
+        || !isScanCleanupPageAlignment(stored.pageAlignment)
+        || !isScanCleanupDespeckleLevel(stored.despeckleLevel)
+        || typeof stored.autoDewarp !== 'boolean'
+        || typeof stored.skipBlankPages !== 'boolean'
+        || typeof stored.firstRunGuidanceDismissed !== 'boolean'
+        || (stored.autoDewarpDepth !== undefined && (
+            typeof stored.autoDewarpDepth !== 'number'
+            || !Number.isFinite(stored.autoDewarpDepth)
+            || stored.autoDewarpDepth < SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
+            || stored.autoDewarpDepth > SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
+        ))
+    ) {
+        throw new Error('Invalid scan-cleanup settings result preferences');
+    }
+    return {
+        ...decodeScanCleanupGlobalPreferences(stored),
+        marginsMm: decodeStrictScanCleanupMarginsMm(stored.marginsMm, 'settings result margins'),
+    };
+}
+
+function decodeStrictScanCleanupDocumentOverrideEntry(
+    value: unknown,
+    budget: IScanCleanupInputBudget,
+): IScanCleanupDocumentOverrideEntry {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        throw new Error('Invalid scan-cleanup settings result document override');
+    }
+    assertScanCleanupExactKeys(stored, [
+        'overrides',
+        'pageOverrideDefaults',
+        'marginsMm',
+        'outputMode',
+        'lastUsedAtMs',
+    ], 'settings result document override');
+    if (
+        typeof stored.lastUsedAtMs !== 'number'
+        || !Number.isFinite(stored.lastUsedAtMs)
+        || stored.lastUsedAtMs < 0
+    ) {
+        throw new Error('Invalid scan-cleanup settings result document override timestamp');
+    }
+    const outputMode = stored.outputMode === undefined
+        ? undefined
+        : decodeOutputMode(stored.outputMode);
+    if (stored.outputMode !== undefined && outputMode === undefined) {
+        throw new Error('Invalid scan-cleanup settings result document output mode');
+    }
+    const overrides = stored.overrides === undefined
+        ? undefined
+        : decodeScanCleanupPageOverrides(stored.overrides, budget);
+    const pageOverrideDefaults = stored.pageOverrideDefaults === undefined
+        ? undefined
+        : decodeScanCleanupPageOverride(stored.pageOverrideDefaults, budget);
+    const marginsMm = stored.marginsMm === undefined
+        ? undefined
+        : decodeStrictScanCleanupMarginsMm(stored.marginsMm, 'settings result document margins');
+    return {
+        ...(overrides === undefined ? {} : {overrides}),
+        ...(pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults}),
+        ...(marginsMm === undefined ? {} : {marginsMm}),
+        ...(outputMode === undefined ? {} : {outputMode}),
+        lastUsedAtMs: stored.lastUsedAtMs,
+    };
+}
+
+/** Decodes the canonical settings object crossing the main/renderer boundary. */
+export function decodeScanCleanupSettingsResult(value: unknown): IScanCleanupSettingsResult {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored || stored.schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION) {
+        throw new Error('Invalid scan-cleanup settings result');
+    }
+    assertScanCleanupExactKeys(stored, [
+        'schemaVersion',
+        'settings',
+        'documentOverrides',
+        'repaired',
+    ], 'settings result');
+    if (stored.repaired !== undefined && stored.repaired !== true) {
+        throw new Error('Invalid scan-cleanup settings result repair marker');
+    }
+    const storedOverrides = scanCleanupPreferenceRecord(stored.documentOverrides);
+    if (!storedOverrides) {
+        throw new Error('Invalid scan-cleanup settings result documentOverrides');
+    }
+    if (Object.keys(storedOverrides).length > SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES) {
+        throw new Error('Too many scan-cleanup settings result documentOverrides');
+    }
+    const documentOverrides: Record<string, IScanCleanupDocumentOverrideEntry> = {};
+    for (const [
+        key,
+        entry,
+    ] of Object.entries(storedOverrides)) {
+        if (!isScanCleanupSourceSha256(key) || key !== key.toLowerCase()) {
+            throw new Error('Invalid scan-cleanup settings result document key');
+        }
+        documentOverrides[key] = decodeStrictScanCleanupDocumentOverrideEntry(
+            entry,
+            createScanCleanupInputBudget(),
+        );
+    }
+    return {
+        schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+        settings: decodeStrictScanCleanupGlobalPreferences(stored.settings),
+        documentOverrides,
+        ...(stored.repaired === true ? {repaired: true} : {}),
+    };
+}
+
 function decodeDocumentOverrideEntry(
     value: unknown,
     budget: IScanCleanupInputBudget,
@@ -516,11 +734,119 @@ function decodeDocumentOverrideEntry(
     };
 }
 
+function hasStoredScanCleanupMarginRepair(value: unknown): boolean {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        return true;
+    }
+    const allowedKeys = new Set([
+        'leftMm',
+        'topMm',
+        'rightMm',
+        'bottomMm',
+    ]);
+    if (Object.keys(stored).some(key => !allowedKeys.has(key))) {
+        return true;
+    }
+    return [
+        'leftMm',
+        'topMm',
+        'rightMm',
+        'bottomMm',
+    ].some(key => {
+        const candidate = stored[key];
+        return candidate !== undefined && (
+            typeof candidate !== 'number'
+            || !Number.isFinite(candidate)
+            || candidate < 0
+            || candidate > SCAN_CLEANUP_MARGIN_MAX_MM
+        );
+    });
+}
+
+function hasStoredScanCleanupGlobalRepair(value: unknown): boolean {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        return true;
+    }
+    const allowedKeys = new Set<string>([
+        ...SCAN_CLEANUP_SETTINGS_RESULT_GLOBAL_KEYS,
+        'marginMm',
+        'despeckle',
+    ]);
+    if (Object.keys(stored).some(key => !allowedKeys.has(key))) {
+        return true;
+    }
+    if (stored.layoutMode !== undefined && !isScanCleanupLayoutMode(stored.layoutMode)) return true;
+    if (stored.binarization !== undefined && !isScanCleanupBinarizationMethod(stored.binarization)) return true;
+    if (stored.normalizeIllumination !== undefined && typeof stored.normalizeIllumination !== 'boolean') return true;
+    if (stored.preserveOriginalQuality !== undefined && typeof stored.preserveOriginalQuality !== 'boolean') return true;
+    if (stored.readingOrder !== undefined && !isScanCleanupReadingOrder(stored.readingOrder)) return true;
+    if (stored.thickness !== undefined && (
+        typeof stored.thickness !== 'number'
+        ||
+        !Number.isSafeInteger(stored.thickness)
+        || stored.thickness < -5
+        || stored.thickness > 5
+    )) return true;
+    if (stored.crop !== undefined && typeof stored.crop !== 'boolean') return true;
+    if (stored.matchPageSize !== undefined && typeof stored.matchPageSize !== 'boolean') return true;
+    if (stored.pageAlignment !== undefined && !isScanCleanupPageAlignment(stored.pageAlignment)) return true;
+    if (stored.marginsMm !== undefined && hasStoredScanCleanupMarginRepair(stored.marginsMm)) return true;
+    if (stored.marginMm !== undefined && (
+        typeof stored.marginMm !== 'number'
+        || !Number.isFinite(stored.marginMm)
+        || stored.marginMm < 0
+        || stored.marginMm > SCAN_CLEANUP_MARGIN_MAX_MM
+    )) return true;
+    if (stored.despeckleLevel !== undefined && !isScanCleanupDespeckleLevel(stored.despeckleLevel)) return true;
+    if (stored.despeckle !== undefined && typeof stored.despeckle !== 'boolean') return true;
+    if (stored.autoDewarp !== undefined && typeof stored.autoDewarp !== 'boolean') return true;
+    if (stored.autoDewarpDepth !== undefined && (
+        typeof stored.autoDewarpDepth !== 'number'
+        || !Number.isFinite(stored.autoDewarpDepth)
+        || stored.autoDewarpDepth < SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
+        || stored.autoDewarpDepth > SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
+    )) return true;
+    if (stored.skipBlankPages !== undefined && typeof stored.skipBlankPages !== 'boolean') return true;
+    if (stored.firstRunGuidanceDismissed !== undefined && typeof stored.firstRunGuidanceDismissed !== 'boolean') return true;
+    return false;
+}
+
+function hasStoredScanCleanupDocumentRepair(value: unknown): boolean {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        return true;
+    }
+    if (Object.keys(stored).some(key => ![
+        'overrides',
+        'pageOverrideDefaults',
+        'marginsMm',
+        'outputMode',
+        'lastUsedAtMs',
+    ].includes(key))) return true;
+    if (
+        typeof stored.lastUsedAtMs !== 'number'
+        || !Number.isFinite(stored.lastUsedAtMs)
+        || stored.lastUsedAtMs < 0
+    ) return true;
+    if (stored.outputMode !== undefined && !isScanCleanupOutputModeSetting(stored.outputMode)) return true;
+    if (stored.marginsMm !== undefined && hasStoredScanCleanupMarginRepair(stored.marginsMm)) return true;
+    try {
+        const budget = createScanCleanupInputBudget();
+        if (stored.overrides !== undefined) decodeScanCleanupPageOverrides(stored.overrides, budget);
+        if (stored.pageOverrideDefaults !== undefined) decodeScanCleanupPageOverride(stored.pageOverrideDefaults, budget);
+    } catch {
+        return true;
+    }
+    return false;
+}
+
 export function isScanCleanupSourceSha256(value: unknown): value is string {
     return typeof value === 'string' && /^[a-f\d]{64}$/iu.test(value);
 }
 
-export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSettingsFile {
+export function decodeScanCleanupSettingsFileWithDiagnostics(value: unknown): IScanCleanupSettingsFileDecodeResult {
     const stored = scanCleanupPreferenceRecord(value);
     const schemaVersion = stored?.schemaVersion;
     if (
@@ -537,32 +863,61 @@ export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSetti
     if (Object.keys(storedOverrides).length > SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES) {
         throw new Error('Too many scan-cleanup settings documentOverrides');
     }
+    let repaired = Object.keys(stored).some(key => ![
+        'schemaVersion',
+        'settings',
+        'documentOverrides',
+    ].includes(key));
+    repaired ||= hasStoredScanCleanupGlobalRepair(
+        stored.settings,
+    );
     const documentOverrides: Record<string, IScanCleanupDocumentOverrideEntry> = {};
     for (const [
         key,
         entry,
     ] of Object.entries(storedOverrides)) {
         if (!isScanCleanupSourceSha256(key)) {
+            repaired = true;
             continue;
+        }
+        const normalizedKey = key.toLowerCase();
+        if (normalizedKey !== key) {
+            repaired = true;
+        }
+        if (Object.hasOwn(documentOverrides, normalizedKey)) {
+            repaired = true;
+        }
+        if (hasStoredScanCleanupDocumentRepair(entry)) {
+            repaired = true;
         }
         let decoded: IScanCleanupDocumentOverrideEntry | null;
         try {
             decoded = decodeDocumentOverrideEntry(entry, createScanCleanupInputBudget());
         } catch {
+            repaired = true;
             continue;
         }
         if (decoded) {
-            documentOverrides[key.toLowerCase()] = decoded;
+            documentOverrides[normalizedKey] = decoded;
+        } else {
+            repaired = true;
         }
     }
     return {
-        schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
-        settings: decodeScanCleanupGlobalPreferences(
-            stored.settings,
-            {preInkAlignment: schemaVersion === PRE_INK_SETTINGS_SCHEMA_VERSION},
-        ),
-        documentOverrides,
+        settingsFile: {
+            schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+            settings: decodeScanCleanupGlobalPreferences(
+                stored.settings,
+                {preInkAlignment: schemaVersion === PRE_INK_SETTINGS_SCHEMA_VERSION},
+            ),
+            documentOverrides,
+        },
+        repaired,
     };
+}
+
+export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSettingsFile {
+    return decodeScanCleanupSettingsFileWithDiagnostics(value).settingsFile;
 }
 
 export function createDefaultScanCleanupSettingsFile(): IScanCleanupSettingsFile {

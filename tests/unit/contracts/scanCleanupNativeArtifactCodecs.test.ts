@@ -11,6 +11,7 @@ import {
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     MAX_SCAN_CLEANUP_WARNING_EVENTS,
+    SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENT_CODES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -43,6 +44,7 @@ const legacyProtocolV3Page = readFileSync(
 
 function pageMetadata() {
     return {
+        version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         sourcePageIndex: 0,
         layoutClassification: 'single-uncut-page',
         layoutConfidence: 0.9,
@@ -69,6 +71,7 @@ function pageMetadata() {
 
 function outputMetadata() {
     return {
+        version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         sourcePageIndex: 0,
         half: 'full',
         layoutClassification: 'single-uncut-page',
@@ -249,9 +252,44 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output))).toMatchObject({futureOutputDiagnostic: {producer: 'vNext'}});
     });
 
+    it('decodes native ink consistency diagnostics and rejects malformed values', () => {
+        const diagnostics = {
+            priorSampleCount: 12,
+            priorSurvivalMedian: 0.42,
+            survivalBefore: 0.31,
+            survivalAfter: 0.39,
+            addedInkPixels: 240,
+            applied: true,
+        };
+        const output = {
+            ...outputMetadata(),
+            inkConsistencyDiagnostics: diagnostics,
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            inkConsistencyDiagnostics: {
+                ...diagnostics,
+                survivalAfter: 1.01,
+            },
+        })).toThrow('inkConsistencyDiagnostics.survivalAfter');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            inkConsistencyDiagnostics: {
+                ...diagnostics,
+                addedInkPixels: 1.5,
+            },
+        })).toThrow('inkConsistencyDiagnostics.addedInkPixels');
+    });
+
     it('rejects malformed JSON and unsupported artifact versions as native failures', () => {
         for (const decode of [
             () => decodeNativeScanCleanupPageMetadataJson('{'),
+            () => decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                version: 4,
+            }),
             () => decodeNativeScanCleanupOutputMetadataJson(JSON.stringify({
                 ...outputMetadata(),
                 version: 4,
@@ -912,11 +950,17 @@ describe('scan-cleanup native artifact codecs', () => {
             matchedCanvasOpticalContentRightPx: 950,
             matchedCanvasIntrinsicOverflowLeftPx: 125,
             softMarginsPx: [
+                200,
                 0,
-                0,
-                0,
+                200,
                 0,
             ],
+            appliedMargins: {
+                leftPx: 100,
+                topPx: 0,
+                rightPx: 100,
+                bottomPx: 0,
+            },
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,
         };
@@ -925,6 +969,13 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(() => decodeNativeScanCleanupOutputMetadata({
             ...output,
             matchedCanvasIntrinsicOverflowLeftPx: 1001,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            appliedMargins: {
+                ...output.appliedMargins,
+                leftPx: 200,
+            },
         })).toThrow('intrinsic content placement exceeds its canvas');
     });
 

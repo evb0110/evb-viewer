@@ -390,7 +390,7 @@ export type TScanCleanupRunSidecar = (
     onProgress: TScanCleanupSidecarProgress,
     options?: {
         priority?: 'background';
-        allowedPathRoot?: string;
+        allowedPathRoot: string;
         /**
          * Receives a promise that settles after deferred publication recovery
          * completes. Callers owning the manifest scratch must retain it until

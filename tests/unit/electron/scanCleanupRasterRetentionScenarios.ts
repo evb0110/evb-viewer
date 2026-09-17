@@ -1516,6 +1516,36 @@ export async function scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads()
     expect(existsSync(retained.path)).toBe(false);
 }
 
+export async function scenarioProtectsDetectionClaimFromUnscopedInvalidation(): Promise<void> {
+    const dir = await setup();
+    const retention = scanCleanupRasterRetention(dependencies(dir));
+    const sourcePdfPath = join(dir, 'source.pdf');
+    const document = await retention.openDocument({
+        sourcePdfPath,
+        documentRevision: 'revision-1',
+    }, 'detection-owner');
+    const scratchPath = await retention.rasterScratchPath(document, 1, 150);
+    await writeFile(scratchPath, PNG);
+    const retained = await retention.retain({
+        document,
+        dpi: 150,
+        height: 1,
+        pageNumber: 1,
+        scratchPath,
+        sizeBytes: PNG.byteLength,
+        width: 1,
+    }, 'detection-owner');
+
+    retention.invalidate(sourcePdfPath, 'revision-1');
+
+    expect(document.removeWhenIdle).toBe(false);
+    expect(retention.claimRaster(document, 1, 150, 'detection-owner')).toBe(true);
+    await retention.releaseRaster(document, 1, 150, 'detection-owner');
+    await retention.release(document, 'detection-owner');
+    await retention.dispose();
+    expect(existsSync(retained.path)).toBe(false);
+}
+
 export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled(): Promise<void> {
     const dir = await setup();
     const deps = dependencies(dir);

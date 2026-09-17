@@ -1,10 +1,21 @@
 import {
+    existsSync,
+    statSync,
+} from 'node:fs';
+import {
     describe,
     expect,
     it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {createLargeScannedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createLargeScannedFixturePdf,
+    readPdfPageSnapshots,
+} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    isPdfCanvasInkCoverageSane,
+    renderPdfCanvasFidelityMetrics,
+} from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     clickVisibleToolbarButton,
@@ -12,6 +23,10 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    type IWorkspaceExposeProbeWindow,
+    readWorkspaceStateValues,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-toolbar-contract-${Date.now()}`});
 
@@ -88,7 +103,64 @@ describe('scan cleanup toolbar contract', () => {
         await session.page.click('.scan-cleanup-toolbar-primary-action');
         await waitForFunctionInPage(session.page, () => (
             document.querySelector('.scan-cleanup-run-meter') === null
-            && document.querySelector('.scan-cleanup-toolbar-cancel-detection') !== null
+                && document.querySelector('.scan-cleanup-toolbar-cancel-detection') !== null
         ), {timeout: 10_000});
-    });
+
+        // Let detection settle, then run the same six-page document to
+        // completion. The blocking contract must cover the generated PDF,
+        // not only the controls that start it.
+        // These post-cancellation waits total 315s (30 + 180 + 15 + 45 + 45),
+        // inside the existing 360s test budget.
+        await waitForFunctionInPage(session.page, () => {
+            const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+            return document.querySelector('.scan-cleanup-toolbar-cancel-detection') === null
+                && document.querySelector('.scan-cleanup-run-meter') === null
+                && action?.disabled === false
+                && (action.textContent ?? '').includes('Clean up');
+        }, {timeout: 30_000});
+        await session.page.click('.scan-cleanup-toolbar-primary-action');
+        await waitForFunctionInPage(session.page, (source: string) => {
+            const active = (window as IWorkspaceExposeProbeWindow)
+                .__evbTestApi
+                ?.readActiveWorkspaceStateValues?.(['originalPath']);
+            return typeof active?.originalPath === 'string'
+                && active.originalPath !== source
+                && active.originalPath.endsWith('— cleaned.pdf');
+        }, {timeout: 180_000}, sourcePath);
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
+        ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 15_000});
+
+        const outputState = await readWorkspaceStateValues(session.page, ['originalPath']);
+        const outputPath = typeof outputState.originalPath === 'string'
+            ? outputState.originalPath
+            : null;
+        expect(outputPath).toBeTruthy();
+        expect(outputPath).not.toBe(sourcePath);
+        expect(outputPath).toMatch(/— cleaned\.pdf$/u);
+        expect(existsSync(outputPath!)).toBe(true);
+        expect(statSync(outputPath!).size).toBeGreaterThan(0);
+        expect(await readPdfPageSnapshots(outputPath!)).toEqual(
+            Array.from({length: 6}, (_, index) => ({
+                pageNumber: index + 1,
+                rotation: 0,
+                textSnippet: '',
+            })),
+        );
+        const outputRasterMetrics = await Promise.all(
+            Array.from({length: 6}, (_, index) => renderPdfCanvasFidelityMetrics(
+                outputPath!,
+                index + 1,
+            )),
+        );
+        for (const [
+            index,
+            metrics,
+        ] of outputRasterMetrics.entries()) {
+            expect(
+                isPdfCanvasInkCoverageSane(metrics),
+                `page ${String(index + 1)} raster ink coverage`,
+            ).toBe(true);
+        }
+    }, 360_000);
 });

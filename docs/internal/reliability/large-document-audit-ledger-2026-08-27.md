@@ -133,6 +133,12 @@ and `xlarge-followup-telemetry.json:2-12`. The xlarge scalar summary records a
 and a Session B renderer heap delta of 108,776,424 bytes at
 `linux-flow-audit.md:143`.
 
+The opt-in `scanCleanupXlargeAcceptance.e2e.test.ts` was retired because it
+was not invoked by a workflow. Xlarge scan-cleanup acceptance is therefore not
+automated in this repository; the remaining scan-cleanup rows below retain
+their open acceptance requirements. The separate generic xlarge document
+acceptance remains a distinct check.
+
 The local artifact is not equivalent to the audited VPS artifact even though
 the document name matches. The local file is 722178517 bytes with SHA-256
 `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`; the VPS

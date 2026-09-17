@@ -38,10 +38,10 @@ import {
 } from '@contracts/platformFeature';
 import {
     createDefaultScanCleanupSettingsFile,
-    decodeScanCleanupSettingsFile,
+    decodeScanCleanupSettingsResult,
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
-    type IScanCleanupSettingsFile,
+    type IScanCleanupSettingsResult,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scanCleanupSettings';
@@ -141,8 +141,8 @@ const settingsUpdateArgs = s.fromParser(
     () => [{settings: createDefaultScanCleanupSettingsFile().settings}],
 );
 const settingsFile = s.fromParser(
-    decodeScanCleanupSettingsFile,
-    (): IScanCleanupSettingsFile => createDefaultScanCleanupSettingsFile(),
+    decodeScanCleanupSettingsResult,
+    (): IScanCleanupSettingsResult => createDefaultScanCleanupSettingsFile(),
 );
 const previewArgs = s.fromParser(decodeArgs(decodePreviewArgs), () => [previewRequest]);
 const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () => [cancelPreviewRequest]);

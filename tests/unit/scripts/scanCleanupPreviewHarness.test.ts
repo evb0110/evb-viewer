@@ -5,6 +5,8 @@ import {
 } from 'vitest';
 import {
     compareMetrics,
+    independentReaderScale,
+    independentReaderWrongCalibrationOffset,
     weightAgreementViolations,
     weightUniformity,
 } from '@scripts/diagnostics/scan-cleanup-preview-harness.mjs';
@@ -47,6 +49,25 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
 }
 
 describe('scan cleanup preview weight agreement', () => {
+    it('maps cropped native output into the matched canvas before reading ink', () => {
+        expect(independentReaderScale({
+            canvasHeightPx: 120,
+            canvasWidthPx: 160,
+            matchedCanvasContentHeightPx: 46,
+            matchedCanvasContentWidthPx: 100,
+            outputHeightPx: 103,
+            outputWidthPx: 226,
+        }, 160, 121)).toEqual({
+            x: 100 / 226,
+            y: 121 / 120 * 46 / 103,
+        });
+    });
+
+    it('converts the wrong-calibration offset into final raster pixels', () => {
+        expect(independentReaderWrongCalibrationOffset(100, 320, 160)).toBe(160);
+        expect(independentReaderWrongCalibrationOffset(20, 100, 400)).toBe(40);
+    });
+
     it('accepts the measured RGB-camera preview residual', () => {
         const comparison = compareMetrics(
             {

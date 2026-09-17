@@ -228,8 +228,8 @@ describe('changed-area classifier', () => {
             'nuxt.config.ts',
             'packages/pdf-core/index.ts',
             'public/pdfjs/pdf.worker.min.mjs',
-            'scan-cleanup-adapters/createScanCleanupRenderers.ts',
-            'scan-cleanup-core/detection.ts',
+            'packages/scan-cleanup/adapters/createScanCleanupRenderers.ts',
+            'packages/scan-cleanup/core/detection.ts',
             'server/api/releases.get.ts',
             'tests/fixtures/electron/generated-text.pdf',
             'tests/helpers/pdfAnnotationCommentsListHarness.ts',
@@ -259,8 +259,8 @@ describe('changed-area classifier', () => {
             'native/scan-cleanup/src/mrc.rs',
             'packages/contracts/scan-cleanup/domain.ts',
             'public/wasm/evb-pdf-image-combine.wasm',
-            'scan-cleanup-adapters/createScanCleanupRenderers.ts',
-            'scan-cleanup-core/detection.ts',
+            'packages/scan-cleanup/adapters/createScanCleanupRenderers.ts',
+            'packages/scan-cleanup/core/detection.ts',
             'scripts/ci-install-dependencies.mjs',
             'scripts/ci/apt-install.sh',
             'scripts/ci/scan-cleanup-oracles.sh',
@@ -437,7 +437,7 @@ describe('changed-area classifier', () => {
                 'app/modules/scan-cleanup/staged-then-deleted.ts',
             ]);
             unlinkSync(stagedThenDeletedPath);
-            const untrackedPath = join(root, 'scan-cleanup-core/untracked.ts');
+            const untrackedPath = join(root, 'packages/scan-cleanup/core/untracked.ts');
             mkdirSync(resolve(untrackedPath, '..'), {recursive: true});
             writeFileSync(untrackedPath, 'export const untracked = true;\n', 'utf8');
 
@@ -447,7 +447,7 @@ describe('changed-area classifier', () => {
                 'app/modules/scan-cleanup/tracked.ts',
                 'app/modules/scan-cleanup/staged-then-deleted.ts',
                 'native/scan-cleanup/staged.rs',
-                'scan-cleanup-core/untracked.ts',
+                'packages/scan-cleanup/core/untracked.ts',
             ]));
             expect(classification.result.scan_cleanup_export?.matched).toBe(true);
             expect(classification.result.native_or_build?.matched).toBe(true);
