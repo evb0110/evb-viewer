@@ -2,6 +2,7 @@ import {
     access,
     mkdir,
     mkdtemp,
+    readFile,
     realpath,
     stat,
     symlink,
@@ -25,6 +26,7 @@ import {
 import {
     acknowledgeScanCleanupCompletedOutputs,
     createScanCleanupGeneratedOutputPath,
+    getScanCleanupCompletedOutputJournalPath,
     getPendingScanCleanupCompletedOutputs,
     getScanCleanupOutputBaseDirs,
     getScanCleanupOutputRoot,
@@ -113,15 +115,35 @@ describe('scan cleanup generated output pruning', () => {
     it('discards a truncated completed-output journal instead of blocking recovery', async () => {
         const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-journal-corrupt-test-'));
         tempDirs.push(outputBaseDir);
-        const journalPath = join(
-            getScanCleanupOutputRoot(outputBaseDir),
-            '.evb-scan-cleanup-completed-outputs.json',
-        );
+        const journalPath = getScanCleanupCompletedOutputJournalPath(outputBaseDir);
         await mkdir(dirname(journalPath), {recursive: true});
         await writeFile(journalPath, '{', 'utf8');
 
         await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([]);
         await expect(access(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('skips malformed journal entries while preserving valid completed outputs', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-journal-entry-test-'));
+        tempDirs.push(outputBaseDir);
+        const outputPath = await writeGeneratedOutput(outputBaseDir, RUN_ID, Date.now());
+        const journalPath = getScanCleanupCompletedOutputJournalPath(outputBaseDir);
+        await writeFile(journalPath, JSON.stringify([
+            {
+                version: 1,
+                outputPdfPath: outputPath,
+                completedAtMs: 123,
+            },
+            {
+                version: 1,
+                outputPdfPath: '/outside.pdf',
+                completedAtMs: 'invalid',
+            },
+            'torn-entry',
+        ]), 'utf8');
+
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([outputPath]);
+        await expect(readFile(journalPath, 'utf8')).resolves.toContain(outputPath);
     });
 
     it('creates a managed, human-readable output path without a save dialog', async () => {

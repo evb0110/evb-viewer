@@ -559,18 +559,28 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
     ], () => {
         selectedZone.value = null;
     });
-    watch(() => toValue(options.manualZones), (manualZones) => {
-        const selection = selectedZone.value;
-        if (!selection) {
-            return;
-        }
-        const count = selection.kind === 'picture'
-            ? manualZones?.picture.length ?? 0
-            : manualZones?.fill.length ?? 0;
-        if (selection.index >= count) {
-            selectedZone.value = null;
-        }
-    }, {deep: true});
+    watch(
+        () => [
+            toValue(options.manualZones)?.picture.length ?? 0,
+            toValue(options.manualZones)?.fill.length ?? 0,
+        ] as const,
+        ([
+            pictureCount,
+            fillCount,
+        ], [
+            previousPictureCount,
+            previousFillCount,
+        ]) => {
+            const selection = selectedZone.value;
+            if (!selection) {
+                return;
+            }
+            const count = selection.kind === 'picture' ? pictureCount : fillCount;
+            const previousCount = selection.kind === 'picture' ? previousPictureCount : previousFillCount;
+            if (count < previousCount || selection.index >= count) {
+                selectedZone.value = null;
+            }
+        });
 
     return {
         selectedPictureLayer,

@@ -212,16 +212,71 @@ describe('scan-cleanup durability', () => {
             startTime: pid === 4242 ? 'child-start' : 'owner-start',
         });
         const terminate = vi.fn(async () => true);
+        const readIdentity = vi.fn(async (pid: number) => identity(pid));
 
         await expect(reapOrphanedScanCleanupSidecars(namespacePath, {
             isProcessAlive: pid => pid === 4242,
-            readProcessIdentity: async pid => identity(pid),
+            readProcessIdentity: readIdentity,
             terminateProcessTree: terminate,
             platform: 'linux',
         })).resolves.toBe(1);
 
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
+        expect(readIdentity).not.toHaveBeenCalledWith(4241);
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it.each([
+        [
+            'process start time',
+            {processStartTime: 'other-child-start'},
+        ],
+        [
+            'binary path',
+            {binaryPath: '/native/other-scan-cleanup'},
+        ],
+        [
+            'manifest path',
+            {manifestPath: '/scratch/other-manifest.json'},
+        ],
+    ] as const)('retains an orphan marker when the live process identity mismatches by %s', async (_label, change) => {
+        const namespacePath = await createTemporaryDirectory();
+        const registryDirectory = getScanCleanupSidecarRegistryDirectory(namespacePath);
+        await mkdir(registryDirectory);
+        const entry: IScanCleanupSidecarRegistryEntry = {
+            version: 1,
+            pid: 4242,
+            ownerPid: 4241,
+            binaryPath: '/native/evb-scan-cleanup',
+            manifestPath: '/scratch/manifest.json',
+            processStartTime: 'child-start',
+            ownerStartTime: 'owner-start',
+            ...change,
+        };
+        const entryPath = join(
+            registryDirectory,
+            `${SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX}${_label.replaceAll(' ', '-')}.json`,
+        );
+        await writeFile(entryPath, JSON.stringify(entry), 'utf8');
+        const terminate = vi.fn(async () => true);
+
+        await expect(reapOrphanedScanCleanupSidecars(namespacePath, {
+            isProcessAlive: pid => pid === 4242,
+            readProcessIdentity: async () => ({
+                executablePath: '/native/evb-scan-cleanup',
+                arguments: [
+                    'evb-scan-cleanup',
+                    '--manifest',
+                    '/scratch/manifest.json',
+                ],
+                startTime: 'child-start',
+            }),
+            terminateProcessTree: terminate,
+            platform: 'linux',
+        })).resolves.toBe(0);
+
+        expect(terminate).not.toHaveBeenCalled();
+        await expect(access(entryPath)).resolves.toBeUndefined();
     });
 
     it('removes a sidecar marker when its owner closes it normally', async () => {

@@ -1223,12 +1223,14 @@ export async function saveWorkspaceCheckpoint(
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
     }
+    const durable = readDurableWorkspaceCheckpointForSave(checkpointRecordRecoveryId);
+    const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
     // A generated cleanup output can be the source of a restored tab. Refresh
-    // its retention stamp while the checkpoint still records the tab, so the
-    // startup sweep cannot expire it before recovery reopens it. The helper is
-    // deliberately best effort: non-cleanup paths are ignored and a stamp
-    // failure must not discard the checkpoint itself.
-    const generatedOutputCandidates = checkpoint.tabs.flatMap(tab => [
+    // its retention stamp after unresolved tabs have been restored, so the
+    // startup sweep cannot expire a retained output before recovery reopens
+    // it. The helper is deliberately best effort: non-cleanup paths are
+    // ignored and a stamp failure must not discard the checkpoint itself.
+    const generatedOutputCandidates = checkpointWithRetainedTabs.tabs.flatMap(tab => [
         tab.sourceRef,
         tab.workingCopyRef,
     ].filter((path): path is TDocumentRef => path !== null));
@@ -1237,8 +1239,6 @@ export async function saveWorkspaceCheckpoint(
             touchScanCleanupGeneratedOutput(path)
         )));
     }
-    const durable = readDurableWorkspaceCheckpointForSave(checkpointRecordRecoveryId);
-    const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
     const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
     const canonicalCheckpoint = canonicalizeCheckpointSources(

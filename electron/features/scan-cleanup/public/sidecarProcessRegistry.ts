@@ -389,8 +389,10 @@ export async function reapOrphanedScanCleanupSidecars(
     for (const {
         entryPath, entry,
     } of entries) {
-        const ownerIdentity = await readIdentity(entry.ownerPid);
         const ownerIsAlive = isProcessAlive(entry.ownerPid);
+        const ownerIdentity = ownerIsAlive && entry.ownerStartTime !== undefined
+            ? await readIdentity(entry.ownerPid)
+            : null;
         if (ownerIsAlive && entry.ownerStartTime === undefined) {
             // A live worker still owns the child. Another app instance must
             // never terminate it merely because its marker is old. Missing

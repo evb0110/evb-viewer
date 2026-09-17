@@ -221,11 +221,71 @@ describe('scan cleanup run coordinator', () => {
                 '/managed/recovered.pdf',
                 expect.any(AbortSignal),
             ));
-            expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith(['/managed/recovered.pdf']);
+            await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith(['/managed/recovered.pdf']));
         } finally {
             cleanup();
             storage.clear();
             vi.unstubAllGlobals();
+        }
+    });
+
+    it('bounds each recovered output open and continues to later journal entries', async () => {
+        vi.useFakeTimers();
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            clear: () => storage.clear(),
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+            setItem: (key: string, value: string) => storage.set(key, value),
+        });
+        const firstPath = '/managed/hung-recovered.pdf' as TDocumentRef;
+        const secondPath = '/managed/recovered-after-timeout.pdf' as TDocumentRef;
+        const firstOpen = Promise.withResolvers<boolean>();
+        const signals: AbortSignal[] = [];
+        const openGeneratedPdf = vi.fn((path: string, signal: AbortSignal) => {
+            signals.push(signal);
+            return path === firstPath ? firstOpen.promise : Promise.resolve(true);
+        });
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        capability.value = {
+            ...stubCapability(() => undefined, () => 'scan-cleanup-replacement'),
+            getJobState: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            getPendingCompletedOutputs: vi.fn(async () => [
+                firstPath,
+                secondPath,
+            ]),
+            acknowledgeCompletedOutputs,
+        } satisfies IScanCleanupCapability;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(async () => undefined),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                firstPath,
+                expect.any(AbortSignal),
+            ));
+            await vi.advanceTimersByTimeAsync(30_000);
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                secondPath,
+                expect.any(AbortSignal),
+            ));
+            await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([secondPath]));
+            expect(signals[0]?.aborted).toBe(true);
+            expect(acknowledgeCompletedOutputs).not.toHaveBeenCalledWith([
+                firstPath,
+                secondPath,
+            ]);
+        } finally {
+            firstOpen.resolve(false);
+            cleanup();
+            storage.clear();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
         }
     });
 

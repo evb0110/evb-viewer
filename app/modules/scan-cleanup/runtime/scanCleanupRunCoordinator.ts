@@ -276,7 +276,7 @@ interface IGeneratedPdfHandoff {
     controller: AbortController;
     generation: number;
     invalidated: boolean;
-    jobId: TJobId;
+    jobId: TJobId | null;
 }
 
 let handoffGeneration = 0;
@@ -307,6 +307,48 @@ function settleGeneratedPdfHandoff(open: Promise<boolean>, signal: AbortSignal) 
     });
 }
 
+interface IGeneratedPdfHandoffResult {
+    handoff: IGeneratedPdfHandoff;
+    opened: boolean;
+}
+
+async function openGeneratedPdfWithHandoff(
+    openGeneratedPdf: IScanCleanupCoordinatorDependencies['openGeneratedPdf'],
+    outputPdfPath: string,
+    jobId: TJobId | null,
+): Promise<IGeneratedPdfHandoffResult> {
+    handoffGeneration += 1;
+    const handoff: IGeneratedPdfHandoff = {
+        controller: new AbortController(),
+        generation: handoffGeneration,
+        invalidated: false,
+        jobId,
+    };
+    activeGeneratedPdfHandoff = handoff;
+    const deadline = setTimeout(
+        () => handoff.controller.abort(new Error('Generated PDF handoff timed out')),
+        GENERATED_PDF_HANDOFF_TIMEOUT_MS,
+    );
+    let opened = false;
+    try {
+        opened = await settleGeneratedPdfHandoff(
+            openGeneratedPdf(outputPdfPath, handoff.controller.signal),
+            handoff.controller.signal,
+        );
+    } catch {
+        opened = false;
+    } finally {
+        clearTimeout(deadline);
+        if (activeGeneratedPdfHandoff === handoff) {
+            activeGeneratedPdfHandoff = null;
+        }
+    }
+    return {
+        handoff,
+        opened,
+    };
+}
+
 function invalidateGeneratedPdfHandoff() {
     const handoff = activeGeneratedPdfHandoff;
     if (!handoff) {
@@ -320,7 +362,9 @@ function invalidateGeneratedPdfHandoff() {
     // the same tick as disposal, and the abandoned handler only resumes a
     // microtask later: releasing the reservation there would arrive after the
     // replay it is meant to admit.
-    terminalJobs.delete(handoff.jobId);
+    if (handoff.jobId !== null) {
+        terminalJobs.delete(handoff.jobId);
+    }
     handoff.controller.abort(new Error('Scan cleanup coordinator was disposed'));
 }
 
@@ -424,32 +468,13 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         // until the generated PDF finishes opening: releasing them earlier
         // lets source-document detection and preview restart mid-handoff and
         // race the working-copy claim of the output document.
-        handoffGeneration += 1;
-        const handoff: IGeneratedPdfHandoff = {
-            controller: new AbortController(),
-            generation: handoffGeneration,
-            invalidated: false,
-            jobId: state.jobId,
-        };
-        activeGeneratedPdfHandoff = handoff;
-        const deadline = setTimeout(
-            () => handoff.controller.abort(new Error('Generated PDF handoff timed out')),
-            GENERATED_PDF_HANDOFF_TIMEOUT_MS,
+        const {
+            handoff, opened,
+        } = await openGeneratedPdfWithHandoff(
+            terminalDependencies.openGeneratedPdf,
+            state.outputPdfPath,
+            state.jobId,
         );
-        let opened = false;
-        try {
-            opened = await settleGeneratedPdfHandoff(
-                terminalDependencies.openGeneratedPdf(state.outputPdfPath, handoff.controller.signal),
-                handoff.controller.signal,
-            );
-        } catch {
-            opened = false;
-        } finally {
-            clearTimeout(deadline);
-            if (activeGeneratedPdfHandoff === handoff) {
-                activeGeneratedPdfHandoff = null;
-            }
-        }
         if (handoff.invalidated) {
             // The renderer that owned this handoff went away. Its terminal
             // state was released back to the next coordinator installation as
@@ -662,10 +687,16 @@ async function surfacePendingCompletedOutputs(
     }
     const openedPaths: TDocumentRef[] = [];
     for (const path of paths) {
-        const opened = await terminalDependencies.openGeneratedPdf(
+        const {
+            handoff, opened,
+        } = await openGeneratedPdfWithHandoff(
+            terminalDependencies.openGeneratedPdf,
             path,
-            new AbortController().signal,
-        ).catch(() => false);
+            null,
+        );
+        if (handoff.invalidated || handoff.generation !== handoffGeneration) {
+            return;
+        }
         if (opened) {
             openedPaths.push(path);
         }

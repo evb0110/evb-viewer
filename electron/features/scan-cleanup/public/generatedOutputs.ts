@@ -37,7 +37,7 @@ export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
 const OUTPUT_NAME_HASH_HEX_LENGTH = 12;
 const COMPLETED_OUTPUT_JOURNAL_VERSION = 1;
-const COMPLETED_OUTPUT_JOURNAL_NAME = '.evb-scan-cleanup-completed-outputs.json';
+export const SCAN_CLEANUP_COMPLETED_OUTPUT_JOURNAL_NAME = '.evb-scan-cleanup-completed-outputs.json';
 const COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES = 32;
 
 interface ICompletedOutputJournalEntry {
@@ -74,8 +74,8 @@ export function getScanCleanupOutputRoot(baseDir = getScanCleanupOutputBaseDirs(
     return join(baseDir, 'scan-cleanup', 'output');
 }
 
-function getCompletedOutputJournalPath(baseDir: string) {
-    return join(getScanCleanupOutputRoot(baseDir), COMPLETED_OUTPUT_JOURNAL_NAME);
+export function getScanCleanupCompletedOutputJournalPath(baseDir: string) {
+    return join(getScanCleanupOutputRoot(baseDir), SCAN_CLEANUP_COMPLETED_OUTPUT_JOURNAL_NAME);
 }
 
 function parseCompletedOutputJournal(value: unknown): ICompletedOutputJournalEntry[] | null {
@@ -85,7 +85,7 @@ function parseCompletedOutputJournal(value: unknown): ICompletedOutputJournalEnt
     const entries: ICompletedOutputJournalEntry[] = [];
     for (const candidate of value) {
         if (typeof candidate !== 'object' || candidate === null) {
-            return null;
+            continue;
         }
         const entry = candidate as Record<string, unknown>;
         if (
@@ -96,7 +96,7 @@ function parseCompletedOutputJournal(value: unknown): ICompletedOutputJournalEnt
             || !Number.isFinite(entry.completedAtMs)
             || entry.completedAtMs < 0
         ) {
-            return null;
+            continue;
         }
         entries.push({
             version: 1,
@@ -108,7 +108,7 @@ function parseCompletedOutputJournal(value: unknown): ICompletedOutputJournalEnt
 }
 
 async function readCompletedOutputJournal(baseDir: string) {
-    const journalPath = getCompletedOutputJournalPath(baseDir);
+    const journalPath = getScanCleanupCompletedOutputJournalPath(baseDir);
     let raw: string;
     try {
         raw = await readFile(journalPath, 'utf8');
@@ -134,7 +134,7 @@ async function readCompletedOutputJournal(baseDir: string) {
 }
 
 async function writeCompletedOutputJournal(baseDir: string, entries: readonly ICompletedOutputJournalEntry[]) {
-    const journalPath = getCompletedOutputJournalPath(baseDir);
+    const journalPath = getScanCleanupCompletedOutputJournalPath(baseDir);
     if (entries.length === 0) {
         await unlink(journalPath).catch(error => {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {

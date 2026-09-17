@@ -662,6 +662,41 @@ describe('workspace checkpoint store', () => {
         });
     });
 
+    it('refreshes generated output retention for refs restored into an unresolved tab', async () => {
+        const retainedSourceRef = join(
+            state.userDataPath,
+            'scan-cleanup',
+            'output',
+            '00000000-0000-0000-0000-000000000000',
+            'retained.pdf',
+        );
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, retainedSourceRef);
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(retainedSourceRef),
+                isDirty: true,
+            }],
+        }, 11);
+        state.touchScanCleanupGeneratedOutput.mockClear();
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(456),
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: null,
+                workingCopyRef: null,
+                isDirty: true,
+            }],
+        }, 11);
+
+        expect(state.touchScanCleanupGeneratedOutput).toHaveBeenCalledWith(retainedSourceRef);
+        expect(state.touchScanCleanupGeneratedOutput).toHaveBeenCalledWith(workingCopyRef);
+    });
+
     it('canonicalizes a legacy temp-path source while claiming a checkpoint', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/canonical-draft.pdf');
