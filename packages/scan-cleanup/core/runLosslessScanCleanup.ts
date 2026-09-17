@@ -362,9 +362,10 @@ export async function runLosslessScanCleanup(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             pages: pageInputs,
-            // Lossless analysis reads rasters and trusted layers staged by the
-            // caller under the shared temp root, not only this scratch.
-            allowedPathRoot: paths.tempDir,
+            // Every path in this manifest is staged under this run's scratch.
+            // Keeping the native boundary per-run prevents one conversion from
+            // authorizing reads or writes in another conversion's workspace.
+            allowedPathRoot: scratch,
         });
         const pages = manifest.pages;
         const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
@@ -403,7 +404,12 @@ export async function runLosslessScanCleanup(
                     }
                 }
                 emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
-            }, {allowedPathRoot: paths.tempDir});
+            }, {
+                allowedPathRoot: scratch,
+                ...(paths.sidecarRegistryRoot === undefined
+                    ? {}
+                    : {sidecarRegistryRoot: paths.sidecarRegistryRoot}),
+            });
             emitProgress('collecting', collectedCount, pageNumbers.length, []);
         } finally {
             // Metadata is decoded below before this batch is discarded. The

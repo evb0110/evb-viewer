@@ -215,6 +215,8 @@ export const browserPlatformPathDescriptorsGenerated = {
         subscribeJob: {kind: 'async', path: ["scanCleanup","subscribeJob"]},
         reconnectJob: {kind: 'async', path: ["scanCleanup","reconnectJob"]},
         pruneGeneratedOutputs: {kind: 'async', path: ["scanCleanup","pruneGeneratedOutputs"]},
+        getPendingCompletedOutputs: {kind: 'async', path: ["scanCleanup","getPendingCompletedOutputs"]},
+        acknowledgeCompletedOutputs: {kind: 'async', path: ["scanCleanup","acknowledgeCompletedOutputs"]},
         getSettings: {kind: 'async', path: ["scanCleanup","getSettings"]},
         updateSettings: {kind: 'async', path: ["scanCleanup","updateSettings"]},
         onPreviewRaw: {kind: 'event', path: ["scanCleanup","onPreviewRaw"]},

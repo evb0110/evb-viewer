@@ -83,7 +83,6 @@ export function buildWorkspaceCheckpoint(
             const annotationRecovery = capturedAnnotationRecovery && workingByteRevision
                 ? capturedAnnotationRecovery
                 : null;
-            const viewState = options.documentRecordsByTabId.value[snapshot.tabId]?.viewState;
             const toolbar = options.documentRecordsByTabId.value[snapshot.tabId]?.toolbarSnapshot
                 ?? (() => {
                     try {
@@ -107,12 +106,9 @@ export function buildWorkspaceCheckpoint(
                 continuousScroll: toolbar?.hasPdf ? toolbar.continuousScroll : null,
                 viewMode: toolbar?.hasPdf ? toolbar.viewMode : null,
                 viewRotation: toolbar?.hasPdf ? toolbar.viewRotation : null,
-                // Surface mode is a small startup control. Do not put the
-                // optional page mapping in this crash checkpoint because it
-                // can contain one entry for every output page.
-                ...(viewState?.surfaceMode === 'scan-cleanup'
-                    ? {surfaceMode: viewState.surfaceMode}
-                    : {}),
+                // A cleanup surface is not restorable without its file-backed
+                // page mapping. Keep the checkpoint on the reader surface;
+                // completed outputs are recovered through the main journal.
                 ...(annotationRecovery
                     ? {annotationRecovery: {
                         artifactId: `capture-${snapshot.tabId}`,

@@ -90,6 +90,8 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
             subscribeJob: vi.fn(),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
+            getPendingCompletedOutputs: vi.fn(),
+            acknowledgeCompletedOutputs: vi.fn(),
             getSettings: vi.fn(),
             updateSettings: vi.fn(),
         };

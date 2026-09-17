@@ -8,6 +8,7 @@ import {join} from 'node:path';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 
 export const SCAN_CLEANUP_SCRATCH_PREFIX = 'scan-cleanup-';
+export const SCAN_CLEANUP_RUN_PREFIX = `${SCAN_CLEANUP_SCRATCH_PREFIX}run-`;
 // Preview raster retention roots are the only scratch directories whose
 // trailing digits identify the owning process. Other scratch directories use
 // mkdtemp's random suffix and must never be mistaken for pid-owned roots.
@@ -56,15 +57,20 @@ function defaultIsProcessAlive(pid: number) {
 }
 
 // Session-lifetime cache roots (the preview raster retention) carry their
-// owning pid as a trailing "-<pid>". A root whose owner is still running is
-// live regardless of its age: an app session older than the stale window must
-// not have its caches deleted out from under it by another instance's sweep.
+// owning pid as a trailing "-<pid>"; main-owned run roots carry it immediately
+// after their prefix. A root whose owner is still running is live regardless of
+// its age: an app session older than the stale window must not have its scratch
+// deleted out from under it by another instance's sweep.
 function ownerPidOf(name: string) {
-    if (!name.startsWith(SCAN_CLEANUP_PID_ROOT_PREFIX)) {
-        return null;
+    if (name.startsWith(SCAN_CLEANUP_PID_ROOT_PREFIX)) {
+        const match = /-(\d+)$/u.exec(name);
+        return match ? Number.parseInt(match[1]!, 10) : null;
     }
-    const match = /-(\d+)$/.exec(name);
-    return match ? Number.parseInt(match[1]!, 10) : null;
+    if (name.startsWith(SCAN_CLEANUP_RUN_PREFIX)) {
+        const match = /^scan-cleanup-run-(\d+)-/u.exec(name);
+        return match ? Number.parseInt(match[1]!, 10) : null;
+    }
+    return null;
 }
 
 export async function sweepStaleScanCleanupScratchDirs(
@@ -121,7 +127,7 @@ export async function sweepStaleScanCleanupScratchDirs(
 
 export async function createScanCleanupScratchDir(
     parentPath: string,
-    prefix = SCAN_CLEANUP_SCRATCH_PREFIX,
+    prefix = `${SCAN_CLEANUP_RUN_PREFIX}${process.pid}-`,
 ) {
     return mkdtemp(join(parentPath, prefix));
 }

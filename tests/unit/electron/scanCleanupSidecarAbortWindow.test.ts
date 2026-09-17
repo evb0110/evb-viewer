@@ -33,6 +33,8 @@ class MockSidecarProcess extends EventEmitter {
 
     readonly stderr = new PassThrough();
 
+    readonly pid = process.pid;
+
     readonly kill = vi.fn();
 }
 

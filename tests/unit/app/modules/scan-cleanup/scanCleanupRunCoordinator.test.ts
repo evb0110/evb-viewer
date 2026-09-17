@@ -8,6 +8,7 @@ import {
 import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
@@ -186,6 +187,47 @@ describe('scan cleanup run coordinator', () => {
         await expect(first).resolves.toEqual(await second);
         expect(capability.value!.start).toHaveBeenCalledOnce();
     }, 30_000);
+
+    it('surfaces the durable output journal after a persisted job is gone', async () => {
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            clear: () => storage.clear(),
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+            setItem: (key: string, value: string) => storage.set(key, value),
+        });
+        storage.set('evb.scanCleanup.activeJobId', 'scan-cleanup-stale-job');
+        storage.set('evb.scanCleanup.activeOwnerId', ownerContext.ownerId);
+        storage.set('evb.scanCleanup.activeDocumentRevision', ownerContext.documentRevision);
+        const openGeneratedPdf = vi.fn(async () => true);
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        const pendingCapability = {
+            ...stubCapability(() => undefined, () => 'scan-cleanup-replacement'),
+            getJobState: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            getPendingCompletedOutputs: vi.fn(async () => ['/managed/recovered.pdf' as TDocumentRef]),
+            acknowledgeCompletedOutputs,
+        } satisfies IScanCleanupCapability;
+        capability.value = pendingCapability;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(async () => undefined),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                '/managed/recovered.pdf',
+                expect.any(AbortSignal),
+            ));
+            expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith(['/managed/recovered.pdf']);
+        } finally {
+            cleanup();
+            storage.clear();
+            vi.unstubAllGlobals();
+        }
+    });
 
     it('returns renderer fallback metadata instead of user-facing bridge text', async () => {
         capability.value = null;

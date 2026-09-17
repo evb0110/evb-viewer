@@ -13,6 +13,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     requireJobId,
@@ -179,6 +180,8 @@ const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
     [SCAN_CLEANUP_CHANNELS.subscribeJob]: null,
     [SCAN_CLEANUP_CHANNELS.reconnectJob]: null,
     [SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs]: 2,
+    [SCAN_CLEANUP_CHANNELS.getPendingCompletedOutputs]: [],
+    [SCAN_CLEANUP_CHANNELS.acknowledgeCompletedOutputs]: undefined,
     [SCAN_CLEANUP_CHANNELS.getSettings]: createDefaultScanCleanupSettingsFile(),
     [SCAN_CLEANUP_CHANNELS.updateSettings]: createDefaultScanCleanupSettingsFile(),
 };
@@ -264,6 +267,8 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             client.subscribeJob(requireJobId('cleanup-1'), reactiveOwner),
             client.reconnectJob(requireJobId('cleanup-1'), reactiveOwner),
             client.pruneGeneratedOutputs(),
+            client.getPendingCompletedOutputs!(),
+            client.acknowledgeCompletedOutputs!([requireDocumentRef('/documents/cleaned.pdf')]),
             client.getSettings!({}),
             client.updateSettings!({}),
         ]);

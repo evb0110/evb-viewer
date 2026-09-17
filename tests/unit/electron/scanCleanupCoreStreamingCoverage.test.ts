@@ -1,4 +1,6 @@
 import {
+    access,
+    mkdir,
     mkdtemp,
     readFile,
     readdir,
@@ -593,7 +595,9 @@ describe('scan-cleanup-core conversion coverage', () => {
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
         const outputPdfPath = join(root, 'output.pdf');
+        const runScratchPath = join(root, 'run-scratch');
         await writeFile(sourcePdfPath, '%PDF-oversized-ink-source');
+        await mkdir(runScratchPath);
         const runCommand: IRunScanCleanupPipelineDependencies['runCommand'] = vi.fn(async () => ({
             exitCode: 0,
             stdout: '',
@@ -618,7 +622,10 @@ describe('scan-cleanup-core conversion coverage', () => {
                     pageAlignment: 'ink',
                 },
             },
-            paths(root),
+            {
+                ...paths(root),
+                scratchDir: runScratchPath,
+            },
             new AbortController().signal,
             vi.fn(),
             policy,
@@ -628,6 +635,13 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(dependencies.getPageSizeStore).toBeUndefined();
         expect(runCommand).not.toHaveBeenCalled();
         expect(await readdir(root)).not.toContain('output.pdf');
+        // An explicitly supplied run directory belongs to the main-process
+        // caller; the worker conversion must leave it for that owner to reap.
+        await expect(access(runScratchPath)).resolves.toBeUndefined();
+        await rm(runScratchPath, {
+            recursive: true,
+            force: true,
+        });
     });
 
     it('streams native page geometry and enriches it with bounded box metadata', async () => {

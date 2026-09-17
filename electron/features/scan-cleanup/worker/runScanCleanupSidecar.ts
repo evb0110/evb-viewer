@@ -25,6 +25,10 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import {
+    registerScanCleanupSidecar,
+    type IScanCleanupSidecarRegistration,
+} from '@electron/features/scan-cleanup/public/sidecarProcessRegistry';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
@@ -52,6 +56,8 @@ interface IRunScanCleanupSidecarOptions {
      * widen the boundary it is checked against.
      */
     allowedPathRoot?: string;
+    /** Durable namespace root used to recover a child after its worker dies. */
+    sidecarRegistryRoot?: string;
     /**
      * Receives a promise that settles after deferred publication recovery
      * completes. The manifest owner retains its scratch until it succeeds.
@@ -309,10 +315,22 @@ async function streamScanCleanupSidecar(
     ]}));
     let childClosed = false;
     let runDeferredRecovery: (() => void) | null = null;
+    let sidecarRegistration: IScanCleanupSidecarRegistration | null = null;
     child.once('close', () => {
         childClosed = true;
         runDeferredRecovery?.();
     });
+    if (options.sidecarRegistryRoot !== undefined && child.pid !== undefined) {
+        try {
+            sidecarRegistration = await registerScanCleanupSidecar(options.sidecarRegistryRoot, {
+                pid: child.pid,
+                binaryPath,
+                manifestPath,
+            });
+        } catch (error) {
+            log('warn', `Could not record scan-cleanup sidecar pid ${String(child.pid)}: ${String(error)}`);
+        }
+    }
     if (options.priority === 'background' && child.pid !== undefined) {
         try {
             setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
@@ -572,6 +590,9 @@ async function streamScanCleanupSidecar(
         if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         signal.removeEventListener('abort', handleAbort);
         protocol.lines.close();
+        await sidecarRegistration?.unregister().catch(error => {
+            log('warn', `Could not remove scan-cleanup sidecar pid record: ${String(error)}`);
+        });
         const stageTotalsMs: TScanCleanupStageTotalsMs = {
             decode: 0,
             analysisLevel: 0,

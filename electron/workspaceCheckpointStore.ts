@@ -18,7 +18,10 @@ import {
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
 } from '@contracts/workspaceCheckpoint';
-import {parseDocumentRef} from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     isErrnoException,
     isRecord,
@@ -46,6 +49,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
 import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
+import {touchScanCleanupGeneratedOutput} from '@electron/features/scan-cleanup/public/generatedOutputs';
 
 const log = createLogger('workspace-checkpoint-store');
 
@@ -1218,6 +1222,20 @@ export async function saveWorkspaceCheckpoint(
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
+    }
+    // A generated cleanup output can be the source of a restored tab. Refresh
+    // its retention stamp while the checkpoint still records the tab, so the
+    // startup sweep cannot expire it before recovery reopens it. The helper is
+    // deliberately best effort: non-cleanup paths are ignored and a stamp
+    // failure must not discard the checkpoint itself.
+    const generatedOutputCandidates = checkpoint.tabs.flatMap(tab => [
+        tab.sourceRef,
+        tab.workingCopyRef,
+    ].filter((path): path is TDocumentRef => path !== null));
+    if (generatedOutputCandidates.length > 0) {
+        await Promise.allSettled(generatedOutputCandidates.map(path => (
+            touchScanCleanupGeneratedOutput(path)
+        )));
     }
     const durable = readDurableWorkspaceCheckpointForSave(checkpointRecordRecoveryId);
     const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);

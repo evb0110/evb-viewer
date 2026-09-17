@@ -1,4 +1,8 @@
 import { getErrorMessage } from '@app/utils/error';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {
     IScanCleanupStartRequest,
     TScanCleanupStartResult as TBridgeScanCleanupStartResult,
@@ -476,6 +480,14 @@ async function handleTerminalState(state: TScanCleanupJobState) {
             });
             return;
         }
+        const completedOutputPath = parseDocumentRef(state.outputPdfPath);
+        if (completedOutputPath !== null) {
+            const capability = getScanCleanupCapability();
+            const acknowledgeCompletedOutputs = capability?.acknowledgeCompletedOutputs;
+            if (acknowledgeCompletedOutputs) {
+                await acknowledgeCompletedOutputs([completedOutputPath]).catch(() => undefined);
+            }
+        }
         terminalDependencies.toast.add({
             color: 'success',
             title: terminalDependencies.t(state.partial
@@ -634,6 +646,37 @@ async function startScanCleanupRequest(
     return result;
 }
 
+async function surfacePendingCompletedOutputs(
+    capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
+) {
+    const terminalDependencies = dependencies;
+    if (!terminalDependencies) {
+        return;
+    }
+    let paths: readonly TDocumentRef[];
+    try {
+        paths = await capability.getPendingCompletedOutputs?.() ?? [];
+    } catch (error) {
+        BrowserLogger.warn('scan-cleanup', `Could not read completed output journal: ${getErrorMessage(error)}`);
+        return;
+    }
+    const openedPaths: TDocumentRef[] = [];
+    for (const path of paths) {
+        const opened = await terminalDependencies.openGeneratedPdf(
+            path,
+            new AbortController().signal,
+        ).catch(() => false);
+        if (opened) {
+            openedPaths.push(path);
+        }
+    }
+    if (openedPaths.length > 0) {
+        await capability.acknowledgeCompletedOutputs?.(openedPaths).catch(error => {
+            BrowserLogger.warn('scan-cleanup', `Could not acknowledge completed output journal: ${getErrorMessage(error)}`);
+        });
+    }
+}
+
 /**
  * Retires the previous run's state as the click that starts a new attempt is
  * handled. Progress belongs to a job, and the attempt does not have one yet:
@@ -727,6 +770,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
             scanCleanupRun.activeJobId = null;
             clearRunGuard();
             persistActiveJob(null);
+            void surfacePendingCompletedOutputs(capability);
         } else {
             const owner = {
                 ownerId: scanCleanupRun.ownerId,
@@ -747,9 +791,14 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                             'internal',
                         );
                     }
+                    if (!state) {
+                        void surfacePendingCompletedOutputs(capability);
+                    }
                 }
             })();
         }
+    } else {
+        void surfacePendingCompletedOutputs(capability);
     }
     return () => {
         unsubscribe?.();

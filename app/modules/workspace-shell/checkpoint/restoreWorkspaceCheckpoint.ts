@@ -161,9 +161,12 @@ export async function restoreWorkspaceCheckpoint(
     options.restoreGraph(checkpoint);
     // Apply this before the document open transaction. Otherwise a crash in
     // Scan Cleanup re-enters the reader and constructs the whole PDF viewer
-    // before the shell can switch back to the persisted cleanup surface.
+    // before the shell can switch back to the persisted cleanup surface. Old
+    // checkpoints may still contain scan-cleanup here, but that surface is no
+    // longer restorable without its file-backed page mapping; completed
+    // outputs are recovered through the main-process journal instead.
     for (const tab of checkpoint.tabs) {
-        if (tab.surfaceMode !== undefined) {
+        if (tab.surfaceMode === 'reader') {
             options.restoreSurfaceMode?.(tab.tabId, tab.surfaceMode);
         }
     }

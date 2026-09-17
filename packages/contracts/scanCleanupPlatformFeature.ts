@@ -10,6 +10,10 @@ import type {
     TScanCleanupJobState,
 } from '@contracts/scan-cleanup/ipc';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     decodeDetectionArgs,
     decodeOwnedJobId,
     decodePlacementAnchorCalibrationArgs,
@@ -125,6 +129,13 @@ const queuedDetectionState: TScanCleanupDetectionJobState = {
     updatedAtMs: createEpochMs(0),
 };
 const booleanResult = s.boolean();
+const documentRef = s.branded(
+    s.string('/tmp/scan-cleanup-output.pdf'),
+    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
+    'invalid scan-cleanup document reference',
+);
+type TVoidResult = ReturnType<() => void>;
+const voidResult = s.declared<TVoidResult>()(s.undefined());
 const nonNegativeInteger = s.number({
     integer: true,
     min: 0,
@@ -338,6 +349,36 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
                 context: 'none',
             },
             browser: {method: 'pruneGeneratedOutputs'},
+            lazy: 'forwarded',
+        },
+        getPendingCompletedOutputs: {
+            kind: 'async',
+            channel: 'scan-cleanup:output:pending',
+            ipc: {
+                args: s.tuple([]),
+                result: s.array(documentRef),
+            },
+            main: {
+                method: 'getPendingCompletedOutputs',
+                context: 'none',
+            },
+            browser: {method: 'getPendingCompletedOutputs'},
+            optionalWhenImplemented: true,
+            lazy: 'forwarded',
+        },
+        acknowledgeCompletedOutputs: {
+            kind: 'async',
+            channel: 'scan-cleanup:output:acknowledge',
+            ipc: {
+                args: s.tuple([s.array(documentRef)]),
+                result: voidResult,
+            },
+            main: {
+                method: 'acknowledgeCompletedOutputs',
+                context: 'none',
+            },
+            browser: {method: 'acknowledgeCompletedOutputs'},
+            optionalWhenImplemented: true,
             lazy: 'forwarded',
         },
         getSettings: method({

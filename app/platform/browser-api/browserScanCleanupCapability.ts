@@ -104,6 +104,12 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     pruneGeneratedOutputs() {
         return Promise.resolve(0);
     },
+    getPendingCompletedOutputs() {
+        return Promise.resolve([]);
+    },
+    acknowledgeCompletedOutputs() {
+        return Promise.resolve();
+    },
     getSettings() {
         return Promise.resolve(cloneBrowserSettingsFile());
     },

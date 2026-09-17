@@ -6,6 +6,7 @@ import {
     resolve,
 } from 'path';
 import type { WebContents } from 'electron';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IScanCleanupStartRequest,
     IScanCleanupOwnerContext,
@@ -32,8 +33,11 @@ import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 import {
+    acknowledgeScanCleanupCompletedOutputs,
     createScanCleanupGeneratedOutputPath,
+    getPendingScanCleanupCompletedOutputs,
     pruneScanCleanupGeneratedOutputs,
+    recordScanCleanupCompletedOutput,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
 import {
     allowOpenPath,
@@ -61,6 +65,7 @@ import {
     SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
     ScanCleanupNativeToolUnavailableError,
 } from '@evb/scan-cleanup/core/errors';
+import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {
     classifyScanCleanupPreviewError as classifyPreviewError,
     resolveScanCleanupPreviewPath as resolvePreviewPath,
@@ -110,6 +115,7 @@ type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanClean
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
 const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = PREVIEW_RASTER_SLOT_RESIDENT_BYTES;
+const SCAN_CLEANUP_OUTPUT_PRUNE_MIN_INTERVAL_MS = 60_000;
 
 export function grantScanCleanupOutputAccess(
     outputPdfPath: string,
@@ -498,6 +504,8 @@ export interface IScanCleanupService {
     getState: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     subscribe: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     pruneGeneratedOutputs: () => Promise<number>;
+    getPendingCompletedOutputs: () => Promise<readonly TDocumentRef[]>;
+    acknowledgeCompletedOutputs: (outputPaths: readonly TDocumentRef[]) => Promise<void>;
 }
 
 function resolveScanCleanupRuntimePolicy(
@@ -522,6 +530,8 @@ export function createScanCleanupService(
     }>();
     const startReservationsByBrokerOwner = new Map<string, Promise<void>>();
     const progressSubscriptions = new Map<number, Map<string, IScanCleanupProgressSubscription>>();
+    let pruneOutputsInFlight: Promise<number> | null = null;
+    let pruneOutputsStartedAt: number | null = null;
     function forgetProgressSubscription(
         senderId: number,
         jobId: string,
@@ -579,6 +589,11 @@ export function createScanCleanupService(
             };
             let startedHandle: ReturnType<TScanCleanupJobRegistry['start']> | null = null;
             let detectionResultStoreLease: ReturnType<typeof claimScanCleanupDetectionResultStore> = null;
+            // A job can be canceled by its owner before the registry invokes
+            // run(). Keep the claimed store owned by this start attempt until
+            // that boundary; once run() begins, its finally block owns the
+            // release after every worker read has settled.
+            let runStarted = false;
             try {
                 const previous = activeJobsByBrokerOwner.get(brokerOwnerId);
                 if (previous) {
@@ -739,9 +754,23 @@ export function createScanCleanupService(
                         renderProcessGone: 'cancel',
                         mainFrameNavigation: 'detach',
                     },
+                    onCancel: async () => {
+                        if (runStarted) {
+                            return;
+                        }
+                        await detectionResultStoreLease?.release();
+                        detectionResultStoreLease = null;
+                        await rm(dirname(outputPdfPath), {
+                            recursive: true,
+                            force: true,
+                        }).catch(() => undefined);
+                    },
                     run: async job => {
+                        runStarted = true;
                         let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
                         let detectionResultStoreDescriptor: IScanCleanupDetectionResultStoreDescriptor | null = null;
+                        let runScratchPath: string | null = null;
+                        let retainRunArtifacts = false;
                         try {
                             lease = await mainJobBroker.acquire({
                                 ownerId: brokerOwnerId,
@@ -793,6 +822,8 @@ export function createScanCleanupService(
                                     getAppTempDir(),
                                 );
                             }
+                            const scratchPath = await createScanCleanupScratchDir(getAppTempDir());
+                            runScratchPath = scratchPath;
                             const summary = await runScanCleanupWorkerTask(
                                 {
                                     ...workerRequest,
@@ -814,6 +845,8 @@ export function createScanCleanupService(
                                     pdfImageCombineBinary,
                                     ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
                                     tempDir: getAppTempDir(),
+                                    scratchDir: scratchPath,
+                                    sidecarRegistryRoot: getAppTempDir(),
                                 },
                                 runtimePolicy,
                                 job.signal,
@@ -833,6 +866,11 @@ export function createScanCleanupService(
                             // requests are rejected as soon as commit begins.
                             job.signal.throwIfAborted();
                             job.markCommitStarted();
+                            await recordScanCleanupCompletedOutput(outputPdfPath).catch(error => {
+                                scanCleanupJobLogger.warn(
+                                    `Could not journal completed scan-cleanup output: ${getErrorMessage(error)}`,
+                                );
+                            });
                             const completedPageMetadata = resolveCompletedPageMetadata(request, summary.inputPages);
                             return {
                                 outputPdfPath,
@@ -849,14 +887,29 @@ export function createScanCleanupService(
                             // the rejection.
                             const unprovenTermination = getUnprovenNativeTerminationDetail(error);
                             if (unprovenTermination !== undefined) {
+                                retainRunArtifacts = true;
                                 quarantineWorkingCopy(request.sourcePdfPath, unprovenTermination);
                             }
-                            await rm(dirname(outputPdfPath), {
-                                recursive: true,
-                                force: true,
-                            }).catch(() => undefined);
+                            if (!retainRunArtifacts) {
+                                await rm(dirname(outputPdfPath), {
+                                    recursive: true,
+                                    force: true,
+                                }).catch(() => undefined);
+                            } else {
+                                scanCleanupJobLogger.warn(
+                                    `Retaining scan-cleanup output artifacts until the native sidecar is reaped: ${dirname(outputPdfPath)}`,
+                                );
+                            }
                             throw error;
                         } finally {
+                            if (runScratchPath !== null && !retainRunArtifacts) {
+                                await rm(runScratchPath, {
+                                    recursive: true,
+                                    force: true,
+                                }).catch(error => {
+                                    scanCleanupJobLogger.warn(`Could not remove scan-cleanup run scratch: ${getErrorMessage(error)}`);
+                                });
+                            }
                             lease?.release();
                             await detectionResultStoreLease?.release();
                             if (detectionResultStoreDescriptor !== null) {
@@ -937,7 +990,27 @@ export function createScanCleanupService(
             return state;
         },
         pruneGeneratedOutputs() {
-            return pruneScanCleanupGeneratedOutputs({isOutputLive: isWorkingCopyOriginalPathRegistered});
+            const now = Date.now();
+            if (pruneOutputsInFlight !== null) {
+                return pruneOutputsInFlight;
+            }
+            if (
+                pruneOutputsStartedAt !== null
+                && now - pruneOutputsStartedAt < SCAN_CLEANUP_OUTPUT_PRUNE_MIN_INTERVAL_MS
+            ) {
+                return Promise.resolve(0);
+            }
+            pruneOutputsStartedAt = now;
+            pruneOutputsInFlight = pruneScanCleanupGeneratedOutputs({isOutputLive: isWorkingCopyOriginalPathRegistered}).finally(() => {
+                pruneOutputsInFlight = null;
+            });
+            return pruneOutputsInFlight;
+        },
+        getPendingCompletedOutputs() {
+            return getPendingScanCleanupCompletedOutputs();
+        },
+        acknowledgeCompletedOutputs(outputPaths) {
+            return acknowledgeScanCleanupCompletedOutputs(outputPaths);
         },
     };
 }
