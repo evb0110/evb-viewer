@@ -2228,7 +2228,10 @@ export async function runScanCleanupConversion(
                     sourceDpi: resolvePageSourceDpi(pageNumber),
                     outputCarriesBinaryLayer: requiresBilevelQuality(pageNumber),
                     sourceRasterDetected: detectedRasterByPage.has(pageNumber),
-                    maxPixels: resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
+                    maxPixels: resolveScanCleanupPipelineMaxPixels(
+                        resolvedOutputMode,
+                        policy.rasterMaxPixels,
+                    ),
                     guardrail,
                 }),
                 guardrail,
@@ -2247,6 +2250,7 @@ export async function runScanCleanupConversion(
                 finestCanvasDpi,
                 request.options,
                 layoutEvidenceComplete,
+                policy.rasterMaxPixels,
             )
             : null;
         const documentCanvas = context?.documentCanvas === undefined
@@ -2389,6 +2393,7 @@ export async function runScanCleanupConversion(
                 qualityPath: 'raster',
                 hostMemoryBytes: policy.totalRamBytes,
                 options: request.options,
+                ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
                 experimental: {
                     autoDewarp: request.options.autoDewarp ?? false,
                     ...(request.options.autoDewarpDepth === undefined
@@ -2659,6 +2664,7 @@ export async function runScanCleanupConversion(
                 hostMemoryBytes: policy.totalRamBytes,
                 ...(canStreamRasters ? {rasterWindow: policy.rasterConcurrency} : {}),
                 options,
+                ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
                 ...(documentCanvas === null ? {} : {documentCanvas}),
                 experimental: {
                     autoDewarp: request.options.autoDewarp ?? false,
@@ -2692,7 +2698,10 @@ export async function runScanCleanupConversion(
                     const limits: IScanCleanupRasterRenderLimits = {
                         expectedWidthPx: Math.max(1, Math.ceil(guardrail.width * plan.dpi / guardrail.dpi)),
                         expectedHeightPx: Math.max(1, Math.ceil(guardrail.height * plan.dpi / guardrail.dpi)),
-                        maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
+                        maxPixels: resolveScanCleanupPipelineMaxPixels(
+                            plan.resolvedOutputMode,
+                            policy.rasterMaxPixels,
+                        ),
                         maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
                     };
                     const analysisLimits: IScanCleanupRasterRenderLimits = {
@@ -2704,7 +2713,10 @@ export async function runScanCleanupConversion(
                             1,
                             Math.ceil(guardrail.height * canonicalAnalysisDpi / guardrail.dpi),
                         ),
-                        maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
+                        maxPixels: resolveScanCleanupPipelineMaxPixels(
+                            plan.resolvedOutputMode,
+                            policy.rasterMaxPixels,
+                        ),
                         maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
                     };
                     await renderer(

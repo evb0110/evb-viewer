@@ -244,13 +244,13 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             supportsRasterStreaming,
             options,
         ),
-        acquirePreviewLease: (ownerId, visibility, signal, options) => mainJobBroker.acquire({
+        acquirePreviewLease: (ownerId, visibility, signal, options, rasterMaxPixels) => mainJobBroker.acquire({
             ownerId,
             kind: 'scan-cleanup-preview',
             priority: visibility === 'prefetch' ? 'background' : 'visible',
             resources: {
                 cpuTokens: 1,
-                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options),
+                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterMaxPixels),
                 nativeProcesses: 1,
                 ioWeight: 1,
             },
@@ -263,7 +263,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             resources: {
                 cpuTokens: policy.rasterConcurrency,
                 estimatedResidentBytes: policy.rasterConcurrency
-                    * resolveScanCleanupPreviewRasterSlotResidentBytes(options),
+                    * resolveScanCleanupPreviewRasterSlotResidentBytes(options, policy.rasterMaxPixels),
                 nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming),
                 ioWeight: 2,
             },

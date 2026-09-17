@@ -355,6 +355,7 @@ export async function runLosslessScanCleanup(
             qualityPath: 'lossless',
             hostMemoryBytes: policy.totalRamBytes,
             options: request.options,
+            ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
                 ...(request.options.autoDewarpDepth === undefined
@@ -502,6 +503,7 @@ export async function runLosslessScanCleanup(
             SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
             request.options,
             true,
+            policy.rasterMaxPixels,
         )
         : null;
     const documentCanvas = context.documentCanvas === undefined

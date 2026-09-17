@@ -585,6 +585,7 @@ export interface IScanCleanupPreviewDependencies {
         visibility: TPreviewVisibility,
         signal: AbortSignal,
         options?: IScanCleanupOptions,
+        rasterMaxPixels?: number,
     ) => Promise<{release: () => boolean}>;
     getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
@@ -622,6 +623,7 @@ export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention &
 
 export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,
     | 'acquirePreviewLease' | 'prefetchLeaseTimeoutMs' | 'extractMrcLayers' | 'mainJobScratch'
+    | 'resolveRasterAdmissionPolicy'
     | 'getPageSizeStore' | 'getTempDir' | 'resolveBinary' | 'runSidecar'
     | 'getPdftoppmBinary' | 'renderPage' | 'renderPagePpm' | 'getPageCount'
     | 'getPageSizes' | 'publishRaster' | 'resolvePageOpsBinary'

@@ -180,6 +180,26 @@ describe('native scan-cleanup manifest builder', () => {
         expect(preview.pages[0]?.options.manualContentBoxes).toEqual(manualContentBoxes);
     });
 
+    it('carries the admitted raster cap into automatic native page budgets', () => {
+        const rasterMaxPixels = 67_108_864;
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            qualityPath: 'raster',
+            options,
+            rasterMaxPixels,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 600,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+            }],
+        });
+
+        expect(manifest.pages[0]?.options.maxPixels).toBe(rasterMaxPixels);
+    });
+
     it('preflights a heterogeneous 392-page geometry ledger and names the exact bad page', () => {
         const rotations = [
             0,

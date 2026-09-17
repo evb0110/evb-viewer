@@ -750,7 +750,10 @@ export function createScanCleanupService(
                                 resources: {
                                     cpuTokens: runtimePolicy.rasterConcurrency,
                                     estimatedResidentBytes: runtimePolicy.rasterConcurrency
-                                        * resolveScanCleanupPreviewRasterSlotResidentBytes(request.options),
+                                        * resolveScanCleanupPreviewRasterSlotResidentBytes(
+                                            request.options,
+                                            runtimePolicy.rasterMaxPixels,
+                                        ),
                                     nativeProcesses: runtimePolicy.rasterConcurrency
                                         + Number(runtimePolicy.rasterStreaming),
                                     ioWeight: 4,

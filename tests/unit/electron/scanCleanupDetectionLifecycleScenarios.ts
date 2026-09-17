@@ -1414,10 +1414,11 @@ export async function scenarioFallsBackFromRasterStreamingUntilBrokerCapacityCan
     expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
         expect.any(AbortSignal),
-        {
+        expect.objectContaining({
             rasterConcurrency: 1,
             rasterStreaming: false,
-        },
+            rasterMaxPixels: expect.any(Number),
+        }),
         detectionRequest.options,
     );
     expect(deps.createRasterPipes).not.toHaveBeenCalled();

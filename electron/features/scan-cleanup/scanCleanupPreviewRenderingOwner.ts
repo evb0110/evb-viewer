@@ -215,6 +215,7 @@ export function scanCleanupPreviewRenderingOwner(
         admission: IPreviewAdmission,
         signal: AbortSignal,
         options: IScanCleanupPreviewRequest['options'],
+        rasterMaxPixels: number | undefined,
         run: () => Promise<T>,
     ) => {
         signal.throwIfAborted();
@@ -227,7 +228,13 @@ export function scanCleanupPreviewRenderingOwner(
             signal.addEventListener('abort', abortAttempt, {once: true});
             admission.reissue = () => attempt.abort(PREVIEW_ADMISSION_REISSUED);
             try {
-                lease = await acquire(documentPrefix, admission.visibility, attempt.signal, options);
+                lease = await acquire(
+                    documentPrefix,
+                    admission.visibility,
+                    attempt.signal,
+                    options,
+                    rasterMaxPixels,
+                );
                 admission.granted = true;
                 break;
             } catch (error) {
@@ -453,11 +460,16 @@ export function scanCleanupPreviewRenderingOwner(
                         }
                         throw error;
                     }
+                    const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
+                        process.platform !== 'win32',
+                        request.options,
+                    );
                     return withPreviewLease(
                         brokerOwnerId(sender, request),
                         admission,
                         context.signal,
                         request.options,
+                        rasterPolicy.rasterMaxPixels,
                         async () => {
                             const result = await scanCleanupPreviewRenderer(
                                 materialized,
@@ -471,6 +483,7 @@ export function scanCleanupPreviewRenderingOwner(
                                 scheduleBaseAnalysisRemoval,
                                 handle.jobId,
                                 releaseBaseAnalysisPin,
+                                rasterPolicy.rasterMaxPixels,
                             );
                             if (context.signal.aborted) throw context.signal.reason;
                             return result.canceled === true

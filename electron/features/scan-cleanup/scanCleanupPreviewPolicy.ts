@@ -4,6 +4,7 @@ import type {
     TScanCleanupErrorCode,
     IScanCleanupScratchShortfall,
     IScanCleanupOptions,
+    TScanCleanupOutputModeSetting,
 } from '@contracts/electronApiScanCleanup';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';
@@ -17,7 +18,11 @@ import {
     ScanCleanupInsufficientScratchError,
     ScanCleanupNativeToolUnavailableError,
 } from '@evb/scan-cleanup/core/errors';
-import {resolveScanCleanupMatchedCanvasMaxPixels} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {
+    SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
+    SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
+    resolveScanCleanupMatchedCanvasMaxPixels,
+} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import type {IMainJobErrorEnvelope} from '@electron/operation-lifecycle/createMainJobRegistry';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +84,35 @@ export type TScanCleanupRasterBudgetOptions = Pick<
 >;
 
 /**
+ * Return the largest raster a page can actually resolve to under the
+ * document's settings. `resolveScanCleanupMatchedCanvasMaxPixels` deliberately
+ * treats Auto as continuous tone because it plans the shared canvas; broker
+ * admission has to be more conservative because Auto may resolve an individual
+ * page to B&W, and a page override can do the same in an otherwise tonal book.
+ */
+export function resolveScanCleanupPreviewRasterMaxPixels(
+    options?: TScanCleanupRasterBudgetOptions,
+) {
+    const configuredModes: TScanCleanupOutputModeSetting[] = [
+        options?.preserveOriginalQuality === true ? 'color' : options?.outputMode ?? 'auto',
+        ...(options?.pageOverrideDefaults?.outputModeOverride === undefined
+            ? []
+            : [options.pageOverrideDefaults.outputModeOverride]),
+        ...Object.values(options?.pageOverrides ?? {}).flatMap(override => (
+            override.outputModeOverride === undefined ? [] : [override.outputModeOverride]
+        )),
+    ];
+    const matchedCanvasMaxPixels = resolveScanCleanupMatchedCanvasMaxPixels(configuredModes);
+    const mayResolveBilevel = configuredModes.some(mode => mode === 'auto' || mode === 'bw');
+    return Math.max(
+        matchedCanvasMaxPixels,
+        mayResolveBilevel
+            ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS
+            : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
+    );
+}
+
+/**
  * The broker protects decoded output surfaces shared by concurrent Electron
  * jobs, so it reserves four RGBA bytes for every pixel in the largest canvas the
  * configured modes can admit. The native planner has a separate, calibrated
@@ -88,23 +122,17 @@ export type TScanCleanupRasterBudgetOptions = Pick<
  */
 export function resolveScanCleanupPreviewRasterSlotResidentBytes(
     options?: TScanCleanupRasterBudgetOptions,
+    rasterMaxPixels?: number,
 ) {
-    const configuredModes = [
-        options?.preserveOriginalQuality === true ? 'color' : options?.outputMode ?? 'auto',
-        ...(options?.pageOverrideDefaults?.outputModeOverride === undefined
-            ? []
-            : [options.pageOverrideDefaults.outputModeOverride]),
-        ...Object.values(options?.pageOverrides ?? {}).flatMap(override => (
-            override.outputModeOverride === undefined ? [] : [override.outputModeOverride]
-        )),
-    ];
-    return resolveScanCleanupMatchedCanvasMaxPixels(configuredModes)
+    return (rasterMaxPixels ?? resolveScanCleanupPreviewRasterMaxPixels(options))
         * SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL;
 }
 
 export interface IScanCleanupRasterAdmissionPolicy {
     rasterConcurrency: number;
     rasterStreaming: boolean;
+    /** The per-page pixel cap paired with the broker's resident-byte reserve. */
+    rasterMaxPixels?: number;
 }
 
 export function resolveScanCleanupPreviewRasterAdmissionPolicy(
@@ -114,7 +142,18 @@ export function resolveScanCleanupPreviewRasterAdmissionPolicy(
 ): IScanCleanupRasterAdmissionPolicy {
     const rasterStreaming = supportsRasterStreaming && capacity.nativeProcesses >= 3;
     const nativeProcessReserve = SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE + Number(rasterStreaming);
-    const rasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes(options);
+    const configuredRasterMaxPixels = resolveScanCleanupPreviewRasterMaxPixels(options);
+    const capacityRasterMaxPixels = Math.floor(
+        capacity.estimatedResidentBytes / SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL,
+    );
+    const rasterMaxPixels = Math.max(
+        1,
+        Math.min(configuredRasterMaxPixels, capacityRasterMaxPixels),
+    );
+    const rasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes(
+        options,
+        rasterMaxPixels,
+    );
     return {
         rasterConcurrency: Math.max(
             1,
@@ -125,5 +164,6 @@ export function resolveScanCleanupPreviewRasterAdmissionPolicy(
             ),
         ),
         rasterStreaming,
+        rasterMaxPixels,
     };
 }

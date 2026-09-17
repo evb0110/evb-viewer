@@ -395,6 +395,7 @@ export async function runDetailPreview(
     sourceRasterDetected: boolean,
     scratch: string,
     dependencies: IScanCleanupRenderingDependencies,
+    rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
     if (!fileSystem) throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
@@ -431,7 +432,10 @@ export async function runDetailPreview(
     const rawRenderScale = renderDpi / baseRaw.dpi;
     const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * rawRenderScale));
     const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * rawRenderScale));
-    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
+    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(
+        request.detail.outputMode,
+        rasterMaxPixels,
+    );
     const binary = dependencies.resolveBinary();
     if (!binary) throw new Error('Scan cleanup native tool is unavailable');
     const pageOverride = getScanCleanupPageOverride(
@@ -585,6 +589,7 @@ export async function runDetailPreview(
         canvasScope: 'page',
         qualityPath: 'raster',
         options: effectiveOptions,
+        ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
         experimental: {autoDewarp: false},
         pages: pageInputs,
         allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),

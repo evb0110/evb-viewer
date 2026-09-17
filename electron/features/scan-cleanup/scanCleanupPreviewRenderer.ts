@@ -98,6 +98,7 @@ export async function scanCleanupPreviewRenderer(
     scheduleBaseAnalysisRemoval?: (analysis: IBasePreviewAnalysis, analysisKey?: string) => Promise<void>,
     claimId?: string,
     releaseBaseAnalysisPin?: (analysisKey: string) => void,
+    rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
     if (!fileSystem) throw new Error('Scan cleanup preview requires injected filesystem capabilities');
@@ -227,6 +228,7 @@ export async function scanCleanupPreviewRenderer(
                     request.options,
                     request.layoutByPage,
                     request.layoutDetectionComplete === true,
+                    rasterMaxPixels,
                 )
                 : boundedGeometry === null
                     ? null
@@ -235,6 +237,7 @@ export async function scanCleanupPreviewRenderer(
                         previewRasterPlan.dpi,
                         request.options,
                         request.layoutDetectionComplete === true,
+                        rasterMaxPixels,
                     )
             : null;
         let boundedRasterSource: IScanCleanupPageRasterSource | null = null;
@@ -336,6 +339,7 @@ export async function scanCleanupPreviewRenderer(
                         request.options,
                         request.layoutByPage,
                         request.layoutDetectionComplete === true,
+                        rasterMaxPixels,
                     )
                     : boundedGeometry === null
                         ? null
@@ -344,6 +348,7 @@ export async function scanCleanupPreviewRenderer(
                             requestedPreviewProcessingDpi,
                             request.options,
                             request.layoutDetectionComplete === true,
+                            rasterMaxPixels,
                         )
                 : null;
             const previewProcessingDpi = processingDocumentCanvas === null
@@ -419,6 +424,7 @@ export async function scanCleanupPreviewRenderer(
                     sourceRasterDetected,
                     scratch,
                     dependencies,
+                    rasterMaxPixels,
                 );
             }
             fallbackDetail = true;
@@ -562,6 +568,7 @@ export async function scanCleanupPreviewRenderer(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
+            ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
             pages: [{
                 inputPath: lossless ? canonicalRaw.path : inputPath,
                 analysisInputPath: canonicalRaw.path,

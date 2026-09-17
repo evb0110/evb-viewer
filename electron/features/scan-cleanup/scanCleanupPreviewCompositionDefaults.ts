@@ -168,25 +168,39 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         resources: {
             cpuTokens: rasterPolicy.rasterConcurrency,
             estimatedResidentBytes: rasterPolicy.rasterConcurrency
-                * resolveScanCleanupPreviewRasterSlotResidentBytes(options),
+                * resolveScanCleanupPreviewRasterSlotResidentBytes(
+                    options,
+                    rasterPolicy.rasterMaxPixels,
+                ),
             nativeProcesses: rasterPolicy.rasterConcurrency + Number(rasterPolicy.rasterStreaming),
             ioWeight: 2,
         },
         perOwnerLimit: 1,
         signal,
     }),
-    acquirePreviewLease: (ownerId, visibility, signal, options) => mainJobBroker.acquire({
-        ownerId,
-        kind: 'scan-cleanup-preview',
-        priority: visibility === 'prefetch' ? 'background' : 'visible',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options),
-            nativeProcesses: 1,
-            ioWeight: 1,
-        },
-        signal,
-    }),
+    acquirePreviewLease: (ownerId, visibility, signal, options, rasterMaxPixels) => {
+        const effectiveRasterMaxPixels = rasterMaxPixels
+            ?? resolveScanCleanupPreviewRasterAdmissionPolicy(
+                mainJobBroker.getSnapshot().capacity,
+                process.platform !== 'win32',
+                options,
+            ).rasterMaxPixels;
+        return mainJobBroker.acquire({
+            ownerId,
+            kind: 'scan-cleanup-preview',
+            priority: visibility === 'prefetch' ? 'background' : 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(
+                    options,
+                    effectiveRasterMaxPixels,
+                ),
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            signal,
+        });
+    },
     getSourceStatIdentity: async sourcePdfPath => {
         const sourceStat = await stat(sourcePdfPath, {bigint: true});
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;

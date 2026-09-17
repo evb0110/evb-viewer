@@ -597,7 +597,12 @@ export function scanCleanupDetectionOwner(
                             job.signal,
                             detectionRetention,
                             detectionDependencies,
-                            {rasterConcurrency: rasterPolicy.rasterConcurrency},
+                            {
+                                rasterConcurrency: rasterPolicy.rasterConcurrency,
+                                ...(rasterPolicy.rasterMaxPixels === undefined
+                                    ? {}
+                                    : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),
+                            },
                             (nextResults, progress, documentCanvasSignature) => {
                                 const normalizedProgress = normalizeDetectionProgress(progress);
                                 job.publish({
