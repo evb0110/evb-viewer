@@ -30,7 +30,9 @@ import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     assertScanCleanupPathWithinCanonicalRoot,
     canonicalizeScanCleanupAllowedRoot,
+    createScanCleanupPathResolutionCache,
     type IScanCleanupAllowedRoot,
+    type IScanCleanupPathResolutionCache,
 } from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 
 export interface IScanCleanupManifestPageInput {
@@ -211,6 +213,7 @@ function assertManifestPagePaths(
     pageIndex: number,
     allowedRoot: IScanCleanupAllowedRoot,
     checkedPathTrails: Map<string, string>,
+    pathResolutionCache: IScanCleanupPathResolutionCache,
 ) {
     const pageLabel = `page ${String(pageIndex + 1)}`;
     const pageTrail = `pages.${String(pageIndex)}`;
@@ -218,7 +221,7 @@ function assertManifestPagePaths(
         if (path === undefined) {
             return;
         }
-        assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, label);
+        assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, label, pathResolutionCache);
         // Keyed by the field trail the manifest emits, not by the path value: a
         // slot this list never judged cannot borrow the verdict of a checked
         // slot that happens to carry the same string.
@@ -360,6 +363,9 @@ function assembleNativeScanCleanupManifest({
     // One canonical root per manifest: every field is judged against the same
     // resolved directory instead of re-resolving the root for each path.
     const allowedRoot = allowedPathRoot === null ? null : canonicalizeScanCleanupAllowedRoot(allowedPathRoot);
+    const pathResolutionCache = allowedRoot === null
+        ? null
+        : createScanCleanupPathResolutionCache(allowedRoot);
     const checkedPathTrails = new Map<string, string>();
     const manifest: INativeScanCleanupManifestV3 = {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
@@ -397,7 +403,9 @@ function assembleNativeScanCleanupManifest({
                     `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
                 );
             }
-            if (allowedRoot !== null) assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails);
+            if (allowedRoot !== null && pathResolutionCache !== null) {
+                assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache);
+            }
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
                     options,

@@ -1081,10 +1081,10 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         ]);
 
         expect(realpathSyncCalls.filter(candidate => candidate === root)).toEqual([root]);
-        // Two pages of paths were still judged, so the single root resolution
-        // is reuse rather than skipped work.
+        // Two pages of paths were still judged, so the single nested-directory
+        // resolution is reuse rather than skipped work.
         expect(realpathSyncCalls.filter(candidate => candidate === join(root, 'nested')).length)
-            .toBeGreaterThan(1);
+            .toBe(1);
     });
 
     it('names the allowed root in root failures and the field in candidate failures', () => {
