@@ -1,0 +1,19 @@
+tests/unit/electron/ocrWorkerPopplerStage.test.ts
+  s_3446e4f6f614fa::t_65197717072c18 185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "161489994abccc7244a6bd7284c32a0dc15eda19",
+  "prompts": {},
+  "sessions": {
+    "s_3446e4f6f614fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeba-c23e-7a21-bdc5-95434f9d98ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
