@@ -63,6 +63,14 @@ describe('scan cleanup raw preview result', () => {
 
     it('bounds the owner identity fields at the result boundary', () => {
         expect(decodeScanCleanupRawPreviewEvent(rawPreview)).toMatchObject(rawPreview);
+        expect(decodeScanCleanupRawPreviewEvent({
+            ...rawPreview,
+            ownerId: 'o'.repeat(128),
+            documentRevision: 'r'.repeat(128),
+        })).toMatchObject({
+            ownerId: 'o'.repeat(128),
+            documentRevision: 'r'.repeat(128),
+        });
         expect(() => decodeScanCleanupRawPreviewEvent({
             ...rawPreview,
             ownerId: 'x'.repeat(129),

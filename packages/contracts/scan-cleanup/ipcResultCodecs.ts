@@ -44,7 +44,7 @@ import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnos
 import {
     decodeBoundedScanCleanupString,
     SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
-    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
+    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@contracts/scan-cleanup/inputLimits';
 import {
     parseJobId,
@@ -1048,7 +1048,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         || updatedAtMs === null
         || !isRecord(value.progress)
         || !Array.isArray(value.results)
-        || value.results.length > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+        || value.results.length > SCAN_CLEANUP_STREAMING_BATCH_PAGES
         || (value.resultCount !== undefined && (
             typeof value.resultCount !== 'number'
             || !Number.isSafeInteger(value.resultCount)

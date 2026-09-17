@@ -33,7 +33,7 @@ import type {
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@evb/scan-cleanup/core/pageBatches';
@@ -260,6 +260,7 @@ describe('scan-cleanup detection renderer projection', () => {
                 completedPageNumbersTruncated: true,
             },
             resultCount: totalPages,
+            detectionResultStoreId: 'persisted-large-detection-store',
             results: visibleResults,
             updatedAtMs: 1,
         };
@@ -269,6 +270,7 @@ describe('scan-cleanup detection renderer projection', () => {
         expect(decoded?.progress.completedPageNumbers).toEqual([]);
         expect(decoded?.progress.completedPageNumbersTruncated).toBe(true);
         expect(decoded?.resultCount).toBe(totalPages);
+        expect(decoded?.detectionResultStoreId).toBe('persisted-large-detection-store');
         expect(decoded?.results).toHaveLength(visibleResults.length);
         expect(decoded?.results[0]?.pageNumber).toBe(firstVisiblePage);
         expect(decoded?.results.at(-1)?.pageNumber).toBe(lastPage);
@@ -294,7 +296,18 @@ describe('scan-cleanup detection renderer projection', () => {
             revision: 2,
             reconciled: true,
         });
-        const oversizedResults = Array.from({length: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1}, (_unused, index) => ({
+        const boundaryResults = Array.from({length: SCAN_CLEANUP_STREAMING_BATCH_PAGES}, (_unused, index) => ({
+            ...state.results[0]!,
+            pageNumber: index + 1,
+        }));
+        const boundaryDecoded = decodeScanCleanupDetectionJobState({
+            ...state,
+            results: boundaryResults,
+        });
+        expect(boundaryDecoded?.results).toHaveLength(SCAN_CLEANUP_STREAMING_BATCH_PAGES);
+        expect(boundaryDecoded?.resultCount).toBe(totalPages);
+        expect(boundaryDecoded?.detectionResultStoreId).toBe('persisted-large-detection-store');
+        const oversizedResults = Array.from({length: SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1}, (_unused, index) => ({
             ...state.results[0]!,
             pageNumber: index + 1,
         }));

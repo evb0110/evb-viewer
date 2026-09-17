@@ -8,6 +8,7 @@ import {
     createDefaultScanCleanupSettingsFile,
     decodeScanCleanupGlobalPreferences,
     decodeScanCleanupSettingsFile,
+    decodeScanCleanupSettingsFileWithDiagnostics,
     decodeScanCleanupSettingsResult,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
@@ -107,6 +108,40 @@ describe('scan-cleanup settings file decoder', () => {
                 lastUsedAtMs: 30,
             },
         });
+    });
+
+    it('reports repaired uppercase document keys after canonicalizing them', () => {
+        const sourceSha256 = 'a'.repeat(64);
+        const decoded = decodeScanCleanupSettingsFileWithDiagnostics({
+            ...createDefaultScanCleanupSettingsFile(),
+            documentOverrides: {[sourceSha256.toUpperCase()]: {
+                outputMode: 'grayscale',
+                lastUsedAtMs: 10,
+            }},
+        });
+
+        expect(decoded.repaired).toBe(true);
+        expect(decoded.settingsFile.documentOverrides).toEqual({[sourceSha256]: {
+            outputMode: 'grayscale',
+            lastUsedAtMs: 10,
+        }});
+    });
+
+    it('reports repaired unknown stored margin keys after normalization drops them', () => {
+        const base = createDefaultScanCleanupSettingsFile();
+        const decoded = decodeScanCleanupSettingsFileWithDiagnostics({
+            ...base,
+            settings: {
+                ...base.settings,
+                marginsMm: {
+                    ...base.settings.marginsMm,
+                    unknownMargin: 12,
+                },
+            },
+        });
+
+        expect(decoded.repaired).toBe(true);
+        expect(decoded.settingsFile.settings.marginsMm).toEqual(base.settings.marginsMm);
     });
 
     it('strictly validates platform results while allowing an explicit repair marker', () => {

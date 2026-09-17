@@ -82,10 +82,12 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).resolves.toMatchObject({
-            ...createDefaultScanCleanupSettingsFile(),
+        const loaded = await store.get();
+        expect(loaded).toMatchObject({
+            settings: createDefaultScanCleanupSettingsFile().settings,
             repaired: true,
         });
+        expect(loaded.documentOverrides).toEqual({});
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
         const directory = join(filePath, '..');
         const quarantinedName = (await readdir(directory))
@@ -109,10 +111,12 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).resolves.toMatchObject({
-            ...createDefaultScanCleanupSettingsFile(),
+        const loaded = await store.get();
+        expect(loaded).toMatchObject({
+            settings: createDefaultScanCleanupSettingsFile().settings,
             repaired: true,
         });
+        expect(loaded.documentOverrides).toEqual({});
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
         const directory = join(filePath, '..');
         const quarantinedName = (await readdir(directory))
@@ -135,10 +139,12 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).resolves.toMatchObject({
-            ...createDefaultScanCleanupSettingsFile(),
+        const loaded = await store.get();
+        expect(loaded).toMatchObject({
+            settings: createDefaultScanCleanupSettingsFile().settings,
             repaired: true,
         });
+        expect(loaded.documentOverrides).toEqual({});
         const directory = join(filePath, '..');
         const quarantinedName = (await readdir(directory))
             .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
@@ -186,14 +192,12 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(loaded).toMatchObject({
             repaired: true,
             settings: {pageAlignment: 'ink'},
-            documentOverrides: {},
         });
+        expect(loaded.documentOverrides).toEqual({});
         const persisted = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
         expect(persisted).not.toHaveProperty('repaired');
-        expect(persisted).toMatchObject({
-            settings: {pageAlignment: 'ink'},
-            documentOverrides: {},
-        });
+        expect(persisted).toMatchObject({settings: {pageAlignment: 'ink'}});
+        expect(persisted.documentOverrides).toEqual({});
     });
 
     it('rewrites a pre-ink settings file at the current schema with ink as its alignment', async () => {

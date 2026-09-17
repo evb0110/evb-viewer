@@ -739,6 +739,15 @@ function hasStoredScanCleanupMarginRepair(value: unknown): boolean {
     if (!stored) {
         return true;
     }
+    const allowedKeys = new Set([
+        'leftMm',
+        'topMm',
+        'rightMm',
+        'bottomMm',
+    ]);
+    if (Object.keys(stored).some(key => !allowedKeys.has(key))) {
+        return true;
+    }
     return [
         'leftMm',
         'topMm',
@@ -872,6 +881,9 @@ export function decodeScanCleanupSettingsFileWithDiagnostics(value: unknown): IS
             continue;
         }
         const normalizedKey = key.toLowerCase();
+        if (normalizedKey !== key) {
+            repaired = true;
+        }
         if (Object.hasOwn(documentOverrides, normalizedKey)) {
             repaired = true;
         }
