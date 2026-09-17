@@ -1,0 +1,9 @@
+tests/unit/scripts/nativeToolProtocols.test.ts
+  ai_agent 63-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "70853e4456b33f19b7a43b94291fac088b93b0cb",
+  "prompts": {}
+}
