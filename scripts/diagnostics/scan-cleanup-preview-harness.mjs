@@ -797,7 +797,7 @@ function histogramQuantile(histogram, target) {
     return histogram.length - 1;
 }
 
-function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
+export function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
     const columns = new Uint32Array(bitmap.width);
     const rows = new Uint32Array(bitmap.height);
     let inkInside = 0;
@@ -809,13 +809,15 @@ function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
             inkTotal += 1;
             columns[x] += 1;
             rows[y] += 1;
-            const centerX = x + 0.5;
-            const centerY = y + 0.5;
+            // A canvas pixel can carry ink when the overlay covers any part of
+            // its cell. Testing cell intersection matches the rasterizer at a
+            // subpixel edge; testing only the pixel centre loses a whole
+            // antialiased row when the published box lands between pixels.
             if (
-                centerX >= rect.left
-                && centerX <= rect.right
-                && centerY >= rect.top
-                && centerY <= rect.bottom
+                x < rect.right
+                && x + 1 > rect.left
+                && y < rect.bottom
+                && y + 1 > rect.top
             ) {
                 inkInside += 1;
             }
