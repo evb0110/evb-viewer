@@ -110,6 +110,12 @@ function previewResult(): IScanCleanupPreviewResult {
                     heightPx: 1700,
                 },
                 contentBox: null,
+                cropRect: {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 1224,
+                    heightPx: 1700,
+                },
                 appliedMargins: {
                     leftPx: 0,
                     topPx: 0,
@@ -149,6 +155,7 @@ function previewResult(): IScanCleanupPreviewResult {
                 rotationDegrees: 90,
                 canvasScope: 'document',
                 resamplePasses: 1,
+                rasterScaleLimited: false,
                 warnings: [],
             },
         }],

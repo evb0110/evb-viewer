@@ -741,7 +741,7 @@ export async function scanCleanupPreviewRenderer(
                         metadata: {
                             half: output.half,
                             layoutClassification: pageMetadata.layoutClassification,
-                            layoutConfidence: pageMetadata.layoutConfidence ?? 0,
+                            layoutConfidence: pageMetadata.layoutConfidence,
                             sourceRegion: output.sourceRegion,
                             contentBox: output.contentBox,
                             cropRect: output.cropRect,

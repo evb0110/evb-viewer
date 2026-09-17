@@ -790,9 +790,9 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
     ) throw new Error('invalid scan-cleanup preview page metadata');
     return {
         layoutClassification,
-        ...(value.layoutConfidence === undefined
-            ? {}
-            : {layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'page layout confidence')}),
+        layoutConfidence: value.layoutConfidence === undefined
+            ? 0
+            : decodeUnitInterval(value.layoutConfidence, 'page layout confidence'),
         cutterXPx: value.cutterXPx === null
             ? null
             : decodeSafeFiniteNumber(value.cutterXPx, 'cutter x'),

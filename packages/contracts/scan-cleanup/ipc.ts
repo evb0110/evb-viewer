@@ -284,6 +284,7 @@ export interface IScanCleanupPageDiagnostics {
 export interface IScanCleanupPageOutputDiagnostics {
     half: TScanCleanupOutputHalf;
     contentDiagnostics?: IScanCleanupContentDiagnostics;
+    textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
 }
 
 export interface IScanCleanupPreviewMetadata {
@@ -296,8 +297,8 @@ export interface IScanCleanupPreviewMetadata {
     manualSkew?: boolean;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
-    /** Applied crop in deskewed/dewarped page-region coordinates; absent in older metadata. */
-    cropRect?: IScanCleanupPixelRect;
+    /** Applied crop in deskewed/dewarped page-region coordinates. */
+    cropRect: IScanCleanupPixelRect;
     /** Optional for metadata produced before native protocol v2 gained A4 diagnostics. */
     contentDiagnostics?: IScanCleanupContentDiagnostics;
     appliedMargins: IScanCleanupAppliedMargins;
@@ -315,9 +316,9 @@ export interface IScanCleanupPreviewMetadata {
     /** Logical matched-page canvas dimensions; never smaller than the intrinsic raster. */
     canvasWidthPx: number;
     canvasHeightPx: number;
-    /** Matched-canvas decision; optional only for metadata written by older native binaries. */
-    canvasPolicy?: TScanCleanupCanvasPolicy;
-    canvasOverflow?: boolean;
+    /** Matched-canvas decision. */
+    canvasPolicy: TScanCleanupCanvasPolicy;
+    canvasOverflow: boolean;
     matchedCanvasTargetWidthPx?: number | null;
     matchedCanvasTargetHeightPx?: number | null;
     matchedCanvasTargetWidthPoints?: number | null;
@@ -356,7 +357,7 @@ export interface IScanCleanupPreviewMetadata {
     sourceDpi?: number;
     renderDpi?: number;
     requestedRenderDpi?: number;
-    rasterScaleLimited?: boolean;
+    rasterScaleLimited: boolean;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
     /** Evidence and exact monotone curve shared by preview, export, and detail tiles. */
@@ -375,7 +376,7 @@ export interface IScanCleanupPreviewMetadata {
 
 export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliationMetadata, IScanCleanupPageDiagnostics {
     layoutClassification: IScanCleanupPreviewMetadata['layoutClassification'];
-    layoutConfidence?: number;
+    layoutConfidence: number;
     cutterXPx: number | null;
     splitSeam?: IScanCleanupSplitSeamPolyline;
     splitAbstained?: boolean;

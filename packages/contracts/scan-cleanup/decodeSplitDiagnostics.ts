@@ -124,5 +124,8 @@ export function decodeSplitDiagnostics(value: unknown): TSplitDiagnostics {
     if (!isValid(candidate)) {
         throw new Error('invalid scan-cleanup split diagnostics');
     }
-    return candidate;
+    return {
+        ...candidate,
+        foldBand: {...candidate.foldBand},
+    };
 }

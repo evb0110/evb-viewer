@@ -611,6 +611,12 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
                 heightPx: 800,
             },
             contentBox: null,
+            cropRect: {
+                xPx: x,
+                yPx: 0,
+                widthPx: 500,
+                heightPx: 800,
+            },
             appliedMargins: {
                 leftPx: 0,
                 topPx: 0,
@@ -621,6 +627,8 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
             outputHeightPx: 800,
             canvasWidthPx: 500,
             canvasHeightPx: 800,
+            canvasPolicy: 'intrinsic' as const,
+            canvasOverflow: false,
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,
             forwardTransform: {matrix: [
@@ -645,6 +653,7 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
             inputHeightPx: 800,
             rotationDegrees: 0 as const,
             resamplePasses: 1,
+            rasterScaleLimited: false,
             warnings: [],
         },
     });

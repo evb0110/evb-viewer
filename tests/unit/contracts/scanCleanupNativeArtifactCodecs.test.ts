@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnostics';
 import {
     decodeNativeScanCleanupOutputMetadata,
     decodeNativeScanCleanupOutputMetadataJson,
@@ -231,6 +232,19 @@ describe('scan-cleanup native artifact codecs', () => {
                 foldBand: null,
             },
         })).toThrow('splitDiagnostics.foldBand must be an object');
+    });
+
+    it('detaches split diagnostics from the caller-owned payload', () => {
+        const input = fullSplitDiagnostics();
+        const decoded = decodeSplitDiagnostics(input);
+
+        expect(decoded).not.toBe(input);
+        expect(decoded.foldBand).not.toBe(input.foldBand);
+        if (input.foldBand.status !== 'unmeasured' || decoded.foldBand.status !== 'unmeasured') {
+            throw new Error('expected an unmeasured fold band');
+        }
+        input.foldBand.nominalHalfWidthPx = 99;
+        expect(decoded.foldBand.nominalHalfWidthPx).toBe(6);
     });
 
     it('decodes page and output artifacts while preserving additive fields', () => {

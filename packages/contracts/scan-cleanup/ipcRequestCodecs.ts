@@ -661,15 +661,17 @@ export function decodeScanCleanupPageOverrides(
 
 function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     if (!isRecord(options)) throw new Error('invalid scan-cleanup options');
-    const binarization = options.binarization ?? 'auto';
-    const normalizeIllumination = options.normalizeIllumination ?? true;
+    const binarization = options.binarization === undefined ? 'auto' : options.binarization;
+    const normalizeIllumination = options.normalizeIllumination === undefined
+        ? true
+        : options.normalizeIllumination;
     const legacyDespeckle = options.despeckle;
     const despeckleLevel = options.despeckleLevel === undefined
         ? undefined
         : isScanCleanupDespeckleLevel(options.despeckleLevel)
             ? options.despeckleLevel
             : null;
-    const autoDewarp = options.autoDewarp ?? false;
+    const autoDewarp = options.autoDewarp === undefined ? false : options.autoDewarp;
     const layoutMode = options.layoutMode;
     const outputMode = options.outputMode;
     const pageAlignment = options.pageAlignment;
@@ -898,10 +900,16 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             ) {
                 throw new Error('invalid scan-cleanup source page numbers');
             }
-            return value.sourcePageNumbers.map(pageNumber => decodeScanCleanupPageNumber(
+            const sourcePageNumbers = value.sourcePageNumbers.map(pageNumber => decodeScanCleanupPageNumber(
                 pageNumber,
                 'source page number',
             ));
+            if (sourcePageNumbers.some((pageNumber, index) => (
+                index > 0 && pageNumber <= sourcePageNumbers[index - 1]!
+            ))) {
+                throw new Error('invalid scan-cleanup source page numbers');
+            }
+            return sourcePageNumbers;
         })();
     const sourcePageRange = value.sourcePageRange === undefined
         ? undefined

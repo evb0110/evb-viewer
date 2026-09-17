@@ -179,6 +179,7 @@ const previewResult = s.fromParser(
         rawHeightPx: 1,
         pageMetadata: {
             layoutClassification: 'single-uncut-page' as const,
+            layoutConfidence: 0,
             cutterXPx: null,
             rotationDegrees: 0 as const,
             canvasScope: 'document' as const,

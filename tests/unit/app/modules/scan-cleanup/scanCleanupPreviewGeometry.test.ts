@@ -65,6 +65,12 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
             widthPx: 200,
             heightPx: 300,
         },
+        cropRect: {
+            xPx: 0,
+            yPx: 0,
+            widthPx: 230,
+            heightPx: 330,
+        },
         appliedMargins: {
             leftPx: 15,
             topPx: 15,
@@ -75,6 +81,8 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
         outputHeightPx: 330,
         canvasWidthPx: 230,
         canvasHeightPx: 330,
+        canvasPolicy: 'intrinsic',
+        canvasOverflow: false,
         placementOffsetXPx: 0,
         placementOffsetYPx: 0,
         cutterXPx: null,
@@ -82,6 +90,7 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
         inputHeightPx: 640,
         rotationDegrees: 0,
         resamplePasses: 1,
+        rasterScaleLimited: false,
         forwardTransform: {matrix: [
             [
                 1,

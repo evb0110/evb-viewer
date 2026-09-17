@@ -126,6 +126,22 @@ function requestWithOverrides(pageOverrides: Record<string, unknown>) {
 }
 
 describe('scan-cleanup IPC request codecs', () => {
+    it('rejects null instead of defaulting optional scan-cleanup options', () => {
+        for (const field of [
+            'binarization',
+            'normalizeIllumination',
+            'autoDewarp',
+        ]) {
+            expect(() => decodeStartArgs([{
+                ...request,
+                options: {
+                    ...request.options,
+                    [field]: null,
+                },
+            }])).toThrow('invalid scan-cleanup options');
+        }
+    });
+
     it('decodes a detected page plan on preview requests', () => {
         const pagePlanEvidence = request.pagePlanEvidenceByPage['12'];
         const decoded = decodePreviewArgs([{
@@ -572,6 +588,29 @@ describe('scan-cleanup IPC request codecs', () => {
             startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
             endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
         });
+    });
+
+    it('requires source page numbers to be strictly ascending', () => {
+        expect(decodeStartArgs([{
+            ...request,
+            sourcePageNumbers: [
+                1,
+                3,
+                12,
+            ],
+        }])[0].sourcePageNumbers).toEqual([
+            1,
+            3,
+            12,
+        ]);
+        expect(() => decodeStartArgs([{
+            ...request,
+            sourcePageNumbers: [
+                1,
+                12,
+                3,
+            ],
+        }])).toThrow('invalid scan-cleanup source page numbers');
     });
 
     it('rejects malformed page keys across page-indexed payloads', () => {

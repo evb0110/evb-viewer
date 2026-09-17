@@ -161,10 +161,25 @@ describe('scan cleanup preview result geometry', () => {
     });
 
     it('uses applied margins for optical placement at the IPC boundary', () => {
-        expect(decodeScanCleanupPreviewResult(previewResult(previewMetadata({
+        const decoded = decodeScanCleanupPreviewResult(previewResult(previewMetadata({
             leftPx: 100,
             rightPx: 100,
-        })))).toMatchObject({pageNumber: 1});
+        })));
+        expect(decoded).toMatchObject({
+            pageNumber: 1,
+            pageMetadata: {layoutConfidence: 0},
+            outputs: [{metadata: {
+                cropRect: {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 1000,
+                    heightPx: 500,
+                },
+                canvasPolicy: 'intrinsic',
+                canvasOverflow: false,
+                rasterScaleLimited: false,
+            }}],
+        });
         expect(() => decodeScanCleanupPreviewResult(
             previewResult(previewMetadata({
                 leftPx: 200,
