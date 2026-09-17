@@ -277,6 +277,47 @@ describe('workerTask', () => {
         }
     });
 
+    it('preserves typed scratch shortfall figures across the worker result frame', async () => {
+        mocks.throwConstructorError = false;
+        const {
+            createWorkerTaskErrorFrame,
+            runResultWorkerTask,
+            WorkerTaskError,
+        } = await import('@electron/utils/workerTask');
+        const workerError = Object.assign(new Error('not enough scratch'), {
+            name: 'ScanCleanupInsufficientScratchError',
+            code: 'insufficient-scratch',
+            availableBytes: 700 * 1024 * 1024,
+            requiredBytes: 2_304 * 1024 * 1024,
+        });
+        const workerFrame = createWorkerTaskErrorFrame(workerError, {source: 'scan-cleanup'});
+        expect(workerFrame.scratchShortfall).toEqual({
+            availableBytes: 700 * 1024 * 1024,
+            requiredBytes: 2_304 * 1024 * 1024,
+        });
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: workerFrame.message,
+            errorFrame: JSON.parse(JSON.stringify(workerFrame)) as unknown,
+        };
+
+        const error = await runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        }).catch((cause: unknown) => cause);
+        expect(error).toBeInstanceOf(WorkerTaskError);
+        expect(error).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 700 * 1024 * 1024,
+                requiredBytes: 2_304 * 1024 * 1024,
+            },
+        });
+    });
+
     it('passes opt-in resource limits to result workers', async () => {
         mocks.throwConstructorError = false;
         mocks.nextMessage = {

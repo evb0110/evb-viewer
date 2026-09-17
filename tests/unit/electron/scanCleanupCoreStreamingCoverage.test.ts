@@ -1212,6 +1212,36 @@ describe('scan-cleanup-core conversion coverage', () => {
             getAvailableScratchBytes: vi.fn(async () => null),
             hashNativeBinary,
         };
+        const refusedOutputPdfPath = join(root, 'insufficient-scratch-output.pdf');
+        dependencies.getAvailableScratchBytes = vi.fn(async () => 520 * 1024 * 1024);
+        await expect(runScanCleanupConversion(
+            {
+                sourcePdfPath,
+                outputPdfPath: refusedOutputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+                detectionResultStore,
+            },
+            {
+                ...pathsWithPageOps(root),
+                pdfimagesBinary: '/pdfimages',
+            },
+            new AbortController().signal,
+            vi.fn(),
+            policy,
+            log,
+            dependencies,
+        )).rejects.toMatchObject({
+            code: 'insufficient-scratch',
+            availableBytes: 520 * 1024 * 1024,
+            requiredBytes: expect.any(Number),
+        });
+        expect(existsSync(refusedOutputPdfPath)).toBe(false);
+        expect(runSidecar).not.toHaveBeenCalled();
+        hashNativeBinary.mockClear();
+        dependencies.getAvailableScratchBytes = vi.fn(async () => null);
         const previousEvidenceDir = process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidenceDir;
         try {

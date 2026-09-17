@@ -83,6 +83,7 @@ import {
 } from '@evb/scan-cleanup/core/pageBatches';
 import {
     ScanCleanupContractError,
+    ScanCleanupInsufficientScratchError,
     ScanCleanupMissingOutputError,
     ScanCleanupNativeToolUnavailableError,
     ScanCleanupPdfValidationError,
@@ -158,9 +159,12 @@ import {
 import {
     logRasterHandoff,
     mapScanCleanupRasterPages,
+    estimateRawRasterBytes,
     resolveCombineOutputByteCap,
     resolveRasterHandoff,
+    resolveScanCleanupScratchAdmission,
     runRasterProducerConsumer,
+    type IScanCleanupRasterHandoffPlan,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
 import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
@@ -1391,6 +1395,93 @@ async function runStreamingScanCleanupConversion({
     // planning that batch so no consumer reopens the sidecar from page one.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
     const boundedDpiSource = resolvePageRasterSource(dpiDetails);
+    const supportsRasterStreaming = policy.rasterStreaming
+        && process.platform !== 'win32'
+        && dependencies.createRasterPipes !== undefined;
+    let documentDpi = resolveSourceDpi(boundedDpiSource.documentDpi);
+    let largestBatchBytes: number | null = 0;
+    for (const batch of iterateScanCleanupPageBatches(pageCount, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
+        signal.throwIfAborted();
+        const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
+        if (batchPageNumbers.length === 0) continue;
+        const plans: IScanCleanupRasterHandoffPlan[] = [];
+        for (const pageNumber of batchPageNumbers) {
+            const page = await pageSizeStore.getPage(pageNumber);
+            const guardrail = resolveScanCleanupDocumentGuardrail(undefined, undefined, page);
+            if (guardrail === undefined) {
+                largestBatchBytes = null;
+                break;
+            }
+            if (boundedDpiSource.documentDpi !== undefined && boundedDpiSource.documentDpi !== null) {
+                documentDpi = Math.max(documentDpi, resolveSourceDpi(boundedDpiSource.documentDpi));
+            }
+            if (request.options.preserveOriginalQuality === true) {
+                // Lossless children render their analysis page at DETECTION_DPI.
+                // A page without source image metadata still has a bounded
+                // geometry raster, so the admission does not silently ignore
+                // vector or mixed pages.
+                plans.push({
+                    renderDpi: DETECTION_DPI,
+                    raster: guardrail,
+                });
+                continue;
+            }
+            const sourceDpi = resolveSourceDpi(undefined, documentDpi);
+            const planned = resolveScanCleanupPlannedDpi({
+                sourceDpi,
+                // An unresolved Auto page may still synthesize a bilevel layer;
+                // using that larger pixel allowance keeps this estimate safe.
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: boundedDpiSource.detected
+                    && boundedDpiSource.documentDpi !== undefined
+                    && boundedDpiSource.documentDpi !== null,
+                maxPixels: resolveScanCleanupPipelineMaxPixels(),
+                guardrail,
+            });
+            const renderDpi = planned.dpi < planned.requestedRenderDpi
+                ? planned.dpi
+                : resolveScanCleanupDocumentCanvasRenderDpi(planned.dpi, documentCanvas);
+            const width = Math.max(1, Math.ceil(guardrail.width * renderDpi / guardrail.dpi));
+            const height = Math.max(1, Math.ceil(guardrail.height * renderDpi / guardrail.dpi));
+            const outputBytes = width * height * 3 * SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS;
+            plans.push({
+                renderDpi,
+                raster: guardrail,
+                additionalRenderDpis: [DETECTION_DPI],
+                renderCopies: supportsRasterStreaming ? 2 : 1,
+                additionalScratchBytes: Number.isSafeInteger(outputBytes)
+                    ? outputBytes
+                    : Number.MAX_SAFE_INTEGER,
+            });
+        }
+        if (largestBatchBytes === null) continue;
+        const batchBytes = plans.length === batchPageNumbers.length
+            ? estimateRawRasterBytes(plans, plans.length)
+            : null;
+        if (batchBytes === null) {
+            largestBatchBytes = null;
+        } else {
+            largestBatchBytes = Math.max(largestBatchBytes, batchBytes);
+        }
+    }
+    const scratchAdmission = await resolveScanCleanupScratchAdmission(
+        largestBatchBytes,
+        resolveCombineOutputByteCap(pageCount),
+        scratch,
+        dependencies.getAvailableScratchBytes,
+    );
+    log(
+        'debug',
+        'Scan cleanup run scratch admission '
+        + JSON.stringify(scratchAdmission),
+    );
+    if (!scratchAdmission.admitted) {
+        await pageSizeStore.close();
+        throw new ScanCleanupInsufficientScratchError(
+            scratchAdmission.availableBytes,
+            scratchAdmission.requiredBytes,
+        );
+    }
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
     const outputHandle = await open(batchOutputsPath, 'w');

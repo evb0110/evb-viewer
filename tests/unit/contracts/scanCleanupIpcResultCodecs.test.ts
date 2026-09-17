@@ -44,4 +44,16 @@ describe('scan cleanup job state diagnostics', () => {
             },
         })).toThrow('invalid failure receipt');
     });
+
+    it('preserves typed scratch figures on a failed run projection', () => {
+        const runState = {
+            ...failedState,
+            errorCode: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 520 * 1024 * 1024,
+                requiredBytes: 1_100 * 1024 * 1024,
+            },
+        };
+        expect(decodeScanCleanupJobState(runState)).toEqual(runState);
+    });
 });

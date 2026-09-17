@@ -36,7 +36,10 @@ import {
     createScanCleanupService,
     grantScanCleanupOutputAccess,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
-import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {
+    classifyScanCleanupPreviewError as classifyScanCleanupError,
+    scanCleanupScratchShortfall,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
@@ -216,6 +219,17 @@ describe('scan cleanup service', () => {
             false,
         )).toBe('invalid-request');
         expect(classifyScanCleanupError({code: 'SCAN_CLEANUP_INVALID_PAGE_SCOPE'}, false)).toBe('invalid-request');
+    });
+    it('classifies and preserves worker-delivered scratch shortfall figures', () => {
+        const error = {
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 700 * 1024 * 1024,
+                requiredBytes: 2_304 * 1024 * 1024,
+            },
+        };
+        expect(classifyScanCleanupError(error, false)).toBe('insufficient-scratch');
+        expect(scanCleanupScratchShortfall(error)).toEqual({scratchShortfall: error.scratchShortfall});
     });
     afterEach(async () => {
         await Promise.all(outputDirs.splice(0).map(path => rm(path, {

@@ -9,6 +9,7 @@ import {
     readAvailableScratchBytes,
     resolveRasterHandoff,
     resolveRequiredScratchBytes,
+    resolveScanCleanupScratchAdmission,
     resolveStagedRasterWindow,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 
@@ -284,6 +285,31 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         expect(resolveRequiredScratchBytes(64 * MIB)).toBe(64 * MIB + 512 * MIB);
         expect(resolveRequiredScratchBytes(512 * MIB)).toBe(1_024 * MIB);
         expect(resolveRequiredScratchBytes(600 * MIB)).toBe(2_400 * MIB);
+    });
+
+    it('admits a fitting batch only after reserving the final merge working set', async () => {
+        const batchBytes = 64 * MIB;
+        const mergeWorkingSetBytes = 512 * MIB;
+        await expect(resolveScanCleanupScratchAdmission(
+            batchBytes,
+            mergeWorkingSetBytes,
+            '/scratch',
+            vi.fn(async () => 4 * 1024 * MIB),
+        )).resolves.toMatchObject({
+            admitted: true,
+            estimatedBytes: batchBytes + mergeWorkingSetBytes,
+            requiredBytes: null,
+        });
+        await expect(resolveScanCleanupScratchAdmission(
+            batchBytes,
+            mergeWorkingSetBytes,
+            '/scratch',
+            vi.fn(async () => 700 * MIB),
+        )).resolves.toMatchObject({
+            admitted: false,
+            estimatedBytes: batchBytes + mergeWorkingSetBytes,
+            requiredBytes: 2_304 * MIB,
+        });
     });
 
     it('waits for every raster worker before rethrowing a sibling failure', async () => {
