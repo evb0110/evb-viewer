@@ -795,6 +795,7 @@ describe('scan cleanup service', () => {
         await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
         expect(decodeScanCleanupRuntimePolicy(mocks.runWorker.mock.calls[0]![2])).toEqual({
             rasterConcurrency,
+            rasterMaxPixels: 80_000_000,
             rasterStreaming,
             logicalCpus,
             totalRamBytes: totalRamGiB * 1024 ** 3,

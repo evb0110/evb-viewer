@@ -680,27 +680,16 @@ export function independentReaderScale(
     expectedWidth = metadata.outputWidthPx ?? metadata.canvasWidthPx,
     expectedHeight = metadata.outputHeightPx ?? metadata.canvasHeightPx,
 ) {
-    const outputWidth = metadata.outputWidthPx ?? metadata.canvasWidthPx;
-    const outputHeight = metadata.outputHeightPx ?? metadata.canvasHeightPx;
-    const placement = resolvePreviewMetadataPlacement(metadata);
-    const imageStyle = toPreviewStyleRect(
-        {
-            xPx: 0,
-            yPx: 0,
-            widthPx: outputWidth,
-            heightPx: outputHeight,
-        }, placement,
-    );
-    const imageRect = pixelRectFromStyle(
-        imageStyle,
-        placement.canvasWidthPx,
-        placement.canvasHeightPx,
-    );
+    const placement = resolvePreviewMetadataPlacement({
+        ...metadata,
+        placementOffsetXPx: metadata.placementOffsetXPx ?? 0,
+        placementOffsetYPx: metadata.placementOffsetYPx ?? 0,
+    });
     return {
-        x: (imageRect.right - imageRect.left) / Math.max(1, expectedWidth)
-            * actualWidth / placement.canvasWidthPx,
-        y: (imageRect.bottom - imageRect.top) / Math.max(1, expectedHeight)
-            * actualHeight / placement.canvasHeightPx,
+        x: actualWidth / placement.canvasWidthPx
+            * placement.contentWidthPx / Math.max(1, expectedWidth),
+        y: actualHeight / placement.canvasHeightPx
+            * placement.contentHeightPx / Math.max(1, expectedHeight),
     };
 }
 
