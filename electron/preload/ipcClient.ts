@@ -33,11 +33,34 @@ type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<R
 
 interface IIpcInvokerOptions<TChannel extends string = string> { invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>; }
 
+interface IDecodedEventFailureState {
+    lastLoggedAt: number;
+    suppressedCount: number;
+}
+
+const DECODED_EVENT_FAILURE_LOG_INTERVAL_MS = 5_000;
+
 function logDecodedEventValidationFailure(
     ipcRenderer: Partial<Pick<IpcRenderer, 'send'>>,
     channel: string,
     payload: unknown,
+    decoderError: unknown,
+    failureStates: Map<string, IDecodedEventFailureState>,
 ) {
+    const decoderErrorMessage = decoderError === undefined
+        ? 'decoder returned null'
+        : getErrorMessage(decoderError) || 'unknown decoder error';
+    const now = Date.now();
+    const previous = failureStates.get(channel);
+    if (previous && now - previous.lastLoggedAt < DECODED_EVENT_FAILURE_LOG_INTERVAL_MS) {
+        previous.suppressedCount += 1;
+        return;
+    }
+    const suppressedCount = previous?.suppressedCount ?? 0;
+    failureStates.set(channel, {
+        lastLoggedAt: now,
+        suppressedCount: 0,
+    });
     const message = `Dropped invalid decoded IPC event payload for ${channel}`;
     if (process.env.NODE_ENV !== 'production') {
         console.warn(message, payload);
@@ -48,7 +71,11 @@ function logDecodedEventValidationFailure(
             section: 'ipc-client',
             message,
             timestamp: new Date().toISOString(),
-            data: { channel },
+            data: {
+                channel,
+                decoderError: decoderErrorMessage,
+                ...(suppressedCount === 0 ? {} : {suppressedCount}),
+            },
         });
     } catch {
         // Ignore logging failures in preload.
@@ -184,6 +211,7 @@ export function createTypedIpcEventSubscriber<
     }
 
     const subscriptions = new Map<string, IChannelSubscription>();
+    const decodedEventFailureStates = new Map<string, IDecodedEventFailureState>();
 
     function subscribe(channel: string, callback: TEventCallback): TMenuEventUnsubscribe {
         if (
@@ -249,12 +277,24 @@ export function createTypedIpcEventSubscriber<
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {
             return subscribe(channel, (_event, payload) => {
-                const decoded = decode(payload);
+                let decoded: TEventMap[TChannel] | null = null;
+                let decoderError: unknown;
+                try {
+                    decoded = decode(payload);
+                } catch (error) {
+                    decoderError = error;
+                }
                 if (decoded !== null) {
                     callback(decoded);
                     return;
                 }
-                logDecodedEventValidationFailure(ipcRenderer, channel, payload);
+                logDecodedEventValidationFailure(
+                    ipcRenderer,
+                    channel,
+                    payload,
+                    decoderError,
+                    decodedEventFailureStates,
+                );
             });
         },
     };
@@ -316,13 +356,7 @@ export function createPlatformFeaturePreloadClient<
         client[name] = (callback: (payload: unknown) => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(
                 spec.channel,
-                value => {
-                    try {
-                        return spec.payload.decode(value);
-                    } catch {
-                        return null;
-                    }
-                },
+                value => spec.payload.decode(value),
                 callback,
             );
             const subscription = spec.subscription;
