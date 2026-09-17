@@ -340,7 +340,7 @@ export function serializeNativeScanCleanupOptions(
     };
 }
 
-function assembleNativeScanCleanupManifest({
+export function assembleNativeScanCleanupManifest({
     operation,
     analysisPurpose,
     renderMode,
@@ -504,15 +504,4 @@ export function buildRunnableNativeScanCleanupManifest(
     input: IBuildRunnableNativeScanCleanupManifestInput,
 ): INativeScanCleanupManifestV3 {
     return assembleNativeScanCleanupManifest(input, input.allowedPathRoot);
-}
-
-/**
- * Build a manifest only to validate shape and geometry. Callers use placeholder
- * paths here, so path containment neither applies nor can be checked. Never
- * hand the result to the native binary.
- */
-export function buildGeometryOnlyNativeScanCleanupManifest(
-    input: IBuildNativeScanCleanupManifestInput,
-): INativeScanCleanupManifestV3 {
-    return assembleNativeScanCleanupManifest(input, null);
 }

@@ -54,6 +54,7 @@ import type {
     ISourceDpiDetectionResult,
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
+import {resolveSourceDpi} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
@@ -315,6 +316,13 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup-core conversion coverage', () => {
+    it('validates the fallback used when source DPI metadata is absent', () => {
+        expect(resolveSourceDpi(undefined, 72.4)).toBe(72);
+        expect(resolveSourceDpi(null, Number.NaN)).toBe(300);
+        expect(resolveSourceDpi(undefined, 0)).toBe(300);
+        expect(resolveSourceDpi(undefined, -150)).toBe(300);
+    });
+
     it('reads empty, sparse, and long contiguous detection windows with bounded calls', async () => {
         const records = new Map<number, IScanCleanupDetectionResult>();
         for (let pageNumber = 1; pageNumber <= 1_025; pageNumber += 1) {

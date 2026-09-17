@@ -115,10 +115,7 @@ import {
     toCropBoxPageSize,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
-import {
-    buildGeometryOnlyNativeScanCleanupManifest,
-    buildRunnableNativeScanCleanupManifest,
-} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@evb/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry';
 import {
     addScanCleanupDocumentCanvasPage,
@@ -1645,7 +1642,6 @@ export async function runScanCleanupConversion(
     let rasterStreamingRun = supportsRasterStreaming;
     let preserveScratchForDiagnostics = false;
     let pageSizeStore: IPdfPageSizeStore | null = null;
-    const analysisReleasePromises: Array<Promise<void>> = [];
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
     const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun, {isRasterStreaming: () => rasterStreamingRun});
     try {
@@ -2296,52 +2292,6 @@ export async function runScanCleanupConversion(
             resolvePagePlan(plan.pageNumber),
         ]));
         pagePlanResolver.report();
-        // Resolve and validate the complete effective geometry before touching
-        // compact source layers or starting any final raster producer. The
-        // source can contain hundreds of expensive MRC masks; discovering one
-        // malformed page only after extracting all of them made a validation
-        // error look like a hung cleanup.
-        const geometryPageInputs = rasterPlans.map(plan => {
-            const detectedRaster = detectedRasterByPage.get(plan.pageNumber);
-            return {
-                inputPath: '',
-                pageNumber: plan.pageNumber,
-                dpi: plan.dpi,
-                sourceDpi: plan.sourceDpi,
-                sourceHasBilevelLayer: detectedRaster?.hasBilevelLayer ?? false,
-                ...(detectedRaster?.backgroundDpi === undefined
-                    ? {}
-                    : {sourceBackgroundDpi: detectedRaster.backgroundDpi}),
-                requestedRenderDpi: plan.requestedRenderDpi,
-                ...(plan.resolvedOutputMode === undefined
-                    ? {}
-                    : {resolvedOutputMode: plan.resolvedOutputMode}),
-                ...buildConversionPageMetadata({
-                    documentPriorByPage: request.documentPriorByPage,
-                    layoutByPage: request.layoutByPage,
-                    pageMetadataPath: '',
-                    pageNumber: plan.pageNumber,
-                    resolvedPagePlan: resolvedPagePlanByNumber.get(plan.pageNumber),
-                }),
-            };
-        });
-        for (const batch of iterateScanCleanupPageBatches(geometryPageInputs.length)) {
-            assertNativeScanCleanupManifestGeometry(buildGeometryOnlyNativeScanCleanupManifest({
-                operation: 'render',
-                renderMode: 'final',
-                canvasScope: 'document',
-                qualityPath: 'raster',
-                hostMemoryBytes: policy.totalRamBytes,
-                options: request.options,
-                experimental: {
-                    autoDewarp: request.options.autoDewarp ?? false,
-                    ...(request.options.autoDewarpDepth === undefined
-                        ? {}
-                        : {autoDewarpDepth: request.options.autoDewarpDepth}),
-                },
-                pages: collectScanCleanupPageBatch(geometryPageInputs, batch),
-            }));
-        }
         const canonicalAnalysisDpi = DETECTION_DPI;
         const estimateNativeOutputScratchBytes = (plan: ReturnType<typeof capRasterPlanDpi>) => {
             const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
@@ -2591,16 +2541,19 @@ export async function runScanCleanupConversion(
         const renderedPageNumbers = new Set<number>();
         const rasterizedPageNumbers = new Set<number>();
         const collectedPageNumbers = new Set<number>();
-        const releasedAnalysisPages = new Set<number>();
         const manifestPageBySource = new Map<number, INativeScanCleanupPageV3>();
         let collectedPages = 0;
         rasterStreamingRun = canStreamRasters;
         await runScanCleanupPageBatches(rasterPlans.length, async batch => {
+            const analysisReleasePromises: Array<Promise<void>> = [];
+            const releasedAnalysisPages = new Set<number>();
             const batchRasterPlans = collectScanCleanupPageBatch(rasterPlans, batch);
             const batchPageInputs = collectScanCleanupPageBatch(pageInputs, batch);
             // On POSIX, raw PPM inputs are FIFOs: Poppler produces each page
             // while the native worker consumes it. Replaying only this window
             // keeps both the manifest and the producer's path list bounded.
+            // Validate the exact manifest that will be written and passed to
+            // native, so geometry is assembled only once for this batch.
             const manifest = buildRunnableNativeScanCleanupManifest({
                 operation: 'render',
                 renderMode: 'final',
@@ -2619,6 +2572,7 @@ export async function runScanCleanupConversion(
                 pages: batchPageInputs,
                 allowedPathRoot: paths.tempDir,
             });
+            assertNativeScanCleanupManifestGeometry(manifest);
             const pages = manifest.pages;
             for (const page of pages) manifestPageBySource.set(page.sourcePageIndex + 1, page);
             const manifestPath = join(scratch, `cleanup-manifest-${String(batch.batchIndex)}.json`);
@@ -2728,7 +2682,7 @@ export async function runScanCleanupConversion(
                             const release = rm(analysisPath, {force: true});
                             // Attach a handler immediately so a sidecar failure
                             // cannot turn a best-effort scratch release into an
-                            // unhandled rejection before the outer finally block
+                            // unhandled rejection before the batch barrier
                             // has a chance to observe it.
                             void release.catch(() => undefined);
                             analysisReleasePromises.push(release);
@@ -2737,33 +2691,34 @@ export async function runScanCleanupConversion(
                 }
                 emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
             };
-            const sidecarCapabilities = await runRasterProducerConsumer<IScanCleanupSidecarProtocolCapabilities | undefined>({
-                signal,
-                stream: canStreamRasters,
-                ...(canStreamRasters ? {createStreams: () => dependencies.createRasterPipes!(
-                    batchPageInputs.map(page => page.inputPath),
+            let sidecarCapabilities: IScanCleanupSidecarProtocolCapabilities | undefined;
+            try {
+                sidecarCapabilities = await runRasterProducerConsumer<IScanCleanupSidecarProtocolCapabilities | undefined>({
                     signal,
-                    log,
-                )} : {}),
-                produce: rasterize,
-                consume: operationSignal => dependencies.runSidecar(
-                    paths.scanCleanupBinary,
-                    manifestPath,
-                    operationSignal,
-                    log,
-                    reportNativeProgress,
-                    {allowedPathRoot: paths.tempDir},
-                ),
-                onProducerComplete: () => {
-                    if (!canStreamRasters) {
-                        emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
-                    }
-                },
-            });
-            // Rejections are observed and reported by the outer finally block;
-            // this barrier only ensures every scratch release has settled before
-            // collection begins.
-            await Promise.allSettled(analysisReleasePromises);
+                    stream: canStreamRasters,
+                    ...(canStreamRasters ? {createStreams: () => dependencies.createRasterPipes!(
+                        batchPageInputs.map(page => page.inputPath),
+                        signal,
+                        log,
+                    )} : {}),
+                    produce: rasterize,
+                    consume: operationSignal => dependencies.runSidecar(
+                        paths.scanCleanupBinary,
+                        manifestPath,
+                        operationSignal,
+                        log,
+                        reportNativeProgress,
+                        {allowedPathRoot: paths.tempDir},
+                    ),
+                    onProducerComplete: () => {
+                        if (!canStreamRasters) {
+                            emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+                        }
+                    },
+                });
+            } finally {
+                await observeScanCleanupAnalysisReleasePromises(analysisReleasePromises, log);
+            }
             emitProgress('collecting', collectedPages, pageCount, collectedPageNumbers);
             for (const [
                 pageIndex,
@@ -3505,7 +3460,6 @@ export async function runScanCleanupConversion(
                 log('warn', `Failed to close scan cleanup page-size store: ${getErrorMessage(error)}`);
             });
         }
-        await observeScanCleanupAnalysisReleasePromises(analysisReleasePromises, log);
         await rm(publishTempPath, {force: true}).catch(() => undefined);
         await preserveScanCleanupJsonEvidence(scratch, log).catch(error => {
             log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);

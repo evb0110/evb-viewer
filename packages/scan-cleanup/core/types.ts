@@ -198,10 +198,13 @@ export function isScanCleanupCompactLayeredRaster(raster: IDetectedPageRaster | 
 }
 
 export function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
-    const candidate = value ?? fallback;
+    const safeFallback = Number.isFinite(fallback) && fallback > 0
+        ? Math.max(1, Math.round(fallback))
+        : 300;
+    const candidate = value ?? safeFallback;
     return Number.isFinite(candidate) && candidate > 0
         ? Math.max(1, Math.round(candidate))
-        : fallback;
+        : safeFallback;
 }
 
 /** Read verified dominant-image metadata as one bounded page raster fact. */

@@ -26,11 +26,13 @@ import type {
     TScanCleanupCanvasScope,
 } from '@contracts/electronApiScanCleanup';
 import {
-    buildGeometryOnlyNativeScanCleanupManifest,
+    assembleNativeScanCleanupManifest,
     buildRunnableNativeScanCleanupManifest,
     serializeNativeScanCleanupOptions,
+    type IBuildNativeScanCleanupManifestInput,
     type IScanCleanupManifestPageInput,
 } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
+
 import {assertNativeScanCleanupManifestGeometry} from '@evb/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry';
 import {assertScanCleanupPathWithinCanonicalRoot} from '@evb/scan-cleanup/core/assertScanCleanupPathWithinRoot';
 import {resolveEffectiveScanCleanupOptions} from '@evb/scan-cleanup/core/policy/effectiveOptions';
@@ -43,6 +45,10 @@ import {
     it,
     vi,
 } from 'vitest';
+
+const buildGeometryOnlyNativeScanCleanupManifest = (
+    input: IBuildNativeScanCleanupManifestInput,
+) => assembleNativeScanCleanupManifest(input, null);
 
 const {realpathSyncCalls} = vi.hoisted(() => ({realpathSyncCalls: [] as string[]}));
 
