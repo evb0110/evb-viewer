@@ -1,0 +1,290 @@
+packages/scan-cleanup/core/assembleCompactScanCleanupPages.ts
+  s_0539f551feac96::t_8b5179e160f928 10-11
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewGeometry.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16
+scripts/scanCleanupCliAdapters.ts
+  s_0539f551feac96::t_8b5179e160f928 32
+electron/features/scan-cleanup/scanCleanupPreviewPolicy.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+app/modules/scan-cleanup/composables/useScanCleanupSourceSha256.ts
+  s_0539f551feac96::t_8b5179e160f928 3
+tests/unit/electron/scanCleanupResultStore.test.ts
+  s_0539f551feac96::t_8b5179e160f928 38
+electron/features/scan-cleanup/scanCleanupPreviewSupport.ts
+  s_0539f551feac96::t_8b5179e160f928 4-5
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewCache.test.ts
+  s_0539f551feac96::t_8b5179e160f928 14-15
+electron/features/scan-cleanup/worker/runScanCleanupPipeline.ts
+  s_0539f551feac96::t_8b5179e160f928 4,24
+tests/unit/scripts/scanCleanupDiagnosticsManifestRoots.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16
+app/modules/scan-cleanup/composables/useScanCleanupPreviewSession.ts
+  s_0539f551feac96::t_8b5179e160f928 19,30,38
+electron/features/scan-cleanup/detectionResultStoreDescriptor.ts
+  s_0539f551feac96::t_8b5179e160f928 14
+tests/unit/electron/scanCleanupDetectionLifecycleScenarios.ts
+  s_0539f551feac96::t_8b5179e160f928 30,61
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_0539f551feac96::t_8b5179e160f928 11,14,26
+app/modules/scan-cleanup/components/preview/ZoneEditorControls.vue
+  s_0539f551feac96::t_8b5179e160f928 48
+app/modules/scan-cleanup/components/preview/PlacementOverlay.vue
+  s_0539f551feac96::t_8b5179e160f928 51
+tests/unit/app/modules/scan-cleanup/scanCleanupPreferences.test.ts
+  s_0539f551feac96::t_8b5179e160f928 7-9
+scripts/scan-cleanup-convert.ts
+  s_0539f551feac96::t_8b5179e160f928 29
+tests/unit/app/modules/scan-cleanup/scanCleanupPageOverrides.test.ts
+  s_0539f551feac96::t_8b5179e160f928 6,20
+tests/unit/scripts/scanCleanupDetectionCache.test.ts
+  s_0539f551feac96::t_8b5179e160f928 12
+app/modules/scan-cleanup/composables/useScanCleanupDetectionSession.ts
+  s_0539f551feac96::t_8b5179e160f928 12,21,23
+tests/unit/electron/scanCleanupPreviewIpcAdapter.test.ts
+  s_0539f551feac96::t_8b5179e160f928 9
+packages/scan-cleanup/core/placementAnchors.ts
+  s_0539f551feac96::t_8b5179e160f928 5,19
+app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation.ts
+  s_0539f551feac96::t_8b5179e160f928 5
+tests/unit/electron/scanCleanupDetectionStagedWindow.test.ts
+  s_0539f551feac96::t_8b5179e160f928 26
+app/modules/scan-cleanup/composables/useScanCleanupPreviewOverlayGeometry.ts
+  s_0539f551feac96::t_8b5179e160f928 5
+electron/platform-ipc/featureRegistrationTable.ts
+  s_0539f551feac96::t_8b5179e160f928 27
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_0539f551feac96::t_8b5179e160f928 3
+tests/unit/electron/scanCleanupService.test.ts
+  s_0539f551feac96::t_8b5179e160f928 21
+tests/unit/app/modules/workspace-shell/viewers/scanCleanupWorkspaceReopenHandoff.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16
+app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom.ts
+  s_0539f551feac96::t_8b5179e160f928 1
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_0539f551feac96::t_8b5179e160f928 11,17
+app/modules/scan-cleanup/composables/useScanCleanupSelection.ts
+  s_0539f551feac96::t_8b5179e160f928 15,23
+app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore.ts
+  s_0539f551feac96::t_8b5179e160f928 6,17
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_0539f551feac96::t_8b5179e160f928 16,33-34
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_0539f551feac96::t_8b5179e160f928 12-13,18
+tests/unit/app/modules/scan-cleanup/scanCleanupThumbnailRail.test.ts
+  s_0539f551feac96::t_8b5179e160f928 27
+packages/contracts/scan-cleanup/pageOverrideRules.ts
+  s_0539f551feac96::t_8b5179e160f928 1
+electron/features/scan-cleanup/worker/main.ts
+  s_0539f551feac96::t_8b5179e160f928 7,14
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_0539f551feac96::t_8b5179e160f928 27
+tests/unit/electron/scanCleanupSettingsStore.test.ts
+  s_0539f551feac96::t_8b5179e160f928 22-23
+tests/unit/electron/featureIpcCodecs.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16
+tests/unit/app/modules/scan-cleanup/scanCleanupDetectionResults.test.ts
+  s_0539f551feac96::t_8b5179e160f928 10,12
+tests/unit/electron/scanCleanupPipelineWarningCapabilities.test.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+app/modules/scan-cleanup/composables/useScanCleanupZoneEditor.ts
+  s_0539f551feac96::t_8b5179e160f928 4
+app/modules/scan-cleanup/runtime/formatScanCleanupProgress.ts
+  s_0539f551feac96::t_8b5179e160f928 1
+app/platform/browser-api/browserScanCleanupCapability.ts
+  s_0539f551feac96::t_8b5179e160f928 1,10
+packages/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry.ts
+  s_0539f551feac96::t_8b5179e160f928 5
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_0539f551feac96::t_8b5179e160f928 26
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16
+app/modules/scan-cleanup/geometry/coordinates.ts
+  s_0539f551feac96::t_8b5179e160f928 8
+packages/scan-cleanup/core/policy/scanCleanupRepresentationPolicy.ts
+  s_0539f551feac96::t_8b5179e160f928 5
+tests/unit/electron/scanCleanupPlacementAnchors.test.ts
+  s_0539f551feac96::t_8b5179e160f928 9
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_0539f551feac96::t_8b5179e160f928 20,30
+packages/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix.ts
+  s_0539f551feac96::t_8b5179e160f928 1
+packages/scan-cleanup/core/createScanCleanupProgressReporter.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+app/modules/scan-cleanup/runtime/scanCleanupSettingsBadges.ts
+  s_0539f551feac96::t_8b5179e160f928 1,5,9
+app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache.ts
+  s_0539f551feac96::t_8b5179e160f928 4-5
+tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts
+  s_0539f551feac96::t_8b5179e160f928 25-26
+app/modules/scan-cleanup/geometry/zoneGeometry.ts
+  s_0539f551feac96::t_8b5179e160f928 5
+tests/unit/electron/scanCleanupDetectionPlan.test.ts
+  s_0539f551feac96::t_8b5179e160f928 13
+packages/contracts/scan-cleanup/ipcRequestCodecs.ts
+  s_0539f551feac96::t_8b5179e160f928 66
+app/utils/getScanCleanupCapability.ts
+  s_0539f551feac96::t_8b5179e160f928 1
+electron/features/scan-cleanup/createScanCleanupSettingsStore.ts
+  s_0539f551feac96::t_8b5179e160f928 27
+tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts
+  s_0539f551feac96::t_8b5179e160f928 27
+tests/unit/electron/scanCleanupPreviewIpcScenarios.ts
+  s_0539f551feac96::t_8b5179e160f928 22,25,52
+app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides.ts
+  s_0539f551feac96::t_8b5179e160f928 5,10
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_0539f551feac96::t_8b5179e160f928 27
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_0539f551feac96::t_8b5179e160f928 26
+app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue
+  s_0539f551feac96::t_8b5179e160f928 77
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_0539f551feac96::t_8b5179e160f928 18,33,82
+tests/unit/contracts/scanCleanupSettings.test.ts
+  s_0539f551feac96::t_8b5179e160f928 15
+packages/contracts/scan-cleanup/scanCleanupPlatformFeature.ts
+  s_0539f551feac96::t_8b5179e160f928 47
+  s_0539f551feac96::t_2a85974202c7ca 303
+tests/unit/contracts/scanCleanupIpcRequestCodecs.test.ts
+  s_0539f551feac96::t_8b5179e160f928 29
+tests/unit/electron/scanCleanupDetectionResultStoreDescriptor.test.ts
+  s_0539f551feac96::t_8b5179e160f928 15
+packages/scan-cleanup/core/createPagePlanResolver.ts
+  s_0539f551feac96::t_8b5179e160f928 7,11
+packages/scan-cleanup/core/types.ts
+  s_0539f551feac96::t_8b5179e160f928 15
+scripts/scanCleanupDetectionCache.ts
+  s_0539f551feac96::t_8b5179e160f928 26
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_0539f551feac96::t_8b5179e160f928 15
+app/modules/scan-cleanup/components/preview/PreviewShell.vue
+  s_0539f551feac96::t_8b5179e160f928 443
+tests/unit/electron/scanCleanupDocumentCanvas.test.ts
+  s_0539f551feac96::t_8b5179e160f928 10,35
+app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage.ts
+  s_0539f551feac96::t_8b5179e160f928 2
+app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+app/modules/scan-cleanup/components/preview/CleanedCanvas.vue
+  s_0539f551feac96::t_8b5179e160f928 85
+app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache.ts
+  s_0539f551feac96::t_8b5179e160f928 1
+electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults.ts
+  s_0539f551feac96::t_8b5179e160f928 46
+packages/contracts/platformApiDescriptor.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_0539f551feac96::t_8b5179e160f928 33-34,46
+app/modules/scan-cleanup/components/preview/ContentBoxOverlay.vue
+  s_0539f551feac96::t_8b5179e160f928 31
+app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts
+  s_0539f551feac96::t_8b5179e160f928 8
+tests/unit/app/modules/scan-cleanup/scanCleanupZoneGeometry.test.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+packages/scan-cleanup/core/fileBackedResultStore.ts
+  s_0539f551feac96::t_8b5179e160f928 13
+electron/features/scan-cleanup/scanCleanupMainBindings.ts
+  s_0539f551feac96::t_8b5179e160f928 4,6
+tests/unit/app/modules/scan-cleanup/scanCleanupSettingsBadges.test.ts
+  s_0539f551feac96::t_8b5179e160f928 6,11
+packages/contracts/scan-cleanup/createScanCleanupDetectionSignature.ts
+  s_0539f551feac96::t_8b5179e160f928 8
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_0539f551feac96::t_8b5179e160f928 24,29,48
+app/modules/scan-cleanup/persistence/preferencesRepository.ts
+  s_0539f551feac96::t_8b5179e160f928 7,28-29
+app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue
+  s_0539f551feac96::t_8b5179e160f928 264-265,271
+electron/preload/createElectronApi.ts
+  s_0539f551feac96::t_8b5179e160f928 59
+app/modules/scan-cleanup/geometry/viewport.ts
+  s_0539f551feac96::t_8b5179e160f928 4
+app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings.ts
+  s_0539f551feac96::t_8b5179e160f928 6,15,21
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_0539f551feac96::t_8b5179e160f928 11,16
+tests/unit/electron/ipcRegistrySecurity.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16
+app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts
+  s_0539f551feac96::t_8b5179e160f928 5
+tests/unit/app/modules/scan-cleanup/scanCleanupScopedSettings.test.ts
+  s_0539f551feac96::t_8b5179e160f928 12,22
+app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue
+  s_0539f551feac96::t_8b5179e160f928 621,628
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_0539f551feac96::t_8b5179e160f928 22
+app/modules/scan-cleanup/runtime/updateScanCleanupMargins.ts
+  s_0539f551feac96::t_8b5179e160f928 1-2
+tests/unit/contracts/scanCleanupOutputMode.test.ts
+  s_0539f551feac96::t_8b5179e160f928 6-7
+electron/features/scan-cleanup/runScanCleanupWorkerTask.ts
+  s_0539f551feac96::t_8b5179e160f928 8
+electron/features/scan-cleanup/scanCleanupPreviewLifecycle.ts
+  s_0539f551feac96::t_8b5179e160f928 9
+app/modules/scan-cleanup/composables/useScanCleanupViewportFrame.ts
+  s_0539f551feac96::t_8b5179e160f928 6
+packages/scan-cleanup/core/detection.ts
+  s_0539f551feac96::t_8b5179e160f928 11,79
+tests/unit/electron/scanCleanupEffectiveOptions.test.ts
+  s_0539f551feac96::t_8b5179e160f928 6-7
+tests/unit/electron/scanCleanupIpcCloneBoundary.test.ts
+  s_0539f551feac96::t_8b5179e160f928 15,24-25
+tests/unit/scripts/scanCleanupWordLossAudit.test.ts
+  s_0539f551feac96::t_8b5179e160f928 22-23
+packages/contracts/platformApi.ts
+  s_0539f551feac96::t_8b5179e160f928 15,29,85
+packages/scan-cleanup/core/policy/effectiveOptions.ts
+  s_0539f551feac96::t_8b5179e160f928 12-13,18
+packages/contracts/electronApi.ts
+  s_0539f551feac96::t_8b5179e160f928 13
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_0539f551feac96::t_8b5179e160f928 27,45-46,71
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_0539f551feac96::t_8b5179e160f928 35,41
+app/modules/scan-cleanup/persistence/migrations/v1.ts
+  s_0539f551feac96::t_8b5179e160f928 9,14-15,20
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_0539f551feac96::t_8b5179e160f928 7,11,19-20
+app/modules/scan-cleanup/geometry/placement.ts
+  s_0539f551feac96::t_8b5179e160f928 4
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewNavigation.test.ts
+  s_0539f551feac96::t_8b5179e160f928 35
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_0539f551feac96::t_8b5179e160f928 16,23
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_0539f551feac96::t_8b5179e160f928 10,17,25
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_0539f551feac96::t_8b5179e160f928 193-194,201,212
+electron/features/scan-cleanup/worker/runScanCleanupSidecar.ts
+  s_0539f551feac96::t_8b5179e160f928 22
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_0539f551feac96::t_8b5179e160f928 6-7
+packages/contracts/scan-cleanup/electronApiScanCleanup.ts
+  s_0539f551feac96::t_8b5179e160f928 7
+tests/unit/electron/scanCleanupProvenanceStamp.test.ts
+  s_0539f551feac96::t_8b5179e160f928 16-17
+tests/unit/electron/scanCleanupWorkerEntrypoint.test.ts
+  s_0539f551feac96::t_8b5179e160f928 8
+packages/scan-cleanup/core/provenanceStamp.ts
+  s_0539f551feac96::t_8b5179e160f928 11-12
+tests/unit/electron/scanCleanupProgressReporter.test.ts
+  s_0539f551feac96::t_8b5179e160f928 10
+tests/unit/electron/scanCleanupDetectionLifecycle.test.ts
+  s_0539f551feac96::t_8b5179e160f928 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8206f9975dc00b6c1fb9c3864d4a9f6cb55c0e89",
+  "prompts": {},
+  "sessions": {
+    "s_0539f551feac96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0af20-8aa5-7373-8877-47fbfd4bbe2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
