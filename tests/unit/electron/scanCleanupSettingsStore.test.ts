@@ -82,7 +82,10 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        await expect(store.get()).resolves.toMatchObject({
+            ...createDefaultScanCleanupSettingsFile(),
+            repaired: true,
+        });
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
         const directory = join(filePath, '..');
         const quarantinedName = (await readdir(directory))
@@ -106,7 +109,10 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        await expect(store.get()).resolves.toMatchObject({
+            ...createDefaultScanCleanupSettingsFile(),
+            repaired: true,
+        });
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
         const directory = join(filePath, '..');
         const quarantinedName = (await readdir(directory))
@@ -129,13 +135,65 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        await expect(store.get()).resolves.toMatchObject({
+            ...createDefaultScanCleanupSettingsFile(),
+            repaired: true,
+        });
         const directory = join(filePath, '..');
         const quarantinedName = (await readdir(directory))
             .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
         expect(quarantinedName).toBeDefined();
         await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(corruptRaw);
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
+    });
+
+    it('reports repaired preferences when normalization drops malformed stored data', async () => {
+        const filePath = await createStoreFile();
+        const sourceSha256 = 'a'.repeat(64);
+        const base = createDefaultScanCleanupSettingsFile();
+        await writeFile(filePath, `${JSON.stringify({
+            ...base,
+            settings: {
+                ...base.settings,
+                pageAlignment: 'invalid',
+            },
+            documentOverrides: {[sourceSha256]: {
+                overrides: {
+                    '1': {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                    },
+                    '2': {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        manualZones: {
+                            picture: [],
+                            fill: [{points: []}],
+                        },
+                    },
+                },
+                lastUsedAtMs: 1,
+            }},
+        })}\n`, 'utf8');
+        const store = createScanCleanupSettingsStore({filePath});
+
+        const loaded = await store.get();
+
+        expect(loaded).toMatchObject({
+            repaired: true,
+            settings: {pageAlignment: 'ink'},
+            documentOverrides: {},
+        });
+        const persisted = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+        expect(persisted).not.toHaveProperty('repaired');
+        expect(persisted).toMatchObject({
+            settings: {pageAlignment: 'ink'},
+            documentOverrides: {},
+        });
     });
 
     it('rewrites a pre-ink settings file at the current schema with ink as its alignment', async () => {

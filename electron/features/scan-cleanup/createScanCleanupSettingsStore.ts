@@ -12,7 +12,7 @@ import {
     DEFAULT_SCAN_CLEANUP_PREFERENCES,
     decodeScanCleanupGlobalPreferences,
     decodeScanCleanupMarginsMm,
-    decodeScanCleanupSettingsFile,
+    decodeScanCleanupSettingsFileWithDiagnostics,
     isScanCleanupSourceSha256,
     scanCleanupPreferenceRecord,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
@@ -21,6 +21,7 @@ import {
     type IScanCleanupDocumentOverrideEntry,
     type IScanCleanupLegacyStorageExport,
     type IScanCleanupSettingsFile,
+    type IScanCleanupSettingsResult,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scanCleanupSettings';
@@ -71,8 +72,8 @@ interface ILegacyMigrationDiagnostics {
 }
 
 interface IScanCleanupSettingsStore {
-    get: (request?: IScanCleanupSettingsReadRequest) => Promise<IScanCleanupSettingsFile>;
-    update: (request: IScanCleanupSettingsUpdateRequest) => Promise<IScanCleanupSettingsFile>;
+    get: (request?: IScanCleanupSettingsReadRequest) => Promise<IScanCleanupSettingsResult>;
+    update: (request: IScanCleanupSettingsUpdateRequest) => Promise<IScanCleanupSettingsResult>;
 }
 
 const DEFAULT_STORE_FILE_SYSTEM: IScanCleanupSettingsStoreFileSystem = {
@@ -350,6 +351,17 @@ function cloneSettingsFile(state: IScanCleanupSettingsFile): IScanCleanupSetting
     return cloneScanCleanupPreferenceValue(state);
 }
 
+function cloneSettingsResult(
+    state: IScanCleanupSettingsFile,
+    repaired: boolean,
+): IScanCleanupSettingsResult {
+    const cloned = cloneSettingsFile(state);
+    return repaired ? {
+        ...cloned,
+        repaired: true,
+    } : cloned;
+}
+
 export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStoreOptions): IScanCleanupSettingsStore {
     const now = options.now ?? Date.now;
     const logger = options.logger ?? DEFAULT_LOGGER;
@@ -382,17 +394,19 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                     state: createDefaultScanCleanupSettingsFile(),
                     exists: false,
                     schemaUpgraded: false,
+                    repaired: false,
                 };
             }
             throw error;
         }
         try {
             const parsed = JSON.parse(raw) as unknown;
-            const state = decodeScanCleanupSettingsFile(parsed);
+            const decoded = decodeScanCleanupSettingsFileWithDiagnostics(parsed);
             return {
-                state,
+                state: decoded.settingsFile,
                 exists: true,
                 schemaUpgraded: scanCleanupPreferenceRecord(parsed)?.schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+                repaired: decoded.repaired,
             };
         } catch {
             const quarantinePath = await quarantineCorruptFile(options.filePath);
@@ -403,6 +417,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                 state,
                 exists: true,
                 schemaUpgraded: false,
+                repaired: true,
             };
         }
     }
@@ -494,19 +509,26 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         const timestamp = now();
         const mergedLegacyStorage = mergeLegacyStorage(state, request, !loaded.exists, timestamp);
         const changed = pruneDocumentOverrides(state, timestamp) || mergedLegacyStorage;
-        if (!loaded.exists || loaded.schemaUpgraded || changed) {
+        if (!loaded.exists || loaded.schemaUpgraded || loaded.repaired || changed) {
             await writeState(state);
         }
-        return state;
+        return {
+            state,
+            repaired: loaded.repaired,
+        };
     }
 
     async function get(request: IScanCleanupSettingsReadRequest = {}) {
-        return enqueue(async () => cloneSettingsFile(await loadAndNormalize(request)));
+        return enqueue(async () => {
+            const loaded = await loadAndNormalize(request);
+            return cloneSettingsResult(loaded.state, loaded.repaired);
+        });
     }
 
     async function update(request: IScanCleanupSettingsUpdateRequest) {
         return enqueue(async () => {
-            const state = await loadAndNormalize({});
+            const loaded = await loadAndNormalize({});
+            const state = loaded.state;
             if (request.settings !== undefined) {
                 state.settings = request.settings;
             }
@@ -557,7 +579,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             }
             pruneDocumentOverrides(state, now());
             await writeState(state);
-            return cloneSettingsFile(state);
+            return cloneSettingsResult(state, loaded.repaired);
         });
     }
 

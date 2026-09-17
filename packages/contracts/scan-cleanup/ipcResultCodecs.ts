@@ -741,14 +741,19 @@ export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPrev
 
 export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRawPreviewEvent {
     const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
-    if (
-        !isRecord(value)
-        || typeof value.ownerId !== 'string'
-        || value.ownerId.trim().length === 0
-        || typeof value.documentRevision !== 'string'
-        || value.documentRevision.trim().length === 0
-        || requestId === null
-    ) throw new Error('invalid scan-cleanup raw preview result');
+    if (!isRecord(value) || requestId === null) {
+        throw new Error('invalid scan-cleanup raw preview result');
+    }
+    const ownerId = decodeBoundedScanCleanupString(
+        value.ownerId,
+        'raw preview owner id',
+        SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    );
+    const documentRevision = decodeBoundedScanCleanupString(
+        value.documentRevision,
+        'raw preview document revision',
+        SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    );
     const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
     const pageNumber = requirePageNumber(
         decodePositiveInteger(value.pageNumber, 'raw page number'),
@@ -756,8 +761,8 @@ export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRa
     );
     if (pageNumber > totalPages) throw new Error('invalid scan-cleanup raw preview page number');
     return {
-        ownerId: value.ownerId,
-        documentRevision: value.documentRevision,
+        ownerId,
+        documentRevision,
         requestId,
         pageNumber,
         totalPages,
