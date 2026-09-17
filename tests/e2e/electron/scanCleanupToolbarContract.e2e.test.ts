@@ -105,13 +105,15 @@ describe('scan cleanup toolbar contract', () => {
         // Let detection settle, then run the same six-page document to
         // completion. The blocking contract must cover the generated PDF,
         // not only the controls that start it.
+        // These post-cancellation waits total 315s (30 + 180 + 15 + 45 + 45),
+        // inside the existing 360s test budget.
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
             return document.querySelector('.scan-cleanup-toolbar-cancel-detection') === null
                 && document.querySelector('.scan-cleanup-run-meter') === null
                 && action?.disabled === false
                 && (action.textContent ?? '').includes('Clean up');
-        }, {timeout: 90_000});
+        }, {timeout: 30_000});
         await session.page.click('.scan-cleanup-toolbar-primary-action');
         await waitForFunctionInPage(session.page, (source: string) => {
             const active = (window as IWorkspaceExposeProbeWindow)
@@ -120,12 +122,12 @@ describe('scan cleanup toolbar contract', () => {
             return typeof active?.originalPath === 'string'
                 && active.originalPath !== source
                 && active.originalPath.endsWith('— cleaned.pdf');
-        }, {timeout: 240_000}, sourcePath);
+        }, {timeout: 180_000}, sourcePath);
         await waitForFunctionInPage(session.page, () => Array.from(
             document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
-        ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 30_000});
-        await waitForPdfLoaded(session.page, 90_000);
-        await waitForViewerInteractive(session.page, 90_000);
+        ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 15_000});
+        await waitForPdfLoaded(session.page, 45_000);
+        await waitForViewerInteractive(session.page, 45_000);
 
         const outputState = await readWorkspaceStateValues(session.page, ['originalPath']);
         const outputPath = typeof outputState.originalPath === 'string'

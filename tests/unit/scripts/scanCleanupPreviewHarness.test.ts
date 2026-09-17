@@ -6,6 +6,7 @@ import {
 import {
     compareMetrics,
     independentReaderScale,
+    independentReaderWrongCalibrationOffset,
     weightAgreementViolations,
     weightUniformity,
 } from '@scripts/diagnostics/scan-cleanup-preview-harness.mjs';
@@ -60,6 +61,11 @@ describe('scan cleanup preview weight agreement', () => {
             x: 100 / 226,
             y: 121 / 120 * 46 / 103,
         });
+    });
+
+    it('converts the wrong-calibration offset into final raster pixels', () => {
+        expect(independentReaderWrongCalibrationOffset(100, 320, 160)).toBe(160);
+        expect(independentReaderWrongCalibrationOffset(20, 100, 400)).toBe(40);
     });
 
     it('accepts the measured RGB-camera preview residual', () => {

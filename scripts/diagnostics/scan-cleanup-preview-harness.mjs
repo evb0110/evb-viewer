@@ -684,16 +684,33 @@ export function independentReaderScale(metadata, actualWidth, actualHeight) {
     };
 }
 
+export function independentReaderWrongCalibrationOffset(
+    contentWidthPx,
+    finalCanvasWidthPx,
+    finalNativeCanvasWidthPx,
+) {
+    return Math.max(
+        INDEPENDENT_WRONG_CALIBRATION_OFFSET_MIN_PX,
+        Math.ceil(
+            contentWidthPx
+            * finalCanvasWidthPx
+            / finalNativeCanvasWidthPx
+            * 0.8,
+        ),
+    );
+}
+
 async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, metadata, finalGeometry) {
     const expected = await loadGrayscaleImage(nativeOutputPath);
     const actual = await loadGrayscaleImage(finalRasterPath);
     const independentScale = independentReaderScale(metadata, actual.width, actual.height);
-    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    const wrongCalibrationOffsetPx = Math.max(
-        INDEPENDENT_WRONG_CALIBRATION_OFFSET_MIN_PX,
-        Math.ceil(contentWidth * 0.8),
-    );
     const finalPlacement = finalPlacementSignature(finalGeometry, actual.width, actual.height);
+    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const wrongCalibrationOffsetPx = independentReaderWrongCalibrationOffset(
+        contentWidth,
+        finalPlacement.canvas.widthPx,
+        finalPlacement.nativeCanvasWidthPx,
+    );
     const points = [];
     for (let y = 3; y < expected.height - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; y += 5) {
         for (let x = 3; x < expected.width - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; x += 5) {

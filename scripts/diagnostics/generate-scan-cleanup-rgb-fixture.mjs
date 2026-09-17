@@ -180,8 +180,8 @@ function makeRaster() {
             x += scale * 6;
         }
     };
-    drawText('RGB CAMERA', 28, 54, 4);
-    drawText('TEXT TEST', 42, 126, 4);
+    drawText('RGB', 96, 48, 6);
+    drawText('CAMERA', 64, 132, 4);
     // Isolated dark sensor specks exercise the texture guard without making a
     // connected text-like component.
     for (const [
