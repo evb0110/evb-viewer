@@ -129,8 +129,11 @@ export const usePdfScale = (
     }
 
     function getFitRawSize(container: HTMLElement, mode: TFitMode) {
+        // clientHeight rounds fractional CSS pixels up at some UI zoom
+        // levels. Fit inside the physical box or Chromium still exposes
+        // a subpixel scroll range and paints a vertical scrollbar.
         return mode === 'height'
-            ? container.clientHeight
+            ? Math.min(container.clientHeight, Math.floor(container.getBoundingClientRect().height))
             : container.clientWidth;
     }
 
@@ -251,13 +254,17 @@ export const usePdfScale = (
         const newScale = clampFitScale(availableSize / baseDimension);
 
         const targetScale = options?.preview ? previewFitScale : fitWidthScale;
-        if (Math.abs(newScale - (targetScale.value ?? fitWidthScale.value)) < 0.001) {
-            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
-                currentScale: targetScale.value ?? fitWidthScale.value,
+        const currentScale = targetScale.value ?? fitWidthScale.value;
+        const scaleIsCurrent = mode === 'height'
+            ? newScale === currentScale
+            : Math.abs(newScale - currentScale) < 0.001;
+        if (scaleIsCurrent) {
+            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: scale unchanged within fit tolerance mode=${mode}`, {
+                currentScale,
                 newScale,
                 availableSize,
                 baseDimension,
-                epsilon: 0.001,
+                epsilon: mode === 'height' ? 0 : 0.001,
             });
             return false;
         }
@@ -335,7 +342,9 @@ export const usePdfScale = (
             : width;
         const expectedScale = clampFitScale(availableSize / baseDimension);
 
-        return Math.abs(expectedScale - fitWidthScale.value) < 0.001;
+        return mode === 'height'
+            ? expectedScale === fitWidthScale.value
+            : Math.abs(expectedScale - fitWidthScale.value) < 0.001;
     }
 
     function invalidateScaleCache() {

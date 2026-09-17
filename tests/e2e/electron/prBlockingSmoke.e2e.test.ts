@@ -1237,6 +1237,36 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
     });
 
+    blockingIt('leaves no subpixel scroll range in paged fit-height', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: 'e2e-pr-blocking-fit-height-overflow',
+        });
+        if (!session) {
+            return;
+        }
+        const fixturePath = await createMultiPageTextFixturePdf('fit-height-overflow.pdf', 3);
+        await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+        await evaluateInPage(session.page, () => {
+            // App zoom and split layouts can leave a fractional CSS height.
+            document.querySelector<HTMLElement>('#pdf-viewer')!.style.height = '445.6px';
+        });
+        expect((await callWorkspaceCommand(session.page, 'handleFitHeight')).called).toBe(true);
+        expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
+        await waitForCommittedFitHeightGeometry(session.page, 1);
+        const scrollRange = await evaluateInPage(session.page, () => {
+            const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
+            viewport.scrollTop = 10_000;
+            const maximumScrollTop = viewport.scrollTop;
+            viewport.scrollTop = 0;
+            return maximumScrollTop;
+        });
+        // Integer scrollHeight/clientHeight comparisons miss subpixel overflow.
+        expect(scrollRange).toBe(0);
+    });
+
     blockingIt('keeps fit-height geometry stable across continuous and paged modes', async () => {
         const session = await sessionFixture.restart({
             clean: true,

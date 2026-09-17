@@ -20,10 +20,15 @@ import type {
 function createContainer(
     width: number,
     height: number,
+    physicalHeight = height,
 ) {
     return {
         clientWidth: width,
         clientHeight: height,
+        getBoundingClientRect: () => ({
+            width,
+            height: physicalHeight,
+        }),
     } as HTMLElement;
 }
 
@@ -87,6 +92,33 @@ describe('usePdfScale', () => {
         expect(scale.seedOpeningFitScale(845 / 612)).toBe(true);
         expect(scale.effectiveScale.value * 612).toBeCloseTo(845, 6);
         expect(scale.seedOpeningFitScale(Number.NaN)).toBe(false);
+    });
+
+    it('fits inside the fractional viewport height without rounding up into overflow', () => {
+        const {scale} = createScaleComposable({
+            width: 338,
+            height: 593.3,
+            mode: 'height',
+        });
+        const container = createContainer(1_000, 546, 545.6015625);
+
+        scale.computeFitWidthScale(container);
+
+        expect(scale.effectiveScale.value * 593.3 + 40).toBeLessThanOrEqual(545.6015625);
+    });
+
+    it('updates fit-height when a one-pixel resize changes scale by less than 0.001', () => {
+        const {scale} = createScaleComposable({
+            width: 1_000,
+            height: 2_000,
+            mode: 'height',
+        });
+        scale.computeFitWidthScale(createContainer(1_000, 900));
+        const smaller = createContainer(1_000, 899);
+
+        expect(scale.isFitWidthScaleCurrent(smaller)).toBe(false);
+        expect(scale.computeFitWidthScale(smaller)).toBe(true);
+        expect(scale.effectiveScale.value * 2_000 + 40).toBe(899);
     });
 
     it('keeps viewer spacing fixed while fitting width', () => {
