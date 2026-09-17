@@ -50,6 +50,12 @@ import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import {
+    SCAN_CLEANUP_RUN_METER_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+} from '@contracts/scan-cleanup/toolbarSelectors';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -1498,7 +1504,7 @@ describe('Scan cleanup components', () => {
             sourcePath: null,
             totalPages: 158,
         })));
-        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         const count = meter?.querySelector('.scan-cleanup-run-meter-count');
 
         expect(meter?.querySelector('.scan-cleanup-run-meter-phase')?.textContent).toBe('Pre-analyzing pages');
@@ -1894,7 +1900,7 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent)
             .toContain('Processed 3 of 12 source pages');
-        expect(harness.host.querySelector('.scan-cleanup-run-meter')).not.toBeNull();
+        expect(harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR)).not.toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-header')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-footer')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-progress-overlay')).toBeNull();
@@ -2004,7 +2010,7 @@ describe('Scan cleanup components', () => {
         state.running = true;
         await nextTick();
         expect(widths()).toEqual(reviewWidths);
-        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         expect(meter?.textContent).toContain('Cleaning pages');
         expect(meter?.textContent).toContain('Step 2 of 3');
         expect(meter?.textContent).not.toContain('Step 5 of 8');
@@ -2027,7 +2033,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.querySelector('.scan-cleanup-run-meter-count .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('120 / 120');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
-        expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
+        expect(harness.host.querySelectorAll(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR)).toHaveLength(1);
         etaText.value = 'Current task: about 4 min';
         await nextTick();
         expect(meter?.textContent).toContain('Current task: about 4 min');
@@ -2059,8 +2065,8 @@ describe('Scan cleanup components', () => {
         })));
 
         expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain('Native cleanup failed');
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-count')).toBeNull();
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-cancel-detection')).toBeNull();
+        expect(harness.host.querySelector(SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR)).toBeNull();
+        expect(harness.host.querySelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR)).toBeNull();
         harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-dismiss-error')?.click();
         expect(dismiss).toHaveBeenCalledOnce();
     });
@@ -5733,7 +5739,7 @@ describe('Scan cleanup components', () => {
             runDisabledReason: '',
             transitionText: '',
         })));
-        expect(toolbar.host.querySelector('.scan-cleanup-toolbar-count .scan-cleanup-stable-width-sizer')?.textContent)
+        expect(toolbar.host.querySelector(`${SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR} .scan-cleanup-stable-width-sizer`)?.textContent)
             .toBe('Detecting pages — 392 / 392');
     });
 
@@ -5758,7 +5764,7 @@ describe('Scan cleanup components', () => {
             runDisabledReason: '',
             transitionText: '',
         })));
-        const cancel = harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-cancel-detection');
+        const cancel = harness.host.querySelector<HTMLButtonElement>(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
         expect(cancel?.getAttribute('aria-label')).toBe(cancelLabel);
     });
 
@@ -5783,7 +5789,7 @@ describe('Scan cleanup components', () => {
             runDisabledReason: '',
             transitionText,
         })));
-        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
 
         expect(meter?.textContent).toContain(transitionText);
         expect(meter?.textContent).toContain('Calculating time for current task…');
@@ -5818,7 +5824,7 @@ describe('Scan cleanup components', () => {
             runDisabledReason: '',
             transitionText: '',
         })));
-        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         const fill = harness.host.querySelector<HTMLElement>('[aria-current="step"] .scan-cleanup-run-segment-fill');
 
         expect(meter?.textContent).toContain('Pre-analyzing pages');
@@ -5855,7 +5861,7 @@ describe('Scan cleanup components', () => {
             runDisabledReason: '',
             transitionText: '',
         })));
-        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
 
         expect(meter?.querySelector('[aria-current="step"]')?.getAttribute('aria-label')).toBe('Finish PDF');
         expect(meter?.textContent).toContain('Step 3 of 3');
