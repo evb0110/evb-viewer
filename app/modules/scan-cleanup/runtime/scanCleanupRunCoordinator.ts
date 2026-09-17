@@ -811,6 +811,29 @@ export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TSc
 
 export type TScanCleanupCancelOutcome = 'accepted' | 'committing' | 'refused';
 
+function resolveScanCleanupCancelOutcome(
+    jobId: TJobId,
+    state: TScanCleanupJobState | null,
+): TScanCleanupCancelOutcome {
+    if (!state || state.jobId !== jobId) {
+        return 'refused';
+    }
+    if (scanCleanupRun.activeJobId === jobId) {
+        acceptScanCleanupJobState(state);
+    }
+    if (state.status === 'committing') {
+        return 'committing';
+    }
+    if (state.status === 'canceling' || [
+        'completed',
+        'failed',
+        'canceled',
+    ].includes(state.status)) {
+        return 'accepted';
+    }
+    return 'refused';
+}
+
 export async function cancelScanCleanup(): Promise<TScanCleanupCancelOutcome> {
     const capability = getScanCleanupCapability();
     const jobId = scanCleanupRun.activeJobId;
@@ -823,7 +846,17 @@ export async function cancelScanCleanup(): Promise<TScanCleanupCancelOutcome> {
         ownerId,
         documentRevision,
     };
-    if (await capability.cancel(jobId, owner)) {
+    let cancelAccepted: boolean;
+    try {
+        cancelAccepted = await capability.cancel(jobId, owner);
+    } catch {
+        const reconciledState = await reconcileScanCleanupRunState(capability, jobId, owner);
+        const state = reconciledState?.jobId === jobId
+            ? reconciledState
+            : (scanCleanupRun.jobState?.jobId === jobId ? scanCleanupRun.jobState : null);
+        return resolveScanCleanupCancelOutcome(jobId, state);
+    }
+    if (cancelAccepted) {
         return 'accepted';
     }
 
@@ -834,20 +867,7 @@ export async function cancelScanCleanup(): Promise<TScanCleanupCancelOutcome> {
     const authoritativeState = await capability.getJobState(jobId, owner).catch(() => null);
     const state = authoritativeState
         ?? (scanCleanupRun.jobState?.jobId === jobId ? scanCleanupRun.jobState : null);
-    if (state && state.jobId === jobId) {
-        acceptScanCleanupJobState(state);
-    }
-    if (state?.status === 'committing') {
-        return 'committing';
-    }
-    if (state?.status === 'canceling' || [
-        'completed',
-        'failed',
-        'canceled',
-    ].includes(state?.status ?? '')) {
-        return 'accepted';
-    }
-    return 'refused';
+    return resolveScanCleanupCancelOutcome(jobId, state);
 }
 
 export function setScanCleanupWorkspaceOwnerOpen(ownerId: string, open: boolean) {

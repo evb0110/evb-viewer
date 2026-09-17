@@ -965,6 +965,72 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
+    it('reconciles a cancellation transport rejection to authoritative state', async () => {
+        const canceling: TScanCleanupJobState = {
+            ...runningJobState(requireJobId('job-transport-rejection')),
+            status: 'canceling',
+        };
+        const value = stubCapability(() => undefined, () => 'job-transport-rejection');
+        vi.mocked(value.start).mockResolvedValue(startResult('job-transport-rejection'));
+        vi.mocked(value.cancel).mockRejectedValue(new Error('bridge disconnected'));
+        vi.mocked(value.getJobState).mockResolvedValue(canceling);
+        capability.value = value;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/transport-rejection.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await expect(coordinator.cancelScanCleanup()).resolves.toBe('accepted');
+            expect(coordinator.scanCleanupRun.jobState?.status).toBe('canceling');
+            expect(value.getJobState).toHaveBeenCalledWith('job-transport-rejection', ownerContext);
+            expect(value.reconnectJob).toHaveBeenCalledWith('job-transport-rejection', ownerContext);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
+    });
+
+    it('does not apply a reconciled cancellation state to a replacement job', async () => {
+        const cancellationState = Promise.withResolvers<TScanCleanupJobState>();
+        const canceling: TScanCleanupJobState = {
+            ...runningJobState(requireJobId('job-stale-cancel')),
+            status: 'canceling',
+        };
+        const replacement = runningJobState(requireJobId('job-replacement'));
+        const value = stubCapability(() => undefined, () => 'job-stale-cancel');
+        vi.mocked(value.start).mockResolvedValue(startResult('job-stale-cancel'));
+        vi.mocked(value.cancel).mockRejectedValue(new Error('bridge disconnected'));
+        vi.mocked(value.getJobState).mockReturnValue(cancellationState.promise);
+        capability.value = value;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/stale-cancel.pdf',
+                options: createScanCleanupOptions(),
+            });
+            const cancellation = coordinator.cancelScanCleanup();
+            await vi.waitFor(() => expect(value.getJobState).toHaveBeenCalledOnce());
+
+            coordinator.scanCleanupRun.activeJobId = replacement.jobId;
+            coordinator.scanCleanupRun.jobState = replacement;
+            cancellationState.resolve(canceling);
+
+            await expect(cancellation).resolves.toBe('accepted');
+            expect(coordinator.scanCleanupRun.jobState).toMatchObject(replacement);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
+    });
+
     it('does not infer sparse page identities from a truncated completion count', async () => {
         const {resolveScanCleanupProcessedPages} = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const truncatedState: TScanCleanupJobState = {

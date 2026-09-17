@@ -2607,7 +2607,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             }),
         );
 
-        cancelReply.resolve(false);
+        cancelReply.reject(new Error('bridge disconnected'));
         await cancel;
         expect(mounted.session.run.cancelRequested.value).toBe(false);
         expect(mounted.session.run.cancelStatusText.value).toBe('scanCleanup.cancelRefused');

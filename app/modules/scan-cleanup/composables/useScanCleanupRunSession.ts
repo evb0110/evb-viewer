@@ -730,7 +730,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.
-                if (result.started) await requestActiveJobCancellation();
+                if (result.started) await requestActiveJobCancellation(result.jobId);
                 return;
             }
             if (!result.started) {
@@ -760,8 +760,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
     }
 
-    async function requestActiveJobCancellation() {
+    async function requestActiveJobCancellation(jobId: NonNullable<typeof scanCleanupRun.activeJobId>) {
         const outcome = await cancelScanCleanup();
+        if (scanCleanupRun.activeJobId !== jobId) {
+            return outcome;
+        }
         if (outcome === 'refused') {
             stopRequested.value = false;
             cancelRefusal.value = t('scanCleanup.cancelRefused');
@@ -773,7 +776,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (cancelRequested.value || !isRunning.value) {
             return;
         }
-        if (!scanCleanupRun.activeJobId) {
+        const jobId = scanCleanupRun.activeJobId;
+        if (!jobId) {
             stopRequested.value = true;
             interruptPendingTransition?.();
             return;
@@ -782,7 +786,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         // the registry's canceling event is delayed.
         stopRequested.value = true;
         cancelRefusal.value = '';
-        await requestActiveJobCancellation();
+        await requestActiveJobCancellation(jobId);
     }
 
     function dismissError() {
