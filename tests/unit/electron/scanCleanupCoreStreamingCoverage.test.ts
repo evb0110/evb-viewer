@@ -56,6 +56,7 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const roots: string[] = [];
 const PPM = Buffer.concat([
@@ -1435,5 +1436,89 @@ describe('scan-cleanup-core conversion coverage', () => {
             totalUnits: 2,
         });
         expect(log).not.toHaveBeenCalledWith('warn', expect.any(String));
+    });
+
+    it('retains conversion scratch until deferred sidecar recovery completes', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-deferred-recovery-test-'));
+        roots.push(root);
+        const sourcePdfPath = join(root, 'source.pdf');
+        const outputPdfPath = join(root, 'output.pdf');
+        await writeFile(sourcePdfPath, '%PDF-source');
+        const pageSizeStore = createArrayBackedPdfPageSizeStore([pageGeometry(1)]);
+        let resolveRecovery!: (recovered: boolean) => void;
+        const recovery = new Promise<boolean>(resolve => {
+            resolveRecovery = resolve;
+        });
+        let cleanupComplete!: Promise<void>;
+        const renderPagePpm = vi.fn(async (
+            _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
+            _log: TScanCleanupLog,
+            _pageNumber: number,
+            _source: string,
+            outputPath: string,
+        ) => {
+            await writeFile(outputPath, PPM);
+        });
+        const runSidecar = vi.fn(async (
+            _binaryPath,
+            _manifestPath,
+            _signal,
+            _log,
+            _onProgress,
+            sidecarOptions,
+        ) => {
+            cleanupComplete = Promise.resolve(sidecarOptions?.onRecoveryPending?.(recovery));
+            throw markUnprovenNativeTermination(
+                new Error('sidecar termination was not proven'),
+                'sidecar termination was not proven',
+            );
+        });
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: vi.fn(async () => 1),
+            getPageSizeStore: vi.fn(async () => pageSizeStore),
+            detectSourceDpi: vi.fn(async () => ({
+                detected: true,
+                documentDpi: 300,
+                getPageRaster: () => ({
+                    dpi: 300,
+                    width: 300,
+                    height: 300,
+                }),
+            })),
+            renderPage: vi.fn(),
+            renderPagePpm,
+            runSidecar,
+            runCommand: vi.fn(async () => ({
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            })),
+            getAvailableScratchBytes: vi.fn(async () => null),
+        };
+
+        await expect(runScanCleanupConversion(
+            {
+                sourcePdfPath,
+                outputPdfPath,
+                options,
+            },
+            paths(root),
+            new AbortController().signal,
+            vi.fn(),
+            {
+                ...policy,
+                rasterStreaming: false,
+            },
+            vi.fn<TScanCleanupLog>(),
+            dependencies,
+        )).rejects.toThrow('sidecar termination was not proven');
+
+        expect(runSidecar).toHaveBeenCalledOnce();
+        expect(findScratchFile(root, 'cleanup-manifest-0.json')).not.toBeNull();
+
+        resolveRecovery(true);
+        await expect(recovery).resolves.toBe(true);
+        await cleanupComplete;
+        expect(findScratchFile(root, 'cleanup-manifest-0.json')).toBeNull();
     });
 });

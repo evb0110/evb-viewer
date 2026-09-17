@@ -18,3 +18,11 @@ these checks when the changed-area policy matches any of the following:
 Reuse that result instead of requiring a duplicate local run. While editing,
 run the particular failing oracle or test that exercises the change. A new
 ledger entry is not required.
+
+The export gate uses the existing one-page scanned fixture and generated RGB
+fixture for focused checks, then runs preview assertions over
+`tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf` pages 1–4. The
+one-page and RGB word-loss audits remain blocking with `--fail-on any`; the
+release fixture is used for its four-page grayscale preview/content surface
+because its grayscale-only pages are outside the word-loss audit's text-mask
+contract. No new binary corpus is required.

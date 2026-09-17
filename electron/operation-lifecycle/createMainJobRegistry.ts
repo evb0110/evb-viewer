@@ -20,6 +20,10 @@ import {
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
+
+export const RENDERER_DESTROYED_CANCELLATION_REASON = 'Renderer destroyed';
+export const RENDER_PROCESS_GONE_CANCELLATION_REASON = 'Renderer process gone';
+
 export interface IMainJobErrorEnvelope<TCode extends string = string> {
     code: TCode;
     message: string;
@@ -325,15 +329,15 @@ export function createMainJobRegistry<
             binding = {
                 sender,
                 records: new Set(),
-                destroyed: () => dispatch('destroyed', 'Renderer destroyed'),
-                gone: () => dispatch('renderProcessGone', 'Renderer process gone'),
+                destroyed: () => dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON),
+                gone: () => dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON),
                 navigation: (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) dispatch('mainFrameNavigation', 'Renderer main frame navigated'); },
             };
             bindings.set(sender.id, binding); sender.once('destroyed', binding.destroyed);
             sender.once('render-process-gone', binding.gone); sender.on('did-start-navigation', binding.navigation);
         }
         binding.records.add(record);
-        if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, 'Renderer destroyed');
+        if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);
     }
     function start(startOptions: IMainJobStartOptions<TProgress, TResult, TError, TSender>): THandle {
         const jobId = startOptions.jobId ?? randomUUID();

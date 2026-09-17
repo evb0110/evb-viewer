@@ -417,6 +417,8 @@ export default {
             'runRecoveryFailed': 'Não foi possível recuperar a limpeza da digitalização após a restauração da sessão do renderizador.',
             'insufficientScratch': 'Não há espaço livre suficiente no disco temporário para analisar este documento.',
             'insufficientScratchSpace': 'Libere espaço em disco e tente novamente: são necessários {required} e há {available} livres.',
+            'previewFrameDropped': 'A prévia limpa foi descartada antes do início da limpeza. Revise a prévia e tente novamente.',
+            'previewFrameTimeout': 'A prévia limpa não terminou de carregar antes do início da limpeza. Tente novamente.',
         },
         'cancelingDetection': 'Interrompendo a análise em segundo plano…',
         'startingCleanup': 'Iniciando a limpeza…',

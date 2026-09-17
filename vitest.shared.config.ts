@@ -113,21 +113,13 @@ const electronE2EVisibleWindowTestFiles = [
     'tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts',
 ];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
-const electronE2EQuarantineOperatorDiagnosticFiles = [
-    'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
-    'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts',
-    'tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts',
-];
 const electronE2ESavePipelineTestFiles = [
     'tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts',
     'tests/e2e/electron/savePipeline.e2e.test.ts',
     'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
     'tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts',
 ];
-const electronE2EXlargePdfTestFiles = [
-    'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
-    'tests/e2e/electron/scanCleanupXlargeAcceptance.e2e.test.ts',
-];
+const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
 const electronE2ESearchMatchScrollTestFiles = ['tests/e2e/electron/searchMatchScrolling.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
@@ -320,7 +312,6 @@ export const vitestProjects = [
     createElectronE2ETestProject(
         vitestProjectNames.electronE2EQuarantine,
         electronE2EQuarantineTestFiles,
-        {exclude: electronE2EQuarantineOperatorDiagnosticFiles},
     ),
     createElectronE2ETestProject(vitestProjectNames.electronE2ESavePipeline, electronE2ESavePipelineTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ENativeSaveReopen, electronE2ENativeSaveReopenTestFiles),

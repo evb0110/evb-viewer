@@ -21,7 +21,18 @@ export interface IPdfCanvasFidelityMetrics {
     width: number;
 }
 
-export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdfCanvasFidelityMetrics> {
+export const PDF_CANVAS_INK_RATIO_MIN = 0.01;
+export const PDF_CANVAS_INK_RATIO_MAX = 0.2;
+
+export function isPdfCanvasInkCoverageSane(metrics: IPdfCanvasFidelityMetrics) {
+    return metrics.inkPixelRatio >= PDF_CANVAS_INK_RATIO_MIN
+        && metrics.inkPixelRatio <= PDF_CANVAS_INK_RATIO_MAX;
+}
+
+export async function renderPdfCanvasFidelityMetrics(
+    path: string,
+    pageNumber = 1,
+): Promise<IPdfCanvasFidelityMetrics> {
     Object.assign(globalThis, {
         DOMMatrix,
         ImageData,
@@ -34,6 +45,7 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
         // The legacy build still accepts this Node option although current
         // PDF.js declarations omit it.
         disableWorker: true,
+        wasmUrl: `${resolve(process.cwd(), 'public/pdf/wasm')}${sep}`,
         // Fidelity fixtures contain unembedded standard fonts. Resolve those
         // from the same vendored PDF.js payload as the app so this corpus
         // measures rendering rather than whichever Helvetica substitute is
@@ -45,7 +57,7 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
     const task = pdfjs.getDocument(documentParameters);
     const document = adaptPdfjsDocument(await task.promise, () => task.destroy());
     try {
-        const page = await document.getPage(1);
+        const page = await document.getPage(pageNumber);
         // PDF points are 1/72 inch. Scale 1 therefore compares every fixture at
         // the same physical 72-DPI output size rather than at source pixel size.
         const viewport = page.getViewport({scale: 1});

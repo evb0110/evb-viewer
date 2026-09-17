@@ -106,34 +106,36 @@ pub(crate) struct GeometryOutput {
     pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
 }
 
+struct GeometryOutputParts {
+    options: CleanupOptions,
+    source_page_index: usize,
+    half: PageHalf,
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    content_detected: bool,
+    spread_content_top: Option<f64>,
+    optical_content_bounds_x: Option<(f64, f64)>,
+    fold_side_near_paper_run: usize,
+    outer_near_paper_edge_runs: NearPaperEdgeRuns,
+}
+
 impl GeometryOutput {
-    fn from_parts(
-        options: CleanupOptions,
-        source_page_index: usize,
-        half: PageHalf,
-        width: usize,
-        height: usize,
-        paper_width: f64,
-        paper_height: f64,
-        content_detected: bool,
-        spread_content_top: Option<f64>,
-        optical_content_bounds_x: Option<(f64, f64)>,
-        fold_side_near_paper_run: usize,
-        outer_near_paper_edge_runs: NearPaperEdgeRuns,
-    ) -> Self {
+    fn from_parts(parts: GeometryOutputParts) -> Self {
         Self {
-            options,
-            source_page_index,
-            half,
-            width,
-            height,
-            paper_width,
-            paper_height,
-            content_detected,
-            spread_content_top,
-            optical_content_bounds_x,
-            fold_side_near_paper_run,
-            outer_near_paper_edge_runs,
+            options: parts.options,
+            source_page_index: parts.source_page_index,
+            half: parts.half,
+            width: parts.width,
+            height: parts.height,
+            paper_width: parts.paper_width,
+            paper_height: parts.paper_height,
+            content_detected: parts.content_detected,
+            spread_content_top: parts.spread_content_top,
+            optical_content_bounds_x: parts.optical_content_bounds_x,
+            fold_side_near_paper_run: parts.fold_side_near_paper_run,
+            outer_near_paper_edge_runs: parts.outer_near_paper_edge_runs,
         }
     }
 }
@@ -1878,20 +1880,20 @@ pub(crate) fn place_rgb_on_white_canvas_with_source_window(
 }
 
 pub(crate) fn geometry_output(output: &WrittenOutput) -> GeometryOutput {
-    GeometryOutput::from_parts(
-        output.options.clone(),
-        output.source_page_index,
-        output.half,
-        output.width,
-        output.height,
-        output.paper_width,
-        output.paper_height,
-        output.content_detected,
-        output.spread_content_top,
-        output.optical_content_bounds_x,
-        output.fold_side_near_paper_run,
-        output.outer_near_paper_edge_runs,
-    )
+    GeometryOutput::from_parts(GeometryOutputParts {
+        options: output.options.clone(),
+        source_page_index: output.source_page_index,
+        half: output.half,
+        width: output.width,
+        height: output.height,
+        paper_width: output.paper_width,
+        paper_height: output.paper_height,
+        content_detected: output.content_detected,
+        spread_content_top: output.spread_content_top,
+        optical_content_bounds_x: output.optical_content_bounds_x,
+        fold_side_near_paper_run: output.fold_side_near_paper_run,
+        outer_near_paper_edge_runs: output.outer_near_paper_edge_runs,
+    })
 }
 
 pub(crate) fn geometry_output_from_cleanup_result(
@@ -1905,20 +1907,20 @@ pub(crate) fn geometry_output_from_cleanup_result(
         output.metadata.half,
     );
     let (fold_side_near_paper_run, outer_near_paper_edge_runs) = paper_edge_runs_for_output(output);
-    GeometryOutput::from_parts(
-        options.clone(),
-        output.metadata.source_page_index,
-        output.metadata.half,
-        output.image.width(),
-        output.image.height(),
+    GeometryOutput::from_parts(GeometryOutputParts {
+        options: options.clone(),
+        source_page_index: output.metadata.source_page_index,
+        half: output.metadata.half,
+        width: output.image.width(),
+        height: output.image.height(),
         paper_width,
         paper_height,
-        output.metadata.content_box.is_some(),
-        spread_content_top_for_output(output),
-        optical_content_bounds_x_for_output(output),
+        content_detected: output.metadata.content_box.is_some(),
+        spread_content_top: spread_content_top_for_output(output),
+        optical_content_bounds_x: optical_content_bounds_x_for_output(output),
         fold_side_near_paper_run,
         outer_near_paper_edge_runs,
-    )
+    })
 }
 
 fn geometry_plane_view(
