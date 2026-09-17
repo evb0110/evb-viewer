@@ -16,7 +16,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Barrier,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -2031,8 +2031,11 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
     let observer_canceled = Arc::clone(&canceled);
     let observer_finished = Arc::clone(&finished);
     let observer_publication = Arc::clone(&observed_publication);
+    let observer_ready = Arc::new(Barrier::new(2));
+    let observer_ready_for_thread = Arc::clone(&observer_ready);
     let observed_output = output.clone();
     let observer = std::thread::spawn(move || {
+        observer_ready_for_thread.wait();
         let mut output_was_staged = false;
         while !observer_finished.load(Ordering::Acquire) {
             if !observed_output.exists() {
@@ -2045,6 +2048,7 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
             std::thread::yield_now();
         }
     });
+    observer_ready.wait();
     let result = evb_scan_cleanup::cli::run_with_cancellation(
         vec![
             "--manifest".to_string(),

@@ -52,6 +52,11 @@ interface IRunScanCleanupSidecarOptions {
      * widen the boundary it is checked against.
      */
     allowedPathRoot?: string;
+    /**
+     * Receives a promise that settles after deferred publication recovery
+     * completes. The manifest owner retains its scratch until it succeeds.
+     */
+    onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
@@ -303,8 +308,10 @@ async function streamScanCleanupSidecar(
         'pipe',
     ]}));
     let childClosed = false;
+    let runDeferredRecovery: (() => void) | null = null;
     child.once('close', () => {
         childClosed = true;
+        runDeferredRecovery?.();
     });
     if (options.priority === 'background' && child.pid !== undefined) {
         try {
@@ -333,6 +340,7 @@ async function streamScanCleanupSidecar(
     // error the working-copy owner can see, so a bound that expires quarantines
     // the source bytes instead of authorising their deletion.
     const terminateForFatalError = () => {
+        void ensureDeferredRecovery();
         if (terminationPromise !== null) {
             return terminationPromise;
         }
@@ -363,19 +371,55 @@ async function streamScanCleanupSidecar(
     const withTerminationProof = <T>(error: T, terminated: boolean) => (
         terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
     );
-    const replayPublicationJournal = async (terminationConfirmed = false) => {
+    let publicationReplayPromise: Promise<boolean> | null = null;
+    let deferredRecoveryPromise: Promise<boolean> | null = null;
+    let resolveDeferredRecovery: ((recovered: boolean) => void) | null = null;
+    let deferredRecoverySettled = false;
+    const settleDeferredRecovery = (recovered: boolean) => {
+        if (deferredRecoverySettled) return;
+        deferredRecoverySettled = true;
+        resolveDeferredRecovery?.(recovered);
+    };
+    const ensureDeferredRecovery = () => {
+        if (deferredRecoveryPromise === null) {
+            deferredRecoveryPromise = new Promise<boolean>(resolve => {
+                resolveDeferredRecovery = resolve;
+            });
+            const recoveryCallback = options.onRecoveryPending?.(deferredRecoveryPromise);
+            if (recoveryCallback !== undefined) {
+                void recoveryCallback.catch(error => {
+                    log('warn', `Deferred scan-cleanup recovery owner failed: ${String(error)}`);
+                });
+            }
+        }
+        runDeferredRecovery?.();
+        return deferredRecoveryPromise;
+    };
+    const replayPublicationJournal = async (terminationConfirmed = false): Promise<boolean> => {
         if (!terminationConfirmed && !childClosed) {
             log('warn', 'Retaining scan-cleanup publication journal until the sidecar close is observed');
-            return;
+            return false;
         }
-        try {
-            if (await replayScanCleanupPublicationJournal(manifestPath)) {
-                log('warn', `Recovered staged scan-cleanup destinations from ${basename(manifestPath)}`);
+        publicationReplayPromise ??= (async () => {
+            try {
+                if (await replayScanCleanupPublicationJournal(manifestPath)) {
+                    log('warn', `Recovered staged scan-cleanup destinations from ${basename(manifestPath)}`);
+                }
+                return true;
+            } catch (error) {
+                log('warn', `Could not recover staged scan-cleanup destinations: ${String(error)}`);
+                return false;
             }
-        } catch (error) {
-            log('warn', `Could not recover staged scan-cleanup destinations: ${String(error)}`);
-        }
+        })();
+        const recovered = await publicationReplayPromise;
+        settleDeferredRecovery(recovered);
+        return recovered;
     };
+    runDeferredRecovery = () => {
+        if (deferredRecoveryPromise === null || !childClosed) return;
+        void replayPublicationJournal(true);
+    };
+    if (childClosed) runDeferredRecovery();
     const fatalSettlement = new Promise<never>((_resolve, reject) => {
         settleFatal = () => {
             void terminateForFatalError().then(async (terminated) => {

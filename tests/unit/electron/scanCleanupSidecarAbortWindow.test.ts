@@ -175,10 +175,7 @@ describe('scan cleanup sidecar abort window', () => {
     it('replays staged destinations after an unproven sidecar termination', async () => {
         vi.useFakeTimers();
         mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(() => {}));
-        const {
-            replayScanCleanupPublicationJournal,
-            runScanCleanupSidecar,
-        } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-recovery-'));
@@ -187,6 +184,7 @@ describe('scan cleanup sidecar abort window', () => {
         const backup = join(directory, 'page.png.evb-tmp-recovery');
         const journalPath = `${manifestPath}.evb-publication-journal.json`;
         const controller = new AbortController();
+        let deferredRecovery: Promise<boolean> | undefined;
         try {
             const run = runScanCleanupSidecar(
                 '/native/evb-scan-cleanup',
@@ -194,6 +192,7 @@ describe('scan cleanup sidecar abort window', () => {
                 controller.signal,
                 vi.fn<TWorkerLog>(),
                 () => {},
+                {onRecoveryPending: recovery => { deferredRecovery = recovery; }},
             ).catch((error: unknown) => error);
             await vi.advanceTimersByTimeAsync(0);
             await writeFile(backup, 'previous destination');
@@ -210,15 +209,70 @@ describe('scan cleanup sidecar abort window', () => {
 
             const error = await run;
             expect(error).toBeInstanceOf(Error);
+            expect(deferredRecovery).toBeDefined();
             await expect(readFile(original, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
             await expect(readFile(journalPath, 'utf8')).resolves.toContain(backup);
             expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
 
-            // Recovery is safe only after the child has actually closed. The
-            // caller can retry this journal later if termination remains
-            // unproven.
+            // Recovery is deferred until the child has actually closed. The
+            // owner retains the scratch until this promise settles.
             child.emit('close', null, 'SIGKILL');
-            await expect(replayScanCleanupPublicationJournal(manifestPath)).resolves.toBe(true);
+            await expect(deferredRecovery!).resolves.toBe(true);
+            await expect(readFile(original, 'utf8')).resolves.toBe('previous destination');
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('shares recovery between fatal settlement and a concurrent child close', async () => {
+        let finishTermination!: (terminated: boolean) => void;
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(resolve => {
+            finishTermination = resolve;
+        }));
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-concurrent-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const original = join(directory, 'page.png');
+        const backup = join(directory, 'page.png.evb-tmp-recovery');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        const controller = new AbortController();
+        let deferredRecovery: Promise<boolean> | undefined;
+        try {
+            const run = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                manifestPath,
+                controller.signal,
+                vi.fn<TWorkerLog>(),
+                () => {},
+                {onRecoveryPending: recovery => { deferredRecovery = recovery; }},
+            );
+            await writeFile(backup, 'previous destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                entries: [{
+                    original,
+                    backup,
+                }],
+            }));
+            controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
+            expect(deferredRecovery).toBeDefined();
+
+            // The close observer and fatal settlement intentionally enter the
+            // same replay window before either caller can consume the backup.
+            child.emit('close', null, 'SIGKILL');
+            finishTermination(true);
+
+            await expect(run).rejects.toMatchObject({name: 'AbortError'});
+            await expect(deferredRecovery!).resolves.toBe(true);
             await expect(readFile(original, 'utf8')).resolves.toBe('previous destination');
             await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
