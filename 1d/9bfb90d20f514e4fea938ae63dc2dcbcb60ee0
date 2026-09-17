@@ -1,0 +1,63 @@
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_40f60a7925c9a4::t_c8f31ec7bac1b5 489-497,504,551-554,621,629,674,931,963-974
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_40f60a7925c9a4::t_f736ed5da5e495 342,351
+  s_40f60a7925c9a4::t_71cfed70c0c301 101,231,240,427,571
+packages/scan-cleanup/core/policy/effectiveOptions.ts
+  s_40f60a7925c9a4::t_44c7f925981138 188,190,193-195
+electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline.ts
+  s_40f60a7925c9a4::t_74ed198d0641fb 398,435-438,592
+electron/features/scan-cleanup/scanCleanupPreviewPolicy.ts
+  s_40f60a7925c9a4::t_fc8a77d13f0dad 106
+  s_40f60a7925c9a4::t_879abb05f50137 149-152
+  s_40f60a7925c9a4::t_44c7f925981138 7,21-25,87-91,93,96,105,107-127,134-135,145-148,153-156,167
+electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults.ts
+  s_40f60a7925c9a4::t_15e9fd61e58a8c 171-174,181-203
+packages/contracts/resourcePolicies.ts
+  s_40f60a7925c9a4::t_44c7f925981138 26-27,135,145,155
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_40f60a7925c9a4::t_7c85cd8c9c5399 753-756
+tests/unit/electron/scanCleanupDetectionLifecycleScenarios.ts
+  s_40f60a7925c9a4::t_6aea745c853de4 1417,1420-1421
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_40f60a7925c9a4::t_cd44867f4a084c 247,253,266
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_40f60a7925c9a4::t_b0b574e098c8bb 88-89
+  s_40f60a7925c9a4::t_f11bba3f4e9de5 356,460
+electron/features/scan-cleanup/scanCleanupDetectionLifecycle.ts
+  s_40f60a7925c9a4::t_6aea745c853de4 600-605
+packages/scan-cleanup/core/detection.ts
+  s_40f60a7925c9a4::t_ce18f1bae55ef5 801,816
+  s_40f60a7925c9a4::t_cbbc37012c7653 800
+  s_40f60a7925c9a4::t_2ae79e247e1421 729,926,1231,1525,1583,1634,1774
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_40f60a7925c9a4::t_e2d756ed5f6694 17,167-177,186-188,190-194
+  s_40f60a7925c9a4::t_4cbc273512f82f 19,127-140,142-166
+  s_40f60a7925c9a4::t_c1b0918830e0a0 178-185,189
+electron/features/scan-cleanup/scanCleanupPreviewRenderingOwner.ts
+  s_40f60a7925c9a4::t_de0267d58cfdb0 218,231-237,463-466,472,486
+tests/unit/electron/scanCleanupNativeManifestBuilder.test.ts
+  s_40f60a7925c9a4::t_86412b38e4fdea 183-202
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_40f60a7925c9a4::t_b7c6557e916553 2231-2234,2253,2396,2667,2701-2704,2716-2718
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_40f60a7925c9a4::t_5312d70373be31 588,626
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_40f60a7925c9a4::t_59ab6222acb86f 358,506
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1d9bfb90d20f514e4fea938ae63dc2dcbcb60ee0",
+  "prompts": {},
+  "sessions": {
+    "s_40f60a7925c9a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeaa-f29d-72a1-9da7-1a0ca3b39a38",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
