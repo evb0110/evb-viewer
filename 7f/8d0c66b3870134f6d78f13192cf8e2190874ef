@@ -1,0 +1,33 @@
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_dc367948084a48::t_582f04edb48bb7 1429-1430,1432-1437,1439-1461
+  s_dc367948084a48::t_cac710e6385f60 1425-1428,1431,1438
+app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController.ts
+  s_dc367948084a48::t_7a8e32dfc6e397 2-3
+  s_dc367948084a48::t_61e9c878d95a7f 1,4,118-126
+app/utils/browserLogger.ts
+  s_dc367948084a48::t_81e7c297af0fba 296,306
+electron/platform-ipc/rendererLogBridge.ts
+  s_dc367948084a48::t_af70fd43b958c8 144-155
+tests/unit/app/modules/pdf-viewer/runtime/usePdfViewerTransactionController.test.ts
+  s_dc367948084a48::t_5fb751fcb2ff87 58-95
+tests/unit/app/utils/browserLogger.test.ts
+  s_dc367948084a48::t_5f4f3d605195c5 286-306
+tests/unit/electron/rendererLogRegistry.test.ts
+  s_dc367948084a48::t_2ef8241039877e 425-448
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7f8d0c66b3870134f6d78f13192cf8e2190874ef",
+  "prompts": {},
+  "sessions": {
+    "s_dc367948084a48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b15e-e200-77d2-b473-0cba7d205d3f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
