@@ -1,4 +1,9 @@
 import { EventEmitter } from 'node:events';
+import {
+    mkdtemp, readFile, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import { PassThrough } from 'node:stream';
 import {
     afterEach,
@@ -165,5 +170,51 @@ describe('scan cleanup sidecar abort window', () => {
         // would then retain a temp directory nothing is reading on every cancel.
         expect(getUnprovenNativeTerminationDetail(error)).toBeUndefined();
         expect(log).not.toHaveBeenCalledWith('warn', expect.stringContaining('was not proven dead'));
+    });
+
+    it('replays staged destinations after an unproven sidecar termination', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(() => {}));
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const original = join(directory, 'page.png');
+        const backup = join(directory, 'page.png.evb-tmp-recovery');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        const controller = new AbortController();
+        try {
+            const run = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                manifestPath,
+                controller.signal,
+                vi.fn<TWorkerLog>(),
+                () => {},
+            ).catch((error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(0);
+            await writeFile(backup, 'previous destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                entries: [{
+                    original,
+                    backup,
+                }],
+            }));
+            controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
+            await vi.advanceTimersByTimeAsync(3_500);
+
+            const error = await run;
+            expect(error).toBeInstanceOf(Error);
+            expect(await readFile(original, 'utf8')).toBe('previous destination');
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

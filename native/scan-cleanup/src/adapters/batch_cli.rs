@@ -226,7 +226,7 @@ fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box
     }
     preflight_paths(&staged_path_plan(&manifest))?;
     let total = manifest.pages.len();
-    let result = run_manifest_transaction(&manifest, || run_manifest_inner(&manifest));
+    let result = run_manifest_transaction(path, &manifest, || run_manifest_inner(&manifest));
     match result {
         Ok(()) => {
             write_protocol_line(&ResultEnvelope::success(total, total))?;
