@@ -1,0 +1,49 @@
+packages/contracts/scan-cleanup/nativeArtifactCodecs.ts
+  s_0539f551feac96::t_a8196e5d7babd9 552,578,886,889,934,973-974,977-978
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_0539f551feac96::t_30a6cd67031029 1802
+tests/unit/app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint.test.ts
+  s_0539f551feac96::t_30a6cd67031029 34
+tests/unit/contracts/scanCleanupNativeArtifactCodecs.test.ts
+  s_0539f551feac96::t_f882f03cf9b255 98
+  s_0539f551feac96::t_6b222f5931a6d1 326,442,444-445
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_0539f551feac96::t_2b9e0bdf23365d 1406-1413
+packages/contracts/scan-cleanup/decodeSplitDiagnostics.ts
+  s_0539f551feac96::t_a8196e5d7babd9 3,11
+native/scan-cleanup/src/main.rs
+  s_0539f551feac96::t_d1effd682d92fc 29-31
+native/scan-cleanup/tests/page_cli.rs
+  s_0539f551feac96::t_b97d0b4cd40202 1873
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_0539f551feac96::t_a8196e5d7babd9 354
+electron/platform-ipc/featureRegistrationTable.ts
+  s_0539f551feac96::t_a8196e5d7babd9 90
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface.test.ts
+  s_0539f551feac96::t_30a6cd67031029 113,157,188
+tests/unit/app/modules/workspace-shell/composables/useScanCleanupRunCoordinator.test.ts
+  s_0539f551feac96::t_4d24281baee303 198,220
+app/modules/workspace-shell/tabs/tabSessionStoreTypes.ts
+  s_0539f551feac96::t_a8196e5d7babd9 16
+tests/unit/app/modules/workspace-shell/composables/useTabSessionStore.test.ts
+  s_0539f551feac96::t_30a6cd67031029 107
+  s_0539f551feac96::t_4d24281baee303 120
+tests/windows/fixtures/manifest.json
+  s_0539f551feac96::t_8e32832300c3ce 276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "13e77ee1685a6289cd00c8bdf7a4b75a57c0ba11",
+  "prompts": {},
+  "sessions": {
+    "s_0539f551feac96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0af20-8aa5-7373-8877-47fbfd4bbe2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
