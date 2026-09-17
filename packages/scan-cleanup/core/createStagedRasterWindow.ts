@@ -287,6 +287,15 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                 observeResident();
             } catch (error) {
                 for (const candidate of batch) {
+                    if (held.get(candidate) === 'ready') {
+                        try {
+                            if (await dependencies.isStaged(candidate)) continue;
+                        } catch {
+                            // The original batch failure is authoritative. A
+                            // failed re-probe means this page is not safe to
+                            // retain, so it falls through to the cleanup.
+                        }
+                    }
                     held.delete(candidate);
                 }
                 throw error;
@@ -314,7 +323,12 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             leased.add(pageNumber);
             released.delete(pageNumber);
             cursorIndex = readingIndexByPage.get(pageNumber) ?? cursorIndex;
-            await stagePage(pageNumber);
+            try {
+                await stagePage(pageNumber);
+            } catch (error) {
+                leased.delete(pageNumber);
+                throw error;
+            }
         },
         /**
          * Unpin one page. The raster stays until the window needs its slot, so
