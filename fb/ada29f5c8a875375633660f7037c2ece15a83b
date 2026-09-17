@@ -1,0 +1,20 @@
+electron/features/scan-cleanup/public/sidecarProcessRegistry.ts
+  s_f1cd8c349c2626::t_662f18c054037f 249-251,253-255,303
+  s_f1cd8c349c2626::t_855a10c74db6f2 252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fbada29f5c8a875375633660f7037c2ece15a83b",
+  "prompts": {},
+  "sessions": {
+    "s_f1cd8c349c2626": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeee-4be6-7940-a703-15b108d175f2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
