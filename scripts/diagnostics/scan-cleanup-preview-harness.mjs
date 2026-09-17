@@ -1081,7 +1081,7 @@ async function main() {
         if (!detectionResult || detectionResult.pageNumber !== pageNumber) {
             throw new Error(`Detection cache has no page ${String(pageNumber)}`);
         }
-        const sourceRaster = sourceRasterDetails.pageRasterByNumber.get(pageNumber);
+        const sourceRaster = await sourceRasterDetails.getPageRaster(pageNumber);
         const sourceDpi = sourceRaster?.dpi
             ?? detectionResult.sourcePageMetadata?.sourceDpi
             ?? previewRasterPlan.pageDpiByNumber.get(pageNumber)

@@ -14,6 +14,7 @@ import type {
     TScanCleanupStartResult,
     TScanCleanupErrorCode,
     TScanCleanupJobState,
+    IScanCleanupScratchShortfall,
 } from '@contracts/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -66,6 +67,7 @@ import {
     resolveScanCleanupPreviewPath as resolvePreviewPath,
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolvePreviewRasterAdmissionPolicy,
     SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES as PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+    scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {createEpochMs} from '@contracts/timestamps';
@@ -105,7 +107,10 @@ interface IScanCleanupJobResult {
     summary: TScanCleanupSummary;
 }
 
-type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {failure?: FailureReceipt};
+type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {
+    failure?: FailureReceipt;
+    scratchShortfall?: IScanCleanupScratchShortfall;
+};
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
@@ -435,6 +440,9 @@ function terminalProgress(
             status,
             error: error.message,
             errorCode: error.code,
+            ...(error.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: error.scratchShortfall}),
             ...(error.failure === undefined ? {} : {failure: error.failure}),
         };
 }
@@ -465,6 +473,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
             return {
                 code: classifyPreviewError(cause, false),
                 message,
+                ...scanCleanupScratchShortfall(cause),
                 ...(failure === undefined ? {} : {failure}),
             };
         },

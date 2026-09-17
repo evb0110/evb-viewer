@@ -492,6 +492,50 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
+    it('localizes typed scratch figures on a failed run', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = stubCapability(
+            next => { listener = next; },
+            () => 'scratch-job',
+        );
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const toastAdd = vi.fn();
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(async () => true),
+            saveActiveDocumentAs: vi.fn(async () => true),
+            t: translate,
+            toast: {add: toastAdd},
+        });
+        try {
+            await expect(coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            })).resolves.toMatchObject({started: true});
+            listener({
+                jobId: requireJobId('scratch-job'),
+                status: 'failed',
+                error: 'raw ENOSPC detail must not be shown',
+                errorCode: 'insufficient-scratch',
+                scratchShortfall: {
+                    availableBytes: 520 * 1024 * 1024,
+                    requiredBytes: 1_100 * 1024 * 1024,
+                },
+                progress: progress(1),
+                updatedAtMs: requireEpochMs(Date.now()),
+            });
+            await vi.waitFor(() => expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
+                .toContain('scanCleanup.errors.insufficientScratch'));
+            const error = coordinator.getScanCleanupRunError(ownerContext.ownerId);
+            expect(error).toContain('scanCleanup.errors.insufficientScratchSpace');
+            expect(error).toContain('"available":"520.0 MB"');
+            expect(error).toContain('"required":"1.07 GB"');
+            expect(error).not.toContain('raw ENOSPC detail');
+        } finally {
+            cleanup();
+        }
+    });
+
     it('keeps runs global and routes completed, failed, and canceled terminal states', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         let nextJob = 0;
