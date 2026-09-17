@@ -161,10 +161,14 @@ pub(crate) fn staged_path_plan(manifest: &ManifestV3) -> StagedPathPlan {
     }
 }
 
-pub(crate) fn staged_lease(manifest: &ManifestV3, page: &Page) -> StagedLeaseDescriptor {
+pub(crate) fn staged_lease(
+    manifest: &ManifestV3,
+    page_index: usize,
+    page: &Page,
+) -> StagedLeaseDescriptor {
     StagedLeaseDescriptor {
         input_path: page.input_path.clone(),
-        page_number: page.source_page_index.saturating_add(1),
+        page_number: page_index.saturating_add(1),
         total_pages: manifest.pages.len(),
         enabled: manifest.staged_input_window.is_some(),
     }

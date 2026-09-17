@@ -342,7 +342,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     let run_analysis =
         |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
             let page = page_from_staged(&manifest.pages[index], descriptor);
-            let lease = staged_lease(manifest, &page);
+            let lease = staged_lease(manifest, index, &page);
             let result = with_announced_staged_page_input(&lease, &announce_lease, || {
                 let page_cache = page_cache_for(descriptor, &cache)?;
                 run_classification(
@@ -402,7 +402,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         );
         let rerun = |index, prior| {
             let page = &manifest.pages[index];
-            let lease = staged_lease(manifest, page);
+            let lease = staged_lease(manifest, index, page);
             let stream_input = planning_page(page).stream_input;
             acquire_staged_page_input(&lease, &announce_lease)?;
             let rerun_result =

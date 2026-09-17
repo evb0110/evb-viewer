@@ -869,7 +869,7 @@ const progress = s.refine(s.refine(s.object({
             && value.stage !== 'page-complete'
             && value.stage !== 'page-input-required'
             && value.stage !== 'page-input-released'
-        : true,
+        : value.pageNumber <= value.totalPages,
 'Invalid evb-scan-cleanup progress page number');
 const successResult = s.object({
     status: s.oneOf(['success'] as const),
