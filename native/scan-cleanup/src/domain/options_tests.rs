@@ -146,6 +146,11 @@ fn per_output_placement_overrides_the_document_default() {
 fn ink_alignment_and_placement_anchors_round_trip_and_stay_additive() {
     let options: CleanupOptions = serde_json::from_str(
         r#"{
+            "dpi":300,
+            "despeckle":true,
+            "outputMode":"bw",
+            "cropContent":true,
+            "matchPageSize":true,
             "pageAlignment":"ink",
             "placementAnchors":{
                 "left":{"yNormalized":0.13},
@@ -233,6 +238,12 @@ fn placement_anchors_reject_unbounded_non_finite_and_unknown_geometry() {
 #[test]
 fn normalized_content_rect_round_trips_with_named_units() {
     let json = r#"{
+        "dpi":300,
+        "despeckle":true,
+        "outputMode":"bw",
+        "cropContent":true,
+        "matchPageSize":true,
+        "pageAlignment":"top-center",
         "manualContentBoxes": {
             "left": {
                 "xNormalized": 0.1,
@@ -289,6 +300,12 @@ fn invalid_content_geometry_names_the_exact_field_and_values() {
 fn automatic_page_plan_is_additive_and_distinct_from_manual_geometry() {
     let options: CleanupOptions = serde_json::from_str(
         r#"{
+            "dpi":300,
+            "despeckle":true,
+            "outputMode":"bw",
+            "cropContent":true,
+            "matchPageSize":true,
+            "pageAlignment":"top-center",
             "automaticSplit":{"xNormalized":0.48,"rotationDegrees":0},
             "automaticSkewDegrees":{"right":-0.25},
             "automaticContentBoxes":{"right":{
@@ -490,18 +507,29 @@ fn option_objects_reject_unknown_fields() {
 
 #[test]
 fn legacy_despeckle_boolean_maps_to_a_default_normal_level() {
-    let enabled: CleanupOptions = serde_json::from_str(r#"{"despeckle":true}"#).unwrap();
+    let enabled: CleanupOptions = serde_json::from_str(
+        r#"{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}"#,
+    )
+    .unwrap();
     assert_eq!(enabled.despeckle_level, DespeckleLevel::Normal);
     assert_eq!(enabled.effective_despeckle_level(), DespeckleLevel::Normal);
 
-    let disabled: CleanupOptions = serde_json::from_str(r#"{"despeckle":false}"#).unwrap();
+    let disabled: CleanupOptions = serde_json::from_str(
+        r#"{"dpi":300,"despeckle":false,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}"#,
+    )
+    .unwrap();
     assert_eq!(disabled.effective_despeckle_level(), DespeckleLevel::Off);
 }
 
 #[test]
 fn mixed_mode_and_zone_schema_are_additive_and_rotation_checked() {
     let json = r#"{
+        "dpi":300,
+        "despeckle":true,
         "outputMode":"mixed",
+        "cropContent":true,
+        "matchPageSize":true,
+        "pageAlignment":"top-center",
         "manualZones":{
             "picture":[{
                 "polygon":{
@@ -526,7 +554,10 @@ fn mixed_mode_and_zone_schema_are_additive_and_rotation_checked() {
     );
     options.validate().unwrap();
 
-    let old: CleanupOptions = serde_json::from_str(r#"{"outputMode":"bw"}"#).unwrap();
+    let old: CleanupOptions = serde_json::from_str(
+        r#"{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}"#,
+    )
+    .unwrap();
     assert!(old.manual_zones.picture.is_empty());
     assert!(old.manual_zones.fill.is_empty());
 
@@ -536,4 +567,30 @@ fn mixed_mode_and_zone_schema_are_additive_and_rotation_checked() {
     );
     let invalid: CleanupOptions = serde_json::from_str(&wrong_rotation).unwrap();
     assert!(invalid.validate().is_err());
+}
+
+#[test]
+fn manifest_shaping_fields_are_required_when_options_are_deserialized() {
+    let required = serde_json::json!({
+        "dpi": 300,
+        "despeckle": true,
+        "outputMode": "bw",
+        "cropContent": true,
+        "matchPageSize": true,
+        "pageAlignment": "top-center",
+    });
+    for field in [
+        "despeckle",
+        "outputMode",
+        "cropContent",
+        "matchPageSize",
+        "pageAlignment",
+    ] {
+        let mut missing = required.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<CleanupOptions>(missing).is_err(),
+            "missing {field} was accepted",
+        );
+    }
 }

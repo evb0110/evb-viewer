@@ -747,8 +747,11 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     const binarization = options.binarization ?? 'auto';
     const normalizeIllumination = options.normalizeIllumination ?? true;
     const legacyDespeckle = options.despeckle;
-    const despeckleLevel = options.despeckleLevel
-        ?? (legacyDespeckle === false ? 'off' : 'normal');
+    const despeckleLevel = options.despeckleLevel === undefined
+        ? undefined
+        : isScanCleanupDespeckleLevel(options.despeckleLevel)
+            ? options.despeckleLevel
+            : null;
     const autoDewarp = options.autoDewarp ?? false;
     const layoutMode = options.layoutMode;
     const outputMode = options.outputMode;
@@ -770,7 +773,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         || typeof options.matchPageSize !== 'boolean'
         || !isScanCleanupPageAlignment(pageAlignment)
         || (legacyDespeckle !== undefined && typeof legacyDespeckle !== 'boolean')
-        || !isScanCleanupDespeckleLevel(despeckleLevel)
+        || despeckleLevel === null
         || typeof autoDewarp !== 'boolean'
         || (autoDewarpDepth !== undefined
             && (autoDewarpDepth < SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
@@ -796,7 +799,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         matchPageSize: options.matchPageSize,
         pageAlignment,
         marginsMm,
-        ...(options.despeckleLevel === undefined ? {} : {despeckleLevel}),
+        ...(despeckleLevel === undefined ? {} : {despeckleLevel}),
         ...(legacyDespeckle === undefined ? {} : {despeckle: legacyDespeckle}),
         ...(options.autoDewarp === undefined ? {} : {autoDewarp}),
         ...(autoDewarpDepth === undefined ? {} : {autoDewarpDepth}),

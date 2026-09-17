@@ -10,6 +10,18 @@ pub const MIN_THICKNESS: i8 = -5;
 pub const MAX_THICKNESS: i8 = 5;
 pub const THICKNESS_GRAY_STEP: i16 = 4;
 
+fn default_normalize_illumination() -> bool {
+    true
+}
+
+fn default_max_pixels() -> u64 {
+    DEFAULT_MAX_PIXELS
+}
+
+fn default_max_dimension() -> u32 {
+    DEFAULT_MAX_DIMENSION
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum BinarizationMode {
@@ -449,10 +461,11 @@ impl ResolvedTextToneDiagnostics {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CleanupOptions {
     pub dpi: f64,
     pub source_dpi: Option<f64>,
+    #[serde(default)]
     pub source_has_bilevel_layer: bool,
     pub source_background_dpi: Option<f64>,
     /// The trusted MRC selection mask is known to be an incomplete ink
@@ -473,19 +486,25 @@ pub struct CleanupOptions {
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
+    #[serde(default)]
     pub binarization: BinarizationMode,
+    #[serde(default)]
     pub thickness: i8,
+    #[serde(default = "default_normalize_illumination")]
     pub normalize_illumination: bool,
     pub despeckle: bool,
+    #[serde(default)]
     pub despeckle_level: DespeckleLevel,
     pub output_mode: OutputMode,
     /// Locked Auto representation decision. `None` preserves native policy for
     /// an explicitly selected Mixed mode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefer_soft_alpha_foreground: Option<bool>,
-    #[serde(skip_serializing_if = "ResolvedTextToneDiagnostics::is_empty")]
+    #[serde(default, skip_serializing_if = "ResolvedTextToneDiagnostics::is_empty")]
     pub resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics,
+    #[serde(default)]
     pub ocr_mode: bool,
+    #[serde(default)]
     pub layout: LayoutMode,
     #[serde(rename = "manualSplit")]
     pub manual_split_x: Option<NormalizedSplit>,
@@ -493,16 +512,22 @@ pub struct CleanupOptions {
     pub automatic_split: Option<NormalizedSplit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manual_skew_degrees: Option<f64>,
+    #[serde(default)]
     pub manual_content_boxes: ManualContentBoxes,
+    #[serde(default)]
     #[serde(skip_serializing_if = "AutomaticSkewDegrees::is_empty")]
     pub automatic_skew_degrees: AutomaticSkewDegrees,
+    #[serde(default)]
     #[serde(skip_serializing_if = "ManualContentBoxes::is_empty")]
     pub automatic_content_boxes: ManualContentBoxes,
+    #[serde(default)]
     pub manual_zones: ManualZones,
     pub crop_content: bool,
     pub match_page_size: bool,
     pub page_alignment: PageAlignment,
+    #[serde(default)]
     pub placement_overrides: PlacementOverrides,
+    #[serde(default)]
     #[serde(skip_serializing_if = "PlacementAnchors::is_empty")]
     pub placement_anchors: PlacementAnchors,
     #[serde(rename = "margins")]
@@ -510,13 +535,19 @@ pub struct CleanupOptions {
     #[serde(skip)]
     pub margins_pixels: Option<[f64; 4]>,
     pub dewarp: Option<DewarpOptions>,
+    #[serde(default)]
     pub experimental: ExperimentalOptions,
     #[serde(rename = "rotationDegrees")]
+    #[serde(default)]
     pub rotation: OrthogonalRotation,
+    #[serde(default)]
     pub excluded: bool,
+    #[serde(default)]
     pub skip_blank_pages: bool,
+    #[serde(default = "default_max_pixels")]
     pub max_pixels: u64,
     #[serde(rename = "maxDimensionPx")]
+    #[serde(default = "default_max_dimension")]
     pub max_dimension: u32,
 }
 

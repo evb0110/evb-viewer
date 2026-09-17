@@ -1181,9 +1181,14 @@ mod tests {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
-              "outputs":[],"options":{"unknownOption":true}}]
+              "outputs":[],"options":{"dpi":300,"despeckle":true,"outputMode":"bw",
+              "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center",
+              "unknownOption":true}}]
         }"#;
-        let field_free = json.replace(",\"options\":{\"unknownOption\":true}", ",\"options\":{}");
+        let field_free = json.replace(
+            ",\"options\":{\"dpi\":300,\"despeckle\":true,\"outputMode\":\"bw\",\n              \"cropContent\":true,\"matchPageSize\":true,\"pageAlignment\":\"top-center\",\n              \"unknownOption\":true}",
+            ",\"options\":{\"dpi\":300,\"despeckle\":true,\"outputMode\":\"bw\",\"cropContent\":true,\"matchPageSize\":true,\"pageAlignment\":\"top-center\"}",
+        );
         let with_nested_unknown = json.replace(
             "\"unknownOption\":true",
             "\"unknownOption\":true,\"nested\":{\"unknown\":true}",
@@ -1219,7 +1224,9 @@ mod tests {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "futureRoot":true,"pages":[{"inputPath":"in.png","sourcePageIndex":0,
-            "pageMetadataPath":"page.json","futurePage":true,"outputs":[],"options":{}}]
+            "pageMetadataPath":"page.json","futurePage":true,"outputs":[],"options":{
+                "dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,
+                "matchPageSize":true,"pageAlignment":"top-center"}}]
         }"#;
         let mut disabled = ManifestDiagnostics {
             enabled: false,
@@ -1258,9 +1265,11 @@ mod tests {
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[
               {"inputPath":"enabled.png","sourcePageIndex":0,"pageMetadataPath":"enabled.json",
-               "outputs":[],"options":{"despeckle":true}},
+               "outputs":[],"options":{"dpi":300,"despeckle":true,"outputMode":"bw",
+               "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}},
               {"inputPath":"disabled.png","sourcePageIndex":1,"pageMetadataPath":"disabled.json",
-               "outputs":[],"options":{"despeckle":false}}
+               "outputs":[],"options":{"dpi":300,"despeckle":false,"outputMode":"bw",
+               "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}}
             ]
         }"#;
         let manifest: ManifestV3 = serde_json::from_str(json).unwrap();
@@ -1287,7 +1296,8 @@ mod tests {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
-              "outputs":[],"options":{}}
+              "outputs":[],"options":{"dpi":300,"despeckle":true,"outputMode":"bw",
+              "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}}
             ]
         }"#;
         let page_plan: ManifestV3 = serde_json::from_str(json).unwrap();
@@ -1311,7 +1321,9 @@ mod tests {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":336,"pageMetadataPath":"page.json",
-              "outputs":[],"options":{"automaticContentBoxes":{"right":{
+              "outputs":[],"options":{"dpi":300,"despeckle":true,"outputMode":"bw",
+              "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center",
+              "automaticContentBoxes":{"right":{
                 "xNormalized":0.72,"yNormalized":0.1,"widthNormalized":0.29,
                 "heightNormalized":0.8,"rotationDegrees":0
               }}}}]
@@ -1328,7 +1340,8 @@ mod tests {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
-              "outputs":[],"options":{}}]
+              "outputs":[],"options":{"dpi":300,"despeckle":true,"outputMode":"bw",
+              "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}}]
         }"#;
         let absent: ManifestV3 = serde_json::from_str(json).unwrap();
         absent.validate().unwrap();
@@ -1372,7 +1385,8 @@ mod tests {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
-              "outputs":[],"options":{}}]
+              "outputs":[],"options":{"dpi":300,"despeckle":true,"outputMode":"bw",
+              "cropContent":true,"matchPageSize":true,"pageAlignment":"top-center"}}]
         }"#;
         let absent: ManifestV3 = serde_json::from_str(json).unwrap();
         absent.validate().unwrap();
@@ -1452,7 +1466,9 @@ mod tests {
         let json = serde_json::json!({
             "version": 3, "operation": "analyze", "renderMode": "preview", "canvasScope": "page",
             "pages": [{"inputPath": root.join("absent-page.png"), "sourcePageIndex": 0,
-              "pageMetadataPath": root.join("page.json"), "outputs": [], "options": {}}]
+              "pageMetadataPath": root.join("page.json"), "outputs": [], "options": {
+                "dpi": 300, "despeckle": true, "outputMode": "bw", "cropContent": true,
+                "matchPageSize": true, "pageAlignment": "top-center"}}]
         })
         .to_string();
         let direct: ManifestV3 = serde_json::from_str(&json).unwrap();
@@ -1759,7 +1775,12 @@ mod tests {
                 "inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
                 "outputs":[{"outputPath":"out.png","metadataPath":"out.json"}],
                 "options":{
+                    "dpi":300,
+                    "despeckle":true,
+                    "outputMode":"bw",
+                    "cropContent":true,
                     "matchPageSize":false,
+                    "pageAlignment":"top-center",
                     "manualSkewDegrees":-2.5,
                     "experimental":{"autoDewarp":true,"autoDewarpDepth":1.75}
                 }
