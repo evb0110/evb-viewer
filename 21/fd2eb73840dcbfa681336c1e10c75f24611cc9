@@ -1,0 +1,21 @@
+tests/unit/electron/scanCleanupStagedRasterWindow.test.ts
+  s_8adb599a641687::t_90913d7c6d9331 91-120
+packages/scan-cleanup/core/createStagedRasterWindow.ts
+  s_8adb599a641687::t_90913d7c6d9331 290-298,326-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "21fd2eb73840dcbfa681336c1e10c75f24611cc9",
+  "prompts": {},
+  "sessions": {
+    "s_8adb599a641687": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ea-79a2-87b4-3542db609d01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
