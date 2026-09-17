@@ -22,10 +22,11 @@ use crate::{
     },
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
-        binary_to_gray, paper_reference, picture_protection_radius,
-        postprocess_binary_with_diagnostics_and_raw, resolve_binarization_diagnostics,
-        resolve_spread_binarization_plans, BinarizationDiagnostics, SpreadBinarizationPlan,
-        BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
+        binary_to_gray, is_horizontally_fused_extent_admissible, paper_reference,
+        picture_protection_radius, postprocess_binary_with_diagnostics_and_raw,
+        resolve_binarization_diagnostics, resolve_spread_binarization_plans,
+        BinarizationDiagnostics, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR,
+        BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -2924,7 +2925,7 @@ fn restore_genuine_horizontal_rules(
         let height = component.bottom - component.top + 1;
         let horizontal_rule = width >= minimum_span
             && width >= height.saturating_mul(4)
-            && height <= maximum_thickness
+            && is_horizontally_fused_extent_admissible(component, maximum_thickness)
             && component.area >= width;
         if !horizontal_rule {
             continue;
