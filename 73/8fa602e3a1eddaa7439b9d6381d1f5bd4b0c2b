@@ -1,0 +1,105 @@
+native/scan-cleanup/src/engine/page_workflow.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 33,503,566-568,860,991
+native/scan-cleanup/src/engine/render/document_analysis_tests.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 284-287,399,417-419
+native/scan-cleanup/src/lib.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 30
+tests/unit/contracts/scanCleanupNativeArtifactCodecs.test.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 14,47,74,255-285,289-292,953,955,958-963,973-978
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 320-321,323-333,362,506,666,766,816,870,900,910-913,918,929-930,982,1035,1041,1081,1168,1690,3399,3589
+packages/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 6,30,34-35,38-43,62-66
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 13-14,24-27,45-49,64-66,218-220,234-235,294-298,363,405-410,412,428
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 39,655
+packages/scan-cleanup/core/provenanceStamp.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 23-31,62,73-74,780-790,885-888,897-914,916-919,930-935,947
+tests/unit/electron/scanCleanupProvenanceStamp.test.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 556-616
+native/scan-cleanup/src/cache.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 5,7,62-67,251,261,266-274,284-286,289-291,296-297,301-304,308,315-343,408-409,417,425
+native/scan-cleanup/src/engine/render_tests.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 41,4118-4121,4140-4143
+packages/contracts/scan-cleanup/geometry.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 21-23
+packages/contracts/scan-cleanup/nativeArtifactCodecs.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 75,83,95-149,407-418,863-865,1046-1047
+packages/scan-cleanup/adapters/createScanCleanupRenderers.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 1-4,16-19,287-309,339,361-382
+scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json
+  s_ed9c25da16d6df::t_326abd1fcef2a2 16,19,40,43,64,67
+native/scan-cleanup/src/engine/render/document_analysis.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 143-164,1277,1398-1405,1407-1409,1412,1415-1422,1425-1430,1569,1572-1574,1586,1598,1606,1627,1645,1647,1684,1700
+tests/unit/electron/scanCleanupNativeProtocolCodec.test.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 276-277,286
+packages/contracts/scan-cleanup/ipcRequestCodecs.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 35,623-629,659-660,753-757,779,805
+native/evb-raster-io/src/lib.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 1351
+native/scan-cleanup/src/engine/batch_reconciliation.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 126-129,181-183,484-520,539,696,866
+tests/unit/electron/scanCleanupRenderers.test.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 14,16,19-22,28,36,42-46,387-427
+native/scan-cleanup/src/domain/options_tests.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 5,125-164,189-193,281-286,343-348,407-408,552-555,559-562,569-570,572-574,599-602,613-637
+native/scan-cleanup/src/engine/render/region_rendering_tests.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 37,91,147
+native/scan-cleanup/tests/page_cli.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 549,562-565,1694,1772,2772-2774,2909-2911,3269,3329-3333,3459-3463,3477-3481,3585-3589,3677-3678,3776-3780,3890,3907,4037-4038,4066,4176,4266,4357,4479,4640,4773,4855-4856,5192,5196,5316,5320,5434-5435,5509-5510,5609-5610,5685,6003-6004,6145-6146
+tests/unit/contracts/scanCleanupIpcResultCodecs.test.ts
+  ai_agent 9,85-161
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 15,65,109-140,215,243,256,277,353,686,768,936,1000,1026,1100,1124,1150,1187,1375,1440,1475,1529-1537,1616,1619,1881-1894,1908-1913,1916-1918,1921,2012,2036,2048,2079,2111,2243,2250-2281,2359,2385-2405,2413,2472,2539,2582,2679,2715,2770,2823,2875,2917,2968,2998,3047,3089,3155,3218,3301,3345,3384,3434,3485,3528,3581,3605-3606,3828-3829,4031
+native/protocol-fixtures/scan-cleanup-manifest-v3-older-to-newer.json
+  s_ed9c25da16d6df::t_326abd1fcef2a2 11-18
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 79-84,348,661-684,761,764,872-878
+native/scan-cleanup/src/engine/render.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 25-29,64,223,1136,1168,1197,2228-2229,2231-2241,2929
+native/scan-cleanup/src/io/mod.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 252
+scripts/release/assert-packaged-scan-cleanup-fold-clip.mjs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 92,99
+tests/unit/contracts/scanCleanupIpcRequestCodecs.test.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 283-351
+packages/scan-cleanup/core/types.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 393
+native/scan-cleanup/src/io/raster.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 146,156-160,164-166,177,181-185,189-195,427-466
+packages/scan-cleanup/core/detection.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 1265,1269,1362,1378
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 720-730,797-799,903-905,1166-1184,1190-1192,1194-1197,1233-1235,1274-1275,1277-1278,1305-1306,1330-1332,1349-1350,1394-1395,1475-1477,1784-1787,1789
+native/evb-raster-io/tests/png.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 340-367
+native/scan-cleanup/src/bw.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 2898-2911,2933-2935,3818-3838
+native/scan-cleanup/src/domain/options.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 13-24,133-170,284-286,503,507,528,530,532,535,542,544,546,554,556,559,562,567,569,577,580,582,584,586,589,650-659,721-723,792-793,796-801,820-824,858-863,886-888
+native/scan-cleanup/src/engine/staged_input.rs
+  s_ed9c25da16d6df::t_326abd1fcef2a2 2-6,11,169-173,176,284-286,318-320,442-456,485,1076-1109
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 11,24,34,144,149,159-161,174,184-190,199-205,231-239,265-266,480-481,499-503,917,951,960-962
+native/protocol-fixtures/scan-cleanup-manifest-v3-newer-to-older.json
+  s_ed9c25da16d6df::t_326abd1fcef2a2 16-21
+tests/unit/electron/scanCleanupDetectionStagedWindow.test.ts
+  s_ed9c25da16d6df::t_326abd1fcef2a2 333-337,352-353,379-380,382-384,386,388,393,401,411-413,415-420,426,430
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "738fa602e3a1eddaa7439b9d6381d1f5bd4b0c2b",
+  "prompts": {},
+  "sessions": {
+    "s_ed9c25da16d6df": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9469b40b-9d1f-442f-83f9-282dce5f98e1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
