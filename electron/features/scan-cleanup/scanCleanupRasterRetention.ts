@@ -911,7 +911,7 @@ export function scanCleanupRasterRetention(
                     if (matchingDocument.pinned > 0) {
                         return;
                     }
-                } else if (matchingDocument.pinned > 1) {
+                } else if (matchingDocument.claims.size > 0) {
                     return;
                 }
                 matchingDocument.removeWhenIdle = true;

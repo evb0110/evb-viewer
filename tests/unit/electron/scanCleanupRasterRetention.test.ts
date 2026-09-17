@@ -24,6 +24,7 @@ import {
     scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRecyclesItsSlot,
     scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRetainedAgain,
     scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads,
+    scenarioProtectsDetectionClaimFromUnscopedInvalidation,
     scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled,
     scenarioReleasesClaimAfterExceptionalRetainedByteRead,
     scenarioReleasesClaimAfterExceptionalRetainedMetadataRead,
@@ -107,6 +108,10 @@ describe('scanCleanupRasterRetentionTest', () => {
         [
             'protect page release across owner claims',
             scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads,
+        ],
+        [
+            'protect a detection claim from unscoped invalidation',
+            scenarioProtectsDetectionClaimFromUnscopedInvalidation,
         ],
         [
             'preserve another owner during canceled publication',

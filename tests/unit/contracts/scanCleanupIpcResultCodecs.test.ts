@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {decodeScanCleanupJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
+import {
+    decodeScanCleanupJobState,
+    decodeScanCleanupRawPreviewEvent,
+} from '@contracts/scan-cleanup/ipcResultCodecs';
 
 const failedState = {
     jobId: 'job-1',
@@ -43,5 +46,38 @@ describe('scan cleanup job state diagnostics', () => {
                 eventId: 'not-an-event-id',
             },
         })).toThrow('invalid failure receipt');
+    });
+});
+
+describe('scan cleanup raw preview result', () => {
+    const rawPreview = {
+        ownerId: 'preview-owner',
+        documentRevision: 'revision-1',
+        requestId: 'preview-request-1',
+        pageNumber: 1,
+        totalPages: 1,
+        rawImageData: new Uint8Array([1]),
+        rawWidthPx: 1,
+        rawHeightPx: 1,
+    };
+
+    it('bounds the owner identity fields at the result boundary', () => {
+        expect(decodeScanCleanupRawPreviewEvent(rawPreview)).toMatchObject(rawPreview);
+        expect(decodeScanCleanupRawPreviewEvent({
+            ...rawPreview,
+            ownerId: 'o'.repeat(128),
+            documentRevision: 'r'.repeat(128),
+        })).toMatchObject({
+            ownerId: 'o'.repeat(128),
+            documentRevision: 'r'.repeat(128),
+        });
+        expect(() => decodeScanCleanupRawPreviewEvent({
+            ...rawPreview,
+            ownerId: 'x'.repeat(129),
+        })).toThrow('raw preview owner id');
+        expect(() => decodeScanCleanupRawPreviewEvent({
+            ...rawPreview,
+            documentRevision: 'x'.repeat(129),
+        })).toThrow('raw preview document revision');
     });
 });

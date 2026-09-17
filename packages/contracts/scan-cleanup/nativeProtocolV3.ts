@@ -831,8 +831,12 @@ const progress = s.refine(s.refine(s.object({
     pageNumber: s.optional(pageNumber),
     outputPaths: s.optional(s.array(s.string())),
     classification: s.optional(classification),
-    confidence: s.optional(s.number({message: 'Invalid evb-scan-cleanup progress confidence'})),
-    cutterXPx: s.optional(s.number({message: 'Invalid evb-scan-cleanup progress cutter'})),
+    confidence: s.optional(confidence('Invalid evb-scan-cleanup progress confidence')),
+    cutterXPx: s.optional(s.number({
+        min: 0,
+        max: Number.MAX_SAFE_INTEGER,
+        message: 'Invalid evb-scan-cleanup progress cutter',
+    })),
     tier1Verdict: s.optional(classification),
     reconciled: s.optional(s.boolean()),
     clusterAgreement: s.optional(s.number({

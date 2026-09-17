@@ -80,11 +80,13 @@ interface IPendingDocumentUpdate {
     writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
-const pendingLegacyDocumentUpdates = new Map<string, {
+interface IPendingLegacyDocumentUpdate {
     sourceSha256: string | null | undefined;
     legacyDocumentKey: string | null | undefined;
-    patch: IScanCleanupDocumentPreferencePatch
-}>();
+    patch: IScanCleanupDocumentPreferencePatch;
+    token: IScanCleanupDocumentPersistenceToken;
+}
+const pendingLegacyDocumentUpdates = new Map<string, IPendingLegacyDocumentUpdate>();
 let nextDocumentUpdateVersion = 0;
 let documentPersistenceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -111,6 +113,10 @@ function promoteUnresolvedDocumentUpdate(
     const key = unresolvedDocumentUpdateKey(legacyDocumentKey);
     const pending = pendingLegacyDocumentUpdates.get(key);
     if (!pending) {
+        return;
+    }
+    if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
+        pendingLegacyDocumentUpdates.delete(key);
         return;
     }
     pendingLegacyDocumentUpdates.delete(key);
@@ -277,6 +283,10 @@ function schedulePersistenceRetry() {
             key,
             write,
         ] of pendingLegacyDocumentUpdates) {
+            if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+                pendingLegacyDocumentUpdates.delete(key);
+                continue;
+            }
             if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) {
                 continue;
             }
@@ -746,13 +756,18 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
             ? unresolvedDocumentUpdateKey(legacyDocumentKey)
             : `${sourceSha256 ?? ''}\0${legacyDocumentKey ?? ''}`;
         const previous = pendingLegacyDocumentUpdates.get(key);
+        const token = captureScanCleanupDocumentPersistenceToken(sourceSha256, legacyDocumentKey);
+        const usablePrevious = previous && isScanCleanupDocumentPersistenceTokenCurrent(previous.token)
+            ? previous
+            : undefined;
         pendingLegacyDocumentUpdates.set(key, {
             sourceSha256,
             legacyDocumentKey,
             patch: {
-                ...(previous?.patch ?? {}),
+                ...(usablePrevious?.patch ?? {}),
                 ...cloneScanCleanupPreferenceValue(patch),
             },
+            token,
         });
         if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
         documentPersistenceTimer = setTimeout(() => {
@@ -761,6 +776,10 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
                 key,
                 write,
             ] of pendingLegacyDocumentUpdates) {
+                if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+                    pendingLegacyDocumentUpdates.delete(key);
+                    continue;
+                }
                 if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) continue;
                 pendingLegacyDocumentUpdates.delete(key);
                 void Promise.resolve(saveScanCleanupDocumentPreferencesInStore(
@@ -820,6 +839,9 @@ export async function flushScanCleanupDocumentPreferencesStore() {
     pendingLegacyDocumentUpdates.clear();
     let firstError: unknown = null;
     for (const write of writes) {
+        if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+            continue;
+        }
         if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) {
             pendingLegacyDocumentUpdates.set(unresolvedDocumentUpdateKey(write.legacyDocumentKey), write);
             continue;
