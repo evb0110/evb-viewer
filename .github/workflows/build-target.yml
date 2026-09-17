@@ -536,17 +536,12 @@ jobs:
       - name: Prune updater metadata on unsupported updater targets
         if: |
           runner.os == 'Linux'
-          || (runner.os == 'Windows' && (inputs.arch != 'x64' || env.WIN_EXPECT_SIGNATURE != 'true'))
           || (runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID != 'true')
         shell: bash
         run: |
           # Unsigned mac builds still launch when installed fresh, but publishing
           # latest-mac.yml + blockmaps lets signed installs reconstruct an update
           # from mixed-signature blocks. Keep ad-hoc mac artifacts manual-only.
-          #
-          # Unsigned Windows installers also stay publishable, but updater feeds
-          # are reserved for signed x64 builds so release behavior stays
-          # deterministic across platforms and install paths.
           rm -f release/latest*.yml
           rm -f release/*.blockmap
 

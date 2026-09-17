@@ -863,11 +863,17 @@ describe('release mirror publisher', () => {
                 await writeFile(intelZip, 'intel');
                 await writeFile(windowsInstaller, 'arm installer');
                 await writeFile(windowsProvenance, '{}');
+                const windowsFeed = join(directory, 'latest-win-arm64.yml');
+                const windowsBlockmap = `${windowsInstaller}.blockmap`;
+                await writeFile(windowsFeed, 'version: 2.1.0');
+                await writeFile(windowsBlockmap, 'blockmap');
                 return {
                     files: [
                         intelZip,
                         windowsInstaller,
                         windowsProvenance,
+                        windowsBlockmap,
+                        windowsFeed,
                     ],
                     intelZip,
                 };
@@ -911,6 +917,8 @@ describe('release mirror publisher', () => {
                 {name: 'EVB-Viewer-2.1.0-x64.zip'},
                 {name: 'EVB-Viewer-2.1.0-arm64-setup.exe'},
                 {name: 'EVB-Viewer-2.1.0-win-arm64-provenance.json'},
+                {name: 'EVB-Viewer-2.1.0-arm64-setup.exe.blockmap'},
+                {name: 'latest-win-arm64.yml'},
             ],
             skipped: false,
         });
@@ -921,6 +929,8 @@ describe('release mirror publisher', () => {
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-x64.zip',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-arm64-setup.exe',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-win-arm64-provenance.json',
+            'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-arm64-setup.exe.blockmap',
+            'evb-viewer/releases/v2.1.0/latest-win-arm64.yml',
         ]);
         expect(puts.every(command => command.input.CacheControl === 'public, max-age=31536000, immutable')).toBe(true);
     });

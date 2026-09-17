@@ -13,6 +13,7 @@ import {
     expectsUpdaterMetadata,
     getRequiredArtifactPatterns,
     getUpdaterMetadataFileNames,
+    parseUpdaterMetadataFileUrls,
 } from './policy.mjs';
 import { assertMacUpdaterMetadataHashes } from './notarize-macos-dmgs.mjs';
 import { assertUpdaterArtifactIntegrity } from './assert-updater-artifact-integrity.mjs';
@@ -43,7 +44,7 @@ function createBuildTarget(platform, arch) {
         arch,
         expectsUpdaterMetadata: (
             (platform === 'mac' && arch === 'arm64')
-            || (platform === 'win' && arch === 'x64')
+            || platform === 'win'
         ),
         isPrimaryHostTarget: true,
         platform: normalizedPlatform,
@@ -85,6 +86,16 @@ export function assertBuildArtifacts({
         readMetadataText ?? readDefaultMetadataText,
     );
     const metadataReader = readMetadataText ?? readDefaultMetadataText;
+    if (platform === 'win') {
+        const metadataName = `latest-win-${arch}.yml`;
+        if (!files.includes(metadataName)) {
+            throw new Error(`Missing updater metadata for win-${arch}: ${metadataName}`);
+        }
+        const urls = parseUpdaterMetadataFileUrls(metadataName, metadataReader(metadataName));
+        if (urls.length !== 1 || !urls[0]?.endsWith(`-${arch}-setup.exe`)) {
+            throw new Error(`Windows ${arch} updater metadata must reference its matching installer`);
+        }
+    }
     if (hasUpdaterMetadata) {
         const requiredVersion = expectedVersion
             ?? (artifactNames == null ? JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version : null);

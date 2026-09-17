@@ -478,6 +478,8 @@ describe('release policy', () => {
         expect(getSupplementalReleaseAssetNames('0.1.427')).toEqual([
             'EVB-Viewer-0.1.427-x64.zip',
             'EVB-Viewer-0.1.427-arm64-setup.exe',
+            'EVB-Viewer-0.1.427-arm64-setup.exe.blockmap',
+            'latest-win-arm64.yml',
             'EVB-Viewer-0.1.427-win-arm64-provenance.json',
         ]);
         expect(() => isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', ''))
@@ -524,6 +526,42 @@ describe('release policy', () => {
         expect(expectsUpdaterMetadata(macTarget, { EVB_RELEASE_HAS_MAC_SIGNING: 'true' })).toBe(true);
         expect(shouldVerifyPackagedStartup(macTarget, unsignedEnv)).toBe(false);
         expect(shouldVerifyPackagedStartup(macTarget, signedEnv)).toBe(true);
+    });
+
+    it.each([
+        'x64',
+        'arm64',
+    ] as const)('publishes a matching unsigned Windows %s feed', (arch) => {
+        const target = getLocalReleaseTargets({
+            platform: 'win32',
+            arch,
+        })[0]!;
+        expect(expectsUpdaterMetadata(target, {})).toBe(true);
+        const installer = `EVB-Viewer-0.1.0-${arch}-setup.exe`;
+        const metadata = `latest-win-${arch}.yml`;
+        const artifactNames = [
+            installer,
+            `${installer}.blockmap`,
+            metadata,
+        ];
+        expect(assertBuildArtifacts({
+            arch,
+            platform: 'win',
+            env: {},
+            artifactNames,
+            readMetadataText: () => `version: 0.1.0\npath: ${installer}\nfiles:\n  - url: ${installer}\n`,
+        })).toBe(true);
+        const otherInstaller = `EVB-Viewer-0.1.0-${arch === 'x64' ? 'arm64' : 'x64'}-setup.exe`;
+        expect(() => assertBuildArtifacts({
+            arch,
+            platform: 'win',
+            env: {},
+            artifactNames: [
+                otherInstaller,
+                metadata,
+            ],
+            readMetadataText: () => `path: ${otherInstaller}\nfiles:\n  - url: ${otherInstaller}\n`,
+        })).toThrow('must reference its matching installer');
     });
 
     it('provides a release automation env that stays in CI mode', () => {
@@ -588,7 +626,7 @@ describe('release policy', () => {
         ], {
             EVB_RELEASE_HAS_MAC_SIGNING: 'false',
             EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
-        })).toThrow('latest.yml');
+        })).not.toThrow();
 
         expect(() => assertPublishUpdaterMetadataPolicy([
             'EVB Viewer-0.1.0.AppImage',
@@ -1969,6 +2007,6 @@ describe('release policy', () => {
                 'EVB Viewer Setup 0.1.0-arm64.exe.blockmap',
             ],
             readMetadataText: () => '',
-        })).toThrow('Unexpected updater metadata for win-arm64');
+        })).toThrow('Missing updater metadata for win-arm64');
     });
 });

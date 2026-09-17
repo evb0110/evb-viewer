@@ -189,26 +189,20 @@ function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = g
     });
 }
 
-// Release metadata is published only for the signed mac arm64 updater lane.
-// Windows remains manual-install only until its signing credentials exist.
+// Store builds use Store updates. Standalone Windows installers have separate
+// architecture feeds; electron-updater verifies publisher signatures when configured.
 function isUpdaterRuntimeSupported() {
     return app.isPackaged
         && process.windowsStore !== true
-        && process.platform === 'darwin'
-        && process.arch === 'arm64';
+        && ((process.platform === 'darwin' && process.arch === 'arm64')
+            || (process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64')));
 }
 
 function getUnsupportedRuntimeMessage() {
     if (process.windowsStore === true) {
         return 'Updates for the Microsoft Store build are delivered by Microsoft Store.';
     }
-    if (process.platform === 'win32') {
-        // A packaged Windows build is the right platform and the right arch;
-        // naming the runtime would suggest otherwise. Falling back to the
-        // localized message says only that this build cannot update itself.
-        return null;
-    }
-    return `Updates are available only in packaged macOS arm64 builds. Current runtime: ${process.platform}-${process.arch}.`;
+    return null;
 }
 
 async function ensureUpdaterSupported() {
@@ -264,6 +258,9 @@ async function writeSkippedVersion(version: string | null) {
 }
 
 function getUpdaterMetadataAssetName() {
+    if (process.platform === 'win32') {
+        return `latest-win-${process.arch}.yml`;
+    }
     if (process.platform === 'darwin') {
         return 'latest-mac.yml';
     }
@@ -282,6 +279,7 @@ function configureUpdaterFeed(targetVersion: string) {
     autoUpdater.setFeedURL({
         provider: 'generic',
         url: getUpdaterReleaseFeedUrl(targetVersion),
+        ...(process.platform === 'win32' ? {channel: `latest-win-${process.arch}`} : {}),
         // GitHub release downloads redirect through S3, whose responses do
         // not support electron-updater's multi-range request format.
         useMultipleRangeRequest: false,

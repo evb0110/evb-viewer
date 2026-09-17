@@ -157,7 +157,6 @@ function getCoreAssetRequirements({
         // The status command checks the public release matrix. Local signing
         // credentials must not make the macOS ZIP optional in that report.
         EVB_RELEASE_HAS_MAC_SIGNING: env.EVB_RELEASE_HAS_MAC_SIGNING ?? 'true',
-        EVB_RELEASE_HAS_WINDOWS_SIGNING: env.EVB_RELEASE_HAS_WINDOWS_SIGNING ?? 'true',
     };
 
     return CORE_TARGETS.flatMap(({

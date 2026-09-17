@@ -403,7 +403,6 @@ jobs:
         shell: bash
         env:
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
-          EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
         run: |
           set -euo pipefail
           node scripts/release/assert-publish-metadata-policy.mjs artifacts "${{ needs.prepare.outputs.version }}"
@@ -511,7 +510,6 @@ jobs:
           ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
           FINALIZED_DRAFT: ${{ steps.draft_release.outputs.finalized_draft }}
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
-          EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -547,6 +545,8 @@ jobs:
                 'SHA256SUMS' \
                   | "EVB-Viewer-${RELEASE_VERSION}-x64.zip" \
                   | "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
+                  | "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe.blockmap" \
+                  | "latest-win-arm64.yml" \
                   | "EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json") continue ;;
               esac
               if [ ! -f "artifacts/$name" ]; then

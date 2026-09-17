@@ -401,10 +401,18 @@ jobs:
             --pattern "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
             --pattern "EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json" \
             --dir artifacts
+          # Older releases predate Windows updater feeds; preserve their assets.
+          remote_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[]?.name')"
+          for asset in "latest-win-arm64.yml" "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe.blockmap"; do
+            if grep -Fqx "$asset" <<< "$remote_assets"; then
+              gh release download "$RELEASE_TAG" --pattern "$asset" --dir artifacts
+            fi
+          done
 
       - name: Validate Windows ARM64 assets
         id: win_arm64_assets
         env:
+          REUSED: ${{ needs.resolve.outputs.existing_win_arm64 }}
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
@@ -417,6 +425,17 @@ jobs:
               exit 1
             fi
           done
+          if [ "$REUSED" != 'true' ] || [ -f artifacts/latest-win-arm64.yml ]; then
+            test -f artifacts/latest-win-arm64.yml
+            test -f "$installer.blockmap"
+            node --input-type=module <<'NODE'
+          import { assertBuildArtifacts } from './scripts/release/assert-build-artifacts.mjs';
+          assertBuildArtifacts({artifactsDir: 'artifacts', platform: 'win', arch: 'arm64', expectedVersion: process.env.RELEASE_VERSION});
+          NODE
+          elif [ -f "$installer.blockmap" ]; then
+            echo '::error::Windows ARM64 blockmap exists without its update feed.'
+            exit 1
+          fi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
           echo "provenance=$provenance" >> "$GITHUB_OUTPUT"
 
@@ -439,10 +458,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          files=("$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE")
+          if [ -f artifacts/latest-win-arm64.yml ]; then
+            files+=("$EXPECTED_INSTALLER.blockmap" "artifacts/latest-win-arm64.yml")
+          fi
           if [ "$DRILL" = 'true' ]; then
-            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE" --drill
+            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "${files[@]}" --drill
           else
-            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE"
+            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "${files[@]}"
           fi
 
   mirror_supplemental:
@@ -503,6 +526,8 @@ jobs:
           for asset in \
             "EVB-Viewer-${RELEASE_VERSION}-x64.zip" \
             "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
+            "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe.blockmap" \
+            "latest-win-arm64.yml" \
             "EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json"; do
             if grep -Fqx "$asset" <<< "$remote_assets"; then
               gh release download "$RELEASE_TAG" --pattern "$asset" --dir artifacts

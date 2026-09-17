@@ -20,10 +20,7 @@ import {
 import {DRILL_TAG_PATTERN} from './releaseTag.mjs';
 import {MULTIPART_PART_BYTES} from './publish-release-mirror.mjs';
 
-const DRILL_POLICY_ENV = Object.freeze({
-    EVB_RELEASE_HAS_MAC_SIGNING: 'true',
-    EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
-});
+const DRILL_POLICY_ENV = Object.freeze({EVB_RELEASE_HAS_MAC_SIGNING: 'true'});
 
 /** @type {ReadonlyArray<{arch: string, artifactGroup: string, platform: 'darwin' | 'linux' | 'win32'}>} */
 const TARGETS = Object.freeze([
@@ -162,7 +159,7 @@ function getMetadataName(target, environment) {
         return 'latest-mac.yml';
     }
     if (target.platform === 'win') {
-        return 'latest.yml';
+        return `latest-win-${target.arch}.yml`;
     }
     return null;
 }

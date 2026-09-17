@@ -50,6 +50,58 @@ afterEach(() => {
 });
 
 describe('AppUpdatesDialog', () => {
+    it.each([
+        [
+            'checking',
+            false,
+            true,
+        ],
+        [
+            'downloading',
+            false,
+            true,
+        ],
+        [
+            'unsupported',
+            false,
+            false,
+        ],
+        [
+            'no-update',
+            false,
+            false,
+        ],
+        [
+            'downloading',
+            true,
+            false,
+        ],
+    ] as const)('shows progress only while working: %s', (phase, ready, expected) => {
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        const host = document.createElement('div');
+        const close = vi.fn();
+        const app = createApp(AppUpdatesDialog, {
+            open: true,
+            title: phase,
+            description: phase,
+            phase,
+            available: false,
+            ready,
+            failure: null,
+            'onUpdate:open': close,
+        });
+        app.component('UModal', UModal);
+        app.component('UButton', UButton);
+        app.component('UProgress', {render: () => h('progress')});
+        app.mount(host);
+        onTestFinished(() => app.unmount());
+        expect(Boolean(host.querySelector('progress'))).toBe(expected);
+        if (phase === 'unsupported') {
+            [...host.querySelectorAll('button')].find(button => button.textContent === 'settings.close')?.click();
+            expect(close).toHaveBeenCalledWith(false);
+        }
+    });
+
     it('renders update actions and forwards each dialog event', () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         const events = {
@@ -68,6 +120,7 @@ describe('AppUpdatesDialog', () => {
             progressPercent: null,
             available: true,
             ready: false,
+            phase: 'available',
             failure: null,
             'onUpdate:open': events.close,
             onDefer: events.defer,

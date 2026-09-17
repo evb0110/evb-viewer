@@ -7,6 +7,8 @@
 const SUPPLEMENTAL_RELEASE_ASSET_PATTERNS = [
     /^EVB-Viewer-.+-x64\.zip$/u,
     /^EVB-Viewer-.+-arm64-setup\.exe$/u,
+    /^EVB-Viewer-.+-arm64-setup\.exe\.blockmap$/u,
+    /^latest-win-arm64\.yml$/u,
     /^EVB-Viewer-.+-win-arm64-provenance\.json$/u,
 ];
 
@@ -19,6 +21,8 @@ export function getSupplementalReleaseAssetNames(version) {
     return [
         `EVB-Viewer-${version}-x64.zip`,
         `EVB-Viewer-${version}-arm64-setup.exe`,
+        `EVB-Viewer-${version}-arm64-setup.exe.blockmap`,
+        'latest-win-arm64.yml',
         `EVB-Viewer-${version}-win-arm64-provenance.json`,
     ];
 }
@@ -36,10 +40,6 @@ export function isSupplementalReleaseAsset(fileName, version) {
 
 export function hasDeveloperIdSigningCredentials(env = process.env) {
     return Boolean(env.CSC_LINK && env.CSC_KEY_PASSWORD);
-}
-
-export function hasWindowsSigningCredentials(env = process.env) {
-    return Boolean(env.WIN_CSC_LINK && env.WIN_CSC_KEY_PASSWORD);
 }
 
 // Keep the native-save dependency graph in one place. The CI workflow mirrors
@@ -582,9 +582,6 @@ export function expectsUpdaterMetadata(target, env = process.env) {
     if (target.platform === 'mac' && !hasMacPublishUpdaterMetadataPolicy(env)) {
         return false;
     }
-    if (target.platform === 'win' && !hasWindowsPublishUpdaterMetadataPolicy(env)) {
-        return false;
-    }
 
     return true;
 }
@@ -621,7 +618,7 @@ export function getLocalReleaseTargets(options = {}) {
         arch: targetArch,
         expectsUpdaterMetadata: (
             (platform === 'mac' && targetArch === 'arm64')
-            || (platform === 'win' && targetArch === 'x64')
+            || platform === 'win'
         ),
         isPrimaryHostTarget: targetArch === arch,
         platform,
@@ -671,27 +668,16 @@ export function hasMacPublishUpdaterMetadataPolicy(env = process.env) {
     return hasDeveloperIdSigningCredentials(env);
 }
 
-export function hasWindowsPublishUpdaterMetadataPolicy(env = process.env) {
-    if (env.EVB_RELEASE_HAS_WINDOWS_SIGNING === 'true') {
-        return true;
-    }
-    if (env.EVB_RELEASE_HAS_WINDOWS_SIGNING === 'false') {
-        return false;
-    }
-    return hasWindowsSigningCredentials(env);
-}
-
 /** @param {Iterable<string>} artifactNames @param {NodeJS.ProcessEnv} [env] */
 export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.env) {
     const files = [...artifactNames];
     const hasMacPolicy = hasMacPublishUpdaterMetadataPolicy(env);
-    const hasWindowsPolicy = hasWindowsPublishUpdaterMetadataPolicy(env);
     const forbidden = files.filter((fileName) => {
         if (/^latest-mac.*\.yml$/u.test(fileName)) {
             return !hasMacPolicy;
         }
         if (/^latest(?:-win(?:-.*)?)?\.yml$/u.test(fileName)) {
-            return !hasWindowsPolicy;
+            return false;
         }
         if (/^latest.*\.yml$/u.test(fileName)) {
             return true;
@@ -700,7 +686,7 @@ export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.
             return !hasMacPolicy;
         }
         if (fileName.endsWith('.exe.blockmap')) {
-            return !hasWindowsPolicy;
+            return false;
         }
         return fileName.endsWith('.blockmap');
     });

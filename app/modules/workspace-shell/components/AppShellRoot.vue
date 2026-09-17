@@ -140,6 +140,7 @@
         />
         <AppUpdatesDialog
             :open="updatesDialog.open"
+            :phase="updatesDialog.phase"
             :title="updatesDialogBindings.updatesDialogTitle"
             :description="updatesDialogBindings.updatesDialogDescription"
             :progress-percent="updatesDialog.phase === 'downloading' ? updatesDialog.percent : null"

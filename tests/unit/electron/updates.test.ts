@@ -472,25 +472,44 @@ describe('updates robustness', () => {
         });
     });
 
-    it('reports Windows builds as unsupported instead of checking for updates', async () => {
+    it.each([
+        'x64',
+        'arm64',
+    ])('checks the matching Windows %s feed', async (arch) => {
         Object.defineProperty(process, 'platform', {
             configurable: true,
             value: 'win32',
         });
-
+        Object.defineProperty(process, 'arch', {
+            configurable: true,
+            value: arch,
+        });
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
         updates.initializeUpdates(status => statuses.push({...status}));
-
         await updates.triggerManualUpdateCheck();
-
-        expect(mocks.fetch).not.toHaveBeenCalled();
-        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
-        expect(statuses.at(-1)).toMatchObject({
-            origin: 'manual',
-            phase: 'unsupported',
-            message: null,
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledOnce();
+        expect(mocks.checkMacCodeSignature).not.toHaveBeenCalled();
+        expect(mocks.fetch).toHaveBeenCalledWith(
+            expect.stringContaining(`/latest-win-${arch}.yml`), expect.anything(),
+        );
+        expect(mocks.autoUpdater.setFeedURL).toHaveBeenCalledWith({
+            provider: 'generic',
+            url: 'https://github.com/evb0110/evb-viewer/releases/download/v1.1.0',
+            channel: `latest-win-${arch}`,
+            useMultipleRangeRequest: false,
         });
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'available',
+            version: '1.1.0',
+        });
+        expect(updates.downloadAvailableUpdate()).toEqual({started: true});
+        await flushPromises();
+        expect(mocks.autoUpdater.downloadUpdate).toHaveBeenCalledOnce();
     });
 
     it('cancels and drains an active updater download during shutdown', async () => {

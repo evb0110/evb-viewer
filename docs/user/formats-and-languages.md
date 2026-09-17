@@ -11,7 +11,7 @@ capabilities need the desktop app.
 | PDF + image combine | Yes | Yes |
 | DjVu viewing/conversion | Yes | Yes |
 | OCR + searchable PDF | Yes | No |
-| Auto-updates | Packaged macOS arm64 only | No |
+| Auto-updates | Packaged macOS arm64 and standalone Windows x64/ARM64 | No |
 | Tabs, splits, recent files | Yes | Yes |
 
 ## Supported Formats

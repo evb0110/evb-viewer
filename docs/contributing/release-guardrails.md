@@ -39,7 +39,7 @@ here is required reading for an ordinary cut.
 
 - Public releases require the macOS Developer ID and notarization secrets. Artifact-only builds may remain ad-hoc signed and must still build and launch correctly.
 - Ad-hoc macOS artifact builds are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
-- Windows signing secrets are optional for public releases. Unsigned Windows releases are manual-install only: GitHub builds prune `latest*.yml` and `.blockmap` unless the Windows artifact is the signed x64 updater target.
+- Windows signing secrets are optional for public releases. Standalone x64 and ARM64 NSIS builds publish separate `latest-win-x64.yml` and `latest-win-arm64.yml` feeds and blockmaps. The updater verifies SHA-512 integrity and, when the installed build has a signing publisher configured, its Authenticode signature. Store builds update through Microsoft Store.
 - The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
 - Distribution decisions must remain compatible with an individual, free, non-commercial project. Treat any business identity, paid account, or account conversion requirement as an explicit owner decision rather than an assumed release prerequisite.
 

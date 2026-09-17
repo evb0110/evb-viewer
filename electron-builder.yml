@@ -79,6 +79,11 @@ mac:
   # dylibs loaded by those executables pass library validation.
 
 win:
+  publish:
+    provider: github
+    owner: evb0110
+    repo: evb-viewer
+    channel: latest-win-${arch}
   icon: resources/icon.ico
   artifactName: "EVB-Viewer-${version}-${arch}-setup.${ext}"
   # Keep non-differential Windows archives uncompressed. The afterPack hook

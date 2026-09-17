@@ -21,7 +21,7 @@
                 <p v-else class="text-sm text-muted">
                     {{ description }}
                 </p>
-                <AppProgressBar v-if="!available && !failure" :value="progressPercent ?? null" />
+                <AppProgressBar v-if="(phase === 'checking' || phase === 'downloading') && !ready && !failure" :value="progressPercent ?? null" />
             </div>
         </template>
 
@@ -58,12 +58,14 @@
 </template>
 
 <script setup lang="ts">
+import type { TAppUpdatePhase } from '@contracts/updatesPlatformFeature';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 
 defineProps<{
     open: boolean;
+    phase: TAppUpdatePhase;
     title: string;
     description: string;
     progressPercent?: number | null;

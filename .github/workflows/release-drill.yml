@@ -120,6 +120,22 @@ jobs:
           printf 'publish-chain drill Windows ARM64 installer for %s\n' "$DRILL_VERSION" > "$DRILL_ROOT/win/EVB-Viewer-${DRILL_VERSION}-arm64-setup.exe"
           printf '{"kind":"drill","version":"%s","arch":"arm64"}\n' "$DRILL_VERSION" > "$DRILL_ROOT/win/EVB-Viewer-${DRILL_VERSION}-win-arm64-provenance.json"
 
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const directory = join(process.env.DRILL_ROOT, 'win');
+          const name = `EVB-Viewer-${process.env.DRILL_VERSION}-arm64-setup.exe`;
+          const bytes = readFileSync(join(directory, name));
+          const sha512 = createHash('sha512').update(bytes).digest('base64');
+          writeFileSync(join(directory, `${name}.blockmap`), 'drill blockmap');
+          writeFileSync(join(directory, 'latest-win-arm64.yml'), [
+            `version: ${process.env.DRILL_VERSION}`,
+            'files:', `  - url: ${name}`, `    sha512: ${sha512}`, `    size: ${bytes.length}`,
+            `path: ${name}`, `sha512: ${sha512}`, '',
+          ].join('\n'));
+          NODE
+
       - name: Upload drill Intel stub
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
