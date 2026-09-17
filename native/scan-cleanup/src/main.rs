@@ -26,6 +26,8 @@ fn main() {
         evb_native_support::generated_native_tool_protocols::SCAN_CLEANUP,
         env!("CARGO_PKG_VERSION"),
         std::env::args().skip(1),
-        |args| evb_scan_cleanup::cli::run_with_cancellation(args, &SIGTERM_CANCELED),
+        |args| {
+            evb_scan_cleanup::adapters::batch_cli::run_with_cancellation(args, &SIGTERM_CANCELED)
+        },
     );
 }

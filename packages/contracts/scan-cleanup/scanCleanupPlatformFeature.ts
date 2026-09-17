@@ -48,7 +48,7 @@ import {
     type IScanCleanupSettingsResult,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     parseJobId,
     parseRequestId,
@@ -190,6 +190,7 @@ const previewResult = s.fromParser(
         rawHeightPx: 1,
         pageMetadata: {
             layoutClassification: 'single-uncut-page' as const,
+            layoutConfidence: 0,
             cutterXPx: null,
             rotationDegrees: 0 as const,
             canvasScope: 'document' as const,
@@ -311,7 +312,7 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
         }),
         cancel: method({
             name: 'cancel',
-            channel: 'scan-cleanup:cancel',
+            channel: 'scan-cleanup:job:cancel',
             args: ownedJobArgs,
             result: booleanResult,
             main: 'cancel',

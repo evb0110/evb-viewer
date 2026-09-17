@@ -12,10 +12,11 @@ import {
     readFile, readdir, rm, stat, writeFile,
 } from 'fs/promises';
 import {dirname} from 'path';
-import type {IScanCleanupPreviewRequest} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {atomicReplace} from '@electron/utils/atomicReplace';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
@@ -23,6 +24,7 @@ import {fitScanCleanupMarginAxisPx} from '@evb/scan-cleanup/core/policy/document
 import {decodeScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
     createScanCleanupPreviewTestContext,
+    createScanCleanupPageRasterSource,
     decodePpm,
     detectionRequest,
     DOCUMENT_CANVAS,
@@ -286,7 +288,8 @@ export async function scenarioDoesNotUpscaleAProven72DPIRasterDocumentForItsBase
 export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePopplerRasterizesIt(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => [{
+    deps.getPageCount = vi.fn(async () => 1);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore([{
         pageNumber: 1,
         xPoints: 0,
         yPoints: 0,
@@ -297,7 +300,7 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
         dominantImageHeightPx: 3_328,
         dominantImageWidthPoints: 4_676,
         dominantImageHeightPoints: 3_328,
-    }]);
+    }]));
     const originalSidecar = deps.runSidecar;
     let manifest: {
         documentCanvas?: {
@@ -319,7 +322,6 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
         ...request,
         layoutByPage: {'1': 'single-uncut-page'},
     });
-
     // The raster is what the pixel budget bounds: this sheet is rendered
     // at half the resolution it asks for so Poppler never materializes a
     // 15-megapixel preview.
@@ -345,9 +347,8 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
 export async function scenarioStreamsTheDisplayRasterButCleansBinaryPreviewTextOnTheSourceGrid(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
+        pages: [1],
         sourceDpiByPage: new Map([[
             1,
             300,
@@ -929,10 +930,7 @@ export async function scenarioProbesOnlyTheRequestedPageForTheFirstPreviewRaster
     const probedPages: number[][] = [];
     deps.detectRasterPages = vi.fn(async (_sourcePdfPath, _signal, pageNumbers) => {
         probedPages.push([...pageNumbers]);
-        return {
-            detected: true,
-            pages: new Set<number>(pageNumbers),
-        };
+        return createScanCleanupPageRasterSource({pages: pageNumbers});
     });
 
     await previewOf(createRenderingScenarioOwner(deps), sender(), request);
@@ -1053,10 +1051,9 @@ export async function scenarioReusesTheDetectedOutputModeForAnAutomaticPreview()
 export async function scenarioDoesNotTurnACanceledTrustedLayerExtractionIntoARasterFallback(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
-        bilevelLayerPages: new Set([1]),
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
+        pages: [1],
+        bilevelLayerPages: [1],
         backgroundDpiByPage: new Map([[
             1,
             100,
@@ -1138,7 +1135,7 @@ export async function scenarioRendersAMatchedLosslessPageTheFinalRunCannotKeepLo
     // The document was scanned at two scales, and both pages carry their own
     // raster: matched page size cannot put them on one grid without
     // re-rendering, so the run will render — and so must the preview.
-    deps.getPageSizes = vi.fn(async () => [
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore([
         {
             pageNumber: 1,
             xPoints: 0,
@@ -1155,14 +1152,19 @@ export async function scenarioRendersAMatchedLosslessPageTheFinalRunCannotKeepLo
             heightPoints: 396,
             rotation: 0,
         },
-    ]);
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([
-            1,
-            2,
-        ]),
-    }));
+        {
+            pageNumber: requirePageNumber(3),
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        },
+    ]));
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({pages: [
+        1,
+        2,
+    ]}));
     const originalSidecar = deps.runSidecar;
     const operations: Array<string | undefined> = [];
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
@@ -1200,14 +1202,11 @@ export async function scenarioRendersAMatchedLosslessPageTheFinalRunCannotKeepLo
 export async function scenarioKeepsAMatchedLosslessPageLosslessWhenTheDocumentSharesOneGrid(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([
-            1,
-            2,
-            3,
-        ]),
-    }));
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({pages: [
+        1,
+        2,
+        3,
+    ]}));
     const originalSidecar = deps.runSidecar;
     const operations: Array<string | undefined> = [];
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
@@ -1377,14 +1376,11 @@ export async function scenarioUsesThePairWideLosslessFitWhenOneSpreadLeafReaches
         heightPoints: 780.48,
         rotation: 0,
     })));
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([
-            1,
-            2,
-            3,
-        ]),
-    }));
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({pages: [
+        1,
+        2,
+        3,
+    ]}));
     deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
         const output = (
@@ -1583,10 +1579,7 @@ export async function scenarioSamplesTheMatchedPreviewCanvasOnTheGridTheOutputPa
         widthPoints: 142.08,
         heightPoints: 213.12,
     })));
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set<number>(),
-    }));
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({detected: true}));
     deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
         await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
@@ -1685,10 +1678,7 @@ export async function scenarioNamesPaperTheMatchedPreviewCanvasCannotHold(): Pro
                 heightPoints: 612,
             }
     )));
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set<number>(),
-    }));
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({detected: true}));
     deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
         await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
@@ -1873,7 +1863,7 @@ export async function scenarioMatchesProvisionalPreviewsFromKnownPagesWithoutGue
             heightPx: 1_650,
         },
     ]);
-    expect(deps.getPageSizes).toHaveBeenCalledOnce();
+    expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
     await service.dispose();
 
 }
@@ -1900,7 +1890,7 @@ export async function scenarioLeavesEveryPageItsOwnCropWhenPageSizesAreNotMatche
     });
 
     expect(previewCanvases).toEqual([undefined]);
-    expect(deps.getPageSizes).toHaveBeenCalledOnce();
+    expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
 
 }
 

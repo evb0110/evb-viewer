@@ -618,14 +618,14 @@ import type {
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
     SCAN_CLEANUP_MARGIN_MAX_MM,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupScopeSelector from '@app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
@@ -1007,14 +1007,14 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
     padding-inline: var(--app-space-xl);
     color: var(--ui-primary);
     font-size: var(--app-text-size-kicker);
-    font-weight: 700;
+    font-weight: var(--app-font-weight-bold);
 }
 
 .scan-cleanup-override-marker > span {
     width: var(--app-space-3xl);
     height: var(--app-space-3xl);
     flex: none;
-    border-radius: 50%;
+    border-radius: var(--app-radius-full);
     background: var(--ui-primary);
 }
 </style>

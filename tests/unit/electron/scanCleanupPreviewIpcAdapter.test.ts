@@ -3,7 +3,7 @@ import {
 } from 'vitest';
 import type {IpcMainInvokeEvent} from 'electron';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {registerPlatformFeatureHandlers} from '@electron/platform-ipc/validatedIpcRegistrar';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {
@@ -15,7 +15,7 @@ import {
 import {reactive} from 'vue';
 import {
     type IScanCleanupPreviewRequest, isScanCleanupErrorEnvelope,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';

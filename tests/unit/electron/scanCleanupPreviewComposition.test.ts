@@ -12,13 +12,18 @@ import {
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
-import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
-import {SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {
+    resolveScanCleanupPreviewRasterAdmissionPolicy,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
+    type TScanCleanupRasterBudgetOptions,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import type {TPreviewVisibility} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     createScanCleanupPreviewTestContext,
+    createScanCleanupPageRasterSource,
     detectionRequest,
     DOCUMENT_CANVAS,
     DOCUMENT_PAGE_SIZES,
@@ -36,6 +41,7 @@ import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lif
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
 const dirs: string[] = [];
+const scanCleanupPreviewRasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes();
 const dependenciesOverride = {
     acquirePreviewLease: (ownerId: string, visibility: TPreviewVisibility, signal: AbortSignal) => mainJobBroker.acquire({
         ownerId,
@@ -43,7 +49,7 @@ const dependenciesOverride = {
         priority: visibility === 'prefetch' ? 'background' as const : 'visible' as const,
         resources: {
             cpuTokens: 1,
-            estimatedResidentBytes: SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+            estimatedResidentBytes: scanCleanupPreviewRasterSlotResidentBytes,
             nativeProcesses: 1,
             ioWeight: 1,
         },
@@ -58,7 +64,7 @@ const dependenciesOverride = {
         priority: 'user' as const,
         resources: {
             cpuTokens: policy.rasterConcurrency,
-            estimatedResidentBytes: policy.rasterConcurrency * SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+            estimatedResidentBytes: policy.rasterConcurrency * scanCleanupPreviewRasterSlotResidentBytes,
             nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming),
             ioWeight: 2,
         },
@@ -92,10 +98,9 @@ afterEach(async () => {
 
 async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecommendation: 'mixed' | undefined): Promise<void> {
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
-        bilevelLayerPages: new Set([1]),
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
+        pages: [1],
+        bilevelLayerPages: [1],
         backgroundDpiByPage: new Map([[
             1,
             100,
@@ -1272,6 +1277,10 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
     const {deps} = await previewDependencies();
     const {capacity} = mainJobBroker.getSnapshot();
     deps.getPageCount = vi.fn(async () => 8);
+    deps.getPageSizes = vi.fn(async () => Array.from({length: 8}, (_, index) => ({
+        ...DOCUMENT_PAGE_SIZES[0]!,
+        pageNumber: index + 1,
+    })));
     let liveNatives = 0;
     let peakNatives = 0;
     const trackNative = async <T>(run: () => Promise<T>) => {
@@ -1684,6 +1693,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
             const entries = await defaultDependencies.fileSystem!.readdir(scratch, {withFileTypes: true});
             expect(entries.map(entry => entry.name)).toEqual(['source.pdf']);
             await expect(defaultDependencies.getSourceStatIdentity!(sourcePath)).resolves.toMatch(/^\d+:\d+$/u);
+            expect(defaultDependencies.getPageSizes).toBeUndefined();
+            expect(defaultDependencies.getPageSizeStore).toBeDefined();
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy(true);
             expect(rasterPolicy.rasterConcurrency).toBeGreaterThan(0);
             const signal = new AbortController().signal;
@@ -1717,6 +1728,92 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 recursive: true,
                 force: true,
             });
+        }
+    });
+    it('derives raster residency from the configured canvas pixel budget', () => {
+        const bilevel: TScanCleanupRasterBudgetOptions = {
+            preserveOriginalQuality: false,
+            outputMode: 'bw',
+            pageOverrides: {},
+        };
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(bilevel)).toBe(640_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'color',
+        }))
+            .toBe(320_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            preserveOriginalQuality: true,
+        }))
+            .toBe(320_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'auto',
+        }))
+            .toBe(640_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'color',
+            pageOverrides: {'1': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'bw',
+            }},
+        }))
+            .toBe(640_000_000);
+    });
+    it('caps the admitted raster budget to a low-memory broker capacity', () => {
+        const capacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(
+            capacity,
+            false,
+            {
+                preserveOriginalQuality: false,
+                outputMode: 'color',
+                pageOverrides: {},
+            },
+        );
+        expect(policy.rasterConcurrency).toBe(1);
+        expect(policy.rasterMaxPixels).toBe(67_108_864);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(
+            undefined,
+            policy.rasterMaxPixels,
+        )).toBe(capacity.estimatedResidentBytes);
+    });
+    it('admits a low-memory preview lease with its reduced raster reservation', async () => {
+        const previousCapacity = mainJobBroker.getSnapshot().capacity;
+        const capacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+        try {
+            const signal = new AbortController().signal;
+            const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy!(false);
+            const detectionLease = await defaultDependencies.acquireDetectionLease!(
+                'scan-cleanup-low-memory-test',
+                signal,
+                rasterPolicy,
+            );
+            expect(detectionLease.release()).toBe(true);
+            const lease = await defaultDependencies.acquirePreviewLease!(
+                'scan-cleanup-low-memory-test',
+                'visible',
+                signal,
+            );
+            expect(lease.release()).toBe(true);
+        } finally {
+            mainJobBroker.reconfigureCapacity(previousCapacity);
         }
     });
     const scenarios = [

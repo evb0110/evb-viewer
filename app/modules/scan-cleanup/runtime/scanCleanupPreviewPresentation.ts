@@ -2,7 +2,7 @@ import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
     TScanCleanupPageAlignment,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
 import type {IScanCleanupDragRect} from '@app/modules/scan-cleanup/composables/useScanCleanupDragTransaction';
 import type {IScanCleanupPreviewImageSwap} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';

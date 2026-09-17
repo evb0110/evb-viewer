@@ -27,9 +27,29 @@ const failedState = {
         occurredAt: 1,
         severity: 'error',
     },
+    scratchShortfall: {
+        availableBytes: 512,
+        requiredBytes: 1_024,
+    },
 };
 
 describe('scan cleanup job state diagnostics', () => {
+    it('accepts the public commit-window state', () => {
+        const committing = {
+            jobId: 'job-committing',
+            status: 'committing',
+            progress: {
+                stage: 'handoff',
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+            },
+            updatedAtMs: 2,
+        };
+
+        expect(decodeScanCleanupJobState(committing)).toEqual(committing);
+    });
+
     it('preserves the closed main failure receipt on a failed projection', () => {
         expect(decodeScanCleanupJobState(failedState)).toEqual(failedState);
     });
@@ -47,6 +67,18 @@ describe('scan cleanup job state diagnostics', () => {
                 eventId: 'not-an-event-id',
             },
         })).toThrow('invalid failure receipt');
+    });
+
+    it('preserves typed scratch figures on a failed run projection', () => {
+        const runState = {
+            ...failedState,
+            errorCode: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 520 * 1024 * 1024,
+                requiredBytes: 1_100 * 1024 * 1024,
+            },
+        };
+        expect(decodeScanCleanupJobState(runState)).toEqual(runState);
     });
 });
 
@@ -149,10 +181,25 @@ describe('scan cleanup preview result geometry', () => {
     });
 
     it('uses applied margins for optical placement at the IPC boundary', () => {
-        expect(decodeScanCleanupPreviewResult(previewResult(previewMetadata({
+        const decoded = decodeScanCleanupPreviewResult(previewResult(previewMetadata({
             leftPx: 100,
             rightPx: 100,
-        })))).toMatchObject({pageNumber: 1});
+        })));
+        expect(decoded).toMatchObject({
+            pageNumber: 1,
+            pageMetadata: {layoutConfidence: 0},
+            outputs: [{metadata: {
+                cropRect: {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 1000,
+                    heightPx: 500,
+                },
+                canvasPolicy: 'intrinsic',
+                canvasOverflow: false,
+                rasterScaleLimited: false,
+            }}],
+        });
         expect(() => decodeScanCleanupPreviewResult(
             previewResult(previewMetadata({
                 leftPx: 200,

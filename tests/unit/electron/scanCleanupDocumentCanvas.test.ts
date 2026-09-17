@@ -7,7 +7,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     TScanCleanupLayoutByPage,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     addScanCleanupDocumentCanvasObservedPage,
     addScanCleanupDocumentCanvasPage,
@@ -22,6 +22,7 @@ import {
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupDroppedMatchWarningEvent,
+    resolveMatchedCanvasResamplePagesFromStore,
     resolveScanCleanupMatchedCanvasPlacement,
     resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupOutputPageRect,
@@ -31,10 +32,11 @@ import {
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
     placeScanCleanupCanvasBox,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     parsePdfInfoPageGeometry,
     parsePdfPageSizesPayload,
+    type IPdfPageSizeStore,
     type IPdfPageSize,
 } from '@electron/pdf/pdfPageSizes';
 import {resolveSuspiciousCropBoxPageSizes} from '@evb/scan-cleanup/core/pdfPageSizes';
@@ -1535,6 +1537,100 @@ describe('scan cleanup document canvas', () => {
                 true,
             )).toThrow(
                 'Scan cleanup matched canvas resample planning received page geometry out of document order: expected page 1 at index 0, received page 2',
+            );
+        });
+
+        it('validates order and total page count while planning from a store', async () => {
+            const canvas = resolveScanCleanupDocumentCanvas(
+                mixedScale,
+                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                losslessOptions,
+            );
+            if (canvas === null) throw new Error('expected a matched canvas');
+            const createPageSizeStore = (pages: readonly IPdfPageSize[]): IPdfPageSizeStore => ({
+                pageCount: 2,
+                getPage: async pageNumber => pages[pageNumber - 1] ?? pages[0]!,
+                readRange: async () => [...pages],
+                forEachChunk: async onChunk => onChunk({
+                    pageCount: 2,
+                    chunkIndex: 0,
+                    firstPageNumber: 1,
+                    offset: 0,
+                    byteLength: 0,
+                    pages: [...pages],
+                }),
+                close: async () => undefined,
+            });
+            const rasterSource = {
+                detected: true,
+                getPageRaster: async () => ({
+                    dpi: 300,
+                    width: 2_550,
+                    height: 3_300,
+                }),
+            };
+
+            await expect(resolveMatchedCanvasResamplePagesFromStore({
+                pageSizeStore: createPageSizeStore([
+                    mixedScale[0]!,
+                    mixedScale[1]!,
+                ]),
+                documentPageCount: 2,
+                canvas,
+                options: losslessOptions,
+                rasterSource,
+                rasterDetectionAvailable: true,
+            })).resolves.toEqual(resolveMatchedCanvasResamplePages(
+                mixedScale,
+                [
+                    1,
+                    2,
+                ],
+                losslessOptions,
+                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                new Set([
+                    1,
+                    2,
+                ]),
+                true,
+            ));
+
+            await expect(resolveMatchedCanvasResamplePagesFromStore({
+                pageSizeStore: createPageSizeStore([
+                    mixedScale[1]!,
+                    mixedScale[0]!,
+                ]),
+                documentPageCount: 2,
+                canvas,
+                options: losslessOptions,
+                rasterSource,
+                rasterDetectionAvailable: true,
+            })).rejects.toThrow(
+                'Scan cleanup page-size store returned page 2 where page 1 was expected',
+            );
+            await expect(resolveMatchedCanvasResamplePagesFromStore({
+                pageSizeStore: createPageSizeStore([mixedScale[0]!]),
+                documentPageCount: 2,
+                canvas,
+                options: losslessOptions,
+                rasterSource,
+                rasterDetectionAvailable: true,
+            })).rejects.toThrow(
+                'Scan cleanup page-size store returned 1 pages for 2 document pages',
+            );
+            await expect(resolveMatchedCanvasResamplePagesFromStore({
+                pageSizeStore: createPageSizeStore([
+                    mixedScale[0]!,
+                    mixedScale[1]!,
+                    page({pageNumber: 3}),
+                ]),
+                documentPageCount: 2,
+                canvas,
+                options: losslessOptions,
+                rasterSource,
+                rasterDetectionAvailable: true,
+            })).rejects.toThrow(
+                'Scan cleanup page-size store returned 3 pages for 2 document pages',
             );
         });
     });

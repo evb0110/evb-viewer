@@ -1,6 +1,6 @@
 import {randomUUID} from 'crypto';
 import {join} from 'path';
-import type { IScanCleanupPreviewRequest } from '@contracts/electronApiScanCleanup';
+import type { IScanCleanupPreviewRequest } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveRasterHandoff} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createLogger} from '@electron/utils/createLogger';
@@ -10,13 +10,12 @@ import type {
     IScanCleanupPageRasterSource,
 } from '@evb/scan-cleanup/core/types';
 import { detectPageRasterFromPageSize } from '@evb/scan-cleanup/core/types';
-import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
 import {
-    DETECTION_DPI,
-    PREVIEW_DPI,
-    type IScanCleanupDocumentRasterPages,
-} from '@evb/scan-cleanup/core/detection';
-import {PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+    RAW_RASTER_RETENTION_PREFIX,
+    RASTER_PAGE_SOURCE_CACHE_LIMIT,
+    RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {readScanCleanupPngDimensions as readPngDimensions} from '@evb/scan-cleanup/core/rasterValidation';
 import type {
     IRetainedDocument,
@@ -44,33 +43,7 @@ import {
     createScanCleanupRasterMeasurements,
 } from '@electron/features/scan-cleanup/scanCleanupRasterMeasurement';
 const logger = createLogger('scan-cleanup-raster-retention');
-const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
-const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
-// Keep fallback page probes within the same bounded unit as detection and
-// source-DPI probing. The raster cache and decoded page window stay bounded
-// independently of this page-number batch size.
-const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 
-function rasterFromLegacyProbe(
-    source: IScanCleanupDocumentRasterPages,
-    pageNumber: number,
-): IDetectedPageRaster | undefined {
-    if (!source.pages.has(pageNumber)) {
-        return undefined;
-    }
-    const raster: IDetectedPageRaster = {
-        // The old injected result has no pixel dimensions. Detection only
-        // needs a valid raster record when a test exercises this adapter.
-        dpi: source.sourceDpiByPage?.get(pageNumber) ?? DETECTION_DPI,
-        width: 1,
-        height: 1,
-    };
-    if (source.bilevelLayerPages?.has(pageNumber)) raster.hasBilevelLayer = true;
-    if (source.dominantBilevelLayerPages?.has(pageNumber)) raster.hasDominantBilevelLayer = true;
-    const backgroundDpi = source.backgroundDpiByPage?.get(pageNumber);
-    if (backgroundDpi !== undefined) raster.backgroundDpi = backgroundDpi;
-    return raster;
-}
 export function scanCleanupRasterRetention(
     dependencies: IScanCleanupRasterDependencies,
 ): IScanCleanupRasterRetention {
@@ -347,14 +320,11 @@ export function scanCleanupRasterRetention(
             sourceStatIdentity,
             pageCount: null,
             pageSizeStore: null,
-            previewPageSizes: null,
             sourceDpiByPage: new Map(),
-            rasterPages: null,
             rasterPageSource: null,
             rasterPageSourceStore: null,
             pageGeometryDpi: null,
             pageSizeStores: new Set(),
-            rasterPageByPage: new Map(),
             rendererOwners: new Set(),
             pinned: 1,
             claims,
@@ -372,7 +342,6 @@ export function scanCleanupRasterRetention(
     });
     const {
         resolvePageCount,
-        resolvePreviewPageSizes,
         resolvePageSizeStore,
     } = measurements;
     const resolveRasterPageSource = (
@@ -458,11 +427,14 @@ export function scanCleanupRasterRetention(
                             document.lifetime.signal,
                             missingPageNumbers,
                         );
-                    for (const dpi of probed?.sourceDpiByPage?.values() ?? []) {
-                        if (Number.isFinite(dpi) && dpi > 0) {
-                            documentDpi = Math.max(documentDpi ?? 0, dpi);
-                        }
+                    if (probed?.documentDpi !== undefined && probed.documentDpi !== null) {
+                        documentDpi = Math.max(documentDpi ?? 0, probed.documentDpi);
                     }
+                    const probedRasters = probed === undefined
+                        ? []
+                        : await Promise.all(missingPageNumbers.map(pageNumber => Promise.resolve(
+                            probed.getPageRaster(pageNumber),
+                        )));
                     for (const [
                         index,
                         [
@@ -470,11 +442,8 @@ export function scanCleanupRasterRetention(
                             waiter,
                         ],
                     ] of entries.entries()) {
-                        waiter.resolve(observeRaster(
-                            rasters[index] ?? (probed === undefined
-                                ? undefined
-                                : rasterFromLegacyProbe(probed, pageNumber)),
-                        ));
+                        const probedIndex = missingPageNumbers.indexOf(pageNumber);
+                        waiter.resolve(observeRaster(rasters[index] ?? probedRasters[probedIndex]));
                     }
                 }, error => {
                     for (const [
@@ -549,73 +518,6 @@ export function scanCleanupRasterRetention(
                 document.lifetime.signal,
             ),
     );
-    const resolvePreviewRasterPages = (document: IRetainedDocument, signal: AbortSignal) => resolveScanCleanupDocumentMeasurement(
-        {
-            read: () => document.rasterPages,
-            write: value => {
-                document.rasterPages = value;
-            },
-        },
-        signal,
-        async () => {
-            if (!dependencies.detectRasterPages) {
-                return {
-                    detected: false,
-                    pages: new Set<number>(),
-                    bilevelLayerPages: new Set<number>(),
-                    dominantBilevelLayerPages: new Set<number>(),
-                    backgroundDpiByPage: new Map<number, number>(),
-                };
-            }
-            const totalPages = await resolvePageCount(document, signal);
-            if (totalPages > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
-                return {
-                    detected: false,
-                    pages: new Set<number>(),
-                    bilevelLayerPages: new Set<number>(),
-                    dominantBilevelLayerPages: new Set<number>(),
-                    backgroundDpiByPage: new Map<number, number>(),
-                };
-            }
-            let pageNumbers: number[] | undefined;
-            if (totalPages <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
-                pageNumbers = [];
-                for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-                    pageNumbers.push(pageNumber);
-                }
-            }
-            return dependencies.detectRasterPages(
-                document.sourcePdfPath,
-                document.lifetime.signal,
-                pageNumbers,
-            );
-        },
-    );
-    const resolveRasterPage = (
-        document: IRetainedDocument,
-        pageNumber: number,
-        signal: AbortSignal,
-    ) => resolveScanCleanupDocumentPageMeasurement(
-        document.rasterPageByPage,
-        pageNumber,
-        signal,
-        async () => {
-            if (!dependencies.detectRasterPages) {
-                return {
-                    detected: false,
-                    pages: new Set<number>(),
-                    bilevelLayerPages: new Set<number>(),
-                    dominantBilevelLayerPages: new Set<number>(),
-                    backgroundDpiByPage: new Map<number, number>(),
-                };
-            }
-            return dependencies.detectRasterPages(
-                document.sourcePdfPath,
-                document.lifetime.signal,
-                [pageNumber],
-            );
-        },
-    );
     const documentsFor = (sourcePdfPath: string, documentRevision: string) => (
         [...documents.values()].filter(document => (
             document.sourcePdfPath === sourcePdfPath
@@ -659,12 +561,9 @@ export function scanCleanupRasterRetention(
             return pending;
         },
         pageCount: resolvePageCount,
-        previewPageSizes: resolvePreviewPageSizes,
         pageSizeStore: resolvePageSizeStore,
         sourceDpi: resolveSourceDpi,
-        previewRasterPages: resolvePreviewRasterPages,
         rasterPageSource: resolveRasterPageSource,
-        rasterPage: resolveRasterPage,
         async rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return join(await document.dir, `page-${pageNumber}-${dpi}.${randomUUID()}.part.png`);
         },
@@ -1010,7 +909,6 @@ export function scanCleanupRasterRetention(
                 removeDocumentWhenIdle(document);
                 return;
             }
-            await closeScanCleanupPageSizeStores(document, pendingStoreClosures);
             await prune();
         },
         invalidate(sourcePdfPath: string, documentRevision: string, claimId?: string) {

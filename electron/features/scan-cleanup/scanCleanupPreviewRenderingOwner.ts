@@ -2,10 +2,14 @@ import type {
     IScanCleanupOwnerContext,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
+    IScanCleanupErrorEnvelope,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
-import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {
+    classifyScanCleanupPreviewError as classifyScanCleanupError,
+    scanCleanupScratchShortfall,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -73,7 +77,7 @@ interface IScanCleanupPreviewProgress {
     percent: number;
 }
 
-interface IScanCleanupPreviewError extends IMainJobErrorEnvelope {code: string;}
+interface IScanCleanupPreviewError extends IMainJobErrorEnvelope, Pick<IScanCleanupErrorEnvelope, 'scratchShortfall'> {}
 
 export function scanCleanupPreviewRenderingOwner(
     dependencies: IScanCleanupRenderingDependencies,
@@ -128,6 +132,7 @@ export function scanCleanupPreviewRenderingOwner(
         toError: (cause, kind) => ({
             code: classifyScanCleanupError(cause, kind === 'canceled'),
             message: getErrorMessage(cause) || 'Scan cleanup preview failed',
+            ...scanCleanupScratchShortfall(cause),
             ...(kind === 'canceled' ? {name: 'AbortError'} : {}),
         }),
         terminalProgress: {
@@ -238,6 +243,8 @@ export function scanCleanupPreviewRenderingOwner(
         documentPrefix: string,
         admission: IPreviewAdmission,
         signal: AbortSignal,
+        options: IScanCleanupPreviewRequest['options'],
+        rasterMaxPixels: number | undefined,
         run: () => Promise<T>,
     ) => {
         signal.throwIfAborted();
@@ -250,7 +257,13 @@ export function scanCleanupPreviewRenderingOwner(
             signal.addEventListener('abort', abortAttempt, {once: true});
             admission.reissue = () => attempt.abort(PREVIEW_ADMISSION_REISSUED);
             try {
-                lease = await acquire(documentPrefix, admission.visibility, attempt.signal);
+                lease = await acquire(
+                    documentPrefix,
+                    admission.visibility,
+                    attempt.signal,
+                    options,
+                    rasterMaxPixels,
+                );
                 admission.granted = true;
                 break;
             } catch (error) {
@@ -498,28 +511,40 @@ export function scanCleanupPreviewRenderingOwner(
                         }
                         throw error;
                     }
-                    return withPreviewLease(brokerOwnerId(sender, request), admission, context.signal, async () => {
-                        const result = await scanCleanupPreviewRenderer(
-                            materialized,
-                            context.signal,
-                            rawRasterRetention,
-                            baseAnalysisCache,
-                            dependencies,
-                            raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
-                            scratchPath,
-                            baseAnalysisPins,
-                            scheduleBaseAnalysisRemoval,
-                            claimId,
-                            releaseBaseAnalysisPin,
-                        );
-                        if (context.signal.aborted) throw context.signal.reason;
-                        return result.canceled === true
-                            ? result
-                            : {
-                                ...result,
-                                requestId: materialized.requestId,
-                            };
-                    });
+                    const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
+                        process.platform !== 'win32',
+                        request.options,
+                    );
+                    return withPreviewLease(
+                        brokerOwnerId(sender, request),
+                        admission,
+                        context.signal,
+                        request.options,
+                        rasterPolicy.rasterMaxPixels,
+                        async () => {
+                            const result = await scanCleanupPreviewRenderer(
+                                materialized,
+                                context.signal,
+                                rawRasterRetention,
+                                baseAnalysisCache,
+                                dependencies,
+                                raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
+                                scratchPath,
+                                baseAnalysisPins,
+                                scheduleBaseAnalysisRemoval,
+                                claimId,
+                                releaseBaseAnalysisPin,
+                                rasterPolicy.rasterMaxPixels,
+                            );
+                            if (context.signal.aborted) throw context.signal.reason;
+                            return result.canceled === true
+                                ? result
+                                : {
+                                    ...result,
+                                    requestId: materialized.requestId,
+                                };
+                        },
+                    );
                 })).catch(error => {
                     if (isPreviewCancellation(error)) {
                         throw error;
@@ -527,6 +552,7 @@ export function scanCleanupPreviewRenderingOwner(
                     throw new Error(encodeSerializableErrorEnvelope({
                         code: classifyScanCleanupError(error, false),
                         message: getErrorMessage(error) || 'Scan cleanup preview failed',
+                        ...scanCleanupScratchShortfall(error),
                     }));
                 }),
             });
@@ -542,10 +568,7 @@ export function scanCleanupPreviewRenderingOwner(
                 }
                 const serialized = snapshot.error.message.match(/^EVB_SERIALIZABLE_ERROR:(.*)$/s)?.[1];
                 if (serialized !== undefined) {
-                    const error = JSON.parse(serialized) as {
-                        code: string;
-                        message: string
-                    };
+                    const error = JSON.parse(serialized) as IScanCleanupErrorEnvelope;
                     throw new Error(encodeSerializableErrorEnvelope(error));
                 }
                 throw new Error(encodeSerializableErrorEnvelope(snapshot.error));

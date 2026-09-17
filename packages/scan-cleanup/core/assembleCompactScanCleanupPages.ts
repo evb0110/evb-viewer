@@ -7,8 +7,8 @@ import type {
     INativeScanCleanupOutputMetadataV3,
     INativeScanCleanupPageMetadataV3,
     TScanCleanupOutputMode,
-} from '@contracts/electronApiScanCleanup';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     IDetectedPageRaster,
@@ -108,6 +108,8 @@ export function resolveCompactSourcePreservation(
     const pageOverride = getScanCleanupPageOverride(
         request.options.pageOverrides,
         requirePageNumber(sourcePageNumber),
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
     );
     // Auto is allowed to retain a compact source page when cleanup made no
     // raster change. JPX/JBIG2 are supported by EVB Viewer's configured PDF.js

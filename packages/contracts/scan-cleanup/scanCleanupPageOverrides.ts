@@ -25,11 +25,7 @@ export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverri
     manualSplit: null,
 });
 
-export const SCAN_CLEANUP_OUTPUT_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const satisfies readonly TScanCleanupOutputHalf[];
+export {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 
 export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
     return options.matchPageSize
@@ -41,11 +37,9 @@ export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
                 .some(alignment => alignment === 'ink')));
 }
 
-// The options object crosses both Vue reactivity and worker structured-clone
-// boundaries. Keep the renderer-only association out of the page map so the
-// map remains a plain sparse record, and carry the scalar through options as
-// `pageOverrideDefaults`. Main and worker entry points attach it again before
-// calling the shared page resolver.
+// Page overrides are plain data at structured-clone and persistence
+// boundaries. Keep the document-wide default associated with the in-memory
+// record so shared callers can resolve a page with only its page number.
 const scanCleanupPageOverrideDefaults = new WeakMap<
     TScanCleanupPageOverrides,
     IScanCleanupPageOverride
@@ -90,12 +84,6 @@ export function createScanCleanupPageOverride(
     };
 }
 
-/**
- * Associates a document-wide default with a sparse page override record.
- * The association is intentionally O(1); callers that cross a process boundary
- * must pass the same value as `IScanCleanupOptions.pageOverrideDefaults` and
- * attach it after decoding the request.
- */
 export function attachScanCleanupPageOverrideDefaults(
     overrides: TScanCleanupPageOverrides,
     defaults: IScanCleanupPageOverride | undefined,
@@ -121,19 +109,44 @@ export function setScanCleanupPageOverrideDefaults(
     return normalized;
 }
 
+function isPageOverrideRecord(
+    value: TScanCleanupPageOverrides | IScanCleanupPageOverride,
+): value is TScanCleanupPageOverrides {
+    return Object.keys(value).some(key => parsePageNumber(Number(key)) !== null);
+}
+
 export function getScanCleanupPageOverrideDefaults(
     overrides: TScanCleanupPageOverrides,
+): IScanCleanupPageOverride;
+export function getScanCleanupPageOverrideDefaults(
+    defaults: IScanCleanupPageOverride | undefined,
+    documentMargins?: IScanCleanupMarginsMm,
+): IScanCleanupPageOverride;
+export function getScanCleanupPageOverrideDefaults(
+    value: TScanCleanupPageOverrides | IScanCleanupPageOverride | undefined,
+    documentMargins?: IScanCleanupMarginsMm,
 ): IScanCleanupPageOverride {
-    return createScanCleanupPageOverride(scanCleanupPageOverrideDefaults.get(overrides));
+    if (value !== undefined && isPageOverrideRecord(value)) {
+        return createScanCleanupPageOverride(
+            scanCleanupPageOverrideDefaults.get(value),
+            documentMargins,
+        );
+    }
+    return createScanCleanupPageOverride(value, documentMargins);
 }
 
 export function getScanCleanupPageOverride(
     overrides: TScanCleanupPageOverrides,
     pageNumber: TPageNumber,
+    defaults?: IScanCleanupPageOverride | undefined,
+    documentMargins?: IScanCleanupMarginsMm,
 ): IScanCleanupPageOverride {
     const explicit = overrides[String(pageNumber)];
+    const fallback = arguments.length >= 3
+        ? defaults
+        : scanCleanupPageOverrideDefaults.get(overrides);
     return explicit === undefined
-        ? createScanCleanupPageOverride(scanCleanupPageOverrideDefaults.get(overrides))
+        ? createScanCleanupPageOverride(fallback, documentMargins)
         : createScanCleanupPageOverride(explicit);
 }
 
@@ -539,6 +552,7 @@ export function scanCleanupLayoutSignature(layouts: TScanCleanupLayoutByPage) {
 export function scanCleanupMatchedCanvasOverridesSignature(
     overrides: TScanCleanupPageOverrides,
     pageOverrideDefaults?: IScanCleanupPageOverride,
+    documentMargins?: IScanCleanupMarginsMm,
 ) {
     const serialize = (override: IScanCleanupPageOverride) => [
         override.excluded ? 'excluded' : '',
@@ -549,7 +563,9 @@ export function scanCleanupMatchedCanvasOverridesSignature(
             ? ''
             : override.outputModeOverride === 'bw' ? 'bw' : 'tonal',
     ].join(':');
-    const defaults = serialize(pageOverrideDefaults ?? getScanCleanupPageOverrideDefaults(overrides));
+    const defaults = serialize(pageOverrideDefaults === undefined
+        ? getScanCleanupPageOverrideDefaults(overrides)
+        : createScanCleanupPageOverride(pageOverrideDefaults, documentMargins));
     const defaultEntry = defaults === ':auto::' ? '' : `@default=${defaults}`;
     const pageEntries = Object.keys(overrides)
         .map(pageKey => {
@@ -557,7 +573,9 @@ export function scanCleanupMatchedCanvasOverridesSignature(
             if (pageNumber === null) {
                 return '';
             }
-            const canvasInputs = serialize(getScanCleanupPageOverride(overrides, pageNumber));
+            const canvasInputs = serialize(pageOverrideDefaults === undefined
+                ? getScanCleanupPageOverride(overrides, pageNumber)
+                : getScanCleanupPageOverride(overrides, pageNumber, pageOverrideDefaults, documentMargins));
             return canvasInputs === ':auto::' ? '' : `${pageKey}=${canvasInputs}`;
         })
         .filter(entry => entry !== '')
@@ -585,6 +603,12 @@ export function estimateScanCleanupOutputPages(
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
 ) {
     const pageCount = Math.max(0, Math.floor(totalPages));
+    if (options.pageOverrideDefaults !== undefined) {
+        attachScanCleanupPageOverrideDefaults(
+            options.pageOverrides,
+            options.pageOverrideDefaults,
+        );
+    }
     const defaultOverride = options.pageOverrideDefaults
         ?? getScanCleanupPageOverrideDefaults(options.pageOverrides);
     const resolveOutput = (

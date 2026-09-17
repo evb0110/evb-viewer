@@ -13,7 +13,7 @@ import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
+import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import {createBrowserAssistantState} from '@app/platform/browser-api/browserAgentCapability';
 

@@ -19,7 +19,7 @@ import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
     TNativeScanCleanupPageStageTimingsV3,
     TNativeScanCleanupProgressV3,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TWorkerLog} from '@electron/features/ocr/publicNative';
 import {
     createDetachedChildProcessSpawnOptions,

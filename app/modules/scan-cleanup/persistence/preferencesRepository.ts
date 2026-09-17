@@ -4,7 +4,7 @@ import type {
     IScanCleanupPageOverride,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
@@ -25,8 +25,8 @@ import {
     type IScanCleanupGlobalPreferences,
     type IScanCleanupGlobalPreferencePatch,
     type IScanCleanupLegacyStorageExport,
-} from '@contracts/scanCleanupSettings';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     decodeScanCleanupPageOverride,
     decodeScanCleanupPageOverrides,
@@ -164,9 +164,10 @@ export function loadScanCleanupDocumentOverrides(
     if (migration.migratedLegacyGeometry) {
         entries[documentKey] = {
             ...(entry ?? {}),
+            updatedAt: Date.now(),
             overrides: migration.overrides,
         };
-        storage.set(OVERRIDES_KEY, JSON.stringify(entries));
+        storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
         warnScanCleanupOverrideMigrationV1();
     }
     return migration.overrides;
@@ -203,6 +204,7 @@ export function loadScanCleanupDocumentPageOverrideDefaults(
         const entries = loadDocumentEntries(storage);
         entries[documentKey] = {
             ...(entry ?? {}),
+            updatedAt: Date.now(),
             pageOverrideDefaults: migration.value,
         };
         storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
@@ -364,9 +366,12 @@ export function resetScanCleanupDocumentOverrides(
     if (entry?.marginsMm !== undefined || entry?.outputMode !== undefined) {
         Reflect.deleteProperty(entry, 'overrides');
         Reflect.deleteProperty(entry, 'pageOverrideDefaults');
-        entries[documentKey] = entry;
+        entries[documentKey] = {
+            ...entry,
+            updatedAt: Date.now(),
+        };
     } else {
         Reflect.deleteProperty(entries, documentKey);
     }
-    storage.set(OVERRIDES_KEY, JSON.stringify(entries));
+    storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
 }

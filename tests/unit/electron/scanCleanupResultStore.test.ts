@@ -35,7 +35,7 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 const roots: string[] = [];
@@ -236,6 +236,27 @@ describe('file-backed scan-cleanup result store', () => {
         await store.close();
         await store.close();
         expect(await readdir(root)).toEqual([]);
+    });
+
+    it('reconstructs a record that spans multiple read chunks', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-large-record-test-'));
+        roots.push(root);
+        const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
+            pageCount: 1,
+            pageNumberOf: record => record.pageNumber,
+            rootDir: root,
+        });
+        const value = 'x'.repeat(100_000);
+        await store.append({
+            pageNumber: 1,
+            value,
+        });
+
+        await expect(store.getPage(1)).resolves.toEqual({
+            pageNumber: 1,
+            value,
+        });
+        await store.close();
     });
 
     it('replaces a record in place and iterates bounded chunks', async () => {

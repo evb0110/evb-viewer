@@ -19,8 +19,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {resolveCliNativeToolPath} from '@scripts/scanCleanupCliAdapters';
 import {rotateBitmapValues} from '@scripts/diagnostics/scan-cleanup-word-loss-audit.mjs';
 import {

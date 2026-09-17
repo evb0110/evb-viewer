@@ -2,7 +2,6 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
-    IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
     IScanCleanupPageOverride,
     TScanCleanupLayoutByPage,
@@ -20,8 +19,19 @@ import {
     SCAN_CLEANUP_ALIGNMENTS,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
+    SCAN_CLEANUP_BINARIZATION_METHODS,
+    SCAN_CLEANUP_DESPECKLE_LEVELS,
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    SCAN_CLEANUP_LAYOUT_MODES,
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+    SCAN_CLEANUP_OUTPUT_HALVES,
+    SCAN_CLEANUP_OUTPUT_MODE_SETTINGS,
+    SCAN_CLEANUP_PAGE_LAYOUT_OVERRIDES,
+    SCAN_CLEANUP_PAGE_ROTATIONS,
+    SCAN_CLEANUP_PICTURE_ZONE_LAYERS,
+    SCAN_CLEANUP_READING_ORDERS,
+    SCAN_CLEANUP_TEXT_TONE_RULES,
 } from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupMarginsMm,
@@ -63,66 +73,14 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
+import {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
 import {
     parseJobId,
     parseRequestId,
     type TJobId,
 } from '@contracts/shared';
-
-const SCAN_CLEANUP_TEXT_TONE_RULES = [
-    'applied',
-    'picture-evidence',
-    'insufficient-text',
-    'tonal-mass-outside-text',
-    'already-dark',
-] as const;
-const SCAN_CLEANUP_LAYOUT_MODES = [
-    'auto',
-    'force-single',
-    'force-two-page',
-] as const;
-const SCAN_CLEANUP_OUTPUT_MODE_SETTINGS = [
-    'auto',
-    'bw',
-    'mixed',
-    'grayscale',
-    'color',
-] as const;
-const SCAN_CLEANUP_BINARIZATION_METHODS = [
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const;
-const SCAN_CLEANUP_DESPECKLE_LEVELS = [
-    'off',
-    'cautious',
-    'normal',
-    'aggressive',
-] as const;
-const SCAN_CLEANUP_PAGE_LAYOUT_OVERRIDES = [
-    'auto',
-    'single',
-    'spread',
-    'keep-left',
-    'keep-right',
-] as const;
-const SCAN_CLEANUP_READING_ORDERS = [
-    'ltr',
-    'rtl',
-] as const;
-const SCAN_CLEANUP_PICTURE_ZONE_LAYERS = [
-    'eraser1',
-    'painter2',
-    'eraser3',
-] as const;
-const SCAN_CLEANUP_OUTPUT_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const;
 
 function isScanCleanupTextToneRule(
     value: unknown,
@@ -405,9 +363,7 @@ function decodeOwnerContext(value: Record<string, unknown>) {
 }
 
 export function isLayoutClassification(value: unknown): value is IScanCleanupPreviewMetadata['layoutClassification'] {
-    return value === 'single-uncut-page'
-        || value === 'page-with-offcut'
-        || value === 'two-page-spread';
+    return SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS.some(classification => classification === value);
 }
 
 function isSafeFiniteNumber(value: unknown): value is number {
@@ -416,49 +372,7 @@ function isSafeFiniteNumber(value: unknown): value is number {
         && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
 }
 
-export function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
-    if (
-        !isRecord(value)
-        || !isLayoutClassification(value.dominantLayout)
-        || !isRecord(value.clusterDims)
-        || !isSafeFiniteNumber(value.clusterDims.widthPx)
-        || value.clusterDims.widthPx <= 0
-        || !isSafeFiniteNumber(value.clusterDims.heightPx)
-        || value.clusterDims.heightPx <= 0
-        || typeof value.agreementStrength !== 'number'
-        || !Number.isFinite(value.agreementStrength)
-        || value.agreementStrength < 0
-        || value.agreementStrength > 1
-        || !(value.strokeWidthMedianPx === undefined
-            || (isSafeFiniteNumber(value.strokeWidthMedianPx)
-                && value.strokeWidthMedianPx > 0))
-        || !(value.xHeightMedianPx === undefined
-            || (isSafeFiniteNumber(value.xHeightMedianPx)
-                && value.xHeightMedianPx > 0))
-        || !(value.cutterRatioMedian === null || (
-            typeof value.cutterRatioMedian === 'number'
-            && Number.isFinite(value.cutterRatioMedian)
-            && value.cutterRatioMedian >= 0.2
-            && value.cutterRatioMedian <= 0.8
-        ))
-        || (value.dominantLayout === 'two-page-spread' && value.cutterRatioMedian === null)
-    ) throw new Error('invalid scan-cleanup document prior');
-    return {
-        dominantLayout: value.dominantLayout,
-        cutterRatioMedian: value.cutterRatioMedian,
-        clusterDims: {
-            widthPx: value.clusterDims.widthPx,
-            heightPx: value.clusterDims.heightPx,
-        },
-        agreementStrength: value.agreementStrength,
-        ...(value.strokeWidthMedianPx === undefined
-            ? {}
-            : {strokeWidthMedianPx: value.strokeWidthMedianPx}),
-        ...(value.xHeightMedianPx === undefined
-            ? {}
-            : {xHeightMedianPx: value.xHeightMedianPx}),
-    };
-}
+export {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
 
 function decodePageOverride(
     value: unknown,
@@ -605,7 +519,7 @@ function decodeGeometryRotation(
 function isScanCleanupPageRotation(value: unknown): value is TScanCleanupPageRotation {
     return typeof value === 'number'
         && Number.isSafeInteger(value)
-        && (value === 0 || value === 90 || value === 180 || value === 270);
+        && SCAN_CLEANUP_PAGE_ROTATIONS.some(rotation => rotation === value);
 }
 
 function decodeScanCleanupPageRotation(
@@ -747,15 +661,17 @@ export function decodeScanCleanupPageOverrides(
 
 function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     if (!isRecord(options)) throw new Error('invalid scan-cleanup options');
-    const binarization = options.binarization ?? 'auto';
-    const normalizeIllumination = options.normalizeIllumination ?? true;
+    const binarization = options.binarization === undefined ? 'auto' : options.binarization;
+    const normalizeIllumination = options.normalizeIllumination === undefined
+        ? true
+        : options.normalizeIllumination;
     const legacyDespeckle = options.despeckle;
     const despeckleLevel = options.despeckleLevel === undefined
         ? undefined
         : isScanCleanupDespeckleLevel(options.despeckleLevel)
             ? options.despeckleLevel
             : null;
-    const autoDewarp = options.autoDewarp ?? false;
+    const autoDewarp = options.autoDewarp === undefined ? false : options.autoDewarp;
     const layoutMode = options.layoutMode;
     const outputMode = options.outputMode;
     const pageAlignment = options.pageAlignment;
@@ -984,10 +900,16 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             ) {
                 throw new Error('invalid scan-cleanup source page numbers');
             }
-            return value.sourcePageNumbers.map(pageNumber => decodeScanCleanupPageNumber(
+            const sourcePageNumbers = value.sourcePageNumbers.map(pageNumber => decodeScanCleanupPageNumber(
                 pageNumber,
                 'source page number',
             ));
+            if (sourcePageNumbers.some((pageNumber, index) => (
+                index > 0 && pageNumber <= sourcePageNumbers[index - 1]!
+            ))) {
+                throw new Error('invalid scan-cleanup source page numbers');
+            }
+            return sourcePageNumbers;
         })();
     const sourcePageRange = value.sourcePageRange === undefined
         ? undefined

@@ -1,4 +1,4 @@
-import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
+import type { IScanCleanupCapability } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { createJobId } from '@contracts/shared';
 import {
@@ -7,7 +7,7 @@ import {
     type IScanCleanupDocumentOverrideEntry,
     type IScanCleanupSettingsFile,
     type IScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const BROWSER_SCAN_CLEANUP_UNAVAILABLE = 'Scan Cleanup is unavailable in the browser; use the desktop app.';
 const browserSettingsFile = createDefaultScanCleanupSettingsFile();

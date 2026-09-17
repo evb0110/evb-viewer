@@ -612,6 +612,11 @@ describe('createElectronApi', () => {
                 decoderError: expect.any(String),
             })}),
         );
+        expect(ipcRenderer.send).toHaveBeenCalledWith(
+            CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
+            expect.objectContaining({code: 'RENDERER_IPC_EVENT_DECODE_FAILED'}),
+            0,
+        );
 
         listener({}, {
             source: 'main',
@@ -619,7 +624,7 @@ describe('createElectronApi', () => {
             timestamp: '2026-03-21T00:00:00.000Z',
             level: 'TRACE',
         });
-        expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
+        expect(ipcRenderer.send).toHaveBeenCalledTimes(2);
     });
 
     it('decodes agent renderer request events before invoking callbacks', async () => {

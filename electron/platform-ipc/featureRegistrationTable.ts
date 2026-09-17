@@ -24,7 +24,7 @@ import {
 import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
 import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
 import {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
@@ -87,7 +87,7 @@ const scanCleanupDescriptor: TPlatformDescriptor<TScanCleanupMainBindings> = {
     lifecycle: {
         create: 'scanCleanupMainBindings',
         ipcRegistration: 'registerPlatformFeatureHandlers',
-        shutdown: 'disposeScanCleanupMainBindingsIfLoaded',
+        shutdown: 'disposeScanCleanupMainBindings',
     },
     disposeBindingKey: 'disposeScanCleanupMainBindings',
 };

@@ -13,7 +13,9 @@ import type {
     IScanCleanupReconciliationMetadata,
     IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
+    TScanCleanupCanvasPolicy,
     TScanCleanupCanvasScope,
+    TScanCleanupContentTrimSide,
     TScanCleanupLayoutByPage,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
@@ -51,6 +53,10 @@ import type {
     TRequestId,
 } from '@contracts/shared';
 import type {TEpochMs} from '@contracts/timestamps';
+export type {
+    TScanCleanupCanvasPolicy,
+    TScanCleanupContentTrimSide,
+} from '@contracts/scan-cleanup/domain';
 
 export interface IScanCleanupOwnerContext {
     /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
@@ -109,12 +115,25 @@ export function decodeScanCleanupScratchShortfall(value: unknown): IScanCleanupS
     };
 }
 
-export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {}
+export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
 
 export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanupErrorEnvelope {
-    return isRecord(value)
-        && isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
-        && typeof value.message === 'string';
+    if (
+        !isRecord(value)
+        || !isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
+        || typeof value.message !== 'string'
+    ) {
+        return false;
+    }
+    if (value.scratchShortfall === undefined) {
+        return true;
+    }
+    try {
+        decodeScanCleanupScratchShortfall(value.scratchShortfall);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
@@ -195,8 +214,6 @@ export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerConte
     retainPages?: readonly number[];
 }
 
-export type TScanCleanupCanvasPolicy = 'intrinsic' | 'strict-maximum';
-
 /**
  * The single rectangle and pixel grid every matched output of a document is
  * normalized onto: the same absolute PDF points and the same pixel dimensions
@@ -225,8 +242,6 @@ export interface IScanCleanupContentTextMaskSummary {
     lineCount: number;
     bounds?: IScanCleanupPixelRect;
 }
-
-export type TScanCleanupContentTrimSide = 'left' | 'top' | 'right' | 'bottom';
 
 export interface IScanCleanupContentBlockEvidence {
     bounds: IScanCleanupPixelRect;
@@ -282,6 +297,7 @@ export interface IScanCleanupPageDiagnostics {
 export interface IScanCleanupPageOutputDiagnostics {
     half: TScanCleanupOutputHalf;
     contentDiagnostics?: IScanCleanupContentDiagnostics;
+    textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
 }
 
 export interface IScanCleanupPreviewMetadata {
@@ -294,8 +310,8 @@ export interface IScanCleanupPreviewMetadata {
     manualSkew?: boolean;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
-    /** Applied crop in deskewed/dewarped page-region coordinates; absent in older metadata. */
-    cropRect?: IScanCleanupPixelRect;
+    /** Applied crop in deskewed/dewarped page-region coordinates. */
+    cropRect: IScanCleanupPixelRect;
     /** Optional for metadata produced before native protocol v2 gained A4 diagnostics. */
     contentDiagnostics?: IScanCleanupContentDiagnostics;
     appliedMargins: IScanCleanupAppliedMargins;
@@ -313,9 +329,9 @@ export interface IScanCleanupPreviewMetadata {
     /** Logical matched-page canvas dimensions; never smaller than the intrinsic raster. */
     canvasWidthPx: number;
     canvasHeightPx: number;
-    /** Matched-canvas decision; optional only for metadata written by older native binaries. */
-    canvasPolicy?: TScanCleanupCanvasPolicy;
-    canvasOverflow?: boolean;
+    /** Matched-canvas decision. */
+    canvasPolicy: TScanCleanupCanvasPolicy;
+    canvasOverflow: boolean;
     matchedCanvasTargetWidthPx?: number | null;
     matchedCanvasTargetHeightPx?: number | null;
     matchedCanvasTargetWidthPoints?: number | null;
@@ -354,7 +370,7 @@ export interface IScanCleanupPreviewMetadata {
     sourceDpi?: number;
     renderDpi?: number;
     requestedRenderDpi?: number;
-    rasterScaleLimited?: boolean;
+    rasterScaleLimited: boolean;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
     /** Evidence and exact monotone curve shared by preview, export, and detail tiles. */
@@ -373,7 +389,7 @@ export interface IScanCleanupPreviewMetadata {
 
 export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliationMetadata, IScanCleanupPageDiagnostics {
     layoutClassification: IScanCleanupPreviewMetadata['layoutClassification'];
-    layoutConfidence?: number;
+    layoutConfidence: number;
     cutterXPx: number | null;
     splitSeam?: IScanCleanupSplitSeamPolyline;
     splitAbstained?: boolean;
@@ -593,7 +609,8 @@ export type TScanCleanupDetectionStartResult =
         started: false;
         jobId: TJobId;
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };
 
 export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
@@ -690,7 +707,7 @@ interface IScanCleanupJobBase {
 }
 
 export type TScanCleanupJobState =
-    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff'}
+    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff' | 'committing'}
     | IScanCleanupJobBase & {
         status: 'completed';
         outputPdfPath: string;
@@ -702,7 +719,9 @@ export type TScanCleanupJobState =
         status: 'failed';
         error: string;
         errorCode: TScanCleanupErrorCode;
-        failure?: FailureReceipt
+        /** Free and required scratch space for an insufficient-scratch run. */
+        scratchShortfall?: IScanCleanupScratchShortfall;
+        failure?: FailureReceipt;
     };
 
 export type TScanCleanupStartResult =
@@ -715,5 +734,6 @@ export type TScanCleanupStartResult =
         started: false;
         jobId: TJobId;
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };

@@ -673,14 +673,23 @@ function comparePlacementSignatures(preview, final) {
     };
 }
 
-export function independentReaderScale(metadata, actualWidth, actualHeight) {
-    const outputWidth = metadata.outputWidthPx ?? metadata.canvasWidthPx;
-    const outputHeight = metadata.outputHeightPx ?? metadata.canvasHeightPx;
-    const contentWidth = metadata.matchedCanvasContentWidthPx ?? outputWidth;
-    const contentHeight = metadata.matchedCanvasContentHeightPx ?? outputHeight;
+export function independentReaderScale(
+    metadata,
+    actualWidth,
+    actualHeight,
+    expectedWidth = metadata.outputWidthPx ?? metadata.canvasWidthPx,
+    expectedHeight = metadata.outputHeightPx ?? metadata.canvasHeightPx,
+) {
+    const placement = resolvePreviewMetadataPlacement({
+        ...metadata,
+        placementOffsetXPx: metadata.placementOffsetXPx ?? 0,
+        placementOffsetYPx: metadata.placementOffsetYPx ?? 0,
+    });
     return {
-        x: actualWidth / metadata.canvasWidthPx * contentWidth / outputWidth,
-        y: actualHeight / metadata.canvasHeightPx * contentHeight / outputHeight,
+        x: actualWidth / placement.canvasWidthPx
+            * placement.contentWidthPx / Math.max(1, expectedWidth),
+        y: actualHeight / placement.canvasHeightPx
+            * placement.contentHeightPx / Math.max(1, expectedHeight),
     };
 }
 
@@ -703,7 +712,13 @@ export function independentReaderWrongCalibrationOffset(
 async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, metadata, finalGeometry) {
     const expected = await loadGrayscaleImage(nativeOutputPath);
     const actual = await loadGrayscaleImage(finalRasterPath);
-    const independentScale = independentReaderScale(metadata, actual.width, actual.height);
+    const independentScale = independentReaderScale(
+        metadata,
+        actual.width,
+        actual.height,
+        expected.width,
+        expected.height,
+    );
     const finalPlacement = finalPlacementSignature(finalGeometry, actual.width, actual.height);
     const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const wrongCalibrationOffsetPx = independentReaderWrongCalibrationOffset(
@@ -782,7 +797,7 @@ function histogramQuantile(histogram, target) {
     return histogram.length - 1;
 }
 
-function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
+export function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
     const columns = new Uint32Array(bitmap.width);
     const rows = new Uint32Array(bitmap.height);
     let inkInside = 0;
@@ -794,13 +809,15 @@ function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
             inkTotal += 1;
             columns[x] += 1;
             rows[y] += 1;
-            const centerX = x + 0.5;
-            const centerY = y + 0.5;
+            // A canvas pixel can carry ink when the overlay covers any part of
+            // its cell. Testing cell intersection matches the rasterizer at a
+            // subpixel edge; testing only the pixel centre loses a whole
+            // antialiased row when the published box lands between pixels.
             if (
-                centerX >= rect.left
-                && centerX <= rect.right
-                && centerY >= rect.top
-                && centerY <= rect.bottom
+                x < rect.right
+                && x + 1 > rect.left
+                && y < rect.bottom
+                && y + 1 > rect.top
             ) {
                 inkInside += 1;
             }
@@ -1081,7 +1098,7 @@ async function main() {
         if (!detectionResult || detectionResult.pageNumber !== pageNumber) {
             throw new Error(`Detection cache has no page ${String(pageNumber)}`);
         }
-        const sourceRaster = sourceRasterDetails.pageRasterByNumber.get(pageNumber);
+        const sourceRaster = await sourceRasterDetails.getPageRaster(pageNumber);
         const sourceDpi = sourceRaster?.dpi
             ?? detectionResult.sourcePageMetadata?.sourceDpi
             ?? previewRasterPlan.pageDpiByNumber.get(pageNumber)

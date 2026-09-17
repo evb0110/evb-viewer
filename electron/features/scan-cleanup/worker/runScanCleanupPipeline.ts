@@ -1,7 +1,7 @@
 import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
@@ -21,7 +21,7 @@ import {
 } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineDependencies,

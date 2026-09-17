@@ -338,6 +338,15 @@ impl NormalizedZonePolygon {
             }
             twice_area += point.x * next.y - next.x * point.y;
         }
+        for first in 0..self.points.len() {
+            for second in first + 1..self.points.len() {
+                let dx = self.points[second].x - self.points[first].x;
+                let dy = self.points[second].y - self.points[first].y;
+                if dx * dx + dy * dy <= POLYGON_EPSILON * POLYGON_EPSILON {
+                    return false;
+                }
+            }
+        }
         if twice_area.abs() <= POLYGON_AREA_EPSILON {
             return false;
         }

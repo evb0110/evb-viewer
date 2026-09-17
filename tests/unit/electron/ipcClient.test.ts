@@ -7,10 +7,13 @@ import {
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
-import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
+import {
+    CORE_IPC_SEND_CHANNELS, IPC_INVOKE_REQUEST_ID_FIELD,
+} from '@electron/platform-ipc/coreContract';
 import {
     IpcInvokeTimeoutError,
     createCodecIpcInvoker,
+    createTypedIpcEventSubscriber,
 } from '@electron/preload/ipcClient';
 
 interface ITestInvokeMap {
@@ -79,5 +82,49 @@ describe('createCodecIpcInvoker timeout policy', () => {
 
         expect(rejected).not.toHaveBeenCalled();
         expect(ipcRenderer.invoke).toHaveBeenCalledWith('regular:slow');
+    });
+});
+
+describe('createTypedIpcEventSubscriber diagnostics', () => {
+    it('reports decoder exceptions with the event channel and decoder message', () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer: Pick<IpcRenderer, 'on' | 'removeListener' | 'send'> = {
+            on: vi.fn((channel, listener) => {
+                listeners.set(channel, listener as (_event: unknown, payload: unknown) => void);
+                return Object.create(null) as IpcRenderer;
+            }),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+        };
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            const subscriber = createTypedIpcEventSubscriber<{'scan-cleanup:job:state': {status: 'running'};}>(ipcRenderer);
+            subscriber.onDecodedPayload(
+                'scan-cleanup:job:state',
+                () => { throw new Error('completedUnits exceeds totalUnits'); },
+                vi.fn(),
+            );
+            listeners.get('scan-cleanup:job:state')?.({}, {status: 'invalid'});
+
+            expect(ipcRenderer.send).toHaveBeenCalledWith(
+                CORE_IPC_SEND_CHANNELS.rendererLog,
+                expect.objectContaining({data: {
+                    channel: 'scan-cleanup:job:state',
+                    decoderError: 'completedUnits exceeds totalUnits',
+                }}),
+            );
+            expect(ipcRenderer.send).toHaveBeenCalledWith(
+                CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
+                expect.objectContaining({
+                    code: 'RENDERER_IPC_EVENT_DECODE_FAILED',
+                    runtime: 'electron-renderer',
+                    context: {},
+                }),
+                0,
+            );
+        } finally {
+            warning.mockRestore();
+        }
     });
 });

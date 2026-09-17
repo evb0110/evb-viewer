@@ -9,7 +9,7 @@ import {join} from 'node:path';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/runScanCleanupConversion';

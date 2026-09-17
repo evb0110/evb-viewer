@@ -45,6 +45,7 @@
                                 :src="output.pixelSwap.currentUrl"
                                 :alt="altByHalf[output.metadata.half] ?? ''"
                                 @transitionend="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
+                                @transitioncancel="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
                             >
                             <img
                                 v-if="output.pixelSwap.incomingUrl"
@@ -82,7 +83,7 @@ import type {
     ComponentPublicInstance,
     CSSProperties,
 } from 'vue';
-import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation';
 
 defineProps<{

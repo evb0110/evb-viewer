@@ -8,13 +8,13 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { decodeNativeScanCleanupPreviewOutputMetadataJson } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { INativeScanCleanupReusableGeometryV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { PREVIEW_DPI } from '@evb/scan-cleanup/core/detection';
 import {
     logRasterHandoff,
@@ -35,17 +35,28 @@ import type {
     IBasePreviewAnalysis,
     IScanCleanupRenderingDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {readPreviewBytes} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 import {
-    logScanCleanupMessage,
-    readPreviewBytes,
-} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
+    DETAIL_TILE_MAX_PIXELS,
+    DEFAULT_SOURCE_DPI,
+    BASE_ANALYSIS_CACHE_PAGE_LIMIT,
+    BASE_ANALYSIS_CACHE_BYTE_LIMIT,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 const logger = createLogger('scan-cleanup-preview-pipeline');
-const DETAIL_TILE_MAX_PIXELS = 4_000_000;
-const DEFAULT_SOURCE_DPI = 300;
-const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
-// Canonical cleaned previews are retained only so detail tiles can replay the
-// exact page-global pixel transform without growing the main-process heap.
-const BASE_ANALYSIS_CACHE_BYTE_LIMIT = 64 * 1024 * 1024;
+export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
+    if (level === 'error') {
+        logger.error(message, {
+            code: 'MAIN_SCAN_CLEANUP_FAILED',
+            context: {
+                stage: 'preview-rendering',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
+        });
+        return;
+    }
+    logger[level](message);
+}
 export async function persistBaseAnalysisArtifacts(
     outputs: IBasePreviewAnalysis['outputs'],
     canonicalRasters: Partial<Record<IScanCleanupPreviewMetadata['half'], Uint8Array>>,
@@ -132,7 +143,12 @@ export function resolveFallbackDetailDpi(
     sourceRasterDetected: boolean,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
-    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        request.pageNumber,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     const swapsAxes = pageOverride.rotationDegrees === 90 || pageOverride.rotationDegrees === 270;
     const margins = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
     const widthAtPreviewDpi = (swapsAxes ? raw.height : raw.width)
@@ -368,6 +384,7 @@ export async function runDetailPreview(
     sourceRasterDetected: boolean,
     scratch: string,
     dependencies: IScanCleanupRenderingDependencies,
+    rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
     if (!fileSystem) throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
@@ -404,10 +421,18 @@ export async function runDetailPreview(
     const rawRenderScale = renderDpi / baseRaw.dpi;
     const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * rawRenderScale));
     const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * rawRenderScale));
-    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
+    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(
+        request.detail.outputMode,
+        rasterMaxPixels,
+    );
     const binary = dependencies.resolveBinary();
     if (!binary) throw new Error('Scan cleanup native tool is unavailable');
-    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        request.pageNumber,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     const effectiveOptions = request.options.matchPageSize
         ? {
             ...request.options,
@@ -553,6 +578,7 @@ export async function runDetailPreview(
         canvasScope: 'page',
         qualityPath: 'raster',
         options: effectiveOptions,
+        ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
         experimental: {autoDewarp: false},
         pages: pageInputs,
         allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),

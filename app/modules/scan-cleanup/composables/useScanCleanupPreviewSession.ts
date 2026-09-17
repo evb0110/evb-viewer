@@ -16,7 +16,7 @@ import {
     type TScanCleanupOutputMode,
     type TScanCleanupOutputHalf,
     type TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     findSerializableErrorEnvelope,
     SERIALIZABLE_ERROR_PREFIX,
@@ -27,7 +27,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
+import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -35,7 +35,7 @@ import {
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {
     ComputedRef,
     Ref,
@@ -48,6 +48,7 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
+import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {
     createScanCleanupNaturalPageOrder,
     type TScanCleanupOrderedPages,
@@ -220,6 +221,11 @@ export function createScanCleanupPreviewCacheKey(
     // move when another page's content box does.
     placementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
 ) {
+    attachScanCleanupPageOverrideDefaults(
+        previewOptions.pageOverrides,
+        previewOptions.pageOverrideDefaults,
+        previewOptions.marginsMm,
+    );
     const pageOverride = getScanCleanupPageOverride(
         previewOptions.pageOverrides,
         requirePageNumber(pageNumber),
@@ -337,6 +343,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let displayedDetailSourceKey: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    const pauseWaitScopes = new Set<{stop: () => void}>();
+    const pauseWaitResolvers = new Set<() => void>();
     let detailRetriesRemaining = 0;
     let detailAttemptCount = 0;
     let scheduledPage: number | null = null;
@@ -744,8 +752,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         ) {
             schedule(true);
             if (previewPending()) {
-                await new Promise<void>(resolve => {
-                    const stop = watch([
+                const waitScope = effectScope();
+                pauseWaitScopes.add(waitScope);
+                const waitPromise = waitScope.run(() => new Promise<void>(resolve => {
+                    let stop: (() => void) | null = null;
+                    const finish = () => {
+                        pauseWaitResolvers.delete(finish);
+                        stop?.();
+                        resolve();
+                    };
+                    pauseWaitResolvers.add(finish);
+                    stop = watch([
                         resultCurrent,
                         loading,
                     ], ([
@@ -755,10 +772,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         if (!current && previewLoading) {
                             return;
                         }
-                        stop();
-                        resolve();
+                        finish();
                     }, {flush: 'sync'});
-                });
+                }));
+                try {
+                    if (waitPromise) await waitPromise;
+                } finally {
+                    waitScope.stop();
+                    pauseWaitScopes.delete(waitScope);
+                }
             }
         }
         cancel(false);
@@ -1049,11 +1071,21 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     return;
                 }
                 const envelope = findSerializableErrorEnvelope(caught, isScanCleanupErrorEnvelope);
-                error.value = envelope?.message
-                    ?? (caught instanceof Error && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? getErrorMessage(caught)
-                        : t('scanCleanup.preview.unavailable'));
-                errorCode.value = envelope?.code ?? 'internal';
+                if (envelope) {
+                    error.value = formatScanCleanupErrorByCode(
+                        t,
+                        envelope.code,
+                        envelope.message,
+                        envelope.scratchShortfall,
+                    );
+                    errorCode.value = envelope.code;
+                } else {
+                    error.value = caught instanceof Error
+                        && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
+                        ? formatScanCleanupErrorByCode(t, 'internal', caught)
+                        : t('scanCleanup.preview.unavailable');
+                    errorCode.value = 'internal';
+                }
             } finally {
                 if (requestSequence === sequence) loading.value = false;
             }
@@ -1347,6 +1379,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     );
     watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
+        for (const resolve of [...pauseWaitResolvers]) resolve();
+        for (const scope of [...pauseWaitScopes]) scope.stop();
+        pauseWaitScopes.clear();
         stopRawStream?.();
         cancel();
     });

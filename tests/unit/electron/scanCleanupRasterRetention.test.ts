@@ -12,12 +12,13 @@ import {existsSync} from 'fs';
 import {
     join, sep,
 } from 'path';
-import type {IScanCleanupPreviewRequest} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireRequestId} from '@contracts/shared';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {
     createScanCleanupPreviewTestContext,
+    createScanCleanupPageRasterSource,
     detectionRequest,
     DOCUMENT_PAGE_SIZES,
     PNG,
@@ -73,9 +74,8 @@ afterEach(async () => {
 export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRasterIsPathOnly(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
+        pages: [1],
         sourceDpiByPage: new Map([[
             1,
             300,
@@ -126,9 +126,8 @@ export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRaster
 export async function scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilentlyRerenderingIt(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
+        pages: [1],
         sourceDpiByPage: new Map([[
             1,
             300,
@@ -169,9 +168,8 @@ export async function scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilen
 export async function scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBeforeRetention(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
+        pages: [1],
         sourceDpiByPage: new Map([[
             1,
             300,
@@ -417,13 +415,7 @@ export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBat
     deps.getPageCount = vi.fn(async () => pageCount);
     deps.getPageSizeStore = vi.fn(() => store);
     deps.isRasterDetectionAvailable = () => true;
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set<number>(),
-        bilevelLayerPages: new Set<number>(),
-        dominantBilevelLayerPages: new Set<number>(),
-        backgroundDpiByPage: new Map<number, number>(),
-    }));
+    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({detected: true}));
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -669,8 +661,8 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
         dpi: 150,
         sourceDpi: 300,
     });
-    expect(stores.every(store => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
     await service.dispose();
+    expect(stores.every(store => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
 
 }
 
@@ -700,14 +692,13 @@ export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingW
         pageNumbers: readonly number[] = [],
     ) => {
         probeCalls.push([...pageNumbers]);
-        return {
-            detected: true,
-            pages: new Set(pageNumbers),
+        return createScanCleanupPageRasterSource({
+            pages: pageNumbers,
             sourceDpiByPage: new Map(pageNumbers.map(pageNumber => [
                 pageNumber,
                 280,
             ] as const)),
-        };
+        });
     });
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
@@ -802,45 +793,23 @@ export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursor
 
 }
 
-export async function scenarioRefusesAnImplicitAllPageLegacyRasterProbeForMillionPageDocuments(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
-    deps.getPageCount = vi.fn(async () => 1_000_000);
-    deps.detectRasterPages = vi.fn(async () => ({
-        detected: true,
-        pages: new Set([1]),
-    }));
-    const retention = scanCleanupRasterRetention(deps);
-    const document = await retention.openDocument({
-        sourcePdfPath: join(dir, 'source.pdf'),
-        documentRevision: 'revision-1',
-    });
-
-    const result = await retention.previewRasterPages(document, new AbortController().signal);
-
-    expect(result.detected).toBe(false);
-    expect(result.pages.size).toBe(0);
-    expect(deps.detectRasterPages).not.toHaveBeenCalled();
-    await retention.release(document);
-    await retention.dispose();
-
-}
-
-export async function scenarioRefusesLegacyArrayGeometryForMillionPagePreviews(): Promise<void> {
+export async function scenarioUsesBoundedGeometryWithoutTheLegacyArrayReaderForMillionPagePreviews(): Promise<void> {
 
     const {deps} = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 1_000_000);
     deps.getPageSizes = vi.fn(async () => {
         throw new Error('legacy page-size array reader must not be used');
     });
+    deps.getPageSizeStore = vi.fn(async () => ({
+        pageCount: 1_000_000,
+        getPage: vi.fn(async () => DOCUMENT_PAGE_SIZES[0]!),
+        readRange: vi.fn(async () => []),
+        forEachChunk: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+    }));
     const service = scanCleanupPreviewLifecycle(deps);
 
-    await expect(previewOf(service, sender(), request)).rejects.toThrow(
-        'bounded page-size store for large documents',
-    );
+    await expect(previewOf(service, sender(), request)).resolves.toMatchObject({pageNumber: 1});
     expect(deps.getPageSizes).not.toHaveBeenCalled();
     await service.dispose();
 
@@ -1481,12 +1450,8 @@ describe('scanCleanupRasterRetentionTest', () => {
             scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursorOnlyPageSizeStore,
         ],
         [
-            'reject implicit million-page probes',
-            scenarioRefusesAnImplicitAllPageLegacyRasterProbeForMillionPageDocuments,
-        ],
-        [
-            'reject million-page legacy geometry',
-            scenarioRefusesLegacyArrayGeometryForMillionPagePreviews,
+            'use bounded geometry for a million-page preview',
+            scenarioUsesBoundedGeometryWithoutTheLegacyArrayReaderForMillionPagePreviews,
         ],
         [
             'stop protecting forgotten adopted rasters',

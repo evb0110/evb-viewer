@@ -195,6 +195,7 @@ describe('resolveScanCleanupEntryViewState', () => {
         expect(resolveScanCleanupEntryViewState(viewState({
             currentPage: 4,
             scanCleanup: {
+                ownerId: 'cleanup-owner',
                 previewPage: 17,
                 previewViewMode: 'cleaned',
             },
@@ -216,6 +217,7 @@ describe('resolveScanCleanupEntryViewState', () => {
         const state = viewState({
             currentPage: 4,
             scanCleanup: {
+                ownerId: 'cleanup-owner',
                 previewPage: 17,
                 previewViewMode: 'cleaned',
             },

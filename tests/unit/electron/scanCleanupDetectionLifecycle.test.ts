@@ -2,8 +2,12 @@ import {
     describe, it, expect, vi, afterEach,
 } from 'vitest';
 import type {
-    IScanCleanupDetectionResult, IScanCleanupOptions, IScanCleanupPlacementAnchorCalibrationRequest, IScanCleanupDetectionRequest, TScanCleanupDetectionJobState,
-} from '@contracts/electronApiScanCleanup';
+    IScanCleanupDetectionResult,
+    IScanCleanupOptions,
+    IScanCleanupPlacementAnchorCalibrationRequest,
+    IScanCleanupDetectionRequest,
+    TScanCleanupDetectionJobState,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
@@ -30,7 +34,7 @@ import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@test
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     createScanCleanupPreviewTestContext,
     DOCUMENT_PAGE_SIZES,
@@ -852,6 +856,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             rasterConcurrency: 4,
             rasterStreaming: false,
         }),
+        expect.objectContaining({outputMode: 'bw'}),
     );
     // The visible page-1 raster is reused by 150-DPI detection; only pages
     // 2 and 3 need additional renders.
@@ -920,6 +925,7 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
             rasterConcurrency: policy.rasterConcurrency,
             rasterStreaming: false,
         }),
+        expect.objectContaining({outputMode: 'bw'}),
     );
 
 }
@@ -955,6 +961,7 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
             rasterConcurrency: policy.rasterConcurrency,
             rasterStreaming: true,
         }),
+        expect.objectContaining({outputMode: 'bw'}),
     );
 
 }
@@ -990,10 +997,11 @@ export async function scenarioFallsBackFromRasterStreamingUntilBrokerCapacityCan
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
             'scan-cleanup:1:preview-owner',
             expect.any(AbortSignal),
-            {
+            expect.objectContaining({
                 rasterConcurrency: 1,
                 rasterStreaming: false,
-            },
+            }),
+            expect.objectContaining({outputMode: 'bw'}),
         );
         expect(deps.createRasterPipes).not.toHaveBeenCalled();
     } finally {

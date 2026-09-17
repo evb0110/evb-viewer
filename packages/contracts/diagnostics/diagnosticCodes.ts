@@ -98,6 +98,114 @@ const RUNTIME_ERROR_LOG_STREAM_PHASES = [
     'subscription-initialization',
 ] as const;
 
+export const SCAN_CLEANUP_DIAGNOSTIC_STAGES = [
+    'renderer-settings',
+    'renderer-run',
+    'renderer-result',
+    'job-service',
+    'detection',
+    'preview-composition',
+    'retention-io',
+    'preview-rendering',
+    'worker-task',
+    'worker',
+] as const;
+
+export type TScanCleanupDiagnosticStage = typeof SCAN_CLEANUP_DIAGNOSTIC_STAGES[number];
+
+export const SCAN_CLEANUP_DIAGNOSTIC_ERROR_CODES = [
+    'unknown',
+    'SCAN_CLEANUP_OUTPUT_MISSING',
+    'SCAN_CLEANUP_PDF_VALIDATION_FAILED',
+    'SCAN_CLEANUP_CONTRACT_VIOLATION',
+    'SCAN_CLEANUP_STREAMING_EVIDENCE_INVALID',
+    'SCAN_CLEANUP_INVALID_PAGE_SCOPE',
+    'encrypted',
+    'needs-password',
+    'too-large',
+    'corrupt-xref',
+    'unsupported-filter',
+    'invalid-request',
+    'io',
+    'timeout',
+    'panic',
+    'native-failure',
+    'tools-unavailable',
+    'insufficient-scratch',
+    'canceled',
+    'detection-results-unavailable',
+    'internal',
+] as const;
+
+export type TScanCleanupDiagnosticErrorCode = typeof SCAN_CLEANUP_DIAGNOSTIC_ERROR_CODES[number];
+
+const SCAN_CLEANUP_INTERNAL_DIAGNOSTIC_ERROR_CODES = [
+    'SCAN_CLEANUP_OUTPUT_MISSING',
+    'SCAN_CLEANUP_PDF_VALIDATION_FAILED',
+    'SCAN_CLEANUP_CONTRACT_VIOLATION',
+    'SCAN_CLEANUP_STREAMING_EVIDENCE_INVALID',
+] as const;
+
+const SCAN_CLEANUP_DOCUMENT_DIAGNOSTIC_ERROR_CODES = [
+    'SCAN_CLEANUP_INVALID_PAGE_SCOPE',
+    'encrypted',
+    'needs-password',
+    'too-large',
+    'corrupt-xref',
+    'unsupported-filter',
+    'invalid-request',
+] as const;
+
+export type TScanCleanupDiagnosticFailureClass =
+    | 'internal-invariant'
+    | 'user-document'
+    | 'native-runtime'
+    | 'unknown';
+
+export function getScanCleanupDiagnosticErrorCode(value: unknown): TScanCleanupDiagnosticErrorCode {
+    const candidate = value !== null && typeof value === 'object' && 'code' in value
+        ? (value as {code?: unknown}).code
+        : value;
+    return typeof candidate === 'string'
+        && SCAN_CLEANUP_DIAGNOSTIC_ERROR_CODES.some(code => code === candidate)
+        ? candidate as TScanCleanupDiagnosticErrorCode
+        : 'unknown';
+}
+
+export function getScanCleanupDiagnosticFailureClass(value: unknown): TScanCleanupDiagnosticFailureClass {
+    const code = getScanCleanupDiagnosticErrorCode(value);
+    if (SCAN_CLEANUP_INTERNAL_DIAGNOSTIC_ERROR_CODES.some(candidate => candidate === code)) {
+        return 'internal-invariant';
+    }
+    if (SCAN_CLEANUP_DOCUMENT_DIAGNOSTIC_ERROR_CODES.some(candidate => candidate === code)) {
+        return 'user-document';
+    }
+    if (code !== 'unknown') {
+        return 'native-runtime';
+    }
+    return 'unknown';
+}
+
+const SCAN_CLEANUP_DIAGNOSTIC_CONTEXT = {
+    stage: {
+        kind: 'enum',
+        values: SCAN_CLEANUP_DIAGNOSTIC_STAGES,
+    },
+    errorCode: {
+        kind: 'enum',
+        values: SCAN_CLEANUP_DIAGNOSTIC_ERROR_CODES,
+    },
+    failureClass: {
+        kind: 'enum',
+        values: [
+            'internal-invariant',
+            'user-document',
+            'native-runtime',
+            'unknown',
+        ],
+    },
+} as const satisfies DiagnosticContextDefinition;
+
 export const PROCESS_GONE_TYPES = [
     'gpu',
     'utility',
@@ -548,6 +656,15 @@ export const DIAGNOSTIC_DEFINITIONS = {
         stackPolicy: 'call-site',
         context: {},
     },
+    RENDERER_IPC_EVENT_DECODE_FAILED: {
+        exceptionType: 'RendererIpcEventDecodeFailed',
+        exceptionValue: 'Renderer IPC event decode failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
     RENDERER_ASYNC_GUARD_FAILED: {
         exceptionType: 'RendererAsyncGuardFailed',
         exceptionValue: 'Renderer async guard failed',
@@ -794,7 +911,7 @@ export const DIAGNOSTIC_DEFINITIONS = {
         defaultSeverity: 'error',
         grouping: 'code-and-top-frame',
         stackPolicy: 'call-site',
-        context: {},
+        context: SCAN_CLEANUP_DIAGNOSTIC_CONTEXT,
     },
     RENDERER_WORKSPACE_OPERATION_FAILED: {
         exceptionType: 'RendererWorkspaceOperationFailed',
@@ -983,7 +1100,7 @@ export const DIAGNOSTIC_DEFINITIONS = {
         defaultSeverity: 'error',
         grouping: 'code-and-top-frame',
         stackPolicy: 'call-site',
-        context: {},
+        context: SCAN_CLEANUP_DIAGNOSTIC_CONTEXT,
     },
     MAIN_SEARCH_WORKER_FAILED: {
         exceptionType: 'MainSearchWorkerFailed',

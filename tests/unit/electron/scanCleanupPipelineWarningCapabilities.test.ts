@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {TScanCleanupWarningEvent} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createEmptyScanCleanupSummary} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {reportScanCleanupNativeWarnings} from '@evb/scan-cleanup/core/runScanCleanupConversion';

@@ -4,7 +4,7 @@ export type * from '@contracts/scan-cleanup/ipc';
 export type * from '@contracts/scan-cleanup/progress';
 export type * from '@contracts/scan-cleanup/nativeProtocolV3';
 export type * from '@contracts/scan-cleanup/outputMode';
-export type {IScanCleanupCapability} from '@contracts/scanCleanupPlatformFeature';
+export type {IScanCleanupCapability} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 export {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/outputMode';
 export {
     isScanCleanupErrorEnvelope,

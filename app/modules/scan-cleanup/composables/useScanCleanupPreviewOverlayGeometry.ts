@@ -2,7 +2,7 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     ComponentPublicInstance,
     ComputedRef,
@@ -170,6 +170,24 @@ export const useScanCleanupPreviewOverlayGeometry = (
         };
     }
 
+    function setDragOverlayBounds(next: IScanCleanupDragRect) {
+        if (
+            options.dragOverlayBounds.x !== next.x
+            || options.dragOverlayBounds.y !== next.y
+            || options.dragOverlayBounds.width !== next.width
+            || options.dragOverlayBounds.height !== next.height
+        ) {
+            Object.assign(options.dragOverlayBounds, next);
+        }
+    }
+
+    function setStageSize(width: number, height: number) {
+        if (options.stageSize.width !== width || options.stageSize.height !== height) {
+            options.stageSize.width = width;
+            options.stageSize.height = height;
+        }
+    }
+
     function updateOverlayGeometry(force = false) {
         if (options.activeDrag.value && !force) {
             return;
@@ -177,12 +195,13 @@ export const useScanCleanupPreviewOverlayGeometry = (
         const stageRect = currentStageRect();
         const surfaceRect = options.previewSurface.value?.getBoundingClientRect();
         if (!stageRect) {
-            options.dragOverlayBounds.x = 0;
-            options.dragOverlayBounds.y = 0;
-            options.dragOverlayBounds.width = 0;
-            options.dragOverlayBounds.height = 0;
-            options.stageSize.width = 0;
-            options.stageSize.height = 0;
+            setDragOverlayBounds({
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            });
+            setStageSize(0, 0);
             return;
         }
         if (!surfaceRect) {
@@ -195,18 +214,19 @@ export const useScanCleanupPreviewOverlayGeometry = (
         const stageHeight = options.cutterStage.value && options.cutterStage.value.clientHeight > 0
             ? options.cutterStage.value.clientHeight
             : stageRect.height / scale;
-        options.dragOverlayBounds.x = stageRect.x
-            - surfaceRect.left
-            - options.previewPan.x
-            + stageWidth * (scale - 1) / 2;
-        options.dragOverlayBounds.y = stageRect.y
-            - surfaceRect.top
-            - options.previewPan.y
-            + stageHeight * (scale - 1) / 2;
-        options.dragOverlayBounds.width = stageWidth;
-        options.dragOverlayBounds.height = stageHeight;
-        options.stageSize.width = stageWidth;
-        options.stageSize.height = stageHeight;
+        setDragOverlayBounds({
+            x: stageRect.x
+                - surfaceRect.left
+                - options.previewPan.x
+                + stageWidth * (scale - 1) / 2,
+            y: stageRect.y
+                - surfaceRect.top
+                - options.previewPan.y
+                + stageHeight * (scale - 1) / 2,
+            width: stageWidth,
+            height: stageHeight,
+        });
+        setStageSize(stageWidth, stageHeight);
         options.clampPan();
         for (const [
             half,

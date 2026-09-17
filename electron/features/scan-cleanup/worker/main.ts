@@ -4,14 +4,17 @@ import {
     workerData,
 } from 'worker_threads';
 import {basename} from 'path';
-import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {
+    getScanCleanupDiagnosticErrorCode,
+    getScanCleanupDiagnosticFailureClass,
+} from '@contracts/diagnostics/diagnosticCodes';
 import { decodeScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { createLogger } from '@electron/utils/createLogger';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { isAbortError } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {openScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     runScanCleanupPipeline,
@@ -32,7 +35,11 @@ function logScanCleanupWorkerMessage(level: 'debug' | 'error' | 'info' | 'warn',
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'worker',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }
@@ -59,11 +66,6 @@ try {
         ...requestWithoutDetectionResultStoreDescriptor,
         ...(detectionResultStore === null ? {} : {detectionResultStore}),
     };
-    attachScanCleanupPageOverrideDefaults(
-        request.options.pageOverrides,
-        request.options.pageOverrideDefaults,
-        request.options.marginsMm,
-    );
     logger.info(
         `Run started: source=${basename(data.request.sourcePdfPath)} `
         + `selectedPages=${String(data.request.sourcePageNumbers?.length ?? 'all')}`,
@@ -117,7 +119,11 @@ try {
             + (error instanceof Error ? `${getErrorMessage(error)}\n${error.stack ?? ''}` : String(error)),
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {},
+                context: {
+                    stage: 'worker',
+                    errorCode: getScanCleanupDiagnosticErrorCode(error),
+                    failureClass: getScanCleanupDiagnosticFailureClass(error),
+                },
                 cause: error,
             },
         );

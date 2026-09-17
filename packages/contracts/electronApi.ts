@@ -10,7 +10,7 @@ export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiOcr';
 export type * from '@contracts/ocrPlatformFeature';
 export type * from '@contracts/agentPlatformFeature';
-export type * from '@contracts/electronApiScanCleanup';
+export type * from '@contracts/scan-cleanup/electronApiScanCleanup';
 export type * from '@contracts/updatesPlatformFeature';
 export type * from '@contracts/windowTabsPlatformFeature';
 export type * from '@contracts/electronApiDjvu';

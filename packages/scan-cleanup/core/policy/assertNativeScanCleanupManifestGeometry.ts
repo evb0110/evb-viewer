@@ -2,7 +2,7 @@ import type {
     INativeScanCleanupManifestV3,
     IScanCleanupNormalizedRect,
     IScanCleanupPlacementAnchor,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON} from '@contracts/scan-cleanup/geometry';
 
 function describeRect(rect: IScanCleanupNormalizedRect) {

@@ -14,14 +14,22 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    IScanCleanupOptions,
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputMode,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 
-import {scanCleanupLayoutSignature} from '@contracts/scanCleanupPageOverrides';
+import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
+
+import {
+    getScanCleanupPageOverride,
+    resolveScanCleanupPageLayout,
+    scanCleanupLayoutSignature,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,
@@ -29,9 +37,18 @@ import type {
     IPdfPageSize,
     IPdfPageSizeStore,
 } from '@electron/pdf/pdfPageSizes';
-import type {IScanCleanupDocumentRasterPages} from '@evb/scan-cleanup/core/detection';
+import {PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
-import type {IScanCleanupDocumentCanvasAccumulator} from '@evb/scan-cleanup/core/policy/documentCanvas';
+import {
+    addScanCleanupDocumentCanvasPage,
+    CANVAS_CONTENT_SCALE_EPSILON,
+    createScanCleanupDocumentCanvasAccumulator,
+    resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupOutputPageRect,
+    type IScanCleanupDocumentCanvasAccumulator,
+    type resolveScanCleanupDocumentCanvasFromAccumulator,
+} from '@evb/scan-cleanup/core/policy/documentCanvas';
 
 import type { atomicReplace } from '@electron/utils/atomicReplace';
 import type {
@@ -56,6 +73,7 @@ import type {
     IScanCleanupPageRasterSource,
     TScanCleanupRunSidecar,
 } from '@evb/scan-cleanup/core/types';
+import {detectPageRasterFromPageSize} from '@evb/scan-cleanup/core/types';
 
 
 import type {
@@ -68,6 +86,41 @@ import type { ensureWorkingCopyMaterialized } from '@electron/file-access/workin
 
 
 export const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
+export const DETAIL_TILE_MAX_PIXELS = 4_000_000;
+export const DEFAULT_SOURCE_DPI = 300;
+export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+export const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
+// Canonical cleaned previews are retained only so detail tiles can replay the
+// exact page-global pixel transform. Bound them independently of the renderer
+// payloads so browsing a long document cannot turn detail parity into an
+// unbounded main-process heap.
+export const BASE_ANALYSIS_CACHE_BYTE_LIMIT = 64 * 1024 * 1024;
+export const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
+// How long a background prefetch may wait for the machine before it is dropped.
+// A prefetch is an optimisation, so it must never be the reason a page the user
+// later opens is already committed to a reservation nothing can grant.
+export const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
+export const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
+export const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
+// Keep fallback page probes within the same bounded unit as detection and
+// source-DPI probing. The raster cache and decoded page window stay bounded
+// independently of this page-number batch size.
+export const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+export const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
+
+export function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
+    if (
+        progress.completedUnits > 0
+        && progress.completedPageNumbers?.length === 0
+        && progress.completedPageNumbersTruncated !== true
+    ) {
+        return {
+            ...progress,
+            completedPageNumbersTruncated: true,
+        };
+    }
+    return progress;
+}
 
 /** Stable identity for two equivalent preview requests. */
 export function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {
@@ -103,14 +156,10 @@ export interface IRetainedDocument {
     // rendered from the bytes it replaced.
     sourceStatIdentity: string;
     pageCount: Promise<number> | null;
-    // One bounded page-geometry source is shared by every preview and
-    // detection consumer. Cursor-capable stores hand out forked views while
-    // retention keeps the source lifetime on the document.
+    // Page geometry is document work shared by preview, raster facts, and
+    // detection. Keep one in-flight store acquisition on the retained
+    // document so those consumers do not start separate native readers.
     pageSizeStore: Promise<IPdfPageSizeStore> | null;
-    // Legacy preview compatibility keeps its injected page-size array here.
-    // Production detection and preview geometry use pageSizeStore instead, so
-    // a retained document never allocates one record per source page.
-    previewPageSizes: Promise<IPdfPageSize[]> | null;
     // Source DPI is a page fact, not a request fact. Keep one native probe per
     // page for this retained document, just like pageCount and preview geometry.
     sourceDpiByPage: Map<number, Promise<number | null>>;
@@ -118,9 +167,6 @@ export interface IRetainedDocument {
     // detected at all. A matched lossless run has to re-render a document whose
     // rasters would otherwise sit on the shared sheet at two resolutions, so a
     // preview that promises lossless needs the same answer the run will reach.
-    rasterPages: Promise<IScanCleanupDocumentRasterPages> | null;
-    // Detection uses this bounded accessor. It is deliberately separate from
-    // the legacy aggregate kept by preview compatibility paths.
     rasterPageSource: Promise<IScanCleanupPageRasterSource> | null;
     rasterPageSourceStore: IPdfPageSizeStore | null;
     // Page geometry can carry the only bounded DPI evidence available before
@@ -131,10 +177,6 @@ export interface IRetainedDocument {
     // to open and closes them when the retained document leaves the cache.
     // Keeping this set small is also what makes repeated direct reads safe.
     pageSizeStores: Set<IPdfPageSizeStore>;
-    // Ordinary previews need only the requested page's raster facts. The
-    // whole-document result remains separate and lazy for matched lossless
-    // decisions.
-    rasterPageByPage: Map<number, Promise<IScanCleanupDocumentRasterPages>>;
     // Sender ownership survives a released preview claim while the document
     // remains in the bounded retention cache, so renderer death can evict the
     // cache entry even after its last active job settled.
@@ -161,16 +203,9 @@ export interface IScanCleanupRasterRetention {
         claimId?: string,
     ): Promise<IRetainedDocument>;
     pageCount(document: IRetainedDocument, signal: AbortSignal): Promise<number>;
-    previewPageSizes(document: IRetainedDocument, signal: AbortSignal): Promise<IPdfPageSize[]>;
     pageSizeStore(document: IRetainedDocument, signal: AbortSignal): Promise<IPdfPageSizeStore>;
     sourceDpi(document: IRetainedDocument, pageNumber: number, signal: AbortSignal): Promise<number | null>;
-    previewRasterPages(document: IRetainedDocument, signal: AbortSignal): Promise<IScanCleanupDocumentRasterPages>;
     rasterPageSource(document: IRetainedDocument, signal: AbortSignal): Promise<IScanCleanupPageRasterSource>;
-    rasterPage(
-        document: IRetainedDocument,
-        pageNumber: number,
-        signal: AbortSignal,
-    ): Promise<IScanCleanupDocumentRasterPages>;
     rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
     stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
     releaseRaster(
@@ -228,12 +263,9 @@ export interface IScanCleanupRasterRetention {
 export interface IScanCleanupRenderingRetention extends Pick<IScanCleanupRasterRetention,
     | 'openDocument'
     | 'pageCount'
-    | 'previewPageSizes'
     | 'pageSizeStore'
     | 'sourceDpi'
-    | 'previewRasterPages'
     | 'rasterPageSource'
-    | 'rasterPage'
     | 'materializeRawRaster'
     | 'materializeRawRasterPath'
     | 'claimRaster'
@@ -290,6 +322,152 @@ export interface IBoundedPreviewGeometry {
     previewDpi: number;
     pageSourceDpi: number | undefined;
 }
+/**
+ * Read the document geometry as bounded chunks and retain only the constant
+ * canvas summary plus the requested page. Preview and detection use this same
+ * store contract, so neither path needs a document-sized page array.
+ */
+export async function readBoundedPreviewGeometry(
+    store: IPdfPageSizeStore,
+    totalPages: number,
+    request: Pick<IScanCleanupPreviewRequest, 'pageNumber' | 'layoutByPage' | 'options'>,
+): Promise<IBoundedPreviewGeometry> {
+    const accumulator = createScanCleanupDocumentCanvasAccumulator();
+    let expectedPageNumber = 1;
+    let pageSize: IPdfPageSize | undefined;
+    let pageSourceDpi: number | undefined;
+    let allPagesHaveRasterMetadata = true as boolean;
+    let documentDpi = 0;
+    await store.forEachChunk(chunk => {
+        if (chunk.pageCount !== totalPages) {
+            throw new Error(
+                `Scan cleanup page-size store reported ${String(chunk.pageCount)} pages for ${String(totalPages)} document pages`,
+            );
+        }
+        for (const page of chunk.pages) {
+            if (page.pageNumber !== expectedPageNumber) {
+                throw new Error(
+                    `Scan cleanup page-size store returned page ${String(page.pageNumber)} where page ${String(expectedPageNumber)} was expected`,
+                );
+            }
+            addScanCleanupDocumentCanvasPage(
+                accumulator,
+                page,
+                request.options,
+                request.layoutByPage?.[String(page.pageNumber)],
+            );
+            const raster = detectPageRasterFromPageSize(page);
+            if (raster === undefined) {
+                allPagesHaveRasterMetadata = false;
+            } else {
+                documentDpi = Math.max(documentDpi, raster.dpi);
+                if (page.pageNumber === request.pageNumber) {
+                    pageSourceDpi = raster.dpi;
+                }
+            }
+            if (page.pageNumber === request.pageNumber) {
+                pageSize = page;
+            }
+            expectedPageNumber += 1;
+        }
+    });
+    if (expectedPageNumber - 1 !== totalPages) {
+        throw new Error(
+            `Scan cleanup page-size store returned ${String(expectedPageNumber - 1)} pages for ${String(totalPages)} document pages`,
+        );
+    }
+    const previewDpi = allPagesHaveRasterMetadata && documentDpi > 0
+        ? Math.min(PREVIEW_DPI, documentDpi)
+        : PREVIEW_DPI;
+    return {
+        accumulator,
+        pageSize,
+        previewDpi,
+        pageSourceDpi: allPagesHaveRasterMetadata ? pageSourceDpi : undefined,
+    };
+}
+
+function resolvePreviewPageShares(
+    options: IScanCleanupPreviewRequest['options'],
+    pageNumber: number,
+    layoutByPage: IScanCleanupPreviewRequest['layoutByPage'],
+) {
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
+    );
+    const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
+    if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
+        return 2;
+    }
+    if (layout === 'force-single') {
+        return 1;
+    }
+    if (pageOverride.manualSplit !== null) {
+        return 2;
+    }
+    return layoutByPage?.[String(pageNumber)] === 'two-page-spread' ? 2 : 1;
+}
+
+export function isScanCleanupSignalAborted(signal: AbortSignal) {
+    return signal.aborted;
+}
+
+/** Check matched-canvas resampling without building a page-number collection. */
+export async function hasBoundedMatchedRasterResample(input: {
+    canvas: NonNullable<ReturnType<typeof resolveScanCleanupDocumentCanvasFromAccumulator>>;
+    layoutByPage: IScanCleanupPreviewRequest['layoutByPage'];
+    options: IScanCleanupPreviewRequest['options'];
+    pageSizeStore: IPdfPageSizeStore;
+    rasterSource: IScanCleanupPageRasterSource;
+}) {
+    let resampleRequired = false;
+    await input.pageSizeStore.forEachChunk(async chunk => {
+        if (resampleRequired) {
+            return;
+        }
+        for (
+            let offset = 0;
+            offset < chunk.pages.length;
+            offset += RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES
+        ) {
+            const pages = chunk.pages.slice(offset, offset + RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES);
+            const rasters = input.rasterSource.detected
+                ? await Promise.all(
+                    pages.map(page => Promise.resolve(input.rasterSource.getPageRaster(page.pageNumber))),
+                )
+                : pages.map(() => undefined);
+            for (const [
+                index,
+                page,
+            ] of pages.entries()) {
+                if (getScanCleanupPageOverride(
+                    input.options.pageOverrides,
+                    requirePageNumber(page.pageNumber),
+                    input.options.pageOverrideDefaults,
+                    input.options.marginsMm,
+                ).excluded) {
+                    continue;
+                }
+                const carriesRaster = !input.rasterSource.detected || rasters[index] !== undefined;
+                if (!carriesRaster) continue;
+                const paper = resolveScanCleanupOutputPageRect(
+                    page,
+                    resolvePreviewPageShares(input.options, page.pageNumber, input.layoutByPage),
+                );
+                const scale = resolveScanCleanupCanvasFitScale(input.canvas, paper);
+                if (Math.abs(scale - 1) > CANVAS_CONTENT_SCALE_EPSILON) {
+                    resampleRequired = true;
+                    return;
+                }
+            }
+        }
+    });
+    return resampleRequired;
+}
+
 export interface IDetectionResult {
     results: TScanCleanupDetectionJobState['results'];
     resultStore: IScanCleanupDetectionResultStore;
@@ -334,11 +512,16 @@ export interface IScanCleanupPreviewDependencies {
     getAvailableScratchBytes?: (directory: string) => Promise<number | null>;
     resolveRasterAdmissionPolicy: (
         supportsRasterStreaming: boolean,
+        options?: IScanCleanupOptions,
     ) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
-    getPageSizes: typeof readPdfPageSizes;
+    /**
+     * Array geometry is retained only for compatibility fixtures. Production
+     * composition must use the bounded page-size store above.
+     */
+    getPageSizes?: typeof readPdfPageSizes;
     /** Native-backed bounded geometry reader used by production detection. */
-    getPageSizeStore?: (
+    getPageSizeStore: (
         pdfPath: Parameters<typeof createPdfPageSizeStore>[0],
         options: Parameters<typeof createPdfPageSizeStore>[1],
     ) => IPdfPageSizeStore | Promise<IPdfPageSizeStore>;
@@ -364,7 +547,7 @@ export interface IScanCleanupPreviewDependencies {
         sourcePdfPath: string,
         signal: AbortSignal,
         pageNumbers?: readonly number[],
-    ) => Promise<IScanCleanupDocumentRasterPages>;
+    ) => Promise<IScanCleanupPageRasterSource>;
     /** Whether bounded pdfimages probes can distinguish raster from vector pages. */
     isRasterDetectionAvailable?: () => boolean;
     extractMrcLayers?: (
@@ -379,11 +562,14 @@ export interface IScanCleanupPreviewDependencies {
         jobId: string,
         signal: AbortSignal,
         rasterPolicy: IScanCleanupRasterAdmissionPolicy,
+        options?: IScanCleanupOptions,
     ) => Promise<{release: () => boolean}>;
     acquirePreviewLease?: (
         ownerId: string,
         visibility: TPreviewVisibility,
         signal: AbortSignal,
+        options?: IScanCleanupOptions,
+        rasterMaxPixels?: number,
     ) => Promise<{release: () => boolean}>;
     getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
@@ -397,7 +583,7 @@ export interface IScanCleanupPreviewDependencies {
 }
 
 export type IScanCleanupRasterDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'getPageCount' | 'getPageSizes' | 'getPageSizeStore' | 'publishRaster' | 'readFile'
+    | 'getPageCount' | 'getPageSizeStore' | 'publishRaster' | 'readFile'
     | 'stat' | 'open'
     | 'renderPage' | 'resolvePageOpsBinary' | 'resolvePdfInfoBinary'
     | 'getTempDir' | 'getPdftoppmBinary' | 'detectSourceDpi' | 'getAvailableScratchBytes'
@@ -421,9 +607,10 @@ export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention &
 
 export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,
     | 'acquirePreviewLease' | 'prefetchLeaseTimeoutMs' | 'extractMrcLayers' | 'mainJobScratch'
+    | 'resolveRasterAdmissionPolicy'
     | 'getPageSizeStore' | 'getTempDir' | 'resolveBinary' | 'runSidecar'
     | 'getPdftoppmBinary' | 'renderPage' | 'renderPagePpm' | 'getPageCount'
-    | 'getPageSizes' | 'publishRaster' | 'resolvePageOpsBinary'
+    | 'publishRaster' | 'resolvePageOpsBinary'
     | 'resolvePdfInfoBinary' | 'detectSourceDpi' | 'detectRasterPages'
     | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'materializeWorkingCopy' | 'materializeRequest' | 'readFile'
     | 'stat' | 'getAvailableScratchBytes' | 'fileSystem'> & {nativeAllowedPathRoot?: string;};

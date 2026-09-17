@@ -19,8 +19,8 @@ import {
     decodeScanCleanupSettingsUpdateRequest,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
-} from '@contracts/scanCleanupSettings';
-import type {IScanCleanupPageOverride} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
+import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 
 const temporaryDirectories: string[] = [];

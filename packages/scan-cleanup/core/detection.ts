@@ -8,7 +8,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupPagePlanEvidence,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     INativeScanCleanupAnalysisOutputV3,
     INativeScanCleanupPageMetadataV3,
@@ -27,9 +27,9 @@ import {
 } from '@evb/scan-cleanup/core/errors';
 import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
 import {
-    assertCanonicalPdfPageSizes,
     detectPageRasterFromPageSize,
     detectSourceDpiFromPageSizes,
+    isScanCleanupCompactLayeredRaster,
     type IDetectedPageRaster,
     type IPdfPageSize,
     type IScanCleanupDetectionResultStore,
@@ -39,10 +39,7 @@ import {
     type TScanCleanupRenderPage,
     type TScanCleanupRunSidecar,
 } from '@evb/scan-cleanup/core/types';
-import {
-    createArrayBackedPdfPageSizeStore,
-    type IPdfPageSizeStore,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     type readAvailableScratchBytes,
     resolveStagedRasterWindow,
@@ -59,6 +56,7 @@ import {
     resolveScanCleanupDocumentCanvasFromAccumulator,
     scanCleanupDocumentCanvasSignature,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
+import {createScanCleanupProgressEtaEstimator} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     isCropBoxOrientationMismatch,
     isMateriallySmallerCropBox,
@@ -78,7 +76,7 @@ import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {splitContiguousPageRuns} from '@evb/scan-cleanup/core/splitContiguousPageRuns';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
-import {usesScanCleanupInkAlignment} from '@contracts/scanCleanupPageOverrides';
+import {usesScanCleanupInkAlignment} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -86,8 +84,6 @@ import {
 
 export const DETECTION_DPI = 150;
 export const PREVIEW_DPI = DETECTION_DPI;
-/** Array results remain a deliberate compatibility path for small documents. */
-export const SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 /** Completed pages a large document keeps in each progress event. */
 const RECENT_PROGRESS_PAGES = 256;
 /**
@@ -181,7 +177,13 @@ export function resolvePreviewRasterPlan(
     sourceDpiByPage: ReadonlyMap<number, number> = new Map(),
 ) {
     const detected = pageSizes === null ? null : detectSourceDpiFromPageSizes(pageSizes);
-    const pageDpiByNumber = new Map(detected?.pageDpiByNumber ?? []);
+    const pageDpiByNumber = new Map<number, number>();
+    for (const pageSize of pageSizes ?? []) {
+        const sourceRaster = detected?.getPageRaster(pageSize.pageNumber);
+        if (!(sourceRaster instanceof Promise) && sourceRaster !== undefined) {
+            pageDpiByNumber.set(pageSize.pageNumber, sourceRaster.dpi);
+        }
+    }
     let documentDpi = detected?.documentDpi ?? 0;
     for (const [
         pageNumber,
@@ -207,87 +209,21 @@ export function resolvePreviewRasterPlan(
     };
 }
 
-/**
- * Where the document keeps its own pixels. `detected` is false when pdfimages
- * is unavailable, which means every page has to be treated as one that carries
- * a raster: there is no evidence that it does not.
- */
-export interface IScanCleanupDocumentRasterPages {
-    detected: boolean;
-    pages: ReadonlySet<number>;
-    sourceDpiByPage?: ReadonlyMap<number, number>;
-    bilevelLayerPages?: ReadonlySet<number>;
-    dominantBilevelLayerPages?: ReadonlySet<number>;
-    backgroundDpiByPage?: ReadonlyMap<number, number>;
-}
-
-/**
- * The old Set/Map representation is kept for focused core tests and older
- * adapters. Electron retention uses the bounded accessor from `types.ts`.
- */
-export type TScanCleanupPageRasterSource =
-    | IScanCleanupPageRasterSource
-    | IScanCleanupDocumentRasterPages;
-
-function isBoundedPageRasterSource(
-    source: TScanCleanupPageRasterSource,
-): source is IScanCleanupPageRasterSource {
-    return typeof (source as Partial<IScanCleanupPageRasterSource>).getPageRaster === 'function';
-}
-
-function readLegacyPageRaster(
-    source: IScanCleanupDocumentRasterPages,
-    pageNumber: number,
-): IDetectedPageRaster | undefined {
-    if (!source.pages.has(pageNumber)) {
-        return undefined;
-    }
-    const backgroundDpi = source.backgroundDpiByPage?.get(pageNumber);
-    return {
-        // The legacy shape did not retain pixel dimensions. Detection only
-        // used these records for source-DPI and layer facts, so a tiny valid
-        // placeholder keeps old direct tests source-compatible without
-        // rebuilding a document-sized raster map in production.
-        width: 1,
-        height: 1,
-        dpi: source.sourceDpiByPage?.get(pageNumber) ?? DETECTION_DPI,
-        hasBilevelLayer: source.bilevelLayerPages?.has(pageNumber) ?? false,
-        hasDominantBilevelLayer: source.dominantBilevelLayerPages?.has(pageNumber) ?? false,
-        ...(backgroundDpi === undefined
-            ? {}
-            : {backgroundDpi}),
-    };
-}
-
 function getPageRaster(
-    source: TScanCleanupPageRasterSource,
+    source: IScanCleanupPageRasterSource,
     pageNumber: number,
 ) {
-    return isBoundedPageRasterSource(source)
-        ? source.getPageRaster(pageNumber)
-        : readLegacyPageRaster(source, pageNumber);
+    return source.getPageRaster(pageNumber);
 }
 
-function getLegacyPageDpi(
-    source: TScanCleanupPageRasterSource,
-    pageNumber: number,
-) {
-    return isBoundedPageRasterSource(source)
-        ? undefined
-        : source.sourceDpiByPage?.get(pageNumber);
-}
-
-function getRasterDocumentDpi(source: TScanCleanupPageRasterSource) {
-    if (!isBoundedPageRasterSource(source)) {
-        return undefined;
-    }
+function getRasterDocumentDpi(source: IScanCleanupPageRasterSource) {
     return Number.isFinite(source.documentDpi) && (source.documentDpi ?? 0) > 0
         ? source.documentDpi!
         : undefined;
 }
 
 function resolveRasterPageDpi(
-    source: TScanCleanupPageRasterSource,
+    source: IScanCleanupPageRasterSource,
     page: IPdfPageSize,
     raster: IDetectedPageRaster | undefined,
 ) {
@@ -295,56 +231,27 @@ function resolveRasterPageDpi(
     if (Number.isFinite(rasterDpi) && (rasterDpi ?? 0) > 0) {
         return rasterDpi;
     }
-    const legacyDpi = getLegacyPageDpi(source, page.pageNumber);
-    if (Number.isFinite(legacyDpi) && (legacyDpi ?? 0) > 0) {
-        return legacyDpi;
-    }
     return resolvePageGeometrySourceDpi(page, undefined) ?? getRasterDocumentDpi(source);
 }
 
 export function createScanCleanupDocumentRasterPages(
     detected: boolean,
-    pageRasterByNumber: ReadonlyMap<number, IDetectedPageRaster>,
-): IScanCleanupDocumentRasterPages {
+    rasterByPage: ReadonlyMap<number, IDetectedPageRaster>,
+): IScanCleanupPageRasterSource {
+    let documentDpi = 0;
+    let compactLayeredPageCount = 0;
+    for (const raster of rasterByPage.values()) {
+        documentDpi = Math.max(documentDpi, raster.dpi);
+        if (isScanCleanupCompactLayeredRaster(raster)) {
+            compactLayeredPageCount += 1;
+        }
+    }
     return {
         detected,
-        pages: new Set(pageRasterByNumber.keys()),
-        sourceDpiByPage: new Map(
-            [...pageRasterByNumber].map(([
-                pageNumber,
-                raster,
-            ]) => [
-                pageNumber,
-                raster.dpi,
-            ] as const),
-        ),
-        bilevelLayerPages: new Set(
-            [...pageRasterByNumber]
-                .filter(([
-                    , raster,
-                ]) => raster.hasBilevelLayer)
-                .map(([pageNumber]) => pageNumber),
-        ),
-        dominantBilevelLayerPages: new Set(
-            [...pageRasterByNumber]
-                .filter(([
-                    , raster,
-                ]) => raster.hasDominantBilevelLayer)
-                .map(([pageNumber]) => pageNumber),
-        ),
-        backgroundDpiByPage: new Map(
-            [...pageRasterByNumber].flatMap(([
-                pageNumber,
-                raster,
-            ]) =>
-                raster.backgroundDpi === undefined
-                    ? []
-                    : [[
-                        pageNumber,
-                        raster.backgroundDpi,
-                    ] as const],
-            ),
-        ),
+        documentDpi: documentDpi > 0 ? documentDpi : null,
+        compactLayeredPageCount,
+        compactLayeredPageCountComplete: true,
+        getPageRaster: pageNumber => rasterByPage.get(pageNumber),
     };
 }
 
@@ -373,13 +280,11 @@ export interface IScanCleanupDetectionRetention<TDocument> {
     ) => Promise<TDocument>;
     pageCount: (document: TDocument, signal: AbortSignal) => Promise<number>;
     /** Production retention opens one bounded native-backed geometry store. */
-    pageSizeStore?: (document: TDocument, signal: AbortSignal) => Promise<IPdfPageSizeStore>;
-    /** Array compatibility is retained for small direct/core tests only. */
-    pageSizes?: (document: TDocument, signal: AbortSignal) => Promise<IPdfPageSize[]>;
+    pageSizeStore: (document: TDocument, signal: AbortSignal) => Promise<IPdfPageSizeStore>;
     rasterPages: (
         document: TDocument,
         signal: AbortSignal,
-    ) => Promise<TScanCleanupPageRasterSource>;
+    ) => Promise<IScanCleanupPageRasterSource>;
     retainedPaths: (
         document: TDocument,
         pageNumbers: readonly number[],
@@ -658,15 +563,7 @@ async function resolveDetectionPageSizeStore<TDocument>(
     document: TDocument,
     signal: AbortSignal,
 ) {
-    if (retention.pageSizeStore !== undefined) {
-        return retention.pageSizeStore(document, signal);
-    }
-    if (retention.pageSizes !== undefined) {
-        const pageSizes = await retention.pageSizes(document, signal);
-        assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup detection');
-        return createArrayBackedPdfPageSizeStore(pageSizes);
-    }
-    throw new Error('Scan cleanup detection has no page-size store');
+    return retention.pageSizeStore(document, signal);
 }
 
 async function readDetectionPageSizeBatch(
@@ -726,7 +623,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
     pageSizeStore: IPdfPageSizeStore,
     resultStore: IScanCleanupDetectionResultStore,
     dependencies: IScanCleanupDetectionDependencies,
-    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency'>,
+    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency' | 'rasterMaxPixels'>,
     publish: (
         results: IScanCleanupDetectionResult[],
         progress: TScanCleanupProgress,
@@ -742,7 +639,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
     if (!fileSystem) throw new Error('Scan cleanup detection requires injected filesystem capabilities');
     const getAvailableScratchBytes = dependencies.getAvailableScratchBytes;
     if (!getAvailableScratchBytes) throw new Error('Scan cleanup detection requires injected scratch-budget capability');
-    const sourceRasterStructure = await retention.rasterPages(document, signal);
+    let sourceRasterStructure: IScanCleanupPageRasterSource | undefined;
     const canvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
     // Keep the provisional summary used while native reconciliation is still
     // open separate from the resolved summary. The former contains every
@@ -753,7 +650,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
     let geometryPages = 0;
     let expectedGeometryPageNumber = 1;
     let matchedPreviewDpi = Number.POSITIVE_INFINITY;
-    await pageSizeStore.forEachChunk(chunk => {
+    await pageSizeStore.forEachChunk(async chunk => {
         signal.throwIfAborted();
         if (chunk.pageCount !== totalPages) {
             throw new Error(
@@ -769,6 +666,13 @@ async function runBatchedScanCleanupDetection<TDocument>(
             }
             expectedGeometryPageNumber += 1;
             geometryPages += 1;
+        }
+        if (sourceRasterStructure === undefined) {
+            sourceRasterStructure = await retention.rasterPages(document, signal);
+        }
+        const chunkSourceRasterStructure = sourceRasterStructure;
+        for (const rawPage of chunk.pages) {
+            signal.throwIfAborted();
             const page = toCropBoxPageSize(rawPage);
             addScanCleanupDocumentCanvasPage(canvasAccumulator, page, request.options);
             matchedPreviewDpi = Math.min(
@@ -777,10 +681,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     page,
                     resolvePageGeometrySourceDpi(
                         page,
-                        isBoundedPageRasterSource(sourceRasterStructure)
-                            ? undefined
-                            : sourceRasterStructure.sourceDpiByPage,
-                    ) ?? getRasterDocumentDpi(sourceRasterStructure),
+                        undefined,
+                    ) ?? getRasterDocumentDpi(chunkSourceRasterStructure),
                 ),
             );
         }
@@ -790,6 +692,13 @@ async function runBatchedScanCleanupDetection<TDocument>(
             `Scan cleanup page-size store returned ${String(geometryPages)} pages for ${String(totalPages)} document pages`,
         );
     }
+    if (sourceRasterStructure === undefined) {
+        sourceRasterStructure = await retention.rasterPages(document, signal);
+    }
+    const resolvedSourceRasterStructure = sourceRasterStructure;
+    if (resolvedSourceRasterStructure === undefined) {
+        throw new Error('Scan cleanup detection could not resolve source raster facts');
+    }
     if (!Number.isFinite(matchedPreviewDpi)) matchedPreviewDpi = PREVIEW_DPI;
     const baselineCanvasSignature = scanCleanupDocumentCanvasSignature(
         request.options.matchPageSize
@@ -797,6 +706,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 canvasAccumulator,
                 matchedPreviewDpi,
                 request.options,
+                false,
+                policy.rasterMaxPixels,
             )
             : null,
     );
@@ -811,13 +722,14 @@ async function runBatchedScanCleanupDetection<TDocument>(
             matchedPreviewDpi,
             request.options,
             layoutEvidenceComplete,
+            policy.rasterMaxPixels,
         ));
         return signature === baselineCanvasSignature ? '' : signature;
     };
     // The bounded result store is authoritative for every document-scale run.
-    // Keeping an array-shaped compatibility snapshot is safe only for the
-    // explicit small-document threshold, below the production batch size.
-    const compatibilityResults = totalPages <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+    // Keeping an in-memory snapshot is safe only for the explicit small-document
+    // threshold, below the production batch size.
+    const compatibilityResults = totalPages <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
         ? new Map<number, IScanCleanupDetectionResult>()
         : null;
     // Large documents publish only the results recorded since the previous
@@ -859,6 +771,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
 
     let rasterizedPages = 0;
     let analyzedPages = 0;
+    const etaEstimator = createScanCleanupProgressEtaEstimator();
     const mediaBoxRetryCandidates: Array<{
         pageNumber: number;
         result: IScanCleanupDetectionResult;
@@ -868,13 +781,30 @@ async function runBatchedScanCleanupDetection<TDocument>(
     // list through progress. A batch-local list still lets the UI identify the
     // pages represented by the latest native frame without retaining a million
     // page numbers in the workflow.
-    const publishRasterizing = () => publish([], {
-        stage: 'rasterizing',
-        completedUnits: rasterizedPages,
-        totalUnits: totalPages,
-        percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
-        completedPageNumbers: [],
-    }, documentCanvasSignature());
+    const progressWithEta = (
+        stage: TScanCleanupProgress['stage'],
+        completedUnits: number,
+        totalUnits: number,
+        progress: Pick<TScanCleanupProgress, 'percent' | 'completedPageNumbers' | 'completedPageNumbersTruncated'>,
+    ): TScanCleanupProgress => {
+        const etaSeconds = etaEstimator.update(stage, completedUnits, totalUnits, performance.now());
+        return {
+            stage,
+            completedUnits,
+            totalUnits,
+            ...progress,
+            ...(etaSeconds === undefined ? {} : {etaSeconds}),
+        };
+    };
+    const publishRasterizing = () => publish([], progressWithEta(
+        'rasterizing',
+        rasterizedPages,
+        totalPages,
+        {
+            percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
+            completedPageNumbers: [],
+        },
+    ), documentCanvasSignature());
     publishRasterizing();
 
     for (const batch of iterateScanCleanupPageBatches(
@@ -892,7 +822,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
         ]));
         const batchRasterByNumber = new Map(await Promise.all(batchPageNumbers.map(async pageNumber => [
             pageNumber,
-            await getPageRaster(sourceRasterStructure, pageNumber),
+            await getPageRaster(resolvedSourceRasterStructure, pageNumber),
         ] as const)));
         const previouslyBroadenedPages = new Set(
             batchPageRecords
@@ -920,6 +850,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             resolveRasterRenderLimits(
                 batchPageByNumber.get(pageNumber),
                 detectionDpiForPage(pageNumber),
+                policy.rasterMaxPixels,
             ),
         ]));
         const stagingPlans = rasterScope.map(pageNumber => {
@@ -1201,7 +1132,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             const sourceBackgroundDpi = sourceRaster?.backgroundDpi;
             const sourceDpi = sourcePage === undefined
                 ? undefined
-                : resolveRasterPageDpi(sourceRasterStructure, sourcePage, sourceRaster);
+                : resolveRasterPageDpi(resolvedSourceRasterStructure, sourcePage, sourceRaster);
             return {
                 inputPath: stagedPathByPage.get(pageNumber)!,
                 pageNumber,
@@ -1224,6 +1155,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
             options: request.options,
+            ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
                 ...(request.options.autoDewarpDepth === undefined
@@ -1279,7 +1211,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 );
             }
             const sourceDpi = resolveRasterPageDpi(
-                sourceRasterStructure,
+                resolvedSourceRasterStructure,
                 sourcePage,
                 batchRasterByNumber.get(sourcePageNumber),
             );
@@ -1413,13 +1345,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
                                 return;
                             }
-                            publish(takePublishableResults(), {
-                                stage: 'detecting',
-                                completedUnits: analyzedPages,
-                                totalUnits: totalPages,
-                                percent: totalPages === 0 ? 100 : analyzedPages / totalPages * 100,
-                                ...completedPageProgress(reportedPageNumbers, analyzedPages),
-                            }, documentCanvasSignature());
+                            publish(takePublishableResults(), progressWithEta(
+                                'detecting',
+                                analyzedPages,
+                                totalPages,
+                                {
+                                    percent: totalPages === 0 ? 100 : analyzedPages / totalPages * 100,
+                                    ...completedPageProgress(reportedPageNumbers, analyzedPages),
+                                },
+                            ), documentCanvasSignature());
                             return;
                         }
                         if (
@@ -1436,13 +1370,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         if (!shouldPublishLargeProgress(completedUnits >= totalPages)) {
                             return;
                         }
-                        publish(takePublishableResults(), {
-                            stage: 'detecting',
+                        publish(takePublishableResults(), progressWithEta(
+                            'detecting',
                             completedUnits,
-                            totalUnits: totalPages,
-                            percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
-                            ...completedPageProgress(reportedPageNumbers, completedUnits),
-                        }, documentCanvasSignature(completedUnits >= totalPages));
+                            totalPages,
+                            {
+                                percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
+                                ...completedPageProgress(reportedPageNumbers, completedUnits),
+                            },
+                        ), documentCanvasSignature(completedUnits >= totalPages));
                     }
                 },
                 {
@@ -1517,7 +1453,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
     if (mediaBoxRetryCandidates.length > 0) {
         const retryPlans = mediaBoxRetryCandidates.map(candidate => {
             const mediaPage = toMediaBoxPageSize(candidate.sourcePage);
-            const limits = resolveRasterRenderLimits(mediaPage, DETECTION_DPI);
+            const limits = resolveRasterRenderLimits(mediaPage, DETECTION_DPI, policy.rasterMaxPixels);
             return {
                 renderDpi: DETECTION_DPI,
                 raster: {
@@ -1575,7 +1511,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         undefined,
                         undefined,
                         'png',
-                        resolveRasterRenderLimits(mediaPage, DETECTION_DPI),
+                        resolveRasterRenderLimits(mediaPage, DETECTION_DPI, policy.rasterMaxPixels),
                         'MediaBox retry raster',
                         'MediaBox retry',
                         'mediabox',
@@ -1599,7 +1535,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             }
             const retryRasterByNumber = new Map(await Promise.all(renderedRetryPages.map(async page => [
                 page.pageNumber,
-                await getPageRaster(sourceRasterStructure, page.pageNumber),
+                await getPageRaster(resolvedSourceRasterStructure, page.pageNumber),
             ] as const)));
             const retryManifestPages = renderedRetryPages.map((page, index) => {
                 const sourceRaster = retryRasterByNumber.get(page.pageNumber);
@@ -1611,7 +1547,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     sourceDpi: resolvePageGeometrySourceDpi(
                         page.sourcePage,
                         undefined,
-                    ) ?? sourceRaster?.dpi ?? getRasterDocumentDpi(sourceRasterStructure) ?? DETECTION_DPI,
+                    ) ?? sourceRaster?.dpi ?? getRasterDocumentDpi(resolvedSourceRasterStructure) ?? DETECTION_DPI,
                     sourceHasBilevelLayer: sourceRaster?.hasBilevelLayer ?? false,
                     ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
                     pageMetadataPath: page.metadataPath,
@@ -1626,6 +1562,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     canvasScope: 'page',
                     qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
                     options: request.options,
+                    ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
                     experimental: {
                         autoDewarp: request.options.autoDewarp ?? false,
                         ...(request.options.autoDewarpDepth === undefined
@@ -1695,7 +1632,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             ...mediaPage,
                             pageNumber: requirePageNumber(mediaPage.pageNumber),
                             sourceDpi: resolveRasterPageDpi(
-                                sourceRasterStructure,
+                                resolvedSourceRasterStructure,
                                 page.sourcePage,
                                 retryRasterByNumber.get(page.pageNumber),
                             ) ?? DETECTION_DPI,
@@ -1765,7 +1702,7 @@ export async function runScanCleanupDetection<TDocument>(
     signal: AbortSignal,
     retention: IScanCleanupDetectionRetention<TDocument>,
     dependencies: IScanCleanupDetectionDependencies,
-    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency'>,
+    policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency' | 'rasterMaxPixels'>,
     publish: (
         results: IScanCleanupDetectionResult[],
         progress: TScanCleanupProgress,
@@ -1791,14 +1728,6 @@ export async function runScanCleanupDetection<TDocument>(
         const pageSizeStore = await resolveDetectionPageSizeStore(retention, document, signal);
         let resultStore: IScanCleanupDetectionResultStore | null = null;
         let resultStoreTransferred = false;
-        let pageSizeStoreCloseAttempted = false;
-        const closePageSizeStore = async () => {
-            if (pageSizeStoreCloseAttempted) {
-                return;
-            }
-            pageSizeStoreCloseAttempted = true;
-            await pageSizeStore.close();
-        };
         try {
             resultStore = await createFileBackedScanCleanupDetectionResultStore({
                 fileSystem,
@@ -1820,7 +1749,6 @@ export async function runScanCleanupDetection<TDocument>(
                 totalPages,
                 scratch,
             );
-            await closePageSizeStore();
             resultStoreTransferred = true;
             return outcome;
         } finally {
@@ -1829,14 +1757,6 @@ export async function runScanCleanupDetection<TDocument>(
                     log(
                         'warn',
                         `Could not close unreturned scan-cleanup result store: ${getErrorMessage(error)}`,
-                    );
-                });
-            }
-            if (!pageSizeStoreCloseAttempted) {
-                await closePageSizeStore().catch(error => {
-                    log(
-                        'warn',
-                        `Could not close scan-cleanup page-size store: ${getErrorMessage(error)}`,
                     );
                 });
             }

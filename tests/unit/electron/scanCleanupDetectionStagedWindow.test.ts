@@ -23,7 +23,7 @@ import {
     runScanCleanupDetection,
     type IScanCleanupDetectionRetention,
 } from '@evb/scan-cleanup/core/detection';
-import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,
@@ -31,7 +31,10 @@ import type {
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupRunSidecar} from '@evb/scan-cleanup/core/types';
-import type {IPdfPageSize} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {
+    createArrayBackedPdfPageSizeStore,
+    type IPdfPageSize,
+} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const MIB = 1024 * 1024;
 const PNG_1X1 = Buffer.from(
@@ -224,10 +227,10 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
     const retention: IScanCleanupDetectionRetention<{id: string}> = {
         openDocument: vi.fn(async () => ({id: 'document'})),
         pageCount: vi.fn(async () => options.pageSizes.length),
-        pageSizes: vi.fn(async () => options.pageSizes),
+        pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(options.pageSizes)),
         rasterPages: vi.fn(async () => ({
             detected: false,
-            pages: new Set<number>(),
+            getPageRaster: () => undefined,
         })),
         retainedPaths: vi.fn(async () => new Map()),
         rasterScratchPath: vi.fn(async (_document, pageNumber, dpi) => {

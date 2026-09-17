@@ -110,6 +110,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             ...({} as TDocumentSession['snapshot']['value']),
             identity: identity(),
             viewState: viewState({scanCleanup: {
+                ownerId: 'cleanup-owner',
                 previewPage: 3,
                 previewViewMode: 'cleaned',
             }}),
@@ -153,6 +154,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             viewState: viewState({
                 surfaceMode: 'scan-cleanup',
                 scanCleanup: {
+                    ownerId: 'cleanup-owner',
                     previewPage: 3,
                     previewViewMode: 'cleaned',
                 },
@@ -183,6 +185,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             viewState: viewState({
                 surfaceMode: 'scan-cleanup',
                 scanCleanup: {
+                    ownerId: 'cleanup-owner',
                     previewPage: 3,
                     previewViewMode: 'cleaned',
                 },

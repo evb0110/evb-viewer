@@ -13,7 +13,7 @@ import {
 import type {
     IScanCleanupCapability,
     TScanCleanupJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     requireDocumentRef,
     type TDocumentRef,

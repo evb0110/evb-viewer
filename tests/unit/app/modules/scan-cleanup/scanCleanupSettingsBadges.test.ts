@@ -3,12 +3,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     resetScanCleanupOptionsToDefaults,
     resolveScanCleanupNonDefaultSettings,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSettingsBadges';
-import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 function scanCleanupOptions(): IScanCleanupOptions {
     return {

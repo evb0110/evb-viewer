@@ -24,7 +24,7 @@ import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import * as platform from '@app/utils/platform';
-import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -42,8 +42,8 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
     TScanCleanupPageOutputMapping,
-} from '@contracts/electronApiScanCleanup';
-import type * as scanCleanupPageOverridesModule from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type * as scanCleanupPageOverridesModule from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {
@@ -68,7 +68,7 @@ const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | nu
 // under test in `derives the document's layouts once per change`.
 const layoutReductions = vi.hoisted(() => ({count: 0}));
 
-vi.mock('@contracts/scanCleanupPageOverrides', async importOriginal => {
+vi.mock('@contracts/scan-cleanup/scanCleanupPageOverrides', async importOriginal => {
     const original = await importOriginal<typeof scanCleanupPageOverridesModule>();
     return {
         ...original,
@@ -689,7 +689,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
         mounted.unmount();
     });
 
@@ -1212,7 +1212,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.errorCode.value).toBe('too-large');
-        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
         mounted.unmount();
     });
 
@@ -1277,12 +1277,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.has(20_001)).toBe(false);
 
-        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.errorCode.value).toBe('too-large');
-        expect(mounted.session.run.error.value).toContain('20,000');
+        expect(mounted.session.run.error.value).toContain('scanCleanup.errors.tooLarge');
         mounted.unmount();
     });
 
@@ -1598,7 +1598,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const failed = mountSession(`preview-sequence-failure-${Date.now()}`);
 
         expect(failed.session.preview.loading.value).toBe(true);
-        await vi.waitFor(() => expect(failed.session.preview.error.value).toBe('preview boundary failed'));
+        await vi.waitFor(() => expect(failed.session.preview.error.value)
+            .toBe('scanCleanup.errors.internal (preview boundary failed)'));
         expect(failed.session.preview.errorCode.value).toBe('internal');
         expect(failed.session.preview.loading.value).toBe(false);
         expect(failed.session.preview.result.value).toBeNull();
@@ -1669,7 +1670,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = typedHarness.value;
         const typed = mountSession(`preview-typed-error-${Date.now()}`);
 
-        await vi.waitFor(() => expect(typed.session.preview.error.value).toBe('Preview exceeds native limits'));
+        await vi.waitFor(() => expect(typed.session.preview.error.value)
+            .toBe('scanCleanup.errors.tooLarge (Preview exceeds native limits)'));
         expect(typed.session.preview.errorCode.value).toBe('too-large');
         typed.unmount();
 
@@ -1990,7 +1992,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('surfaces an analysis ETA after three page-complete events', async () => {
+    it('surfaces the worker-provided analysis ETA', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`analysis-eta-${Date.now()}`, {totalPages: () => 6});
@@ -2023,6 +2025,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     totalUnits: 6,
                     percent: pageNumber / 6 * 100,
                     completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
+                    ...(pageNumber === 3 ? {etaSeconds: 3} : {}),
                 },
                 results: [{
                     pageNumber: requirePageNumber(pageNumber),
@@ -2183,18 +2186,19 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
-    it('shares global preferences while keeping output mode scoped to its document', async () => {
+    it('snapshots global preferences while keeping output mode and detection scoped to its document', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const firstKey = `preferences-a-${Date.now()}`;
         const secondKey = `preferences-b-${Date.now()}`;
         const first = mountSession(firstKey);
         const second = mountSession(secondKey);
+        await nextTick();
 
         first.session.settings.values.outputMode = 'color';
         expect(second.session.settings.values.outputMode).toBe('auto');
         second.session.settings.values.readingOrder = 'rtl';
-        expect(first.session.settings.values.readingOrder).toBe('rtl');
+        expect(first.session.settings.values.readingOrder).toBe('ltr');
 
         await vi.waitFor(() => expect(JSON.parse(
             localStorage.getItem('evb.scanCleanup.settings.v1') ?? '{}',
@@ -2544,6 +2548,83 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.run.cancelRequested.value).toBe(false);
         expect(mounted.session.run.canRun.value).toBe(true);
         mounted.unmount();
+    });
+
+    it('shows active cancellation intent and restores it after a refusal', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const documentRevision = 'cancel-intent-revision';
+        const mounted = mountSession(`cancel-intent-${Date.now()}`, {documentRevision: () => documentRevision});
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        const cancelReply = Promise.withResolvers<boolean>();
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: requireJobId('cancel-intent-job'),
+            outputPdfPath: '/managed/cancel-intent-job.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: requireJobId('cancel-intent-job'),
+            status: 'running',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        });
+        const runningState: TScanCleanupJobState = {
+            jobId: requireJobId('cancel-intent-job'),
+            status: 'running',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        };
+        vi.mocked(harness.value.getJobState).mockResolvedValue(runningState);
+        vi.mocked(harness.value.cancel).mockReturnValue(cancelReply.promise);
+        await mounted.session.run.run();
+        expect(mounted.session.run.isRunning.value).toBe(true);
+
+        const cancel = mounted.session.run.cancel();
+        await nextTick();
+        expect(mounted.session.run.cancelRequested.value).toBe(true);
+        expect(harness.value.cancel).toHaveBeenCalledWith(
+            'cancel-intent-job',
+            expect.objectContaining({
+                ownerId: expect.any(String),
+                documentRevision,
+            }),
+        );
+
+        cancelReply.reject(new Error('bridge disconnected'));
+        await cancel;
+        expect(mounted.session.run.cancelRequested.value).toBe(false);
+        expect(mounted.session.run.cancelStatusText.value).toBe('scanCleanup.cancelRefused');
+        harness.emitRun({
+            jobId: requireJobId('cancel-intent-job'),
+            status: 'canceled',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: requireEpochMs(Date.now() + 1),
+        });
+        await nextTick();
     });
 
     it('waits for a complete detection pass for a non-auto run', async () => {
@@ -3350,7 +3431,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
-            .toBe('scanCleanup.failed (scan-cleanup IPC codec failed)');
+            .toBe('scanCleanup.errors.internal (scan-cleanup IPC codec failed)');
         mounted.unmount();
     });
 
@@ -3373,7 +3454,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(mounted.session.run.error.value).toMatch(
-            /^scanCleanup\.runDisabled\.unavailable\nError ID: [0-9a-f]{8}$/u,
+            /^scanCleanup\.errors\.toolsUnavailable \(Scan cleanup is unavailable\)\nError ID: [0-9a-f]{8}$/u,
         );
         expect(mounted.session.run.errorCode.value).toBe('tools-unavailable');
         mounted.unmount();
@@ -3391,7 +3472,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
-            .toBe('scanCleanup.detectAll.failed (uniform detection failed)');
+            .toBe('scanCleanup.errors.nativeFailure (uniform detection failed)');
         expect(getScanCleanupRunErrorCode(mounted.session.run.ownerId)).toBe('native-failure');
         mounted.unmount();
     });

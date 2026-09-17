@@ -1,4 +1,4 @@
-import type {INativeScanCleanupOutputMetadataV3} from '@contracts/electronApiScanCleanup';
+import type {INativeScanCleanupOutputMetadataV3} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {resolveScanCleanupMatchedCanvasPlacement} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import type {IPdfMrcLayers} from '@evb/scan-cleanup/core/types';
 

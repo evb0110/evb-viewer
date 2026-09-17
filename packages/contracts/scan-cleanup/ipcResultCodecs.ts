@@ -22,19 +22,29 @@ import type {
 import type {
     TScanCleanupBinarizationMethod,
     TScanCleanupOutputHalf,
+    TScanCleanupPageRotation,
+} from '@contracts/scan-cleanup/domain';
+import {
+    SCAN_CLEANUP_BINARIZATION_METHODS,
+    SCAN_CLEANUP_CANVAS_POLICIES,
+    SCAN_CLEANUP_CONTENT_TRIM_SIDES,
+    SCAN_CLEANUP_OUTPUT_HALVES,
+    SCAN_CLEANUP_PAGE_ROTATIONS,
+    SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS,
+    SCAN_CLEANUP_TEXT_TONE_RULES,
 } from '@contracts/scan-cleanup/domain';
 import type {
     TNativeScanCleanupSpreadBinarizationPlanDecisionV3,
     TNativeScanCleanupTextToneRuleV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
-    decodeDocumentPrior,
     decodeFiniteNumber,
     decodeScanCleanupPagePlanEvidence,
     decodeScanCleanupPlacementAnchors,
     decodeSourcePageMetadata,
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
 import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
 import {isNativeScanCleanupOpticalPlacementValid} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {
@@ -77,66 +87,30 @@ export function decodeScanCleanupPlacementAnchorCalibration(
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
-const PREVIEW_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const;
-const PREVIEW_CANVAS_POLICIES = [
-    'intrinsic',
-    'strict-maximum',
-] as const;
-const PREVIEW_BINARIZATION_ROUTES = [
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const;
-const PREVIEW_TEXT_TONE_RULES = [
-    'applied',
-    'picture-evidence',
-    'insufficient-text',
-    'tonal-mass-outside-text',
-    'already-dark',
-] as const;
-const PREVIEW_TRIM_SIDES = [
-    'left',
-    'top',
-    'right',
-    'bottom',
-] as const;
-const PREVIEW_SPREAD_DECISIONS = [
-    'sharedJoint',
-    'perLeafRouteMismatch',
-    'perLeafAnchorDrift',
-    'perLeafRadiusDrift',
-    'perLeafFaintInkDrift',
-] as const;
-
 function isPreviewHalf(value: unknown): value is TScanCleanupOutputHalf {
-    return PREVIEW_HALVES.some(half => half === value);
+    return SCAN_CLEANUP_OUTPUT_HALVES.some(half => half === value);
 }
 
 function isPreviewCanvasPolicy(value: unknown): value is TScanCleanupCanvasPolicy {
-    return PREVIEW_CANVAS_POLICIES.some(policy => policy === value);
+    return SCAN_CLEANUP_CANVAS_POLICIES.some(policy => policy === value);
 }
 
 function isPreviewBinarizationRoute(value: unknown): value is TScanCleanupBinarizationMethod {
-    return PREVIEW_BINARIZATION_ROUTES.some(route => route === value);
+    return SCAN_CLEANUP_BINARIZATION_METHODS.some(route => route === value);
 }
 
 function isPreviewTextToneRule(value: unknown): value is TNativeScanCleanupTextToneRuleV3 {
-    return PREVIEW_TEXT_TONE_RULES.some(rule => rule === value);
+    return SCAN_CLEANUP_TEXT_TONE_RULES.some(rule => rule === value);
 }
 
 function isPreviewTrimSide(value: unknown): value is TScanCleanupContentTrimSide {
-    return PREVIEW_TRIM_SIDES.some(side => side === value);
+    return SCAN_CLEANUP_CONTENT_TRIM_SIDES.some(side => side === value);
 }
 
 function isPreviewSpreadDecision(
     value: unknown,
 ): value is TNativeScanCleanupSpreadBinarizationPlanDecisionV3 {
-    return PREVIEW_SPREAD_DECISIONS.some(decision => decision === value);
+    return SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS.some(decision => decision === value);
 }
 
 function decodePreviewBytes(value: unknown, label: string) {
@@ -173,21 +147,17 @@ function decodeSafeFiniteNumber(value: unknown, label: string) {
     return decoded;
 }
 
-function decodeScanCleanupRotation(value: unknown, label: string) {
-    if (
-        typeof value !== 'number'
-        || !Number.isSafeInteger(value)
-        || (value !== 0 && value !== 90 && value !== 180 && value !== 270)
-    ) {
+function decodeScanCleanupRotation(value: unknown, label: string): TScanCleanupPageRotation {
+    if (!isScanCleanupRotation(value)) {
         throw new Error(`invalid scan-cleanup preview ${label}`);
     }
     return value;
 }
 
-function isScanCleanupRotation(value: unknown): value is 0 | 90 | 180 | 270 {
+function isScanCleanupRotation(value: unknown): value is TScanCleanupPageRotation {
     return typeof value === 'number'
         && Number.isSafeInteger(value)
-        && (value === 0 || value === 90 || value === 180 || value === 270);
+        && SCAN_CLEANUP_PAGE_ROTATIONS.some(rotation => rotation === value);
 }
 
 function decodePreviewRect(value: unknown, label: string) {
@@ -428,7 +398,7 @@ function decodeSplitSeam(value: unknown) {
 
 function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup preview metadata');
-    const half = PREVIEW_HALVES.find(candidate => candidate === value.half)
+    const half = SCAN_CLEANUP_OUTPUT_HALVES.find(candidate => candidate === value.half)
         ?? (() => { throw new Error('invalid scan-cleanup preview half'); })();
     const layoutClassification = isLayoutClassification(value.layoutClassification)
         ? value.layoutClassification
@@ -820,9 +790,9 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
     ) throw new Error('invalid scan-cleanup preview page metadata');
     return {
         layoutClassification,
-        ...(value.layoutConfidence === undefined
-            ? {}
-            : {layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'page layout confidence')}),
+        layoutConfidence: value.layoutConfidence === undefined
+            ? 0
+            : decodeUnitInterval(value.layoutConfidence, 'page layout confidence'),
         cutterXPx: value.cutterXPx === null
             ? null
             : decodeSafeFiniteNumber(value.cutterXPx, 'cutter x'),
@@ -930,6 +900,9 @@ export function decodeStartResult(value: unknown) {
         jobId,
         error: value.error,
         errorCode: value.errorCode,
+        ...(value.scratchShortfall === undefined
+            ? {}
+            : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
     };
 }
 
@@ -952,6 +925,9 @@ export function decodeDetectionStartResult(value: unknown) {
         jobId,
         error: value.error,
         errorCode: value.errorCode,
+        ...(value.scratchShortfall === undefined
+            ? {}
+            : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
     };
 }
 
@@ -984,7 +960,7 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
         progress: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
         updatedAtMs,
     };
-    if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'canceled') {
+    if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'committing' || value.status === 'canceled') {
         return {
             ...base,
             status: value.status,
@@ -1019,7 +995,13 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
             status: 'failed',
             error: value.error,
             errorCode: value.errorCode,
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
             ...(failure === undefined ? {} : {failure}),
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
         };
     }
     throw new Error('invalid scan-cleanup job status');

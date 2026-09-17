@@ -1,1 +1,1 @@
-export * from '@contracts/scanCleanupPageOverrides';
+export * from '@contracts/scan-cleanup/scanCleanupPageOverrides';

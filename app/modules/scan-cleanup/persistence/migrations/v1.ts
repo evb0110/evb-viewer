@@ -6,18 +6,18 @@ import type {
     TScanCleanupOutputHalf,
     TScanCleanupPageOverrides,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     SCAN_CLEANUP_ALIGNMENTS,
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
-} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {
     cloneScanCleanupPreferenceValue,
     scanCleanupPreferenceRecord,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
     SCAN_CLEANUP_MANUAL_SPLIT_MAX,

@@ -4,11 +4,11 @@ import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain
 import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupPlacementAnchorSample,
     TScanCleanupPlacementAnchorsByPage,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -16,8 +16,8 @@ import {
     SCAN_CLEANUP_OUTPUT_HALVES,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
@@ -112,12 +112,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             () => settings.values.pageOverrides,
             () => settings.values.pageOverrideDefaults,
         ],
-        (
-            [
-                pageOverrides,
-                pageOverrideDefaults,
-            ],
-        ) => {
+        ([
+            pageOverrides,
+            pageOverrideDefaults,
+        ]) => {
             attachScanCleanupPageOverrideDefaults(
                 pageOverrides,
                 pageOverrideDefaults,
@@ -135,6 +133,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         initialPage: initialPreviewPage,
         previewResult: () => previewResult?.result.value ?? null,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
+        marginsLinked: settings.marginsLinked,
         settings: settings.values,
     });
     watch(options.active, active => {
@@ -182,7 +181,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             evidence,
         ] of included) {
             const brandedPageNumber = requirePageNumber(pageNumber);
-            const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, brandedPageNumber);
+            const pageOverride = getScanCleanupPageOverride(
+                cleanupOptions.pageOverrides,
+                brandedPageNumber,
+            );
             const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
             const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
             everySheetMeasured &&= measured;

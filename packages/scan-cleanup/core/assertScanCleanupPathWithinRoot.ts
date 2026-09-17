@@ -8,6 +8,7 @@ import {
     dirname,
     isAbsolute,
     join,
+    normalize,
     relative,
     sep,
 } from 'path';
@@ -25,7 +26,38 @@ export interface IScanCleanupAllowedRoot {
     readonly canonicalPath: string;
 }
 
+/**
+ * Canonical paths already resolved while judging one manifest. The cache is
+ * scoped to that manifest because its build-time verdict shares the same
+ * filesystem snapshot and the native boundary performs the final check.
+ */
+export interface IScanCleanupPathResolutionCache {
+    readonly canonicalPathByExistingPath: Map<string, string>;
+    /** Only these two root spellings are stable enough to reuse without a fresh probe. */
+    readonly configuredRootPath?: string;
+    readonly canonicalRootPath?: string;
+}
+
 const issuedAllowedRoots = new WeakSet<IScanCleanupAllowedRoot>();
+
+export function createScanCleanupPathResolutionCache(
+    allowedRoot?: IScanCleanupAllowedRoot,
+): IScanCleanupPathResolutionCache {
+    const canonicalPathByExistingPath = new Map<string, string>();
+    if (allowedRoot !== undefined) {
+        canonicalPathByExistingPath.set(allowedRoot.configuredPath, allowedRoot.canonicalPath);
+        canonicalPathByExistingPath.set(allowedRoot.canonicalPath, allowedRoot.canonicalPath);
+    }
+    return {
+        canonicalPathByExistingPath,
+        ...(allowedRoot === undefined
+            ? {}
+            : {
+                configuredRootPath: allowedRoot.configuredPath,
+                canonicalRootPath: allowedRoot.canonicalPath,
+            }),
+    };
+}
 
 function isMissingEntry(error: unknown) {
     const code = (error as NodeJS.ErrnoException | null)?.code;
@@ -37,10 +69,25 @@ function isMissingEntry(error: unknown) {
  * destination that has not been created yet is still judged by the real
  * directory it would land in rather than by its spelling.
  */
-function canonicalizeThroughExistingAncestor(candidatePath: string, label: string) {
+function canonicalizeThroughExistingAncestor(
+    candidatePath: string,
+    label: string,
+    pathResolutionCache?: IScanCleanupPathResolutionCache,
+) {
     const missingSegments: string[] = [];
     let ancestor = candidatePath;
     for (;;) {
+        const cachedCanonicalAncestor = pathResolutionCache?.canonicalPathByExistingPath.get(ancestor);
+        const canReuseCachedRoot = cachedCanonicalAncestor !== undefined
+            && (
+                ancestor === pathResolutionCache?.configuredRootPath
+                || ancestor === pathResolutionCache?.canonicalRootPath
+            );
+        if (canReuseCachedRoot) {
+            return missingSegments.length === 0
+                ? cachedCanonicalAncestor
+                : join(cachedCanonicalAncestor, ...missingSegments);
+        }
         try {
             lstatSync(ancestor);
         } catch (error) {
@@ -63,6 +110,7 @@ function canonicalizeThroughExistingAncestor(candidatePath: string, label: strin
             // looping symlink names no directory this root can vouch for.
             throw new ScanCleanupContractError(`${label} contains an unresolved symlink`);
         }
+        pathResolutionCache?.canonicalPathByExistingPath.set(ancestor, canonicalAncestor);
         return missingSegments.length === 0
             ? canonicalAncestor
             : join(canonicalAncestor, ...missingSegments);
@@ -111,6 +159,7 @@ export function assertScanCleanupPathWithinCanonicalRoot(
     candidatePath: string,
     allowedRoot: IScanCleanupAllowedRoot,
     label: string,
+    pathResolutionCache?: IScanCleanupPathResolutionCache,
 ) {
     if (!issuedAllowedRoots.has(allowedRoot)) {
         throw new ScanCleanupContractError(`${label} was judged against a root that was never canonicalized`);
@@ -118,8 +167,8 @@ export function assertScanCleanupPathWithinCanonicalRoot(
     if (!isAbsolute(candidatePath)) {
         throw new ScanCleanupContractError(`${label} must be an absolute path`);
     }
-    const canonicalCandidate = canonicalizeThroughExistingAncestor(candidatePath, label);
-    const relativePath = relative(allowedRoot.canonicalPath, canonicalCandidate);
+    const canonicalCandidate = canonicalizeThroughExistingAncestor(candidatePath, label, pathResolutionCache);
+    const relativePath = relative(allowedRoot.canonicalPath, normalize(canonicalCandidate));
     if (
         relativePath === '..'
         || relativePath.startsWith(`..${sep}`)

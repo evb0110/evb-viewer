@@ -13,7 +13,7 @@ import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
 } from '@contracts/agent';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
+import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {cast} from '@tests/helpers/cast';
 
@@ -284,32 +284,6 @@ describe('IPC registry sender trust', () => {
             };
         });
     });
-
-    it('does not load scan-cleanup bindings merely to dispose them', async () => {
-        const {
-            disposeScanCleanupMainBindingsIfLoaded,
-            registerIpcHandlers,
-        } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-
-        await expect(disposeScanCleanupMainBindingsIfLoaded()).resolves.toBeUndefined();
-        expect(mocks.scanCleanupDispose).not.toHaveBeenCalled();
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('disposes scan-cleanup bindings after their lazy feature has loaded', async () => {
-        const {
-            disposeScanCleanupMainBindingsIfLoaded,
-            registerIpcHandlers,
-        } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
-        const handler = mocks.handlers.get(channel);
-        expect(handler).toBeTypeOf('function');
-        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).resolves.toBe(0);
-
-        await expect(disposeScanCleanupMainBindingsIfLoaded()).resolves.toBeUndefined();
-        expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
-    }, ipcRegistrySecurityImportTimeoutMs);
 
     it('disposes retained bindings when lazy registration fails after loading', async () => {
         const {FEATURE_REGISTRATION_DESCRIPTORS} = await import('@electron/platform-ipc/featureRegistrationTable');

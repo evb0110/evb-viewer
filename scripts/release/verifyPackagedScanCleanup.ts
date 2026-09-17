@@ -42,6 +42,12 @@ import {
     waitForPackagedCdpEndpoint,
     waitForPackagedRendererPage,
 } from '@scripts/release/waitForPackagedCdpEndpoint';
+import {
+    SCAN_CLEANUP_RUN_METER_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+} from '@contracts/scan-cleanup/toolbarSelectors';
 
 const STARTUP_TIMEOUT_MS = 90_000;
 const DETECTION_TIMEOUT_MS = 30 * 60_000;
@@ -292,8 +298,8 @@ async function waitForProcessTreeExit(pids: number[], timeoutMs: number) {
 }
 
 async function detectionSample(page: Page): Promise<IDetectionSample | null> {
-    return evaluateInPage(page, () => {
-        const status = document.querySelector<HTMLElement>('.scan-cleanup-toolbar-count');
+    return evaluateInPage(page, (toolbarCountSelector: string) => {
+        const status = document.querySelector<HTMLElement>(toolbarCountSelector);
         const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
         // The counter copy is localized prose ("2 of 4 pages"), not a fixed
         // "2 / 4"; accept any non-digit separator between the two counts.
@@ -309,7 +315,7 @@ async function detectionSample(page: Page): Promise<IDetectionSample | null> {
             text: text.trim(),
             total: Number(match[2]),
         };
-    });
+    }, SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR);
 }
 
 async function waitForCompleteDetection(page: Page, expectedPageCount: number) {
@@ -332,17 +338,20 @@ async function waitForCompleteDetection(page: Page, expectedPageCount: number) {
             samples.push(sample);
             lastCompleted = sample.completed;
         }
-        const state = await evaluateInPage(page, () => ({
+        const state = await evaluateInPage(page, (
+            primaryActionSelector: string,
+            cancelDetectionSelector: string,
+        ) => ({
             actionEnabled: document.querySelector<HTMLButtonElement>(
-                '.scan-cleanup-toolbar-primary-action',
+                primaryActionSelector,
             )?.disabled === false,
             cancelVisible: document.querySelector(
-                '.scan-cleanup-toolbar-cancel-detection',
+                cancelDetectionSelector,
             ) !== null,
             pendingThumbnails: document.querySelectorAll(
                 '.scan-thumbnail-detection-pending',
             ).length,
-        }));
+        }), SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
         if (
             !state.cancelVisible
             && state.actionEnabled
@@ -363,52 +372,58 @@ async function verifyCleanupQueuedDuringDetection(
     page: Page,
     expectedPageCount: number,
 ): Promise<IQueuedCleanupEvidence> {
-    await waitForFunctionInPage(page, (expected: number) => {
+    await waitForFunctionInPage(page, (
+        expected: number,
+        primaryActionSelector: string,
+        toolbarCountSelector: string,
+        cancelDetectionSelector: string,
+    ) => {
         const action = document.querySelector<HTMLButtonElement>(
-            '.scan-cleanup-toolbar-primary-action',
+            primaryActionSelector,
         );
-        const status = document.querySelector<HTMLElement>('.scan-cleanup-toolbar-count');
+        const status = document.querySelector<HTMLElement>(toolbarCountSelector);
         const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
         // The counter copy is localized prose ("2 of 4 pages"), not a fixed
         // "2 / 4"; accept any non-digit separator between the two counts.
         const match = /(\d+)\D+(\d+)/u.exec(text);
         return action?.disabled === false
-            && document.querySelector('.scan-cleanup-toolbar-cancel-detection') !== null
+            && document.querySelector(cancelDetectionSelector) !== null
             && match !== null
             && Number(match[2]) === expected
             && Number(match[1]) < expected;
-    }, {timeout: STARTUP_TIMEOUT_MS}, expectedPageCount);
+    }, {timeout: STARTUP_TIMEOUT_MS}, expectedPageCount, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+    SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
     const before = await detectionSample(page);
     if (!before) {
         throw new Error('Packaged queued-cleanup verification found no detection counter');
     }
 
-    await page.click('.scan-cleanup-toolbar-primary-action');
+    await page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
     // The redesigned run meter (#70) renders its status as child text spans
     // instead of an aria-valuetext attribute.
-    await waitForFunctionInPage(page, () => {
-        const meter = document.querySelector<HTMLElement>('.scan-cleanup-run-meter');
+    await waitForFunctionInPage(page, (runMeterSelector: string, primaryActionSelector: string) => {
+        const meter = document.querySelector<HTMLElement>(runMeterSelector);
         const action = document.querySelector<HTMLButtonElement>(
-            '.scan-cleanup-toolbar-primary-action',
+            primaryActionSelector,
         );
         return meter !== null
             && meter.textContent.trim().length > 0
             && action?.disabled === false;
-    }, {timeout: 10_000});
-    const queuedStatusText = await evaluateInPage(page, () =>
-        document.querySelector<HTMLElement>('.scan-cleanup-run-meter')
-            ?.textContent.trim() ?? '');
+    }, {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+    const queuedStatusText = await evaluateInPage(page, (runMeterSelector: string) =>
+        document.querySelector<HTMLElement>(runMeterSelector)
+            ?.textContent.trim() ?? '', SCAN_CLEANUP_RUN_METER_SELECTOR);
     if (!queuedStatusText.toLowerCase().includes('pre-analyzing')) {
         throw new Error(
             `Cleanup click did not expose a queued pre-analysis state: "${queuedStatusText}"`,
         );
     }
 
-    await page.click('.scan-cleanup-toolbar-primary-action');
-    await waitForFunctionInPage(page, () => (
-        document.querySelector('.scan-cleanup-run-meter') === null
-        && document.querySelector('.scan-cleanup-toolbar-cancel-detection') !== null
-    ), {timeout: 10_000});
+    await page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+    await waitForFunctionInPage(page, (runMeterSelector: string, cancelDetectionSelector: string) => (
+        document.querySelector(runMeterSelector) === null
+        && document.querySelector(cancelDetectionSelector) !== null
+    ), {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
     const after = await detectionSample(page);
     if (!after) {
         throw new Error('Pre-analysis disappeared after canceling queued cleanup');
@@ -877,7 +892,7 @@ async function run() {
             await delay(500);
             return;
         }
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         console.log('Packaged verification stage: final cleanup started');
         const generatedOutputPath = await waitForCleanedOutput(page, sourceCopyPath);
         console.log('Packaged verification stage: final cleanup output opened');

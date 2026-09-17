@@ -6,7 +6,7 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     copyFile,
     mkdir,
@@ -20,10 +20,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
-import {
-    createPdfPageSizeStore,
-    readPdfPageSizes,
-} from '@electron/pdf/pdfPageSizes';
+import {createPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {
     renderPdfPageToPng,
@@ -51,7 +48,6 @@ import {
 } from '@electron/features/page-ops/public';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
-import {createScanCleanupDocumentRasterPages} from '@evb/scan-cleanup/core/detection';
 import type {
     IScanCleanupDetectionSubscriber,
     IScanCleanupDetectionOwnerDependencies,
@@ -71,9 +67,9 @@ import {
     RENDER_PROCESS_GONE_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import {
-    SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
     type IScanCleanupRasterAdmissionPolicy,
     resolveScanCleanupPreviewRasterAdmissionPolicy,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
     resolveScanCleanupPreviewPath,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {logScanCleanupMessage} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
@@ -96,12 +92,12 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     open,
     stat,
     getAvailableScratchBytes: readAvailableScratchBytes,
-    resolveRasterAdmissionPolicy: supportsRasterStreaming => resolveScanCleanupPreviewRasterAdmissionPolicy(
+    resolveRasterAdmissionPolicy: (supportsRasterStreaming, options) => resolveScanCleanupPreviewRasterAdmissionPolicy(
         mainJobBroker.getSnapshot().capacity,
         supportsRasterStreaming,
+        options,
     ),
     getPageCount: getPdfPageCount,
-    getPageSizes: readPdfPageSizes,
     getPageSizeStore: createPdfPageSizeStore,
     publishRaster: atomicReplace,
     renderPage: renderPdfPageToPng,
@@ -127,12 +123,11 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {
         const paths = getPdfNativeToolPaths();
         const result = await detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, [pageNumber]);
-        return result.pageDpiByNumber.get(pageNumber) ?? null;
+        return (await result.getPageRaster(pageNumber))?.dpi ?? null;
     },
     detectRasterPages: async (sourcePdfPath, signal, pageNumbers) => {
         const paths = getPdfNativeToolPaths();
-        const result = await detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, pageNumbers);
-        return createScanCleanupDocumentRasterPages(paths.pdfimages !== undefined, result.pageRasterByNumber);
+        return detectSourceDpiDetails(sourcePdfPath, paths.pdfimages, logScanCleanupMessage, undefined, signal, pageNumbers);
     },
     isRasterDetectionAvailable: () => getPdfNativeToolPaths().pdfimages !== undefined,
     extractMrcLayers: async (sourcePdfPath, pageNumber, selectionMaskOutputPath, backgroundOutputPath, signal, log) => {
@@ -170,32 +165,53 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
-    acquireDetectionLease: (ownerId, signal, rasterPolicy: IScanCleanupRasterAdmissionPolicy) => mainJobBroker.acquire({
+    acquireDetectionLease: (
+        ownerId,
+        signal,
+        rasterPolicy: IScanCleanupRasterAdmissionPolicy,
+        options,
+    ) => mainJobBroker.acquire({
         ownerId,
         kind: 'scan-cleanup-detect-all',
         priority: 'user',
         resources: {
             cpuTokens: rasterPolicy.rasterConcurrency,
             estimatedResidentBytes: rasterPolicy.rasterConcurrency
-                * SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+                * resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterPolicy.rasterMaxPixels),
             nativeProcesses: rasterPolicy.rasterConcurrency + Number(rasterPolicy.rasterStreaming),
             ioWeight: 2,
         },
         perOwnerLimit: 1,
         signal,
     }),
-    acquirePreviewLease: (ownerId, visibility, signal) => mainJobBroker.acquire({
+    acquirePreviewLease: (
         ownerId,
-        kind: 'scan-cleanup-preview',
-        priority: visibility === 'prefetch' ? 'background' : 'visible',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
-            nativeProcesses: 1,
-            ioWeight: 1,
-        },
+        visibility,
         signal,
-    }),
+        options,
+        rasterMaxPixels,
+    ) => {
+        const effectiveRasterMaxPixels = rasterMaxPixels ?? resolveScanCleanupPreviewRasterAdmissionPolicy(
+            mainJobBroker.getSnapshot().capacity,
+            process.platform !== 'win32',
+            options,
+        ).rasterMaxPixels;
+        return mainJobBroker.acquire({
+            ownerId,
+            kind: 'scan-cleanup-preview',
+            priority: visibility === 'prefetch' ? 'background' : 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(
+                    options,
+                    effectiveRasterMaxPixels,
+                ),
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            signal,
+        });
+    },
     getSourceStatIdentity: async sourcePdfPath => {
         const sourceStat = await stat(sourcePdfPath, {bigint: true});
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;
