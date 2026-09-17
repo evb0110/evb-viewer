@@ -33,6 +33,7 @@ import type {
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@evb/scan-cleanup/core/pageBatches';
@@ -212,23 +213,14 @@ describe('scan-cleanup split diagnostic IPC compatibility', () => {
 });
 
 describe('scan-cleanup detection renderer projection', () => {
-    it('bounds a persisted large result state before the renderer decodes it', () => {
+    it('validates a projected large result state without applying another projection', () => {
         const totalPages = 20_001;
         const lastPage = totalPages;
-        const state = {
-            jobId: 'persisted-large-detection',
-            status: 'completed' as const,
-            progress: {
-                stage: 'detecting' as const,
-                completedUnits: totalPages,
-                totalUnits: totalPages,
-                percent: 100,
-                completedPageNumbers: [],
-                completedPageNumbersTruncated: true,
-            },
-            resultCount: totalPages,
-            results: Array.from({length: totalPages}, (_unused, index) => ({
-                pageNumber: index + 1,
+        const firstVisiblePage = totalPages - 255;
+        const visibleResults = Array.from({length: 256}, (_unused, index) => {
+            const pageNumber = firstVisiblePage + index;
+            return {
+                pageNumber,
                 classification: 'single-uncut-page' as const,
                 confidence: 0.9,
                 cutterXPx: null,
@@ -236,7 +228,7 @@ describe('scan-cleanup detection renderer projection', () => {
                 reconciled: true,
                 clusterAgreement: 0.9,
                 documentPrior: null,
-                ...(index === lastPage - 1 ? {
+                ...(pageNumber === lastPage ? {
                     sourcePageMetadata: {
                         pageNumber: lastPage,
                         xPoints: 0,
@@ -254,7 +246,21 @@ describe('scan-cleanup detection renderer projection', () => {
                     },
                     splitDiagnostics: splitDiagnostics(),
                 } : {}),
-            })),
+            };
+        });
+        const state = {
+            jobId: 'persisted-large-detection',
+            status: 'completed' as const,
+            progress: {
+                stage: 'detecting' as const,
+                completedUnits: totalPages,
+                totalUnits: totalPages,
+                percent: 100,
+                completedPageNumbers: [],
+                completedPageNumbersTruncated: true,
+            },
+            resultCount: totalPages,
+            results: visibleResults,
             updatedAtMs: 1,
         };
 
@@ -263,16 +269,18 @@ describe('scan-cleanup detection renderer projection', () => {
         expect(decoded?.progress.completedPageNumbers).toEqual([]);
         expect(decoded?.progress.completedPageNumbersTruncated).toBe(true);
         expect(decoded?.resultCount).toBe(totalPages);
-        expect(decoded?.results).toHaveLength(256);
-        expect(decoded?.results[0]?.pageNumber).toBe(totalPages - 255);
+        expect(decoded?.results).toHaveLength(visibleResults.length);
+        expect(decoded?.results[0]?.pageNumber).toBe(firstVisiblePage);
         expect(decoded?.results.at(-1)?.pageNumber).toBe(lastPage);
-        expect(decoded?.results.at(-1)).not.toHaveProperty('sourcePageMetadata');
-        expect(decoded?.results.at(-1)).not.toHaveProperty('pagePlanEvidence');
-        expect(decoded?.results.at(-1)).not.toHaveProperty('splitDiagnostics');
+        expect(decoded?.results.at(-1)).toMatchObject({
+            sourcePageMetadata: {pageNumber: lastPage},
+            pagePlanEvidence: {pageNumber: lastPage},
+            splitDiagnostics: {foldBand: {status: 'unmeasured'}},
+        });
         const lateRevision = decodeScanCleanupDetectionJobState({
             ...state,
             results: [
-                ...state.results.slice(-256),
+                ...state.results,
                 {
                     ...state.results[0],
                     revision: 2,
@@ -280,18 +288,32 @@ describe('scan-cleanup detection renderer projection', () => {
                 },
             ],
         });
-        expect(lateRevision?.results).toHaveLength(256);
+        expect(lateRevision?.results).toHaveLength(visibleResults.length + 1);
         expect(lateRevision?.results.at(-1)).toMatchObject({
-            pageNumber: 1,
+            pageNumber: firstVisiblePage,
             revision: 2,
             reconciled: true,
         });
+        const oversizedResults = Array.from({length: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1}, (_unused, index) => ({
+            ...state.results[0]!,
+            pageNumber: index + 1,
+        }));
         expect(() => decodeScanCleanupDetectionJobState({
             ...state,
-            resultCount: 256,
             progress: {
                 ...state.progress,
-                completedUnits: 256,
+                completedUnits: oversizedResults.length,
+                totalUnits: oversizedResults.length,
+            },
+            resultCount: oversizedResults.length,
+            results: oversizedResults,
+        })).toThrow('detection job state');
+        expect(() => decodeScanCleanupDetectionJobState({
+            ...state,
+            resultCount: 255,
+            progress: {
+                ...state.progress,
+                completedUnits: 255,
             },
         })).toThrow('invalid scan-cleanup detection result count');
         expect(() => decodeScanCleanupDetectionJobState({
@@ -301,8 +323,8 @@ describe('scan-cleanup detection renderer projection', () => {
                 ...state.progress,
                 completedUnits: 255,
             },
-            resultCount: 256,
-            results: state.results.slice(-256),
+            resultCount: visibleResults.length,
+            results: state.results,
         })).toThrow('invalid scan-cleanup detection result count');
     });
 });
