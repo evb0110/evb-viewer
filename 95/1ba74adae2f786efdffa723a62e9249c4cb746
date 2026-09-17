@@ -1,0 +1,63 @@
+tests/unit/electron/mainJobRegistry.test.ts
+  s_f1cd8c349c2626::t_cd25cd3a818c62 18,49-56,150
+  s_f1cd8c349c2626::t_e1367250c49c33 17,29,39-40,46-48,57,65,72,110,119,133,174,194
+tests/unit/electron/scanCleanupMainBindings.test.ts
+  s_f1cd8c349c2626::t_bfcb9d117457d0 11,17-18
+  s_f1cd8c349c2626::t_c8156f5f078839 13-16
+  s_f1cd8c349c2626::t_5cfdcf7a8b1373 9,19,21-22,31
+tests/unit/electron/scanCleanupPreviewRendering.test.ts
+  s_f1cd8c349c2626::t_6d7788cde09dd2 5,12,15,103-106
+  s_f1cd8c349c2626::t_f953e8a400cd58 1900
+  s_f1cd8c349c2626::t_c8156f5f078839 14,20
+  s_f1cd8c349c2626::t_c05fa6db404377 24-26,28,30,32-37,39,41,97
+  s_f1cd8c349c2626::t_9f667631c1a802 27,29,31,38,40
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_f1cd8c349c2626::t_f953e8a400cd58 585
+  s_f1cd8c349c2626::t_1e39834a900e2d 586
+tests/unit/electron/scanCleanupPreviewHarness.ts
+  s_f1cd8c349c2626::t_8441963887c27b 1-15,19-21,23,28,31-127,135-137,140-141,143-145,147-166,182-193,230,232,234-304,306,319,326-330,337-345,352-357,364-382,389-402,437-472,477-478
+  s_f1cd8c349c2626::t_c8156f5f078839 16-18,25-27,231
+  s_f1cd8c349c2626::t_e28a14a6b9a5e2 233
+  s_f1cd8c349c2626::t_e2f7de0ae6248a 167-181,194-229
+  s_f1cd8c349c2626::t_a33c1c8e850a28 24,29-30,128-134,138-139,142,307-318,320-325,331-336,346-351,358-363,383-388,403-436,473-476
+  s_f1cd8c349c2626::t_59bdf2932e2b95 305
+  s_f1cd8c349c2626::t_12f7a7c203c5b2 22,146
+tests/unit/electron/scanCleanupPreviewIpcAdapter.test.ts
+  s_f1cd8c349c2626::t_6d7788cde09dd2 13,24,77-80
+  s_f1cd8c349c2626::t_c8156f5f078839 29
+  s_f1cd8c349c2626::t_c5c24782d21343 34-42,44,71
+  s_f1cd8c349c2626::t_9f667631c1a802 43
+tests/unit/electron/scanCleanupRasterRetention.test.ts
+  s_f1cd8c349c2626::t_6fa98904765982 20-27,29-30,73
+  s_f1cd8c349c2626::t_6d7788cde09dd2 5,9,79-82
+  s_f1cd8c349c2626::t_c8156f5f078839 15,18
+  s_f1cd8c349c2626::t_9f667631c1a802 28
+tests/unit/electron/scanCleanupDetectionLifecycle.test.ts
+  s_f1cd8c349c2626::t_6d7788cde09dd2 5,11,24
+  s_f1cd8c349c2626::t_8588258279c075 35-43,45-46,82,84,90
+  s_f1cd8c349c2626::t_9f667631c1a802 44
+  s_f1cd8c349c2626::t_f953e8a400cd58 1015-1043
+tests/unit/electron/scanCleanupPreviewComposition.test.ts
+  s_f1cd8c349c2626::t_72c4356e53df20 21-23,25-29,31,33,56,62,88
+  s_f1cd8c349c2626::t_74289a7c5c6717 1688
+  s_f1cd8c349c2626::t_f953e8a400cd58 1410-1420,1422-1449
+  s_f1cd8c349c2626::t_6d7788cde09dd2 5,10
+  s_f1cd8c349c2626::t_c8156f5f078839 17,19
+  s_f1cd8c349c2626::t_9f667631c1a802 24,30,32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "951ba74adae2f786efdffa723a62e9249c4cb746",
+  "prompts": {},
+  "sessions": {
+    "s_f1cd8c349c2626": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeee-4be6-7940-a703-15b108d175f2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
