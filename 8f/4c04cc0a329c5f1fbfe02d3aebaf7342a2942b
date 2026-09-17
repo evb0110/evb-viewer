@@ -1,0 +1,30 @@
+packages/contracts/scan-cleanup/toolbarSelectors.ts
+  s_0539f551feac96::t_5918e1634f0fe8 1-11
+app/modules/scan-cleanup/components/ScanCleanupToolbar.vue
+  s_0539f551feac96::t_5918e1634f0fe8 239-244
+  s_0539f551feac96::t_57b768e94002a3 25,135,144,207,222
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_0539f551feac96::t_9eef94c019a180 53-58,1507,1903,2013,2036,2068-2069,5742,5767,5792,5827,5864
+tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts
+  ai_agent 94,137
+  s_0539f551feac96::t_da76ca174f695b 30-35,76-81,83,85,89,93,99-101,103,108-111,115-119,126-133,136,138
+scripts/release/verifyPackagedScanCleanup.ts
+  s_0539f551feac96::t_5928fa7e263ee4 45-50,301-302,318,341-344,346,349,354,375-380,382,384,390,394,401,404-405,407,412-415,422-426,895
+  ai_agent 395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8f4c04cc0a329c5f1fbfe02d3aebaf7342a2942b",
+  "prompts": {},
+  "sessions": {
+    "s_0539f551feac96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0af20-8aa5-7373-8877-47fbfd4bbe2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
