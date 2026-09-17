@@ -252,7 +252,7 @@ describe('scan-cleanup corpus native freshness', () => {
 });
 
 describe('scan-cleanup corpus local expectations', () => {
-    it('keeps the standing mode matrix at 16 Rome cases plus the linguae edge-band case', () => {
+    it('keeps the required mode matrix cases while allowing corpus growth', () => {
         const expectedIds = [
             'headers2',
             'acceptance2',
@@ -265,11 +265,12 @@ describe('scan-cleanup corpus local expectations', () => {
             `${corpus}-${method}-crop`,
             `${corpus}-${method}-no-crop`,
         ]));
-        expect(modeMatrix.fixtures).toHaveLength(17);
-        expect(modeMatrix.fixtures.map(fixture => fixture.id)).toEqual([
+        const fixtureIds = modeMatrix.fixtures.map(fixture => fixture.id);
+        expect(fixtureIds).toEqual(expect.arrayContaining([
             ...expectedIds,
             'linguae-scripts-auto-crop',
-        ]);
+        ]));
+        expect(new Set(fixtureIds)).toHaveLength(fixtureIds.length);
         expect(modeMatrix.fixtures.every(fixture => (
             [
                 'auto',
@@ -435,17 +436,7 @@ page 2: 4 0 R
         })]);
     });
 
-    const torchStaffException = {
-        bboxMm: {
-            height: 83.15,
-            left: 15.66,
-            top: 23.95,
-            width: 6.17,
-        },
-        page: 2,
-        reason: 'legitimate vertical torch/staff drawing',
-    };
-    const torchStaffArtifact = {
+    const scannerBoundaryExceptionArtifact = {
         area: 62_284,
         dpi: 720,
         height: 2_357,
@@ -454,26 +445,37 @@ page 2: 4 0 R
         top: 679,
         width: 175,
     };
+    const millimetersPerPixel = 25.4 / scannerBoundaryExceptionArtifact.dpi;
+    const scannerBoundaryException = {
+        bboxMm: {
+            height: scannerBoundaryExceptionArtifact.height * millimetersPerPixel,
+            left: scannerBoundaryExceptionArtifact.left * millimetersPerPixel,
+            top: scannerBoundaryExceptionArtifact.top * millimetersPerPixel,
+            width: scannerBoundaryExceptionArtifact.width * millimetersPerPixel,
+        },
+        page: scannerBoundaryExceptionArtifact.pdfPage,
+        reason: 'legitimate boundary drawing',
+    };
 
-    it('consumes the tracked torch/staff physical bbox exactly once', () => {
+    it('matches a declared physical exception exactly once', () => {
         expect(reconcileScannerBoundaryExceptions(
-            [torchStaffArtifact],
-            [torchStaffException],
+            [scannerBoundaryExceptionArtifact],
+            [scannerBoundaryException],
         )).toMatchObject({
-            matched: [{artifact: torchStaffArtifact}],
+            matched: [{artifact: scannerBoundaryExceptionArtifact}],
             stale: [],
             unexpected: [],
         });
     });
 
-    it('fails a drifted torch/staff bbox as both stale and unexpected', () => {
+    it('reports a drifted physical exception as stale and unexpected', () => {
         const drifted = {
-            ...torchStaffArtifact,
-            left: torchStaffArtifact.left + 2,
+            ...scannerBoundaryExceptionArtifact,
+            left: scannerBoundaryExceptionArtifact.left + 2,
         };
         expect(reconcileScannerBoundaryExceptions(
             [drifted],
-            [torchStaffException],
+            [scannerBoundaryException],
         )).toMatchObject({
             matched: [],
             stale: [expect.objectContaining({matchCount: 0})],
@@ -481,9 +483,9 @@ page 2: 4 0 R
         });
     });
 
-    it('does not let the torch/staff exception hide another boundary artifact', () => {
+    it('does not let one exception hide another boundary artifact', () => {
         const other = {
-            ...torchStaffArtifact,
+            ...scannerBoundaryExceptionArtifact,
             area: 90_000,
             height: 1_400,
             left: 0,
@@ -492,12 +494,12 @@ page 2: 4 0 R
         };
         expect(reconcileScannerBoundaryExceptions(
             [
-                torchStaffArtifact,
+                scannerBoundaryExceptionArtifact,
                 other,
             ],
-            [torchStaffException],
+            [scannerBoundaryException],
         )).toMatchObject({
-            matched: [{artifact: torchStaffArtifact}],
+            matched: [{artifact: scannerBoundaryExceptionArtifact}],
             stale: [],
             unexpected: [other],
         });

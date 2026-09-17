@@ -527,7 +527,9 @@ function selectedUnitProjects(files, classification) {
         }
     }
     for (const file of files) {
-        if (file.startsWith('tests/e2e/electron/quarantine/')) {
+        if (file === 'tests/e2e/electron/quarantine/graduation-policy.json') {
+            projects.push('unit-policy');
+        } else if (file.startsWith('tests/e2e/electron/quarantine/')) {
             projects.push('unit-static-architecture');
         } else if (file.startsWith('tests/unit/app/')) {
             projects.push('unit-app', 'unit-static-architecture');
