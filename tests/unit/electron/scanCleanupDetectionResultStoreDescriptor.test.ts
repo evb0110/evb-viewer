@@ -1,10 +1,14 @@
 import {
     mkdtemp,
     readFile,
+    readdir,
     rm,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     afterEach,
     describe,
@@ -56,13 +60,29 @@ describe('scan cleanup detection result-store handoff', () => {
         const descriptor = await persistScanCleanupDetectionResultStore(store, root);
         expect(descriptor.pageCount).toBe(3);
         expect(descriptor.resultCount).toBe(3);
+        expect(await readdir(dirname(descriptor.recordsPath))).toEqual([
+            'descriptor.json',
+            'index.bin',
+            'records.jsonl',
+        ]);
         expect((await readFile(descriptor.recordsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))).toEqual(results);
 
         const reopened = await openScanCleanupDetectionResultStoreDescriptor(descriptor);
         expect(reopened.pageCount).toBe(3);
         expect(reopened.resultCount).toBe(3);
         expect(await reopened.readRange(2, 3)).toEqual([{pageNumber: 2}]);
+        await expect(reopened.append({pageNumber: 1})).rejects.toThrow('read-only');
+        expect(await readdir(dirname(descriptor.recordsPath))).toEqual([
+            'descriptor.json',
+            'index.bin',
+            'records.jsonl',
+        ]);
         await reopened.close();
+        expect(await readdir(dirname(descriptor.recordsPath))).toEqual([
+            'descriptor.json',
+            'index.bin',
+            'records.jsonl',
+        ]);
         await removeScanCleanupDetectionResultStoreDescriptor(descriptor);
         expect(close).not.toHaveBeenCalled();
     });
