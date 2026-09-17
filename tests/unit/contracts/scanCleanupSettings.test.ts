@@ -12,7 +12,7 @@ import {
     decodeScanCleanupSettingsResult,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const pageOverride = {
     rotationDegrees: 0,

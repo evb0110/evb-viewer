@@ -24,7 +24,7 @@ import {
     type IScanCleanupSettingsResult,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     createScanCleanupInputBudget,
     type IScanCleanupInputBudget,

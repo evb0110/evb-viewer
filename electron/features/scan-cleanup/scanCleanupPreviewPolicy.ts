@@ -3,7 +3,7 @@ import {fileURLToPath} from 'url';
 import type {
     TScanCleanupErrorCode,
     IScanCleanupScratchShortfall,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {decodeScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';

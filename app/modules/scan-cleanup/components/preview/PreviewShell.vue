@@ -440,7 +440,7 @@ import type {
     TScanCleanupOutputMode,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';

@@ -3,8 +3,8 @@ import type {
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';

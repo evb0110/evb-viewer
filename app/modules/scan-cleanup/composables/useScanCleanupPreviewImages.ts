@@ -2,7 +2,7 @@ import type {
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {MaybeRefOrGetter} from 'vue';
 import {
     commitScanCleanupPreviewPresentationSettle,

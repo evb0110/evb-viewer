@@ -1,12 +1,12 @@
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     cloneScanCleanupPreferenceValue,
     DEFAULT_SCAN_CLEANUP_PREFERENCES,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     isDefaultScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 export type TScanCleanupNonDefaultSettingKey =
     | 'preserveOriginalQuality'

@@ -22,8 +22,8 @@ import {
 } from 'vue';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
-import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';

@@ -27,7 +27,7 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
     TScanCleanupDetectionJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 
@@ -58,7 +58,7 @@ import {
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     configureMainJobBroker,
     mainJobBroker,

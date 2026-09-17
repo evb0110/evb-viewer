@@ -3,7 +3,7 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupPageRotation,
     TScanCleanupOutputHalf,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {Ref} from 'vue';
 import type {
     IDocumentPageMetrics,

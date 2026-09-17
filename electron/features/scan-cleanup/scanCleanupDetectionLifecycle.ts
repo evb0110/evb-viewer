@@ -8,10 +8,10 @@ import type {
     IScanCleanupPlacementAnchorCalibrationRequest,
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
@@ -23,7 +23,7 @@ import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {getErrorMessage} from '@electron/utils/error';
 import {createStableJobBrokerOwnerId} from '@electron/resources/jobBroker';
 import {

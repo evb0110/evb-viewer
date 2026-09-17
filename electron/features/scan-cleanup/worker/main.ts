@@ -4,14 +4,14 @@ import {
     workerData,
 } from 'worker_threads';
 import {basename} from 'path';
-import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { decodeScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { createLogger } from '@electron/utils/createLogger';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { isAbortError } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {openScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     runScanCleanupPipeline,

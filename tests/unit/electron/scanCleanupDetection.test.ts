@@ -23,7 +23,7 @@ import {
     runScanCleanupDetection as runScanCleanupDetectionCore,
     type IScanCleanupDetectionRetention,
 } from '@evb/scan-cleanup/core/detection';
-import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,

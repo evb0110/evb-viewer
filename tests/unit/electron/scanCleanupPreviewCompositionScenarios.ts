@@ -21,12 +21,12 @@ import {
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 
-import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {readScanCleanupFixtureFile} from '@tests/unit/electron/readScanCleanupFixtureFile';
@@ -45,7 +45,7 @@ import type {
     IScanCleanupPageRasterSource,
 } from '@evb/scan-cleanup/core/types';
 
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy,
     SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,

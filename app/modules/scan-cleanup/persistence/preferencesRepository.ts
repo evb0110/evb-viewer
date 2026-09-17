@@ -4,7 +4,7 @@ import type {
     IScanCleanupPageOverride,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
@@ -25,8 +25,8 @@ import {
     type IScanCleanupGlobalPreferences,
     type IScanCleanupGlobalPreferencePatch,
     type IScanCleanupLegacyStorageExport,
-} from '@contracts/scanCleanupSettings';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     decodeScanCleanupPageOverride,
     decodeScanCleanupPageOverrides,

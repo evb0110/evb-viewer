@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupContentOverlayOutput,
     TScanCleanupContentHandle,

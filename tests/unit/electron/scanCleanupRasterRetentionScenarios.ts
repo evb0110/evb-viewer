@@ -24,7 +24,7 @@ import {
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 

@@ -5,7 +5,7 @@ import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 function pageOverrideSignature(override: IScanCleanupPageOverride) {

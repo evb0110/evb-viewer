@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({

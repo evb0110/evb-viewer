@@ -30,8 +30,8 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupWarningEvent,
-} from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     decodeNativeScanCleanupOutputMetadataJson,
@@ -43,7 +43,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupOutputPlacement,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveScanCleanupPlacementAnchorFromSummary,
     resolveScanCleanupSheetHeightPoints,

@@ -4,11 +4,11 @@ import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain
 import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupPlacementAnchorSample,
     TScanCleanupPlacementAnchorsByPage,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -16,8 +16,8 @@ import {
     SCAN_CLEANUP_OUTPUT_HALVES,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';

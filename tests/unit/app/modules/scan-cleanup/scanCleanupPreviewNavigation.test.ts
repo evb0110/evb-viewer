@@ -32,7 +32,7 @@ import type {
     IScanCleanupPlacementAnchorCalibration,
     IScanCleanupPlacementAnchorSummary,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';

@@ -9,7 +9,7 @@ import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveScanCleanupApplyScope,
     type IScanCleanupPageRange,
@@ -19,7 +19,7 @@ import {
     updateScanCleanupPageOverrides,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import {reactive} from 'vue';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {resolveScanCleanupMarginPatch} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';

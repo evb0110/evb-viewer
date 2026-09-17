@@ -82,7 +82,7 @@ import type {
     ComponentPublicInstance,
     CSSProperties,
 } from 'vue';
-import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation';
 
 defineProps<{

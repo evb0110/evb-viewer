@@ -24,7 +24,7 @@ import type {
     IScanCleanupPreviewPageMetadata,
     IScanCleanupTextAxis,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import {

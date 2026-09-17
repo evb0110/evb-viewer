@@ -26,7 +26,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputModeSetting,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     extractPdfMrcLayers,

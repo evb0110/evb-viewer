@@ -19,7 +19,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputMode,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';

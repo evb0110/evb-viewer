@@ -1,7 +1,7 @@
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 export interface IScanCleanupPreviewSize {
     height: number;

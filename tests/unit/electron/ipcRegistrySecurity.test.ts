@@ -13,7 +13,7 @@ import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
 } from '@contracts/agent';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
+import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {cast} from '@tests/helpers/cast';
 

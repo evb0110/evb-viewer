@@ -18,7 +18,7 @@ import {
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';

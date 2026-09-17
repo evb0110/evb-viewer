@@ -5,7 +5,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';

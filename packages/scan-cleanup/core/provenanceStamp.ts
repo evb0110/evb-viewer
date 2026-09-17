@@ -8,8 +8,8 @@ import type {
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
     TScanCleanupOutputModeSetting,
-} from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_ALIGNMENTS} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_ALIGNMENTS} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     consumeScanCleanupVertices,
     consumeScanCleanupZones,

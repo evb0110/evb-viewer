@@ -12,7 +12,7 @@ import {
 import type {
     IScanCleanupOptions,
     IScanCleanupPreviewResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     requireJobId,
@@ -21,8 +21,8 @@ import {
 import {
     SCAN_CLEANUP_PLATFORM_FEATURE,
     type IScanCleanupInvokeMap,
-} from '@contracts/scanCleanupPlatformFeature';
-import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
 
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;

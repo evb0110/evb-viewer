@@ -12,7 +12,7 @@ import type {
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 

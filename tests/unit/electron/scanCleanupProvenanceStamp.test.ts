@@ -13,8 +13,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {TScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/index';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,

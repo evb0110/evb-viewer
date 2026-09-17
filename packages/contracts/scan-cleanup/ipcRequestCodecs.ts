@@ -63,7 +63,7 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
 import {
     parseJobId,

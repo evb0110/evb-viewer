@@ -1,4 +1,4 @@
-import type {IScanCleanupPreviewResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupPreviewResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {Ref} from 'vue';
 import {clamp} from 'es-toolkit/math';
 import {ZOOM} from '@app/constants/pdfLayout';

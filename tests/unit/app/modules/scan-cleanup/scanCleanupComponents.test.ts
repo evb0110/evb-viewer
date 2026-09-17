@@ -32,13 +32,13 @@ import type {
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';

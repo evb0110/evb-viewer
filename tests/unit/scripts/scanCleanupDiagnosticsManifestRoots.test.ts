@@ -13,7 +13,7 @@ import {
     relative,
     resolve,
 } from 'node:path';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {createScanCleanupDiagnosticsManifestScope} from '@scripts/diagnostics/scan-cleanup-diagnostics-manifest.mjs';

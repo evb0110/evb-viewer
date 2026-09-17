@@ -1,4 +1,4 @@
-import type {TScanCleanupProgressStage} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgressStage} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 
 interface IScanCleanupProgressCounts {

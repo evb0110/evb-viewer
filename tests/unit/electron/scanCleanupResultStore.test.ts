@@ -35,7 +35,7 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 const roots: string[] = [];

@@ -261,14 +261,14 @@ import type {
     TScanCleanupOutputModeRecommendationReason,
     TScanCleanupOutputModeSetting,
     IScanCleanupTextAxis,
-} from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     isDefaultScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import type {

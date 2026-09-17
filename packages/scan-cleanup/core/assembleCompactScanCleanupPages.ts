@@ -7,8 +7,8 @@ import type {
     INativeScanCleanupOutputMetadataV3,
     INativeScanCleanupPageMetadataV3,
     TScanCleanupOutputMode,
-} from '@contracts/electronApiScanCleanup';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     IDetectedPageRaster,

@@ -3,7 +3,7 @@ import type {
     IScanCleanupPageOverride,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
@@ -14,7 +14,7 @@ import {
     type IScanCleanupSettingsFile,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {EffectScope} from 'vue';
 import {isEqual} from 'es-toolkit/predicate';
 import {

@@ -24,7 +24,7 @@ import type {
     TNativeScanCleanupOperation,
     TNativeScanCleanupRenderMode,
     TScanCleanupCanvasScope,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     buildRunnableNativeScanCleanupManifest,
     buildShapeOnlyNativeScanCleanupManifest,

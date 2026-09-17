@@ -8,7 +8,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupPagePlanEvidence,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     INativeScanCleanupAnalysisOutputV3,
     INativeScanCleanupPageMetadataV3,
@@ -76,7 +76,7 @@ import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {splitContiguousPageRuns} from '@evb/scan-cleanup/core/splitContiguousPageRuns';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
-import {usesScanCleanupInkAlignment} from '@contracts/scanCleanupPageOverrides';
+import {usesScanCleanupInkAlignment} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,

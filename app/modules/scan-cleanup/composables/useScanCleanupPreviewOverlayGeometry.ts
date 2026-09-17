@@ -2,7 +2,7 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     ComponentPublicInstance,
     ComputedRef,

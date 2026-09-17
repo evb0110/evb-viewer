@@ -10,7 +10,7 @@ import type {
     IScanCleanupDetectionResultStore,
     IScanCleanupResultStore,
 } from '@evb/scan-cleanup/core/types';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 /** A single result record must stay smaller than the native sidecar line cap. */
 const RESULT_STORE_MAX_LINE_BYTES = 4 * 1024 * 1024;

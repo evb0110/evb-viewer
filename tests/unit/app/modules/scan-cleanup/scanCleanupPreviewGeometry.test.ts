@@ -13,7 +13,7 @@ import {
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     completePreviewImageSwap,

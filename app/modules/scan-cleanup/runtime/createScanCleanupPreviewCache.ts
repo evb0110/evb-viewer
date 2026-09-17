@@ -1,4 +1,4 @@
-import type {IScanCleanupPreviewResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupPreviewResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 /**
  * 96 MiB matches the IPC payload ceiling and is the bound that is meant to

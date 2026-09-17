@@ -5,7 +5,7 @@ import type {
     TScanCleanupStartResult as TBridgeScanCleanupStartResult,
     TScanCleanupJobState,
     TScanCleanupErrorCode,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {

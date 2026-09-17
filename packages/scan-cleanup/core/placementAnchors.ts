@@ -2,7 +2,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupSourcePageMetadata,
     TScanCleanupOutputHalf,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupPlacementAnchorCalibration,
@@ -16,7 +16,7 @@ import {
     resolveScanCleanupPlacementAnchorResolution,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
     SCAN_CLEANUP_OUTPUT_HALVES,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS} from '@contracts/scan-cleanup/inputLimits';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 

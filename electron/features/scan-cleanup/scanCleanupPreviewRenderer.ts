@@ -13,7 +13,7 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IPdfPageSize,
     IPdfPageSizeStore,
@@ -30,8 +30,8 @@ import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPlacementOffset,
-} from '@contracts/scanCleanupPageOverrides';
-import { resolveScanCleanupEffectiveOutputMode } from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import { resolveScanCleanupEffectiveOutputMode } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     decodeNativeScanCleanupPreviewOutputMetadataJson,
     decodeNativeScanCleanupPreviewPageMetadataJson,

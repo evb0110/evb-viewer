@@ -8,13 +8,13 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { decodeNativeScanCleanupPreviewOutputMetadataJson } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { INativeScanCleanupReusableGeometryV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { PREVIEW_DPI } from '@evb/scan-cleanup/core/detection';
 import {
     logRasterHandoff,

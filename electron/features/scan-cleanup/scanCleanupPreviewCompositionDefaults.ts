@@ -43,7 +43,7 @@ import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHan
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,

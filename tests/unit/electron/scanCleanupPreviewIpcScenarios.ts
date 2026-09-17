@@ -19,10 +19,10 @@ import {
     vi,
 } from 'vitest';
 import {reactive} from 'vue';
-import type {IScanCleanupPreviewRequest} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
-import {isScanCleanupErrorEnvelope} from '@contracts/electronApiScanCleanup';
+import {isScanCleanupErrorEnvelope} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
@@ -49,7 +49,7 @@ import {
     decodeScanCleanupDetectionJobState,
     decodeScanCleanupPreviewResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {configureMainJobBroker} from '@electron/resources/jobBroker';
 
 configureMainJobBroker({

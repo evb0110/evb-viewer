@@ -17,7 +17,7 @@ import type {
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputMode,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -27,7 +27,7 @@ import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,

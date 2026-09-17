@@ -1,5 +1,5 @@
 import type {TTranslateFn} from '@i18n-app';
-import type {IScanCleanupScratchShortfall} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupScratchShortfall} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {formatBytes} from '@app/utils/formatters';
 
 /**

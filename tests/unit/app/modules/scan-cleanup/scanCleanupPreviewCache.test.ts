@@ -11,8 +11,8 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupLayoutByPage,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
-import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,

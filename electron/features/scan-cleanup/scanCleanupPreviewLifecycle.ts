@@ -6,7 +6,7 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupDetectionSubscriber,
     IScanCleanupDetectionOwnerDependencies,

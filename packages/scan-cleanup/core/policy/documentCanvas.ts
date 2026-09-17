@@ -8,12 +8,12 @@ import type {
     TScanCleanupOutputHalf,
     TScanCleanupPageRotation,
     TScanCleanupWarningEvent,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
     resolveScanCleanupPlacementOffset,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     assertCanonicalPdfPageSizes,

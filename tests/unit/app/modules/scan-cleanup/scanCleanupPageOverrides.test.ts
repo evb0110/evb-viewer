@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -17,7 +17,7 @@ import {
     resolveScanCleanupPlacementOffset,
     setScanCleanupPageOverride,
     shouldShowScanCleanupOutputEstimate,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 describe('scan cleanup page overrides', () => {
     it('estimates a million-page scalar exclusion without expanding page state', () => {

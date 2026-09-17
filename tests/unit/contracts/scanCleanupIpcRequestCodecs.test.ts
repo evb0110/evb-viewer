@@ -26,7 +26,7 @@ import {
 import {
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const request = {
     sourcePdfPath: '/tmp/source.pdf',

@@ -9,13 +9,13 @@ import type {
     TScanCleanupLayoutByPage,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
-} from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 

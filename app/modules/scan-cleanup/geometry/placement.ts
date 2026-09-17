@@ -1,7 +1,7 @@
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
 
 export interface IScanCleanupPreviewPlacement {

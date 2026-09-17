@@ -2,7 +2,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     isScanCleanupCompactLayeredRaster,
     type IDetectedPageRaster,

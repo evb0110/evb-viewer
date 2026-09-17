@@ -12,7 +12,7 @@ import type {
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     attachScanCleanupPageOverrideDefaults,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
@@ -20,7 +20,7 @@ import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     resolveScanCleanupSelection,
