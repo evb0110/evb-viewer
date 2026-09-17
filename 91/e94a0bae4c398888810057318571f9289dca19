@@ -1,0 +1,20 @@
+electron/features/scan-cleanup/runScanCleanupWorkerTask.ts
+  s_5f9cf006655e45::t_a1b6244d4a5b69 34-36,41-42,44,47-50,61,107-108,111
+  s_5f9cf006655e45::t_bcbe199fbd608b 37-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "91e94a0bae4c398888810057318571f9289dca19",
+  "prompts": {},
+  "sessions": {
+    "s_5f9cf006655e45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6aa-7980-a146-18c0f10d46c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
