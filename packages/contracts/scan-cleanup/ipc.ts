@@ -109,12 +109,25 @@ export function decodeScanCleanupScratchShortfall(value: unknown): IScanCleanupS
     };
 }
 
-export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {}
+export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
 
 export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanupErrorEnvelope {
-    return isRecord(value)
-        && isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
-        && typeof value.message === 'string';
+    if (
+        !isRecord(value)
+        || !isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
+        || typeof value.message !== 'string'
+    ) {
+        return false;
+    }
+    if (value.scratchShortfall === undefined) {
+        return true;
+    }
+    try {
+        decodeScanCleanupScratchShortfall(value.scratchShortfall);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
@@ -593,7 +606,8 @@ export type TScanCleanupDetectionStartResult =
         started: false;
         jobId: TJobId;
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };
 
 export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
@@ -690,7 +704,7 @@ interface IScanCleanupJobBase {
 }
 
 export type TScanCleanupJobState =
-    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff'}
+    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff' | 'committing'}
     | IScanCleanupJobBase & {
         status: 'completed';
         outputPdfPath: string;
@@ -704,7 +718,7 @@ export type TScanCleanupJobState =
         errorCode: TScanCleanupErrorCode;
         /** Free and required scratch space for an insufficient-scratch run. */
         scratchShortfall?: IScanCleanupScratchShortfall;
-        failure?: FailureReceipt
+        failure?: FailureReceipt;
     };
 
 export type TScanCleanupStartResult =
@@ -717,5 +731,6 @@ export type TScanCleanupStartResult =
         started: false;
         jobId: TJobId;
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };

@@ -137,6 +137,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             updatePageOverride: session.updatePageOverride,
             updatePlacement: session.updateSelectionPlacement,
             updateRotation: session.updateSelectionRotation,
+            updateOverrides: session.updateSelectionOverrides ?? vi.fn(),
         },
         detection: {
             authoritativeLayoutByPage: session.authoritativeLayoutByPage,
@@ -347,6 +348,11 @@ const translations: Record<string, string> = {
     'scanCleanup.etaMinutes': 'Current task: about {minutes} min',
     'scanCleanup.etaSeconds': 'Current task: about {seconds} sec',
     'scanCleanup.finishingPhase': 'Finishing current task…',
+    'scanCleanup.cancel': 'Cancel cleanup',
+    'scanCleanup.canceling': 'Canceling…',
+    'scanCleanup.finishing': 'Finishing…',
+    'scanCleanup.cancelFinishing': 'Cleanup is finishing and can no longer be canceled.',
+    'scanCleanup.cancelRefused': 'Cleanup could not be canceled. Try again.',
     'scanCleanup.almostDone': 'Almost done',
     'scanCleanup.cancelingDetection': 'Stopping background analysis…',
     'scanCleanup.runProgress.rasterizing': 'Preparing cleanup pages',
@@ -948,6 +954,7 @@ function mountPreviewZoomHarness(options: {
         pageNumber: 1,
         totalPages: 3,
         manualSplit: null,
+        resultCurrent: options.resultCurrentRef?.value ?? true,
         manualZones: options.manualZones,
         disabled: disabled.value,
         readingOrder: 'ltr',
@@ -2024,6 +2031,36 @@ describe('Scan cleanup components', () => {
         rectSpy.mockRestore();
     });
 
+    it('disables cancellation during the commit window and explains why', () => {
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: true,
+            canRun: false,
+            cancelRequested: false,
+            cancelStatusText: 'Cleanup is finishing and can no longer be canceled.',
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: '',
+            detectionProgressWidestText: '',
+            finishing: true,
+            isDetecting: false,
+            isRunning: true,
+            outputEstimate: '',
+            percent: 100,
+            progressCountText: '120 / 120',
+            progressPhaseText: 'Building PDF',
+            progressText: 'Building PDF',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+        })));
+
+        const button = harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+        expect(button?.textContent).toContain('Finishing…');
+        expect(button?.disabled).toBe(true);
+        expect(harness.host.querySelector('.scan-cleanup-run-meter')?.textContent)
+            .toContain('Cleanup is finishing and can no longer be canceled.');
+    });
+
     it('prioritizes and dismisses a persisted cleanup failure while detection restarts', () => {
         const dismiss = vi.fn();
         const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
@@ -2104,24 +2141,6 @@ describe('Scan cleanup components', () => {
         const resetPageOverrides = vi.fn();
         const resetScopeOverrides = vi.fn((pages: Iterable<number>) => {
             updateScanCleanupPageOverrides(pageOverrides, pages, () => createScanCleanupPageOverride());
-        });
-        const resetControlOverride = vi.fn((control: string, pages: Iterable<number>) => {
-            updateScanCleanupPageOverrides(pageOverrides, pages, current => {
-                if (control === 'margins') {
-                    const {
-                        marginsMm: _marginsMm,
-                        ...withoutMargins
-                    } = current;
-                    return createScanCleanupPageOverride(withoutMargins);
-                }
-                if (control === 'layout') {
-                    return createScanCleanupPageOverride({
-                        ...current,
-                        layoutOverride: 'auto',
-                    });
-                }
-                return current;
-            });
         });
         const updateSelectionMargins = vi.fn((
             _target: string,
@@ -2235,7 +2254,6 @@ describe('Scan cleanup components', () => {
             setSettingsScope: (value: 'all' | 'page' | 'selected') => { settingsScope.value = value; },
             settingsScope,
             resetScopeOverrides,
-            resetControlOverride,
             settings,
             thicknessLabel: ref('0'),
             updateCurrentManualContentBox: vi.fn(),
@@ -2261,6 +2279,10 @@ describe('Scan cleanup components', () => {
             updateSelectionMargins,
             updateSelectionPlacement: vi.fn(),
             updateSelectionRotation: vi.fn(),
+            updateSelectionOverrides: (
+                pages: Iterable<number>,
+                update: (current: ReturnType<typeof createScanCleanupPageOverride>, page: number) => ReturnType<typeof createScanCleanupPageOverride>,
+            ) => updateScanCleanupPageOverrides(pageOverrides, pages, update, settings.marginsMm),
         };
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
             sourcePath: null,
@@ -2374,7 +2396,7 @@ describe('Scan cleanup components', () => {
         expect(resetMarginsButton?.getAttribute('aria-label')).toBe('Reset to document');
         resetMarginsButton?.click();
         await nextTick();
-        expect(resetControlOverride).toHaveBeenCalledWith('margins', [2]);
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2)).marginsMm).toBeUndefined();
         expect(harness.host.querySelector('[data-override-marker="margins"]')).toBeNull();
         expect(harness.host.querySelector('[data-reset-override="margins"]')).toBeNull();
         expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')?.value).toBe('5');
@@ -2840,6 +2862,7 @@ describe('Scan cleanup components', () => {
         const result = ref(initial);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: result.value,
+            resultCurrent: true,
             loading: true,
             error: '',
             viewMode: 'cleaned',
@@ -2964,7 +2987,6 @@ describe('Scan cleanup components', () => {
         const outputOrder = () => [...harness.host.querySelectorAll('.output-fit-area')]
             .map(element => element.getAttribute('data-output-half'));
         const initialImageStyle = harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style');
-        const initialContentStyle = harness.host.querySelector<HTMLElement>('.content-overlay')!.getAttribute('style');
         const canvasNotice = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption')
             ?.dataset.canvasNotice;
         expect(canvasNotice()).toBe('');
@@ -2988,8 +3010,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.uniform-canvas')?.classList).toContain('has-uniform-canvas');
         expect(harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style'))
             .toBe(initialImageStyle);
-        expect(harness.host.querySelector<HTMLElement>('.content-overlay')!.getAttribute('style'))
-            .not.toBe(initialContentStyle);
+        expect(harness.host.querySelector<HTMLElement>('.content-overlay')).toBeNull();
         expect(canvasNotice()).toBe('updating');
         expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
             .toContain('scanCleanup.preview.updatingPreviousPlacement');
@@ -3084,22 +3105,11 @@ describe('Scan cleanup components', () => {
             expect(displayedUrl()).toBe(settledUrl);
             expect(canvasNotice()).toBe('');
 
-            const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
-            surface.click();
-            surface.dispatchEvent(new Event('scroll'));
-            const zoomButtons = harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button');
-            expect(zoomButtons.length).toBeGreaterThan(1);
-            zoomButtons[1]!.click();
-            const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
-            mockPointerCapture(cutter);
-            cutter.dispatchEvent(new PointerEvent('pointerdown', {
-                bubbles: true,
-                clientX: 0,
-                clientY: 0,
-                pointerId: 17,
-            }));
-            await nextTick();
-            await loadPendingCleanedFrame(harness.host);
+            // The pinned frame is intentionally stale while the later
+            // replan is rejected. Geometry controls stay unavailable until a
+            // new presentation identity is committed.
+            expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+            expect(harness.host.querySelector('.cutter-control')).toBeNull();
             expect(frameWidth()).toBe('800');
             expect(displayedUrl()).toBe(settledUrl);
 
@@ -3224,7 +3234,7 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(frameWidth()).toBe('500');
         expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
-            .toContain('Failed to decode the cleaned preview image.');
+            .toContain('scanCleanup.preview.cleanedImageDecodeFailed');
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
 
         const recoveredSettled = structuredClone(competingSettled);
@@ -4045,6 +4055,44 @@ describe('Scan cleanup components', () => {
         }
     });
 
+    it('does not expose edits or request detail for a stale preview presentation', async () => {
+        vi.useFakeTimers();
+        try {
+            const resultCurrent = ref(true);
+            const resultPresentationKey = ref('session-1:page-1:user-0');
+            const requestDetail = vi.fn<(
+                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+            ) => void>();
+            const harness = mountPreviewZoomHarness({
+                onRequestDetail: requestDetail,
+                result: spreadPreviewResult(),
+                resultCurrentRef: resultCurrent,
+                resultPresentationKeyRef: resultPresentationKey,
+                viewMode: 'cleaned',
+            });
+            await loadPendingCleanedFrame(harness.host);
+            expect(harness.host.querySelector('.drag-overlay-layer')).not.toBeNull();
+
+            resultCurrent.value = false;
+            await nextTick();
+            expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+
+            harness.surface.dispatchEvent(previewZoomWheel({
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+                metaKey: true,
+            }));
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(300);
+            expect(requestDetail).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('positions a cropped high-detail tile over its intrinsic output region', async () => {
         const base = rotatedSinglePreviewResult();
         base.outputs[0]!.metadata.foldClipLeftPx = 40;
@@ -4479,6 +4527,7 @@ describe('Scan cleanup components', () => {
         const splitUpdates: Array<IScanCleanupNormalizedSplit | null> = [];
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: result.value,
+            resultCurrent: true,
             loading: loading.value,
             error: '',
             viewMode: 'cleaned',
@@ -4583,6 +4632,7 @@ describe('Scan cleanup components', () => {
         });
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(),
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -4647,6 +4697,7 @@ describe('Scan cleanup components', () => {
         const commitCurrentManualSplit = vi.fn();
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(),
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'original',
@@ -4727,6 +4778,7 @@ describe('Scan cleanup components', () => {
         }};
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: rotatedSinglePreviewResult(),
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -4796,6 +4848,7 @@ describe('Scan cleanup components', () => {
         });
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result,
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -4883,6 +4936,7 @@ describe('Scan cleanup components', () => {
             const commitCurrentPlacement = vi.fn();
             const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
                 result,
+                resultCurrent: true,
                 loading: false,
                 error: '',
                 viewMode: 'cleaned',
@@ -4956,6 +5010,7 @@ describe('Scan cleanup components', () => {
         const result = shallowRef(initial);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: result.value,
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -5341,6 +5396,7 @@ describe('Scan cleanup components', () => {
         const commit = vi.fn();
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: result.value,
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -5434,6 +5490,7 @@ describe('Scan cleanup components', () => {
         }> = [];
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(),
+            resultCurrent: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',

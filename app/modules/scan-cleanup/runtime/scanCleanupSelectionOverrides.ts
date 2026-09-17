@@ -10,6 +10,11 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
+export type TScanCleanupPageOverrideUpdate = (
+    value: IScanCleanupPageOverride,
+    page: number,
+) => IScanCleanupPageOverride;
+
 export interface IScanCleanupMixedValue<T> {
     empty: boolean;
     mixed: boolean;
@@ -62,7 +67,7 @@ export function resolveScanCleanupMixedValue<T>(
 export function updateScanCleanupPageOverrides(
     overrides: TScanCleanupPageOverrides,
     pages: Iterable<number>,
-    update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    update: TScanCleanupPageOverrideUpdate,
     documentMargins?: IScanCleanupMarginsMm,
 ) {
     for (const page of pages) {
@@ -78,4 +83,25 @@ export function updateScanCleanupPageOverrides(
             documentMargins,
         );
     }
+}
+
+export function updateScanCleanupPageOverrideRotation(
+    current: IScanCleanupPageOverride,
+    rotationDegrees: IScanCleanupPageOverride['rotationDegrees'],
+): IScanCleanupPageOverride {
+    const rotationChanged = current.rotationDegrees !== rotationDegrees;
+    return {
+        ...current,
+        rotationDegrees,
+        manualSplit: rotationChanged ? null : current.manualSplit,
+        manualSkewDegrees: rotationChanged ? undefined : current.manualSkewDegrees,
+        manualContentBoxes: rotationChanged ? {} : current.manualContentBoxes ?? {},
+        manualZones: rotationChanged ? {
+            picture: [],
+            fill: [],
+        } : current.manualZones ?? {
+            picture: [],
+            fill: [],
+        },
+    };
 }

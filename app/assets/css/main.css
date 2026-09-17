@@ -224,6 +224,8 @@
     --app-font-weight-medium: 500;
     --app-font-weight-semibold: 600;
     --app-font-weight-heading: 650;
+    --app-font-weight-bold: 700;
+    --app-letter-spacing-caps: 0.06em;
     --app-animation-duration-skeleton: 1.2s;
     --app-backdrop-blur-sm: 6px;
     --app-backdrop-blur-md: 8px;

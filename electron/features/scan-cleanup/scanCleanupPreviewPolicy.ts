@@ -4,7 +4,11 @@ import type {
     TScanCleanupErrorCode,
     IScanCleanupScratchShortfall,
 } from '@contracts/electronApiScanCleanup';
-import {decodeScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
+import {
+    decodeScanCleanupScratchShortfall,
+    SCAN_CLEANUP_ERROR_CODES,
+} from '@contracts/scan-cleanup/ipc';
+import {isRecord} from '@contracts/runtimeGuards';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
@@ -38,11 +42,13 @@ export function classifyScanCleanupPreviewError(error: unknown, aborted: boolean
     const errorCode = error && typeof error === 'object' && 'code' in error
         ? (error as {code?: unknown}).code
         : undefined;
+    if (typeof errorCode === 'string' && SCAN_CLEANUP_ERROR_CODES.includes(
+        errorCode as TScanCleanupErrorCode,
+    )) {
+        return errorCode as TScanCleanupErrorCode;
+    }
     if (error instanceof ScanCleanupNativeToolUnavailableError || error instanceof ScanCleanupInsufficientScratchError) {
         return error.code;
-    }
-    if (errorCode === 'insufficient-scratch') {
-        return 'insufficient-scratch';
     }
     if (error instanceof ScanCleanupPageScopeError || errorCode === SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE) {
         return 'invalid-request';
@@ -70,17 +76,25 @@ export function scanCleanupScratchShortfall(
             requiredBytes: error.requiredBytes,
         }};
     }
-    if (error && typeof error === 'object' && 'scratchShortfall' in error) {
-        const scratchShortfall = (error as {scratchShortfall?: unknown}).scratchShortfall;
-        if (scratchShortfall !== undefined) {
-            try {
-                return {scratchShortfall: decodeScanCleanupScratchShortfall(scratchShortfall)};
-            } catch {
-                return {};
-            }
-        }
+    if (!isRecord(error)) {
+        return {};
     }
-    return {};
+    const scratchShortfall = error.scratchShortfall ?? (
+        error.code === 'insufficient-scratch'
+            ? {
+                availableBytes: error.availableBytes,
+                requiredBytes: error.requiredBytes,
+            }
+            : undefined
+    );
+    if (scratchShortfall === undefined) {
+        return {};
+    }
+    try {
+        return {scratchShortfall: decodeScanCleanupScratchShortfall(scratchShortfall)};
+    } catch {
+        return {};
+    }
 }
 
 export const SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES = 128 * 1024 * 1024;

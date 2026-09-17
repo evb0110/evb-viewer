@@ -31,7 +31,10 @@ import {
     grantScanCleanupOutputAccess,
     materializeScanCleanupSourcePath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
-import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {
+    classifyScanCleanupPreviewError as classifyScanCleanupError,
+    scanCleanupScratchShortfall,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
     captureWorkingCopyAdmissionSnapshot,
     clearWorkingCopyOriginalPaths,
@@ -4322,6 +4325,15 @@ describe('scan cleanup pipeline', () => {
         );
         await expect(result).rejects.toThrow('fixture');
         expect(classifyScanCleanupError(new NativeScanCleanupError('native-failure', 'fixture'), false)).toBe('native-failure');
+        const workerErrorFrame = {
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        };
+        expect(classifyScanCleanupError(workerErrorFrame, false)).toBe('insufficient-scratch');
+        expect(scanCleanupScratchShortfall(workerErrorFrame)).toEqual({scratchShortfall: workerErrorFrame.scratchShortfall});
         expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');
         await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
     });

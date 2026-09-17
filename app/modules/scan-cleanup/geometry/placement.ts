@@ -68,10 +68,12 @@ export function toPreviewStyleRect(
     rect: IScanCleanupPixelRect,
     placement: IScanCleanupPreviewPlacement,
 ): CSSProperties {
+    const canvasWidthPx = Math.max(1, placement.canvasWidthPx);
+    const canvasHeightPx = Math.max(1, placement.canvasHeightPx);
     return {
-        left: `${(rect.xPx * placement.scaleX + placement.left) / placement.canvasWidthPx * 100}%`,
-        top: `${(rect.yPx * placement.scaleY + placement.top) / placement.canvasHeightPx * 100}%`,
-        width: `${rect.widthPx * placement.scaleX / placement.canvasWidthPx * 100}%`,
-        height: `${rect.heightPx * placement.scaleY / placement.canvasHeightPx * 100}%`,
+        left: `${(rect.xPx * placement.scaleX + placement.left) / canvasWidthPx * 100}%`,
+        top: `${(rect.yPx * placement.scaleY + placement.top) / canvasHeightPx * 100}%`,
+        width: `${rect.widthPx * placement.scaleX / canvasWidthPx * 100}%`,
+        height: `${rect.heightPx * placement.scaleY / canvasHeightPx * 100}%`,
     };
 }

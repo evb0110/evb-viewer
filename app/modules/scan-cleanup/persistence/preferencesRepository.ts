@@ -164,9 +164,10 @@ export function loadScanCleanupDocumentOverrides(
     if (migration.migratedLegacyGeometry) {
         entries[documentKey] = {
             ...(entry ?? {}),
+            updatedAt: Date.now(),
             overrides: migration.overrides,
         };
-        storage.set(OVERRIDES_KEY, JSON.stringify(entries));
+        storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
         warnScanCleanupOverrideMigrationV1();
     }
     return migration.overrides;
@@ -203,6 +204,7 @@ export function loadScanCleanupDocumentPageOverrideDefaults(
         const entries = loadDocumentEntries(storage);
         entries[documentKey] = {
             ...(entry ?? {}),
+            updatedAt: Date.now(),
             pageOverrideDefaults: migration.value,
         };
         storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
@@ -364,9 +366,12 @@ export function resetScanCleanupDocumentOverrides(
     if (entry?.marginsMm !== undefined || entry?.outputMode !== undefined) {
         Reflect.deleteProperty(entry, 'overrides');
         Reflect.deleteProperty(entry, 'pageOverrideDefaults');
-        entries[documentKey] = entry;
+        entries[documentKey] = {
+            ...entry,
+            updatedAt: Date.now(),
+        };
     } else {
         Reflect.deleteProperty(entries, documentKey);
     }
-    storage.set(OVERRIDES_KEY, JSON.stringify(entries));
+    storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
 }

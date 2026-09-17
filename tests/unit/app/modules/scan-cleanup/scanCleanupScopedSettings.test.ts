@@ -18,7 +18,10 @@ import {
     resolveScanCleanupMixedValue,
     updateScanCleanupPageOverrides,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
-import {reactive} from 'vue';
+import {
+    reactive,
+    ref,
+} from 'vue';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {resolveScanCleanupMarginPatch} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
@@ -173,6 +176,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 1,
             previewResult: () => null,
             previewTotalPages: () => 1_000_000,
+            marginsLinked: ref(true),
             settings,
         });
 
@@ -229,6 +233,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 1,
             previewResult: () => null,
             previewTotalPages: () => 2,
+            marginsLinked: ref(true),
             settings,
         });
         const manualZones = {
@@ -262,6 +267,38 @@ describe('scan cleanup selection override state', () => {
         selection.updateCurrentManualZones(manualZones);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).manualZones).toEqual(manualZones);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(2)).manualZones).toBeUndefined();
+
+        selection.updatePageOverride(1, createScanCleanupPageOverride({
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: true,
+            manualSplit: {
+                xNormalized: 0.4,
+                rotationDegrees: 90,
+            },
+            manualSkewDegrees: 1,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.3,
+                heightNormalized: 0.4,
+                rotationDegrees: 90,
+            }},
+            manualZones,
+        }));
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).toMatchObject({
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: true,
+            manualSplit: null,
+            manualContentBoxes: {},
+            manualZones: {
+                picture: [],
+                fill: [],
+            },
+        });
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)))
+            .not.toHaveProperty('manualSkewDegrees');
 
         selection.updateRotation(90);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).toMatchObject({
@@ -315,6 +352,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 1,
             previewResult: () => null,
             previewTotalPages: () => 1,
+            marginsLinked: ref(true),
             settings,
         });
 
@@ -369,6 +407,7 @@ describe('scan cleanup selection override state', () => {
             initialPage: 2,
             previewResult: () => null,
             previewTotalPages: () => 3,
+            marginsLinked: ref(true),
             settings,
         });
 

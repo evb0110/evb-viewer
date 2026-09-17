@@ -40,11 +40,14 @@ import {
     type TScanCleanupRendererStartResult,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {
+    formatScanCleanupErrorByCode,
+    formatScanCleanupErrorMessage,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {
     formatScanCleanupEta,
     formatScanCleanupProgress,
     resolveScanCleanupEtaWidestText,
 } from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
-import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {
@@ -58,11 +61,6 @@ import {formatFailurePresentationDescription} from '@app/composables/useFailureT
 // compatibility path, even if a misconfigured or expired handoff leaves the
 // id absent.
 const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
-const SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE =
-    'Ink placement for documents over 20,000 pages is unavailable. Select a bounded page range or choose another alignment.';
-const SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE =
-    'Ink placement evidence is unavailable for a selected page. Run detection again or choose another alignment.';
-
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
     /**
@@ -121,10 +119,15 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (result.fallback === 'already-running') {
             return t('scanCleanup.errors.alreadyRunning');
         }
-        if (result.fallback === 'unavailable' || result.errorCode === 'tools-unavailable') {
+        if (result.fallback === 'unavailable') {
             return t('scanCleanup.runDisabled.unavailable');
         }
-        return formatScanCleanupErrorMessage(t('scanCleanup.failed'), result.error);
+        return formatScanCleanupErrorByCode(
+            t,
+            result.errorCode,
+            result.error,
+            result.scratchShortfall,
+        );
     }
 
     function formatReconciliationFailure(error: ScanCleanupRunReconciliationError) {
@@ -150,6 +153,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     // — is work the user must be able to stop.
     const isRunning = computed(() => isScanCleanupRunning.value || transition.value !== 'idle');
     let interruptPendingTransition: (() => void) | null = null;
+    const cancelRefusal = ref('');
+    const finishing = computed(() => scanCleanupRun.ownerId === options.ownerId
+        && scanCleanupRun.jobState?.status === 'committing');
+    const cancelStatusText = computed(() => finishing.value
+        ? t('scanCleanup.cancelFinishing')
+        : cancelRefusal.value);
     const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
         || (scanCleanupRun.ownerId === options.ownerId
             && scanCleanupRun.jobState?.status === 'canceling'));
@@ -342,10 +351,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return placementAnchorCalibrationError.value;
         }
         if (inkPlacementCapacityExceeded.value) {
-            return SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE;
+            return t('scanCleanup.errors.tooLarge');
         }
         if (isInkPlacementAnchorMissing()) {
-            return SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE;
+            return t('scanCleanup.errors.inkPlacementMissing');
         }
         if (getScanCleanupCapability() === null) {
             return t('scanCleanup.runDisabled.unavailable');
@@ -412,7 +421,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (inkPlacementCapacityExceeded.value) {
             reportScanCleanupRunError(
                 options.ownerId,
-                SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+                t('scanCleanup.errors.tooLarge'),
                 options.sourcePath.value,
                 'too-large',
                 options.documentRevision.value,
@@ -422,7 +431,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (isInkPlacementAnchorMissing()) {
             reportScanCleanupRunError(
                 options.ownerId,
-                SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
+                t('scanCleanup.errors.inkPlacementMissing'),
                 options.sourcePath.value,
                 'internal',
                 options.documentRevision.value,
@@ -531,6 +540,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             };
         };
         stopRequested.value = false;
+        cancelRefusal.value = '';
         const stopWait = new Promise<void>(resolve => {
             interruptPendingTransition = resolve;
         });
@@ -629,7 +639,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isInkPlacementAnchorMissing()) {
                 reportScanCleanupRunError(
                     options.ownerId,
-                    SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
+                    t('scanCleanup.errors.inkPlacementMissing'),
                     requestSourcePdfPath,
                     'internal',
                     requestDocumentRevision,
@@ -706,7 +716,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.
-                if (result.started) await cancelScanCleanup();
+                if (result.started) await requestActiveJobCancellation(result.jobId);
                 return;
             }
             if (!result.started) {
@@ -723,7 +733,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 options.ownerId,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? formatReconciliationFailure(caught)
-                    : formatScanCleanupErrorMessage(t('scanCleanup.failed'), caught),
+                    : formatScanCleanupErrorByCode(t, 'internal', caught),
                 requestSourcePdfPath,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? caught.errorCode
@@ -736,16 +746,33 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
     }
 
+    async function requestActiveJobCancellation(jobId: NonNullable<typeof scanCleanupRun.activeJobId>) {
+        const outcome = await cancelScanCleanup();
+        if (scanCleanupRun.activeJobId !== jobId) {
+            return outcome;
+        }
+        if (outcome === 'refused') {
+            stopRequested.value = false;
+            cancelRefusal.value = t('scanCleanup.cancelRefused');
+        }
+        return outcome;
+    }
+
     async function cancel() {
         if (cancelRequested.value || !isRunning.value) {
             return;
         }
-        if (!scanCleanupRun.activeJobId) {
+        const jobId = scanCleanupRun.activeJobId;
+        if (!jobId) {
             stopRequested.value = true;
             interruptPendingTransition?.();
             return;
         }
-        await cancelScanCleanup();
+        // Set local intent before crossing IPC so the button changes even if
+        // the registry's canceling event is delayed.
+        stopRequested.value = true;
+        cancelRefusal.value = '';
+        await requestActiveJobCancellation(jobId);
     }
 
     function dismissError() {
@@ -756,17 +783,25 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
 
     watch(options.active, active => setScanCleanupWorkspaceOwnerOpen(options.ownerId, active), {immediate: true});
     watch(isScanCleanupRunning, running => {
-        if (!running && scanCleanupRun.jobState?.status === 'completed') options.onCompleted();
+        if (
+            !running
+            && scanCleanupRun.ownerId === options.ownerId
+            && scanCleanupRun.jobState?.status === 'completed'
+        ) {
+            options.onCompleted();
+        }
     });
     onBeforeUnmount(() => setScanCleanupWorkspaceOwnerOpen(options.ownerId, false));
 
     return {
         cancel,
         cancelRequested,
+        cancelStatusText,
         canRun,
         dismissError,
         error,
         errorCode,
+        finishing,
         isRunning,
         processedPages,
         progress,

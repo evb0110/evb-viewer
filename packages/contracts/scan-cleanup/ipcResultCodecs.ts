@@ -930,6 +930,9 @@ export function decodeStartResult(value: unknown) {
         jobId,
         error: value.error,
         errorCode: value.errorCode,
+        ...(value.scratchShortfall === undefined
+            ? {}
+            : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
     };
 }
 
@@ -952,6 +955,9 @@ export function decodeDetectionStartResult(value: unknown) {
         jobId,
         error: value.error,
         errorCode: value.errorCode,
+        ...(value.scratchShortfall === undefined
+            ? {}
+            : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
     };
 }
 
@@ -984,7 +990,7 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
         progress: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
         updatedAtMs,
     };
-    if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'canceled') {
+    if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'committing' || value.status === 'canceled') {
         return {
             ...base,
             status: value.status,
@@ -1023,6 +1029,9 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
                 ? {}
                 : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
             ...(failure === undefined ? {} : {failure}),
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
         };
     }
     throw new Error('invalid scan-cleanup job status');
