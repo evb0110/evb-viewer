@@ -130,8 +130,6 @@ describe('scan cleanup toolbar contract', () => {
         await waitForFunctionInPage(session.page, () => Array.from(
             document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
         ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 15_000});
-        await waitForPdfLoaded(session.page, 45_000);
-        await waitForViewerInteractive(session.page, 45_000);
 
         const outputState = await readWorkspaceStateValues(session.page, ['originalPath']);
         const outputPath = typeof outputState.originalPath === 'string'

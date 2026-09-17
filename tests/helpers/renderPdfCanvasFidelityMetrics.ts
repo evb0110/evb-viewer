@@ -45,6 +45,7 @@ export async function renderPdfCanvasFidelityMetrics(
         // The legacy build still accepts this Node option although current
         // PDF.js declarations omit it.
         disableWorker: true,
+        wasmUrl: `${resolve(process.cwd(), 'public/pdf/wasm')}${sep}`,
         // Fidelity fixtures contain unembedded standard fonts. Resolve those
         // from the same vendored PDF.js payload as the app so this corpus
         // measures rendering rather than whichever Helvetica substitute is
