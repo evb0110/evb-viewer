@@ -525,7 +525,11 @@ export interface IScanCleanupPreviewDependencies {
         supportsRasterStreaming: boolean,
     ) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
-    getPageSizes: typeof readPdfPageSizes;
+    /**
+     * Array geometry is retained only for compatibility fixtures. Production
+     * composition must use the bounded page-size store above.
+     */
+    getPageSizes?: typeof readPdfPageSizes;
     /** Native-backed bounded geometry reader used by production detection. */
     getPageSizeStore?: (
         pdfPath: Parameters<typeof createPdfPageSizeStore>[0],

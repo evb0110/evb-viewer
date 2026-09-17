@@ -105,12 +105,16 @@ export function createScanCleanupRasterMeasurements(input: {
         signal,
         async () => {
             try {
+                const getPageSizes = input.dependencies.getPageSizes;
+                if (getPageSizes === undefined) {
+                    throw new Error('no compatibility page-size reader is available');
+                }
                 const pdfPageOpsBinary = input.dependencies.resolvePageOpsBinary();
                 const pdfinfoBinary = input.dependencies.resolvePdfInfoBinary?.();
                 if (!pdfPageOpsBinary && !pdfinfoBinary) {
                     throw new Error('no PDF tool is available to read page geometry');
                 }
-                return await input.dependencies.getPageSizes(document.sourcePdfPath, {
+                return await getPageSizes(document.sourcePdfPath, {
                     ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
                     ...(pdfinfoBinary ? {pdfinfoBinary} : {}),
                     tempDir: await document.dir,

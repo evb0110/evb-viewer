@@ -11,10 +11,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
-import {
-    createPdfPageSizeStore,
-    readPdfPageSizes,
-} from '@electron/pdf/pdfPageSizes';
+import {createPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {
     renderPdfPageToPng,
@@ -90,7 +87,6 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         supportsRasterStreaming,
     ),
     getPageCount: getPdfPageCount,
-    getPageSizes: readPdfPageSizes,
     getPageSizeStore: createPdfPageSizeStore,
     publishRaster: atomicReplace,
     renderPage: renderPdfPageToPng,

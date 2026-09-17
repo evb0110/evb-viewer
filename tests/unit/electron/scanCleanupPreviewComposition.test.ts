@@ -64,6 +64,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
             const entries = await defaultDependencies.fileSystem!.readdir(scratch, {withFileTypes: true});
             expect(entries.map(entry => entry.name)).toEqual(['source.pdf']);
             await expect(defaultDependencies.getSourceStatIdentity!(sourcePath)).resolves.toMatch(/^\d+:\d+$/u);
+            expect(defaultDependencies.getPageSizes).toBeUndefined();
+            expect(defaultDependencies.getPageSizeStore).toBeDefined();
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy(true);
             expect(rasterPolicy.rasterConcurrency).toBeGreaterThan(0);
             const signal = new AbortController().signal;

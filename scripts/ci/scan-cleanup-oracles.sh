@@ -97,7 +97,8 @@ run_export_oracles() {
   node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
     --source "$rgb_output/source.pdf" \
     --pages 1 \
-    --out "$rgb_output/preview"
+    --out "$rgb_output/preview" \
+    --check
 
   node scripts/diagnostics/scan-cleanup-word-loss-audit.mjs \
     --source "$rgb_output/source.pdf" \
