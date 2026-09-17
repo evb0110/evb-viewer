@@ -20,6 +20,10 @@ import {
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
+
+export const RENDERER_DESTROYED_CANCELLATION_REASON = 'Renderer destroyed';
+export const RENDER_PROCESS_GONE_CANCELLATION_REASON = 'Renderer process gone';
+
 export interface IMainJobErrorEnvelope<TCode extends string = string> {
     code: TCode;
     message: string;
@@ -105,6 +109,12 @@ export interface IMainJobStartOptions<
     ownerLifecycle?: IMainJobOwnerLifecyclePolicy;
     signals?: readonly AbortSignal[];
     onCancel?: (reason: string, signal: AbortSignal) => void | Promise<void>;
+    /**
+     * Runs exactly once on the next microtask unless the job was already
+     * aborted when start() handed it over. Callers that acquire resources
+     * before start() must release them from onCancel when this boundary is
+     * skipped; once run() begins, its finally block owns those resources.
+     */
     run(context: IMainJobRunContext<TProgress, TResult, TError>): Promise<TResult>;
 }
 export interface IMainJobHandle<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
@@ -158,7 +168,7 @@ export interface IMainJobRegistry<
     subscribeOwner(actor: IMainJobActor<TSender>): () => void;
     cancel(jobId: string, actor: IMainJobActor<TSender>, reason?: string): boolean;
     await(jobId: string, actor: IMainJobActor<TSender>): Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
-    clearForTests(): Promise<void>;
+    dispose(): Promise<void>;
 }
 export function createMainJobRegistry<
     TProgress,
@@ -325,15 +335,15 @@ export function createMainJobRegistry<
             binding = {
                 sender,
                 records: new Set(),
-                destroyed: () => dispatch('destroyed', 'Renderer destroyed'),
-                gone: () => dispatch('renderProcessGone', 'Renderer process gone'),
+                destroyed: () => dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON),
+                gone: () => dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON),
                 navigation: (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) dispatch('mainFrameNavigation', 'Renderer main frame navigated'); },
             };
             bindings.set(sender.id, binding); sender.once('destroyed', binding.destroyed);
             sender.once('render-process-gone', binding.gone); sender.on('did-start-navigation', binding.navigation);
         }
         binding.records.add(record);
-        if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, 'Renderer destroyed');
+        if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);
     }
     function start(startOptions: IMainJobStartOptions<TProgress, TResult, TError, TSender>): THandle {
         const jobId = startOptions.jobId ?? randomUUID();
@@ -530,7 +540,7 @@ export function createMainJobRegistry<
             const record = authorized(jobId, actor); if (!record) throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));
             return record.handle.terminal;
         },
-        clearForTests: async () => {
+        dispose: async () => {
             for (const record of records.values()) requestCancel(record, 'Registry reset');
             await Promise.allSettled([...records.values()].map(record => record.handle.settled));
             for (const record of [...records.values()]) remove(record); pump?.dispose();

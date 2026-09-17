@@ -1,6 +1,18 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
+import {
+    SCAN_CLEANUP_BINARIZATION_METHODS,
+    SCAN_CLEANUP_CANVAS_POLICIES,
+    SCAN_CLEANUP_CANVAS_SCOPES,
+    SCAN_CLEANUP_CONTENT_TRIM_SIDES,
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    SCAN_CLEANUP_OUTPUT_HALVES,
+    SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+    SCAN_CLEANUP_OUTPUT_MODES,
+    SCAN_CLEANUP_PAGE_ROTATIONS,
+    SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS,
+} from '@contracts/scan-cleanup/domain';
 import type {
-    IScanCleanupContentDiagnostics,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
 } from '@contracts/scan-cleanup/ipc';
@@ -9,7 +21,6 @@ import type {
     IScanCleanupPixelPoint,
 } from '@contracts/scan-cleanup/geometry';
 import {
-    legacyNativeScanCleanupFoldBandV3,
     NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENTS_SCHEMA,
@@ -29,35 +40,6 @@ const MAX_DIAGNOSTIC_ITEMS = 4_096;
 const MAX_PAGE_METADATA_JSON_LENGTH = 2 * 1024 * 1024;
 const MAX_OUTPUT_METADATA_JSON_LENGTH = 16 * 1024 * 1024;
 
-const HALVES = [
-    'full',
-    'left',
-    'right',
-] as const;
-const LAYOUTS = [
-    'single-uncut-page',
-    'page-with-offcut',
-    'two-page-spread',
-] as const;
-const ROTATIONS = [
-    0,
-    90,
-    180,
-    270,
-] as const;
-const OUTPUT_MODES = [
-    'bw',
-    'mixed',
-    'grayscale',
-    'color',
-] as const;
-const BINARIZATION_MODES = [
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const;
-
 export class InvalidScanCleanupNativeArtifactError extends Error {
     // Stable typed-error discriminator consumed across process boundaries.
     // fallow-ignore-next-line unused-class-member
@@ -71,14 +53,9 @@ export class InvalidScanCleanupNativeArtifactError extends Error {
     }
 }
 
-export interface INativeScanCleanupAnalysisArtifactOutputV3 extends INativeScanCleanupAnalysisOutputV3 {
-    appliedMargins?: IScanCleanupAppliedMargins;
-    contentDiagnostics?: IScanCleanupContentDiagnostics;
-}
-
 export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCleanupPageMetadataV3 {
     sourcePageIndex?: number;
-    outputs?: INativeScanCleanupAnalysisArtifactOutputV3[];
+    outputs?: INativeScanCleanupAnalysisOutputV3[];
     tier1Verdict?: INativeScanCleanupPageMetadataV3['layoutClassification'];
     reconciled?: boolean;
     clusterAgreement?: number;
@@ -86,7 +63,7 @@ export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCle
 
 export type TNativeScanCleanupPreviewPageArtifactMetadataV3 = IScanCleanupPreviewPageMetadata
     & Omit<INativeScanCleanupPageArtifactMetadataV3, 'outputs'>
-    & {outputs?: Array<INativeScanCleanupAnalysisArtifactOutputV3 & {
+    & {outputs?: Array<INativeScanCleanupAnalysisOutputV3 & {
         appliedMargins: IScanCleanupAppliedMargins;
         contentBox: IScanCleanupPreviewMetadata['contentBox'];
     }>};
@@ -97,6 +74,61 @@ export type TNativeScanCleanupPreviewOutputArtifactMetadataV3 = IScanCleanupPrev
     & {dewarpModel?: INativeScanCleanupDewarpModelV3 | null;};
 
 type TArtifact = InvalidScanCleanupNativeArtifactError['artifact'];
+
+export interface INativeScanCleanupOpticalPlacementMetadataV3 {
+    matchedCanvasOpticalPlacement?: boolean;
+    matchedCanvasOpticalContentLeftPx?: number | null;
+    matchedCanvasOpticalContentRightPx?: number | null;
+    matchedCanvasContentWidthPx?: number | null;
+    intrinsicRasterWidthPx?: number;
+    matchedCanvasIntrinsicOverflowLeftPx?: number;
+    appliedMargins?: IScanCleanupAppliedMargins;
+    placementOffsetXPx: number;
+    outputWidthPx: number;
+    canvasWidthPx: number;
+}
+
+/**
+ * Checks that optical content stays inside the requested horizontal margins.
+ * `softMarginsPx` records observed free space after placement, so it cannot
+ * express this requested-margin invariant and is intentionally not an input.
+ */
+export function isNativeScanCleanupOpticalPlacementValid(
+    metadata: INativeScanCleanupOpticalPlacementMetadataV3,
+): boolean {
+    if (metadata.matchedCanvasOpticalPlacement !== true) return true;
+    const opticalLeft = metadata.matchedCanvasOpticalContentLeftPx;
+    const opticalRight = metadata.matchedCanvasOpticalContentRightPx;
+    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const intrinsicWidth = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
+    const appliedMargins = metadata.appliedMargins;
+    if (
+        opticalLeft === undefined
+        || opticalLeft === null
+        || opticalRight === undefined
+        || opticalRight === null
+        || appliedMargins === undefined
+        || !Number.isFinite(opticalLeft)
+        || !Number.isFinite(opticalRight)
+        || !Number.isFinite(contentWidth)
+        || !Number.isFinite(intrinsicWidth)
+        || intrinsicWidth <= 0
+        || contentWidth <= 0
+        || !Number.isFinite(metadata.placementOffsetXPx)
+        || !Number.isFinite(metadata.outputWidthPx)
+        || !Number.isFinite(metadata.canvasWidthPx)
+        || !Number.isFinite(metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0)
+        || !Number.isFinite(appliedMargins.leftPx)
+        || !Number.isFinite(appliedMargins.rightPx)
+    ) return false;
+    if (opticalLeft >= opticalRight) return false;
+    const opticalScaleX = contentWidth / intrinsicWidth;
+    const effectivePlacementOffsetX = metadata.placementOffsetXPx
+        - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
+    return effectivePlacementOffsetX + opticalLeft * opticalScaleX >= appliedMargins.leftPx
+        && effectivePlacementOffsetX + opticalRight * opticalScaleX
+        <= metadata.canvasWidthPx - appliedMargins.rightPx;
+}
 
 function fail(artifact: TArtifact, detail: string): never {
     throw new InvalidScanCleanupNativeArtifactError(artifact, detail);
@@ -138,9 +170,9 @@ function isNativeScanCleanupPageArtifactMetadata(
     value: unknown,
 ): value is INativeScanCleanupPageArtifactMetadataV3 {
     return isRecord(value)
-        && isOneOfValue(value.layoutClassification, LAYOUTS)
+        && isOneOfValue(value.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS)
         && (value.cutterXPx === null || typeof value.cutterXPx === 'number')
-        && isOneOfValue(value.rotationDegrees, ROTATIONS)
+        && isOneOfValue(value.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS)
         && isOneOfValue(value.canvasScope, [
             'page',
             'document',
@@ -158,12 +190,12 @@ function isNativeScanCleanupOutputMetadata(
         && typeof value.outputHeightPx === 'number'
         && typeof value.canvasWidthPx === 'number'
         && typeof value.canvasHeightPx === 'number'
-        && isOneOfValue(value.layoutClassification, LAYOUTS)
+        && isOneOfValue(value.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS)
         && typeof value.skewApplied === 'boolean'
         && typeof value.placementOffsetXPx === 'number'
         && typeof value.placementOffsetYPx === 'number'
         && (value.forwardTransform === null || isRecord(value.forwardTransform))
-        && isOneOfValue(value.rotationDegrees, ROTATIONS);
+        && isOneOfValue(value.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS);
 }
 
 function optionalBoolean(source: Record<string, unknown>, key: string, artifact: TArtifact) {
@@ -264,7 +296,7 @@ function textToneDiagnostics(value: unknown, artifact: TArtifact, label: string)
 
 function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
-    oneOf(source.route, BINARIZATION_MODES, artifact, `${label}.route`);
+    oneOf(source.route, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.route`);
     for (const key of [
         'robustContrast',
         'illuminationDeviation',
@@ -275,10 +307,10 @@ function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: str
     ] as const) finite(source[key], artifact, `${label}.${key}`);
     if (source.spreadPlan !== undefined) {
         const plan = record(source.spreadPlan, artifact, `${label}.spreadPlan`);
-        oneOf(plan.route, BINARIZATION_MODES, artifact, `${label}.spreadPlan.route`);
-        oneOf(plan.jointCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.jointCandidateRoute`);
-        oneOf(plan.leftCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.leftCandidateRoute`);
-        oneOf(plan.rightCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.rightCandidateRoute`);
+        oneOf(plan.route, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.route`);
+        oneOf(plan.jointCandidateRoute, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.jointCandidateRoute`);
+        oneOf(plan.leftCandidateRoute, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.leftCandidateRoute`);
+        oneOf(plan.rightCandidateRoute, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, `${label}.spreadPlan.rightCandidateRoute`);
         const thresholdAnchor = integer(plan.thresholdAnchor, artifact, `${label}.spreadPlan.thresholdAnchor`);
         if (thresholdAnchor > 255) fail(artifact, `${label}.spreadPlan.thresholdAnchor must be <= 255`);
         integer(plan.thresholdRadius, artifact, `${label}.spreadPlan.thresholdRadius`, 1);
@@ -287,13 +319,7 @@ function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: str
             fail(artifact, `${label}.spreadPlan anchors must be positive`);
         }
         if (typeof plan.documentAnchor !== 'boolean') fail(artifact, `${label}.spreadPlan.documentAnchor must be boolean`);
-        oneOf(plan.decision, [
-            'sharedJoint',
-            'perLeafRouteMismatch',
-            'perLeafAnchorDrift',
-            'perLeafRadiusDrift',
-            'perLeafFaintInkDrift',
-        ] as const, artifact, `${label}.spreadPlan.decision`);
+        oneOf(plan.decision, SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS, artifact, `${label}.spreadPlan.decision`);
     }
 }
 
@@ -330,12 +356,7 @@ function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) 
         source.acceptedTrims.forEach((item, index) => {
             const trimLabel = `${label}.acceptedTrims[${String(index)}]`;
             const trim = record(item, artifact, trimLabel);
-            oneOf(trim.side, [
-                'left',
-                'top',
-                'right',
-                'bottom',
-            ] as const, artifact, `${trimLabel}.side`);
+            oneOf(trim.side, SCAN_CLEANUP_CONTENT_TRIM_SIDES, artifact, `${trimLabel}.side`);
             integer(trim.iteration, artifact, `${trimLabel}.iteration`);
             unit(trim.score, artifact, `${trimLabel}.score`);
             unit(trim.threshold, artifact, `${trimLabel}.threshold`);
@@ -353,6 +374,18 @@ function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) 
         }
         source.protectedBlocks.forEach((item, index) => block(item, `${label}.protectedBlocks[${String(index)}]`));
     }
+}
+
+function inkConsistencyDiagnostics(value: unknown, artifact: TArtifact, label: string) {
+    const source = record(value, artifact, label);
+    integer(source.priorSampleCount, artifact, `${label}.priorSampleCount`);
+    for (const key of [
+        'priorSurvivalMedian',
+        'survivalBefore',
+        'survivalAfter',
+    ] as const) unit(source[key], artifact, `${label}.${key}`);
+    integer(source.addedInkPixels, artifact, `${label}.addedInkPixels`);
+    if (typeof source.applied !== 'boolean') fail(artifact, `${label}.applied must be boolean`);
 }
 
 function outputModeDiagnostics(value: unknown, artifact: TArtifact, label: string) {
@@ -516,10 +549,7 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         'sparseSpreadRecovered',
         'abstained',
     ] as const) if (typeof source[key] !== 'boolean') fail(artifact, `${label}.${key} must be boolean`);
-    const foldBandValue = source.foldBand === undefined
-        ? legacyNativeScanCleanupFoldBandV3()
-        : source.foldBand;
-    const foldBand = record(foldBandValue, artifact, `${label}.foldBand`);
+    const foldBand = record(source.foldBand, artifact, `${label}.foldBand`);
     if (foldBand.status === 'measured') {
         const unknownKey = Object.keys(foldBand).find(key => (
             key !== 'status' && key !== 'leftXPx' && key !== 'rightXPx'
@@ -545,37 +575,12 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
     } else {
         fail(artifact, `${label}.foldBand.status must be measured or unmeasured`);
     }
-    return foldBandValue === source.foldBand
-        ? source
-        : {
-            ...source,
-            foldBand: foldBandValue,
-        };
-}
-
-function documentPrior(value: unknown, artifact: TArtifact, label: string) {
-    const source = record(value, artifact, label);
-    oneOf(source.dominantLayout, LAYOUTS, artifact, `${label}.dominantLayout`);
-    nullableFinite(source.cutterRatioMedian, artifact, `${label}.cutterRatioMedian`);
-    if (source.strokeWidthMedianPx !== undefined
-        && finite(source.strokeWidthMedianPx, artifact, `${label}.strokeWidthMedianPx`) <= 0) {
-        fail(artifact, `${label}.strokeWidthMedianPx must be positive`);
-    }
-    if (source.xHeightMedianPx !== undefined
-        && finite(source.xHeightMedianPx, artifact, `${label}.xHeightMedianPx`) <= 0) {
-        fail(artifact, `${label}.xHeightMedianPx must be positive`);
-    }
-    const dimensions = record(source.clusterDims, artifact, `${label}.clusterDims`);
-    if (finite(dimensions.widthPx, artifact, `${label}.clusterDims.widthPx`) <= 0
-        || finite(dimensions.heightPx, artifact, `${label}.clusterDims.heightPx`) <= 0) {
-        fail(artifact, `${label}.clusterDims must be positive`);
-    }
-    unit(source.agreementStrength, artifact, `${label}.agreementStrength`);
+    return source;
 }
 
 function analysisOutput(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
-    oneOf(source.half, HALVES, artifact, `${label}.half`);
+    oneOf(source.half, SCAN_CLEANUP_OUTPUT_HALVES, artifact, `${label}.half`);
     pixelRect(source.sourceRegion, artifact, `${label}.sourceRegion`);
     if (source.contentBox !== undefined && source.contentBox !== null) pixelRect(source.contentBox, artifact, `${label}.contentBox`);
     if (source.contentDiagnostics !== undefined) contentDiagnostics(source.contentDiagnostics, artifact, `${label}.contentDiagnostics`);
@@ -617,16 +622,13 @@ export function decodeNativeScanCleanupPageMetadata(
         : decodedSource;
     validateVersion(source, artifact);
     if (source.sourcePageIndex !== undefined) integer(source.sourcePageIndex, artifact, 'sourcePageIndex');
-    oneOf(source.layoutClassification, LAYOUTS, artifact, 'layoutClassification');
+    oneOf(source.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS, artifact, 'layoutClassification');
     if (source.layoutConfidence !== undefined) unit(source.layoutConfidence, artifact, 'layoutConfidence');
     nullableFinite(source.cutterXPx, artifact, 'cutterXPx');
     if (source.splitSeam !== undefined) splitSeam(source.splitSeam, artifact, 'splitSeam');
     optionalBoolean(source, 'splitAbstained', artifact);
-    oneOf(source.rotationDegrees, ROTATIONS, artifact, 'rotationDegrees');
-    oneOf(source.canvasScope, [
-        'page',
-        'document',
-    ] as const, artifact, 'canvasScope');
+    oneOf(source.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS, artifact, 'rotationDegrees');
+    oneOf(source.canvasScope, SCAN_CLEANUP_CANVAS_SCOPES, artifact, 'canvasScope');
     if (typeof source.excluded !== 'boolean') fail(artifact, 'excluded must be boolean');
     integer(source.blankOutputsSkipped, artifact, 'blankOutputsSkipped');
     const outputCount = integer(source.outputCount, artifact, 'outputCount');
@@ -642,16 +644,14 @@ export function decodeNativeScanCleanupPageMetadata(
         ).half);
         if (new Set(halves).size !== halves.length) fail(artifact, 'outputs contains duplicate halves');
     }
-    if (source.recommendedOutputMode !== undefined) oneOf(source.recommendedOutputMode, OUTPUT_MODES, artifact, 'recommendedOutputMode');
+    if (source.recommendedOutputMode !== undefined) oneOf(source.recommendedOutputMode, SCAN_CLEANUP_OUTPUT_MODES, artifact, 'recommendedOutputMode');
     if (source.recommendedOutputModeConfidence !== undefined) unit(source.recommendedOutputModeConfidence, artifact, 'recommendedOutputModeConfidence');
-    if (source.recommendedOutputModeReason !== undefined) oneOf(source.recommendedOutputModeReason, [
-        'blank',
-        'color-chroma',
-        'text-with-pictures',
-        'continuous-tone',
-        'bimodal-text',
-        'uncertain-tonal',
-    ] as const, artifact, 'recommendedOutputModeReason');
+    if (source.recommendedOutputModeReason !== undefined) oneOf(
+        source.recommendedOutputModeReason,
+        SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+        artifact,
+        'recommendedOutputModeReason',
+    );
     optionalBoolean(source, 'softAlphaForegroundRecommendation', artifact);
     if (source.outputModeDiagnostics !== undefined) outputModeDiagnostics(source.outputModeDiagnostics, artifact, 'outputModeDiagnostics');
     if (source.splitDiagnostics !== undefined) {
@@ -663,13 +663,22 @@ export function decodeNativeScanCleanupPageMetadata(
             };
         }
     }
-    if (source.tier1Verdict !== undefined) oneOf(source.tier1Verdict, LAYOUTS, artifact, 'tier1Verdict');
+    if (source.tier1Verdict !== undefined) oneOf(source.tier1Verdict, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS, artifact, 'tier1Verdict');
     optionalBoolean(source, 'reconciled', artifact);
     if (source.clusterAgreement !== undefined) {
         const agreement = finite(source.clusterAgreement, artifact, 'clusterAgreement');
         if (agreement < -1 || agreement > 1) fail(artifact, 'clusterAgreement must be between -1 and 1');
     }
-    if (source.documentPrior !== undefined) documentPrior(source.documentPrior, artifact, 'documentPrior');
+    if (source.documentPrior !== undefined) {
+        try {
+            decodeDocumentPrior(source.documentPrior);
+        } catch (error) {
+            fail(
+                artifact,
+                `documentPrior is invalid: ${error instanceof Error ? getErrorMessage(error) : 'invalid value'}`,
+            );
+        }
+    }
     if (source.textAxis !== undefined) {
         const axis = record(source.textAxis, artifact, 'textAxis');
         if (typeof axis.sideways !== 'boolean') fail(artifact, 'textAxis.sideways must be boolean');
@@ -721,7 +730,7 @@ function isNativeScanCleanupPreviewPageArtifactMetadata(
 
 function validateOutputOptionals(source: Record<string, unknown>, artifact: TArtifact) {
     if (source.sourcePageIndex !== undefined) integer(source.sourcePageIndex, artifact, 'sourcePageIndex');
-    if (source.half !== undefined) oneOf(source.half, HALVES, artifact, 'half');
+    if (source.half !== undefined) oneOf(source.half, SCAN_CLEANUP_OUTPUT_HALVES, artifact, 'half');
     if (source.sourceRegion !== undefined) pixelRect(source.sourceRegion, artifact, 'sourceRegion');
     if (source.cropRect !== undefined) pixelRect(source.cropRect, artifact, 'cropRect');
     if (source.contentBox !== undefined && source.contentBox !== null) pixelRect(source.contentBox, artifact, 'contentBox');
@@ -763,8 +772,6 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'detectedSkewDegrees',
         'skewConfidence',
         'cutterXPx',
-        'cropX',
-        'cropY',
     ] as const) if (source[key] !== undefined && source[key] !== null) finite(source[key], artifact, key);
     if (source.layoutConfidence !== undefined) unit(source.layoutConfidence, artifact, 'layoutConfidence');
     if (source.dewarpConfidence !== undefined && source.dewarpConfidence !== null) unit(source.dewarpConfidence, artifact, 'dewarpConfidence');
@@ -790,7 +797,6 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'uniformCanvas',
         'canvasOverflow',
         'rasterScaleLimited',
-        'matchedInMemory',
         'matchedCanvasOpticalPlacement',
     ] as const) optionalBoolean(source, key, artifact);
     if (source.layeredForegroundKind !== undefined) oneOf(source.layeredForegroundKind, [
@@ -798,10 +804,13 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'soft-alpha',
         'source-mrc',
     ] as const, artifact, 'layeredForegroundKind');
-    if (source.outputMode !== undefined) oneOf(source.outputMode, OUTPUT_MODES, artifact, 'outputMode');
-    if (source.binarizationMode !== undefined && source.binarizationMode !== null) oneOf(source.binarizationMode, BINARIZATION_MODES, artifact, 'binarizationMode');
+    if (source.outputMode !== undefined) oneOf(source.outputMode, SCAN_CLEANUP_OUTPUT_MODES, artifact, 'outputMode');
+    if (source.binarizationMode !== undefined && source.binarizationMode !== null) oneOf(source.binarizationMode, SCAN_CLEANUP_BINARIZATION_METHODS, artifact, 'binarizationMode');
     if (source.binarizationDiagnostics !== undefined && source.binarizationDiagnostics !== null) binarizationDiagnostics(source.binarizationDiagnostics, artifact, 'binarizationDiagnostics');
     if (source.textToneDiagnostics !== undefined) textToneDiagnostics(source.textToneDiagnostics, artifact, 'textToneDiagnostics');
+    if (source.inkConsistencyDiagnostics !== undefined) {
+        inkConsistencyDiagnostics(source.inkConsistencyDiagnostics, artifact, 'inkConsistencyDiagnostics');
+    }
     if (source.pdfImagePlacement !== undefined) {
         const placement = record(source.pdfImagePlacement, artifact, 'pdfImagePlacement');
         for (const key of [
@@ -816,14 +825,8 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         }
     }
     if (source.renderRegion !== undefined) pixelRect(source.renderRegion, artifact, 'renderRegion');
-    if (source.canvasPolicy !== undefined) oneOf(source.canvasPolicy, [
-        'intrinsic',
-        'strict-maximum',
-    ] as const, artifact, 'canvasPolicy');
-    if (source.canvasScope !== undefined) oneOf(source.canvasScope, [
-        'page',
-        'document',
-    ] as const, artifact, 'canvasScope');
+    if (source.canvasPolicy !== undefined) oneOf(source.canvasPolicy, SCAN_CLEANUP_CANVAS_POLICIES, artifact, 'canvasPolicy');
+    if (source.canvasScope !== undefined) oneOf(source.canvasScope, SCAN_CLEANUP_CANVAS_SCOPES, artifact, 'canvasScope');
     for (const key of [
         'matchedCanvasOpticalContentLeftPx',
         'matchedCanvasOpticalContentRightPx',
@@ -880,10 +883,10 @@ function statesLegacyWarningEventFields(value: unknown): boolean {
  * in a copy rather than into the object that was handed in. Every payload is
  * decoded either way, because that decode is what validates it.
  */
-function rewrittenWarningEvents(value: unknown, artifact: TArtifact) {
+function decodeWarningEvents(value: unknown, artifact: TArtifact) {
     try {
         const events = SCAN_CLEANUP_WARNING_EVENTS_SCHEMA.decode(value);
-        return statesLegacyWarningEventFields(value) ? events : undefined;
+        return events;
     } catch (error) {
         return fail(artifact, error instanceof Error ? getErrorMessage(error) : 'warningEvents is invalid');
     }
@@ -915,12 +918,12 @@ export function decodeNativeScanCleanupOutputMetadata(
     const outputHeightPx = integer(source.outputHeightPx, artifact, 'outputHeightPx', 1);
     const canvasWidthPx = integer(source.canvasWidthPx, artifact, 'canvasWidthPx', 1);
     const canvasHeightPx = integer(source.canvasHeightPx, artifact, 'canvasHeightPx', 1);
-    oneOf(source.layoutClassification, LAYOUTS, artifact, 'layoutClassification');
+    oneOf(source.layoutClassification, SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS, artifact, 'layoutClassification');
     if (typeof source.skewApplied !== 'boolean') fail(artifact, 'skewApplied must be boolean');
     const placementOffsetXPx = integer(source.placementOffsetXPx, artifact, 'placementOffsetXPx');
     const placementOffsetYPx = integer(source.placementOffsetYPx, artifact, 'placementOffsetYPx');
     affine(source.forwardTransform, artifact, 'forwardTransform');
-    oneOf(source.rotationDegrees, ROTATIONS, artifact, 'rotationDegrees');
+    oneOf(source.rotationDegrees, SCAN_CLEANUP_PAGE_ROTATIONS, artifact, 'rotationDegrees');
     validateOutputOptionals(source, artifact);
     if (source.warnings !== undefined) {
         if (!Array.isArray(source.warnings) || source.warnings.length > MAX_WARNINGS) fail(artifact, 'warnings exceeds the protocol limit');
@@ -928,23 +931,10 @@ export function decodeNativeScanCleanupOutputMetadata(
             if (typeof warning !== 'string' || warning.length > MAX_WARNING_LENGTH) fail(artifact, `warnings[${String(index)}] is invalid`);
         });
     }
-    // Absence is how an artifact written before the structured channel existed
-    // reports its conditions: those runs left the same sentences in `warnings`,
-    // which stays readable and logged. Live runs carry the array when the
-    // sidecar advertises the structured-warning-events capability.
-    const warningEvents = source.warningEvents === undefined
-        ? undefined
-        : rewrittenWarningEvents(source.warningEvents, artifact);
+    const warningEvents = decodeWarningEvents(source.warningEvents, artifact);
     const contentWidth = source.matchedCanvasContentWidthPx ?? outputWidthPx;
     const contentHeight = source.matchedCanvasContentHeightPx ?? outputHeightPx;
-    const intrinsicWidth = source.intrinsicRasterWidthPx ?? outputWidthPx;
     const intrinsicHeight = source.intrinsicRasterHeightPx ?? outputHeightPx;
-    const opticalPlacement = source.matchedCanvasOpticalPlacement === true;
-    const opticalLeft = source.matchedCanvasOpticalContentLeftPx;
-    const opticalRight = source.matchedCanvasOpticalContentRightPx;
-    const opticalScaleX = typeof contentWidth === 'number' && typeof intrinsicWidth === 'number'
-        ? contentWidth / intrinsicWidth
-        : Number.NaN;
     const contentWidthNumber = typeof contentWidth === 'number' ? contentWidth : Number.NaN;
     const foldClipLeft = typeof source.foldClipLeftPx === 'number' ? source.foldClipLeftPx : 0;
     const foldClipRight = typeof source.foldClipRightPx === 'number' ? source.foldClipRightPx : 0;
@@ -964,13 +954,9 @@ export function decodeNativeScanCleanupOutputMetadata(
         ? Math.max(0, effectivePlacementOffsetX + contentWidthNumber - canvasWidthPx)
         : Number.NaN;
     const actualIntrinsicOverflowTop = Math.max(0, -effectivePlacementOffsetY);
-    const softMargins: unknown[] = Array.isArray(source.softMarginsPx) ? source.softMarginsPx : [];
-    const marginLeft = typeof softMargins[0] === 'number' ? softMargins[0] : 0;
-    const marginRight = typeof softMargins[2] === 'number' ? softMargins[2] : 0;
     if (
         typeof contentWidth !== 'number'
         || typeof contentHeight !== 'number'
-        || typeof intrinsicWidth !== 'number'
         || typeof intrinsicHeight !== 'number'
         || recordedIntrinsicOverflowLeft > contentWidthNumber
         || foldClipLeft + foldClipRight >= contentWidthNumber
@@ -982,23 +968,19 @@ export function decodeNativeScanCleanupOutputMetadata(
         || effectivePlacementOffsetX + contentWidthNumber <= 0
         || effectivePlacementOffsetY >= canvasHeightPx
         || effectivePlacementOffsetY + contentHeight <= 0
-        || (opticalPlacement && (
-            typeof opticalLeft !== 'number'
-            || typeof opticalRight !== 'number'
-            || opticalLeft >= opticalRight
-            || effectivePlacementOffsetX + opticalLeft * opticalScaleX < marginLeft
-            || effectivePlacementOffsetX + opticalRight * opticalScaleX > canvasWidthPx - marginRight
-        ))
         || effectivePlacementOffsetY + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
-    const normalizedSource = warningEvents === undefined
-        ? source
-        : {
+    const normalizedSource = statesLegacyWarningEventFields(source.warningEvents)
+        ? {
             ...source,
             warningEvents,
-        };
+        }
+        : source;
     if (!isNativeScanCleanupOutputMetadata(normalizedSource)) {
         return fail(artifact, 'decoded output metadata has an invalid shape');
+    }
+    if (!isNativeScanCleanupOpticalPlacementValid(normalizedSource)) {
+        return fail(artifact, 'intrinsic content placement exceeds its canvas');
     }
     return normalizedSource;
 }

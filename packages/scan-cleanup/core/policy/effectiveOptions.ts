@@ -9,13 +9,13 @@ import type {
     TScanCleanupLayoutByPage,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
-} from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 
@@ -53,6 +53,8 @@ export function resolveReusablePagePlanResult(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     const observedLayout = layoutByPage?.[String(pageNumber)];
     if (evidence === undefined) {
@@ -183,10 +185,14 @@ export function resolveScanCleanupMatchedCanvasMaxPixels(
 // engine may still resolve the page to a binary layer.
 export function resolveScanCleanupPipelineMaxPixels(
     outputMode?: TScanCleanupOutputMode,
+    rasterMaxPixels?: number,
 ) {
-    return outputMode === undefined || outputMode === 'bw'
+    const modeMaxPixels = outputMode === undefined || outputMode === 'bw'
         ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS
         : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS;
+    return rasterMaxPixels === undefined
+        ? modeMaxPixels
+        : Math.max(1, Math.min(modeMaxPixels, Math.floor(rasterMaxPixels)));
 }
 
 // Tonal layers do not own crisp text on mixed pages; the high-resolution

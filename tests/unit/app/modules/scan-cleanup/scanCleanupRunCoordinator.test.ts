@@ -8,11 +8,12 @@ import {
 import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
     TScanCleanupJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
 
@@ -187,6 +188,190 @@ describe('scan cleanup run coordinator', () => {
         expect(capability.value!.start).toHaveBeenCalledOnce();
     }, 30_000);
 
+    it('surfaces the durable output journal after a persisted job is gone', async () => {
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            clear: () => storage.clear(),
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+            setItem: (key: string, value: string) => storage.set(key, value),
+        });
+        storage.set('evb.scanCleanup.activeJobId', 'scan-cleanup-stale-job');
+        storage.set('evb.scanCleanup.activeOwnerId', ownerContext.ownerId);
+        storage.set('evb.scanCleanup.activeDocumentRevision', ownerContext.documentRevision);
+        const openGeneratedPdf = vi.fn(async () => true);
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        const pendingCapability = {
+            ...stubCapability(() => undefined, () => 'scan-cleanup-replacement'),
+            getJobState: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            getPendingCompletedOutputs: vi.fn(async () => ['/managed/recovered.pdf' as TDocumentRef]),
+            acknowledgeCompletedOutputs,
+        } satisfies IScanCleanupCapability;
+        capability.value = pendingCapability;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(async () => undefined),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                '/managed/recovered.pdf',
+                expect.any(AbortSignal),
+            ));
+            await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith(['/managed/recovered.pdf']));
+        } finally {
+            cleanup();
+            storage.clear();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('clears terminal run state before opening a recovered output queued behind it', async () => {
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            clear: () => storage.clear(),
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+            setItem: (key: string, value: string) => storage.set(key, value),
+        });
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        const pendingOutputs = Promise.withResolvers<TDocumentRef[]>();
+        const terminalOpen = Promise.withResolvers<boolean>();
+        const terminalPath = '/managed/terminal.pdf';
+        const recoveredPath = '/managed/recovered-after-terminal.pdf' as TDocumentRef;
+        interface IRunState {
+            activeJobId: TJobId | null;
+            inFlight: boolean;
+        }
+        const currentRunState: {value: IRunState | undefined} = {value: undefined};
+        const recoveryStateAtOpen: Array<{
+            activeJobId: TJobId | null;
+            inFlight: boolean;
+        }> = [];
+        const openGeneratedPdf = vi.fn((path: string) => {
+            if (path === terminalPath) {
+                return terminalOpen.promise;
+            }
+            recoveryStateAtOpen.push({
+                activeJobId: currentRunState.value?.activeJobId ?? null,
+                inFlight: currentRunState.value?.inFlight ?? false,
+            });
+            return Promise.resolve(true);
+        });
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        capability.value = {
+            ...stubCapability(next => { listener = next; }, () => 'job-terminal'),
+            getPendingCompletedOutputs: vi.fn(() => pendingOutputs.promise),
+            acknowledgeCompletedOutputs,
+        } satisfies IScanCleanupCapability;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        currentRunState.value = coordinator.scanCleanupRun;
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/terminal.pdf',
+                options: createScanCleanupOptions(),
+            });
+            listener(completedState('job-terminal', terminalPath));
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                terminalPath,
+                expect.any(AbortSignal),
+            ));
+
+            pendingOutputs.resolve([recoveredPath]);
+            await Promise.resolve();
+            expect(openGeneratedPdf).toHaveBeenCalledOnce();
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('job-terminal');
+            expect(coordinator.scanCleanupRun.inFlight).toBe(true);
+
+            terminalOpen.resolve(true);
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                recoveredPath,
+                expect.any(AbortSignal),
+            ));
+            await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([recoveredPath]));
+            expect(recoveryStateAtOpen).toEqual([{
+                activeJobId: null,
+                inFlight: false,
+            }]);
+        } finally {
+            terminalOpen.resolve(true);
+            pendingOutputs.resolve([]);
+            cleanup();
+            storage.clear();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('bounds each recovered output open and continues to later journal entries', async () => {
+        vi.useFakeTimers();
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            clear: () => storage.clear(),
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+            setItem: (key: string, value: string) => storage.set(key, value),
+        });
+        const firstPath = '/managed/hung-recovered.pdf' as TDocumentRef;
+        const secondPath = '/managed/recovered-after-timeout.pdf' as TDocumentRef;
+        const firstOpen = Promise.withResolvers<boolean>();
+        const signals: AbortSignal[] = [];
+        const openGeneratedPdf = vi.fn((path: string, signal: AbortSignal) => {
+            signals.push(signal);
+            return path === firstPath ? firstOpen.promise : Promise.resolve(true);
+        });
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        capability.value = {
+            ...stubCapability(() => undefined, () => 'scan-cleanup-replacement'),
+            getJobState: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            getPendingCompletedOutputs: vi.fn(async () => [
+                firstPath,
+                secondPath,
+            ]),
+            acknowledgeCompletedOutputs,
+        } satisfies IScanCleanupCapability;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(async () => undefined),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                firstPath,
+                expect.any(AbortSignal),
+            ));
+            await vi.advanceTimersByTimeAsync(30_000);
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                secondPath,
+                expect.any(AbortSignal),
+            ));
+            await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([secondPath]));
+            expect(signals[0]?.aborted).toBe(true);
+            expect(acknowledgeCompletedOutputs).not.toHaveBeenCalledWith([
+                firstPath,
+                secondPath,
+            ]);
+        } finally {
+            firstOpen.resolve(false);
+            cleanup();
+            storage.clear();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
+
     it('returns renderer fallback metadata instead of user-facing bridge text', async () => {
         capability.value = null;
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
@@ -259,6 +444,95 @@ describe('scan cleanup run coordinator', () => {
         expect(coordinator.isScanCleanupRunning.value).toBe(true);
     });
 
+    it('recovers a dropped terminal state through the liveness probe', async () => {
+        vi.useFakeTimers();
+        const running = runningJobState(requireJobId('liveness-terminal-job'));
+        const getJobState = vi.fn(async () => completedState('liveness-terminal-job'));
+        const value = stubCapability(() => undefined, () => 'liveness-terminal-job');
+        vi.mocked(value.getJobState).mockImplementation(getJobState);
+        vi.mocked(value.subscribeJob).mockResolvedValue(running);
+        capability.value = value;
+        const openGeneratedPdf = vi.fn(async () => true);
+        const toastAdd = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: toastAdd},
+        });
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/liveness-terminal.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+
+            expect(getJobState).toHaveBeenCalledWith('liveness-terminal-job', ownerContext);
+            expect(openGeneratedPdf).toHaveBeenCalledWith(
+                '/managed/liveness-terminal-job.pdf',
+                expect.any(AbortSignal),
+            );
+            expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'}));
+            expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps a slow live job guarded until the liveness probe finds no record', async () => {
+        vi.useFakeTimers();
+        const running = runningJobState(requireJobId('liveness-slow-job'));
+        const responses: Array<TScanCleanupJobState | null> = [
+            running,
+            running,
+            null,
+        ];
+        const getJobState = vi.fn(async () => responses.shift() ?? null);
+        const value = stubCapability(() => undefined, () => 'liveness-slow-job');
+        vi.mocked(value.getJobState).mockImplementation(getJobState);
+        vi.mocked(value.subscribeJob).mockResolvedValue(running);
+        capability.value = value;
+        const cancel = vi.mocked(value.cancel);
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(async () => true),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/liveness-slow.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS * 2);
+
+            expect(getJobState).toHaveBeenCalledTimes(2);
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('liveness-slow-job');
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(cancel).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
+
+            expect(getJobState).toHaveBeenCalledTimes(3);
+            expect(cancel).toHaveBeenCalledWith('liveness-slow-job', ownerContext);
+            expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+            expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
     it('resets the run guard and cancels when a subscription cannot be reconciled', async () => {
         const cancel = vi.fn(async () => true);
         capability.value = {
@@ -298,6 +572,60 @@ describe('scan cleanup run coordinator', () => {
         expect(coordinator.scanCleanupRun.inFlight).toBe(false);
         expect(coordinator.scanCleanupRun.jobState).toBeNull();
         expect(coordinator.isScanCleanupRunning.value).toBe(false);
+    });
+
+    it('preserves a terminal state observed while abandoning an unobserved run', async () => {
+        const terminal = {
+            ...runningJobState(requireJobId('terminal-during-abandon')),
+            status: 'canceled' as const,
+        } satisfies TScanCleanupJobState;
+        const terminalState = {mark: () => undefined};
+        const cancel = vi.fn(async () => {
+            terminalState.mark();
+            return true;
+        });
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(async () => null),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => startResult('terminal-during-abandon', '/managed/terminal-during-abandon.pdf')),
+            cancel,
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async () => {
+                throw new Error('subscription transport failed');
+            }),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        terminalState.mark = () => {
+            coordinator.scanCleanupRun.jobState = terminal;
+        };
+
+        try {
+            await expect(coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/terminal-during-abandon.pdf',
+                options: createScanCleanupOptions(),
+            })).resolves.toMatchObject({
+                started: true,
+                jobId: 'terminal-during-abandon',
+            });
+
+            expect(cancel).toHaveBeenCalledWith('terminal-during-abandon', ownerContext);
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('terminal-during-abandon');
+            expect(coordinator.scanCleanupRun.jobState).toEqual(terminal);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
     });
 
     it('disposes an installed coordinator and clears the guard when a start rejects', async () => {
@@ -492,6 +820,50 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
+    it('localizes typed scratch figures on a failed run', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = stubCapability(
+            next => { listener = next; },
+            () => 'scratch-job',
+        );
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const toastAdd = vi.fn();
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(async () => true),
+            saveActiveDocumentAs: vi.fn(async () => true),
+            t: translate,
+            toast: {add: toastAdd},
+        });
+        try {
+            await expect(coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            })).resolves.toMatchObject({started: true});
+            listener({
+                jobId: requireJobId('scratch-job'),
+                status: 'failed',
+                error: 'raw ENOSPC detail must not be shown',
+                errorCode: 'insufficient-scratch',
+                scratchShortfall: {
+                    availableBytes: 520 * 1024 * 1024,
+                    requiredBytes: 1_100 * 1024 * 1024,
+                },
+                progress: progress(1),
+                updatedAtMs: requireEpochMs(Date.now()),
+            });
+            await vi.waitFor(() => expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
+                .toContain('scanCleanup.errors.insufficientScratch'));
+            const error = coordinator.getScanCleanupRunError(ownerContext.ownerId);
+            expect(error).toContain('scanCleanup.errors.insufficientScratchSpace');
+            expect(error).toContain('"available":"520.0 MB"');
+            expect(error).toContain('"required":"1.07 GB"');
+            expect(error).not.toContain('raw ENOSPC detail');
+        } finally {
+            cleanup();
+        }
+    });
+
     it('keeps runs global and routes completed, failed, and canceled terminal states', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         let nextJob = 0;
@@ -594,7 +966,7 @@ describe('scan cleanup run coordinator', () => {
                 updatedAtMs: requireEpochMs(Date.now()),
             });
             expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
-                .toBe('scanCleanup.failed (sidecar failed)');
+                .toBe('scanCleanup.errors.nativeFailure (sidecar failed)');
             expect(coordinator.getScanCleanupRunError('another-owner')).toBe('');
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'error'})));
             const failureToast = toastAdd.mock.calls.at(-1)?.[0];
@@ -817,6 +1189,22 @@ describe('scan cleanup run coordinator', () => {
             2,
             4,
         ]);
+        expect([...resolveScanCleanupProcessedPages({
+            ...runningState,
+            status: 'canceling',
+        }, '/source/book.pdf', '/source/book.pdf', 6)]).toEqual([
+            5,
+            2,
+            4,
+        ]);
+        expect([...resolveScanCleanupProcessedPages({
+            ...runningState,
+            status: 'committing',
+        }, '/source/book.pdf', '/source/book.pdf', 6)]).toEqual([
+            5,
+            2,
+            4,
+        ]);
         expect(resolveScanCleanupProcessedPages(
             runningState,
             '/source/book.pdf',
@@ -827,6 +1215,137 @@ describe('scan cleanup run coordinator', () => {
             ...runningState,
             status: 'canceled',
         }, '/source/book.pdf', '/source/book.pdf', 6).size).toBe(0);
+    });
+
+    it('returns a distinct commit-window cancellation outcome', async () => {
+        const committing: TScanCleanupJobState = {
+            ...runningJobState(requireJobId('job-committing')),
+            status: 'committing',
+        };
+        const value = stubCapability(() => undefined, () => 'job-committing');
+        vi.mocked(value.start).mockResolvedValue(startResult('job-committing'));
+        vi.mocked(value.cancel).mockResolvedValue(false);
+        vi.mocked(value.getJobState).mockResolvedValue(committing);
+        vi.mocked(value.subscribeJob).mockResolvedValue(committing);
+        capability.value = value;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/committing.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await expect(coordinator.cancelScanCleanup()).resolves.toBe('committing');
+            expect(coordinator.scanCleanupRun.jobState?.status).toBe('committing');
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(value.getJobState).toHaveBeenCalledWith('job-committing', ownerContext);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
+    });
+
+    it('reconciles a cancellation transport rejection to authoritative state', async () => {
+        const canceling: TScanCleanupJobState = {
+            ...runningJobState(requireJobId('job-transport-rejection')),
+            status: 'canceling',
+        };
+        const value = stubCapability(() => undefined, () => 'job-transport-rejection');
+        vi.mocked(value.start).mockResolvedValue(startResult('job-transport-rejection'));
+        vi.mocked(value.cancel).mockRejectedValue(new Error('bridge disconnected'));
+        vi.mocked(value.getJobState).mockResolvedValue(canceling);
+        capability.value = value;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/transport-rejection.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await expect(coordinator.cancelScanCleanup()).resolves.toBe('accepted');
+            expect(coordinator.scanCleanupRun.jobState?.status).toBe('canceling');
+            expect(value.getJobState).toHaveBeenCalledWith('job-transport-rejection', ownerContext);
+            expect(value.reconnectJob).toHaveBeenCalledWith('job-transport-rejection', ownerContext);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
+    });
+
+    it('does not apply a reconciled cancellation state to a replacement job', async () => {
+        const cancellationState = Promise.withResolvers<TScanCleanupJobState>();
+        const canceling: TScanCleanupJobState = {
+            ...runningJobState(requireJobId('job-stale-cancel')),
+            status: 'canceling',
+        };
+        const replacement = runningJobState(requireJobId('job-replacement'));
+        const value = stubCapability(() => undefined, () => 'job-stale-cancel');
+        vi.mocked(value.start).mockResolvedValue(startResult('job-stale-cancel'));
+        vi.mocked(value.cancel).mockRejectedValue(new Error('bridge disconnected'));
+        vi.mocked(value.getJobState).mockReturnValue(cancellationState.promise);
+        capability.value = value;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/stale-cancel.pdf',
+                options: createScanCleanupOptions(),
+            });
+            const cancellation = coordinator.cancelScanCleanup();
+            await vi.waitFor(() => expect(value.getJobState).toHaveBeenCalledOnce());
+
+            coordinator.scanCleanupRun.activeJobId = replacement.jobId;
+            coordinator.scanCleanupRun.jobState = replacement;
+            cancellationState.resolve(canceling);
+
+            await expect(cancellation).resolves.toBe('accepted');
+            expect(coordinator.scanCleanupRun.jobState).toMatchObject(replacement);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
+    });
+
+    it('does not infer sparse page identities from a truncated completion count', async () => {
+        const {resolveScanCleanupProcessedPages} = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const truncatedState: TScanCleanupJobState = {
+            jobId: requireJobId('job-sparse-progress'),
+            status: 'running',
+            progress: {
+                ...progress(2, 2),
+                completedPageNumbers: [
+                    100,
+                    200,
+                ],
+                completedPageNumbersTruncated: true,
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        };
+
+        expect([...resolveScanCleanupProcessedPages(
+            truncatedState,
+            '/source/book.pdf',
+            '/source/book.pdf',
+            200,
+        )]).toEqual([
+            100,
+            200,
+        ]);
+        expect([...resolveScanCleanupProcessedPages({
+            ...truncatedState,
+            progress: {
+                ...truncatedState.progress,
+                completedPageNumbers: [],
+            },
+        }, '/source/book.pdf', '/source/book.pdf', 200)]).toEqual([]);
     });
 
     it('makes partial-scope completion explicit in the result toast', async () => {
@@ -1235,5 +1754,48 @@ describe('scan cleanup run coordinator', () => {
             secondCleanup?.();
             firstCleanup();
         }
+    });
+
+    it('keeps the live coordinator subscription until the last installation disposes', async () => {
+        const unsubscribe = vi.fn();
+        const pruneGeneratedOutputs = vi.fn(async () => 3);
+        capability.value = {
+            onPreviewRaw: vi.fn(() => () => undefined),
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(),
+            cancel: vi.fn(),
+            getJobState: vi.fn(),
+            subscribeJob: vi.fn(),
+            reconnectJob: vi.fn(),
+            pruneGeneratedOutputs,
+            onJobState: vi.fn(() => unsubscribe),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const firstCleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        const secondCleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+
+        firstCleanup();
+        expect(unsubscribe).not.toHaveBeenCalled();
+        await expect(coordinator.pruneScanCleanupOutputs()).resolves.toBe(3);
+
+        secondCleanup();
+        expect(unsubscribe).toHaveBeenCalledOnce();
+        firstCleanup();
     });
 });

@@ -3,8 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
-import {DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE} from '@contracts/scanCleanupPageOverrides';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 const automaticOptions = {
     preserveOriginalQuality: false,

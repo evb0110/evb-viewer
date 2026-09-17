@@ -1,4 +1,4 @@
-import {readFileSync} from 'node:fs';
+import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnostics';
 import {
     decodeNativeScanCleanupOutputMetadata,
     decodeNativeScanCleanupOutputMetadataJson,
@@ -11,6 +11,7 @@ import {
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     MAX_SCAN_CLEANUP_WARNING_EVENTS,
+    SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENT_CODES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -36,13 +37,9 @@ const appliedMargins = {
     rightPx: 0,
     bottomPx: 0,
 };
-const legacyProtocolV3Page = readFileSync(
-    new URL('../../fixtures/scan-cleanup/protocol-v3-page-before-fold-band.json', import.meta.url),
-    'utf8',
-);
-
 function pageMetadata() {
     return {
+        version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         sourcePageIndex: 0,
         layoutClassification: 'single-uncut-page',
         layoutConfidence: 0.9,
@@ -69,6 +66,7 @@ function pageMetadata() {
 
 function outputMetadata() {
     return {
+        version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         sourcePageIndex: 0,
         half: 'full',
         layoutClassification: 'single-uncut-page',
@@ -97,6 +95,7 @@ function outputMetadata() {
         canvasScope: 'page',
         resamplePasses: 0,
         warnings: [],
+        warningEvents: [],
     };
 }
 
@@ -170,16 +169,6 @@ function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 describe('scan-cleanup native artifact codecs', () => {
-    it('normalizes a real pre-fold-band protocol-v3 artifact to an honest legacy state', () => {
-        const decoded = decodeNativeScanCleanupPageMetadataJson(legacyProtocolV3Page);
-
-        expect(decoded.splitDiagnostics?.foldBand).toEqual({
-            status: 'unmeasured',
-            reason: 'legacy-protocol-v3',
-            nominalHalfWidthPx: 0,
-        });
-    });
-
     it('decodes split diagnostics carrying every field the native binary emits, and rejects a payload missing one', () => {
         const diagnostics = fullSplitDiagnostics();
         const page = {
@@ -230,6 +219,19 @@ describe('scan-cleanup native artifact codecs', () => {
         })).toThrow('splitDiagnostics.foldBand must be an object');
     });
 
+    it('detaches split diagnostics from the caller-owned payload', () => {
+        const input = fullSplitDiagnostics();
+        const decoded = decodeSplitDiagnostics(input);
+
+        expect(decoded).not.toBe(input);
+        expect(decoded.foldBand).not.toBe(input.foldBand);
+        if (input.foldBand.status !== 'unmeasured' || decoded.foldBand.status !== 'unmeasured') {
+            throw new Error('expected an unmeasured fold band');
+        }
+        input.foldBand.nominalHalfWidthPx = 99;
+        expect(decoded.foldBand.nominalHalfWidthPx).toBe(6);
+    });
+
     it('decodes page and output artifacts while preserving additive fields', () => {
         const page = {
             ...pageMetadata(),
@@ -249,9 +251,44 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output))).toMatchObject({futureOutputDiagnostic: {producer: 'vNext'}});
     });
 
+    it('decodes native ink consistency diagnostics and rejects malformed values', () => {
+        const diagnostics = {
+            priorSampleCount: 12,
+            priorSurvivalMedian: 0.42,
+            survivalBefore: 0.31,
+            survivalAfter: 0.39,
+            addedInkPixels: 240,
+            applied: true,
+        };
+        const output = {
+            ...outputMetadata(),
+            inkConsistencyDiagnostics: diagnostics,
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            inkConsistencyDiagnostics: {
+                ...diagnostics,
+                survivalAfter: 1.01,
+            },
+        })).toThrow('inkConsistencyDiagnostics.survivalAfter');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            inkConsistencyDiagnostics: {
+                ...diagnostics,
+                addedInkPixels: 1.5,
+            },
+        })).toThrow('inkConsistencyDiagnostics.addedInkPixels');
+    });
+
     it('rejects malformed JSON and unsupported artifact versions as native failures', () => {
         for (const decode of [
             () => decodeNativeScanCleanupPageMetadataJson('{'),
+            () => decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                version: 4,
+            }),
             () => decodeNativeScanCleanupOutputMetadataJson(JSON.stringify({
                 ...outputMetadata(),
                 version: 4,
@@ -286,7 +323,7 @@ describe('scan-cleanup native artifact codecs', () => {
         })).toThrow('protocol limit');
     });
 
-    it('bounds structured warning events and accepts an artifact written without them', () => {
+    it('bounds structured warning events and rejects an artifact written without them', () => {
         const fitted = {
             code: 'matched-canvas-content-fitted',
             unit: 'px',
@@ -402,12 +439,10 @@ describe('scan-cleanup native artifact codecs', () => {
         // The ceiling is a bound the contract states, not a number this test
         // decides: one output may report exactly that many conditions.
         expect(decodeNativeScanCleanupOutputMetadata(atLimit)).toBe(atLimit);
-        // An artifact written before the structured channel existed keeps its
-        // sentences and decodes unchanged.
-        expect(decodeNativeScanCleanupOutputMetadata({
+        expect(() => decodeNativeScanCleanupOutputMetadata({
             ...outputMetadata(),
-            warnings: ['Matched page size reduced requested margins because they leave no drawable canvas'],
-        }).warningEvents).toBeUndefined();
+            warningEvents: undefined,
+        })).toThrow(InvalidScanCleanupNativeArtifactError);
 
         // Each rejection names itself. A bare loop reports only the assertion
         // that failed, which for twenty-odd malformed payloads is not enough to
@@ -912,11 +947,17 @@ describe('scan-cleanup native artifact codecs', () => {
             matchedCanvasOpticalContentRightPx: 950,
             matchedCanvasIntrinsicOverflowLeftPx: 125,
             softMarginsPx: [
+                200,
                 0,
-                0,
-                0,
+                200,
                 0,
             ],
+            appliedMargins: {
+                leftPx: 100,
+                topPx: 0,
+                rightPx: 100,
+                bottomPx: 0,
+            },
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,
         };
@@ -925,6 +966,13 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(() => decodeNativeScanCleanupOutputMetadata({
             ...output,
             matchedCanvasIntrinsicOverflowLeftPx: 1001,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            appliedMargins: {
+                ...output.appliedMargins,
+                leftPx: 200,
+            },
         })).toThrow('intrinsic content placement exceeds its canvas');
     });
 

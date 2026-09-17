@@ -3,7 +3,7 @@ import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {DOCUMENT_PLATFORM_FEATURES} from '@contracts/documentsPlatformFeature';
 import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
 import {SYSTEM_PLATFORM_FEATURE} from '@contracts/systemPlatformFeature';

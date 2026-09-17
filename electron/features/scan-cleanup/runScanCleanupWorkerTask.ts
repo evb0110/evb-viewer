@@ -5,7 +5,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
@@ -14,6 +14,10 @@ import type {
     IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
+import {
+    getScanCleanupDiagnosticErrorCode,
+    getScanCleanupDiagnosticFailureClass,
+} from '@contracts/diagnostics/diagnosticCodes';
 import {
     getWorkerTaskFailureReceipt,
     rememberWorkerTaskFailureReceipt,
@@ -31,23 +35,38 @@ const logger = createLogger('scan-cleanup-worker-task');
 /** Request data that can cross the worker_threads structured-clone boundary. */
 export type TScanCleanupWorkerRequest = Omit<IRunScanCleanupPipelineRequest, 'detectionResultStore'> & {detectionResultStoreDescriptor?: IScanCleanupDetectionResultStoreDescriptor;};
 
-function decodeProgress(value: unknown): TScanCleanupProgress | null {
+type TDecodedProgress =
+    | {kind: 'not-progress'}
+    | {kind: 'invalid'}
+    | {
+        kind: 'progress';
+        value: TScanCleanupProgress;
+    };
+
+function decodeProgress(value: unknown): TDecodedProgress {
     if (!isRecord(value) || value.type !== 'progress') {
-        return null;
+        return {kind: 'not-progress'};
     }
     try {
-        return SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
+        return {
+            kind: 'progress',
+            value: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
+        };
     } catch (error) {
         logger.error(
             `Rejected scan cleanup worker progress: ${JSON.stringify(value)} `
             + `(${getErrorMessage(error)})`,
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {},
+                context: {
+                    stage: 'worker-task',
+                    errorCode: getScanCleanupDiagnosticErrorCode(error),
+                    failureClass: getScanCleanupDiagnosticFailureClass(error),
+                },
                 cause: error,
             },
         );
-        return null;
+        return {kind: 'invalid'};
     }
 }
 
@@ -93,11 +112,11 @@ export async function runScanCleanupWorkerTask(
         createCancelMessage: () => ({type: 'cancel'}),
         cooperativeCancelDelayMs: 5_000,
         onProgressMessage: value => {
-            const progress = decodeProgress(value);
-            if (!progress) {
+            const decoded = decodeProgress(value);
+            if (decoded.kind === 'not-progress') {
                 return false;
             }
-            onProgress(progress);
+            if (decoded.kind === 'progress') onProgress(decoded.value);
             return true;
         },
         decodeResult: decodeSummary,
@@ -119,7 +138,11 @@ export async function runScanCleanupWorkerTask(
                 error,
                 logger.error(`Scan cleanup worker task rejected: ${detail}`, {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'worker-task',
+                        errorCode: getScanCleanupDiagnosticErrorCode(error),
+                        failureClass: getScanCleanupDiagnosticFailureClass(error),
+                    },
                     cause: error,
                 }),
             );

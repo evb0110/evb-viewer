@@ -18,7 +18,7 @@ import {
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';
@@ -36,7 +36,10 @@ import {
     createScanCleanupService,
     grantScanCleanupOutputAccess,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
-import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {
+    classifyScanCleanupPreviewError as classifyScanCleanupError,
+    scanCleanupScratchShortfall,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
@@ -141,8 +144,11 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
 ));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
     return {
+        acknowledgeScanCleanupCompletedOutputs: vi.fn(async () => undefined),
         createScanCleanupGeneratedOutputPath: mocks.createOutput,
+        getPendingScanCleanupCompletedOutputs: vi.fn(async () => []),
         pruneScanCleanupGeneratedOutputs: mocks.pruneOutputs,
+        recordScanCleanupCompletedOutput: vi.fn(async () => undefined),
     };
 });
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
@@ -217,6 +223,17 @@ describe('scan cleanup service', () => {
         )).toBe('invalid-request');
         expect(classifyScanCleanupError({code: 'SCAN_CLEANUP_INVALID_PAGE_SCOPE'}, false)).toBe('invalid-request');
     });
+    it('classifies and preserves worker-delivered scratch shortfall figures', () => {
+        const error = {
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 700 * 1024 * 1024,
+                requiredBytes: 2_304 * 1024 * 1024,
+            },
+        };
+        expect(classifyScanCleanupError(error, false)).toBe('insufficient-scratch');
+        expect(scanCleanupScratchShortfall(error)).toEqual({scratchShortfall: error.scratchShortfall});
+    });
     afterEach(async () => {
         await Promise.all(outputDirs.splice(0).map(path => rm(path, {
             recursive: true,
@@ -289,8 +306,12 @@ describe('scan cleanup service', () => {
     it('uses main-owned liveness when pruning generated outputs', async () => {
         const service = createScanCleanupService();
 
-        await expect(service.pruneGeneratedOutputs()).resolves.toBe(0);
+        const first = service.pruneGeneratedOutputs();
+        const second = service.pruneGeneratedOutputs();
+        await expect(first).resolves.toBe(0);
+        await expect(second).resolves.toBe(0);
 
+        expect(mocks.pruneOutputs).toHaveBeenCalledOnce();
         expect(mocks.pruneOutputs).toHaveBeenCalledWith({isOutputLive: mocks.isWorkingCopyOriginalPathRegistered});
     });
 
@@ -335,7 +356,7 @@ describe('scan cleanup service', () => {
         if (result.started) {
             throw new Error('xlarge ink placement unexpectedly started');
         }
-        expect(result.error).toContain('20,000');
+        expect(result.error).toBe('');
         expect(mocks.runWorker).not.toHaveBeenCalled();
         expect(close).not.toHaveBeenCalled();
         await releaseScanCleanupDetectionResultStores([detectionResultStoreId]);
@@ -781,6 +802,7 @@ describe('scan cleanup service', () => {
         await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
         expect(decodeScanCleanupRuntimePolicy(mocks.runWorker.mock.calls[0]![2])).toEqual({
             rasterConcurrency,
+            rasterMaxPixels: 80_000_000,
             rasterStreaming,
             logicalCpus,
             totalRamBytes: totalRamGiB * 1024 ** 3,
@@ -990,16 +1012,80 @@ describe('scan cleanup service', () => {
             });
         });
         const service = createScanCleanupService();
-        const webContents: WebContents = new LifecycleWebContents(42) as never;
+        const lifecycleSender = new LifecycleWebContents(42);
+        const webContents: WebContents = lifecycleSender as never;
         const started = await service.start(webContents, startRequest);
         if (!started.started) throw new Error('Expected scan cleanup to start');
         const signal = await entered.promise;
+        expect(service.subscribe(webContents, started.jobId, owner)).not.toBeNull();
+        lifecycleSender.send.mockClear();
 
-        webContents.emit(eventName);
+        lifecycleSender.emit(eventName);
 
         await vi.waitFor(() => expect(signal.aborted).toBe(true));
         await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
             .toMatchObject({status: 'canceled'}));
+    });
+
+    it('projects registry cancellation and commit states to subscribed renderers', () => {
+        let listener: ((state: unknown) => void) | null = null;
+        const snapshot = {
+            jobId: 'job-committing',
+            owner: {
+                webContentsId: 42,
+                ownerId: owner.ownerId,
+                documentRevision: owner.documentRevision,
+            },
+            operationKind: 'critical-write',
+            status: 'committing',
+            progress: {
+                jobId: 'job-committing',
+                status: 'handoff',
+                progress: {
+                    stage: 'handoff',
+                    completedUnits: 1,
+                    totalUnits: 1,
+                    percent: 100,
+                },
+                updatedAtMs: 1,
+            },
+            createdAtMs: 1,
+            updatedAtMs: 2,
+        };
+        const jobs = {
+            cancel: vi.fn(() => false),
+            get: vi.fn(() => snapshot),
+            subscribe: vi.fn((_jobId: string, _actor: unknown, next: (state: unknown) => void) => {
+                listener = next;
+                return () => undefined;
+            }),
+        };
+        const webContents = sender();
+        const service = createScanCleanupService(jobs as never);
+
+        expect(service.subscribe(webContents, 'job-committing', owner)).toMatchObject({status: 'committing'});
+        const notify = (state: unknown) => {
+            if (!listener) {
+                throw new Error('Expected a scan cleanup state listener');
+            }
+            listener(state);
+        };
+        notify(snapshot);
+        notify({
+            ...snapshot,
+            status: 'canceling',
+            updatedAtMs: 3,
+        });
+        expect(webContents.send).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({status: 'canceling'}),
+        );
+        expect(webContents.send).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({status: 'committing'}),
+        );
+        expect(service.cancel(webContents, 'job-committing', owner)).toBe(false);
+        expect(jobs.cancel).toHaveBeenCalledOnce();
     });
 
     it('detaches across main-frame navigation and rebinds on reconnect', async () => {

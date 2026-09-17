@@ -26,7 +26,7 @@ import {
 import {
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const request = {
     sourcePdfPath: '/tmp/source.pdf',
@@ -126,6 +126,22 @@ function requestWithOverrides(pageOverrides: Record<string, unknown>) {
 }
 
 describe('scan-cleanup IPC request codecs', () => {
+    it('rejects null instead of defaulting optional scan-cleanup options', () => {
+        for (const field of [
+            'binarization',
+            'normalizeIllumination',
+            'autoDewarp',
+        ]) {
+            expect(() => decodeStartArgs([{
+                ...request,
+                options: {
+                    ...request.options,
+                    [field]: null,
+                },
+            }])).toThrow('invalid scan-cleanup options');
+        }
+    });
+
     it('decodes a detected page plan on preview requests', () => {
         const pagePlanEvidence = request.pagePlanEvidenceByPage['12'];
         const decoded = decodePreviewArgs([{
@@ -278,6 +294,75 @@ describe('scan-cleanup IPC request codecs', () => {
                 },
             }})])).not.toThrow();
         }
+    });
+
+    it('shares normalized edge tolerance and accepts closed automatic split bounds', () => {
+        const edgeBoxes = [
+            {
+                xNormalized: 0,
+                yNormalized: 0,
+                widthNormalized: 1,
+                heightNormalized: 1,
+            },
+            {
+                xNormalized: 0.75,
+                yNormalized: 0,
+                widthNormalized: 0.25,
+                heightNormalized: 1,
+            },
+            {
+                xNormalized: 0,
+                yNormalized: 0.75,
+                widthNormalized: 1,
+                heightNormalized: 0.25,
+            },
+            {
+                xNormalized: 0.75,
+                yNormalized: 0.75,
+                widthNormalized: 0.25,
+                heightNormalized: 0.25,
+            },
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.9 + Number.EPSILON,
+                heightNormalized: 0.8,
+            },
+        ];
+        for (const contentBox of edgeBoxes) {
+            for (const xNormalized of [
+                0,
+                1,
+            ]) {
+                expect(() => decodeStartArgs([{
+                    ...request,
+                    pagePlanEvidenceByPage: {'12': {
+                        ...request.pagePlanEvidenceByPage['12'],
+                        automaticSplit: {
+                            xNormalized,
+                            rotationDegrees: 0,
+                        },
+                        outputs: {full: {
+                            ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                            contentBox: {
+                                ...contentBox,
+                                rotationDegrees: 0,
+                            },
+                        }},
+                    }},
+                }])).not.toThrow();
+            }
+        }
+        expect(() => decodeStartArgs([{
+            ...request,
+            pagePlanEvidenceByPage: {'12': {
+                ...request.pagePlanEvidenceByPage['12'],
+                automaticSplit: {
+                    xNormalized: 1.01,
+                    rotationDegrees: 0,
+                },
+            }},
+        }])).toThrow('automatic split');
     });
 
     it('carries one scalar page override default beside sparse page entries', () => {
@@ -503,6 +588,29 @@ describe('scan-cleanup IPC request codecs', () => {
             startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
             endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
         });
+    });
+
+    it('requires source page numbers to be strictly ascending', () => {
+        expect(decodeStartArgs([{
+            ...request,
+            sourcePageNumbers: [
+                1,
+                3,
+                12,
+            ],
+        }])[0].sourcePageNumbers).toEqual([
+            1,
+            3,
+            12,
+        ]);
+        expect(() => decodeStartArgs([{
+            ...request,
+            sourcePageNumbers: [
+                1,
+                12,
+                3,
+            ],
+        }])).toThrow('invalid scan-cleanup source page numbers');
     });
 
     it('rejects malformed page keys across page-indexed payloads', () => {

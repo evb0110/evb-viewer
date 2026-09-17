@@ -8,22 +8,19 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { decodeNativeScanCleanupPreviewOutputMetadataJson } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { INativeScanCleanupReusableGeometryV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { PREVIEW_DPI } from '@evb/scan-cleanup/core/detection';
 import {
     logRasterHandoff,
     resolveRasterHandoff,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
-import {
-    readScanCleanupPngDimensions as readPngDimensions,
-    renderScanCleanupRasterToDisk as renderRasterToDisk,
-} from '@evb/scan-cleanup/core/rasterValidation';
+import {renderScanCleanupRasterToDisk as renderRasterToDisk} from '@evb/scan-cleanup/core/rasterValidation';
 import { getErrorMessage } from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
@@ -38,10 +35,10 @@ import type {
     IBasePreviewAnalysis,
     IScanCleanupRenderingDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {readPreviewBytes} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 import {
     DETAIL_TILE_MAX_PIXELS,
     DEFAULT_SOURCE_DPI,
-    PREVIEW_MAX_IMAGE_BYTES,
     BASE_ANALYSIS_CACHE_PAGE_LIMIT,
     BASE_ANALYSIS_CACHE_BYTE_LIMIT,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
@@ -50,7 +47,11 @@ export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn'
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'preview-rendering',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }
@@ -67,7 +68,7 @@ export async function persistBaseAnalysisArtifacts(
     if (!dependencies.readFile) throw new Error('Scan cleanup pipeline requires injected readFile capability');
     const analysisDirectory = join(
         dependencies.getTempDir(),
-        `scan-cleanup-rasters-${randomUUID()}-${process.pid}`,
+        `scan-cleanup-base-analysis-${randomUUID()}-${process.pid}`,
     );
     await fileSystem.mkdir(analysisDirectory, {recursive: true});
     const canonicalRasterPaths: IBasePreviewAnalysis['canonicalRasterPaths'] = {};
@@ -142,7 +143,12 @@ export function resolveFallbackDetailDpi(
     sourceRasterDetected: boolean,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
-    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        request.pageNumber,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     const swapsAxes = pageOverride.rotationDegrees === 90 || pageOverride.rotationDegrees === 270;
     const margins = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
     const widthAtPreviewDpi = (swapsAxes ? raw.height : raw.width)
@@ -368,18 +374,6 @@ function resolveDetailSourceCrop(
         height: bottom - top,
     };
 }
-export async function readPreviewBytes(path: string, dependencies: IScanCleanupRenderingDependencies) {
-    if (!dependencies.stat || !dependencies.readFile) {
-        throw new Error('Scan cleanup preview pipeline requires injected stat and readFile capabilities');
-    }
-    const file = await dependencies.stat(path);
-    if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
-        throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
-    }
-    const bytes = new Uint8Array(await dependencies.readFile(path));
-    readPngDimensions(bytes, undefined, 'preview');
-    return bytes;
-}
 export async function runDetailPreview(
     request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},
     signal: AbortSignal,
@@ -390,6 +384,7 @@ export async function runDetailPreview(
     sourceRasterDetected: boolean,
     scratch: string,
     dependencies: IScanCleanupRenderingDependencies,
+    rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
     if (!fileSystem) throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
@@ -426,10 +421,18 @@ export async function runDetailPreview(
     const rawRenderScale = renderDpi / baseRaw.dpi;
     const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * rawRenderScale));
     const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * rawRenderScale));
-    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
+    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(
+        request.detail.outputMode,
+        rasterMaxPixels,
+    );
     const binary = dependencies.resolveBinary();
     if (!binary) throw new Error('Scan cleanup native tool is unavailable');
-    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        request.pageNumber,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     const effectiveOptions = request.options.matchPageSize
         ? {
             ...request.options,
@@ -575,6 +578,7 @@ export async function runDetailPreview(
         canvasScope: 'page',
         qualityPath: 'raster',
         options: effectiveOptions,
+        ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
         experimental: {autoDewarp: false},
         pages: pageInputs,
         allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),

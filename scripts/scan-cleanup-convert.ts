@@ -26,16 +26,13 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputModeSetting,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
-import {
-    createPdfPageSizeStore,
-    readPdfPageSizes,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {detectSourceDpiDetails} from '@evb/scan-cleanup/core/sourceDpiDetection';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
@@ -60,9 +57,7 @@ import type {
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
     IRunScanCleanupPipelineDependencies,
-    IReadPdfPageSizesOptions,
     TScanCleanupGetPageCount,
-    TScanCleanupGetPageSizes,
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
     TScanCleanupLog,
@@ -845,11 +840,6 @@ async function main() {
         if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error('Failed to read PDF page count');
         return pageCount;
     };
-    const getPageSizes: TScanCleanupGetPageSizes = async (pdfPath, options: IReadPdfPageSizesOptions) =>
-        readPdfPageSizes(pdfPath, {
-            ...options,
-            runCommand,
-        });
     const detectSourceDpi = async (
         pdfPath: string,
         _pdfimages: string | undefined,
@@ -890,7 +880,7 @@ async function main() {
                     [pageNumber],
                 );
                 documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
-                return result.pageRasterByNumber.get(pageNumber);
+                return result.getPageRaster(pageNumber);
             })();
             cache.set(pageNumber, pending);
             if (cache.size > CLI_PAGE_RASTER_CACHE_LIMIT) {
@@ -919,20 +909,10 @@ async function main() {
             resolveSuspiciousCropBoxFallback: false,
         }),
     );
-    const getPageSizesForDetection = (pdfPath: string, signal: AbortSignal) =>
-        getPageSizes(pdfPath, {
-            pdfinfoBinary,
-            log,
-            runCommand,
-            signal,
-            tempDir: temporaryRoot,
-            resolveSuspiciousCropBoxFallback: false,
-        });
     const retention = createCliRetention(
         temporaryRoot,
         argumentsValue.sourcePdfPath,
         (pdfPath, signal) => getPageCount(pdfPath, {signal}),
-        getPageSizesForDetection,
         detectRasterPages,
         getPageSizeStoreForDetection,
     );
@@ -1049,7 +1029,6 @@ async function main() {
                 ...options,
                 runCommand,
             }),
-            getPageSizes,
             detectSourceDpi,
             createRasterPipes: async (paths: readonly string[], signal: AbortSignal, pipeLog: TScanCleanupLog) => {
                 await runCommand('mkfifo', [...paths], {

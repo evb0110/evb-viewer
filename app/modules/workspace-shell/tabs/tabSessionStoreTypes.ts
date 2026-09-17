@@ -13,8 +13,7 @@ export type TTabTemperature = 'hot' | 'warm' | 'cold';
 export type TDocumentSurfaceMode = 'reader' | 'scan-cleanup';
 
 export interface IScanCleanupTabSessionState {
-    /** Optional only for checkpoints written before owner-scoped cleanup sessions. */
-    ownerId?: string;
+    ownerId: string;
     previewPage: number;
     previewViewMode: 'original' | 'cleaned';
     pageMapping?: TScanCleanupPageOutputMapping;

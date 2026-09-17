@@ -1,5 +1,8 @@
 # Scan cleanup audit verification ledger
 
+> Historical verification record. Current source locations may differ from
+> the paths recorded in this ledger.
+
 Date: 2026-08-23
 
 Source audit: `Scan Cleanup Feature Audit, 2026-08-22`, supplied as a

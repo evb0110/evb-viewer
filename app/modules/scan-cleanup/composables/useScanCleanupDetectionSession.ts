@@ -9,7 +9,7 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     attachScanCleanupPageOverrideDefaults,
     estimateScanCleanupOutputPages,
@@ -18,9 +18,9 @@ import {
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
 import { createDisposalFlag } from '@app/utils/createDisposalFlag';
@@ -28,7 +28,11 @@ import type { TJobId } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {ComputedRef} from 'vue';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
-import {formatScanCleanupPreAnalysisProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import {
+    formatScanCleanupEta,
+    formatScanCleanupPreAnalysisProgress,
+    resolveScanCleanupEtaWidestText,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
@@ -41,12 +45,16 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
-import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
-import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
+import {
+    formatScanCleanupErrorByCode,
+    formatScanCleanupErrorMessage,
+    formatScanCleanupScratchMessage,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
+
+export {formatScanCleanupScratchMessage};
 
 const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
 const DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
@@ -188,6 +196,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let scheduledAutoDetection: ReturnType<typeof setTimeout> | null = null;
     let detectionRetirementTail = Promise.resolve();
     const terminalWaiters = new Map<TJobId, Set<() => void>>();
+    const detectionRetirementTimeouts = new Set<ReturnType<typeof setTimeout>>();
+    const detectionRetirementFinishes = new Set<() => void>();
+    const detectionWaitScopes = new Set<{stop: () => void}>();
+    const detectionWaitResolvers = new Set<() => void>();
     // The native detection cache owns both aliases while a source hash is
     // being published. Keep only the current document's aliases so closing a
     // workspace cannot erase an unrelated document's restore entry.
@@ -200,9 +212,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function enqueueDetectionRetirement(detectionJobId: TJobId, documentRevision: string) {
+        if (lifecycle.isDisposed()) {
+            return Promise.resolve();
+        }
         const capability = getScanCleanupCapability();
         detectionRetirementTail = detectionRetirementTail.then(async () => {
-            if (!capability) {
+            if (!capability || lifecycle.isDisposed()) {
                 return;
             }
             await new Promise<void>(resolve => {
@@ -213,20 +228,30 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                         return;
                     }
                     settled = true;
-                    if (timeout !== null) clearTimeout(timeout);
+                    detectionRetirementFinishes.delete(finish);
+                    if (timeout !== null) {
+                        clearTimeout(timeout);
+                        detectionRetirementTimeouts.delete(timeout);
+                    }
                     const waiters = terminalWaiters.get(detectionJobId);
                     waiters?.delete(finish);
                     if (waiters?.size === 0) terminalWaiters.delete(detectionJobId);
                     resolve();
                 };
+                detectionRetirementFinishes.add(finish);
                 const waiters = terminalWaiters.get(detectionJobId) ?? new Set<() => void>();
                 waiters.add(finish);
                 terminalWaiters.set(detectionJobId, waiters);
                 timeout = setTimeout(finish, DETECTION_CANCELLATION_TIMEOUT_MS);
+                detectionRetirementTimeouts.add(timeout);
                 void capability.cancelDetection(detectionJobId, {
                     ownerId: options.ownerId,
                     documentRevision,
                 }).then(async () => {
+                    if (lifecycle.isDisposed()) {
+                        finish();
+                        return;
+                    }
                     // IPC acknowledges the transition to `canceling`, not the
                     // terminal cancellation. Reusing the stable broker owner
                     // before that terminal event can rejoin the retiring job.
@@ -344,22 +369,17 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const progressPercent = computed(() => preAnalysisProgress.value.totalUnits === 0
         ? 0
         : preAnalysisProgress.value.completedUnits / preAnalysisProgress.value.totalUnits * 100);
-    const {
-        progressEtaText,
-        progressEtaWidestText,
-    } = useScanCleanupPageEta(computed(() => {
+    const progressEtaText = computed(() => {
         const state = jobState.value;
-        if (state === null || detectionIsTerminal(state)) {
-            return null;
+        if (state !== null
+            && !detectionIsTerminal(state)
+            && preAnalysisProgress.value.completedUnits >= preAnalysisProgress.value.totalUnits
+        ) {
+            return t('scanCleanup.detectAll.reconciling');
         }
-        return {
-            completedAtMs: state.updatedAtMs > 0 ? state.updatedAtMs : createEpochMs(),
-            completedUnits: preAnalysisProgress.value.completedUnits,
-            phaseKey: 'analysis',
-            runKey: state.jobId,
-            totalUnits: preAnalysisProgress.value.totalUnits,
-        };
-    }), computed(() => t('scanCleanup.detectAll.reconciling')));
+        return formatScanCleanupEta(state?.progress.etaSeconds, t, state?.progress.stage);
+    });
+    const progressEtaWidestText = computed(() => resolveScanCleanupEtaWidestText(t));
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
     const preAnalysisWidestParts = computed(() => formatScanCleanupPreAnalysisProgress({
@@ -804,10 +824,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             // the English exception appended to it.
             error.value = state.errorCode === 'insufficient-scratch'
                 ? formatScanCleanupScratchMessage(t, state.scratchShortfall)
-                : formatScanCleanupErrorMessage(
-                    t('scanCleanup.detectAll.failed'),
-                    state.error,
-                );
+                : formatScanCleanupErrorByCode(t, state.errorCode, state.error);
             errorCode.value = state.errorCode;
         } else if (state.status === 'completed') {
             error.value = '';
@@ -880,10 +897,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (isStale()) {
                 scheduleAutoDetect();
             } else {
-                error.value = formatScanCleanupErrorMessage(
-                    t('scanCleanup.detectAll.failed'),
-                    caught,
-                );
+                error.value = formatScanCleanupErrorByCode(t, 'internal', caught);
                 errorCode.value = 'internal';
             }
             return;
@@ -901,9 +915,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         if (!result.started) {
-            error.value = result.errorCode === 'tools-unavailable'
-                ? t('scanCleanup.runDisabled.unavailable')
-                : formatScanCleanupErrorMessage(t('scanCleanup.detectAll.failed'), result.error);
+            error.value = formatScanCleanupErrorByCode(t, result.errorCode, result.error, result.scratchShortfall);
             errorCode.value = result.errorCode;
             return;
         }
@@ -1030,10 +1042,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ) {
                 return;
             }
-            placementAnchorCalibrationError.value = formatScanCleanupErrorMessage(
-                t('scanCleanup.detectAll.failed'),
-                caught,
-            );
+            placementAnchorCalibrationError.value = formatScanCleanupErrorByCode(t, 'internal', caught);
             error.value = placementAnchorCalibrationError.value;
             errorCode.value = 'internal';
             placementAnchorSummary.value = null;
@@ -1099,9 +1108,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     async function settleCurrentDetection(cancelCurrent: boolean) {
-        return new Promise<void>((resolve, reject) => {
+        const waitScope = effectScope();
+        detectionWaitScopes.add(waitScope);
+        const waitPromise = waitScope.run(() => new Promise<void>((resolve, reject) => {
             const waitState: {settled: boolean} = {settled: false};
             let stopStarting: (() => void) | null = null;
+            let resolveStartingWait: (() => void) | null = null;
             let targetJobId: TJobId | null = null;
             let terminalWaiter: (() => void) | null = null;
             const timeout = cancelCurrent
@@ -1113,6 +1125,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             function cleanup() {
                 if (timeout !== null) clearTimeout(timeout);
                 stopStarting?.();
+                resolveStartingWait?.();
+                resolveStartingWait = null;
                 if (targetJobId && terminalWaiter) {
                     const waiters = terminalWaiters.get(targetJobId);
                     waiters?.delete(terminalWaiter);
@@ -1125,6 +1139,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     return;
                 }
                 waitState.settled = true;
+                detectionWaitResolvers.delete(finish);
                 cleanup();
                 if (caught === undefined) {
                     resolve();
@@ -1133,9 +1148,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }
             }
 
+            detectionWaitResolvers.add(finish);
             void (async () => {
                 if (starting.value) {
                     await new Promise<void>(resolveStarting => {
+                        resolveStartingWait = resolveStarting;
                         stopStarting = watch(starting, value => {
                             if (!value) resolveStarting();
                         }, {flush: 'sync'});
@@ -1190,7 +1207,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }
                 applyState(latest);
             })().catch(finish);
-        });
+        }));
+        try {
+            if (waitPromise) await waitPromise;
+        } finally {
+            waitScope.stop();
+            detectionWaitScopes.delete(waitScope);
+        }
     }
 
     async function cancelAndWaitForTerminal() {
@@ -1211,7 +1234,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         let mayStartMissingDetection = jobState.value === null;
         const belongsToWaitedDocument = () => waitSourcePath === options.sourcePath.value
             && waitDocumentRevision === options.documentRevision.value;
-        while (!lifecycle.isDisposed() && options.active() && belongsToWaitedDocument()) {
+        // A run owns this wait even when its workspace is hidden. Disposal and
+        // document identity still end the wait.
+        while (!lifecycle.isDisposed() && belongsToWaitedDocument()) {
             if (terminalStatus.value !== null) {
                 return;
             }
@@ -1246,7 +1271,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     autoPending.value = false;
                 }
                 await waitForDetectionRetirements();
-                if (!belongsToWaitedDocument() || Boolean(lifecycle.isDisposed()) || !options.active()) {
+                if (!belongsToWaitedDocument() || Boolean(lifecycle.isDisposed())) {
                     return;
                 }
                 const generation = requestGeneration;
@@ -1582,6 +1607,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     );
     onBeforeUnmount(() => {
         lifecycle.dispose();
+        for (const finish of [...detectionRetirementFinishes]) finish();
+        for (const timeout of detectionRetirementTimeouts) clearTimeout(timeout);
+        detectionRetirementTimeouts.clear();
+        for (const finish of [...detectionWaitResolvers]) finish();
+        for (const scope of [...detectionWaitScopes]) scope.stop();
+        detectionWaitScopes.clear();
         if (scheduledAutoDetection !== null) {
             clearTimeout(scheduledAutoDetection);
             scheduledAutoDetection = null;

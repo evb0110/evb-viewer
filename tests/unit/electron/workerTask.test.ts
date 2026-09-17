@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as TScanCleanupIpcModule from '@contracts/scan-cleanup/ipc';
 
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
@@ -45,6 +46,17 @@ const mocks = vi.hoisted<{
     },
     terminateResult: null,
 }));
+
+const scanCleanupIpcMocks = vi.hoisted(() => ({decodeScratchShortfall: vi.fn()}));
+
+vi.mock('@contracts/scan-cleanup/ipc', async importOriginal => {
+    const original = await importOriginal<typeof TScanCleanupIpcModule>();
+    scanCleanupIpcMocks.decodeScratchShortfall.mockImplementation(original.decodeScanCleanupScratchShortfall);
+    return {
+        ...original,
+        decodeScanCleanupScratchShortfall: scanCleanupIpcMocks.decodeScratchShortfall,
+    };
+});
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: (message: string) => mocks.logged.push({
@@ -175,6 +187,7 @@ describe('workerTask', () => {
         mocks.workerRecords.length = 0;
         mocks.terminateResult = null;
         mocks.logged.length = 0;
+        scanCleanupIpcMocks.decodeScratchShortfall.mockClear();
     });
 
     it('normalizes streaming worker constructor errors as startup errors', async () => {
@@ -275,6 +288,47 @@ describe('workerTask', () => {
                 source: 'page-ops:crop-worker',
             });
         }
+    });
+
+    it('preserves typed scratch shortfall figures across the worker result frame', async () => {
+        mocks.throwConstructorError = false;
+        const {
+            createWorkerTaskErrorFrame,
+            runResultWorkerTask,
+            WorkerTaskError,
+        } = await import('@electron/utils/workerTask');
+        const workerError = Object.assign(new Error('not enough scratch'), {
+            name: 'ScanCleanupInsufficientScratchError',
+            code: 'insufficient-scratch',
+            availableBytes: 700 * 1024 * 1024,
+            requiredBytes: 2_304 * 1024 * 1024,
+        });
+        const workerFrame = createWorkerTaskErrorFrame(workerError, {source: 'scan-cleanup'});
+        expect(workerFrame.scratchShortfall).toEqual({
+            availableBytes: 700 * 1024 * 1024,
+            requiredBytes: 2_304 * 1024 * 1024,
+        });
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: workerFrame.message,
+            errorFrame: JSON.parse(JSON.stringify(workerFrame)) as unknown,
+        };
+
+        const error = await runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        }).catch((cause: unknown) => cause);
+        expect(error).toBeInstanceOf(WorkerTaskError);
+        expect(error).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 700 * 1024 * 1024,
+                requiredBytes: 2_304 * 1024 * 1024,
+            },
+        });
     });
 
     it('passes opt-in resource limits to result workers', async () => {
@@ -752,6 +806,70 @@ describe('workerTask', () => {
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
     });
 
+    it('carries typed scratch figures across the worker result frame', async () => {
+        mocks.throwConstructorError = false;
+        const {
+            createWorkerTaskErrorFrame,
+            runResultWorkerTask,
+        } = await import('@electron/utils/workerTask');
+        const {ScanCleanupInsufficientScratchError} = await import('@evb/scan-cleanup/core/errors');
+        const scratchError = new ScanCleanupInsufficientScratchError(512, 1_024);
+        expect(scratchError.availableBytes).toBe(scratchError.scratchShortfall.availableBytes);
+        expect(scratchError.requiredBytes).toBe(scratchError.scratchShortfall.requiredBytes);
+        const workerFrame = createWorkerTaskErrorFrame(
+            scratchError,
+            {source: 'scan-cleanup'},
+        );
+        expect(workerFrame).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        });
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: workerFrame.message,
+            errorFrame: JSON.parse(JSON.stringify(workerFrame)) as unknown,
+        };
+
+        const error = await runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        }).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        });
+    });
+
+    it('uses the shared scratch-shortfall decoder at the worker boundary', async () => {
+        const {createWorkerTaskErrorFrame} = await import('@electron/utils/workerTask');
+        const encoded = {
+            availableBytes: 'decoded by the contract',
+            requiredBytes: 'decoded by the contract',
+        };
+        scanCleanupIpcMocks.decodeScratchShortfall.mockReturnValueOnce({
+            availableBytes: 512,
+            requiredBytes: 1_024,
+        });
+
+        const frame = createWorkerTaskErrorFrame({scratchShortfall: encoded});
+
+        expect(scanCleanupIpcMocks.decodeScratchShortfall).toHaveBeenCalledWith(encoded);
+        expect(frame.scratchShortfall).toEqual({
+            availableBytes: 512,
+            requiredBytes: 1_024,
+        });
+    });
+
     it('carries the cancelled worker\'s unproven termination onto the abort rejection', async () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
@@ -912,8 +1030,8 @@ describe('workerTask', () => {
         };
         const { runResultWorkerTask } = await import('@electron/utils/workerTask');
 
-        // A frame that fails validation falls back to the plain message rather
-        // than letting an untyped value reach the quarantine decision.
+        // A frame that fails validation invalidates the complete result rather
+        // than letting the untyped fallback message hide a protocol error.
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
             workerData: { ok: true },
@@ -921,7 +1039,31 @@ describe('workerTask', () => {
             createWorkerExitError: code => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
-        expect((error as Error).message).toBe('pdftoppm failed');
+        expect((error as Error).message).toBe('invalid payload');
+    });
+
+    it('rejects a result frame with an invalid scratch shortfall', async () => {
+        mocks.throwConstructorError = false;
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: 'not enough scratch',
+            errorFrame: {
+                message: 'not enough scratch',
+                scratchShortfall: {
+                    availableBytes: 'not-a-number',
+                    requiredBytes: 1_024,
+                },
+            },
+        };
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+
+        await expect(runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        })).rejects.toThrow('invalid payload');
     });
 
     it('restarts inactivity timeouts when a streaming worker reports progress', async () => {

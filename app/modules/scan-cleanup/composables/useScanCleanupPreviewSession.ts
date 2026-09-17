@@ -16,7 +16,7 @@ import {
     type TScanCleanupOutputMode,
     type TScanCleanupOutputHalf,
     type TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     findSerializableErrorEnvelope,
     SERIALIZABLE_ERROR_PREFIX,
@@ -27,7 +27,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
+import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -35,12 +35,11 @@ import {
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPrefetcher';
 import {isScanCleanupLifecycleIdentityPromotion} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {
     createScanCleanupPreviewCache,
@@ -49,6 +48,7 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
+import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {
     createScanCleanupNaturalPageOrder,
     type TScanCleanupOrderedPages,
@@ -56,6 +56,88 @@ import {
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
+
+export interface IScanCleanupPreviewPrefetchCandidate<TRequest> {
+    key: string;
+    request: TRequest;
+}
+
+export interface IScanCleanupPreviewPrefetchDependencies<TRequest, TResult> {
+    isCached: (key: string) => boolean;
+    preview: (request: TRequest) => Promise<TResult | null>;
+    store: (key: string, result: TResult) => void;
+}
+
+export interface IScanCleanupPreviewPrefetcher<TRequest> {
+    schedule: (candidates: Array<IScanCleanupPreviewPrefetchCandidate<TRequest>>) => void;
+    supersede: () => void;
+}
+
+interface IQueuedPrefetch<TRequest> {
+    candidates: Array<IScanCleanupPreviewPrefetchCandidate<TRequest>>;
+    generation: number;
+}
+
+export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
+    dependencies: IScanCleanupPreviewPrefetchDependencies<TRequest, TResult>,
+): IScanCleanupPreviewPrefetcher<TRequest> {
+    let generation = 0;
+    let queued: IQueuedPrefetch<TRequest> | null = null;
+    let worker: Promise<void> | null = null;
+
+    async function drainQueue() {
+        while (queued) {
+            const current = queued;
+            queued = null;
+            for (const candidate of current.candidates) {
+                if (current.generation !== generation) break;
+                if (dependencies.isCached(candidate.key)) continue;
+                try {
+                    // A prefetch that reached the renderer is stored even when
+                    // navigation has already moved past it. The key names the
+                    // page and the options that produced it, so a late entry is
+                    // never stale, and discarding it threw away the whole cost
+                    // of the request for nothing.
+                    // A cancelled or dropped prefetch answers with nothing;
+                    // the page is requested again when the user reaches it.
+                    const prefetched = await dependencies.preview(candidate.request);
+                    if (prefetched !== null) dependencies.store(candidate.key, prefetched);
+                } catch {
+                    // Aborted or failed: the next schedule re-queues whatever
+                    // the user still wants.
+                }
+                if (current.generation !== generation) break;
+            }
+        }
+    }
+
+    function startWorker() {
+        if (worker) {
+            return;
+        }
+        const current = drainQueue();
+        worker = current;
+        void current.finally(() => {
+            if (worker === current) worker = null;
+            if (queued) startWorker();
+        }).catch(() => undefined);
+    }
+
+    return {
+        schedule(candidates) {
+            generation += 1;
+            queued = {
+                candidates,
+                generation,
+            };
+            startWorker();
+        },
+        supersede() {
+            generation += 1;
+            queued = null;
+        },
+    };
+}
 
 /**
  * Longer than the ~400-500 ms cadence of a rail flick measured in the user's
@@ -139,6 +221,11 @@ export function createScanCleanupPreviewCacheKey(
     // move when another page's content box does.
     placementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
 ) {
+    attachScanCleanupPageOverrideDefaults(
+        previewOptions.pageOverrides,
+        previewOptions.pageOverrideDefaults,
+        previewOptions.marginsMm,
+    );
     const pageOverride = getScanCleanupPageOverride(
         previewOptions.pageOverrides,
         requirePageNumber(pageNumber),
@@ -256,6 +343,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let displayedDetailSourceKey: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    const pauseWaitScopes = new Set<{stop: () => void}>();
+    const pauseWaitResolvers = new Set<() => void>();
     let detailRetriesRemaining = 0;
     let detailAttemptCount = 0;
     let scheduledPage: number | null = null;
@@ -663,8 +752,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         ) {
             schedule(true);
             if (previewPending()) {
-                await new Promise<void>(resolve => {
-                    const stop = watch([
+                const waitScope = effectScope();
+                pauseWaitScopes.add(waitScope);
+                const waitPromise = waitScope.run(() => new Promise<void>(resolve => {
+                    let stop: (() => void) | null = null;
+                    const finish = () => {
+                        pauseWaitResolvers.delete(finish);
+                        stop?.();
+                        resolve();
+                    };
+                    pauseWaitResolvers.add(finish);
+                    stop = watch([
                         resultCurrent,
                         loading,
                     ], ([
@@ -674,10 +772,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         if (!current && previewLoading) {
                             return;
                         }
-                        stop();
-                        resolve();
+                        finish();
                     }, {flush: 'sync'});
-                });
+                }));
+                try {
+                    if (waitPromise) await waitPromise;
+                } finally {
+                    waitScope.stop();
+                    pauseWaitScopes.delete(waitScope);
+                }
             }
         }
         cancel(false);
@@ -815,6 +918,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // Original must never keep painting the raw bytes from the page that
         // was just left while this page has no cached raster of its own.
         if (!cached && viewMode.value === 'original') rawResult.value = null;
+        if (cached) {
+            resultKey.value = key;
+            resultPresentationKey.value = presentationKey(key);
+            result.value = cached;
+            rawResult.value = cached;
+            loading.value = false;
+            error.value = '';
+            errorCode.value = null;
+            void scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
+            return;
+        }
         if (!navigated) prefetcher.supersede();
         void capability.cancelPreview({
             sourcePdfPath: requestSourcePath,
@@ -840,17 +954,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             loading.value = true;
             error.value = '';
             errorCode.value = null;
-            return;
-        }
-        if (cached) {
-            resultKey.value = key;
-            resultPresentationKey.value = presentationKey(key);
-            result.value = cached;
-            rawResult.value = cached;
-            loading.value = false;
-            error.value = '';
-            errorCode.value = null;
-            void scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
             return;
         }
         loading.value = true;
@@ -968,11 +1071,21 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     return;
                 }
                 const envelope = findSerializableErrorEnvelope(caught, isScanCleanupErrorEnvelope);
-                error.value = envelope?.message
-                    ?? (caught instanceof Error && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? getErrorMessage(caught)
-                        : t('scanCleanup.preview.unavailable'));
-                errorCode.value = envelope?.code ?? 'internal';
+                if (envelope) {
+                    error.value = formatScanCleanupErrorByCode(
+                        t,
+                        envelope.code,
+                        envelope.message,
+                        envelope.scratchShortfall,
+                    );
+                    errorCode.value = envelope.code;
+                } else {
+                    error.value = caught instanceof Error
+                        && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
+                        ? formatScanCleanupErrorByCode(t, 'internal', caught)
+                        : t('scanCleanup.preview.unavailable');
+                    errorCode.value = 'internal';
+                }
             } finally {
                 if (requestSequence === sequence) loading.value = false;
             }
@@ -1266,6 +1379,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     );
     watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
+        for (const resolve of [...pauseWaitResolvers]) resolve();
+        for (const scope of [...pauseWaitScopes]) scope.stop();
+        pauseWaitScopes.clear();
         stopRawStream?.();
         cancel();
     });

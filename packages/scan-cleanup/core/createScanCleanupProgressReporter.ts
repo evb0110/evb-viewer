@@ -3,7 +3,7 @@ import type {
     TScanCleanupProgressStage,
     TScanCleanupSummary,
     TScanCleanupSummaryWarningEvent,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
@@ -49,6 +49,16 @@ export function createEmptyScanCleanupSummary(
         blankPagesSkipped: 0,
         warnings: [...warnings],
         warningEvents: [...warningEvents],
+    };
+}
+
+export function createScanCleanupSummaryWarningReporter(
+    summary: TScanCleanupSummary,
+    log: (level: 'warn' | 'error', message: string) => void,
+) {
+    return (message: string, level: 'warn' | 'error' = 'warn') => {
+        summary.warnings.push(message);
+        log(level, `Scan cleanup: ${message}`);
     };
 }
 
@@ -212,6 +222,62 @@ const ETA_MIN_COMPLETED_UNITS = 5;
 const ETA_MIN_STAGE_ELAPSED_MS = 10_000;
 const ETA_EMA_ALPHA = 0.25;
 
+export interface IScanCleanupProgressEtaEstimator {update: (
+    stage: TScanCleanupProgressStage,
+    completedUnits: number,
+    totalUnits: number,
+    reportedAt: number,
+) => number | undefined;}
+
+/**
+ * Estimate the work remaining in the current progress stage. Both conversion
+ * and detection publish the same progress contract, so keeping the clock here
+ * prevents the renderer from inventing a second estimate from event timing.
+ */
+export function createScanCleanupProgressEtaEstimator(): IScanCleanupProgressEtaEstimator {
+    let activeStage: TScanCleanupProgressStage | null = null;
+    let stageStartedAt = 0;
+    let lastSampleAt = 0;
+    let lastCompletedUnits = 0;
+    let smoothedMsPerUnit: number | null = null;
+    let lastEtaSeconds: number | undefined;
+
+    return {update(stage, completedUnits, totalUnits, reportedAt) {
+        if (activeStage !== stage || completedUnits < lastCompletedUnits) {
+            activeStage = stage;
+            stageStartedAt = reportedAt;
+            lastSampleAt = reportedAt;
+            lastCompletedUnits = completedUnits;
+            smoothedMsPerUnit = null;
+            lastEtaSeconds = undefined;
+        } else if (completedUnits > lastCompletedUnits) {
+            const sampleMsPerUnit = (reportedAt - lastSampleAt) / (completedUnits - lastCompletedUnits);
+            if (Number.isFinite(sampleMsPerUnit) && sampleMsPerUnit >= 0) {
+                smoothedMsPerUnit = smoothedMsPerUnit === null
+                    ? sampleMsPerUnit
+                    : smoothedMsPerUnit * (1 - ETA_EMA_ALPHA) + sampleMsPerUnit * ETA_EMA_ALPHA;
+            }
+            lastSampleAt = reportedAt;
+            lastCompletedUnits = completedUnits;
+        }
+        if (
+            smoothedMsPerUnit === null
+                || completedUnits < ETA_MIN_COMPLETED_UNITS
+                || reportedAt - stageStartedAt < ETA_MIN_STAGE_ELAPSED_MS
+                || totalUnits <= 0
+        ) {
+            return undefined;
+        }
+        const remainingStageMs = Math.max(0, totalUnits - completedUnits) * smoothedMsPerUnit;
+        const estimatedSeconds = Math.max(0, Math.ceil(remainingStageMs / 1000));
+        const etaSeconds = lastEtaSeconds === undefined
+            ? estimatedSeconds
+            : Math.min(lastEtaSeconds, estimatedSeconds);
+        lastEtaSeconds = etaSeconds;
+        return etaSeconds;
+    }};
+}
+
 /**
  * `isLossless` is read per report rather than captured: a matched run that
  * cannot keep a page's own pixels starts on the lossless profile and then
@@ -236,12 +302,7 @@ export function createScanCleanupProgressReporter(
 ): TEmitScanCleanupProgress {
     const now = options.now ?? (() => performance.now());
     let lastPercent = 0;
-    let activeStage: TScanCleanupProgressStage | null = null;
-    let stageStartedAt = 0;
-    let lastSampleAt = 0;
-    let lastCompletedUnits = 0;
-    let smoothedMsPerUnit: number | null = null;
-    let lastEtaSeconds: number | undefined;
+    const etaEstimator = createScanCleanupProgressEtaEstimator();
     return (stage, completedUnits, totalUnits, completedPageNumbers) => {
         const reportedAt = now();
         const profile = isLossless()
@@ -264,42 +325,12 @@ export function createScanCleanupProgressReporter(
         const fraction = totalUnits > 0 ? Math.min(1, completedUnits / totalUnits) : 0;
         const percent = band === undefined ? lastPercent : band.start + (band.span * fraction);
         lastPercent = Math.min(100, Math.max(lastPercent, percent));
-        if (activeStage !== stage || completedUnits < lastCompletedUnits) {
-            activeStage = stage;
-            stageStartedAt = reportedAt;
-            lastSampleAt = reportedAt;
-            lastCompletedUnits = completedUnits;
-            smoothedMsPerUnit = null;
-            // The floor exists to stop a displayed countdown from ticking
-            // upward, which only holds within one stage's own units. Carried
-            // across a stage boundary it would clamp the next stage's first
-            // honest estimate down to the last few seconds of the previous one.
-            lastEtaSeconds = undefined;
-        } else if (completedUnits > lastCompletedUnits) {
-            const sampleMsPerUnit = (reportedAt - lastSampleAt) / (completedUnits - lastCompletedUnits);
-            if (Number.isFinite(sampleMsPerUnit) && sampleMsPerUnit >= 0) {
-                smoothedMsPerUnit = smoothedMsPerUnit === null
-                    ? sampleMsPerUnit
-                    : smoothedMsPerUnit * (1 - ETA_EMA_ALPHA) + sampleMsPerUnit * ETA_EMA_ALPHA;
-            }
-            lastSampleAt = reportedAt;
-            lastCompletedUnits = completedUnits;
-        }
-        let etaSeconds: number | undefined;
-        if (
-            band !== undefined
-            && smoothedMsPerUnit !== null
-            && completedUnits >= ETA_MIN_COMPLETED_UNITS
-            && reportedAt - stageStartedAt >= ETA_MIN_STAGE_ELAPSED_MS
-            && totalUnits > 0
-        ) {
-            const remainingStageMs = Math.max(0, totalUnits - completedUnits) * smoothedMsPerUnit;
-            const estimatedSeconds = Math.max(0, Math.ceil(remainingStageMs / 1000));
-            etaSeconds = lastEtaSeconds === undefined
-                ? estimatedSeconds
-                : Math.min(lastEtaSeconds, estimatedSeconds);
-            lastEtaSeconds = etaSeconds;
-        }
+        // A run has no ETA for an unweighted stage. Detection uses the same
+        // estimator directly because its progress bands are intentionally
+        // separate from conversion's weighted percentage profile.
+        const etaSeconds = band === undefined
+            ? undefined
+            : etaEstimator.update(stage, completedUnits, totalUnits, reportedAt);
         const completedPageSnapshot = completedPageNumbers === undefined
             ? undefined
             : materializeCompletedPageNumbers(completedPageNumbers);

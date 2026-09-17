@@ -10,6 +10,18 @@ pub const MIN_THICKNESS: i8 = -5;
 pub const MAX_THICKNESS: i8 = 5;
 pub const THICKNESS_GRAY_STEP: i16 = 4;
 
+fn default_normalize_illumination() -> bool {
+    true
+}
+
+fn default_max_pixels() -> u64 {
+    DEFAULT_MAX_PIXELS
+}
+
+fn default_max_dimension() -> u32 {
+    DEFAULT_MAX_DIMENSION
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum BinarizationMode {
@@ -116,6 +128,44 @@ pub enum OutputMode {
     Grayscale,
     Color,
     Auto,
+}
+
+/// Output mode after automatic selection. `Auto` belongs to authored settings
+/// and cannot cross into the render stage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ResolvedOutputMode {
+    Bw,
+    Mixed,
+    Grayscale,
+    Color,
+}
+
+impl ResolvedOutputMode {
+    pub(crate) fn as_output_mode(self) -> OutputMode {
+        self.into()
+    }
+}
+
+impl From<OutputMode> for ResolvedOutputMode {
+    fn from(mode: OutputMode) -> Self {
+        match mode {
+            OutputMode::Bw | OutputMode::Auto => Self::Bw,
+            OutputMode::Mixed => Self::Mixed,
+            OutputMode::Grayscale => Self::Grayscale,
+            OutputMode::Color => Self::Color,
+        }
+    }
+}
+
+impl From<ResolvedOutputMode> for OutputMode {
+    fn from(mode: ResolvedOutputMode) -> Self {
+        match mode {
+            ResolvedOutputMode::Bw => Self::Bw,
+            ResolvedOutputMode::Mixed => Self::Mixed,
+            ResolvedOutputMode::Grayscale => Self::Grayscale,
+            ResolvedOutputMode::Color => Self::Color,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -231,8 +281,9 @@ pub const MANUAL_SPLIT_MIN: f64 = 0.02;
 pub const MANUAL_SPLIT_MAX: f64 = 0.98;
 /// Complements computed as `1 - x` in a different f64 rounding order can
 /// overshoot 1.0 by ~1e-16; a sub-nanometer tolerance rejects real geometry
-/// errors while accepting float noise.
-const BOUNDS_EPSILON: f64 = 1e-9;
+/// errors while accepting float noise. Keep this value aligned with the
+/// TypeScript normalized geometry contract.
+pub const SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON: f64 = 1e-9;
 const POLYGON_AREA_EPSILON: f64 = 1e-12;
 
 fn polygon_cross(a: NormalizedZonePoint, b: NormalizedZonePoint, c: NormalizedZonePoint) -> f64 {
@@ -286,6 +337,15 @@ impl NormalizedZonePolygon {
                 return false;
             }
             twice_area += point.x * next.y - next.x * point.y;
+        }
+        for first in 0..self.points.len() {
+            for second in first + 1..self.points.len() {
+                let dx = self.points[second].x - self.points[first].x;
+                let dy = self.points[second].y - self.points[first].y;
+                if dx * dx + dy * dy <= POLYGON_EPSILON * POLYGON_EPSILON {
+                    return false;
+                }
+            }
         }
         if twice_area.abs() <= POLYGON_AREA_EPSILON {
             return false;
@@ -449,10 +509,11 @@ impl ResolvedTextToneDiagnostics {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CleanupOptions {
     pub dpi: f64,
     pub source_dpi: Option<f64>,
+    #[serde(default)]
     pub source_has_bilevel_layer: bool,
     pub source_background_dpi: Option<f64>,
     /// The trusted MRC selection mask is known to be an incomplete ink
@@ -473,19 +534,25 @@ pub struct CleanupOptions {
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
+    #[serde(default)]
     pub binarization: BinarizationMode,
+    #[serde(default)]
     pub thickness: i8,
+    #[serde(default = "default_normalize_illumination")]
     pub normalize_illumination: bool,
     pub despeckle: bool,
+    #[serde(default)]
     pub despeckle_level: DespeckleLevel,
     pub output_mode: OutputMode,
     /// Locked Auto representation decision. `None` preserves native policy for
     /// an explicitly selected Mixed mode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefer_soft_alpha_foreground: Option<bool>,
-    #[serde(skip_serializing_if = "ResolvedTextToneDiagnostics::is_empty")]
+    #[serde(default, skip_serializing_if = "ResolvedTextToneDiagnostics::is_empty")]
     pub resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics,
+    #[serde(default)]
     pub ocr_mode: bool,
+    #[serde(default)]
     pub layout: LayoutMode,
     #[serde(rename = "manualSplit")]
     pub manual_split_x: Option<NormalizedSplit>,
@@ -493,16 +560,22 @@ pub struct CleanupOptions {
     pub automatic_split: Option<NormalizedSplit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manual_skew_degrees: Option<f64>,
+    #[serde(default)]
     pub manual_content_boxes: ManualContentBoxes,
+    #[serde(default)]
     #[serde(skip_serializing_if = "AutomaticSkewDegrees::is_empty")]
     pub automatic_skew_degrees: AutomaticSkewDegrees,
+    #[serde(default)]
     #[serde(skip_serializing_if = "ManualContentBoxes::is_empty")]
     pub automatic_content_boxes: ManualContentBoxes,
+    #[serde(default)]
     pub manual_zones: ManualZones,
     pub crop_content: bool,
     pub match_page_size: bool,
     pub page_alignment: PageAlignment,
+    #[serde(default)]
     pub placement_overrides: PlacementOverrides,
+    #[serde(default)]
     #[serde(skip_serializing_if = "PlacementAnchors::is_empty")]
     pub placement_anchors: PlacementAnchors,
     #[serde(rename = "margins")]
@@ -510,13 +583,19 @@ pub struct CleanupOptions {
     #[serde(skip)]
     pub margins_pixels: Option<[f64; 4]>,
     pub dewarp: Option<DewarpOptions>,
+    #[serde(default)]
     pub experimental: ExperimentalOptions,
     #[serde(rename = "rotationDegrees")]
+    #[serde(default)]
     pub rotation: OrthogonalRotation,
+    #[serde(default)]
     pub excluded: bool,
+    #[serde(default)]
     pub skip_blank_pages: bool,
+    #[serde(default = "default_max_pixels")]
     pub max_pixels: u64,
     #[serde(rename = "maxDimensionPx")]
+    #[serde(default = "default_max_dimension")]
     pub max_dimension: u32,
 }
 
@@ -577,6 +656,16 @@ impl CleanupOptions {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.max_pixels > DEFAULT_MAX_PIXELS {
+            return Err(format!(
+                "maxPixels must not exceed the default raster guardrail of {DEFAULT_MAX_PIXELS}"
+            ));
+        }
+        if self.max_dimension > DEFAULT_MAX_DIMENSION {
+            return Err(format!(
+                "maxDimensionPx must not exceed the default raster guardrail of {DEFAULT_MAX_DIMENSION}"
+            ));
+        }
         if !self.dpi.is_finite() || self.dpi <= 0.0 {
             return Err("DPI must be positive and finite".into());
         }
@@ -638,7 +727,9 @@ impl CleanupOptions {
         }
         if let Some(split) = self.automatic_split {
             if !split.x.is_finite()
-                || !(0.0..=1.0).contains(&split.x)
+                || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                    ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                    .contains(&split.x)
                 || split.rotation != self.rotation
             {
                 return Err(
@@ -707,12 +798,16 @@ impl CleanupOptions {
             if ![rect.x, rect.y, rect.width, rect.height]
                 .into_iter()
                 .all(f64::is_finite)
-                || rect.x < 0.0
-                || rect.y < 0.0
+                || rect.x < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.y < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
                 || rect.width <= 0.0
                 || rect.height <= 0.0
-                || rect.x + rect.width > 1.0 + BOUNDS_EPSILON
-                || rect.y + rect.height > 1.0 + BOUNDS_EPSILON
+                || rect.x > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.y > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.width > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.height > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.x + rect.width > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.y + rect.height > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
                 || rect.rotation != self.rotation
             {
                 return Err(format!(
@@ -731,7 +826,11 @@ impl CleanupOptions {
         .filter_map(|(label, anchor)| anchor.map(|anchor| (label, anchor)))
         {
             let value = anchor.y_normalized;
-            if !value.is_finite() || !(-BOUNDS_EPSILON..=1.0 + BOUNDS_EPSILON).contains(&value) {
+            if !value.is_finite()
+                || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                    ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                    .contains(&value)
+            {
                 return Err(format!(
                     "{label} placement anchor must be finite and normalized (yNormalized={value})",
                 ));
@@ -765,8 +864,12 @@ impl CleanupOptions {
                 || polygon.points.iter().any(|point| {
                     !point.x.is_finite()
                         || !point.y.is_finite()
-                        || !(0.0..=1.0).contains(&point.x)
-                        || !(0.0..=1.0).contains(&point.y)
+                        || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                            ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                            .contains(&point.x)
+                        || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                            ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                            .contains(&point.y)
                 })
             {
                 return Err("Manual zone polygons must be finite, bounded, non-degenerate, simple, and authored under the page rotation".into());
@@ -789,6 +892,9 @@ impl CleanupOptions {
 
     pub fn resolved_render_crop(&self, width: usize, height: usize) -> Option<Rect> {
         let crop = self.render_crop?;
+        if width == 0 || height == 0 {
+            return None;
+        }
         let left = (crop.x * width as f64).floor() as usize;
         let top = (crop.y * height as f64).floor() as usize;
         let right = ((crop.x + crop.width) * width as f64).ceil() as usize;

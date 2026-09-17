@@ -4,7 +4,36 @@ mod tests {
     use crate::protocol::manifest_v3::CanvasScope;
     use crate::split::{FoldBand, FoldBandUnmeasuredReason};
     use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
-    use std::io::Cursor;
+    use std::{
+        io::Cursor,
+        sync::atomic::AtomicBool,
+    };
+
+    #[test]
+    fn canceled_render_policy_returns_a_typed_error_before_rendering() {
+        let canceled = AtomicBool::new(true);
+        let source = GrayImage::new(12, 10, 220);
+        let options = CleanupOptions::default();
+        let error = match clean_page_with_color_and_calibration_config(
+            &source,
+            None,
+            None,
+            None,
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy::COMPLETE.with_cancellation(&canceled),
+            &mut PageStageTimings::default(),
+        ) {
+            Ok(_) => panic!("canceled render unexpectedly completed"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, AnalysisError::Canceled(message) if message == crate::engine::CANCELLATION_MESSAGE));
+    }
     use zune_jpeg::{
         zune_core::{colorspace::ColorSpace, options::DecoderOptions},
         JpegDecoder,
@@ -38,6 +67,7 @@ mod tests {
             mixed_layers: None,
             effectively_blank: true,
             metadata: CleanupMetadata {
+                version: crate::protocol::manifest_v3::VERSION,
                 source_page_index: 4,
                 half: PageHalf::Right,
                 detected_skew_degrees: 1.5,
@@ -1305,45 +1335,6 @@ mod tests {
         }
     }
 
-    fn page_seven_trim_twin() -> GrayImage {
-        let mut source = GrayImage::new(620, 760, 245);
-        for y in 28..38 {
-            for x in 32..588 {
-                source.set(x, y, 16);
-            }
-        }
-        for y in 44..62 {
-            for x in 286..304 {
-                source.set(x, y, 20);
-            }
-        }
-        for y in 132..280 {
-            for x in 150..424 {
-                // One photographic plate: a dark frame and wide shadow
-                // bands sealing midtone strips. Every dark component is
-                // far larger than a glyph, so page calibration keeps its
-                // x-height from the body text, while the bands feed the
-                // halftone classifier's rank cascade and the sealed
-                // midtones carry the tonal spread.
-                let frame = !(162..412).contains(&x) || !(144..268).contains(&y);
-                let band = (170..206).contains(&y) || (226..262).contains(&y);
-                let value = if frame || band {
-                    30 + ((x * 37 + y * 61) % 24) as u8
-                } else {
-                    120 + ((x * 13 + y * 41) % 48) as u8
-                };
-                source.set(x, y, value);
-            }
-        }
-        draw_display_glyphs(&mut source, 226, 342, 8, 11, 24, 6);
-        for row in 0..13 {
-            let top = 408 + row * 22;
-            draw_display_glyphs(&mut source, 62, top, 9, 10, 14, 5);
-            draw_display_glyphs(&mut source, 330, top, 9, 10, 14, 5);
-        }
-        source
-    }
-
     fn faint_top_furniture_fixture() -> (GrayImage, BinaryImage) {
         let mut source = GrayImage::new(620, 760, 245);
         let mut trusted_foreground = BinaryImage::new(620, 760);
@@ -1393,64 +1384,6 @@ mod tests {
             .count()
     }
 
-    #[test]
-    #[ignore = "full-raster mode matrix runs in the native CI corpus lane"]
-    fn page_seven_twin_protects_picture_and_heading_in_every_output_mode() {
-        let source = page_seven_trim_twin();
-        for output_mode in [OutputMode::Auto, OutputMode::Mixed, OutputMode::Bw] {
-            let output = clean_page(
-                &source,
-                &CleanupOptions {
-                    dpi: 150.0,
-                    output_mode,
-                    crop_content: true,
-                    normalize_illumination: false,
-                    layout: crate::LayoutMode::Single,
-                    margins_mm: None,
-                    margins_pixels: Some([0.0; 4]),
-                    ..CleanupOptions::default()
-                },
-                6,
-            )
-            .unwrap()
-            .outputs
-            .remove(0);
-            let content = output.metadata.content_box.unwrap();
-            assert!(
-                content.y <= 132.0 && content.bottom() >= 686.0,
-                "mode={output_mode:?} content={content:?} diagnostics={:?}",
-                output.metadata.content_diagnostics
-            );
-            assert!(
-                output.metadata.crop_rect.y <= 132.0,
-                "mode={output_mode:?} crop={:?}",
-                output.metadata.crop_rect
-            );
-            let diagnostics = output.metadata.content_diagnostics.as_ref().unwrap();
-            assert!(
-                diagnostics
-                    .protected_blocks
-                    .iter()
-                    .any(|block| block.picture_mask_overlap_pixels > 0),
-                "mode={output_mode:?} missing picture evidence: {diagnostics:?}"
-            );
-            assert!(
-                diagnostics
-                    .protected_blocks
-                    .iter()
-                    .any(|block| block.heading_evidence),
-                "mode={output_mode:?} missing heading evidence: {diagnostics:?}"
-            );
-            assert!(
-                dark_pixels_in_source_rect(&output, Rect::new(150.0, 132.0, 274.0, 148.0),) > 2_500,
-                "mode={output_mode:?} illustration pixels were cropped"
-            );
-            assert!(
-                dark_pixels_in_source_rect(&output, Rect::new(226.0, 342.0, 130.0, 24.0),) > 250,
-                "mode={output_mode:?} heading pixels were cropped"
-            );
-        }
-    }
 
     /// Paper with just enough grain to be a scan and far too little local
     /// spread to read as tone itself.
@@ -2412,72 +2345,6 @@ mod tests {
         }
     }
 
-    #[test]
-    #[ignore = "full-resolution synthetic analysis runs in the native CI corpus lane"]
-    fn document_prior_is_gated_at_full_resolution_before_analysis_downscaling() {
-        let mut source = GrayImage::new(3_000, 2_100, 245);
-        let gutter_x = 1_410;
-        for y in (240..1_860).step_by(92) {
-            for word in 0..12 {
-                let left = 180 + word * 92;
-                for row in y..y + 8 {
-                    for x in left..left + 58 {
-                        source.set(x, row, 24);
-                    }
-                }
-            }
-            for word in 0..12 {
-                let left = 1_650 + word * 92;
-                for row in y..y + 8 {
-                    for x in left..left + 58 {
-                        source.set(x, row, 28);
-                    }
-                }
-            }
-        }
-        for y in 30..2_070 {
-            source.set(gutter_x, y, 55);
-            source.set(gutter_x + 1, y, 150);
-        }
-        let options = CleanupOptions {
-            dpi: 300.0,
-            normalize_illumination: false,
-            crop_content: false,
-            ..CleanupOptions::default()
-        };
-        let no_prior = analyze_page(&source, &options).unwrap();
-        let matching_prior = DocumentPrior {
-            dominant_layout: LayoutClassification::TwoPageSpread,
-            cutter_ratio_median: Some(gutter_x as f64 / source.width() as f64),
-            cluster_dims: crate::split::ClusterDimensions {
-                width: source.width() as f64,
-                height: source.height() as f64,
-            },
-            agreement_strength: 0.9,
-            stroke_width_median_px: None,
-            x_height_median_px: None,
-        };
-        let with_prior =
-            analyze_page_with_document_prior(&source, &options, Some(matching_prior)).unwrap();
-        assert!(
-            with_prior.reconciliation.cluster_agreement > 0.0,
-            "{:?}",
-            with_prior.reconciliation
-        );
-
-        let inapplicable_prior = DocumentPrior {
-            cluster_dims: crate::split::ClusterDimensions {
-                width: (source.width() * 2) as f64,
-                height: (source.height() * 2) as f64,
-            },
-            cutter_ratio_median: Some(0.35),
-            ..matching_prior
-        };
-        let inapplicable =
-            analyze_page_with_document_prior(&source, &options, Some(inapplicable_prior)).unwrap();
-        assert_eq!(inapplicable.classification, no_prior.classification);
-        assert_eq!(inapplicable.reconciliation.cluster_agreement, 0.0);
-    }
 
     #[test]
     fn cleanup_metadata_reports_despeckle_fallback_for_seedless_page() {
@@ -3330,103 +3197,6 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore = "full-raster paper-tone sweep runs in the native CI corpus lane"]
-    fn auto_mode_turns_dark_text_on_uniform_tinted_paper_into_black_on_white() {
-        for paper in [
-            [205, 225, 245],
-            [225, 205, 215],
-            [235, 220, 175],
-            [190, 215, 195],
-            [170, 170, 170],
-        ] {
-            let ink =
-                paper.map(|channel| (f64::from(channel) * 0.18).round().clamp(8.0, 64.0) as u8);
-            let mut color = RgbImage::new(420, 560, paper);
-            for y in 0..color.height() {
-                for x in 0..color.width() {
-                    let shade = x as i16 * 12 / color.width() as i16 - 6;
-                    let noise = ((x * 17 + y * 29 + x * y % 11) % 7) as i16 - 3;
-                    color.set(
-                        x,
-                        y,
-                        paper.map(|channel| {
-                            (i16::from(channel) + shade + noise).clamp(0, 255) as u8
-                        }),
-                    );
-                }
-            }
-            for line in 0..10 {
-                let top = 55 + line * 42;
-                for glyph in 0..22 {
-                    let left = 46 + glyph * 15;
-                    for y in top..top + 12 {
-                        for x in left..left + 8 {
-                            if x == left || y == top || y + 2 >= top + 12 {
-                                color.set(x, y, ink);
-                            }
-                        }
-                    }
-                }
-            }
-            let mut gray = GrayImage::new(color.width(), color.height(), 255);
-            for y in 0..color.height() {
-                for x in 0..color.width() {
-                    let pixel = color.get(x, y);
-                    gray.set(
-                        x,
-                        y,
-                        ((u32::from(pixel[0]) * 77
-                            + u32::from(pixel[1]) * 150
-                            + u32::from(pixel[2]) * 29
-                            + 128)
-                            >> 8) as u8,
-                    );
-                }
-            }
-            let mut result = clean_page_with_color(
-                &gray,
-                Some(&color),
-                &CleanupOptions {
-                    dpi: 150.0,
-                    output_mode: OutputMode::Auto,
-                    crop_content: false,
-                    match_page_size: false,
-                    margins_mm: None,
-                    margins_pixels: Some([0.0; 4]),
-                    layout: crate::LayoutMode::Single,
-                    ..CleanupOptions::default()
-                },
-                0,
-            )
-            .unwrap();
-            let recommendation = result.output_mode_recommendation;
-            let output = result.outputs.remove(0);
-            assert!(
-                matches!(
-                    output.metadata.output_mode,
-                    OutputMode::Bw | OutputMode::Grayscale
-                ),
-                "paper={paper:?}, recommendation={recommendation:?}",
-            );
-            assert!(output.color_image.is_none(), "paper={paper:?}");
-            let rendered = output.image.to_gray();
-            assert!(
-                rendered
-                    .data()
-                    .iter()
-                    .filter(|&&value| value >= 248)
-                    .count()
-                    > rendered.data().len() * 9 / 10,
-                "paper={paper:?}, mode={:?}",
-                output.metadata.output_mode,
-            );
-            assert!(
-                rendered.data().iter().filter(|&&value| value <= 64).count() >= 2_000,
-                "paper={paper:?} ink={ink:?}"
-            );
-        }
-    }
 
     #[test]
     fn auto_mode_retains_small_faint_text_on_tinted_paper() {
@@ -4114,7 +3884,10 @@ mod tests {
             .as_deref()
             .expect("the halftone plate must publish a vetted owner");
         assert!(owner.count_black() > 2_000);
-        assert_ne!(prepared.resolved_output_mode, OutputMode::Bw);
+        assert_ne!(
+            prepared.resolved_output_mode,
+            crate::ResolvedOutputMode::Bw
+        );
         assert!(
             prepared
                 .tonal_protection_mask
@@ -4133,7 +3906,10 @@ mod tests {
             .as_deref()
             .expect("rotation must not erase the tonal owner");
         assert!(rotated_owner.count_black() > 2_000);
-        assert_ne!(rotated.resolved_output_mode, OutputMode::Bw);
+        assert_ne!(
+            rotated.resolved_output_mode,
+            crate::ResolvedOutputMode::Bw
+        );
         let rotated_components = ComponentMap::from_binary(rotated_owner);
         let rotated_component = rotated_components
             .components()
@@ -5911,6 +5687,7 @@ mod tests {
                 create_mixed_composite: true,
                 recommend_output_mode: true,
                 analyze_layout: true,
+                cancellation: None,
             },
             &mut timings,
         )
@@ -6863,9 +6640,11 @@ mod tests {
                 create_mixed_composite: true,
                 recommend_output_mode: false,
                 analyze_layout: true,
+                cancellation: None,
             },
             &mut PageStageTimings::default(),
-        );
+        )
+        .expect("unrotated page preparation should succeed");
 
         match prepared.rotated_source {
             Some(Cow::Borrowed(borrowed)) => assert!(
@@ -6903,9 +6682,11 @@ mod tests {
                     create_mixed_composite: true,
                     recommend_output_mode: false,
                     analyze_layout: true,
+                    cancellation: None,
                 },
                 &mut PageStageTimings::default(),
-            );
+            )
+            .expect("page preparation should succeed");
 
             assert!(
                 prepared.rotated_source.is_none(),

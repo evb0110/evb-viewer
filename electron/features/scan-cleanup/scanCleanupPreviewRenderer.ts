@@ -9,11 +9,12 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import type {
     IScanCleanupPreviewMetadata,
+    IScanCleanupDocumentCanvasPlan,
     IScanCleanupRawPreviewEvent,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IPdfPageSize,
     IPdfPageSizeStore,
@@ -30,8 +31,8 @@ import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPlacementOffset,
-} from '@contracts/scanCleanupPageOverrides';
-import { resolveScanCleanupEffectiveOutputMode } from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import { resolveScanCleanupEffectiveOutputMode } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     decodeNativeScanCleanupPreviewOutputMetadataJson,
     decodeNativeScanCleanupPreviewPageMetadataJson,
@@ -51,11 +52,9 @@ import {
     resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupCanvasGridAtDpi,
     CANVAS_CONTENT_SCALE_EPSILON,
-    resolveScanCleanupProvisionalDocumentCanvas,
     resolveScanCleanupDocumentCanvasFromAccumulator,
-    resolveMatchedCanvasResamplePages,
+    resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
     fitScanCleanupMarginAxisPx,
-    SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import { shouldExtractTrustedMrcForeground } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 
@@ -70,23 +69,37 @@ import type {
     IScanCleanupRenderingRetention,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
+    previewIdentityKey,
     DEFAULT_SOURCE_DPI,
-    PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
     hasBoundedMatchedRasterResample,
     isScanCleanupSignalAborted,
     readBoundedPreviewGeometry,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {baseAnalysisKey} from '@electron/features/scan-cleanup/scanCleanupPreviewSupport';
 import {
     persistBaseAnalysisArtifacts,
     pruneBaseAnalysisCache,
-    readPreviewBytes,
     removeBaseAnalysisArtifacts,
     resolveFallbackDetailDpi,
     runDetailPreview,
     logScanCleanupMessage,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
+import {readPreviewBytes} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 const logger = createLogger('scan-cleanup-preview-renderer');
+
+function baseAnalysisKey(
+    request: Omit<IScanCleanupPreviewRequest, 'detail'>,
+    documentCanvas: IScanCleanupDocumentCanvasPlan | null,
+) {
+    const {
+        outputModeRecommendation: _outputModeRecommendation,
+        softAlphaForegroundRecommendation: _softAlphaForegroundRecommendation,
+        ...geometryRequest
+    } = request;
+    return JSON.stringify({
+        identity: previewIdentityKey(geometryRequest),
+        documentCanvas,
+    });
+}
 export async function scanCleanupPreviewRenderer(
     request: IScanCleanupPreviewRequest,
     signal: AbortSignal,
@@ -99,6 +112,7 @@ export async function scanCleanupPreviewRenderer(
     scheduleBaseAnalysisRemoval?: (analysis: IBasePreviewAnalysis, analysisKey?: string) => Promise<void>,
     claimId?: string,
     releaseBaseAnalysisPin?: (analysisKey: string) => void,
+    rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
     if (!fileSystem) throw new Error('Scan cleanup preview requires injected filesystem capabilities');
@@ -131,53 +145,40 @@ export async function scanCleanupPreviewRenderer(
     try {
         const previewWarningEvents: TScanCleanupWarningEvent[] = [];
         const totalPages = await retention.pageCount(document, signal);
-        const legacyGeometry = dependencies.getPageSizeStore === undefined;
-        if (legacyGeometry && totalPages > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
-            throw new Error(
-                'Scan cleanup preview requires a bounded page-size store for large documents',
-            );
-        }
-        let compatibilityPageSizes: IPdfPageSize[] | null = null;
         let pageSizeStore: IPdfPageSizeStore | null = null;
         let pageSize: IPdfPageSize | undefined;
         let boundedGeometry: IBoundedPreviewGeometry | null = null;
         let previewRasterPlan = resolvePreviewRasterPlan(null, new Map<number, number>());
         try {
-            if (legacyGeometry) {
-                compatibilityPageSizes = await retention.previewPageSizes(document, signal);
-                pageSize = compatibilityPageSizes.find(candidate => candidate.pageNumber === request.pageNumber);
-                previewRasterPlan = resolvePreviewRasterPlan(compatibilityPageSizes);
-            } else {
-                pageSizeStore = await retention.pageSizeStore(document, signal);
-                boundedGeometry = await readBoundedPreviewGeometry(
-                    pageSizeStore,
-                    totalPages,
-                    request,
-                );
-                pageSize = boundedGeometry.pageSize;
-                const pageDpiByNumber = new Map<number, number>();
-                if (boundedGeometry.pageSourceDpi !== undefined) {
-                    pageDpiByNumber.set(request.pageNumber, boundedGeometry.pageSourceDpi);
-                }
-                const renderDpiByPageNumber = new Map<number, number>();
-                if (pageSize !== undefined) {
-                    renderDpiByPageNumber.set(
-                        request.pageNumber,
-                        resolvePagePreviewDpi(
-                            pageSize,
-                            Math.min(
-                                PREVIEW_DPI,
-                                boundedGeometry.pageSourceDpi ?? boundedGeometry.previewDpi,
-                            ),
-                        ),
-                    );
-                }
-                previewRasterPlan = {
-                    dpi: boundedGeometry.previewDpi,
-                    pageDpiByNumber,
-                    renderDpiByPageNumber,
-                };
+            pageSizeStore = await retention.pageSizeStore(document, signal);
+            boundedGeometry = await readBoundedPreviewGeometry(
+                pageSizeStore,
+                totalPages,
+                request,
+            );
+            pageSize = boundedGeometry.pageSize;
+            const pageDpiByNumber = new Map<number, number>();
+            if (boundedGeometry.pageSourceDpi !== undefined) {
+                pageDpiByNumber.set(request.pageNumber, boundedGeometry.pageSourceDpi);
             }
+            const renderDpiByPageNumber = new Map<number, number>();
+            if (pageSize !== undefined) {
+                renderDpiByPageNumber.set(
+                    request.pageNumber,
+                    resolvePagePreviewDpi(
+                        pageSize,
+                        Math.min(
+                            PREVIEW_DPI,
+                            boundedGeometry.pageSourceDpi ?? boundedGeometry.previewDpi,
+                        ),
+                    ),
+                );
+            }
+            previewRasterPlan = {
+                dpi: boundedGeometry.previewDpi,
+                pageDpiByNumber,
+                renderDpiByPageNumber,
+            };
         } catch (error) {
             if (isScanCleanupSignalAborted(signal)) throw error;
             if (request.options.matchPageSize) {
@@ -226,43 +227,51 @@ export async function scanCleanupPreviewRenderer(
             }
         }
         const documentCanvas = request.options.matchPageSize
-            ? legacyGeometry && compatibilityPageSizes !== null
-                ? resolveScanCleanupProvisionalDocumentCanvas(
-                    compatibilityPageSizes,
+            ? boundedGeometry === null
+                ? null
+                : resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
+                    boundedGeometry.accumulator,
                     previewRasterPlan.dpi,
                     request.options,
-                    request.layoutByPage,
                     request.layoutDetectionComplete === true,
+                    rasterMaxPixels,
                 )
-                : boundedGeometry === null
-                    ? null
-                    : resolveScanCleanupDocumentCanvasFromAccumulator(
-                        boundedGeometry.accumulator,
-                        previewRasterPlan.dpi,
-                        request.options,
-                        request.layoutDetectionComplete === true,
-                    )
             : null;
         let boundedRasterSource: IScanCleanupPageRasterSource | null = null;
         let boundedRasterPage: IDetectedPageRaster | undefined;
         let boundedRasterizedByMatching = false;
-        if (!legacyGeometry) {
+        if (pageSizeStore !== null) {
             boundedRasterSource = await retention.rasterPageSource(document, signal);
+        }
+        const matchingCanvas = request.options.preserveOriginalQuality === true
+            && request.options.matchPageSize
+            && boundedGeometry !== null
+            ? documentCanvas
+                ?? resolveScanCleanupDocumentCanvasFromAccumulator(
+                    boundedGeometry.accumulator,
+                    previewRasterPlan.dpi,
+                    request.options,
+                    request.layoutDetectionComplete === true,
+                    rasterMaxPixels,
+                )
+            : null;
+        if (
+            request.options.preserveOriginalQuality === true
+            && request.options.matchPageSize
+            && matchingCanvas !== null
+            && pageSizeStore !== null
+            && boundedRasterSource !== null
+        ) {
+            boundedRasterizedByMatching = await hasBoundedMatchedRasterResample({
+                canvas: matchingCanvas,
+                layoutByPage: request.layoutByPage,
+                options: request.options,
+                pageSizeStore,
+                rasterSource: boundedRasterSource,
+            });
+        }
+        if (boundedRasterSource !== null) {
             boundedRasterPage = await boundedRasterSource.getPageRaster(request.pageNumber);
-            if (
-                request.options.preserveOriginalQuality === true
-                && request.options.matchPageSize
-                && documentCanvas !== null
-                && pageSizeStore !== null
-            ) {
-                boundedRasterizedByMatching = await hasBoundedMatchedRasterResample({
-                    canvas: documentCanvas,
-                    layoutByPage: request.layoutByPage,
-                    options: request.options,
-                    pageSizeStore,
-                    rasterSource: boundedRasterSource,
-                });
-            }
         }
         const pagePreviewRenderDpi = previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber)
             ?? previewRasterPlan.dpi;
@@ -302,20 +311,8 @@ export async function scanCleanupPreviewRenderer(
         let requestedRenderDpi = basePreviewDpi;
         let sourceDpi = previewRasterPlan.pageDpiByNumber.get(request.pageNumber)
             ?? previewRasterPlan.dpi;
-        const rasterPages = request.options.preserveOriginalQuality === true
-            && request.options.matchPageSize
-            && compatibilityPageSizes?.length
-            ? await retention.previewRasterPages(document, signal)
-            : null;
-        const sourceRasterPage = legacyGeometry
-            ? rasterPages ?? await retention.rasterPage(document, request.pageNumber, signal)
-            : null;
-        const sourceRasterDetected = legacyGeometry
-            ? sourceRasterPage!.pages.has(request.pageNumber)
-            : boundedRasterPage !== undefined;
-        sourceDpi = legacyGeometry
-            ? sourceRasterPage!.sourceDpiByPage?.get(request.pageNumber) ?? sourceDpi
-            : boundedRasterPage?.dpi ?? sourceDpi;
+        const sourceRasterDetected = boundedRasterPage !== undefined;
+        sourceDpi = boundedRasterPage?.dpi ?? sourceDpi;
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         if (request.detail === undefined) {
             const outputMode = resolveScanCleanupEffectiveOutputMode({
@@ -330,22 +327,14 @@ export async function scanCleanupPreviewRenderer(
             });
             const processingDocumentCanvas = documentCanvas !== null
                 && requestedPreviewProcessingDpi > basePreviewDpi
-                ? legacyGeometry && compatibilityPageSizes !== null
-                    ? resolveScanCleanupProvisionalDocumentCanvas(
-                        compatibilityPageSizes,
-                        requestedPreviewProcessingDpi,
-                        request.options,
-                        request.layoutByPage,
-                        request.layoutDetectionComplete === true,
-                    )
-                    : boundedGeometry === null
-                        ? null
-                        : resolveScanCleanupDocumentCanvasFromAccumulator(
-                            boundedGeometry.accumulator,
-                            requestedPreviewProcessingDpi,
-                            request.options,
-                            request.layoutDetectionComplete === true,
-                        )
+                && boundedGeometry !== null
+                ? resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
+                    boundedGeometry.accumulator,
+                    requestedPreviewProcessingDpi,
+                    request.options,
+                    request.layoutDetectionComplete === true,
+                    rasterMaxPixels,
+                )
                 : null;
             const previewProcessingDpi = processingDocumentCanvas === null
                 ? requestedPreviewProcessingDpi
@@ -420,6 +409,7 @@ export async function scanCleanupPreviewRenderer(
                     sourceRasterDetected,
                     scratch,
                     dependencies,
+                    rasterMaxPixels,
                 );
             }
             fallbackDetail = true;
@@ -486,19 +476,7 @@ export async function scanCleanupPreviewRenderer(
                 : {[String(request.pageNumber)]: request.pagePlanEvidence},
             request.pageNumber,
         );
-        const rasterizedByMatching = legacyGeometry
-            ? compatibilityPageSizes !== null
-                && rasterPages !== null
-                && resolveMatchedCanvasResamplePages(
-                    compatibilityPageSizes,
-                    compatibilityPageSizes.map(pageSize => pageSize.pageNumber),
-                    request.options,
-                    SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                    rasterPages.pages,
-                    rasterPages.detected,
-                    request.layoutByPage,
-                ).length > 0
-            : boundedRasterizedByMatching;
+        const rasterizedByMatching = boundedRasterizedByMatching;
         const lossless = request.options.preserveOriginalQuality === true && !rasterizedByMatching;
         const matchedCanvas = documentCanvas ?? undefined;
         const effectiveOptions = (matchedCanvas === undefined && request.options.matchPageSize)
@@ -507,12 +485,8 @@ export async function scanCleanupPreviewRenderer(
                 matchPageSize: false,
             }
             : request.options;
-        const sourceBackgroundDpi = legacyGeometry
-            ? sourceRasterPage!.backgroundDpiByPage?.get(request.pageNumber)
-            : boundedRasterPage?.backgroundDpi;
-        const sourceHasBilevelLayer = legacyGeometry
-            ? sourceRasterPage!.bilevelLayerPages?.has(request.pageNumber) === true
-            : boundedRasterPage?.hasBilevelLayer === true;
+        const sourceBackgroundDpi = boundedRasterPage?.backgroundDpi;
+        const sourceHasBilevelLayer = boundedRasterPage?.hasBilevelLayer === true;
         let trustedMrcLayers: IPdfMrcLayers | null = null;
         if (
             shouldExtractTrustedMrcForeground(
@@ -563,6 +537,7 @@ export async function scanCleanupPreviewRenderer(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
+            ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
             pages: [{
                 inputPath: lossless ? canonicalRaw.path : inputPath,
                 analysisInputPath: canonicalRaw.path,
@@ -788,7 +763,7 @@ export async function scanCleanupPreviewRenderer(
                         metadata: {
                             half: output.half,
                             layoutClassification: pageMetadata.layoutClassification,
-                            layoutConfidence: pageMetadata.layoutConfidence ?? 0,
+                            layoutConfidence: pageMetadata.layoutConfidence,
                             sourceRegion: output.sourceRegion,
                             contentBox: output.contentBox,
                             cropRect: output.cropRect,

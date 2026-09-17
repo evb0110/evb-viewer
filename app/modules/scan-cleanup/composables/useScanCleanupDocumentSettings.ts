@@ -3,7 +3,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     TScanCleanupPageAlignment,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {ComputedRef} from 'vue';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
@@ -12,13 +12,14 @@ import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     cloneScanCleanupPreferenceValue,
     isScanCleanupSourceSha256,
+    type IScanCleanupGlobalPreferences,
     type IScanCleanupDocumentPreferencePatch,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     captureScanCleanupDocumentPersistenceToken,
     flushScanCleanupPreferencesStore,
@@ -55,6 +56,22 @@ interface IPreviousDocumentContext {
     sourceSha256: string | null;
     legacyDocumentKey: string | null;
 }
+
+const GLOBAL_DOCUMENT_SESSION_KEYS = [
+    'preserveOriginalQuality',
+    'layoutMode',
+    'binarization',
+    'normalizeIllumination',
+    'readingOrder',
+    'thickness',
+    'crop',
+    'matchPageSize',
+    'pageAlignment',
+    'despeckleLevel',
+    'autoDewarp',
+    'autoDewarpDepth',
+    'skipBlankPages',
+] as const satisfies ReadonlyArray<keyof IScanCleanupGlobalPreferences>;
 
 function recordEditedFields<T extends object>(intent: Partial<T>, current: T, previous: T) {
     const keys = new Set([
@@ -155,37 +172,28 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         await flushScanCleanupPreferencesStore();
     }
 
-    const handleWindowLifecycle = () => {
-        void flushPersistence().catch(() => undefined);
-    };
-    if (typeof window !== 'undefined') {
-        window.addEventListener('pagehide', handleWindowLifecycle);
-    }
     tryOnScopeDispose(() => {
         documentLoadGeneration += 1;
         void flushPersistence().catch(() => undefined);
-        if (typeof window !== 'undefined') {
-            window.removeEventListener('pagehide', handleWindowLifecycle);
-        }
     });
     const firstRunGuidanceDismissed = toRef(preferences, 'firstRunGuidanceDismissed');
     const marginsLinked = ref(true);
     const values: IScanCleanupOptions = reactive({
-        preserveOriginalQuality: toRef(preferences, 'preserveOriginalQuality'),
-        layoutMode: toRef(preferences, 'layoutMode'),
+        preserveOriginalQuality: cloneScanCleanupPreferenceValue(preferences.preserveOriginalQuality),
+        layoutMode: cloneScanCleanupPreferenceValue(preferences.layoutMode),
         outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
-        binarization: toRef(preferences, 'binarization'),
-        normalizeIllumination: toRef(preferences, 'normalizeIllumination'),
-        readingOrder: toRef(preferences, 'readingOrder'),
-        thickness: toRef(preferences, 'thickness'),
-        crop: toRef(preferences, 'crop'),
-        matchPageSize: toRef(preferences, 'matchPageSize'),
-        pageAlignment: toRef(preferences, 'pageAlignment'),
+        binarization: cloneScanCleanupPreferenceValue(preferences.binarization),
+        normalizeIllumination: cloneScanCleanupPreferenceValue(preferences.normalizeIllumination),
+        readingOrder: cloneScanCleanupPreferenceValue(preferences.readingOrder),
+        thickness: cloneScanCleanupPreferenceValue(preferences.thickness),
+        crop: cloneScanCleanupPreferenceValue(preferences.crop),
+        matchPageSize: cloneScanCleanupPreferenceValue(preferences.matchPageSize),
+        pageAlignment: cloneScanCleanupPreferenceValue(preferences.pageAlignment),
         marginsMm: {...preferences.marginsMm},
-        despeckleLevel: toRef(preferences, 'despeckleLevel'),
-        autoDewarp: toRef(preferences, 'autoDewarp'),
-        autoDewarpDepth: toRef(preferences, 'autoDewarpDepth'),
-        skipBlankPages: toRef(preferences, 'skipBlankPages'),
+        despeckleLevel: cloneScanCleanupPreferenceValue(preferences.despeckleLevel),
+        autoDewarp: cloneScanCleanupPreferenceValue(preferences.autoDewarp),
+        autoDewarpDepth: cloneScanCleanupPreferenceValue(preferences.autoDewarpDepth),
+        skipBlankPages: cloneScanCleanupPreferenceValue(preferences.skipBlankPages),
         pageOverrides: {},
         pageOverrideDefaults: createScanCleanupPageOverride(),
     });
@@ -401,7 +409,10 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             && previousDocumentContext.sourceSha256 === null
             && isScanCleanupSourceSha256(currentSourceSha256);
         if (!sourceWasPromoted && !retry) {
-            if (previousDocumentContext?.sourceSha256 === null) {
+            if (
+                previousDocumentContext?.sourceSha256 === null
+                && previousDocumentContext.legacyDocumentKey === currentLegacyDocumentKey
+            ) {
                 invalidateScanCleanupDocumentPersistence(
                     null,
                     previousDocumentContext.legacyDocumentKey,
@@ -463,7 +474,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                     documentSettingsLoadFailure.value = {
                         ...(existingFailure ? {failure: existingFailure} : initializeRendererFailureReporter().captureForPresentation({
                             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                            context: {},
+                            context: {
+                                stage: 'renderer-settings',
+                                errorCode: 'unknown',
+                                failureClass: 'unknown',
+                            },
                             local: {
                                 source: 'scan-cleanup',
                                 message: 'Failed to load document settings',
@@ -526,8 +541,31 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         }
         documentIntents.add('marginsMm');
         recordEditedFields(marginIntent, marginsMm, previous);
-        if (documentSettingsReady.value) Object.assign(preferences.marginsMm, marginsMm);
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {marginsMm});
+    });
+    watch(() => ({
+        preserveOriginalQuality: values.preserveOriginalQuality,
+        layoutMode: values.layoutMode,
+        binarization: values.binarization,
+        normalizeIllumination: values.normalizeIllumination,
+        readingOrder: values.readingOrder,
+        thickness: values.thickness,
+        crop: values.crop,
+        matchPageSize: values.matchPageSize,
+        pageAlignment: values.pageAlignment,
+        despeckleLevel: values.despeckleLevel,
+        autoDewarp: values.autoDewarp,
+        autoDewarpDepth: values.autoDewarpDepth,
+        skipBlankPages: values.skipBlankPages,
+    }), (next, previous) => {
+        if (applyingDocumentSettings || !documentSettingsReady.value) {
+            return;
+        }
+        for (const key of GLOBAL_DOCUMENT_SESSION_KEYS) {
+            if (!Object.is(next[key], previous[key])) {
+                Object.assign(preferences, {[key]: cloneScanCleanupPreferenceValue(next[key])});
+            }
+        }
     });
     watch(() => values.outputMode, outputMode => {
         if (applyingDocumentSettings) {

@@ -273,9 +273,7 @@
                 "staged-journal (planned)",
                 "held-file-handle (guest-produced)"
             ],
-            "metadata": {
-                "scanCleanupReference": "tests/fixtures/scan-cleanup/protocol-v3-page-before-fold-band.json"
-            },
+            "metadata": {},
             "files": [
                 {
                     "id": "F08-control-corrupt-sidecar",

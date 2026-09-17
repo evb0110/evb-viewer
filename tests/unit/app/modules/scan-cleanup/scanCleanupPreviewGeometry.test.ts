@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -5,21 +7,26 @@ import {
     vi,
 } from 'vitest';
 import {
+    createApp,
     effectScope,
+    h,
     nextTick,
     ref,
     shallowRef,
 } from 'vue';
 import type {
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     completePreviewImageSwap,
     createPreviewImageSwap,
     loadPreviewImageSwap,
     queuePreviewImageSwap,
+    SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS,
+    useScanCleanupPreviewImages,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {
     expandPreviewRectByMargins,
@@ -45,7 +52,7 @@ import {
     toPreviewStyleRect,
 } from '@app/modules/scan-cleanup/geometry/placement';
 import {useScanCleanupViewportFrame} from '@app/modules/scan-cleanup/composables/useScanCleanupViewportFrame';
-import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPrefetcher';
+import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 
 function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCleanupPreviewMetadata {
     return {
@@ -65,6 +72,12 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
             widthPx: 200,
             heightPx: 300,
         },
+        cropRect: {
+            xPx: 0,
+            yPx: 0,
+            widthPx: 230,
+            heightPx: 330,
+        },
         appliedMargins: {
             leftPx: 15,
             topPx: 15,
@@ -75,6 +88,8 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
         outputHeightPx: 330,
         canvasWidthPx: 230,
         canvasHeightPx: 330,
+        canvasPolicy: 'intrinsic',
+        canvasOverflow: false,
         placementOffsetXPx: 0,
         placementOffsetYPx: 0,
         cutterXPx: null,
@@ -82,6 +97,7 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
         inputHeightPx: 640,
         rotationDegrees: 0,
         resamplePasses: 1,
+        rasterScaleLimited: false,
         forwardTransform: {matrix: [
             [
                 1,
@@ -206,6 +222,117 @@ describe('scan cleanup preview geometry', () => {
         expect(revoke).toHaveBeenCalledOnce();
         expect(revoke).toHaveBeenCalledWith('blob:old');
         expect(swap.outgoingUrl).toBe('');
+    });
+
+    it('retires a raw blob when the browser skips the transition event', async () => {
+        vi.useFakeTimers();
+        const revokeObjectURL = vi.fn();
+        let nextUrl = 0;
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => `blob:preview-${String(++nextUrl)}`),
+            revokeObjectURL,
+        });
+        const rawResult = shallowRef<IScanCleanupRawPreviewResult>({
+            pageNumber: requirePageNumber(1),
+            totalPages: 1,
+            rawImageData: new Uint8Array([1]),
+            rawWidthPx: 600,
+            rawHeightPx: 640,
+        });
+        let images: ReturnType<typeof useScanCleanupPreviewImages> | undefined;
+        const app = createApp({setup() {
+            images = useScanCleanupPreviewImages(
+                shallowRef<IScanCleanupPreviewResult | null>(null),
+                undefined,
+                rawResult,
+            );
+            return () => h('div');
+        }});
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        app.mount(host);
+        try {
+            await nextTick();
+            const mountedImages = images!;
+            const oldUrl = mountedImages.rawPixelSwap.value.currentUrl;
+            rawResult.value = {
+                ...rawResult.value,
+                rawImageData: new Uint8Array([2]),
+            };
+            await nextTick();
+            const incomingUrl = mountedImages.rawPixelSwap.value.incomingUrl;
+
+            mountedImages.loadRawPixelSwap(incomingUrl);
+            expect(mountedImages.rawPixelSwap.value.outgoingUrl).toBe(oldUrl);
+            await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS);
+
+            expect(revokeObjectURL).toHaveBeenCalledWith(oldUrl);
+            expect(mountedImages.rawPixelSwap.value.outgoingUrl).toBe('');
+        } finally {
+            app.unmount();
+            host.remove();
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('does not let a stale raw swap timer cancel the current transition', async () => {
+        vi.useFakeTimers();
+        const revokeObjectURL = vi.fn();
+        let nextUrl = 0;
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => `blob:preview-${String(++nextUrl)}`),
+            revokeObjectURL,
+        });
+        const rawResult = shallowRef<IScanCleanupRawPreviewResult>({
+            pageNumber: requirePageNumber(1),
+            totalPages: 1,
+            rawImageData: new Uint8Array([1]),
+            rawWidthPx: 600,
+            rawHeightPx: 640,
+        });
+        let images: ReturnType<typeof useScanCleanupPreviewImages> | undefined;
+        const app = createApp({setup() {
+            images = useScanCleanupPreviewImages(
+                shallowRef<IScanCleanupPreviewResult | null>(null),
+                undefined,
+                rawResult,
+            );
+            return () => h('div');
+        }});
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        app.mount(host);
+        try {
+            await nextTick();
+            const mountedImages = images!;
+            rawResult.value = {
+                ...rawResult.value,
+                rawImageData: new Uint8Array([2]),
+            };
+            await nextTick();
+            const firstIncomingUrl = mountedImages.rawPixelSwap.value.incomingUrl;
+            mountedImages.loadRawPixelSwap(firstIncomingUrl);
+
+            rawResult.value = {
+                ...rawResult.value,
+                rawImageData: new Uint8Array([3]),
+            };
+            await nextTick();
+            const secondIncomingUrl = mountedImages.rawPixelSwap.value.incomingUrl;
+            mountedImages.loadRawPixelSwap(secondIncomingUrl);
+            mountedImages.completeRawPixelSwap(firstIncomingUrl);
+
+            await vi.advanceTimersByTimeAsync(SCAN_CLEANUP_PREVIEW_IMAGE_SWAP_FALLBACK_MS);
+
+            expect(revokeObjectURL).toHaveBeenCalledWith(firstIncomingUrl);
+            expect(mountedImages.rawPixelSwap.value.outgoingUrl).toBe('');
+        } finally {
+            app.unmount();
+            host.remove();
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
     });
 
     it('maps the half-local detected content box through the source-to-output affine', () => {
@@ -419,6 +546,25 @@ describe('scan cleanup preview geometry', () => {
             top: `${30 / 330 * 100}%`,
             width: `${210 / 230 * 100}%`,
             height: `${300 / 330 * 100}%`,
+        });
+    });
+
+    it('keeps zero-sized canvas overlays finite', () => {
+        const placement = resolvePreviewMetadataPlacement(metadata({
+            canvasWidthPx: 0,
+            canvasHeightPx: 0,
+        }));
+
+        expect(toPreviewStyleRect({
+            xPx: 0,
+            yPx: 0,
+            widthPx: 0,
+            heightPx: 0,
+        }, placement)).toEqual({
+            left: '0%',
+            top: '0%',
+            width: '0%',
+            height: '0%',
         });
     });
 

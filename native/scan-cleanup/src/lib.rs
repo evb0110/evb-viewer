@@ -6,7 +6,6 @@ pub mod bw;
 mod cache;
 #[doc(hidden)]
 pub mod calibration;
-pub mod cli;
 pub mod content;
 pub mod deskew;
 pub mod dewarp;
@@ -27,5 +26,5 @@ pub use domain::options::*;
 // Generated from packages/contracts/nativeToolProtocols.ts. Keeping the CLI
 // handshake on this descriptor makes a stale strict-manifest parser fail
 // before Electron sends it a request.
-pub const PROTOCOL_VERSION: u32 =
+pub const HANDSHAKE_VERSION: u32 =
     evb_native_support::generated_native_tool_protocols::SCAN_CLEANUP.protocol_version;

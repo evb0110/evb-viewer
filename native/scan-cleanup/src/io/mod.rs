@@ -249,7 +249,7 @@ fn randomized_temporary_path(path: &Path, random: &[u8]) -> PathBuf {
     path.with_file_name(PathBuf::from(name))
 }
 
-fn open_randomized_temporary(
+pub(crate) fn open_randomized_temporary(
     path: &Path,
     fill_random: &mut impl FnMut(&mut [u8]) -> Result<(), String>,
 ) -> Result<(File, PathBuf), String> {
@@ -277,12 +277,15 @@ fn open_randomized_temporary(
 
 pub(crate) struct StagedFileBackup {
     original: PathBuf,
-    backup: PathBuf,
+    backup: Option<PathBuf>,
     permissions: fs::Permissions,
 }
 
 impl StagedFileBackup {
-    pub(crate) fn stage(original: &Path) -> Result<Self, String> {
+    pub(crate) fn stage_with_hook(
+        original: &Path,
+        before_remove: impl FnOnce(&Path, &Path) -> Result<(), String>,
+    ) -> Result<Self, String> {
         let mut source = File::open(original).map_err(|error| error.to_string())?;
         let metadata = source.metadata().map_err(|error| error.to_string())?;
         if !metadata.is_file() {
@@ -306,13 +309,17 @@ impl StagedFileBackup {
             let _ = fs::remove_file(&backup);
             return Err(error.to_string());
         }
+        if let Err(error) = before_remove(original, &backup) {
+            let _ = fs::remove_file(&backup);
+            return Err(error);
+        }
         if let Err(error) = fs::remove_file(original) {
             let _ = fs::remove_file(&backup);
             return Err(error.to_string());
         }
         Ok(Self {
             original: original.to_path_buf(),
-            backup,
+            backup: Some(backup),
             permissions: metadata.permissions(),
         })
     }
@@ -321,24 +328,55 @@ impl StagedFileBackup {
         &self.original
     }
 
-    pub(crate) fn restore(self) -> Result<(), String> {
-        match fs::symlink_metadata(&self.original) {
-            Ok(metadata) if metadata.is_dir() => {
-                return Err(format!(
-                    "cannot restore {} over a directory",
-                    self.original.display()
-                ));
-            }
-            Ok(_) => fs::remove_file(&self.original).map_err(|error| error.to_string())?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
+    pub(crate) fn restore(mut self) -> Result<(), String> {
+        let Some(backup) = self.backup.take() else {
+            return Ok(());
+        };
+        let result = restore_staged_file(&self.original, &backup, &self.permissions);
+        if let Err(error) = &result {
+            self.backup = Some(backup);
+            return Err(error.clone());
         }
-        fs::rename(&self.backup, &self.original).map_err(|error| error.to_string())?;
-        fs::set_permissions(&self.original, self.permissions).map_err(|error| error.to_string())
+        result
     }
 
-    pub(crate) fn discard(self) -> Result<(), String> {
-        fs::remove_file(&self.backup).map_err(|error| error.to_string())
+    pub(crate) fn discard(mut self) -> Result<(), String> {
+        let Some(backup) = self.backup.take() else {
+            return Ok(());
+        };
+        match fs::remove_file(&backup) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
+fn restore_staged_file(
+    original: &Path,
+    backup: &Path,
+    permissions: &fs::Permissions,
+) -> Result<(), String> {
+    match fs::symlink_metadata(original) {
+        Ok(metadata) if metadata.is_dir() => {
+            return Err(format!(
+                "cannot restore {} over a directory",
+                original.display()
+            ));
+        }
+        Ok(_) => fs::remove_file(original).map_err(|error| error.to_string())?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    fs::set_permissions(backup, permissions.clone()).map_err(|error| error.to_string())?;
+    fs::rename(backup, original).map_err(|error| error.to_string())
+}
+
+impl Drop for StagedFileBackup {
+    fn drop(&mut self) {
+        let Some(backup) = self.backup.take() else {
+            return;
+        };
+        let _ = restore_staged_file(&self.original, &backup, &self.permissions);
     }
 }
 
@@ -380,6 +418,43 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn staged_backup_drop_restores_the_original_after_unwind() {
+        let directory = test_directory("staged-drop");
+        let original = directory.join("destination.png");
+        fs::write(&original, b"previous destination").unwrap();
+
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _backup =
+                StagedFileBackup::stage_with_hook(&original, |_original, _backup| Ok(())).unwrap();
+            assert!(!original.exists());
+            panic!("operation failed after staging");
+        }));
+
+        assert!(unwind.is_err());
+        assert_eq!(fs::read(&original).unwrap(), b"previous destination");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_backup_discard_does_not_restore_after_the_original_was_removed() {
+        let directory = test_directory("staged-discard-failure");
+        let original = directory.join("destination.png");
+        fs::write(&original, b"previous destination").unwrap();
+
+        let backup =
+            StagedFileBackup::stage_with_hook(&original, |_original, _backup| Ok(())).unwrap();
+        let backup_path = backup.backup.as_ref().unwrap().clone();
+        fs::remove_file(&backup_path).unwrap();
+        fs::create_dir(&backup_path).unwrap();
+
+        let error = backup.discard().unwrap_err();
+
+        assert!(!original.exists());
+        assert!(!error.is_empty());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

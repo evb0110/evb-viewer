@@ -261,14 +261,14 @@ import type {
     TScanCleanupOutputModeRecommendationReason,
     TScanCleanupOutputModeSetting,
     IScanCleanupTextAxis,
-} from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     isDefaultScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import type {
@@ -1140,7 +1140,7 @@ watch(() => props.disabled, disabled => {
 .scan-thumbnail-exclude-toggle {
     position: relative;
     flex: none;
-    opacity: 0.55;
+    opacity: var(--app-scan-disabled-opacity);
     pointer-events: auto;
     transition: opacity var(--app-transition-fast);
 }
@@ -1157,7 +1157,7 @@ watch(() => props.disabled, disabled => {
 
 .scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-options-toggle,
 .scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-exclude-toggle {
-    opacity: 0.55;
+    opacity: var(--app-scan-disabled-opacity);
 }
 
 .scan-thumbnail-options-toggle.is-customized::after {

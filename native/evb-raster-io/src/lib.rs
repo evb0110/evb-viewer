@@ -1348,6 +1348,7 @@ fn validate_decoded_rows(idat: &[u8], header: PngHeader) -> Result<(), RasterErr
         .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
     validate_inflated_rows(idat, expected, row_bytes, header.height as usize)
 }
+
 fn skip_chunk_bytes<R: Read>(
     reader: &mut R,
     mut length: usize,

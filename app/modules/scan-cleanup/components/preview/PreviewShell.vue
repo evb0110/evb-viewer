@@ -436,12 +436,16 @@ import type {
     IScanCleanupPixelRect,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
+    TScanCleanupPictureZoneLayer,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
-import type {CSSProperties} from 'vue';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    CSSProperties,
+    MaybeRefOrGetter,
+} from 'vue';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
@@ -463,7 +467,11 @@ import {
     useScanCleanupDragTransaction,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupDragTransaction';
 import {useScanCleanupViewportFrame} from '@app/modules/scan-cleanup/composables/useScanCleanupViewportFrame';
-import {useScanCleanupZoneEditor} from '@app/modules/scan-cleanup/composables/useScanCleanupZoneEditor';
+import {
+    cloneScanCleanupZonePolygon,
+    type IScanCleanupZoneSelection,
+    type TScanCleanupZoneKind,
+} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 import {
     clampPreviewRect,
     expandPreviewRectByMargins,
@@ -484,12 +492,9 @@ import {
     SCAN_CLEANUP_MANUAL_SPLIT_MIN,
 } from '@contracts/scan-cleanup/geometry';
 import {
-    type IScanCleanupPreviewFitArea,
-    type IScanCleanupPreviewFitPlacement,
+    resolvePreviewCutterStyle,
     resolvePreviewFitPlacement,
-    resolvePreviewOutputFitRects,
     resolvePreviewOutputFitSizes,
-    resolvePreviewSpreadCutterCenter,
 } from '@app/modules/scan-cleanup/geometry/viewport';
 import {
     resolvePreviewMetadataPlacement,
@@ -502,6 +507,86 @@ import {
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {useScanCleanupPreviewZoom} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom';
 import {useScanCleanupPreviewOverlayGeometry} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewOverlayGeometry';
+
+interface IUseScanCleanupZoneEditorOptions {
+    editing: MaybeRefOrGetter<boolean | undefined>;
+    manualZones: MaybeRefOrGetter<IScanCleanupManualZones | undefined>;
+    pageNumber: MaybeRefOrGetter<number>;
+    updateManualZones: (value: IScanCleanupManualZones) => void;
+}
+
+const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => {
+    const selectedZone = ref<IScanCleanupZoneSelection | null>(null);
+    const zoneKind = ref<TScanCleanupZoneKind>('picture');
+    const zoneCount = computed(() => (toValue(options.manualZones)?.picture.length ?? 0)
+        + (toValue(options.manualZones)?.fill.length ?? 0));
+    const selectedPictureLayer = computed<TScanCleanupPictureZoneLayer | null>(() => {
+        if (selectedZone.value?.kind !== 'picture') {
+            return null;
+        }
+        return toValue(options.manualZones)?.picture[selectedZone.value.index]?.layer ?? null;
+    });
+
+    function updateSelectedPictureLayer(layer: TScanCleanupPictureZoneLayer) {
+        if (selectedZone.value?.kind !== 'picture') {
+            return;
+        }
+        const manualZones = toValue(options.manualZones);
+        const next = {
+            picture: (manualZones?.picture ?? []).map(zone => ({
+                layer: zone.layer,
+                polygon: cloneScanCleanupZonePolygon(zone.polygon),
+            })),
+            fill: (manualZones?.fill ?? []).map(cloneScanCleanupZonePolygon),
+        };
+        const zone = next.picture[selectedZone.value.index];
+        if (!zone) {
+            return;
+        }
+        next.picture[selectedZone.value.index] = {
+            ...zone,
+            layer,
+        };
+        options.updateManualZones(next);
+    }
+
+    watch([
+        () => toValue(options.pageNumber),
+        () => toValue(options.editing),
+    ], () => {
+        selectedZone.value = null;
+    });
+    watch(
+        () => [
+            toValue(options.manualZones)?.picture.length ?? 0,
+            toValue(options.manualZones)?.fill.length ?? 0,
+        ] as const,
+        ([
+            pictureCount,
+            fillCount,
+        ], [
+            previousPictureCount,
+            previousFillCount,
+        ]) => {
+            const selection = selectedZone.value;
+            if (!selection) {
+                return;
+            }
+            const count = selection.kind === 'picture' ? pictureCount : fillCount;
+            const previousCount = selection.kind === 'picture' ? previousPictureCount : previousFillCount;
+            if (count < previousCount || selection.index >= count) {
+                selectedZone.value = null;
+            }
+        });
+
+    return {
+        selectedPictureLayer,
+        selectedZone,
+        updateSelectedPictureLayer,
+        zoneCount,
+        zoneKind,
+    };
+};
 
 interface ICutterDragGeometry {
     kind: 'cutter';
@@ -636,7 +721,21 @@ const displayedPresentation = computed(
 );
 const displayedFrameIdentityCurrent = computed(() => props.resultPresentationKey === undefined
     || displayedCleanedFrame.value?.transitionKey === props.resultPresentationKey);
+const displayedFrameResultCurrent = computed(() => props.resultPresentationKey === undefined
+    ? displayedCleanedFrame.value?.result.pageNumber === props.pageNumber
+    : displayedCleanedFrame.value?.result === toRaw(props.result));
+// This is the only renderer-facing presentation-current decision. The preview
+// request coordinator owns request freshness, while the image owner owns the
+// displayed frame; the pane combines those facts once for edits, notices, and
+// detail tiles.
+const previewPresentationCurrent = computed(() => (props.resultCurrent === undefined || props.resultCurrent === true)
+    && displayedFrameResultCurrent.value
+    && displayedFrameIdentityCurrent.value);
+const previewPresentationNoticeCurrent = computed(() => (props.resultCurrent === undefined || props.resultCurrent === true)
+    && (props.resultPresentationKey === undefined
+        || displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value));
 const previewEditsEnabled = computed(() => presentationResult.value?.pageNumber === props.pageNumber
+    && previewPresentationCurrent.value
     && displayedFrameIdentityCurrent.value
     && effectiveError.value === ''
     && !props.disabled);
@@ -729,6 +828,7 @@ const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.lossless !== true
     // Deliberate degradation while pinned: detail tiles describe the live
     // generation and must not be composited onto a different displayed base.
+    && previewPresentationCurrent.value
     && displayedCleanedFrameCurrent.value
     && Boolean(presentationResult.value?.outputs.length)
     && detailDensityExceeded.value);
@@ -798,8 +898,7 @@ const canvasNoticeKind = computed(() => {
             props.resultPresentationKey !== undefined
             && (
                 displayedCleanedFrame.value?.transitionKey !== props.resultPresentationKey
-                || props.resultCurrent !== true
-                || !displayedPresentation.value.resultCurrent
+                || !previewPresentationNoticeCurrent.value
             )
         )
     ) {
@@ -1021,48 +1120,22 @@ const losslessCropOverlayStyles = computed(() => {
 });
 const cutterStyle = computed(() => {
     const sourceRatio = scanCleanupCutterRatio(displayedCutterX.value, analysisWidth.value);
-    if (cutterSourceUnderlayVisible.value) {
-        return {
-            insetBlockEnd: 'auto',
-            insetBlockStart: `${cutterSourceFitPlacement.value.top}px`,
-            insetInlineStart: `${cutterSourceFitPlacement.value.left + cutterSourceFitPlacement.value.width * sourceRatio}px`,
-            height: `${cutterSourceFitPlacement.value.height}px`,
-        };
-    }
-    if (effectiveViewMode.value === 'original' && originalFitPlacement.value.width > 0) {
-        return {
-            insetBlockEnd: 'auto',
-            insetBlockStart: `${originalFitPlacement.value.top}px`,
-            insetInlineStart: `${originalFitPlacement.value.left + originalFitPlacement.value.width * sourceRatio}px`,
-            height: `${originalFitPlacement.value.height}px`,
-        };
-    }
     const outputs = presentationResult.value?.outputs ?? [];
-    const canvases = outputs.map(output => frozenViewportFrame.value.outputs[output.metadata.half] ?? {
-        width: analysisWidth.value / Math.max(1, outputs.length),
-        height: analysisHeight.value,
+    return resolvePreviewCutterStyle({
+        canvases: frozenViewportFrame.value.outputs,
+        fallbackCanvas: {
+            width: analysisWidth.value / Math.max(1, outputs.length),
+            height: analysisHeight.value,
+        },
+        fitAreas: outputFitAreaSizes,
+        originalPlacement: originalFitPlacement.value,
+        originalVisible: effectiveViewMode.value === 'original' && originalFitPlacement.value.width > 0,
+        outputs: outputs.map(output => output.metadata.half),
+        readingOrder: props.readingOrder,
+        sourcePlacement: cutterSourceFitPlacement.value,
+        sourceRatio,
+        sourceUnderlayVisible: cutterSourceUnderlayVisible.value,
     });
-    if (props.readingOrder === 'rtl' && canvases.length > 1) {
-        canvases.reverse();
-    }
-    const orderedHalves = outputs.map(output => output.metadata.half);
-    if (props.readingOrder === 'rtl' && orderedHalves.length > 1) {
-        orderedHalves.reverse();
-    }
-    const areas = orderedHalves
-        .map(half => outputFitAreaSizes[half])
-        .filter((area): area is IScanCleanupPreviewFitArea => area !== undefined && 'left' in area && 'top' in area);
-    const renderedGapCenter = areas.length === canvases.length
-        ? resolvePreviewSpreadCutterCenter(
-            resolvePreviewOutputFitRects(areas, canvases)
-                .filter((area): area is IScanCleanupPreviewFitPlacement => 'left' in area && 'top' in area),
-        )
-        : null;
-    if (renderedGapCenter !== null) {
-        return {insetInlineStart: `${renderedGapCenter}px`};
-    }
-    const visualRatio = props.readingOrder === 'rtl' ? 1 - sourceRatio : sourceRatio;
-    return {insetInlineStart: `${visualRatio * 100}%`};
 });
 function navigateFromKeyboard(direction: 'previous' | 'next') {
     if (props.disabled) {
@@ -1153,9 +1226,9 @@ function startCutterDrag(event: PointerEvent) {
         fitScale: sourceFrame.width * transformScale / Math.max(1, analysisWidth.value),
         update: (pointerEvent, snapshot) => {
             const ratio = (
-                (pointerEvent.clientX - snapshot.stageRect.x) / transformScale
-                - sourceFrame.left
-            ) / sourceFrame.width;
+                (pointerEvent.clientX - snapshot.stageRect.x) / snapshot.fitScale
+                / Math.max(1, analysisWidth.value)
+            ) - sourceFrame.left / sourceFrame.width;
             return {
                 kind: 'cutter',
                 value: normalizeManualSplitX(
@@ -1530,6 +1603,7 @@ function scheduleDetailRequest() {
         || props.lossless === true
         || !presentationResult.value
         || presentationResult.value.outputs.length === 0
+        || !previewPresentationCurrent.value
         || !displayedCleanedFrameCurrent.value
         || props.loading
         || isStalePage.value
@@ -1600,7 +1674,7 @@ watch([
     () => dragTransaction.active.value,
     () => props.loading,
     () => presentationResult.value?.pageNumber,
-    displayedCleanedFrameCurrent,
+    previewPresentationCurrent,
     () => displayedCleanedFrame.value?.transitionKey,
 ], scheduleDetailRequest);
 onMounted(() => {

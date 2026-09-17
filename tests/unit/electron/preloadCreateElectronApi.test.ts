@@ -571,6 +571,7 @@ describe('createElectronApi', () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
         const {
             api,
+            ipcRenderer,
             listeners,
         } = await createApiHarness();
         const callback = vi.fn();
@@ -604,6 +605,26 @@ describe('createElectronApi', () => {
             `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.debugLog}`,
             expect.objectContaining({ level: 'TRACE' }),
         );
+        expect(ipcRenderer.send).toHaveBeenCalledWith(
+            CORE_IPC_SEND_CHANNELS.rendererLog,
+            expect.objectContaining({data: expect.objectContaining({
+                channel: CORE_IPC_EVENT_CHANNELS.debugLog,
+                decoderError: expect.any(String),
+            })}),
+        );
+        expect(ipcRenderer.send).toHaveBeenCalledWith(
+            CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
+            expect.objectContaining({code: 'RENDERER_IPC_EVENT_DECODE_FAILED'}),
+            0,
+        );
+
+        listener({}, {
+            source: 'main',
+            message: 'bad level again',
+            timestamp: '2026-03-21T00:00:00.000Z',
+            level: 'TRACE',
+        });
+        expect(ipcRenderer.send).toHaveBeenCalledTimes(2);
     });
 
     it('decodes agent renderer request events before invoking callbacks', async () => {

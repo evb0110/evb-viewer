@@ -104,6 +104,7 @@ describe('tab session memory policy', () => {
             ...readerState,
             surfaceMode: 'scan-cleanup',
             scanCleanup: {
+                ownerId: 'cleanup-owner',
                 previewPage: 17,
                 previewViewMode: 'original',
             },
@@ -116,6 +117,7 @@ describe('tab session memory policy', () => {
             effectiveZoom: 1.8,
             zoomMode: 'custom',
             scanCleanup: {
+                ownerId: 'cleanup-owner',
                 previewPage: 17,
                 previewViewMode: 'original',
             },

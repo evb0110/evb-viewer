@@ -5,7 +5,7 @@ import type {
     IScanCleanupPreviewPageMetadata,
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     SCAN_CLEANUP_MANUAL_SPLIT_MAX,
     SCAN_CLEANUP_MANUAL_SPLIT_MIN,

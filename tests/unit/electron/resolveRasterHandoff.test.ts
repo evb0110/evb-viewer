@@ -9,6 +9,7 @@ import {
     readAvailableScratchBytes,
     resolveRasterHandoff,
     resolveRequiredScratchBytes,
+    resolveScanCleanupScratchAdmission,
     resolveStagedRasterWindow,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 
@@ -148,6 +149,20 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         expect(result.estimatedBytes).toBe(workingBytes * 2 + canonicalBytes);
     });
 
+    it('includes retained native output rasters in each page estimate', async () => {
+        const result = await resolveRasterHandoff([{
+            renderDpi: 300,
+            additionalScratchBytes: 123_456,
+            raster: {
+                dpi: 300,
+                height: 100,
+                width: 100,
+            },
+        }], '/scratch', vi.fn(async () => null));
+
+        expect(result.estimatedBytes).toBe(100 * 100 * 3 + 64 * 1024 + 123_456);
+    });
+
     it('admits the widest window that fits and narrows it under scratch pressure', async () => {
         // 3,000 × 3,000 pages, each staged beside the copy its render publishes
         // from: 54 MiB of scratch per resident page.
@@ -270,6 +285,31 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         expect(resolveRequiredScratchBytes(64 * MIB)).toBe(64 * MIB + 512 * MIB);
         expect(resolveRequiredScratchBytes(512 * MIB)).toBe(1_024 * MIB);
         expect(resolveRequiredScratchBytes(600 * MIB)).toBe(2_400 * MIB);
+    });
+
+    it('admits a fitting batch only after reserving the final merge working set', async () => {
+        const batchBytes = 64 * MIB;
+        const mergeWorkingSetBytes = 512 * MIB;
+        await expect(resolveScanCleanupScratchAdmission(
+            batchBytes,
+            mergeWorkingSetBytes,
+            '/scratch',
+            vi.fn(async () => 4 * 1024 * MIB),
+        )).resolves.toMatchObject({
+            admitted: true,
+            estimatedBytes: batchBytes + mergeWorkingSetBytes,
+            requiredBytes: null,
+        });
+        await expect(resolveScanCleanupScratchAdmission(
+            batchBytes,
+            mergeWorkingSetBytes,
+            '/scratch',
+            vi.fn(async () => 700 * MIB),
+        )).resolves.toMatchObject({
+            admitted: false,
+            estimatedBytes: batchBytes + mergeWorkingSetBytes,
+            requiredBytes: 2_304 * MIB,
+        });
     });
 
     it('waits for every raster worker before rethrowing a sibling failure', async () => {

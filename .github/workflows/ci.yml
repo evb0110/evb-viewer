@@ -201,6 +201,7 @@ jobs:
         with:
           path: |
             .tmp/scan-cleanup
+            .tmp/pdf-image-combine
             .tmp/pdf-page-ops
           key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
@@ -459,9 +460,10 @@ jobs:
     # The cargo-release-heavy canonical identity gate ran serially inside
     # Native And Build Safety and helped push that lane to 45-49 minutes
     # (issue #109's root growth). It runs as a parallel sibling, blocking
-    # through gates_ok, off the native lane's serial path. The 18-minute
-    # real-corpus suite was moved to manual maintenance after two blocking days with
-    # zero catches (the Checks rules in AGENTS.md).
+    # through gates_ok, off the native lane's serial path. The former
+    # real-corpus wrapper was retired; three cheap real-fixture tests now run
+    # in test:rust above, while the remaining corpus acceptance is not
+    # automated by this workflow.
     name: Scan Cleanup Heavy Gates
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
@@ -555,7 +557,7 @@ jobs:
 
       - name: Install PDF audit tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils python3-numpy python3-opencv python3-pil qpdf
+        run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"

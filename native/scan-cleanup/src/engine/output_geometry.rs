@@ -12,7 +12,7 @@ use evb_native_support::{NativeError, NativeErrorCode};
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
@@ -53,28 +53,6 @@ pub(crate) enum CanvasWarning {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct GeometryCanvas {
-    pub(crate) width_points: f64,
-    pub(crate) height_points: f64,
-    pub(crate) width_px: usize,
-    pub(crate) height_px: usize,
-}
-
-impl GeometryCanvas {
-    pub(crate) fn dpi(self) -> f64 {
-        self.width_px as f64 / self.width_points * 72.0
-    }
-
-    pub(crate) fn at_dpi(self, dpi: f64) -> Self {
-        Self {
-            width_px: ((self.width_points / 72.0 * dpi).round() as usize).max(1),
-            height_px: ((self.height_points / 72.0 * dpi).round() as usize).max(1),
-            ..self
-        }
-    }
-}
-
 pub(crate) fn layered_background_dpi(options: &CleanupOptions, confirmed_picture: bool) -> f64 {
     let max_dpi = if confirmed_picture { 300.0 } else { 200.0 };
     options
@@ -84,7 +62,7 @@ pub(crate) fn layered_background_dpi(options: &CleanupOptions, confirmed_picture
 }
 
 pub(crate) fn background_canvas_dimensions(
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
     background_dpi: f64,
 ) -> (usize, usize) {
     let background_canvas = canvas.at_dpi(background_dpi);
@@ -126,6 +104,40 @@ pub(crate) struct GeometryOutput {
     pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
     pub(crate) fold_side_near_paper_run: usize,
     pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
+}
+
+struct GeometryOutputParts {
+    options: CleanupOptions,
+    source_page_index: usize,
+    half: PageHalf,
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    content_detected: bool,
+    spread_content_top: Option<f64>,
+    optical_content_bounds_x: Option<(f64, f64)>,
+    fold_side_near_paper_run: usize,
+    outer_near_paper_edge_runs: NearPaperEdgeRuns,
+}
+
+impl GeometryOutput {
+    fn from_parts(parts: GeometryOutputParts) -> Self {
+        Self {
+            options: parts.options,
+            source_page_index: parts.source_page_index,
+            half: parts.half,
+            width: parts.width,
+            height: parts.height,
+            paper_width: parts.paper_width,
+            paper_height: parts.paper_height,
+            content_detected: parts.content_detected,
+            spread_content_top: parts.spread_content_top,
+            optical_content_bounds_x: parts.optical_content_bounds_x,
+            fold_side_near_paper_run: parts.fold_side_near_paper_run,
+            outer_near_paper_edge_runs: parts.outer_near_paper_edge_runs,
+        }
+    }
 }
 
 pub(crate) struct WrittenOutput {
@@ -202,7 +214,7 @@ pub(crate) fn compose_primary_raster(
     image: GeometryRaster,
     color_image: Option<RgbImage>,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> (GeometryRaster, Option<RgbImage>) {
     let image = match &image {
         GeometryRaster::Gray(image) => {
@@ -230,7 +242,7 @@ pub(crate) fn compose_primary_raster(
 pub(crate) fn compose_picture_mask(
     picture_mask: Option<BinaryImage>,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> Option<BinaryImage> {
     let picture_mask = picture_mask?;
     Some(materialize_binary_on_canvas(
@@ -243,7 +255,7 @@ pub(crate) fn compose_picture_mask(
 fn materialize_binary_on_canvas(
     source: &BinaryImage,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> BinaryImage {
     let gray = binary_to_gray(source);
     let placed = place_on_white_canvas_with_source_window(
@@ -264,7 +276,7 @@ fn materialize_binary_on_canvas(
 pub(crate) fn compose_tone_preservation_alpha(
     alpha: Option<GrayImage>,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> Option<GrayImage> {
     let alpha = alpha?;
     Some(place_on_gray_canvas_with_source_window(
@@ -340,7 +352,7 @@ pub(crate) fn compose_layers(
     mixed_layers: Option<GeometryMixedLayers>,
     options: &CleanupOptions,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> Option<GeometryMixedLayers> {
     let confirmed_picture = picture_mask.is_some_and(|mask| mask.count_black() > 0)
         && !mixed_layers
@@ -673,7 +685,7 @@ pub(crate) struct CanvasMetadataFacts {
 
 pub(crate) fn canvas_metadata_facts(
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> CanvasMetadataFacts {
     let effective_left = placement.left as isize - placement.intrinsic_overflow_left as isize;
     let effective_right = effective_left + placement.content_width as isize;
@@ -755,7 +767,7 @@ pub(crate) fn canvas_fit_for(
     paper_height: f64,
     content_detected: bool,
     options: &CleanupOptions,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> CanvasFit {
     let configured_margins = if let Some(margins) = options.margins_pixels {
         margins.map(|pixels| (pixels * canvas.dpi() / options.dpi).round().max(0.0) as usize)
@@ -923,7 +935,7 @@ pub(crate) fn horizontal_overflow_requires_fold_scan(
 }
 pub(crate) fn shared_spread_overflow_fits_for_geometry_outputs(
     outputs: &[GeometryOutput],
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> HashMap<usize, SharedSpreadOverflowPlan> {
     let mut by_source_page = HashMap::<usize, Vec<&GeometryOutput>>::new();
     for output in outputs {
@@ -987,7 +999,7 @@ pub(crate) fn shared_spread_overflow_fits_for_geometry_outputs(
 
 pub(crate) fn plan_canvas_placements(
     outputs: &[GeometryOutput],
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> Vec<CanvasPlacement> {
     let shared_fits = shared_spread_overflow_fits_for_geometry_outputs(outputs, canvas);
     let mut trim_indices = HashMap::<usize, usize>::new();
@@ -1013,7 +1025,7 @@ pub(crate) fn plan_canvas_placements(
 
 pub(crate) fn plan_canvas_placement_with_shared_fit(
     output: &GeometryOutput,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
     shared_overflow_plan: Option<&SharedSpreadOverflowPlan>,
     shared_fold_trim: Option<FoldSideTrim>,
 ) -> CanvasPlacement {
@@ -1087,7 +1099,7 @@ pub(crate) fn plan_canvas_placement_for(
     content_detected: bool,
     options: &CleanupOptions,
     half: PageHalf,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> CanvasPlacement {
     plan_canvas_placement_for_with_optical_center(
         width,
@@ -1111,7 +1123,7 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center(
     content_detected: bool,
     options: &CleanupOptions,
     half: PageHalf,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
     optical_content_bounds_x: Option<(f64, f64)>,
 ) -> CanvasPlacement {
     plan_canvas_placement_for_with_optical_center_and_fit(
@@ -1137,7 +1149,7 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center_and_fit(
     content_detected: bool,
     options: &CleanupOptions,
     half: PageHalf,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
     optical_content_bounds_x: Option<(f64, f64)>,
     shared_overflow_fit: Option<f64>,
 ) -> CanvasPlacement {
@@ -1174,7 +1186,7 @@ pub(crate) struct CanvasPlacementRequest<'a> {
 
 pub(crate) fn plan_canvas_placement(
     request: CanvasPlacementRequest<'_>,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> CanvasPlacement {
     let CanvasPlacementRequest {
         width,
@@ -1362,7 +1374,7 @@ pub(crate) fn plan_canvas_placement(
 }
 pub(crate) fn canvas_placement_warning_events(
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
     content_box_detected: bool,
 ) -> Vec<CanvasWarning> {
     let mut events = Vec::new();
@@ -1427,7 +1439,7 @@ pub(crate) fn canvas_placement_warning_events(
 pub(crate) fn materialize_gray_primary_on_canvas(
     source: &GrayImage,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) -> GrayImage {
     place_on_white_canvas_with_source_window(
         &resample_gray_if_needed(source, placement.content_width, placement.content_height),
@@ -1462,7 +1474,7 @@ pub(crate) fn align_deferred_spread_vertical_placements<T>(
     placements: &mut [CanvasPlacement],
     outputs: &[GeometryOutput],
     shared_spread_fits: &HashMap<usize, T>,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     if placements.len() != outputs.len() {
         return;
@@ -1515,6 +1527,15 @@ pub(crate) fn validate_canvas_for_options(
         ));
     }
     Ok(())
+}
+
+pub(crate) fn matched_canvas_for_options(
+    document_canvas: DocumentCanvas,
+    options: &CleanupOptions,
+) -> Result<DocumentCanvas, NativeError> {
+    let canvas = document_canvas.at_dpi(options.dpi);
+    validate_canvas_for_options(canvas.width_px, canvas.height_px, options)?;
+    Ok(canvas)
 }
 #[cfg(test)]
 pub(crate) fn robust_quantile_dimension(values: impl Iterator<Item = usize>) -> usize {
@@ -1594,10 +1615,10 @@ pub(crate) fn gray_content_bounds_y(gray: &GrayImage) -> Option<(f64, f64)> {
     Some((first? as f64, last? as f64 + 1.0))
 }
 pub(crate) fn align_spread_vertical_placements(
-    placements: &mut [Option<(CanvasPlacement, GeometryCanvas)>],
+    placements: &mut [Option<(CanvasPlacement, DocumentCanvas)>],
     intrinsic_heights: &[usize],
     content_tops: &[Option<f64>],
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     if placements.len() != 2
         || intrinsic_heights.len() != placements.len()
@@ -1859,7 +1880,7 @@ pub(crate) fn place_rgb_on_white_canvas_with_source_window(
 }
 
 pub(crate) fn geometry_output(output: &WrittenOutput) -> GeometryOutput {
-    GeometryOutput {
+    GeometryOutput::from_parts(GeometryOutputParts {
         options: output.options.clone(),
         source_page_index: output.source_page_index,
         half: output.half,
@@ -1872,7 +1893,7 @@ pub(crate) fn geometry_output(output: &WrittenOutput) -> GeometryOutput {
         optical_content_bounds_x: output.optical_content_bounds_x,
         fold_side_near_paper_run: output.fold_side_near_paper_run,
         outer_near_paper_edge_runs: output.outer_near_paper_edge_runs,
-    }
+    })
 }
 
 pub(crate) fn geometry_output_from_cleanup_result(
@@ -1886,7 +1907,7 @@ pub(crate) fn geometry_output_from_cleanup_result(
         output.metadata.half,
     );
     let (fold_side_near_paper_run, outer_near_paper_edge_runs) = paper_edge_runs_for_output(output);
-    GeometryOutput {
+    GeometryOutput::from_parts(GeometryOutputParts {
         options: options.clone(),
         source_page_index: output.metadata.source_page_index,
         half: output.metadata.half,
@@ -1899,7 +1920,7 @@ pub(crate) fn geometry_output_from_cleanup_result(
         optical_content_bounds_x: optical_content_bounds_x_for_output(output),
         fold_side_near_paper_run,
         outer_near_paper_edge_runs,
-    }
+    })
 }
 
 fn geometry_plane_view(
@@ -1990,7 +2011,7 @@ fn restore_geometry_layers(
 pub(crate) fn match_primary_raster_in_memory(
     output: &mut CleanupResult,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     let intrinsic_width = output.image.width();
     let intrinsic_height = output.image.height();
@@ -2014,7 +2035,7 @@ pub(crate) fn match_primary_raster_in_memory(
 pub(crate) fn match_picture_mask_in_memory(
     output: &mut CleanupResult,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     output.picture_mask = crate::engine::output_geometry::compose_picture_mask(
         output.picture_mask.take(),
@@ -2026,7 +2047,7 @@ pub(crate) fn match_picture_mask_in_memory(
 pub(crate) fn match_tone_preservation_alpha_in_memory(
     output: &mut CleanupResult,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     output.tone_preservation_alpha =
         crate::engine::output_geometry::compose_tone_preservation_alpha(
@@ -2057,7 +2078,7 @@ pub(crate) fn match_layers_in_memory(
     output: &mut CleanupResult,
     options: &CleanupOptions,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     let layers = take_geometry_layers(output);
     let picture_mask = output.picture_mask.as_ref();
@@ -2086,19 +2107,10 @@ pub(crate) fn spread_content_top_for_output(output: &CleanupResult) -> Option<f6
     crate::engine::output_geometry::spread_content_top(&planes)
 }
 
-pub(crate) fn geometry_canvas(canvas: &DocumentCanvas) -> GeometryCanvas {
-    GeometryCanvas {
-        width_points: canvas.width_points,
-        height_points: canvas.height_points,
-        width_px: canvas.width_px,
-        height_px: canvas.height_px,
-    }
-}
-
 pub(crate) fn apply_canvas_metadata(
     metadata: &mut CleanupMetadata,
     placement: CanvasPlacement,
-    canvas: &GeometryCanvas,
+    canvas: &DocumentCanvas,
 ) {
     let facts = crate::engine::output_geometry::canvas_metadata_facts(placement, canvas);
     metadata.soft_margins_pixels = facts.soft_margins_pixels;
@@ -2230,35 +2242,45 @@ pub(crate) fn match_page_sizes(
     if eligible.is_empty() {
         return Ok(());
     }
-    let Some(canvas) = document_canvas.map(|canvas| geometry_canvas(&canvas)) else {
+    let Some(document_canvas) = document_canvas else {
         return Err(NativeError::new(
             NativeErrorCode::InvalidRequest,
             "Matched page size requires a documentCanvas plan; the manifest carried none",
         )
         .into());
     };
-    let geometry_outputs = eligible
-        .iter()
-        .map(|output| geometry_output(output))
-        .collect::<Vec<_>>();
-    let placements = plan_canvas_placements(&geometry_outputs, &canvas);
+    let mut by_dpi = BTreeMap::<u64, Vec<&WrittenOutput>>::new();
+    for output in eligible {
+        by_dpi
+            .entry(output.options.dpi.to_bits())
+            .or_default()
+            .push(output);
+    }
+    for outputs in by_dpi.into_values() {
+        let canvas = matched_canvas_for_options(document_canvas, &outputs[0].options)?;
+        let geometry_outputs = outputs
+            .iter()
+            .map(|output| geometry_output(output))
+            .collect::<Vec<_>>();
+        let placements = plan_canvas_placements(&geometry_outputs, &canvas);
 
-    for (output, placement) in eligible.into_iter().zip(placements) {
-        let repad_result = (|| -> Result<(), Box<dyn Error>> {
-            validate_canvas_for_options(canvas.width_px, canvas.height_px, &output.options)?;
-            let mut metadata: CleanupMetadata =
-                serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
-            metadata.intrinsic_raster_width.get_or_insert(output.width);
-            metadata
-                .intrinsic_raster_height
-                .get_or_insert(output.height);
-            apply_canvas_metadata(&mut metadata, placement, &canvas);
-            write_json_atomic(&output.metadata_path, &metadata)?;
-            Ok(())
-        })();
-        if let Err(error) = repad_result {
-            remove_written_output_files(output);
-            return Err(error);
+        for (output, placement) in outputs.into_iter().zip(placements) {
+            let repad_result = (|| -> Result<(), Box<dyn Error>> {
+                validate_canvas_for_options(canvas.width_px, canvas.height_px, &output.options)?;
+                let mut metadata: CleanupMetadata =
+                    serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
+                metadata.intrinsic_raster_width.get_or_insert(output.width);
+                metadata
+                    .intrinsic_raster_height
+                    .get_or_insert(output.height);
+                apply_canvas_metadata(&mut metadata, placement, &canvas);
+                write_json_atomic(&output.metadata_path, &metadata)?;
+                Ok(())
+            })();
+            if let Err(error) = repad_result {
+                remove_written_output_files(output);
+                return Err(error);
+            }
         }
     }
     Ok(())
@@ -2336,7 +2358,7 @@ mod tests {
 
     #[test]
     fn background_publication_guard_handles_coarse_grid_rounding_boundary() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 411.0,
             height_points: 595.0,
             width_px: 1_713,
@@ -2363,13 +2385,34 @@ mod tests {
     }
 
     #[test]
+    fn matched_canvas_for_options_uses_the_page_dpi_grid() {
+        let document_canvas = DocumentCanvas {
+            width_points: 612.0,
+            height_points: 792.0,
+            width_px: 2_550,
+            height_px: 3_300,
+        };
+        let options = CleanupOptions {
+            dpi: 150.0,
+            ..CleanupOptions::default()
+        };
+
+        let canvas = matched_canvas_for_options(document_canvas, &options).unwrap();
+
+        assert_eq!(canvas.width_px, 1_275);
+        assert_eq!(canvas.height_px, 1_650);
+        assert_eq!(canvas.width_points, document_canvas.width_points);
+        assert_eq!(canvas.height_points, document_canvas.height_points);
+    }
+
+    #[test]
     fn matched_canvas_uses_one_paper_scale_across_an_off_center_spread_cutter() {
         let options = CleanupOptions {
             dpi: 150.0,
             margins_pixels: Some([30.0; 4]),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 1_102.0 / 150.0 * 72.0,
             height_points: 1_626.0 / 150.0 * 72.0,
             width_px: 1_102,
@@ -2428,7 +2471,7 @@ mod tests {
             margins_pixels: Some([0.0; 4]),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 1_102.0 / 150.0 * 72.0,
             height_points: 1_626.0 / 150.0 * 72.0,
             width_px: 1_102,
@@ -2495,7 +2538,7 @@ mod tests {
             margins_pixels: Some([0.0; 4]),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 1_102.0 / 150.0 * 72.0,
             height_points: 1_626.0 / 150.0 * 72.0,
             width_px: 1_102,
@@ -2538,7 +2581,7 @@ mod tests {
             margins_pixels: Some([0.0; 4]),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 1_102.0 / 150.0 * 72.0,
             height_points: 1_626.0 / 150.0 * 72.0,
             width_px: 1_102,
@@ -2635,7 +2678,7 @@ mod tests {
             dpi: 360.0,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 700.0 / 360.0 * 72.0,
             height_points: 1_000.0 / 360.0 * 72.0,
             width_px: 700,
@@ -2671,7 +2714,7 @@ mod tests {
 
     #[test]
     fn spread_vertical_alignment_pins_asymmetric_crop_headroom_to_one_anchor() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -2726,7 +2769,7 @@ mod tests {
 
     #[test]
     fn deferred_spread_placement_uses_the_shared_vertical_content_anchor() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -2779,7 +2822,7 @@ mod tests {
 
     #[test]
     fn deferred_vertical_alignment_leaves_a_single_page_unchanged() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -2831,7 +2874,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -2873,7 +2916,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -2924,7 +2967,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 480.0,
             height_points: 288.0,
             width_px: 480,
@@ -2954,7 +2997,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 480.0,
             height_points: 288.0,
             width_px: 480,
@@ -3003,7 +3046,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 2_196.0 / 299.0 * 72.0,
             height_points: 3_241.0 / 299.0 * 72.0,
             width_px: 2_196,
@@ -3045,7 +3088,7 @@ mod tests {
             page_alignment: crate::PageAlignment::TopCenter,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 2_196.0 / 299.0 * 72.0,
             height_points: 3_241.0 / 299.0 * 72.0,
             width_px: 2_196,
@@ -3111,7 +3154,7 @@ mod tests {
             page_alignment: crate::PageAlignment::TopCenter,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 480.0,
             height_points: 288.0,
             width_px: 480,
@@ -3174,7 +3217,7 @@ mod tests {
             page_alignment: crate::PageAlignment::TopCenter,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 2_196.0 / 299.0 * 72.0,
             height_points: 3_241.0 / 299.0 * 72.0,
             width_px: 2_196,
@@ -3257,7 +3300,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 360.0,
             width_px: 1_000,
@@ -3301,7 +3344,7 @@ mod tests {
             page_alignment: crate::PageAlignment::Center,
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 360.0,
             width_px: 1_000,
@@ -3340,7 +3383,7 @@ mod tests {
 
     #[test]
     fn matched_gray_primary_with_intrinsic_margins_is_materialized_on_canvas() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 600.0,
             width_px: 12,
@@ -3390,7 +3433,7 @@ mod tests {
             margins_pixels: Some([20.0; 4]),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -3441,7 +3484,7 @@ mod tests {
             }),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 200.0,
             height_points: 200.0,
             width_px: 1_000,
@@ -3484,7 +3527,7 @@ mod tests {
 
     #[test]
     fn matched_canvas_honors_every_alignment_inside_asymmetric_margins() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 144.0,
             height_points: 129.6,
             width_px: 200,
@@ -3537,7 +3580,7 @@ mod tests {
             margins_pixels: Some([8.0, 9.0, 4.0, 3.0]),
             ..CleanupOptions::default()
         };
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 7.2,
             height_points: 5.76,
             width_px: 10,
@@ -3561,8 +3604,8 @@ mod tests {
         assert_eq!((placement.left, placement.top), (6, 5));
     }
 
-    fn ink_anchor_canvas() -> GeometryCanvas {
-        GeometryCanvas {
+    fn ink_anchor_canvas() -> DocumentCanvas {
+        DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -3784,8 +3827,8 @@ mod tests {
         assert_ne!(equalized[0].unwrap().0.top, first.top);
     }
 
-    fn warning_event_canvas() -> GeometryCanvas {
-        GeometryCanvas {
+    fn warning_event_canvas() -> DocumentCanvas {
+        DocumentCanvas {
             width_points: 720.0,
             height_points: 720.0,
             width_px: 1_000,
@@ -3987,7 +4030,7 @@ mod tests {
 
     #[test]
     fn composition_preserves_primary_and_tone_pixels() {
-        let canvas = GeometryCanvas {
+        let canvas = DocumentCanvas {
             width_points: 4.0,
             height_points: 4.0,
             width_px: 4,

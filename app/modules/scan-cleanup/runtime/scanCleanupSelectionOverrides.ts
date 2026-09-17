@@ -2,13 +2,18 @@ import type {
     IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
+
+export type TScanCleanupPageOverrideUpdate = (
+    value: IScanCleanupPageOverride,
+    page: number,
+) => IScanCleanupPageOverride;
 
 export interface IScanCleanupMixedValue<T> {
     empty: boolean;
@@ -62,9 +67,28 @@ export function resolveScanCleanupMixedValue<T>(
 export function updateScanCleanupPageOverrides(
     overrides: TScanCleanupPageOverrides,
     pages: Iterable<number>,
+    update: TScanCleanupPageOverrideUpdate,
+    documentMargins?: IScanCleanupMarginsMm,
+): void;
+export function updateScanCleanupPageOverrides(
+    overrides: TScanCleanupPageOverrides,
+    pages: Iterable<number>,
     update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    pageOverrideDefaults: IScanCleanupPageOverride | undefined,
+    documentMargins?: IScanCleanupMarginsMm,
+): void;
+export function updateScanCleanupPageOverrides(
+    overrides: TScanCleanupPageOverrides,
+    pages: Iterable<number>,
+    update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    pageOverrideDefaultsOrMargins?: IScanCleanupPageOverride | IScanCleanupMarginsMm,
     documentMargins?: IScanCleanupMarginsMm,
 ) {
+    const effectiveDocumentMargins = documentMargins
+        ?? (pageOverrideDefaultsOrMargins !== undefined
+            && 'leftMm' in pageOverrideDefaultsOrMargins
+            ? pageOverrideDefaultsOrMargins
+            : undefined);
     for (const page of pages) {
         if (!Number.isInteger(page) || page < 1) {
             continue;
@@ -75,7 +99,28 @@ export function updateScanCleanupPageOverrides(
             overrides,
             pageNumber,
             createScanCleanupPageOverride(update(current, page)),
-            documentMargins,
+            effectiveDocumentMargins,
         );
     }
+}
+
+export function updateScanCleanupPageOverrideRotation(
+    current: IScanCleanupPageOverride,
+    rotationDegrees: IScanCleanupPageOverride['rotationDegrees'],
+): IScanCleanupPageOverride {
+    const rotationChanged = current.rotationDegrees !== rotationDegrees;
+    return {
+        ...current,
+        rotationDegrees,
+        manualSplit: rotationChanged ? null : current.manualSplit,
+        manualSkewDegrees: rotationChanged ? undefined : current.manualSkewDegrees,
+        manualContentBoxes: rotationChanged ? {} : current.manualContentBoxes ?? {},
+        manualZones: rotationChanged ? {
+            picture: [],
+            fill: [],
+        } : current.manualZones ?? {
+            picture: [],
+            fill: [],
+        },
+    };
 }

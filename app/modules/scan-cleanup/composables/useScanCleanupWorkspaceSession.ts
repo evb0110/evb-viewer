@@ -4,11 +4,11 @@ import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain
 import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupPlacementAnchorSample,
     TScanCleanupPlacementAnchorsByPage,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -16,15 +16,19 @@ import {
     SCAN_CLEANUP_OUTPUT_HALVES,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {useScanCleanupDetectionSession} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
+import type {TScanCleanupPreviewFrameRevealOutcome} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+
+const SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS = 10_000;
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -65,7 +69,7 @@ function resolveScanCleanupInkReferenceHeightPoints(
 
 interface IUseScanCleanupWorkspaceSessionOptions {
     active: () => boolean;
-    beforeRun?: () => Promise<void> | void;
+    beforeRun?: (signal?: AbortSignal) => Promise<TScanCleanupPreviewFrameRevealOutcome> | undefined;
     sourcePath: () => TDocumentRef | null;
     documentKey: () => string | null;
     sourceSha256?: () => string | null;
@@ -79,6 +83,7 @@ interface IUseScanCleanupWorkspaceSessionOptions {
 }
 
 export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspaceSessionOptions) => {
+    const {t} = useTypedI18n();
     const initialPreviewPage = Math.max(1, Math.trunc(options.initialPreviewPage?.() ?? options.currentPage()));
     const ownerId = options.ownerId?.() ?? globalThis.crypto.randomUUID();
     const sourcePath = computed(options.sourcePath);
@@ -107,12 +112,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             () => settings.values.pageOverrides,
             () => settings.values.pageOverrideDefaults,
         ],
-        (
-            [
-                pageOverrides,
-                pageOverrideDefaults,
-            ],
-        ) => {
+        ([
+            pageOverrides,
+            pageOverrideDefaults,
+        ]) => {
             attachScanCleanupPageOverrideDefaults(
                 pageOverrides,
                 pageOverrideDefaults,
@@ -130,6 +133,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         initialPage: initialPreviewPage,
         previewResult: () => previewResult?.result.value ?? null,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
+        marginsLinked: settings.marginsLinked,
         settings: settings.values,
     });
     watch(options.active, active => {
@@ -177,7 +181,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             evidence,
         ] of included) {
             const brandedPageNumber = requirePageNumber(pageNumber);
-            const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, brandedPageNumber);
+            const pageOverride = getScanCleanupPageOverride(
+                cleanupOptions.pageOverrides,
+                brandedPageNumber,
+            );
             const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
             const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
             everySheetMeasured &&= measured;
@@ -264,9 +271,33 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     const run = useScanCleanupRunSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
-        beforeRun: async () => {
+        beforeRun: async (stopWait) => {
             await previewResult.pauseForRun();
-            await options.beforeRun?.();
+            const revealController = new AbortController();
+            let deadline: ReturnType<typeof setTimeout> | undefined;
+            const reveal = Promise.resolve(options.beforeRun?.(revealController.signal))
+                .then(outcome => outcome ?? 'published' as const);
+            const deadlineReached = new Promise<'timed-out'>(resolve => {
+                deadline = setTimeout(() => resolve('timed-out'), SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS);
+            });
+            const stopped = stopWait.then(() => 'stopped' as const);
+            try {
+                const outcome = await Promise.race([
+                    reveal,
+                    deadlineReached,
+                    stopped,
+                ]);
+                if (outcome === 'stopped') return;
+                if (outcome === 'timed-out') {
+                    throw new Error(t('scanCleanup.errors.previewFrameTimeout'));
+                }
+                if (outcome === 'dropped') {
+                    throw new Error(t('scanCleanup.errors.previewFrameDropped'));
+                }
+            } finally {
+                if (deadline !== undefined) clearTimeout(deadline);
+                revealController.abort();
+            }
         },
         detectionError: detection.error,
         detectionErrorCode: detection.errorCode,

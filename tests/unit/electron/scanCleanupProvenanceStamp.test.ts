@@ -13,8 +13,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {TScanCleanupStampBuildIds} from '@evb/scan-cleanup/core/index';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,
@@ -27,6 +27,7 @@ import {
     buildScanCleanupPagePlanDigest,
     buildScanCleanupProvenanceStamp,
     buildScanCleanupStampBuildIds,
+    hashScanCleanupNativeBinarySha256s,
     canonicalScanCleanupJson,
     decodeScanCleanupProvenanceStampHex,
     encodeScanCleanupProvenanceStampHex,
@@ -460,6 +461,43 @@ describe('scan-cleanup provenance stamp contract', () => {
         expect(buildIds.coreSchemaId).toBe(SCAN_CLEANUP_STAMP_SCHEMA_ID_V1);
     });
 
+    it('lets each bounded child stamp its selected backend while reusing native digests', async () => {
+        const hashNativeBinary = vi.fn(async () => 'a'.repeat(64));
+        const paths = {
+            qpdfBinary: 'unused',
+            pdftoppmBinary: 'unused',
+            scanCleanupBinary: '/scan-cleanup',
+            pdfImageCombineBinary: '/pdf-image-combine',
+            pdfPageOpsBinary: '/pdf-page-ops',
+            tempDir: 'unused',
+        };
+        const nativeBinarySha256s = await hashScanCleanupNativeBinarySha256s({
+            paths,
+            hashNativeBinary,
+        });
+        const rasterChildBuildIds = await buildScanCleanupStampBuildIds({
+            paths,
+            assemblerBackend: 'native-pdf-image-combine',
+            transportMode: 'fifo-ppm',
+            hashNativeBinary,
+            reusableNativeBinarySha256s: nativeBinarySha256s,
+        });
+        const losslessChildBuildIds = await buildScanCleanupStampBuildIds({
+            paths,
+            assemblerBackend: 'native-pdf-page-ops',
+            transportMode: 'source-preserved',
+            hashNativeBinary,
+            reusableNativeBinarySha256s: nativeBinarySha256s,
+        });
+
+        expect(hashNativeBinary).toHaveBeenCalledTimes(3);
+        expect(losslessChildBuildIds.nativeBinarySha256s).toEqual(rasterChildBuildIds.nativeBinarySha256s);
+        expect(rasterChildBuildIds.assemblerBackend).toBe('native-pdf-image-combine');
+        expect(rasterChildBuildIds.transportMode).toBe('fifo-ppm');
+        expect(losslessChildBuildIds.assemblerBackend).toBe('native-pdf-page-ops');
+        expect(losslessChildBuildIds.transportMode).toBe('source-preserved');
+    });
+
     it('centralizes page-scope errors and rejects malformed mapping ordinals', () => {
         expect(resolveScanCleanupPageScope(undefined, 3)).toEqual([
             1,
@@ -551,6 +589,67 @@ describe('scan-cleanup provenance stamp contract', () => {
             pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
             buildIds: buildFixtureBuildIds(),
         })).toThrow('intersecting');
+    });
+
+    it('uses shared normalized bounds for edge boxes and split evidence', () => {
+        const record = effectiveOptions(1);
+        record.options.renderCrop = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.9 + Number.EPSILON,
+            heightNormalized: 0.8,
+            rotationDegrees: 0,
+        };
+        record.options.manualSplit = {
+            xNormalized: 0.5,
+            rotationDegrees: 0,
+        };
+        record.options.automaticSplit = {
+            xNormalized: 0,
+            rotationDegrees: 0,
+        };
+        const build = () => buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [record],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
+            buildIds: buildFixtureBuildIds(),
+        });
+
+        expect(build).not.toThrow();
+        for (const xNormalized of [
+            0,
+            1,
+            0.019,
+            0.981,
+        ]) {
+            const invalid = effectiveOptions(1);
+            invalid.options.manualSplit = {
+                xNormalized,
+                rotationDegrees: 0,
+            };
+            expect(() => buildScanCleanupProvenanceStamp({
+                sourceSha256: 'a'.repeat(64),
+                effectiveOptions: [invalid],
+                outputMappings: [{
+                    sourcePage: 1,
+                    half: 'full',
+                    outputOrdinal: 1,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blank: false,
+                }],
+                pagePlanDigests: [buildScanCleanupPagePlanDigest(1, invalid.options, {})],
+                buildIds: buildFixtureBuildIds(),
+            })).toThrow('manualSplit');
+        }
     });
 
     it('rejects non-finite and internally inconsistent nested provenance diagnostics', () => {

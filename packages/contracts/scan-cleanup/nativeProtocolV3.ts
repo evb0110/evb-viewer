@@ -5,9 +5,16 @@ import {
     type TInferSchema,
 } from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
+import {decodeDocumentPrior} from '@contracts/scan-cleanup/decodeDocumentPrior';
+import {
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+    SCAN_CLEANUP_OUTPUT_MODES,
+} from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
+    IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupDespeckleLevel,
@@ -18,8 +25,11 @@ import type {
     TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
+    TScanCleanupSpreadBinarizationDecision,
+    TScanCleanupTextToneRule,
 } from '@contracts/scan-cleanup/domain';
 import type {
+    IScanCleanupAppliedMargins,
     IScanCleanupMarginsMm,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
@@ -29,6 +39,7 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
+import type {IScanCleanupContentDiagnostics} from '@contracts/scan-cleanup/ipc';
 import {
     decodeScanCleanupPageNumber,
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
@@ -138,10 +149,12 @@ export interface INativeScanCleanupDewarpModelV3 {
 }
 
 export interface INativeScanCleanupOutputMetadataV3 {
+    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     sourcePageIndex?: number;
     half?: TScanCleanupOutputHalf;
     sourceRegion?: IScanCleanupPixelRect;
     cropRect?: IScanCleanupPixelRect;
+    renderRegion?: IScanCleanupPixelRect;
     inputWidthPx?: number;
     inputHeightPx?: number;
     outputWidthPx: number;
@@ -151,6 +164,9 @@ export interface INativeScanCleanupOutputMetadataV3 {
     canvasWidthPx: number;
     canvasHeightPx: number;
     layoutClassification: TScanCleanupLayoutClassification;
+    layoutConfidence?: number;
+    cutterXPx?: number | null;
+    splitGeometry?: IScanCleanupPixelPolygon[];
     splitSeam?: IScanCleanupSplitSeamPolyline;
     splitAbstained?: boolean;
     detectedSkewDegrees?: number;
@@ -163,6 +179,7 @@ export interface INativeScanCleanupOutputMetadataV3 {
     layeredBackgroundDpi?: number;
     layeredForegroundDpi?: number;
     trustedMrcBackgroundPreserved?: boolean;
+    trustedSelectionApplied?: boolean;
     illuminationNormalized?: boolean;
     textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
@@ -172,6 +189,13 @@ export interface INativeScanCleanupOutputMetadataV3 {
     dewarpConfidence?: number | null;
     dewarpModel?: INativeScanCleanupDewarpModelV3 | null;
     contentBox?: IScanCleanupPixelRect | null;
+    contentDiagnostics?: IScanCleanupContentDiagnostics;
+    appliedMargins?: IScanCleanupAppliedMargins;
+    softMarginsPx?: [number, number, number, number];
+    uniformCanvas?: boolean;
+    canvasPolicy?: 'intrinsic' | 'strict-maximum';
+    canvasOverflow?: boolean;
+    inkConsistencyDiagnostics?: INativeScanCleanupInkConsistencyDiagnosticsV3;
     /**
      * Unstructured native diagnostics. Every condition the pipeline aggregates
      * or displays as a decision travels in `warningEvents` instead; artifacts
@@ -180,6 +204,13 @@ export interface INativeScanCleanupOutputMetadataV3 {
     warnings?: string[];
     warningEvents?: TScanCleanupWarningEvent[];
     renderDpi?: number;
+    sourceDpi?: number;
+    requestedRenderDpi?: number;
+    rasterScaleLimited?: boolean;
+    resamplePasses?: number;
+    canvasScope?: TScanCleanupCanvasScope;
+    matchedCanvasTargetWidthPx?: number | null;
+    matchedCanvasTargetHeightPx?: number | null;
     matchedCanvasTargetWidthPoints?: number | null;
     matchedCanvasTargetHeightPoints?: number | null;
     matchedCanvasContentWidthPx?: number | null;
@@ -205,12 +236,16 @@ export interface INativeScanCleanupOutputMetadataV3 {
     rotationDegrees: TScanCleanupPageRotation;
 }
 
-export type TNativeScanCleanupTextToneRuleV3 =
-    | 'applied'
-    | 'picture-evidence'
-    | 'insufficient-text'
-    | 'tonal-mass-outside-text'
-    | 'already-dark';
+export interface INativeScanCleanupInkConsistencyDiagnosticsV3 {
+    priorSampleCount: number;
+    priorSurvivalMedian: number;
+    survivalBefore: number;
+    survivalAfter: number;
+    addedInkPixels: number;
+    applied: boolean;
+}
+
+export type TNativeScanCleanupTextToneRuleV3 = TScanCleanupTextToneRule;
 
 export interface INativeScanCleanupTextToneDiagnosticsV3 {
     applied: boolean;
@@ -230,6 +265,8 @@ export interface INativeScanCleanupTextToneDiagnosticsV3 {
 export interface INativeScanCleanupAnalysisOutputV3 {
     half: TScanCleanupOutputHalf;
     contentBox?: IScanCleanupPixelRect | null;
+    contentDiagnostics?: IScanCleanupContentDiagnostics;
+    appliedMargins?: IScanCleanupAppliedMargins;
     textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
     cropRect: IScanCleanupPixelRect;
     sourceRegion: IScanCleanupPixelRect;
@@ -314,8 +351,7 @@ export type TNativeScanCleanupFoldBandUnmeasuredReasonV3 =
     | 'no-fold-evidence'
     | 'fold-evidence-unquantified'
     | 'cutter-invalidated'
-    | 'measurement-unavailable'
-    | 'legacy-protocol-v3';
+    | 'measurement-unavailable';
 
 export type TNativeScanCleanupFoldBandV3 =
     | {
@@ -335,17 +371,7 @@ export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
     'fold-evidence-unquantified',
     'cutter-invalidated',
     'measurement-unavailable',
-    'legacy-protocol-v3',
 ] as const satisfies readonly TNativeScanCleanupFoldBandUnmeasuredReasonV3[];
-
-/** Compatibility state synthesized when early protocol-v3 data has no typed fold outcome. */
-export function legacyNativeScanCleanupFoldBandV3(): TNativeScanCleanupFoldBandV3 {
-    return {
-        status: 'unmeasured',
-        reason: 'legacy-protocol-v3',
-        nominalHalfWidthPx: 0,
-    };
-}
 
 export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeScanCleanupFoldBandV3 {
     if (!isRecord(value)) {
@@ -443,6 +469,8 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 export interface INativeScanCleanupPageMetadataV3 {
+    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
+    sourcePageIndex?: number;
     layoutClassification: TScanCleanupLayoutClassification;
     layoutConfidence?: number;
     cutterXPx: number | null;
@@ -460,6 +488,11 @@ export interface INativeScanCleanupPageMetadataV3 {
     softAlphaForegroundRecommendation?: boolean;
     outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
     splitDiagnostics?: INativeScanCleanupSplitDiagnosticsV3;
+    documentPrior?: IScanCleanupDocumentPrior;
+    textAxis?: IScanCleanupTextAxis;
+    tier1Verdict?: TScanCleanupLayoutClassification;
+    reconciled?: boolean;
+    clusterAgreement?: number;
 }
 
 /** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */
@@ -488,12 +521,7 @@ export interface INativeScanCleanupBinarizationDiagnosticsV3 {
     spreadPlan?: INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3;
 }
 
-export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 =
-    | 'sharedJoint'
-    | 'perLeafRouteMismatch'
-    | 'perLeafAnchorDrift'
-    | 'perLeafRadiusDrift'
-    | 'perLeafFaintInkDrift';
+export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 = TScanCleanupSpreadBinarizationDecision;
 
 export interface INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3 {
     route: TScanCleanupBinarizationMethod;
@@ -666,46 +694,22 @@ const confidence = (message: string) => s.number({
     max: 1,
     message,
 });
-const classification = s.oneOf([
-    'single-uncut-page',
-    'page-with-offcut',
-    'two-page-spread',
-] as const, 'Invalid evb-scan-cleanup progress classification');
-const documentPrior = s.refine(s.object({
-    dominantLayout: classification,
-    cutterRatioMedian: s.nullable(s.number({
-        min: 0.2,
-        max: 0.8,
-        message: 'Invalid evb-scan-cleanup document prior',
-    })),
-    clusterDims: s.object({
-        widthPx: s.number({
-            min: Number.MIN_VALUE,
-            message: 'Invalid evb-scan-cleanup document prior',
-        }),
-        heightPx: s.number({
-            min: Number.MIN_VALUE,
-            message: 'Invalid evb-scan-cleanup document prior',
-        }),
-    }, {
-        exact: true,
-        message: 'Invalid evb-scan-cleanup document prior',
+const classification = s.oneOf(
+    SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS,
+    'Invalid evb-scan-cleanup progress classification',
+);
+const documentPrior = s.fromParser(
+    decodeDocumentPrior,
+    () => ({
+        dominantLayout: 'single-uncut-page' as const,
+        cutterRatioMedian: null,
+        clusterDims: {
+            widthPx: 1,
+            heightPx: 1,
+        },
+        agreementStrength: 0,
     }),
-    agreementStrength: confidence('Invalid evb-scan-cleanup document prior'),
-    strokeWidthMedianPx: s.optional(s.number({
-        min: Number.MIN_VALUE,
-        message: 'Invalid evb-scan-cleanup document prior',
-    })),
-    xHeightMedianPx: s.optional(s.number({
-        min: Number.MIN_VALUE,
-        message: 'Invalid evb-scan-cleanup document prior',
-    })),
-}, {
-    exact: true,
-    message: 'Invalid evb-scan-cleanup document prior',
-}), value =>
-    value.dominantLayout !== 'two-page-spread' || value.cutterRatioMedian !== null,
-'Invalid evb-scan-cleanup document prior');
+);
 const textAxis = s.object({
     sideways: s.boolean(),
     confidence: confidence('Invalid evb-scan-cleanup text axis'),
@@ -831,8 +835,12 @@ const progress = s.refine(s.refine(s.object({
     pageNumber: s.optional(pageNumber),
     outputPaths: s.optional(s.array(s.string())),
     classification: s.optional(classification),
-    confidence: s.optional(s.number({message: 'Invalid evb-scan-cleanup progress confidence'})),
-    cutterXPx: s.optional(s.number({message: 'Invalid evb-scan-cleanup progress cutter'})),
+    confidence: s.optional(confidence('Invalid evb-scan-cleanup progress confidence')),
+    cutterXPx: s.optional(s.number({
+        min: 0,
+        max: Number.MAX_SAFE_INTEGER,
+        message: 'Invalid evb-scan-cleanup progress cutter',
+    })),
     tier1Verdict: s.optional(classification),
     reconciled: s.optional(s.boolean()),
     clusterAgreement: s.optional(s.number({
@@ -843,23 +851,17 @@ const progress = s.refine(s.refine(s.object({
     documentPrior: s.optional(documentPrior),
     textAxis: s.optional(textAxis),
     stageTimings: s.optional(pageStageTimings),
-    recommendedOutputMode: s.optional(s.oneOf([
-        'bw',
-        'mixed',
-        'grayscale',
-        'color',
-    ] as const, 'Invalid evb-scan-cleanup recommended output mode')),
+    recommendedOutputMode: s.optional(s.oneOf(
+        SCAN_CLEANUP_OUTPUT_MODES,
+        'Invalid evb-scan-cleanup recommended output mode',
+    )),
     recommendedOutputModeConfidence: s.optional(confidence(
         'Invalid evb-scan-cleanup output mode confidence',
     )),
-    recommendedOutputModeReason: s.optional(s.oneOf([
-        'blank',
-        'color-chroma',
-        'text-with-pictures',
-        'continuous-tone',
-        'bimodal-text',
-        'uncertain-tonal',
-    ] as const, 'Invalid evb-scan-cleanup output mode recommendation reason')),
+    recommendedOutputModeReason: s.optional(s.oneOf(
+        SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS,
+        'Invalid evb-scan-cleanup output mode recommendation reason',
+    )),
     softAlphaForegroundRecommendation: s.optional(s.boolean()),
     outputModeDiagnostics: s.optional(outputModeDiagnostics),
 }), value => value.completedPages <= value.totalPages,
@@ -869,7 +871,7 @@ const progress = s.refine(s.refine(s.object({
             && value.stage !== 'page-complete'
             && value.stage !== 'page-input-required'
             && value.stage !== 'page-input-released'
-        : true,
+        : value.pageNumber <= value.totalPages,
 'Invalid evb-scan-cleanup progress page number');
 const successResult = s.object({
     status: s.oneOf(['success'] as const),
@@ -903,8 +905,8 @@ const resultEnvelope = s.object({
  * change cannot turn one aggregate into per-page noise.
  */
 export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
+    // Native render metadata producers.
     'matched-canvas-content-fitted',
-    'matched-canvas-content-fitted-pages',
     'matched-canvas-margins-reduced',
     'matched-canvas-margins-unavailable',
     'matched-canvas-paper-downscaled',
@@ -912,13 +914,15 @@ export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
     'matched-canvas-intrinsic-overflow',
     'matched-canvas-spread-headroom-trimmed',
     'matched-canvas-fold-columns-discarded',
+    'render-dpi-limited',
+    // Lossless document assembly producers.
+    'matched-canvas-content-fitted-pages',
     'matched-canvas-dropped',
     'matched-canvas-geometry-unmeasured',
     'matched-canvas-pages-resampled',
     'matched-canvas-pages-scaled-in-place',
     'matched-canvas-document-dpi-normalized',
     'matched-canvas-page-dpi-capped',
-    'render-dpi-limited',
 ] as const;
 
 export type TScanCleanupWarningEventCode = typeof SCAN_CLEANUP_WARNING_EVENT_CODES[number];

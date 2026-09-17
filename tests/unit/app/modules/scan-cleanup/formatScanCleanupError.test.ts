@@ -3,8 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
+import {
+    formatScanCleanupErrorByCode,
+    formatScanCleanupErrorMessage,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {LOCALE_MESSAGES} from '@i18n-app/locales';
 
 describe('formatScanCleanupErrorMessage', () => {
@@ -24,6 +27,29 @@ describe('formatScanCleanupErrorMessage', () => {
         const detail = 'x'.repeat(300);
         expect(formatScanCleanupErrorMessage('scanCleanup.failed', detail))
             .toBe(`scanCleanup.failed (${`${'x'.repeat(237)}...`})`);
+    });
+});
+
+describe('formatScanCleanupErrorByCode', () => {
+    const translate = ((key: string) => key) as never;
+
+    it('selects a distinct localized sentence for each native cause family', () => {
+        expect(formatScanCleanupErrorByCode(translate, 'encrypted', 'native encrypted detail'))
+            .toBe('scanCleanup.errors.encrypted (native encrypted detail)');
+        expect(formatScanCleanupErrorByCode(translate, 'needs-password', 'native password detail'))
+            .toBe('scanCleanup.errors.needsPassword (native password detail)');
+    });
+
+    it('uses the typed scratch figures instead of the native exception text', () => {
+        expect(formatScanCleanupErrorByCode(
+            translate,
+            'insufficient-scratch',
+            'English native scratch exception',
+            {
+                availableBytes: null,
+                requiredBytes: null,
+            },
+        )).toBe('scanCleanup.errors.insufficientScratch');
     });
 });
 

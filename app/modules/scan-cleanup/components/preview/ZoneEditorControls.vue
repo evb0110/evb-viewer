@@ -45,7 +45,7 @@
 import type {
     TScanCleanupOutputMode,
     TScanCleanupPictureZoneLayer,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import type {TScanCleanupZoneKind} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 

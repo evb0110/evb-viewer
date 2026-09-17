@@ -2,8 +2,9 @@ use crate::{calibration::CalibrationConfig, CleanupOptions};
 use serde::Serialize;
 use std::{
     any::Any,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
+    mem::size_of,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::UNIX_EPOCH,
@@ -58,6 +59,12 @@ fn serialized(value: &impl Serialize) -> Vec<u8> {
 }
 
 impl StageCacheKey {
+    fn resident_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(self.source.path.as_os_str().len())
+            .saturating_add(self.options.len())
+    }
+
     /// Decode is independent of cleanup behavior. Guardrails remain in the key
     /// because a raster accepted under one request must not bypass stricter
     /// max-pixel or max-dimension limits in another request.
@@ -240,7 +247,10 @@ pub(crate) struct ByteLru {
     budget_bytes: usize,
     resident_bytes: usize,
     clock: u64,
-    entries: HashMap<StageCacheKey, CacheEntry>,
+    // Both indexes hold an Arc to the same key allocation. Keeping a deep
+    // clone in the ordering index would make the byte charge understated.
+    entries: HashMap<Arc<StageCacheKey>, CacheEntry>,
+    lru_order: BTreeMap<u64, Arc<StageCacheKey>>,
 }
 
 impl ByteLru {
@@ -250,13 +260,23 @@ impl ByteLru {
             resident_bytes: 0,
             clock: 0,
             entries: HashMap::new(),
+            lru_order: BTreeMap::new(),
         }
     }
 
     pub(crate) fn get<T: Any + Send + Sync>(&mut self, key: &StageCacheKey) -> Option<Arc<T>> {
-        let entry = self.entries.get_mut(key)?;
-        self.clock = self.clock.wrapping_add(1);
-        entry.last_used = self.clock;
+        let (previous_clock, stored_key) = {
+            let (stored_key, entry) = self.entries.get_key_value(key)?;
+            (entry.last_used, Arc::clone(stored_key))
+        };
+        let clock = self.next_clock();
+        self.lru_order.remove(&previous_clock);
+        self.lru_order.insert(clock, stored_key);
+        let entry = self
+            .entries
+            .get_mut(key)
+            .expect("cache entry remains present while it is being touched");
+        entry.last_used = clock;
         Arc::clone(&entry.value).downcast::<T>().ok()
     }
 
@@ -266,35 +286,65 @@ impl ByteLru {
         value: Arc<T>,
         bytes: usize,
     ) {
-        if let Some(replaced) = self.entries.remove(&key) {
-            self.resident_bytes = self.resident_bytes.saturating_sub(replaced.bytes);
-        }
-        if bytes > self.budget_bytes {
+        let key = Arc::new(key);
+        self.remove_key(key.as_ref());
+        let resident_bytes = bytes.saturating_add(key.resident_bytes());
+        if resident_bytes > self.budget_bytes {
             return;
         }
-        self.clock = self.clock.wrapping_add(1);
-        self.resident_bytes = self.resident_bytes.saturating_add(bytes);
+        let clock = self.next_clock();
+        self.resident_bytes = self.resident_bytes.saturating_add(resident_bytes);
+        self.lru_order.insert(clock, Arc::clone(&key));
         self.entries.insert(
             key,
             CacheEntry {
                 value,
-                bytes,
-                last_used: self.clock,
+                bytes: resident_bytes,
+                last_used: clock,
             },
         );
         while self.resident_bytes > self.budget_bytes {
-            let Some(oldest) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(key, _)| key.clone())
+            let Some((oldest_clock, oldest)) = self
+                .lru_order
+                .first_key_value()
+                .map(|(clock, key)| (*clock, Arc::clone(key)))
             else {
                 break;
             };
-            if let Some(evicted) = self.entries.remove(&oldest) {
+            self.lru_order.remove(&oldest_clock);
+            if let Some(evicted) = self.entries.remove(oldest.as_ref()) {
                 self.resident_bytes = self.resident_bytes.saturating_sub(evicted.bytes);
             }
         }
+    }
+
+    fn remove_key(&mut self, key: &StageCacheKey) {
+        if let Some(replaced) = self.entries.remove(key) {
+            self.lru_order.remove(&replaced.last_used);
+            self.resident_bytes = self.resident_bytes.saturating_sub(replaced.bytes);
+        }
+    }
+
+    fn next_clock(&mut self) -> u64 {
+        if self.clock == u64::MAX {
+            let mut ordered = self
+                .entries
+                .iter()
+                .map(|(key, entry)| (entry.last_used, key.clone()))
+                .collect::<Vec<_>>();
+            ordered.sort_unstable_by_key(|(clock, _)| *clock);
+            self.lru_order.clear();
+            self.clock = 0;
+            for (_, key) in ordered {
+                self.clock += 1;
+                if let Some(entry) = self.entries.get_mut(key.as_ref()) {
+                    entry.last_used = self.clock;
+                    self.lru_order.insert(self.clock, key);
+                }
+            }
+        }
+        self.clock += 1;
+        self.clock
     }
 
     #[cfg(test)]
@@ -361,15 +411,27 @@ mod tests {
         let key_a = StageCacheKey::decoded(&source(0), false, &options);
         let key_b = StageCacheKey::decoded(&source(1), false, &options);
         let key_c = StageCacheKey::decoded(&source(2), false, &options);
-        let mut cache = ByteLru::new(8);
+        let entry_bytes = key_a.resident_bytes() + 4;
+        let mut cache = ByteLru::new(entry_bytes * 2);
         cache.insert(key_a.clone(), Arc::new(1_u32), 4);
         cache.insert(key_b.clone(), Arc::new(2_u32), 4);
+        let stored_key = cache
+            .entries
+            .keys()
+            .find(|candidate| candidate.as_ref() == &key_a)
+            .unwrap();
+        let ordered_key = cache
+            .lru_order
+            .values()
+            .find(|candidate| candidate.as_ref() == &key_a)
+            .unwrap();
+        assert!(Arc::ptr_eq(stored_key, ordered_key));
         assert_eq!(*cache.get::<u32>(&key_a).unwrap(), 1);
         cache.insert(key_c.clone(), Arc::new(3_u32), 4);
         assert!(cache.contains(&key_a));
         assert!(!cache.contains(&key_b));
         assert!(cache.contains(&key_c));
-        assert_eq!(cache.resident_bytes, 8);
+        assert_eq!(cache.resident_bytes, entry_bytes * 2);
     }
 
     #[test]
@@ -377,7 +439,7 @@ mod tests {
         let options = CleanupOptions::default();
         let key_a = StageCacheKey::decoded(&source(0), false, &options);
         let key_b = StageCacheKey::decoded(&source(1), false, &options);
-        let mut cache = ByteLru::new(16);
+        let mut cache = ByteLru::new(key_a.resident_bytes() + 4);
         cache.insert(key_a.clone(), Arc::new(7_u32), 4);
         assert!(cache.get::<u32>(&key_b).is_none());
         assert!(cache.get::<String>(&key_a).is_none());

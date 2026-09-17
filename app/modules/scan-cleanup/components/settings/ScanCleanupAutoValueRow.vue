@@ -92,7 +92,7 @@ const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\
     padding-inline: var(--app-space-xl);
     color: var(--ui-primary);
     font-size: var(--app-text-size-kicker);
-    font-weight: 700;
+    font-weight: var(--app-font-weight-bold);
 }
 
 .scan-cleanup-auto-value-state.is-auto {

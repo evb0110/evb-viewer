@@ -26,7 +26,10 @@ import {
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
 } from '@evb/scan-cleanup/core/detection';
-import {readPdfPageSizes} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {
+    createArrayBackedPdfPageSizeStore,
+    readPdfPageSizes,
+} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     createCliRenderers,
     resolveCliNativeToolPath,
@@ -142,10 +145,10 @@ describe.skipIf(
                 return {directory: documentDirectory};
             },
             pageCount: () => Promise.resolve(PAGE_COUNT),
-            pageSizes: () => Promise.resolve(pageSizes),
+            pageSizeStore: () => Promise.resolve(createArrayBackedPdfPageSizeStore(pageSizes)),
             rasterPages: () => Promise.resolve({
                 detected: false,
-                pages: new Set<number>(),
+                getPageRaster: () => undefined,
             }),
             retainedPaths: () => Promise.resolve(new Map()),
             // Private to one render: the sidecar polls for the staged path, so

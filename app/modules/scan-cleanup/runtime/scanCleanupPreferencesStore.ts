@@ -3,7 +3,7 @@ import type {
     IScanCleanupPageOverride,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
@@ -14,7 +14,7 @@ import {
     type IScanCleanupSettingsFile,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {EffectScope} from 'vue';
 import {isEqual} from 'es-toolkit/predicate';
 import {
@@ -80,11 +80,13 @@ interface IPendingDocumentUpdate {
     writePromise?: Promise<void>;
 }
 const pendingDocumentUpdates = new Map<string, IPendingDocumentUpdate>();
-const pendingLegacyDocumentUpdates = new Map<string, {
+interface IPendingLegacyDocumentUpdate {
     sourceSha256: string | null | undefined;
     legacyDocumentKey: string | null | undefined;
-    patch: IScanCleanupDocumentPreferencePatch
-}>();
+    patch: IScanCleanupDocumentPreferencePatch;
+    token: IScanCleanupDocumentPersistenceToken;
+}
+const pendingLegacyDocumentUpdates = new Map<string, IPendingLegacyDocumentUpdate>();
 let nextDocumentUpdateVersion = 0;
 let documentPersistenceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -111,6 +113,10 @@ function promoteUnresolvedDocumentUpdate(
     const key = unresolvedDocumentUpdateKey(legacyDocumentKey);
     const pending = pendingLegacyDocumentUpdates.get(key);
     if (!pending) {
+        return;
+    }
+    if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
+        pendingLegacyDocumentUpdates.delete(key);
         return;
     }
     pendingLegacyDocumentUpdates.delete(key);
@@ -277,6 +283,10 @@ function schedulePersistenceRetry() {
             key,
             write,
         ] of pendingLegacyDocumentUpdates) {
+            if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+                pendingLegacyDocumentUpdates.delete(key);
+                continue;
+            }
             if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) {
                 continue;
             }
@@ -367,7 +377,11 @@ function queueRemoteUpdate(
         }
         BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {},
+            context: {
+                stage: 'renderer-settings',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
             pendingRemoteGlobalWriteSettledFailure = true;
@@ -452,7 +466,11 @@ async function hydratePreferences() {
     } catch (error) {
         BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {},
+            context: {
+                stage: 'renderer-settings',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         throw error;
     } finally {
@@ -518,7 +536,11 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
         } catch (error) {
             BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {
                 code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                context: {},
+                context: {
+                    stage: 'renderer-settings',
+                    errorCode: 'unknown',
+                    failureClass: 'unknown',
+                },
             });
             schedulePersistenceRetry();
             return Promise.reject(error);
@@ -673,7 +695,11 @@ export function loadScanCleanupDocumentSettings(
             } catch (error) {
                 BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {
                     code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'renderer-settings',
+                        errorCode: 'unknown',
+                        failureClass: 'unknown',
+                    },
                 });
                 throw error;
             }
@@ -746,13 +772,18 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
             ? unresolvedDocumentUpdateKey(legacyDocumentKey)
             : `${sourceSha256 ?? ''}\0${legacyDocumentKey ?? ''}`;
         const previous = pendingLegacyDocumentUpdates.get(key);
+        const token = captureScanCleanupDocumentPersistenceToken(sourceSha256, legacyDocumentKey);
+        const usablePrevious = previous && isScanCleanupDocumentPersistenceTokenCurrent(previous.token)
+            ? previous
+            : undefined;
         pendingLegacyDocumentUpdates.set(key, {
             sourceSha256,
             legacyDocumentKey,
             patch: {
-                ...(previous?.patch ?? {}),
+                ...(usablePrevious?.patch ?? {}),
                 ...cloneScanCleanupPreferenceValue(patch),
             },
+            token,
         });
         if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
         documentPersistenceTimer = setTimeout(() => {
@@ -761,6 +792,10 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
                 key,
                 write,
             ] of pendingLegacyDocumentUpdates) {
+                if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+                    pendingLegacyDocumentUpdates.delete(key);
+                    continue;
+                }
                 if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) continue;
                 pendingLegacyDocumentUpdates.delete(key);
                 void Promise.resolve(saveScanCleanupDocumentPreferencesInStore(
@@ -820,6 +855,9 @@ export async function flushScanCleanupDocumentPreferencesStore() {
     pendingLegacyDocumentUpdates.clear();
     let firstError: unknown = null;
     for (const write of writes) {
+        if (!isScanCleanupDocumentPersistenceTokenCurrent(write.token)) {
+            continue;
+        }
         if (desktopStore && !isScanCleanupSourceSha256(write.sourceSha256)) {
             pendingLegacyDocumentUpdates.set(unresolvedDocumentUpdateKey(write.legacyDocumentKey), write);
             continue;

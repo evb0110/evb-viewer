@@ -8,22 +8,22 @@ import type {
     IScanCleanupPlacementAnchorCalibrationRequest,
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     runScanCleanupDetection,
-    SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES,
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
     completedPageProgress,
 } from '@evb/scan-cleanup/core/detection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {getErrorMessage} from '@electron/utils/error';
 import {createStableJobBrokerOwnerId} from '@electron/resources/jobBroker';
 import {
@@ -33,7 +33,12 @@ import {
     retainScanCleanupDetectionResultStoreOwner,
     claimScanCleanupDetectionResultStore,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
-import {createMainJobRegistry} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {
+    createMainJobRegistry,
+    RENDERER_DESTROYED_CANCELLATION_REASON,
+    RENDER_PROCESS_GONE_CANCELLATION_REASON,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {
@@ -46,7 +51,6 @@ import type {
     TDetectionSnapshot,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
-import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createLogger} from '@electron/utils/createLogger';
 import {
     createScanCleanupDetectionSignature,
@@ -62,7 +66,11 @@ function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', messa
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'detection',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }
@@ -218,7 +226,7 @@ export function scanCleanupDetectionOwner(
             send: (subscriber, channel, state) => {
                 const deliveryKey = detectionDeliveryKey(subscriber.id, state.jobId);
                 if (state.status === 'queued' || state.status === 'running' || state.status === 'canceling') {
-                    if (state.progress.totalUnits > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
+                    if (state.progress.totalUnits > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                         // Large runs already publish a bounded batch from core.
                         // The renderer needs only the newest classifications it
                         // can display. Full page plans remain in the file-backed
@@ -251,7 +259,7 @@ export function scanCleanupDetectionOwner(
             completed: (latest, result) => {
                 const resultCount = result.resultStore.resultCount;
                 const pageCount = result.resultStore.pageCount;
-                const results = resultCount <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+                const results = resultCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
                     ? result.results
                     : [];
                 return {
@@ -461,7 +469,7 @@ export function scanCleanupDetectionOwner(
                 return {
                     started: false,
                     jobId,
-                    error: 'Source must be an absolute path',
+                    error: '',
                     errorCode: 'invalid-request',
                 };
             }
@@ -526,6 +534,12 @@ export function scanCleanupDetectionOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
+                onCancel: reason => {
+                    if (reason === RENDERER_DESTROYED_CANCELLATION_REASON
+                        || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
+                        rawRasterRetention.invalidateSender(sender.id);
+                    }
+                },
                 run: async job => {
                     let lease: {release: () => boolean} | null = null;
                     try {
@@ -534,8 +548,14 @@ export function scanCleanupDetectionOwner(
                         const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
                             process.platform !== 'win32'
                                 && dependencies.createRasterPipes !== undefined,
+                            request.options,
                         );
-                        lease = await acquire(brokerOwnerId(sender, request), job.signal, rasterPolicy);
+                        lease = await acquire(
+                            brokerOwnerId(sender, request),
+                            job.signal,
+                            rasterPolicy,
+                            request.options,
+                        );
                         const materializedRequest = await dependencies.materializeRequest(
                             request,
                             sender.id,
@@ -569,11 +589,10 @@ export function scanCleanupDetectionOwner(
                                 : {createRasterPipes: dependencies.createRasterPipes}),
                             runSidecar: dependencies.runSidecar,
                         };
-                        // Keep production detection on bounded stores. The
-                        // preview-only aggregate readers remain on the raw
-                        // retention object for compatibility with the preview
-                        // pipeline and focused tests, but never cross this
-                        // boundary into document-scale detection.
+                        // Preview and detection share the retained document's
+                        // bounded stores. Keep this view narrow so detection
+                        // reuses their ownership without taking a
+                        // document-sized snapshot.
                         const detectionRetention: IScanCleanupDetectionRetention<IRetainedDocument> = {
                             openDocument: request => rawRasterRetention.openDocument(request, ownerId),
                             pageCount: rawRasterRetention.pageCount,
@@ -602,7 +621,12 @@ export function scanCleanupDetectionOwner(
                             job.signal,
                             detectionRetention,
                             detectionDependencies,
-                            {rasterConcurrency: rasterPolicy.rasterConcurrency},
+                            {
+                                rasterConcurrency: rasterPolicy.rasterConcurrency,
+                                ...(rasterPolicy.rasterMaxPixels === undefined
+                                    ? {}
+                                    : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),
+                            },
                             (nextResults, progress, documentCanvasSignature) => {
                                 const normalizedProgress = normalizeDetectionProgress(progress);
                                 job.publish({
@@ -617,7 +641,7 @@ export function scanCleanupDetectionOwner(
                             },
                             logScanCleanupMessage,
                         );
-                        if (detection.resultStore.pageCount > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
+                        if (detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                             if (
                                 job.signal.aborted
                                 || detectionLifecycle.activeJob(ownerId)?.jobId !== jobId
@@ -716,7 +740,7 @@ export function scanCleanupDetectionOwner(
         ...detectionLifecycle,
         ...ownerMethods,
         async dispose() {
-            await detectionJobs.clearForTests();
+            await detectionJobs.dispose();
             await disposeResultStoreOwnerBindings();
             await detectionLifecycle.dispose();
             placementCalibrationByStore.forEach(build => build.controller.abort());

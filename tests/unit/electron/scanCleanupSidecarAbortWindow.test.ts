@@ -1,4 +1,9 @@
 import { EventEmitter } from 'node:events';
+import {
+    mkdtemp, readFile, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import { PassThrough } from 'node:stream';
 import {
     afterEach,
@@ -27,6 +32,8 @@ class MockSidecarProcess extends EventEmitter {
     readonly stdout = new PassThrough();
 
     readonly stderr = new PassThrough();
+
+    readonly pid = process.pid;
 
     readonly kill = vi.fn();
 }
@@ -165,5 +172,179 @@ describe('scan cleanup sidecar abort window', () => {
         // would then retain a temp directory nothing is reading on every cancel.
         expect(getUnprovenNativeTerminationDetail(error)).toBeUndefined();
         expect(log).not.toHaveBeenCalledWith('warn', expect.stringContaining('was not proven dead'));
+    });
+
+    it('replays staged destinations after an unproven sidecar termination', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(() => {}));
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const original = join(directory, 'page.png');
+        const backup = join(directory, 'page.png.evb-tmp-recovery');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        const controller = new AbortController();
+        let deferredRecovery: Promise<boolean> | undefined;
+        try {
+            const run = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                manifestPath,
+                controller.signal,
+                vi.fn<TWorkerLog>(),
+                () => {},
+                {onRecoveryPending: recovery => { deferredRecovery = recovery; }},
+            ).catch((error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(0);
+            await writeFile(backup, 'previous destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                entries: [{
+                    original,
+                    backup,
+                }],
+            }));
+            controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
+            await vi.advanceTimersByTimeAsync(3_500);
+
+            const error = await run;
+            expect(error).toBeInstanceOf(Error);
+            expect(deferredRecovery).toBeDefined();
+            await expect(readFile(original, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(journalPath, 'utf8')).resolves.toContain(backup);
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+
+            // Recovery is deferred until the child has actually closed. The
+            // owner retains the scratch until this promise settles.
+            child.emit('close', null, 'SIGKILL');
+            await expect(deferredRecovery!).resolves.toBe(true);
+            await expect(readFile(original, 'utf8')).resolves.toBe('previous destination');
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('shares recovery between fatal settlement and a concurrent child close', async () => {
+        let finishTermination!: (terminated: boolean) => void;
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(resolve => {
+            finishTermination = resolve;
+        }));
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-concurrent-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const original = join(directory, 'page.png');
+        const backup = join(directory, 'page.png.evb-tmp-recovery');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        const controller = new AbortController();
+        let deferredRecovery: Promise<boolean> | undefined;
+        try {
+            const run = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                manifestPath,
+                controller.signal,
+                vi.fn<TWorkerLog>(),
+                () => {},
+                {onRecoveryPending: recovery => { deferredRecovery = recovery; }},
+            );
+            await writeFile(backup, 'previous destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                entries: [{
+                    original,
+                    backup,
+                }],
+            }));
+            controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
+            await new Promise<void>(resolve => setImmediate(resolve));
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
+            expect(deferredRecovery).toBeDefined();
+
+            // The close observer and fatal settlement intentionally enter the
+            // same replay window before either caller can consume the backup.
+            child.emit('close', null, 'SIGKILL');
+            finishTermination(true);
+
+            await expect(run).rejects.toMatchObject({name: 'AbortError'});
+            await expect(deferredRecovery!).resolves.toBe(true);
+            await expect(readFile(original, 'utf8')).resolves.toBe('previous destination');
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('discards committed journal backups without restoring committed outputs', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-committed-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        const original = join(directory, 'page.png');
+        const backup = join(directory, 'page.png.evb-tmp-recovery');
+        try {
+            await writeFile(original, 'new destination');
+            await writeFile(backup, 'previous destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                committed: true,
+                entries: [{
+                    original,
+                    backup,
+                    remove: false,
+                }],
+            }));
+
+            const {replayScanCleanupPublicationJournal} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+            await expect(replayScanCleanupPublicationJournal(manifestPath)).resolves.toBe(true);
+            await expect(readFile(original, 'utf8')).resolves.toBe('new destination');
+            await expect(readFile(backup)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('removes outputs for destinations that were absent before an interrupted publication', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-absent-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        const output = join(directory, 'page.png');
+        try {
+            await writeFile(output, 'partial destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                committed: false,
+                entries: [{
+                    original: output,
+                    backup: null,
+                    remove: true,
+                }],
+            }));
+
+            const {replayScanCleanupPublicationJournal} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+            await expect(replayScanCleanupPublicationJournal(manifestPath)).resolves.toBe(true);
+            await expect(readFile(output)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

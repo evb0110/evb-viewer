@@ -2,8 +2,11 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
-} from '@contracts/electronApiScanCleanup';
-import type {IDetectedPageRaster} from '@evb/scan-cleanup/core/types';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {
+    isScanCleanupCompactLayeredRaster,
+    type IDetectedPageRaster,
+} from '@evb/scan-cleanup/core/types';
 
 /**
  * A compact MRC/JBIG2 scan is already an optimized representation. Automatic
@@ -35,17 +38,10 @@ export interface IScanCleanupCompactSourceBudget {
     sourceBytes: number;
 }
 
-function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
-    return raster?.hasBilevelLayer === true
-        && raster.backgroundDpi !== undefined
-        && Number.isFinite(raster.backgroundDpi)
-        && raster.backgroundDpi > 0;
-}
-
 export function resolveScanCleanupCompactSourceBudget(input: {
     documentPageCount: number;
     options: IScanCleanupOptions;
-    pageRasterByNumber?: ReadonlyMap<number, IDetectedPageRaster>;
+    rasterByPage?: ReadonlyMap<number, IDetectedPageRaster>;
     compactLayeredPageCount?: number;
     partialRun: boolean;
     sourceBytes: number;
@@ -67,8 +63,8 @@ export function resolveScanCleanupCompactSourceBudget(input: {
         for (const [
             pageNumber,
             raster,
-        ] of input.pageRasterByNumber ?? []) {
-            if (pageNumber >= 1 && pageNumber <= input.documentPageCount && isCompactLayeredRaster(raster)) {
+        ] of input.rasterByPage ?? []) {
+            if (pageNumber >= 1 && pageNumber <= input.documentPageCount && isScanCleanupCompactLayeredRaster(raster)) {
                 count += 1;
             }
         }

@@ -843,11 +843,15 @@ async function buildOcrPageProcessingPlan(
             baseContext.signal,
             targetPages.map(page => page.pageNumber),
         )
-        : {
-            documentDpi: renderDpi,
-            pageDpiByNumber: new Map<number, number>(),
-        };
-    const detectedDpi = detectedSourceDpi.documentDpi;
+        : null;
+    const detectedDpi = detectedSourceDpi?.documentDpi ?? renderDpi;
+    const pageSourceDpiByNumber = new Map<number, number>();
+    if (detectedSourceDpi !== null) {
+        for (const page of targetPages) {
+            const raster = await detectedSourceDpi.getPageRaster(page.pageNumber);
+            if (raster !== undefined) pageSourceDpiByNumber.set(page.pageNumber, raster.dpi);
+        }
+    }
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);
@@ -874,7 +878,7 @@ async function buildOcrPageProcessingPlan(
             extractionDpi,
             tesseractThreads,
             pageSizeByNumber: pageSizeProbe.pageSizes,
-            pageSourceDpiByNumber: detectedSourceDpi.pageDpiByNumber,
+            pageSourceDpiByNumber,
         },
     };
 }

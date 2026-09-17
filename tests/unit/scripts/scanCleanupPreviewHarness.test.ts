@@ -5,6 +5,9 @@ import {
 } from 'vitest';
 import {
     compareMetrics,
+    independentReaderScale,
+    independentReaderWrongCalibrationOffset,
+    measureOverlayContainment,
     weightAgreementViolations,
     weightUniformity,
 } from '@scripts/diagnostics/scan-cleanup-preview-harness.mjs';
@@ -47,6 +50,52 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
 }
 
 describe('scan cleanup preview weight agreement', () => {
+    it('counts an ink pixel whose cell intersects a subpixel overlay edge', () => {
+        const bitmap = {
+            data: (() => {
+                const data = new Uint8Array(2 * 100).fill(255);
+                data[0] = 0;
+                return data;
+            })(),
+            height: 100,
+            width: 2,
+        };
+
+        expect(measureOverlayContainment(
+            bitmap,
+            {
+                bottom: 1,
+                left: 0,
+                right: 1,
+                top: 0.51,
+            },
+            0.01,
+            0.03,
+        )).toMatchObject({
+            containment: 1,
+            pass: true,
+        });
+    });
+
+    it('maps cropped native output into the matched canvas before reading ink', () => {
+        expect(independentReaderScale({
+            canvasHeightPx: 120,
+            canvasWidthPx: 160,
+            matchedCanvasContentHeightPx: 46,
+            matchedCanvasContentWidthPx: 100,
+            outputHeightPx: 103,
+            outputWidthPx: 226,
+        }, 160, 121)).toEqual({
+            x: 100 / 226,
+            y: 121 / 120 * 46 / 103,
+        });
+    });
+
+    it('converts the wrong-calibration offset into final raster pixels', () => {
+        expect(independentReaderWrongCalibrationOffset(100, 320, 160)).toBe(160);
+        expect(independentReaderWrongCalibrationOffset(20, 100, 400)).toBe(40);
+    });
+
     it('accepts the measured RGB-camera preview residual', () => {
         const comparison = compareMetrics(
             {

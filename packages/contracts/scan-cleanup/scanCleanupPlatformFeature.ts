@@ -10,6 +10,10 @@ import type {
     TScanCleanupJobState,
 } from '@contracts/scan-cleanup/ipc';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     decodeDetectionArgs,
     decodeOwnedJobId,
     decodePlacementAnchorCalibrationArgs,
@@ -38,13 +42,13 @@ import {
 } from '@contracts/platformFeature';
 import {
     createDefaultScanCleanupSettingsFile,
-    decodeScanCleanupSettingsFile,
+    decodeScanCleanupSettingsResult,
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
-    type IScanCleanupSettingsFile,
+    type IScanCleanupSettingsResult,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     parseJobId,
     parseRequestId,
@@ -125,6 +129,13 @@ const queuedDetectionState: TScanCleanupDetectionJobState = {
     updatedAtMs: createEpochMs(0),
 };
 const booleanResult = s.boolean();
+const documentRef = s.branded(
+    s.string('/tmp/scan-cleanup-output.pdf'),
+    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
+    'invalid scan-cleanup document reference',
+);
+type TVoidResult = ReturnType<() => void>;
+const voidResult = s.declared<TVoidResult>()(s.undefined());
 const nonNegativeInteger = s.number({
     integer: true,
     min: 0,
@@ -141,8 +152,8 @@ const settingsUpdateArgs = s.fromParser(
     () => [{settings: createDefaultScanCleanupSettingsFile().settings}],
 );
 const settingsFile = s.fromParser(
-    decodeScanCleanupSettingsFile,
-    (): IScanCleanupSettingsFile => createDefaultScanCleanupSettingsFile(),
+    decodeScanCleanupSettingsResult,
+    (): IScanCleanupSettingsResult => createDefaultScanCleanupSettingsFile(),
 );
 const previewArgs = s.fromParser(decodeArgs(decodePreviewArgs), () => [previewRequest]);
 const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () => [cancelPreviewRequest]);
@@ -179,6 +190,7 @@ const previewResult = s.fromParser(
         rawHeightPx: 1,
         pageMetadata: {
             layoutClassification: 'single-uncut-page' as const,
+            layoutConfidence: 0,
             cutterXPx: null,
             rotationDegrees: 0 as const,
             canvasScope: 'document' as const,
@@ -300,7 +312,7 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
         }),
         cancel: method({
             name: 'cancel',
-            channel: 'scan-cleanup:cancel',
+            channel: 'scan-cleanup:job:cancel',
             args: ownedJobArgs,
             result: booleanResult,
             main: 'cancel',
@@ -338,6 +350,36 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
                 context: 'none',
             },
             browser: {method: 'pruneGeneratedOutputs'},
+            lazy: 'forwarded',
+        },
+        getPendingCompletedOutputs: {
+            kind: 'async',
+            channel: 'scan-cleanup:output:pending',
+            ipc: {
+                args: s.tuple([]),
+                result: s.array(documentRef),
+            },
+            main: {
+                method: 'getPendingCompletedOutputs',
+                context: 'none',
+            },
+            browser: {method: 'getPendingCompletedOutputs'},
+            optionalWhenImplemented: true,
+            lazy: 'forwarded',
+        },
+        acknowledgeCompletedOutputs: {
+            kind: 'async',
+            channel: 'scan-cleanup:output:acknowledge',
+            ipc: {
+                args: s.tuple([s.array(documentRef)]),
+                result: voidResult,
+            },
+            main: {
+                method: 'acknowledgeCompletedOutputs',
+                context: 'none',
+            },
+            browser: {method: 'acknowledgeCompletedOutputs'},
+            optionalWhenImplemented: true,
             lazy: 'forwarded',
         },
         getSettings: method({

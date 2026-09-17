@@ -22,7 +22,7 @@
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-center">
             <div
                 v-if="isRunning"
-                class="scan-cleanup-run-meter"
+                :class="SCAN_CLEANUP_RUN_METER_CLASS"
             >
                 <p
                     class="scan-cleanup-run-meter-status"
@@ -30,7 +30,7 @@
                     aria-live="polite"
                 >
                     <span class="scan-cleanup-run-meter-phase">
-                        {{ transitionText || progressPhaseText }}
+                        {{ transitionText || cancelStatusText || progressPhaseText }}
                     </span>
                     <template v-if="!transitionText && progressCountText">
                         <span class="scan-cleanup-run-meter-separator" aria-hidden="true">·</span>
@@ -132,7 +132,7 @@
                     </template>
                     <template v-else-if="isDetecting">
                         <ScanCleanupStableWidthText
-                            class="scan-cleanup-toolbar-count"
+                            :class="SCAN_CLEANUP_TOOLBAR_COUNT_CLASS"
                             role="status"
                             aria-live="polite"
                             :aria-label="detectionProgressText"
@@ -141,7 +141,7 @@
                         />
                         <AppTooltip :text="detectionCancelLabel" usefulness="always">
                             <UButton
-                                class="scan-cleanup-toolbar-cancel-detection"
+                                :class="SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_CLASS"
                                 type="button"
                                 color="neutral"
                                 variant="ghost"
@@ -204,13 +204,13 @@
             <div class="scan-cleanup-toolbar-primary-slot">
                 <UButton
                     v-if="isRunning"
-                    class="scan-cleanup-toolbar-primary-action"
+                    :class="SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS"
                     type="button"
                     color="neutral"
                     variant="outline"
                     size="sm"
-                    :label="cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
-                    :disabled="cancelRequested"
+                    :label="finishing ? t('scanCleanup.finishing') : cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
+                    :disabled="cancelRequested || finishing"
                     @click="emit('cancel')"
                 />
                 <AppTooltip
@@ -219,7 +219,7 @@
                     usefulness="always"
                 >
                     <UButton
-                        class="scan-cleanup-toolbar-primary-action"
+                        :class="SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS"
                         type="button"
                         color="primary"
                         size="sm"
@@ -236,15 +236,23 @@
 
 <script setup lang="ts">
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
+import {
+    SCAN_CLEANUP_RUN_METER_CLASS,
+    SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_CLASS,
+    SCAN_CLEANUP_TOOLBAR_COUNT_CLASS,
+    SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS,
+} from '@contracts/scan-cleanup/toolbarSelectors';
 
 const {
     canDetectAll,
     canRun,
     cancelRequested,
+    cancelStatusText = '',
     detectionCancelRequested,
     detectionError,
     detectionProgressText,
     detectionProgressWidestText,
+    finishing = false,
     isDetecting,
     isRunning,
     outputEstimate,
@@ -266,10 +274,12 @@ const {
     canDetectAll: boolean;
     canRun: boolean;
     cancelRequested: boolean;
+    cancelStatusText?: string;
     detectionCancelRequested: boolean;
     detectionError: string;
     detectionProgressText: string;
     detectionProgressWidestText: string;
+    finishing?: boolean;
     isDetecting: boolean;
     isRunning: boolean;
     outputEstimate: string;

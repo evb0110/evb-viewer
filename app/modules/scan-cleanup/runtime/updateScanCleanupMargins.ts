@@ -1,5 +1,5 @@
-import type {IScanCleanupMarginsMm} from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 export type TScanCleanupMarginSide = keyof IScanCleanupMarginsMm;
 export type TScanCleanupMarginTarget = TScanCleanupMarginSide | 'all';

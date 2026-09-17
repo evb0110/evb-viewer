@@ -1,4 +1,6 @@
-export type TScanCleanupPageRotation = 0 | 90 | 180 | 270;
+import type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/domain';
+
+export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/domain';
 
 /** A vertical cutter authored in normalized rotated-analysis-page space. */
 export interface IScanCleanupNormalizedSplit {
@@ -17,6 +19,9 @@ export interface IScanCleanupNormalizedRect {
     heightNormalized: number;
     rotationDegrees: TScanCleanupPageRotation;
 }
+
+/** Shared tolerance for normalized coordinates and rectangle edge sums. */
+export const SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON = 1e-9;
 
 export interface IScanCleanupPixelRect {
     xPx: number;

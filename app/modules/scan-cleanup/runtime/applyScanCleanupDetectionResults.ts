@@ -3,7 +3,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupPreviewMetadata,
     IScanCleanupTextAxis,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 export function applyScanCleanupDetectionResults(
     results: readonly IScanCleanupDetectionResult[],

@@ -6,7 +6,10 @@ use crate::io::raster;
 use evb_native_support::{NativeError, MAX_WORKER_THREADS};
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::thread;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,7 +45,11 @@ pub(crate) trait PlanningManifest {
     fn page_count(&self) -> usize;
     fn page(&self, index: usize) -> PageDescriptor;
 
-    fn run_stream_page_jobs<T, F>(&self, task: F) -> Result<Vec<T>, Box<dyn Error>>
+    fn run_stream_page_jobs<T, F>(
+        &self,
+        is_canceled: &AtomicBool,
+        task: F,
+    ) -> Result<Vec<T>, Box<dyn Error>>
     where
         T: Send,
         F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync;
@@ -76,18 +83,28 @@ pub(crate) fn page_cache_for(
     )?;
     Ok(PageCache::new(Arc::clone(shared), source))
 }
-pub(crate) fn run_page_jobs<M, T, F>(manifest: &M, task: F) -> Result<Vec<T>, Box<dyn Error>>
+pub(crate) fn run_page_jobs_with_worker_threads<M, T, F>(
+    manifest: &M,
+    is_canceled: &AtomicBool,
+    task: F,
+    worker_threads: usize,
+    processing_threads: usize,
+) -> Result<Vec<T>, Box<dyn Error>>
 where
     M: PlanningManifest + Sync,
     T: Send,
     F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
     if (0..manifest.page_count()).any(|index| manifest.page(index).stream_input) {
-        return manifest.run_stream_page_jobs(task);
+        return manifest.run_stream_page_jobs(is_canceled, task);
     }
-    let worker_threads = page_worker_threads(manifest)?;
-    let processing_threads = processing_worker_threads();
-    run_regular_page_jobs(manifest, task, worker_threads, processing_threads)
+    run_regular_page_jobs(
+        manifest,
+        is_canceled,
+        task,
+        worker_threads,
+        processing_threads,
+    )
 }
 
 pub(crate) fn processing_worker_threads() -> usize {
@@ -100,6 +117,7 @@ fn capped_worker_threads(available: usize) -> usize {
 
 pub(crate) fn run_regular_page_jobs<M, T, F>(
     manifest: &M,
+    is_canceled: &AtomicBool,
     task: F,
     worker_threads: usize,
     processing_threads: usize,
@@ -147,7 +165,11 @@ where
                         let mut state = state
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        if state.failure_observed || state.next_page >= manifest.page_count() {
+                        if state.failure_observed
+                            || is_canceled.load(Ordering::Acquire)
+                            || state.next_page >= manifest.page_count()
+                        {
+                            state.failure_observed |= is_canceled.load(Ordering::Acquire);
                             return;
                         }
                         let index = state.next_page;
@@ -174,7 +196,7 @@ where
             .into_inner()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        if failure_observed {
+        if failure_observed || is_canceled.load(Ordering::Acquire) {
             // The cancellation decision is made as soon as any page fails,
             // but retain the old ordered-result contract when multiple active
             // pages fail at different times. Panics are captured only long
@@ -187,7 +209,11 @@ where
                     Ok(Ok(_)) => {}
                 }
             }
-            unreachable!("page dispatcher observed a failure without recording it");
+            return Err(if is_canceled.load(Ordering::Acquire) {
+                crate::engine::cancellation_error().into()
+            } else {
+                unreachable!("page dispatcher observed a failure without recording it")
+            });
         }
         outcomes
             .into_iter()
@@ -200,6 +226,9 @@ where
     } else {
         (0..manifest.page_count())
             .map(|index| {
+                if is_canceled.load(Ordering::Acquire) {
+                    return Err(crate::engine::cancellation_error());
+                }
                 let page = manifest.page(index);
                 task((index, &page))
             })
@@ -342,7 +371,7 @@ pub(crate) fn adaptive_thread_count(
     if page_count == 0 {
         return 1;
     }
-    let cpu_limit = (available_parallelism / 2).max(2).min(page_count.max(1));
+    let cpu_limit = (available_parallelism / 2).max(1).min(page_count.max(1));
     let memory_limit = if peak_page_bytes == 0 {
         page_count
     } else {
@@ -403,6 +432,8 @@ mod tests {
         time::Duration,
     };
 
+    static NEVER_CANCELED: AtomicBool = AtomicBool::new(false);
+
     #[derive(Clone)]
     struct TypedTestManifest {
         operation: PlanningOperation,
@@ -433,7 +464,11 @@ mod tests {
             self.pages[index].clone()
         }
 
-        fn run_stream_page_jobs<T, F>(&self, task: F) -> Result<Vec<T>, Box<dyn Error>>
+        fn run_stream_page_jobs<T, F>(
+            &self,
+            is_canceled: &AtomicBool,
+            task: F,
+        ) -> Result<Vec<T>, Box<dyn Error>>
         where
             T: Send,
             F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
@@ -452,15 +487,19 @@ mod tests {
                     })
                     .collect(),
             };
-            crate::engine::staged_input::run_stream_page_jobs(&batch, move |(index, staged)| {
-                let original = &self.pages[index];
-                let descriptor = PageDescriptor {
-                    input_path: staged.input_path.clone(),
-                    stream_input: false,
-                    ..original.clone()
-                };
-                task((index, &descriptor))
-            })
+            crate::engine::staged_input::run_stream_page_jobs(
+                &batch,
+                is_canceled,
+                move |(index, staged)| {
+                    let original = &self.pages[index];
+                    let descriptor = PageDescriptor {
+                        input_path: staged.input_path.clone(),
+                        stream_input: false,
+                        ..original.clone()
+                    };
+                    task((index, &descriptor))
+                },
+            )
         }
     }
 
@@ -655,25 +694,32 @@ mod tests {
             Ok(())
         };
 
-        let processed = run_page_jobs(&manifest, |(index, page)| {
-            let page_descriptor = &manifest.pages[index];
-            with_announced_staged_page_input(
-                &StagedLeaseDescriptor {
-                    input_path: page_descriptor.input_path.clone(),
-                    page_number: page_descriptor.source_page_index.saturating_add(1),
-                    total_pages: manifest.pages.len(),
-                    enabled: manifest.staged_input_window.is_some(),
-                },
-                &announce,
-                || {
-                    let bytes = fs::read(&page.input_path).map_err(|error| {
-                        NativeError::new(NativeErrorCode::Io, format!("page {index}: {error}"))
-                    })?;
-                    assert_eq!(bytes, format!("page-{index}").as_bytes());
-                    Ok(index)
-                },
-            )
-        })
+        let processed = run_page_jobs_with_worker_threads(
+            &manifest,
+            &NEVER_CANCELED,
+            |(index, page)| {
+                let page_descriptor = &manifest.pages[index];
+                with_announced_staged_page_input(
+                    &StagedLeaseDescriptor {
+                        input_path: page_descriptor.input_path.clone(),
+                        page_number: page_descriptor.source_page_index.saturating_add(1),
+                        total_pages: manifest.pages.len(),
+                        enabled: manifest.staged_input_window.is_some(),
+                    },
+                    &announce,
+                    &NEVER_CANCELED,
+                    || {
+                        let bytes = fs::read(&page.input_path).map_err(|error| {
+                            NativeError::new(NativeErrorCode::Io, format!("page {index}: {error}"))
+                        })?;
+                        assert_eq!(bytes, format!("page-{index}").as_bytes());
+                        Ok(index)
+                    },
+                )
+            },
+            page_worker_threads(&manifest).unwrap(),
+            processing_worker_threads(),
+        )
         .unwrap();
 
         assert_eq!(processed, (0..8).collect::<Vec<_>>());
@@ -750,9 +796,10 @@ mod tests {
 
     #[test]
     fn adaptive_threads_respect_cpu_pages_and_memory() {
+        assert_eq!(adaptive_thread_count(1, 20, 10_000, 1_000), 1);
         assert_eq!(adaptive_thread_count(16, 20, 10_000, 1_000), 8);
         assert_eq!(adaptive_thread_count(16, 3, 10_000, 1_000), 3);
-        assert_eq!(adaptive_thread_count(2, 20, 10_000, 1_000), 2);
+        assert_eq!(adaptive_thread_count(2, 20, 10_000, 1_000), 1);
         assert_eq!(adaptive_thread_count(16, 20, 1_500, 1_000), 1);
         assert_eq!(adaptive_thread_count(16, 0, 10_000, 1_000), 1);
     }
@@ -860,7 +907,14 @@ mod tests {
         };
 
         assert!(manifest_worker_threads(&manifest).unwrap() > 1);
-        let samples = run_page_jobs(&manifest, |(_, page)| derive_page_ink_sample(page)).unwrap();
+        let samples = run_page_jobs_with_worker_threads(
+            &manifest,
+            &NEVER_CANCELED,
+            |(_, page)| derive_page_ink_sample(page),
+            page_worker_threads(&manifest).unwrap(),
+            processing_worker_threads(),
+        )
+        .unwrap();
         let contexts = derive_page_ink_contexts(&samples);
         assert_eq!(contexts.len(), 12);
         assert!(contexts.iter().all(Option::is_some));
@@ -915,6 +969,7 @@ mod tests {
             move || {
                 run_regular_page_jobs(
                     &manifest,
+                    &NEVER_CANCELED,
                     move |(index, _)| {
                         let current = live.fetch_add(1, Ordering::AcqRel) + 1;
                         peak.fetch_max(current, Ordering::AcqRel);
@@ -981,8 +1036,14 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let manifest = scheduler_test_manifest(&dir, 4);
 
-        let run = run_regular_page_jobs(&manifest, |(index, _)| Ok::<_, NativeError>(index), 2, 1)
-            .unwrap();
+        let run = run_regular_page_jobs(
+            &manifest,
+            &NEVER_CANCELED,
+            |(index, _)| Ok::<_, NativeError>(index),
+            2,
+            1,
+        )
+        .unwrap();
 
         assert_eq!(run, vec![0, 1, 2, 3]);
         let _ = fs::remove_dir_all(dir);
@@ -1003,6 +1064,7 @@ mod tests {
         let started = Arc::new(Mutex::new(Vec::new()));
         let error = run_regular_page_jobs(
             &manifest,
+            &NEVER_CANCELED,
             {
                 let live = Arc::clone(&live);
                 let started = Arc::clone(&started);
@@ -1062,6 +1124,7 @@ mod tests {
             move || {
                 let _ = run_regular_page_jobs(
                     &manifest,
+                    &NEVER_CANCELED,
                     move |(index, _)| {
                         live.fetch_add(1, Ordering::AcqRel);
                         started.lock().unwrap().push(index);

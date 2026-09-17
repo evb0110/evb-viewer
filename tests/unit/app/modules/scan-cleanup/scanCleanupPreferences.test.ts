@@ -4,9 +4,9 @@ import {
     it,
 } from 'vitest';
 import {reactive} from 'vue';
-import type {IScanCleanupPageOverride} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
-import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
+import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     dismissScanCleanupFirstRunGuidance,
@@ -178,6 +178,56 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOverrides('document-b', storage)).toEqual({});
         resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
+    });
+
+    it('keeps migration and reset writes within the document-entry bound', () => {
+        const storage = memoryStorage();
+        const currentDocument = 'document-0';
+        const entries = Object.fromEntries(Array.from({length: 55}, (_, index) => [
+            `document-${index}`,
+            {
+                updatedAt: index,
+                ...(index === 0 ? {
+                    documentRevision: 'revision-0',
+                    marginsMm: {
+                        leftMm: 5,
+                        topMm: 5,
+                        rightMm: 5,
+                        bottomMm: 5,
+                    },
+                } : {}),
+                overrides: index === 0 || index === 54 ? {'2': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplit: 320,
+                }} : {},
+                ...(index === 0 || index === 54 ? {rasterDimensionsByPage: {'2': {
+                    width: 1200,
+                    height: 800,
+                }}} : {}),
+            },
+        ]));
+        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify(entries));
+
+        loadScanCleanupDocumentOverrides(currentDocument, storage);
+        const migrated = JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}') as Record<string, {
+            documentRevision?: string;
+            updatedAt?: number;
+        }>;
+        expect(Object.keys(migrated))
+            .toHaveLength(50);
+        expect(migrated[currentDocument]).toEqual(expect.objectContaining({documentRevision: 'revision-0'}));
+        expect(migrated[currentDocument]?.updatedAt).toBeGreaterThan(54);
+
+        resetScanCleanupDocumentOverrides(currentDocument, storage);
+        const reset = JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}') as Record<string, {
+            documentRevision?: string;
+            updatedAt?: number;
+        }>;
+        expect(Object.keys(reset)).toHaveLength(50);
+        expect(reset[currentDocument]).toEqual(expect.objectContaining({documentRevision: 'revision-0'}));
+        expect(reset[currentDocument]?.updatedAt).toBeGreaterThan(migrated[currentDocument]?.updatedAt ?? 0);
     });
 
     it('persists concrete page output-mode overrides and prunes Auto', () => {
@@ -458,21 +508,32 @@ describe('scan cleanup preferences', () => {
 
     it('migrates a document-wide persisted manual split before decoding defaults', () => {
         const storage = memoryStorage();
-        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {pageOverrideDefaults: {
-            rotationDegrees: 270,
-            layoutOverride: 'spread',
-            excluded: false,
-            manualSplit: {
-                xNormalized: 1,
+        storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {
+            updatedAt: 1,
+            documentRevision: 'revision-1',
+            pageOverrideDefaults: {
                 rotationDegrees: 270,
+                layoutOverride: 'spread',
+                excluded: false,
+                manualSplit: {
+                    xNormalized: 1,
+                    rotationDegrees: 270,
+                },
             },
-        }}}));
+        }}));
 
         expect(loadScanCleanupDocumentPageOverrideDefaults('document-a', storage)?.manualSplit)
             .toEqual({
                 xNormalized: 0.98,
                 rotationDegrees: 270,
             });
+        expect(JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}')['document-a'])
+            .toEqual(expect.objectContaining({
+                documentRevision: 'revision-1',
+                updatedAt: expect.any(Number),
+            }));
+        expect(JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}')['document-a'].updatedAt)
+            .toBeGreaterThan(1);
     });
 
     it('falls back safely from malformed persisted values', () => {

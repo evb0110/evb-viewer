@@ -146,10 +146,9 @@ describe('restoreWorkspaceCheckpoint', () => {
         });
 
         expect(restoreGraph).toHaveBeenCalledOnce();
-        expect(restoreSurfaceMode).toHaveBeenCalledWith('old-tab', 'scan-cleanup');
+        expect(restoreSurfaceMode).not.toHaveBeenCalled();
         expect(order).toEqual([
             'graph',
-            'surface',
             'open',
         ]);
         expect(openPathInReservedTab).toHaveBeenCalledWith('old-tab', {

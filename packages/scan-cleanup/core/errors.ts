@@ -1,10 +1,10 @@
+import type {IScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+
 export const SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE = 'SCAN_CLEANUP_OUTPUT_MISSING' as const;
 export const SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE = 'SCAN_CLEANUP_PDF_VALIDATION_FAILED' as const;
 export const SCAN_CLEANUP_CONTRACT_ERROR_CODE = 'SCAN_CLEANUP_CONTRACT_VIOLATION' as const;
 export const SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE = 'SCAN_CLEANUP_STREAMING_EVIDENCE_INVALID' as const;
-export const SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE =
-    'Ink placement for documents over 20,000 pages is unavailable. Select a bounded page range or choose another alignment.';
-
 export class ScanCleanupMissingOutputError extends Error {
     readonly code = SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE;
     readonly sourcePageNumber: number;
@@ -52,6 +52,15 @@ export class ScanCleanupContractError extends Error {
     }
 }
 
+export class ScanCleanupTooLargeError extends Error {
+    readonly code = 'too-large' as const;
+
+    constructor() {
+        super(`Scan cleanup ink placement exceeds the supported ${SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES.toLocaleString('en-US')}-page document capacity`);
+        this.name = 'ScanCleanupTooLargeError';
+    }
+}
+
 export class ScanCleanupStreamingEvidenceError extends Error {
     readonly code = SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE;
     readonly sidecarPath: string;
@@ -75,7 +84,8 @@ export class ScanCleanupNativeToolUnavailableError extends Error {
 }
 
 /**
- * Detection could not stage even one page raster inside the scratch budget.
+ * A scan cleanup run could not stage its bounded raster working set inside the
+ * scratch budget.
  *
  * This is the only remaining storage refusal: a document is never rejected for
  * its length, because it is analysed through a bounded window that is replayed.
@@ -84,8 +94,15 @@ export class ScanCleanupNativeToolUnavailableError extends Error {
  */
 export class ScanCleanupInsufficientScratchError extends Error {
     readonly code = 'insufficient-scratch' as const;
-    readonly availableBytes: number | null;
-    readonly requiredBytes: number | null;
+    readonly scratchShortfall: IScanCleanupScratchShortfall;
+
+    get availableBytes() {
+        return this.scratchShortfall.availableBytes;
+    }
+
+    get requiredBytes() {
+        return this.scratchShortfall.requiredBytes;
+    }
 
     constructor(availableBytes: number | null, requiredBytes: number | null) {
         const figures = [
@@ -93,11 +110,13 @@ export class ScanCleanupInsufficientScratchError extends Error {
             requiredBytes === null ? null : `${String(requiredBytes)} bytes required`,
         ].filter(figure => figure !== null);
         super(
-            'Scan cleanup detection cannot stage one page raster within the available scratch space'
+            'Scan cleanup cannot stage the required raster working set within the available scratch space'
             + (figures.length === 0 ? '' : ` (${figures.join(', ')})`),
         );
         this.name = 'ScanCleanupInsufficientScratchError';
-        this.availableBytes = availableBytes;
-        this.requiredBytes = requiredBytes;
+        this.scratchShortfall = {
+            availableBytes,
+            requiredBytes,
+        };
     }
 }

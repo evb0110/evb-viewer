@@ -629,10 +629,10 @@ describe('closing a source document during scan cleanup', () => {
             await expect(handle.terminal).resolves.toMatchObject({status: 'completed'});
             await handle.settled;
         } finally {
-            // `clearForTests` cancels and awaits every record it holds, so
+            // `dispose` cancels and awaits every record it holds, so
             // releasing the parked run first is all it needs to drain.
             release.resolve({ok: true});
-            await jobs.clearForTests();
+            await jobs.dispose();
         }
     });
 });

@@ -8,10 +8,14 @@ import {
 import {realpathSync} from 'fs';
 import {
     mkdir,
+    lstat,
+    readFile,
     readdir,
     rm,
     stat,
     utimes,
+    unlink,
+    writeFile,
 } from 'fs/promises';
 import {
     basename,
@@ -23,11 +27,26 @@ import {
     resolve,
     sep,
 } from 'path';
+import {
+    parseDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
+import {atomicReplace} from '@electron/utils/atomicReplace';
 import { getLegacyAppTempDirPath } from '@electron/utils/appTempDir';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
 const OUTPUT_NAME_HASH_HEX_LENGTH = 12;
+const COMPLETED_OUTPUT_JOURNAL_VERSION = 1;
+export const SCAN_CLEANUP_COMPLETED_OUTPUT_JOURNAL_NAME = '.evb-scan-cleanup-completed-outputs.json';
+const COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES = 32;
+
+interface ICompletedOutputJournalEntry {
+    version: 1;
+    outputPdfPath: string;
+    completedAtMs: number;
+}
+
+let completedOutputJournalWrite: Promise<void> = Promise.resolve();
 
 /**
  * Cleanup outputs are the feature's only deliverable, so they live under app
@@ -41,6 +60,9 @@ export function getScanCleanupOutputBaseDirs() {
     // only place outputs are created, classified or swept; elsewhere the legacy
     // root is all there is to report.
     const appDataDir = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('userData');
+    // Removal condition for this compatibility root: only after every
+    // supported checkpoint/recovery reader has stopped producing paths under
+    // the pre-app-data location. Until then it remains a read-and-sweep root.
     const legacyTempDir = getLegacyAppTempDirPath();
     return appDataDir ? [
         appDataDir,
@@ -50,6 +72,157 @@ export function getScanCleanupOutputBaseDirs() {
 
 export function getScanCleanupOutputRoot(baseDir = getScanCleanupOutputBaseDirs()[0]!) {
     return join(baseDir, 'scan-cleanup', 'output');
+}
+
+export function getScanCleanupCompletedOutputJournalPath(baseDir: string) {
+    return join(getScanCleanupOutputRoot(baseDir), SCAN_CLEANUP_COMPLETED_OUTPUT_JOURNAL_NAME);
+}
+
+function parseCompletedOutputJournal(value: unknown): ICompletedOutputJournalEntry[] | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const entries: ICompletedOutputJournalEntry[] = [];
+    for (const candidate of value) {
+        if (typeof candidate !== 'object' || candidate === null) {
+            continue;
+        }
+        const entry = candidate as Record<string, unknown>;
+        if (
+            entry.version !== COMPLETED_OUTPUT_JOURNAL_VERSION
+            || typeof entry.outputPdfPath !== 'string'
+            || parseDocumentRef(entry.outputPdfPath) === null
+            || typeof entry.completedAtMs !== 'number'
+            || !Number.isFinite(entry.completedAtMs)
+            || entry.completedAtMs < 0
+        ) {
+            continue;
+        }
+        entries.push({
+            version: 1,
+            outputPdfPath: entry.outputPdfPath,
+            completedAtMs: entry.completedAtMs,
+        });
+    }
+    return entries.slice(-COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES);
+}
+
+async function readCompletedOutputJournal(baseDir: string) {
+    const journalPath = getScanCleanupCompletedOutputJournalPath(baseDir);
+    let raw: string;
+    try {
+        raw = await readFile(journalPath, 'utf8');
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return [] as ICompletedOutputJournalEntry[];
+        }
+        throw error;
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw) as unknown;
+    } catch {
+        await unlink(journalPath).catch(() => undefined);
+        return [];
+    }
+    const entries = parseCompletedOutputJournal(parsed);
+    if (entries !== null) {
+        return entries;
+    }
+    await unlink(journalPath).catch(() => undefined);
+    return [];
+}
+
+async function writeCompletedOutputJournal(baseDir: string, entries: readonly ICompletedOutputJournalEntry[]) {
+    const journalPath = getScanCleanupCompletedOutputJournalPath(baseDir);
+    if (entries.length === 0) {
+        await unlink(journalPath).catch(error => {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                throw error;
+            }
+        });
+        return;
+    }
+    await mkdir(dirname(journalPath), {
+        recursive: true,
+        mode: 0o700,
+    });
+    const temporaryPath = `${journalPath}.${randomUUID()}.tmp`;
+    try {
+        await writeFile(temporaryPath, `${JSON.stringify(entries)}\n`, {
+            encoding: 'utf8',
+            flag: 'wx',
+        });
+        await atomicReplace(temporaryPath, journalPath, {markMutationCommitStarted: false});
+    } finally {
+        await unlink(temporaryPath).catch(() => undefined);
+    }
+}
+
+function enqueueCompletedOutputJournalMutation<T>(mutation: () => Promise<T>) {
+    const next = completedOutputJournalWrite.then(mutation);
+    completedOutputJournalWrite = next.then(() => undefined, () => undefined);
+    return next;
+}
+
+/** Records a terminal output before the renderer receives its terminal event. */
+export function recordScanCleanupCompletedOutput(
+    outputPdfPath: string,
+    options: {
+        baseDir?: string;
+        completedAtMs?: number
+    } = {},
+) {
+    const baseDir = options.baseDir ?? getScanCleanupOutputBaseDirs()[0]!;
+    return enqueueCompletedOutputJournalMutation(async () => {
+        const entries = await readCompletedOutputJournal(baseDir);
+        const nextEntries = entries.filter(entry => entry.outputPdfPath !== outputPdfPath);
+        nextEntries.push({
+            version: 1,
+            outputPdfPath,
+            completedAtMs: options.completedAtMs ?? Date.now(),
+        });
+        await writeCompletedOutputJournal(baseDir, nextEntries.slice(-COMPLETED_OUTPUT_JOURNAL_MAX_ENTRIES));
+    });
+}
+
+/** Returns completed outputs until the renderer confirms that it opened them. */
+export async function getPendingScanCleanupCompletedOutputs(
+    options: {baseDir?: string} = {},
+): Promise<TDocumentRef[]> {
+    await completedOutputJournalWrite;
+    const baseDir = options.baseDir ?? getScanCleanupOutputBaseDirs()[0]!;
+    const entries = await readCompletedOutputJournal(baseDir);
+    const validEntries: ICompletedOutputJournalEntry[] = [];
+    const paths: TDocumentRef[] = [];
+    for (const entry of entries) {
+        const outputPath = parseDocumentRef(entry.outputPdfPath);
+        if (outputPath === null || !isScanCleanupGeneratedOutputPath(outputPath, [baseDir])) {
+            continue;
+        }
+        const outputStat = await lstat(outputPath).catch(() => null);
+        if (!outputStat?.isFile() || outputStat.isSymbolicLink()) {
+            continue;
+        }
+        validEntries.push(entry);
+        paths.push(outputPath);
+    }
+    if (validEntries.length !== entries.length) {
+        await enqueueCompletedOutputJournalMutation(() => writeCompletedOutputJournal(baseDir, validEntries));
+    }
+    return paths;
+}
+
+export function acknowledgeScanCleanupCompletedOutputs(
+    outputPaths: readonly string[],
+    options: {baseDir?: string} = {},
+) {
+    const baseDir = options.baseDir ?? getScanCleanupOutputBaseDirs()[0]!;
+    const acknowledged = new Set(outputPaths.map(path => String(path)));
+    return enqueueCompletedOutputJournalMutation(async () => {
+        const entries = await readCompletedOutputJournal(baseDir);
+        await writeCompletedOutputJournal(baseDir, entries.filter(entry => !acknowledged.has(entry.outputPdfPath)));
+    });
 }
 
 export function isScanCleanupGeneratedOutputPath(
@@ -156,9 +329,16 @@ export async function pruneScanCleanupGeneratedOutputs(options: {
 }) {
     const baseDirs = options.baseDirs ?? getScanCleanupOutputBaseDirs();
     const nowMs = options.nowMs ?? Date.now();
+    const pendingOutputs = new Set<string>(
+        (await Promise.all(baseDirs.map(baseDir => getPendingScanCleanupCompletedOutputs({baseDir}))))
+            .flat(),
+    );
+    const isOutputLive = (outputPath: string) => (
+        pendingOutputs.has(outputPath) || options.isOutputLive(outputPath)
+    );
     let removed = 0;
     for (const baseDir of baseDirs) {
-        removed += await pruneOutputRoot(getScanCleanupOutputRoot(baseDir), options.isOutputLive, nowMs);
+        removed += await pruneOutputRoot(getScanCleanupOutputRoot(baseDir), isOutputLive, nowMs);
     }
     return removed;
 }
@@ -184,7 +364,15 @@ async function pruneOutputRoot(
         if (!entry.isDirectory()) continue;
         const directoryPath = join(outputRoot, entry.name);
         const resolvedDirectory = resolve(directoryPath);
-        if (!resolvedDirectory.startsWith(`${resolvedRoot}${process.platform === 'win32' ? '\\' : '/'}`)) continue;
+        const relativeDirectory = relative(resolvedRoot, resolvedDirectory);
+        if (
+            relativeDirectory.length === 0
+            || relativeDirectory === '..'
+            || relativeDirectory.startsWith(`..${sep}`)
+            || isAbsolute(relativeDirectory)
+        ) {
+            continue;
+        }
         const files = await readdir(directoryPath, {withFileTypes: true}).catch(() => []);
         const outputPdfPaths = files
             .filter(file => file.isFile() && extname(file.name).toLowerCase() === '.pdf')

@@ -182,6 +182,7 @@ describe('renderPdfPageToPng', () => {
 
     it('renders raw PPM without the PNG encoder flag for pipeline-internal rasters', async () => {
         const log = vi.fn();
+        mocks.stat.mockResolvedValue({isFile: () => false});
 
         await renderPdfPageToPpm(
             workerPaths,

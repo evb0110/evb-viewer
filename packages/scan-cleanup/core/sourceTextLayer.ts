@@ -4,7 +4,6 @@ import {
     assertCanonicalPdfPageSizes,
     type IPdfPageSize,
 } from '@evb/scan-cleanup/core/types';
-import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {resolveScanCleanupMatchedCanvasPlacement} from '@evb/scan-cleanup/core/policy/documentCanvas';
 
 export interface IScanCleanupTextLayerPlan {
@@ -220,14 +219,10 @@ export function resolveScanCleanupTextLayerInstruction(
     };
 }
 
-export function buildScanCleanupTextLayerPlan(
+function buildScanCleanupTextLayerPlanFromPageSizeResolver(
     outputs: readonly IRenderedCleanupOutputPage[],
-    pageSizes: readonly IPdfPageSize[],
+    resolvePageSize: (pageNumber: number) => IPdfPageSize | undefined,
 ): IScanCleanupTextLayerPlan {
-    // Each instruction maps a source page's text into an output page through
-    // `pageSizes[sourcePageNumber - 1]`, so out-of-order geometry silently
-    // stamps one page's words onto another.
-    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup text layer planning');
     const pages: IScanCleanupTextLayerInstruction[] = [];
     const skippedNonAffine = new Set<number>();
     const alreadyPreserved = new Set<number>();
@@ -239,7 +234,7 @@ export function buildScanCleanupTextLayerPlan(
         const instruction = resolveScanCleanupTextLayerInstruction(
             output,
             outputPageIndex,
-            pageSizes[output.sourcePageNumber - 1],
+            resolvePageSize(output.sourcePageNumber),
         );
         if (instruction === null) {
             skippedNonAffine.add(output.sourcePageNumber);
@@ -254,44 +249,37 @@ export function buildScanCleanupTextLayerPlan(
     };
 }
 
-/**
- * Build text-layer instructions from the bounded geometry store used by an
- * xlarge conversion child. The store is not closed here. The conversion owns
- * its sidecar for the whole parent run, and this helper asks only for the
- * output pages in the current native batch.
- */
-export async function buildScanCleanupTextLayerPlanFromPageSizeStore(
+export function buildScanCleanupTextLayerPlan(
     outputs: readonly IRenderedCleanupOutputPage[],
-    pageSizeStore: IPdfPageSizeStore,
-    signal?: AbortSignal,
-): Promise<IScanCleanupTextLayerPlan> {
-    const pages: IScanCleanupTextLayerInstruction[] = [];
-    const skippedNonAffine = new Set<number>();
-    const alreadyPreserved = new Set<number>();
-    for (const [
-        outputPageIndex,
-        output,
-    ] of outputs.entries()) {
-        signal?.throwIfAborted();
-        if (output.preservedSource !== undefined) {
-            alreadyPreserved.add(output.sourcePageNumber);
-            continue;
-        }
-        const pageSize = await pageSizeStore.getPage(output.sourcePageNumber);
-        const instruction = resolveScanCleanupTextLayerInstruction(
-            output,
-            outputPageIndex,
-            pageSize,
-        );
-        if (instruction === null) {
-            skippedNonAffine.add(output.sourcePageNumber);
-        } else {
-            pages.push(instruction);
-        }
-    }
-    return {
-        pages,
-        skippedNonAffine: [...skippedNonAffine].sort((left, right) => left - right),
-        alreadyPreserved: [...alreadyPreserved].sort((left, right) => left - right),
-    };
+    pageSizes: readonly IPdfPageSize[],
+): IScanCleanupTextLayerPlan {
+    // Each instruction maps a source page's text into an output page through
+    // `pageSizes[sourcePageNumber - 1]`, so out-of-order geometry silently
+    // stamps one page's words onto another.
+    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup text layer planning');
+    return buildScanCleanupTextLayerPlanFromPageSizeResolver(
+        outputs,
+        pageNumber => pageSizes[pageNumber - 1],
+    );
+}
+
+/**
+ * Build text-layer instructions from geometry already read by a bounded
+ * conversion child. Reusing that materialized geometry keeps the shared
+ * sidecar cursor monotone across native batches.
+ */
+export function buildScanCleanupTextLayerPlanFromPageSizeMap(
+    outputs: readonly IRenderedCleanupOutputPage[],
+    pageSizes: ReadonlyMap<number, IPdfPageSize>,
+): IScanCleanupTextLayerPlan {
+    return buildScanCleanupTextLayerPlanFromPageSizeResolver(
+        outputs,
+        pageNumber => {
+            const pageSize = pageSizes.get(pageNumber);
+            if (pageSize === undefined) {
+                throw new Error(`Scan cleanup text layer planning has no geometry for page ${String(pageNumber)}`);
+            }
+            return pageSize;
+        },
+    );
 }

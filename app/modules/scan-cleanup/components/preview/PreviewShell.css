@@ -151,7 +151,7 @@
     background: color-mix(in srgb, var(--ui-bg-muted) 42%, transparent);
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
     pointer-events: none;
 }
 
@@ -401,7 +401,7 @@
     width: var(--app-space-sm);
     height: var(--app-space-sm);
     border: var(--app-hairline-height) solid var(--ui-primary);
-    border-radius: 50%;
+    border-radius: var(--app-radius-full);
     background: var(--ui-bg);
     opacity: var(--app-scan-preview-stale-opacity);
     transform: translate(-50%, -50%);
@@ -800,7 +800,7 @@
     display: inline-block;
     width: var(--app-space-9xl);
     height: var(--app-space-9xl);
-    border: 2px solid;
+    border: var(--app-scan-zone-active-stroke-width) solid;
     border-radius: var(--app-radius-xs);
 }
 

@@ -34,6 +34,7 @@ fn blank_single_region_has_pinned_raster_and_blankness() {
         text_vicinity_mask: None,
         trusted_foreground_mask: None,
         options: &options,
+        resolved_output_mode: options.output_mode.into(),
         source_page_index: 0,
         split: &split,
         spread_plan: None,
@@ -44,6 +45,7 @@ fn blank_single_region_has_pinned_raster_and_blankness() {
         source_effectively_blank: true,
         create_mixed_layers: false,
         create_mixed_composite: false,
+        render_policy: PageRenderPolicy::COMPLETE,
         timings: &mut PageStageTimings::default(),
     })
     .expect("blank synthetic region should render");
@@ -87,6 +89,7 @@ fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
         text_vicinity_mask: None,
         trusted_foreground_mask: None,
         options: &options,
+        resolved_output_mode: options.output_mode.into(),
         source_page_index: 0,
         split: &split,
         spread_plan: None,
@@ -96,6 +99,7 @@ fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
         split_cache_key: None,
         create_mixed_layers: false,
         create_mixed_composite: false,
+        render_policy: PageRenderPolicy::COMPLETE,
         timings: &mut PageStageTimings::default(),
     })
     .expect("nonblank synthetic region should render");
@@ -142,6 +146,7 @@ fn mixed_region_processes_an_explicit_empty_picture_mask() {
         text_vicinity_mask: None,
         trusted_foreground_mask: None,
         options: &options,
+        resolved_output_mode: options.output_mode.into(),
         source_page_index: 0,
         split: &split,
         spread_plan: None,
@@ -151,6 +156,7 @@ fn mixed_region_processes_an_explicit_empty_picture_mask() {
         split_cache_key: None,
         create_mixed_layers: true,
         create_mixed_composite: true,
+        render_policy: PageRenderPolicy::COMPLETE,
         timings: &mut PageStageTimings::default(),
     })
     .expect("Mixed processing with an empty picture mask should succeed");

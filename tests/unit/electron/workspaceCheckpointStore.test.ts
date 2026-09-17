@@ -67,6 +67,7 @@ const state = vi.hoisted(() => ({
     recoveryClaims: new Set<string>(),
     blockCleanup: vi.fn(),
     failNextCheckpointRead: false,
+    touchScanCleanupGeneratedOutput: vi.fn(async (_path: string) => true),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -172,6 +173,7 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
     },
 }));
 vi.mock('@electron/file-access/workingCopyCleanup', () => ({blockStaleWorkingCopyDirectoryCleanup: state.blockCleanup}));
+vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touchScanCleanupGeneratedOutput: state.touchScanCleanupGeneratedOutput}));
 
 const workingCopyRef = '/tmp/evb-working/draft.pdf';
 const checkpoint: IWorkspaceCheckpoint = {
@@ -214,6 +216,7 @@ describe('workspace checkpoint store', () => {
         state.recoveryClaims.clear();
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
+        state.touchScanCleanupGeneratedOutput.mockClear();
     });
 
     afterEach(async () => {
@@ -241,6 +244,32 @@ describe('workspace checkpoint store', () => {
         await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
+    });
+
+    it('refreshes generated output retention while saving its checkpoint', async () => {
+        const outputPath = join(
+            state.userDataPath,
+            'scan-cleanup',
+            'output',
+            '00000000-0000-0000-0000-000000000000',
+            'cleaned.pdf',
+        );
+        await mkdir(join(outputPath, '..'), {recursive: true});
+        await writeFile(outputPath, 'pdf', 'utf8');
+        allowOpenPath(outputPath, 11);
+        const outputCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(outputPath),
+                workingCopyRef: null,
+                isDirty: false,
+            }],
+        };
+
+        await saveWorkspaceCheckpoint(outputCheckpoint, 11, 11);
+
+        expect(state.touchScanCleanupGeneratedOutput).toHaveBeenCalledWith(outputPath);
     });
 
     it('refuses a live owner claim without changing recovery mappings', async () => {
@@ -631,6 +660,41 @@ describe('workspace checkpoint store', () => {
                 isDirty: true,
             }],
         });
+    });
+
+    it('refreshes generated output retention for refs restored into an unresolved tab', async () => {
+        const retainedSourceRef = join(
+            state.userDataPath,
+            'scan-cleanup',
+            'output',
+            '00000000-0000-0000-0000-000000000000',
+            'retained.pdf',
+        );
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, retainedSourceRef);
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(retainedSourceRef),
+                isDirty: true,
+            }],
+        }, 11);
+        state.touchScanCleanupGeneratedOutput.mockClear();
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(456),
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: null,
+                workingCopyRef: null,
+                isDirty: true,
+            }],
+        }, 11);
+
+        expect(state.touchScanCleanupGeneratedOutput).toHaveBeenCalledWith(retainedSourceRef);
+        expect(state.touchScanCleanupGeneratedOutput).toHaveBeenCalledWith(workingCopyRef);
     });
 
     it('canonicalizes a legacy temp-path source while claiming a checkpoint', async () => {

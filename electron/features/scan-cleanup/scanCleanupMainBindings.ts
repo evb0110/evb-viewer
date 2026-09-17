@@ -1,12 +1,13 @@
 import {app} from 'electron';
 import {join} from 'node:path';
 import type {IpcMainInvokeEvent} from 'electron';
-import type {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import type {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
-import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scanCleanupSettings';
-import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
-import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
-import {createScanCleanupMainBindingsDisposer} from '@electron/features/scan-cleanup/createScanCleanupMainBindingsDisposer';
+import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {
+    defaultDependencies,
+    scanCleanupPreviewLifecycle,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {getAppTempDir} from '@electron/utils/appTempDir';
@@ -22,10 +23,11 @@ void Promise.resolve()
     .then(() => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}))
     .catch(error => logger.warn(`Could not sweep scan-cleanup scratch directories at startup: ${String(error)}`));
 
-const disposePreviewService = createScanCleanupMainBindingsDisposer(previewService);
+let disposePreviewServicePromise: Promise<void> | null = null;
 
 export function disposeScanCleanupMainBindings(): Promise<void> {
-    return disposePreviewService();
+    disposePreviewServicePromise ??= previewService.dispose();
+    return disposePreviewServicePromise;
 }
 
 const featureBindings = {
@@ -46,8 +48,14 @@ const featureBindings = {
     subscribeJob: (context, jobId, owner) => service.subscribe(context.sender, jobId, owner),
     reconnectJob: (context, jobId, owner) => service.subscribe(context.sender, jobId, owner),
     pruneGeneratedOutputs: () => service.pruneGeneratedOutputs(),
+    // Settings are process-scoped, and feature registration already rejects
+    // untrusted senders before these bindings are reached. Keep one owner for
+    // the store instead of adding a renderer-id namespace with no isolation
+    // boundary behind it.
     getSettings: (_context, request) => settingsStore.get(request),
     updateSettings: (_context, request) => settingsStore.update(request),
+    getPendingCompletedOutputs: async () => [...await service.getPendingCompletedOutputs()],
+    acknowledgeCompletedOutputs: outputPaths => service.acknowledgeCompletedOutputs(outputPaths),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
 export const scanCleanupMainBindings = Object.assign(featureBindings, {disposeScanCleanupMainBindings});

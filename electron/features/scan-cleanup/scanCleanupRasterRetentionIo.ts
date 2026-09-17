@@ -5,7 +5,6 @@ import type {
     IRetainedRawRaster,
     IScanCleanupRasterDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {PREVIEW_MAX_IMAGE_BYTES} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     readScanCleanupPngDimensions as readPngDimensions,
     resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
@@ -14,11 +13,16 @@ import {getErrorMessage} from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 
 const logger = createLogger('scan-cleanup-raster-retention-io');
+const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'retention-io',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }
@@ -31,6 +35,7 @@ export function closeScanCleanupPageSizeStores(
 ) {
     const stores = document.pageSizeStores;
     document.pageSizeStores = new Set();
+    document.pageSizeStore = null;
     document.rasterPageSourceStore = null;
     document.rasterPageSource = null;
     const closing = Promise.all([...stores].map(store => store.close().catch(error => {

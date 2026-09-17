@@ -8,7 +8,14 @@
       "inputPath": "/fixtures/input/page-1.png",
       "sourcePageIndex": 0,
       "pageMetadataPath": "/fixtures/output/page-1.json",
-      "options": {},
+      "options": {
+        "dpi": 300,
+        "despeckle": true,
+        "outputMode": "bw",
+        "cropContent": true,
+        "matchPageSize": true,
+        "pageAlignment": "top-center"
+      },
       "outputs": []
     }
   ]

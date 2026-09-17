@@ -5,6 +5,10 @@ import {
     type ResourceLimits,
 } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    decodeScanCleanupScratchShortfall,
+    type IScanCleanupScratchShortfall,
+} from '@contracts/scan-cleanup/ipc';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
@@ -23,6 +27,8 @@ export interface IWorkerTaskErrorFrame {
     canceled?: boolean;
     retryable?: boolean;
     source?: string;
+    /** Typed storage figures that must survive a worker structured-clone boundary. */
+    scratchShortfall?: IScanCleanupScratchShortfall;
     /**
      * Set when the worker stopped a native process tree without being able to
      * prove it died. A symbol-tagged error cannot survive the structured clone
@@ -83,6 +89,7 @@ export class WorkerTaskError extends Error {
     readonly canceled: boolean;
     readonly retryable: boolean;
     readonly source: string | undefined;
+    readonly scratchShortfall: IScanCleanupScratchShortfall | undefined;
 
     constructor(frame: IWorkerTaskErrorFrame) {
         super(frame.message);
@@ -91,6 +98,7 @@ export class WorkerTaskError extends Error {
         this.canceled = frame.canceled ?? false;
         this.retryable = frame.retryable ?? false;
         this.source = frame.source;
+        this.scratchShortfall = frame.scratchShortfall;
         if (frame.terminationUnproven !== undefined) {
             markUnprovenNativeTermination(this, frame.terminationUnproven);
         }
@@ -105,6 +113,28 @@ function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
     return typeof value === 'string' && value.length > 0
         ? value
         : undefined;
+}
+
+function getScratchShortfallProperty(error: unknown): IScanCleanupScratchShortfall | undefined {
+    if (!isRecord(error)) {
+        return undefined;
+    }
+    const value = error.scratchShortfall ?? (
+        error.code === 'insufficient-scratch'
+            ? {
+                availableBytes: error.availableBytes,
+                requiredBytes: error.requiredBytes,
+            }
+            : undefined
+    );
+    if (value === undefined) {
+        return undefined;
+    }
+    try {
+        return decodeScanCleanupScratchShortfall(value);
+    } catch {
+        return undefined;
+    }
 }
 
 export function createWorkerTaskErrorFrame(
@@ -135,6 +165,10 @@ export function createWorkerTaskErrorFrame(
     const terminationUnproven = getUnprovenNativeTerminationDetail(error);
     if (terminationUnproven !== undefined) {
         frame.terminationUnproven = terminationUnproven;
+    }
+    const scratchShortfall = getScratchShortfallProperty(error);
+    if (scratchShortfall !== undefined) {
+        frame.scratchShortfall = scratchShortfall;
     }
     return frame;
 }
@@ -167,6 +201,12 @@ function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null
     if (value.source !== undefined && typeof value.source !== 'string') {
         return null;
     }
+    const scratchShortfall = value.scratchShortfall === undefined
+        ? undefined
+        : getScratchShortfallProperty({scratchShortfall: value.scratchShortfall});
+    if (value.scratchShortfall !== undefined && scratchShortfall === undefined) {
+        return null;
+    }
     if (value.terminationUnproven !== undefined && typeof value.terminationUnproven !== 'string') {
         return null;
     }
@@ -177,6 +217,7 @@ function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null
         ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
         ...(value.retryable === undefined ? {} : {retryable: value.retryable}),
         ...(value.source === undefined ? {} : {source: value.source}),
+        ...(scratchShortfall === undefined ? {} : {scratchShortfall}),
         ...(value.terminationUnproven === undefined ? {} : {terminationUnproven: value.terminationUnproven}),
     };
 }
@@ -196,7 +237,14 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
 
     if (payload.ok === false) {
         const errorFrame = parseWorkerTaskErrorFrame(payload.errorFrame);
-        if (typeof payload.error !== 'string' && errorFrame === null) {
+        // A present frame is part of the worker protocol, so an invalid frame
+        // makes the whole result untrusted even when the legacy error string
+        // happens to be valid. Falling back would discard structured fields
+        // such as cancellation, retryability, and termination evidence.
+        if (
+            ('errorFrame' in payload && errorFrame === null)
+            || (typeof payload.error !== 'string' && errorFrame === null)
+        ) {
             return null;
         }
         return {

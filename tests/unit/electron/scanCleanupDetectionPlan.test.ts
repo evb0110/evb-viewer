@@ -10,7 +10,7 @@ import {
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
 } from '@evb/scan-cleanup/core/detection';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupPageMetadataV3,
@@ -207,28 +207,24 @@ describe('scan cleanup detection raster plan', () => {
             ],
         ]));
 
-        expect(rasterPages).toEqual({
+        expect(rasterPages).toMatchObject({
             detected: true,
-            pages: new Set([
-                1,
-                2,
-            ]),
-            sourceDpiByPage: new Map([
-                [
-                    1,
-                    300,
-                ],
-                [
-                    2,
-                    150,
-                ],
-            ]),
-            bilevelLayerPages: new Set([1]),
-            dominantBilevelLayerPages: new Set([1]),
-            backgroundDpiByPage: new Map([[
-                1,
-                150,
-            ]]),
+            documentDpi: 300,
+            compactLayeredPageCount: 1,
+            compactLayeredPageCountComplete: true,
+        });
+        expect(rasterPages.getPageRaster(1)).toEqual({
+            dpi: 300,
+            height: 1_200,
+            hasBilevelLayer: true,
+            hasDominantBilevelLayer: true,
+            width: 800,
+            backgroundDpi: 150,
+        });
+        expect(rasterPages.getPageRaster(2)).toEqual({
+            dpi: 150,
+            height: 900,
+            width: 600,
         });
     });
 });
