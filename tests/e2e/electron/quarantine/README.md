@@ -13,9 +13,11 @@ failure needs investigation.
   failure is fixed and that project passes it. Fix assertion or user-flow
   failures in the product or test, and fix `[INFRA]` boot/restart failures in
   the harness or environment before restoring the test.
-- Keep each quarantine test and target current in `graduation-policy.json`.
-  The static architecture policy gate verifies that every quarantine spec is
-  accounted for, while operator-only diagnostics remain listed separately.
+- Keep each policy-tracked quarantine test and target current in
+  `graduation-policy.json`. The `unit-policy` tests verify that each listed
+  test appears in the quarantine reporter output. Operator-only diagnostics
+  remain listed separately because they require a supplied document and are
+  not part of the quarantine lane.
 - Every entry names its tracking issue, an expiry date, and the JSON reporter
   suite that must supply its assertions. The wrapper rejects an expired entry,
   a suite missing from the report, or a reported suite with no live policy

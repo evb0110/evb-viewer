@@ -698,7 +698,7 @@ describe('validation gate policy', () => {
         expect(regression?.dependsOn).toEqual(['build.strict']);
     });
 
-    it('targets the static architecture lane when quarantine metadata changes', () => {
+    it('targets the policy lane when quarantine metadata changes', () => {
         const plan = validationGates.getValidationPlan({
             changes: {
                 files: ['tests/e2e/electron/quarantine/graduation-policy.json'],
@@ -709,7 +709,8 @@ describe('validation gate policy', () => {
         });
         const related = plan.find(stage => stage.id === 'test.unit.affected-projects');
 
-        expect(related?.args).toContain('unit-static-architecture');
+        expect(related?.args).toContain('unit-policy');
+        expect(related?.args).not.toContain('unit-static-architecture');
         expect(related?.args).not.toContain('unit-app');
         expect(related?.args).toContain('unit-electron');
     });

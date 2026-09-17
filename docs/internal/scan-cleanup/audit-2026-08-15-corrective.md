@@ -1,5 +1,9 @@
 # Corrective audit — scan-cleanup governance and code (2026-08-15)
 
+> Historical audit record. The repository moved the scan-cleanup sources after
+> this report; its findings and path references are retained as historical
+> evidence.
+
 Provenance: copied verbatim from `.devkit/analysis/branch-audit-2026-08-15/REPORT.txt` (untracked working artifact), audited 2026-08-15 at main HEAD 6ce2f0b61.
 The report is plain text; its body is reproduced unmodified inside the fenced block below so the original column layout survives Markdown rendering.
 

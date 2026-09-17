@@ -1,5 +1,8 @@
 # Scan cleanup audit implementation ledger
 
+> Historical implementation record. Current source locations may differ from
+> the paths recorded in this ledger.
+
 Date: 2026-08-23
 
 Source: `docs/internal/scan-cleanup/audit-2026-08-22-verification-ledger.md`
