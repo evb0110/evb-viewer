@@ -1,0 +1,47 @@
+tests/unit/scripts/scanCleanupPreviewHarness.test.ts
+  s_ed9c25da16d6df::t_bb76af92901a8a 8-9,52-70
+tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts
+  s_ed9c25da16d6df::t_bb76af92901a8a 2-4,11-18,26-29,106,108-165
+docs/internal/reliability/large-document-audit-ledger-2026-08-27.md
+  s_ed9c25da16d6df::t_bb76af92901a8a 136-141
+scripts/ci/scan-cleanup-oracles.sh
+  s_ed9c25da16d6df::t_bb76af92901a8a 110-117
+scripts/diagnostics/generate-scan-cleanup-rgb-fixture.mjs
+  s_ed9c25da16d6df::t_bb76af92901a8a 152-159,163,187,190-191
+vitest.shared.config.ts
+  s_ed9c25da16d6df::t_bb76af92901a8a 122
+docs/internal/agents/scan-cleanup-oracles.md
+  s_ed9c25da16d6df::t_bb76af92901a8a 21-28
+scripts/diagnostics/README.md
+  s_ed9c25da16d6df::t_bb76af92901a8a 136-138
+scripts/diagnostics/scan-cleanup-preview-harness.mjs
+  s_ed9c25da16d6df::t_bb76af92901a8a 112,676-702,706,708-713,721-722,743
+tests/helpers/renderPdfCanvasFidelityMetrics.ts
+  s_ed9c25da16d6df::t_bb76af92901a8a 24-35,48,60
+native/scan-cleanup/tests/fixtures/rescue/README.md
+  s_ed9c25da16d6df::t_bb76af92901a8a 5,7-11
+tests/e2e/electron/quarantine/README.md
+  s_ed9c25da16d6df::t_bb76af92901a8a 18,28-31
+.github/workflows/ci.yml
+  s_ed9c25da16d6df::t_bb76af92901a8a 462-465
+docs/internal/scan-cleanup/fixture-provenance.md
+  s_ed9c25da16d6df::t_bb76af92901a8a 1-14
+native/scan-cleanup/tests/page_cli.rs
+  ai_agent 2533-2550,2553-2591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cd5ab020685647d610fdb0efa2b5f054d3af894f",
+  "prompts": {},
+  "sessions": {
+    "s_ed9c25da16d6df": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9469b40b-9d1f-442f-83f9-282dce5f98e1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
