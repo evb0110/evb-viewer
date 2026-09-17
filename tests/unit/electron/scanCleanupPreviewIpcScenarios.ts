@@ -1381,6 +1381,11 @@ export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds()
     expect(owner.listenerCount('render-process-gone')).toBe(1);
     releases.get(2)!.resolve(undefined);
     await second;
+    expect(owner.listenerCount('destroyed')).toBe(1);
+    expect(owner.listenerCount('render-process-gone')).toBe(1);
+
+    owner.destroyed = true;
+    owner.emit('destroyed');
     expect(owner.listenerCount('destroyed')).toBe(0);
     expect(owner.listenerCount('render-process-gone')).toBe(0);
 

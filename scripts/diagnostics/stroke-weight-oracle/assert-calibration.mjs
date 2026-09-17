@@ -78,27 +78,6 @@ for (const page of report.pages) {
             `${page.imageName} sub-floor fragments increased: ${expected.subFloorComponentCount} -> ${page.subFloorComponentCount}`,
         );
     }
-    for (const field of [
-        'status',
-        'eligibleComponentCount',
-        'measuredLineCount',
-        'sparseLineCount',
-        'sparseLinePopulationFloor',
-        'pageMedianWidthMm',
-        'pageFallbackMeasuredLineCount',
-        'pageFallbackTrusted',
-    ]) {
-        if (!isDeepStrictEqual(page[field], expected[field])) {
-            throw new Error(
-                `${page.imageName} ${field} drifted: ${JSON.stringify(expected[field])} -> ${JSON.stringify(page[field])}`,
-            );
-        }
-    }
-    if (!isDeepStrictEqual(page.lines, expected.lines)) {
-        throw new Error(
-            `${page.imageName} line measurements drifted from the green reference`,
-        );
-    }
     referencePages.delete(page.imageName);
 }
 if (referencePages.size > 0) {

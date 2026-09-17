@@ -4,7 +4,7 @@ use super::*;
 use crate::background::IlluminationPreparation;
 use crate::protocol::manifest_v3::ContentBlockEvidence;
 
-pub(crate) struct PageAnalysisInput<'a> {
+pub(crate) struct PageAnalysisInput<'a, 'p> {
     pub source: &'a GrayImage,
     pub color_source: Option<&'a RgbImage>,
     pub options: &'a CleanupOptions,
@@ -13,10 +13,11 @@ pub(crate) struct PageAnalysisInput<'a> {
     pub plan_content: bool,
     pub cache: Option<&'a PageCache>,
     pub timings: &'a mut PageStageTimings,
+    pub cancellation: Option<&'p AtomicBool>,
 }
 
 pub(crate) fn analyze_page(
-    input: PageAnalysisInput<'_>,
+    input: PageAnalysisInput<'_, '_>,
 ) -> Result<PageAnalysisResult, super::AnalysisError> {
     let PageAnalysisInput {
         source,
@@ -27,6 +28,7 @@ pub(crate) fn analyze_page(
         plan_content,
         cache,
         timings,
+        cancellation,
     } = input;
     options.validate()?;
     if options.excluded {
@@ -64,13 +66,14 @@ pub(crate) fn analyze_page(
             create_mixed_composite: false,
             recommend_output_mode,
             analyze_layout: true,
+            cancellation,
         },
         document_prior,
         calibration_config: CalibrationConfig::default(),
         cache,
         trusted_mrc_background: None,
         timings,
-    });
+    })?;
     let mut split = prepared.split;
     let needs_raw_gutter_remeasurement = gutter_band_needs_raw_remeasurement(&split);
     if plan_content
@@ -140,27 +143,28 @@ pub(crate) fn analyze_page(
             region.height * prepared.scale_y,
         );
         let working = crop_gray(&prepared.normalized, analysis_region);
-        let text_tone_diagnostics = if prepared.resolved_output_mode == OutputMode::Grayscale {
-            prepared
-                .text_mask
-                .as_ref()
-                .zip(prepared.text_vicinity_mask.as_ref())
-                .map(|(text_mask, text_vicinity_mask)| {
-                    let picture_mask = prepared
-                        .picture_mask
-                        .as_ref()
-                        .map(|mask| crop_binary(mask, analysis_region))
-                        .unwrap_or_else(|| BinaryImage::new(working.width(), working.height()));
-                    derive_text_tone_diagnostics(
-                        &working,
-                        &crop_binary(text_mask, analysis_region),
-                        &crop_binary(text_vicinity_mask, analysis_region),
-                        &picture_mask,
-                    )
-                })
-        } else {
-            None
-        };
+        let text_tone_diagnostics =
+            if prepared.resolved_output_mode == ResolvedOutputMode::Grayscale {
+                prepared
+                    .text_mask
+                    .as_ref()
+                    .zip(prepared.text_vicinity_mask.as_ref())
+                    .map(|(text_mask, text_vicinity_mask)| {
+                        let picture_mask = prepared
+                            .picture_mask
+                            .as_ref()
+                            .map(|mask| crop_binary(mask, analysis_region))
+                            .unwrap_or_else(|| BinaryImage::new(working.width(), working.height()));
+                        derive_text_tone_diagnostics(
+                            &working,
+                            &crop_binary(text_mask, analysis_region),
+                            &crop_binary(text_vicinity_mask, analysis_region),
+                            &picture_mask,
+                        )
+                    })
+            } else {
+                None
+            };
         let content_picture_mask = prepared
             .content_picture_mask
             .as_ref()
@@ -291,12 +295,12 @@ pub(crate) fn analyze_page(
     })
 }
 
-pub(crate) struct Input<'a> {
+pub(crate) struct Input<'a, 'p> {
     pub source: &'a GrayImage,
     pub color_source: Option<&'a RgbImage>,
     pub options: &'a CleanupOptions,
     pub prepare_quality_raster: bool,
-    pub render_policy: PageRenderPolicy,
+    pub render_policy: PageRenderPolicy<'p>,
     pub document_prior: Option<DocumentPrior>,
     pub calibration_config: CalibrationConfig,
     pub cache: Option<&'a PageCache>,
@@ -310,13 +314,14 @@ fn prepare_analysis_page_impl(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     prepare_quality_raster: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'_>,
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
     cache: Option<&PageCache>,
     trusted_mrc_background: Option<&GrayImage>,
     timings: &mut PageStageTimings,
-) -> PreparedAnalysis {
+) -> Result<PreparedAnalysis, super::AnalysisError> {
+    render_policy.check_canceled()?;
     debug_assert!(
         render_policy.analyze_layout
             || matches!(options.layout, crate::LayoutMode::Single) && !options.has_split_evidence(),
@@ -350,6 +355,7 @@ fn prepare_analysis_page_impl(
             timings,
         })
     });
+    render_policy.check_canceled()?;
     let applicable_prior = document_prior
         .filter(|prior| prior.applies_to_dimensions(analysis.full_width, analysis.full_height));
     let split_key = cache.map(|cache| {
@@ -364,6 +370,7 @@ fn prepare_analysis_page_impl(
             document_prior,
         )
     });
+    render_policy.check_canceled()?;
     let cached_split = cache
         .zip(split_key.as_ref())
         .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<SplitResult>(key));
@@ -472,7 +479,7 @@ fn prepare_analysis_page_impl(
     let candidate_cutter_ratio = (split.diagnostics.decision_x > 0.0)
         .then_some(split.diagnostics.decision_x / analysis.normalized.width().max(1) as f64);
     let whitespace_score = split.diagnostics.whitespace_score;
-    PreparedAnalysis {
+    Ok(PreparedAnalysis {
         normalized: Arc::clone(&analysis.normalized),
         canonical_routing_source: Arc::clone(&analysis.canonical_routing_source),
         split,
@@ -502,16 +509,16 @@ fn prepare_analysis_page_impl(
         preserve_confirmed_photo_tones: analysis.preserve_confirmed_photo_tones,
         use_soft_alpha_foreground: analysis.use_soft_alpha_foreground,
         resolved_output_mode: analysis.resolved_output_mode,
-    }
+    })
 }
 
-struct ArtifactInput<'a> {
+struct ArtifactInput<'a, 'p> {
     analysis_key: Option<StageCacheKey>,
     source: &'a GrayImage,
     color_source: Option<&'a RgbImage>,
     options: &'a CleanupOptions,
     prepare_quality_raster: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     calibration_config: CalibrationConfig,
     cache: Option<&'a PageCache>,
     trusted_mrc_background: Option<&'a GrayImage>,
@@ -593,13 +600,13 @@ fn prepare_analysis_plane(input: AnalysisPlaneInput<'_>) -> AnalysisPlaneOutput 
     }
 }
 
-struct LayoutPictureEvidenceInput<'a> {
+struct LayoutPictureEvidenceInput<'a, 'p> {
     rotated: &'a GrayImage,
     effective_dpi: f64,
     full_width: usize,
     full_height: usize,
     blank_scan_candidate: bool,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     calibration_config: CalibrationConfig,
     options: &'a CleanupOptions,
     trusted_mrc_background: Option<&'a GrayImage>,
@@ -620,7 +627,7 @@ struct LayoutPictureEvidenceOutput {
 }
 
 fn prepare_layout_picture_evidence(
-    input: LayoutPictureEvidenceInput<'_>,
+    input: LayoutPictureEvidenceInput<'_, '_>,
 ) -> LayoutPictureEvidenceOutput {
     let LayoutPictureEvidenceInput {
         rotated,
@@ -766,9 +773,9 @@ fn prepare_layout_picture_evidence(
     }
 }
 
-struct TextEvidenceInput<'a> {
+struct TextEvidenceInput<'a, 'p> {
     layout_normalized: &'a GrayImage,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     timings: &'a mut PageStageTimings,
 }
 
@@ -777,7 +784,7 @@ struct TextEvidenceOutput {
     text_axis: Option<TextAxisHint>,
 }
 
-fn prepare_text_evidence(input: TextEvidenceInput<'_>) -> TextEvidenceOutput {
+fn prepare_text_evidence(input: TextEvidenceInput<'_, '_>) -> TextEvidenceOutput {
     let TextEvidenceInput {
         layout_normalized,
         render_policy,
@@ -797,12 +804,12 @@ fn prepare_text_evidence(input: TextEvidenceInput<'_>) -> TextEvidenceOutput {
     }
 }
 
-struct ContentTextEvidenceInput<'a> {
+struct ContentTextEvidenceInput<'a, 'p> {
     rotated: &'a GrayImage,
     layout_normalized: &'a GrayImage,
     picture_mask: Option<&'a BinaryImage>,
     trusted_mrc_tone_mask: Option<&'a BinaryImage>,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     prepare_quality_raster: bool,
     options: &'a CleanupOptions,
     effective_dpi: f64,
@@ -817,7 +824,9 @@ struct ContentTextEvidenceOutput {
     trusted_mrc_owned_tone_mask: Option<Arc<BinaryImage>>,
 }
 
-fn prepare_content_text_evidence(input: ContentTextEvidenceInput<'_>) -> ContentTextEvidenceOutput {
+fn prepare_content_text_evidence(
+    input: ContentTextEvidenceInput<'_, '_>,
+) -> ContentTextEvidenceOutput {
     let ContentTextEvidenceInput {
         rotated,
         layout_normalized,
@@ -1252,7 +1261,7 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
     }
 }
 
-struct ModePreservationInput<'a> {
+struct ModePreservationInput<'a, 'p> {
     rotated: &'a GrayImage,
     layout_normalized: &'a GrayImage,
     analysis_rgb: Option<&'a RgbImage>,
@@ -1264,7 +1273,7 @@ struct ModePreservationInput<'a> {
     independent_picture_evidence: bool,
     calibration: PageCalibration,
     options: &'a CleanupOptions,
-    render_policy: PageRenderPolicy,
+    render_policy: PageRenderPolicy<'p>,
     tonal_protection_mask: Option<Arc<BinaryImage>>,
     tone_semantic_preservation_alpha: Option<Arc<GrayImage>>,
     semantic_preservation_alpha: Option<Arc<GrayImage>>,
@@ -1273,7 +1282,7 @@ struct ModePreservationInput<'a> {
 
 struct ModePreservationOutput {
     output_mode_recommendation: Option<OutputModeRecommendation>,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
     chroma_picture_mask: Option<Arc<BinaryImage>>,
     significant_picture: bool,
     output_picture_mask: Option<Arc<BinaryImage>>,
@@ -1394,34 +1403,39 @@ fn normalize_and_assemble_analysis_artifact(
     let canonical_routing_source = Arc::new(rotate_orthogonal(source, options.rotation));
     let normalized = if options.normalize_illumination {
         if prepare_quality_raster {
-            let grayscale_normalization_exclusion =
-                if resolved_output_mode == OutputMode::Grayscale && coherent_photo_mask.is_some() {
-                    photographic_picture_mask.clone()
-                } else {
-                    union_optional_masks(picture_mask.as_ref(), tonal_protection_mask.as_ref())
-                };
+            let grayscale_normalization_exclusion = if resolved_output_mode
+                == ResolvedOutputMode::Grayscale
+                && coherent_photo_mask.is_some()
+            {
+                photographic_picture_mask.clone()
+            } else {
+                union_optional_masks(picture_mask.as_ref(), tonal_protection_mask.as_ref())
+            };
             let normalization_model_exclusion = match resolved_output_mode {
-                OutputMode::Grayscale => grayscale_normalization_exclusion.as_deref(),
-                OutputMode::Mixed => photographic_picture_mask.as_deref(),
-                OutputMode::Color if significant_picture => {
+                ResolvedOutputMode::Grayscale => grayscale_normalization_exclusion.as_deref(),
+                ResolvedOutputMode::Mixed => photographic_picture_mask.as_deref(),
+                ResolvedOutputMode::Color if significant_picture => {
                     grayscale_normalization_exclusion.as_deref()
                 }
-                OutputMode::Color => None,
-                OutputMode::Bw | OutputMode::Auto => None,
+                ResolvedOutputMode::Color | ResolvedOutputMode::Bw => None,
             };
             let semantic_alpha = match resolved_output_mode {
-                OutputMode::Grayscale if protect_tonal_text_vicinity => None,
-                OutputMode::Grayscale => semantic_preservation_alpha.as_deref(),
-                OutputMode::Mixed if protect_tonal_text_vicinity => None,
-                OutputMode::Mixed => semantic_preservation_alpha.as_deref(),
-                OutputMode::Color if significant_picture => semantic_preservation_alpha.as_deref(),
-                OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+                ResolvedOutputMode::Grayscale if protect_tonal_text_vicinity => None,
+                ResolvedOutputMode::Grayscale => semantic_preservation_alpha.as_deref(),
+                ResolvedOutputMode::Mixed if protect_tonal_text_vicinity => None,
+                ResolvedOutputMode::Mixed => semantic_preservation_alpha.as_deref(),
+                ResolvedOutputMode::Color if significant_picture => {
+                    semantic_preservation_alpha.as_deref()
+                }
+                ResolvedOutputMode::Color | ResolvedOutputMode::Bw => None,
             };
             let photo_alpha = match resolved_output_mode {
-                OutputMode::Grayscale => photo_preservation_alpha.as_deref(),
-                OutputMode::Mixed => photo_preservation_alpha.as_deref(),
-                OutputMode::Color if significant_picture => photo_preservation_alpha.as_deref(),
-                OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+                ResolvedOutputMode::Grayscale => photo_preservation_alpha.as_deref(),
+                ResolvedOutputMode::Mixed => photo_preservation_alpha.as_deref(),
+                ResolvedOutputMode::Color if significant_picture => {
+                    photo_preservation_alpha.as_deref()
+                }
+                ResolvedOutputMode::Color | ResolvedOutputMode::Bw => None,
             };
             let preparation = illumination_preparation
                 .expect("illumination preparation exists when normalization is enabled");
@@ -1481,7 +1495,7 @@ fn normalize_and_assemble_analysis_artifact(
     QualityNormalizationOutput { artifact }
 }
 
-fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreservationOutput {
+fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePreservationOutput {
     let ModePreservationInput {
         rotated,
         layout_normalized,
@@ -1560,11 +1574,12 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
     let resolved_output_mode = if options.output_mode == OutputMode::Auto {
         output_mode_recommendation
             .map(|recommendation| recommendation.mode)
-            .unwrap_or(options.output_mode)
+            .unwrap_or(OutputMode::Bw)
     } else {
         options.output_mode
-    };
-    let chroma_picture_mask = (resolved_output_mode == OutputMode::Mixed)
+    }
+    .into();
+    let chroma_picture_mask = (resolved_output_mode == ResolvedOutputMode::Mixed)
         .then(|| independent_chroma_mask(rotated, analysis_rgb, text_line_count).map(Arc::new))
         .flatten();
     let significant_picture =
@@ -1576,7 +1591,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
     // have no detector-owned picture at all, so restricting this check to
     // photo-dominant Mixed output lets undersampled glyphs and map lines
     // bypass the same source-sampling boundary enforced for B&W.
-    let mixed_foreground_fidelity_veto = resolved_output_mode == OutputMode::Mixed
+    let mixed_foreground_fidelity_veto = resolved_output_mode == ResolvedOutputMode::Mixed
         && picture_ownership_diagnostics.is_some_and(|diagnostics| {
             !should_refine_line_art_picture_ownership(&diagnostics)
                 && should_veto_bilevel_fidelity(
@@ -1588,7 +1603,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
                     text_line_count,
                 )
         });
-    let computed_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
+    let computed_soft_alpha_foreground = resolved_output_mode == ResolvedOutputMode::Mixed
         && text_line_count > 0
         && picture_ownership_diagnostics.is_some_and(|diagnostics| {
             mixed_foreground_fidelity_veto
@@ -1596,7 +1611,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
                 || diagnostics.significant_color
                 || (diagnostics.significant_picture && !refine_picture_ownership)
         });
-    let use_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
+    let use_soft_alpha_foreground = resolved_output_mode == ResolvedOutputMode::Mixed
             && options
                 .prefer_soft_alpha_foreground
                 .unwrap_or(computed_soft_alpha_foreground)
@@ -1617,7 +1632,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
     // details, but cannot revoke ownership once this mask is nonempty.
     let preserve_confirmed_photo_tones =
         confirmed_photo_preservation_policy(picture_mask.as_deref());
-    let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
+    let mut output_picture_mask = if resolved_output_mode == ResolvedOutputMode::Mixed {
         // Only the vetted owner may enter the Mixed partition. The
         // continuous-tone mask remains corroborating/protection evidence;
         // OR-ing it here recreated the non-monotonic ownership bug after
@@ -1635,9 +1650,9 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
     // through a real photo. Without that evidence, only detector-owned
     // pictures and independent chroma bypass the paper model.
     let mut photographic_picture_mask =
-        if resolved_output_mode == OutputMode::Mixed && significant_picture {
+        if resolved_output_mode == ResolvedOutputMode::Mixed && significant_picture {
             output_picture_mask.clone()
-        } else if resolved_output_mode == OutputMode::Mixed {
+        } else if resolved_output_mode == ResolvedOutputMode::Mixed {
             union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
         } else {
             picture_mask.clone()
@@ -1674,7 +1689,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
         .or_else(|| {
             (matches!(
                 resolved_output_mode,
-                OutputMode::Mixed | OutputMode::Grayscale
+                ResolvedOutputMode::Mixed | ResolvedOutputMode::Grayscale
             ) && significant_picture
                 && !refine_picture_ownership)
                 .then(|| {
@@ -1690,7 +1705,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
         // page rule remain outside it, so they can be whitened as paper;
         // the whole photographic enclosure stays on one source-preserved
         // low-DPI layer.
-        if resolved_output_mode == OutputMode::Mixed {
+        if resolved_output_mode == ResolvedOutputMode::Mixed {
             let field_and_chroma = union_optional_masks(Some(field), chroma_picture_mask.as_ref());
             // A coherent-field replacement must not discard the exact
             // classifier zone that selected the layered owner. Keep the
@@ -1730,7 +1745,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
     }
 }
 
-fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
+fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact> {
     let ArtifactInput {
         analysis_key,
         source,
@@ -1923,7 +1938,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         });
     artifact
 }
-pub(crate) fn run(input: Input<'_>) -> PreparedAnalysis {
+pub(crate) fn run(input: Input<'_, '_>) -> Result<PreparedAnalysis, super::AnalysisError> {
     let Input {
         source,
         color_source,

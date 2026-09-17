@@ -33,7 +33,11 @@ import {
     retainScanCleanupDetectionResultStoreOwner,
     claimScanCleanupDetectionResultStore,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
-import {createMainJobRegistry} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {
+    createMainJobRegistry,
+    RENDERER_DESTROYED_CANCELLATION_REASON,
+    RENDER_PROCESS_GONE_CANCELLATION_REASON,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {
@@ -525,6 +529,12 @@ export function scanCleanupDetectionOwner(
                     destroyed: 'cancel',
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
+                },
+                onCancel: reason => {
+                    if (reason === RENDERER_DESTROYED_CANCELLATION_REASON
+                        || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
+                        rawRasterRetention.invalidateSender(sender.id);
+                    }
                 },
                 run: async job => {
                     let lease: {release: () => boolean} | null = null;

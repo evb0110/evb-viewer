@@ -1741,8 +1741,36 @@ export async function runScanCleanupConversion(
         && dependencies.createRasterPipes !== undefined;
     let rasterStreamingRun = supportsRasterStreaming;
     let preserveScratchForDiagnostics = false;
+    let pendingSidecarRecovery: Promise<boolean> | null = null;
+    let sidecarRecoveryResult: boolean | null = null;
+    let scratchCleanupReady = false;
+    let scratchCleanupPromise: Promise<void> | null = null;
     let pageSizeStore: IPdfPageSizeStore | null = null;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
+    const cleanupScratch = () => {
+        scratchCleanupPromise ??= rm(scratch, {
+            recursive: true,
+            force: true,
+        });
+        return scratchCleanupPromise;
+    };
+    const retainScratchUntilRecovery = (recovery: Promise<boolean>) => {
+        if (pendingSidecarRecovery !== null) return Promise.resolve();
+        pendingSidecarRecovery = recovery;
+        return recovery.then(recovered => {
+            sidecarRecoveryResult = recovered;
+            if (recovered && scratchCleanupReady && !preserveScratchForDiagnostics) {
+                return cleanupScratch().catch(error => {
+                    log('warn', `Failed to cleanup scan cleanup recovery scratch: ${getErrorMessage(error)}`);
+                });
+            }
+            return undefined;
+        }, error => {
+            sidecarRecoveryResult = false;
+            log('warn', `Scan cleanup publication recovery did not complete: ${getErrorMessage(error)}`);
+            return undefined;
+        });
+    };
     const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun, {isRasterStreaming: () => rasterStreamingRun});
     try {
         emitProgress('normalizing', 0, 1, []);
@@ -2812,7 +2840,10 @@ export async function runScanCleanupConversion(
                         operationSignal,
                         log,
                         reportNativeProgress,
-                        {allowedPathRoot: paths.tempDir},
+                        {
+                            allowedPathRoot: paths.tempDir,
+                            onRecoveryPending: retainScratchUntilRecovery,
+                        },
                     ),
                     onProducerComplete: () => {
                         if (!canStreamRasters) {
@@ -3568,11 +3599,14 @@ export async function runScanCleanupConversion(
         await preserveScanCleanupJsonEvidence(scratch, log).catch(error => {
             log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);
         });
-        if (!preserveScratchForDiagnostics) {
-            await rm(scratch, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
+        scratchCleanupReady = true;
+        if (
+            !preserveScratchForDiagnostics
+            && (pendingSidecarRecovery === null || sidecarRecoveryResult === true)
+        ) {
+            await cleanupScratch().catch(() => undefined);
+        } else if (pendingSidecarRecovery !== null && sidecarRecoveryResult !== true) {
+            log('warn', `Retaining scan cleanup publication recovery scratch until the sidecar closes: ${scratch}`);
         } else {
             log('warn', `Preserving invalid staged scan cleanup PDF for diagnostics: ${stagedPdfPath}`);
         }

@@ -8,20 +8,6 @@
     "blocking": false,
     "infraRetryCount": 2
   },
-  "operatorDiagnostics": [
-    {
-      "path": "tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts",
-      "reason": "Requires an operator-supplied PDF; kept as an operator diagnostic."
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts",
-      "reason": "Requires an operator-supplied PDF; kept as an operator diagnostic."
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts",
-      "reason": "Requires an operator-supplied PDF; kept as an operator diagnostic."
-    }
-  ],
   "tests": [
     {
       "assertionReport": "tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts",
@@ -49,20 +35,6 @@
       "expiresOn": "2026-09-30",
       "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
-      "targetProject": "e2e-regression"
-    },
-    {
-      "assertionReport": "tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts",
-      "expiresOn": "2026-09-30",
-      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
-      "path": "tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts",
-      "targetProject": "e2e-regression"
-    },
-    {
-      "assertionReport": "tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts",
-      "expiresOn": "2026-09-30",
-      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
-      "path": "tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts",
       "targetProject": "e2e-regression"
     }
   ]

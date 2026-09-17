@@ -151,6 +151,10 @@ export interface IRetainedDocument {
     // to open and closes them when the retained document leaves the cache.
     // Keeping this set small is also what makes repeated direct reads safe.
     pageSizeStores: Set<IPdfPageSizeStore>;
+    // Sender ownership survives a released preview claim while the document
+    // remains in the bounded retention cache, so renderer death can evict the
+    // cache entry even after its last active job settled.
+    rendererOwners: Set<number>;
     pinned: number;
     claims: Map<string, number>;
     removeWhenIdle: boolean;
@@ -226,6 +230,7 @@ export interface IScanCleanupRasterRetention {
     remove(path: string): void;
     release(document: IRetainedDocument, claimId?: string): Promise<void>;
     invalidate(sourcePdfPath: string, documentRevision: string, claimId?: string): void;
+    invalidateSender(senderId: number): void;
     dispose(): Promise<void>;
 }
 
@@ -555,11 +560,11 @@ export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDep
 export type IScanCleanupDetectionRetentionView = Pick<IScanCleanupRasterRetention,
     | 'openDocument' | 'pageCount' | 'pageSizeStore' | 'rasterPageSource'
     | 'retainedPaths' | 'claimRaster' | 'rasterScratchPath' | 'stagedRasterPath'
-    | 'retain' | 'releaseRaster' | 'release'>;
+    | 'retain' | 'releaseRaster' | 'release' | 'invalidateSender'>;
 
 export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention & Pick<
     IScanCleanupRasterRetention,
-    'invalidate'
+    'invalidate' | 'invalidateSender'
 >;
 
 export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,

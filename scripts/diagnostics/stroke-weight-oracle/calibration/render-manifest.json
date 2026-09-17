@@ -13,8 +13,10 @@
         "sourceDpi": 300,
         "requestedRenderDpi": 300,
         "binarization": "auto",
+        "despeckle": true,
         "outputMode": "bw",
         "layout": "single",
+        "pageAlignment": "top-center",
         "normalizeIllumination": true,
         "cropContent": false,
         "matchPageSize": false
@@ -35,8 +37,10 @@
         "sourceDpi": 300,
         "requestedRenderDpi": 300,
         "binarization": "auto",
+        "despeckle": true,
         "outputMode": "bw",
         "layout": "single",
+        "pageAlignment": "top-center",
         "normalizeIllumination": true,
         "cropContent": false,
         "matchPageSize": false
@@ -57,8 +61,10 @@
         "sourceDpi": 300,
         "requestedRenderDpi": 300,
         "binarization": "auto",
+        "despeckle": true,
         "outputMode": "bw",
         "layout": "single",
+        "pageAlignment": "top-center",
         "normalizeIllumination": true,
         "cropContent": false,
         "matchPageSize": false

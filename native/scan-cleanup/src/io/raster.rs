@@ -143,6 +143,7 @@ pub fn read_dimensions(
 }
 
 pub fn write_rgb_ppm_atomic(path: &Path, image: &RgbImage) -> Result<(), String> {
+    validate_dimensions(image.width(), image.height())?;
     write_atomic_with(path, |file| {
         write!(file, "P6\n{} {}\n255\n", image.width(), image.height())
             .map_err(|error| error.to_string())?;
@@ -152,11 +153,17 @@ pub fn write_rgb_ppm_atomic(path: &Path, image: &RgbImage) -> Result<(), String>
 }
 
 pub fn write_gray_ppm_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
+    validate_dimensions(image.width(), image.height())?;
+    let row_bytes = image
+        .width()
+        .checked_mul(3)
+        .ok_or_else(|| "grayscale PPM row is too wide".to_string())?;
     write_atomic_with(path, |file| {
         write!(file, "P6\n{} {}\n255\n", image.width(), image.height())
             .map_err(|error| error.to_string())?;
-        let mut row = vec![0; image.width() * 3];
-        for source in image.data().chunks_exact(image.width()) {
+        let mut row = vec![0; row_bytes];
+        for y in 0..image.height() {
+            let source = image.row(y);
             for (target, value) in row.chunks_exact_mut(3).zip(source.iter().copied()) {
                 target.fill(value);
             }
@@ -167,12 +174,23 @@ pub fn write_gray_ppm_atomic(path: &Path, image: &GrayImage) -> Result<(), Strin
 }
 
 pub fn write_gray_pgm_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
+    validate_dimensions(image.width(), image.height())?;
     write_atomic_with(path, |file| {
         write!(file, "P5\n{} {}\n255\n", image.width(), image.height())
             .map_err(|error| error.to_string())?;
-        file.write_all(image.data())
-            .map_err(|error| error.to_string())
+        for y in 0..image.height() {
+            file.write_all(image.row(y))
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     })
+}
+
+fn validate_dimensions(width: usize, height: usize) -> Result<(), String> {
+    if width == 0 || height == 0 {
+        return Err("cannot write a zero-dimension raster".to_string());
+    }
+    Ok(())
 }
 
 // Inputs may be FIFOs (streamed pages), so the consumed magic bytes are
@@ -404,6 +422,48 @@ mod tests {
         assert_eq!(decoded.rgb.get(0, 0), [17, 17, 17]);
         assert_eq!(decoded.rgb.get(1, 0), [231, 231, 231]);
         fs::remove_file(&ppm_path).unwrap();
+    }
+
+    #[test]
+    fn writes_only_visible_samples_from_strided_gray_planes() {
+        let mut source = GrayImage::with_stride(2, 2, 4, 199);
+        source.set(0, 0, 17);
+        source.set(1, 0, 231);
+        source.set(0, 1, 43);
+        source.set(1, 1, 87);
+        let ppm_path = temp_path("strided-gray-output.ppm");
+        let pgm_path = temp_path("strided-gray-output.pgm");
+
+        write_gray_ppm_atomic(&ppm_path, &source).unwrap();
+        write_gray_pgm_atomic(&pgm_path, &source).unwrap();
+
+        let decoded = read_image(&ppm_path, 16, 16).unwrap();
+        assert_eq!(decoded.rgb.get(0, 0), [17, 17, 17]);
+        assert_eq!(decoded.rgb.get(1, 0), [231, 231, 231]);
+        assert_eq!(decoded.rgb.get(0, 1), [43, 43, 43]);
+        assert_eq!(decoded.rgb.get(1, 1), [87, 87, 87]);
+        assert_eq!(
+            fs::read(&pgm_path).unwrap(),
+            b"P5\n2 2\n255\n\x11\xe7\x2b\x57"
+        );
+
+        fs::remove_file(&ppm_path).unwrap();
+        fs::remove_file(&pgm_path).unwrap();
+    }
+
+    #[test]
+    fn rejects_zero_dimension_raster_outputs() {
+        for (label, image) in [
+            ("zero-width", GrayImage::new(0, 1, 255)),
+            ("zero-height", GrayImage::new(1, 0, 255)),
+        ] {
+            let ppm_path = temp_path(&format!("{label}.ppm"));
+            let pgm_path = temp_path(&format!("{label}.pgm"));
+            assert!(write_gray_ppm_atomic(&ppm_path, &image).is_err());
+            assert!(write_gray_pgm_atomic(&pgm_path, &image).is_err());
+            assert!(!ppm_path.exists());
+            assert!(!pgm_path.exists());
+        }
     }
 
     #[test]

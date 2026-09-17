@@ -13,6 +13,12 @@
       "pageMetadataPath": "/fixtures/output/page-1.json",
       "futurePageHint": true,
       "options": {
+        "dpi": 300,
+        "despeckle": true,
+        "outputMode": "bw",
+        "cropContent": true,
+        "matchPageSize": true,
+        "pageAlignment": "top-center",
         "futureOption": "ignored",
         "experimental": {
           "autoDewarp": false,

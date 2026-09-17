@@ -417,6 +417,8 @@ export default {
             'runRecoveryFailed': 'Non è stato possibile recuperare la pulizia della scansione dopo il ripristino della sessione del renderer.',
             'insufficientScratch': 'Spazio libero insufficiente sul disco temporaneo per analizzare questo documento.',
             'insufficientScratchSpace': 'Libera spazio su disco e riprova: servono {required}, sono liberi {available}.',
+            'previewFrameDropped': 'L’anteprima pulita è stata scartata prima dell’avvio della pulizia. Controlla l’anteprima e riprova.',
+            'previewFrameTimeout': 'L’anteprima pulita non ha terminato il caricamento prima dell’avvio della pulizia. Riprova.',
         },
         'cancelingDetection': 'Arresto dell’analisi in background…',
         'startingCleanup': 'Avvio della pulizia…',

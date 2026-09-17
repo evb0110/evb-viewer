@@ -47,14 +47,17 @@ import {
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
-import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {
+    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
+    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+} from '@contracts/scan-cleanup/inputLimits';
 import {formatFailurePresentationDescription} from '@app/composables/useFailureToast';
 
 // Large detection jobs hand their complete result store to main through an
 // opaque id. Keep legacy object maps only for the explicit small-document
 // compatibility path, even if a misconfigured or expired handoff leaves the
 // id absent.
-const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = 20_000;
+const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE =
     'Ink placement for documents over 20,000 pages is unavailable. Select a bounded page range or choose another alignment.';
 const SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE =
@@ -68,7 +71,7 @@ interface IUseScanCleanupRunSessionOptions {
      * user has been looking at was measured against.
      */
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
-    beforeRun: () => Promise<void> | void;
+    beforeRun: (stopWait: Promise<void>) => Promise<void> | void;
     detectionError: Readonly<Ref<string>>;
     detectionErrorCode: Readonly<Ref<TScanCleanupErrorCode | null>>;
     /** Opaque main-process handle for xlarge detection results. */
@@ -604,8 +607,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             let detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             let hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
             if (
-                requestedPageNumbers === null
-                && runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+                runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
                 && detectionResultStoreId === null
             ) {
                 if (await refreshDetectionOnce()) {
@@ -695,7 +697,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             }
             transition.value = 'starting-cleanup';
             await nextTick();
-            await options.beforeRun();
+            await options.beforeRun(stopWait);
             setScanCleanupRunError(options.ownerId, '');
             if (isStopRequested()) {
                 return;

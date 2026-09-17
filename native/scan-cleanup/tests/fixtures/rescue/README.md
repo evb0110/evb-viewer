@@ -2,14 +2,10 @@
 
 These grayscale line crops come from source spread 5 of
 `003319_luther_syr_chronik_josua_styllites.djvu`, rendered at its intrinsic
-300-DPI size. The crop coordinates are the adjudicated `Diyarbakır in`,
-`wahrscheinlich`, and body `Handschrift` line regions. They pin within-line
-component stroke spread so a single structural-depth sample cannot restore an
-entire crisp candidate halo.
+300-DPI size.
 
-`luther-p5-impressum-spread.png` is the full source spread 5 at its native
-299-DPI scan size. It carries the small-print impressum block whose line
-medians sit below the ridge-width quantization floor, and pins the end-to-end
-spread preview adjudication (split, content boxes, stroke-budget counters, and
-exact ink outcome) so any future erosion storm on small print fails the CLI
-integration test regardless of which mechanism causes it.
+- `luther-p5-diyarbakir-line.png` pins the within-line component stroke spread
+  used by the final CLI stroke-budget regression.
+- `luther-p5-wahrscheinlich-line.png` and
+  `luther-p5-handschrift-body-line.png` are the two line specimens used by the
+  tracked stroke-weight oracle calibration manifest.

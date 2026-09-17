@@ -873,6 +873,40 @@ describe('scan cleanup run coordinator', () => {
         }, '/source/book.pdf', '/source/book.pdf', 6).size).toBe(0);
     });
 
+    it('does not infer sparse page identities from a truncated completion count', async () => {
+        const {resolveScanCleanupProcessedPages} = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const truncatedState: TScanCleanupJobState = {
+            jobId: requireJobId('job-sparse-progress'),
+            status: 'running',
+            progress: {
+                ...progress(2, 2),
+                completedPageNumbers: [
+                    100,
+                    200,
+                ],
+                completedPageNumbersTruncated: true,
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        };
+
+        expect([...resolveScanCleanupProcessedPages(
+            truncatedState,
+            '/source/book.pdf',
+            '/source/book.pdf',
+            200,
+        )]).toEqual([
+            100,
+            200,
+        ]);
+        expect([...resolveScanCleanupProcessedPages({
+            ...truncatedState,
+            progress: {
+                ...truncatedState.progress,
+                completedPageNumbers: [],
+            },
+        }, '/source/book.pdf', '/source/book.pdf', 200)]).toEqual([]);
+    });
+
     it('makes partial-scope completion explicit in the result toast', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {

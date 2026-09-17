@@ -11,15 +11,21 @@ import type {TScanCleanupRunCommand} from '@evb/scan-cleanup/core/types';
 
 const mocks = vi.hoisted(() => ({
     readPngDimensions: vi.fn(),
+    readPpmDimensions: vi.fn(),
     rm: vi.fn(),
+    stat: vi.fn(),
 }));
 
-vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
+    readPngDimensions: mocks.readPngDimensions,
+    readPpmDimensions: mocks.readPpmDimensions,
+}));
 vi.mock('node:fs/promises', async () => {
     const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
     return {
         ...actual,
         rm: mocks.rm,
+        stat: mocks.stat,
     };
 });
 
@@ -27,7 +33,13 @@ describe('createScanCleanupRenderers', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({isFile: () => true});
         mocks.readPngDimensions.mockResolvedValue({
+            width: 1,
+            height: 1,
+            isColor: true,
+        });
+        mocks.readPpmDimensions.mockResolvedValue({
             width: 1,
             height: 1,
             isColor: true,
@@ -376,5 +388,46 @@ describe('createScanCleanupRenderers', () => {
             ],
             expect.any(Object),
         );
+        expect(mocks.readPpmDimensions).toHaveBeenCalledWith('/tmp/page.ppm');
+    });
+
+    it('leaves FIFO PPM dimensions to the streaming consumer', async () => {
+        mocks.stat.mockResolvedValue({isFile: () => false});
+        const runCommand = vi.fn().mockResolvedValue(undefined);
+        const {renderPagePpm} = createScanCleanupRenderers(runCommand);
+
+        await renderPagePpm(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/page.ppm',
+            300,
+        );
+
+        expect(mocks.readPpmDimensions).not.toHaveBeenCalled();
+    });
+
+    it('rejects and removes an oversized PPM render', async () => {
+        const runCommand = vi.fn().mockResolvedValue(undefined);
+        mocks.readPpmDimensions.mockResolvedValue({
+            width: 2,
+            height: 2,
+            isColor: true,
+        });
+        const {renderPagePpm} = createScanCleanupRenderers(runCommand, {
+            maxDimensionPx: 1,
+            maxPixels: 1,
+        });
+
+        await expect(renderPagePpm(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/oversized.ppm',
+            300,
+        )).rejects.toThrow('PPM raster 2x2 exceeds limits');
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/oversized.ppm', {force: true});
     });
 });

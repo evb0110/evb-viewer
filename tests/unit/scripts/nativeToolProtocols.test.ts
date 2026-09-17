@@ -60,7 +60,14 @@ describe('native tool protocol generator', () => {
         expect(newerPages).toEqual([expect.objectContaining({options: expect.objectContaining({futureOption: 'ignored'})})]);
         expect(older).not.toHaveProperty('futureManifestHint');
         expect(olderPages).toEqual([expect.not.objectContaining({futurePageHint: expect.anything()})]);
-        expect(olderPages[0]).toEqual(expect.objectContaining({options: {}}));
+        expect(olderPages[0]).toEqual(expect.objectContaining({options: {
+            dpi: 300,
+            despeckle: true,
+            outputMode: 'bw',
+            cropContent: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+        }}));
     });
 
     it('renders deterministic Rust descriptors from one registry', () => {

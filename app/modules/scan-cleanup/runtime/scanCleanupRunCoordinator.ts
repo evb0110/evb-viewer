@@ -241,6 +241,9 @@ export function resolveScanCleanupProcessedPages(
     ) {
         return new Set();
     }
+    // A truncated progress list is still the only source of page identity.
+    // `completedUnits` is a count and cannot identify pages in a sparse
+    // selection such as [100, 200].
     return new Set((state.progress.completedPageNumbers ?? [])
         .filter(pageNumber => pageNumber <= totalPages));
 }

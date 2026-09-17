@@ -4,12 +4,20 @@ Detection analyses a document through a fixed number of resident page rasters
 instead of staging every page before the sidecar starts. Document length now
 decides how long a run takes, not whether it may start. This note records the
 ownership rule, the admission arithmetic, and the invariants the tests defend.
+The implementation lives in `packages/scan-cleanup/core/detection.ts` and
+`packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts`; Electron
+preview wiring supplies the bounded window to those core entrypoints.
 
 ## Why the whole document was staged before
 
 PR #43 removed the Analyze FIFO transport because classification and output must
-not change with free disk space. Its conclusion was right, but the
-implementation equated "replayable" with "every page raster exists at once", so
+not change with free disk space. The output invariant remains correct, while
+the transport is now selected from host capability and broker capacity. On a
+POSIX host with raster streaming enabled and at least three native process
+slots, preview uses the FIFO transport and records `fifo-ppm` in provenance;
+otherwise it uses the regular file transport. Neither route uses free disk
+space to choose classification or output. The earlier implementation equated
+"replayable" with "every page raster exists at once", so
 `runScanCleanupDetection` estimated the decoded footprint of the whole document
 and refused when it exceeded the scratch budget. A 148-page, 43.2 MiB scan needs
 629.41 MiB of decoded rasters, which demanded about 2.46 GiB of free scratch and

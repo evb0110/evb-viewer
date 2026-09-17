@@ -1,5 +1,8 @@
 # Xlarge document path architecture
 
+> Historical architecture record. Current source locations may differ from
+> the paths recorded in this document.
+
 Date: 2026-08-27
 
 Status: decision record and source ratchet for desktop path-backed document flows.
