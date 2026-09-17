@@ -756,9 +756,7 @@ a {
 
   /* Rows, the separator between each pair, and the list's own border. */
   --installer-list-reserved-height: calc(
-    (var(--installer-row-height) * var(--installer-max-rows))
-    + ((var(--installer-max-rows) - 1) * 1px)
-    + 2px
+    (var(--installer-row-height) * var(--installer-max-rows)) + ((var(--installer-max-rows) - 1) * 1px) + 2px
   );
 
   /* Platform bar + gap + list + gap + hint. The release fetch is deliberately
@@ -774,9 +772,7 @@ a {
      and reintroduces a shift on that tab; raising the row count to cover it
      would instead add a blank row to every normal visit. */
   --installer-reserved-height: calc(
-    2.875rem + 0.875rem
-    + var(--installer-list-reserved-height)
-    + 0.875rem + 2.25rem
+    2.875rem + 0.875rem + var(--installer-list-reserved-height) + 0.875rem + 2.25rem
   );
 
   min-height: var(--installer-reserved-height);
