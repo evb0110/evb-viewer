@@ -1,0 +1,26 @@
+scripts/deployVercelPrivate.mjs
+  s_42386f3dfc2fd1::t_97dab71fdf2cf1 32,67,70,118-124,174,177
+  s_42386f3dfc2fd1::t_cc631cb8f60933 68
+scripts/check-web-deploy-source.mjs
+  s_42386f3dfc2fd1::t_cc631cb8f60933 2-3,264,267
+  s_42386f3dfc2fd1::t_97dab71fdf2cf1 1,4,175-192,236,265-266,287
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_42386f3dfc2fd1::t_c7a8d2616b7de6 996-1007,1012-1018,1023-1025
+  s_42386f3dfc2fd1::t_97dab71fdf2cf1 992-995,1008-1011,1019-1022
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6e08948390471dd478cfdf8ed5204cbbc59c9be6",
+  "prompts": {},
+  "sessions": {
+    "s_42386f3dfc2fd1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b10b-f6d1-72a2-b0b3-811cee57f974",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
