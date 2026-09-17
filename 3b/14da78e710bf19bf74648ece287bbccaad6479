@@ -1,0 +1,21 @@
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_8adb599a641687::t_014fcaf2a2f11f 281-283,336-337,382,410,426-428
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_8adb599a641687::t_014fcaf2a2f11f 2656-2657,2831,2841,2843
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3b14da78e710bf19bf74648ece287bbccaad6479",
+  "prompts": {},
+  "sessions": {
+    "s_8adb599a641687": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ea-79a2-87b4-3542db609d01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
