@@ -48,11 +48,13 @@ import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/
 import {
     formatScanCleanupErrorByCode,
     formatScanCleanupErrorMessage,
+    formatScanCleanupScratchMessage,
 } from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
+
+export {formatScanCleanupScratchMessage};
 
 const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
 const DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;

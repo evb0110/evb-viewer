@@ -85,7 +85,7 @@ describe('buildWorkspaceCheckpoint', () => {
             getPaneByTabId: () => pane,
         });
 
-        expect(checkpoint.tabs[0]).toMatchObject({surfaceMode: 'scan-cleanup'});
+        expect(checkpoint.tabs[0]).not.toHaveProperty('surfaceMode');
         expect(checkpoint.tabs[0]).not.toHaveProperty('scanCleanup');
         expect(JSON.stringify(checkpoint)).not.toContain('pageMapping');
         expect(JSON.stringify(checkpoint)).not.toContain('138000');

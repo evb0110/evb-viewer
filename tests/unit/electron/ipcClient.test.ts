@@ -111,7 +111,7 @@ describe('createTypedIpcEventSubscriber diagnostics', () => {
                 CORE_IPC_SEND_CHANNELS.rendererLog,
                 expect.objectContaining({data: {
                     channel: 'scan-cleanup:job:state',
-                    decoderMessage: 'completedUnits exceeds totalUnits',
+                    decoderError: 'completedUnits exceeds totalUnits',
                 }}),
             );
             expect(ipcRenderer.send).toHaveBeenCalledWith(

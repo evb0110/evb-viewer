@@ -142,8 +142,11 @@ import type { IMainOperationSnapshot } from '@electron/operation-lifecycle/mainO
 import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
 import {
     cleanupStaleAppTempNamespaces,
+    getAppTempDir,
     initializeAppTempNamespace,
 } from '@electron/utils/appTempDir';
+import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
+import {reapOrphanedScanCleanupSidecars} from '@electron/features/scan-cleanup/public/sidecarProcessRegistry';
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
@@ -937,11 +940,13 @@ void runInitSequence({
     updateRecentFilesMenu,
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
+    reapOrphanedScanCleanupSidecars: () => reapOrphanedScanCleanupSidecars(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleDefaultAppTempPdfs,
     sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfAnnotationIndexArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleManagedScratchTempDirs,
+    sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,
     warmNativeToolProtocolHandshakes,

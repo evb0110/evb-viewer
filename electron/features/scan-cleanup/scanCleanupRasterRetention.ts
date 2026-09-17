@@ -43,6 +43,7 @@ import {
     createScanCleanupRasterMeasurements,
 } from '@electron/features/scan-cleanup/scanCleanupRasterMeasurement';
 const logger = createLogger('scan-cleanup-raster-retention');
+
 export function scanCleanupRasterRetention(
     dependencies: IScanCleanupRasterDependencies,
 ): IScanCleanupRasterRetention {

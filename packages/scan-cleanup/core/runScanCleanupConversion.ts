@@ -1734,7 +1734,8 @@ export async function runScanCleanupConversion(
     dependencies: IRunScanCleanupPipelineDependencies,
     context?: IScanCleanupConversionContext,
 ): Promise<TScanCleanupSummary> {
-    const scratch = await createScanCleanupScratchDir(paths.tempDir);
+    const ownsScratch = paths.scratchDir === undefined;
+    const scratch = paths.scratchDir ?? await createScanCleanupScratchDir(paths.tempDir);
     const sessionId = randomUUID();
     const stagedPdfPath = join(scratch, 'cleaned.pdf');
     const publishTempPath = join(dirname(request.outputPdfPath), `.${sessionId}.scan-cleanup.tmp`);
@@ -1753,6 +1754,9 @@ export async function runScanCleanupConversion(
     let pageSizeStore: IPdfPageSizeStore | null = null;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
     const cleanupScratch = () => {
+        if (!ownsScratch) {
+            return Promise.resolve();
+        }
         scratchCleanupPromise ??= rm(scratch, {
             recursive: true,
             force: true,
@@ -2765,7 +2769,7 @@ export async function runScanCleanupConversion(
                         : {autoDewarpDepth: request.options.autoDewarpDepth}),
                 },
                 pages: batchPageInputs,
-                allowedPathRoot: paths.tempDir,
+                allowedPathRoot: scratch,
             });
             assertNativeScanCleanupManifestGeometry(manifest);
             const pages = manifest.pages;
@@ -2910,7 +2914,10 @@ export async function runScanCleanupConversion(
                         log,
                         reportNativeProgress,
                         {
-                            allowedPathRoot: paths.tempDir,
+                            allowedPathRoot: scratch,
+                            ...(paths.sidecarRegistryRoot === undefined
+                                ? {}
+                                : {sidecarRegistryRoot: paths.sidecarRegistryRoot}),
                             onRecoveryPending: retainScratchUntilRecovery,
                         },
                     ),

@@ -39,6 +39,12 @@ type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<R
 
 interface IIpcInvokerOptions<TChannel extends string = string> { invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>; }
 
+interface IDecodedEventFailureState {
+    lastLoggedAt: number;
+    suppressedCount: number;
+}
+
+const DECODED_EVENT_FAILURE_LOG_INTERVAL_MS = 5_000;
 let fallbackDiagnosticEventCounter = 0;
 
 function createFallbackDiagnosticEventId() {
@@ -78,8 +84,23 @@ function logDecodedEventValidationFailure(
     ipcRenderer: Partial<Pick<IpcRenderer, 'send'>>,
     channel: string,
     payload: unknown,
-    decoderMessage: string,
+    decoderError: unknown,
+    failureStates: Map<string, IDecodedEventFailureState>,
 ) {
+    const decoderErrorMessage = decoderError === undefined
+        ? 'decoder returned null'
+        : getErrorMessage(decoderError) || 'unknown decoder error';
+    const now = Date.now();
+    const previous = failureStates.get(channel);
+    if (previous && now - previous.lastLoggedAt < DECODED_EVENT_FAILURE_LOG_INTERVAL_MS) {
+        previous.suppressedCount += 1;
+        return;
+    }
+    const suppressedCount = previous?.suppressedCount ?? 0;
+    failureStates.set(channel, {
+        lastLoggedAt: now,
+        suppressedCount: 0,
+    });
     const message = `Dropped invalid decoded IPC event payload for ${channel}`;
     if (process.env.NODE_ENV !== 'production') {
         console.warn(message, payload);
@@ -92,7 +113,8 @@ function logDecodedEventValidationFailure(
             timestamp: new Date().toISOString(),
             data: {
                 channel,
-                decoderMessage,
+                decoderError: decoderErrorMessage,
+                ...(suppressedCount === 0 ? {} : {suppressedCount}),
             },
         });
     } catch {
@@ -101,7 +123,7 @@ function logDecodedEventValidationFailure(
     try {
         ipcRenderer.send?.(
             CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
-            createIpcDecodeFailureDiagnostic(channel, decoderMessage),
+            createIpcDecodeFailureDiagnostic(channel, decoderErrorMessage),
             0,
         );
     } catch {
@@ -238,6 +260,7 @@ export function createTypedIpcEventSubscriber<
     }
 
     const subscriptions = new Map<string, IChannelSubscription>();
+    const decodedEventFailureStates = new Map<string, IDecodedEventFailureState>();
 
     function subscribe(channel: string, callback: TEventCallback): TMenuEventUnsubscribe {
         if (
@@ -303,23 +326,24 @@ export function createTypedIpcEventSubscriber<
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {
             return subscribe(channel, (_event, payload) => {
-                let decoded: TEventMap[TChannel] | null;
+                let decoded: TEventMap[TChannel] | null = null;
+                let decoderError: unknown;
                 try {
                     decoded = decode(payload);
                 } catch (error) {
-                    logDecodedEventValidationFailure(
-                        ipcRenderer,
-                        channel,
-                        payload,
-                        getErrorMessage(error) || 'decoder threw without a message',
-                    );
-                    return;
+                    decoderError = error;
                 }
                 if (decoded !== null) {
                     callback(decoded);
                     return;
                 }
-                logDecodedEventValidationFailure(ipcRenderer, channel, payload, 'decoder returned null');
+                logDecodedEventValidationFailure(
+                    ipcRenderer,
+                    channel,
+                    payload,
+                    decoderError,
+                    decodedEventFailureStates,
+                );
             });
         },
     };

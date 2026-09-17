@@ -20,10 +20,7 @@ import {
     logRasterHandoff,
     resolveRasterHandoff,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
-import {
-    readScanCleanupPngDimensions as readPngDimensions,
-    renderScanCleanupRasterToDisk as renderRasterToDisk,
-} from '@evb/scan-cleanup/core/rasterValidation';
+import {renderScanCleanupRasterToDisk as renderRasterToDisk} from '@evb/scan-cleanup/core/rasterValidation';
 import { getErrorMessage } from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
@@ -38,10 +35,10 @@ import type {
     IBasePreviewAnalysis,
     IScanCleanupRenderingDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {readPreviewBytes} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 import {
     DETAIL_TILE_MAX_PIXELS,
     DEFAULT_SOURCE_DPI,
-    PREVIEW_MAX_IMAGE_BYTES,
     BASE_ANALYSIS_CACHE_PAGE_LIMIT,
     BASE_ANALYSIS_CACHE_BYTE_LIMIT,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
@@ -71,7 +68,7 @@ export async function persistBaseAnalysisArtifacts(
     if (!dependencies.readFile) throw new Error('Scan cleanup pipeline requires injected readFile capability');
     const analysisDirectory = join(
         dependencies.getTempDir(),
-        `scan-cleanup-rasters-${randomUUID()}-${process.pid}`,
+        `scan-cleanup-base-analysis-${randomUUID()}-${process.pid}`,
     );
     await fileSystem.mkdir(analysisDirectory, {recursive: true});
     const canonicalRasterPaths: IBasePreviewAnalysis['canonicalRasterPaths'] = {};
@@ -376,18 +373,6 @@ function resolveDetailSourceCrop(
         width: right - left,
         height: bottom - top,
     };
-}
-export async function readPreviewBytes(path: string, dependencies: IScanCleanupRenderingDependencies) {
-    if (!dependencies.stat || !dependencies.readFile) {
-        throw new Error('Scan cleanup preview pipeline requires injected stat and readFile capabilities');
-    }
-    const file = await dependencies.stat(path);
-    if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
-        throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
-    }
-    const bytes = new Uint8Array(await dependencies.readFile(path));
-    readPngDimensions(bytes, undefined, 'preview');
-    return bytes;
 }
 export async function runDetailPreview(
     request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},

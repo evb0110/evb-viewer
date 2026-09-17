@@ -30,15 +30,17 @@ import type {
     IScanCleanupPreviewOwnerRetention,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
-    PREVIEW_PREFETCH_LEASE_TIMEOUT_MS,
-    PREVIEW_ADMISSION_REISSUED,
     isPreviewCancellation,
+    previewIdentityKey,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {scanCleanupPreviewRenderer} from '@electron/features/scan-cleanup/scanCleanupPreviewRenderer';
-import {previewIdentityKey} from '@electron/features/scan-cleanup/scanCleanupPreviewSupport';
 import {removeBaseAnalysisArtifacts} from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
 
 const PREVIEW_DISPOSAL_TIMEOUT_MS = 2_000;
+// A prefetch is an optimisation, so it must not hold a reservation that a
+// visible page cannot acquire indefinitely.
+const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
+const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 
 async function waitForPreviewDisposal(pending: Promise<void>) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -373,7 +375,7 @@ export function scanCleanupPreviewRenderingOwner(
                 entry.cancel('Scan cleanup preview service disposed');
             }
             const activeTails = Promise.allSettled([...active.values()].map(entry => entry.tail)).then(() => undefined);
-            const registryReset = previewJobs.clearForTests().catch(() => undefined);
+            const registryReset = previewJobs.dispose().catch(() => undefined);
             await waitForPreviewDisposal(Promise.all([
                 activeTails,
                 registryReset,
@@ -491,7 +493,7 @@ export function scanCleanupPreviewRenderingOwner(
                     );
                     visiblePages.delete(documentPrefix);
                 },
-                run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('pdfExport-', async scratchPath => {
+                run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('scan-cleanup-preview-', async scratchPath => {
                     let materialized;
                     try {
                         materialized = await dependencies.materializeRequest(

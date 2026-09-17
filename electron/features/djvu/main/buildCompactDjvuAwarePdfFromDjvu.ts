@@ -36,7 +36,7 @@ import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
-import { createPdfCombineProgressHandler } from '@electron/native-tools/createPdfCombineProgressHandler';
+import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';

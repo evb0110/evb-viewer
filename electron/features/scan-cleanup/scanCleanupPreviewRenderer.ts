@@ -9,6 +9,7 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import type {
     IScanCleanupPreviewMetadata,
+    IScanCleanupDocumentCanvasPlan,
     IScanCleanupRawPreviewEvent,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
@@ -68,22 +69,37 @@ import type {
     IScanCleanupRenderingRetention,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
+    previewIdentityKey,
     DEFAULT_SOURCE_DPI,
     hasBoundedMatchedRasterResample,
     isScanCleanupSignalAborted,
     readBoundedPreviewGeometry,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {baseAnalysisKey} from '@electron/features/scan-cleanup/scanCleanupPreviewSupport';
 import {
     persistBaseAnalysisArtifacts,
     pruneBaseAnalysisCache,
-    readPreviewBytes,
     removeBaseAnalysisArtifacts,
     resolveFallbackDetailDpi,
     runDetailPreview,
     logScanCleanupMessage,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
+import {readPreviewBytes} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 const logger = createLogger('scan-cleanup-preview-renderer');
+
+function baseAnalysisKey(
+    request: Omit<IScanCleanupPreviewRequest, 'detail'>,
+    documentCanvas: IScanCleanupDocumentCanvasPlan | null,
+) {
+    const {
+        outputModeRecommendation: _outputModeRecommendation,
+        softAlphaForegroundRecommendation: _softAlphaForegroundRecommendation,
+        ...geometryRequest
+    } = request;
+    return JSON.stringify({
+        identity: previewIdentityKey(geometryRequest),
+        documentCanvas,
+    });
+}
 export async function scanCleanupPreviewRenderer(
     request: IScanCleanupPreviewRequest,
     signal: AbortSignal,

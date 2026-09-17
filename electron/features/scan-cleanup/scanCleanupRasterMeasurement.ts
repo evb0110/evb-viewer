@@ -1,4 +1,3 @@
-import {PAGE_MEASUREMENT_CACHE_MAX_ENTRIES} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {
     IPdfPageSize,
     IPdfPageSizeStore,
@@ -9,7 +8,7 @@ import type {
     IRetainedDocument,
     IScanCleanupRasterDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-
+import {PAGE_MEASUREMENT_CACHE_MAX_ENTRIES} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 export function resolveScanCleanupDocumentMeasurement<TValue>(
     slot: {
         read: () => Promise<TValue> | null;

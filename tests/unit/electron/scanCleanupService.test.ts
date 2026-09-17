@@ -144,8 +144,11 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
 ));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
     return {
+        acknowledgeScanCleanupCompletedOutputs: vi.fn(async () => undefined),
         createScanCleanupGeneratedOutputPath: mocks.createOutput,
+        getPendingScanCleanupCompletedOutputs: vi.fn(async () => []),
         pruneScanCleanupGeneratedOutputs: mocks.pruneOutputs,
+        recordScanCleanupCompletedOutput: vi.fn(async () => undefined),
     };
 });
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
@@ -303,8 +306,12 @@ describe('scan cleanup service', () => {
     it('uses main-owned liveness when pruning generated outputs', async () => {
         const service = createScanCleanupService();
 
-        await expect(service.pruneGeneratedOutputs()).resolves.toBe(0);
+        const first = service.pruneGeneratedOutputs();
+        const second = service.pruneGeneratedOutputs();
+        await expect(first).resolves.toBe(0);
+        await expect(second).resolves.toBe(0);
 
+        expect(mocks.pruneOutputs).toHaveBeenCalledOnce();
         expect(mocks.pruneOutputs).toHaveBeenCalledWith({isOutputLive: mocks.isWorkingCopyOriginalPathRegistered});
     });
 

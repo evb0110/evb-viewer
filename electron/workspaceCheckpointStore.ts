@@ -18,7 +18,10 @@ import {
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
 } from '@contracts/workspaceCheckpoint';
-import {parseDocumentRef} from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     isErrnoException,
     isRecord,
@@ -46,6 +49,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
 import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
+import {touchScanCleanupGeneratedOutput} from '@electron/features/scan-cleanup/public/generatedOutputs';
 
 const log = createLogger('workspace-checkpoint-store');
 
@@ -1221,6 +1225,20 @@ export async function saveWorkspaceCheckpoint(
     }
     const durable = readDurableWorkspaceCheckpointForSave(checkpointRecordRecoveryId);
     const checkpointWithRetainedTabs = retainUnresolvedCheckpointTabs(checkpoint, durable);
+    // A generated cleanup output can be the source of a restored tab. Refresh
+    // its retention stamp after unresolved tabs have been restored, so the
+    // startup sweep cannot expire a retained output before recovery reopens
+    // it. The helper is deliberately best effort: non-cleanup paths are
+    // ignored and a stamp failure must not discard the checkpoint itself.
+    const generatedOutputCandidates = checkpointWithRetainedTabs.tabs.flatMap(tab => [
+        tab.sourceRef,
+        tab.workingCopyRef,
+    ].filter((path): path is TDocumentRef => path !== null));
+    if (generatedOutputCandidates.length > 0) {
+        await Promise.allSettled(generatedOutputCandidates.map(path => (
+            touchScanCleanupGeneratedOutput(path)
+        )));
+    }
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
     const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
     const canonicalCheckpoint = canonicalizeCheckpointSources(

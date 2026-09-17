@@ -109,6 +109,12 @@ export interface IMainJobStartOptions<
     ownerLifecycle?: IMainJobOwnerLifecyclePolicy;
     signals?: readonly AbortSignal[];
     onCancel?: (reason: string, signal: AbortSignal) => void | Promise<void>;
+    /**
+     * Runs exactly once on the next microtask unless the job was already
+     * aborted when start() handed it over. Callers that acquire resources
+     * before start() must release them from onCancel when this boundary is
+     * skipped; once run() begins, its finally block owns those resources.
+     */
     run(context: IMainJobRunContext<TProgress, TResult, TError>): Promise<TResult>;
 }
 export interface IMainJobHandle<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
@@ -162,7 +168,7 @@ export interface IMainJobRegistry<
     subscribeOwner(actor: IMainJobActor<TSender>): () => void;
     cancel(jobId: string, actor: IMainJobActor<TSender>, reason?: string): boolean;
     await(jobId: string, actor: IMainJobActor<TSender>): Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
-    clearForTests(): Promise<void>;
+    dispose(): Promise<void>;
 }
 export function createMainJobRegistry<
     TProgress,
@@ -534,7 +540,7 @@ export function createMainJobRegistry<
             const record = authorized(jobId, actor); if (!record) throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));
             return record.handle.terminal;
         },
-        clearForTests: async () => {
+        dispose: async () => {
             for (const record of records.values()) requestCancel(record, 'Registry reset');
             await Promise.allSettled([...records.values()].map(record => record.handle.settled));
             for (const record of [...records.values()]) remove(record); pump?.dispose();

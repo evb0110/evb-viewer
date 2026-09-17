@@ -1,6 +1,8 @@
 import {
+    access,
     mkdir,
     mkdtemp,
+    readFile,
     realpath,
     stat,
     symlink,
@@ -22,11 +24,15 @@ import {
     vi,
 } from 'vitest';
 import {
+    acknowledgeScanCleanupCompletedOutputs,
     createScanCleanupGeneratedOutputPath,
+    getScanCleanupCompletedOutputJournalPath,
+    getPendingScanCleanupCompletedOutputs,
     getScanCleanupOutputBaseDirs,
     getScanCleanupOutputRoot,
     isScanCleanupGeneratedOutputPath,
     pruneScanCleanupGeneratedOutputs,
+    recordScanCleanupCompletedOutput,
     SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES,
     SCAN_CLEANUP_OUTPUT_MAX_AGE_MS,
     touchScanCleanupGeneratedOutput,
@@ -90,6 +96,57 @@ afterEach(async () => {
 });
 
 describe('scan cleanup generated output pruning', () => {
+    it('journals a completed output until the renderer acknowledges opening it', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-journal-test-'));
+        tempDirs.push(outputBaseDir);
+        const outputPath = await createScanCleanupGeneratedOutputPath('/books/Journal.pdf', false, outputBaseDir);
+        await writeFile(outputPath, 'generated');
+
+        await recordScanCleanupCompletedOutput(outputPath, {
+            baseDir: outputBaseDir,
+            completedAtMs: 123,
+        });
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([outputPath]);
+
+        await acknowledgeScanCleanupCompletedOutputs([outputPath], {baseDir: outputBaseDir});
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([]);
+    });
+
+    it('discards a truncated completed-output journal instead of blocking recovery', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-journal-corrupt-test-'));
+        tempDirs.push(outputBaseDir);
+        const journalPath = getScanCleanupCompletedOutputJournalPath(outputBaseDir);
+        await mkdir(dirname(journalPath), {recursive: true});
+        await writeFile(journalPath, '{', 'utf8');
+
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([]);
+        await expect(access(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('skips malformed journal entries while preserving valid completed outputs', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-journal-entry-test-'));
+        tempDirs.push(outputBaseDir);
+        const outputPath = await writeGeneratedOutput(outputBaseDir, RUN_ID, Date.now());
+        const journalPath = getScanCleanupCompletedOutputJournalPath(outputBaseDir);
+        await mkdir(dirname(journalPath), {recursive: true});
+        await writeFile(journalPath, JSON.stringify([
+            {
+                version: 1,
+                outputPdfPath: outputPath,
+                completedAtMs: 123,
+            },
+            {
+                version: 1,
+                outputPdfPath: '/outside.pdf',
+                completedAtMs: 'invalid',
+            },
+            'torn-entry',
+        ]), 'utf8');
+
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([outputPath]);
+        await expect(readFile(journalPath, 'utf8')).resolves.toContain(outputPath);
+    });
+
     it('creates a managed, human-readable output path without a save dialog', async () => {
         const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-path-test-'));
         tempDirs.push(outputBaseDir);
@@ -246,6 +303,32 @@ describe('scan cleanup generated output pruning', () => {
         await expect(stat(stale)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(stat(open)).resolves.toBeDefined();
         await expect(stat(fresh)).resolves.toBeDefined();
+    });
+
+    it('protects a completed output from pruning until the renderer acknowledges it', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-pending-prune-test-'));
+        tempDirs.push(outputBaseDir);
+        const outputPath = await writeGeneratedOutput(
+            outputBaseDir,
+            RUN_ID,
+            Date.now() - SCAN_CLEANUP_OUTPUT_MAX_AGE_MS - 1_000,
+        );
+        await recordScanCleanupCompletedOutput(outputPath, {baseDir: outputBaseDir});
+
+        await expect(pruneScanCleanupGeneratedOutputs({
+            baseDirs: [outputBaseDir],
+            isOutputLive: () => false,
+            nowMs: Date.now(),
+        })).resolves.toBe(0);
+        await expect(stat(outputPath)).resolves.toBeDefined();
+
+        await acknowledgeScanCleanupCompletedOutputs([outputPath], {baseDir: outputBaseDir});
+        await expect(pruneScanCleanupGeneratedOutputs({
+            baseDirs: [outputBaseDir],
+            isOutputLive: () => false,
+            nowMs: Date.now(),
+        })).resolves.toBe(1);
+        await expect(stat(outputPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('aggregates main-owned output liveness across two WebContents', async () => {

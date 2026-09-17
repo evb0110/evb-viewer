@@ -7,7 +7,7 @@ import type {
     TTranslateFn,
     TTranslationKey,
 } from '@i18n-app';
-import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
+import {formatBytes} from '@app/utils/formatters';
 
 const SCAN_CLEANUP_ERROR_MESSAGE_KEYS = {
     encrypted: 'scanCleanup.errors.encrypted',
@@ -50,6 +50,29 @@ export function formatScanCleanupErrorMessage(message: string, error: unknown) {
     return detail && detail !== message
         ? `${message} (${detail})`
         : message;
+}
+
+/**
+ * Formats the only detection failure that gives the user an actionable
+ * storage remedy. The figures stay typed at the bridge and are localized at
+ * the detection session's UI boundary.
+ */
+export function formatScanCleanupScratchMessage(
+    t: TTranslateFn,
+    shortfall: IScanCleanupScratchShortfall | undefined,
+) {
+    const headline = t('scanCleanup.errors.insufficientScratch');
+    if (
+        shortfall === undefined
+        || shortfall.requiredBytes === null
+        || shortfall.availableBytes === null
+    ) {
+        return headline;
+    }
+    return `${headline} ${t('scanCleanup.errors.insufficientScratchSpace', {
+        required: formatBytes(shortfall.requiredBytes),
+        available: formatBytes(shortfall.availableBytes),
+    })}`;
 }
 
 export function formatScanCleanupErrorByCode(

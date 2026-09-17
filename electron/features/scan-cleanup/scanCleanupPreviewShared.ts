@@ -20,7 +20,7 @@ import type {
     TScanCleanupOutputMode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 
 import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
@@ -28,6 +28,7 @@ import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
+    scanCleanupLayoutSignature,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
@@ -37,7 +38,7 @@ import type {
     IPdfPageSizeStore,
 } from '@electron/pdf/pdfPageSizes';
 import {PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
-import { SCAN_CLEANUP_STREAMING_BATCH_PAGES } from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 import {
     addScanCleanupDocumentCanvasPage,
@@ -72,7 +73,7 @@ import type {
     IScanCleanupPageRasterSource,
     TScanCleanupRunSidecar,
 } from '@evb/scan-cleanup/core/types';
-import { detectPageRasterFromPageSize } from '@evb/scan-cleanup/core/types';
+import {detectPageRasterFromPageSize} from '@evb/scan-cleanup/core/types';
 
 
 import type {
@@ -84,6 +85,7 @@ import type { ensureWorkingCopyMaterialized } from '@electron/file-access/workin
 
 
 
+export const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
 export const DETAIL_TILE_MAX_PIXELS = 4_000_000;
 export const DEFAULT_SOURCE_DPI = 300;
 export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
@@ -119,6 +121,28 @@ export function normalizeDetectionProgress(progress: TScanCleanupProgress): TSca
     }
     return progress;
 }
+
+/** Stable identity for two equivalent preview requests. */
+export function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {
+    return JSON.stringify({
+        sourcePdfPath: request.sourcePdfPath,
+        documentRevision: request.documentRevision,
+        pageNumber: request.pageNumber,
+        options: request.options,
+        documentPrior: request.documentPrior ?? null,
+        outputModeRecommendation: request.outputModeRecommendation ?? null,
+        softAlphaForegroundRecommendation: request.softAlphaForegroundRecommendation ?? null,
+        pagePlanEvidence: request.pagePlanEvidence ?? null,
+        placementAnchors: request.placementAnchors ?? null,
+        layoutDetectionComplete: request.options.matchPageSize
+            ? request.layoutDetectionComplete === true
+            : false,
+        layouts: request.options.matchPageSize
+            ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
+            : '',
+    });
+}
+
 export interface IRetainedDocument {
     dir: Promise<string>;
     documentRevision: string;
@@ -298,7 +322,6 @@ export interface IBoundedPreviewGeometry {
     previewDpi: number;
     pageSourceDpi: number | undefined;
 }
-
 /**
  * Read the document geometry as bounded chunks and retain only the constant
  * canvas summary plus the requested page. Preview and detection use this same

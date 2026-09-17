@@ -38,6 +38,7 @@ import {
     RENDERER_DESTROYED_CANCELLATION_REASON,
     RENDER_PROCESS_GONE_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {
@@ -50,7 +51,6 @@ import type {
     TDetectionSnapshot,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
-import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createLogger} from '@electron/utils/createLogger';
 import {
     createScanCleanupDetectionSignature,
@@ -740,7 +740,7 @@ export function scanCleanupDetectionOwner(
         ...detectionLifecycle,
         ...ownerMethods,
         async dispose() {
-            await detectionJobs.clearForTests();
+            await detectionJobs.dispose();
             await disposeResultStoreOwnerBindings();
             await detectionLifecycle.dispose();
             placementCalibrationByStore.forEach(build => build.controller.abort());

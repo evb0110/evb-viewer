@@ -7,7 +7,7 @@ import {
     formatScanCleanupErrorByCode,
     formatScanCleanupErrorMessage,
 } from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
+import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {LOCALE_MESSAGES} from '@i18n-app/locales';
 
 describe('formatScanCleanupErrorMessage', () => {

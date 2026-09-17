@@ -1,4 +1,8 @@
 import { getErrorMessage } from '@app/utils/error';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {
     IScanCleanupStartRequest,
     IScanCleanupScratchShortfall,
@@ -300,11 +304,15 @@ interface IGeneratedPdfHandoff {
     controller: AbortController;
     generation: number;
     invalidated: boolean;
-    jobId: TJobId;
+    jobId: TJobId | null;
+    release: () => void;
 }
 
 let handoffGeneration = 0;
+let handoffInvalidationVersion = 0;
 let activeGeneratedPdfHandoff: IGeneratedPdfHandoff | null = null;
+let generatedPdfHandoffTail = Promise.resolve();
+let generatedPdfHandoffQueueLength = 0;
 
 /**
  * Resolves as soon as the open answers or the handoff deadline fires, and keeps
@@ -331,21 +339,114 @@ function settleGeneratedPdfHandoff(open: Promise<boolean>, signal: AbortSignal) 
     });
 }
 
+interface IGeneratedPdfHandoffResult {
+    handoff: IGeneratedPdfHandoff;
+    opened: boolean;
+}
+
+async function openGeneratedPdfWithHandoff(
+    openGeneratedPdf: IScanCleanupCoordinatorDependencies['openGeneratedPdf'],
+    outputPdfPath: string,
+    jobId: TJobId | null,
+): Promise<IGeneratedPdfHandoffResult> {
+    const requestInvalidationVersion = handoffInvalidationVersion;
+    const waitsForPreviousHandoff = generatedPdfHandoffQueueLength > 0;
+    generatedPdfHandoffQueueLength += 1;
+    const previousHandoff = generatedPdfHandoffTail;
+    let releaseQueue!: () => void;
+    let queueReleased = false;
+    const queueSlot = new Promise<void>(resolve => {
+        releaseQueue = resolve;
+    });
+    const releaseQueueSlot = () => {
+        if (queueReleased) {
+            return;
+        }
+        queueReleased = true;
+        generatedPdfHandoffQueueLength -= 1;
+        releaseQueue();
+    };
+    generatedPdfHandoffTail = previousHandoff.then(() => queueSlot);
+    if (waitsForPreviousHandoff) {
+        await previousHandoff;
+    }
+    if (requestInvalidationVersion !== handoffInvalidationVersion) {
+        if (jobId !== null) {
+            terminalJobs.delete(jobId);
+        }
+        releaseQueueSlot();
+        return {
+            handoff: {
+                controller: new AbortController(),
+                generation: handoffGeneration,
+                invalidated: true,
+                jobId,
+                release: () => undefined,
+            },
+            opened: false,
+        };
+    }
+    handoffGeneration += 1;
+    let released = false;
+    const handoff: IGeneratedPdfHandoff = {
+        controller: new AbortController(),
+        generation: handoffGeneration,
+        invalidated: false,
+        jobId,
+        release: () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            if (activeGeneratedPdfHandoff === handoff) {
+                activeGeneratedPdfHandoff = null;
+            }
+            releaseQueueSlot();
+        },
+    };
+    activeGeneratedPdfHandoff = handoff;
+    const deadline = setTimeout(
+        () => handoff.controller.abort(new Error('Generated PDF handoff timed out')),
+        GENERATED_PDF_HANDOFF_TIMEOUT_MS,
+    );
+    let opened = false;
+    try {
+        opened = await settleGeneratedPdfHandoff(
+            openGeneratedPdf(outputPdfPath, handoff.controller.signal),
+            handoff.controller.signal,
+        );
+    } catch {
+        opened = false;
+    } finally {
+        clearTimeout(deadline);
+    }
+    return {
+        handoff,
+        opened,
+    };
+}
+
 function invalidateGeneratedPdfHandoff() {
     const handoff = activeGeneratedPdfHandoff;
+    if (!handoff && generatedPdfHandoffQueueLength === 0) {
+        return;
+    }
+    handoffInvalidationVersion += 1;
+    handoffGeneration += 1;
     if (!handoff) {
         return;
     }
     handoff.invalidated = true;
-    activeGeneratedPdfHandoff = null;
-    handoffGeneration += 1;
     // The job goes back to unreported before the abort is visible anywhere. A
     // replacement coordinator can be installed and replayed synchronously in
     // the same tick as disposal, and the abandoned handler only resumes a
     // microtask later: releasing the reservation there would arrive after the
     // replay it is meant to admit.
-    terminalJobs.delete(handoff.jobId);
+    if (handoff.jobId !== null) {
+        terminalJobs.delete(handoff.jobId);
+    }
     handoff.controller.abort(new Error('Scan cleanup coordinator was disposed'));
+    handoff.release();
 }
 
 function clearScanCleanupRunLivenessTimer() {
@@ -559,80 +660,69 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         // until the generated PDF finishes opening: releasing them earlier
         // lets source-document detection and preview restart mid-handoff and
         // race the working-copy claim of the output document.
-        handoffGeneration += 1;
-        const handoff: IGeneratedPdfHandoff = {
-            controller: new AbortController(),
-            generation: handoffGeneration,
-            invalidated: false,
-            jobId: state.jobId,
-        };
-        activeGeneratedPdfHandoff = handoff;
-        const deadline = setTimeout(
-            () => handoff.controller.abort(new Error('Generated PDF handoff timed out')),
-            GENERATED_PDF_HANDOFF_TIMEOUT_MS,
+        const {
+            handoff, opened,
+        } = await openGeneratedPdfWithHandoff(
+            terminalDependencies.openGeneratedPdf,
+            state.outputPdfPath,
+            state.jobId,
         );
-        let opened = false;
         try {
-            opened = await settleGeneratedPdfHandoff(
-                terminalDependencies.openGeneratedPdf(state.outputPdfPath, handoff.controller.signal),
-                handoff.controller.signal,
-            );
-        } catch {
-            opened = false;
-        } finally {
-            clearTimeout(deadline);
-            if (activeGeneratedPdfHandoff === handoff) {
-                activeGeneratedPdfHandoff = null;
+            if (handoff.invalidated) {
+                // The renderer that owned this handoff went away. Its terminal
+                // state was released back to the next coordinator installation as
+                // the handoff was invalidated, and a replay may already have been
+                // accepted since, so this abandoned attempt only steps aside.
+                return;
             }
-        }
-        if (handoff.invalidated) {
-            // The renderer that owned this handoff went away. Its terminal
-            // state was released back to the next coordinator installation as
-            // the handoff was invalidated, and a replay may already have been
-            // accepted since, so this abandoned attempt only steps aside.
-            return;
-        }
-        if (handoff.generation !== handoffGeneration) {
-            return;
-        }
-        scanCleanupRun.activeJobId = null;
-        clearRunGuard();
-        persistActiveJob(null);
-        if (!opened) {
-            const failure = BrowserLogger.error(
-                'scan-cleanup',
-                'Opening the generated scan cleanup PDF failed',
-                undefined,
-                {
-                    code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {
-                        stage: 'renderer-result',
-                        errorCode: 'unknown',
-                        failureClass: 'unknown',
+            if (handoff.generation !== handoffGeneration) {
+                return;
+            }
+            scanCleanupRun.activeJobId = null;
+            clearRunGuard();
+            persistActiveJob(null);
+            if (!opened) {
+                const failure = BrowserLogger.error(
+                    'scan-cleanup',
+                    'Opening the generated scan cleanup PDF failed',
+                    undefined,
+                    {
+                        code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+                        context: {},
                     },
-                },
-            );
-            createFailureToastPresenter(terminalDependencies.toast)({
-                failure,
-                title: terminalDependencies.t('scanCleanup.openResultFailed'),
-                description: state.outputPdfPath,
+                );
+                createFailureToastPresenter(terminalDependencies.toast)({
+                    failure,
+                    title: terminalDependencies.t('scanCleanup.openResultFailed'),
+                    description: state.outputPdfPath,
+                });
+                return;
+            }
+            const completedOutputPath = parseDocumentRef(state.outputPdfPath);
+            if (completedOutputPath !== null) {
+                const capability = getScanCleanupCapability();
+                const acknowledgeCompletedOutputs = capability?.acknowledgeCompletedOutputs;
+                if (acknowledgeCompletedOutputs) {
+                    await acknowledgeCompletedOutputs([completedOutputPath]).catch(() => undefined);
+                }
+            }
+            terminalDependencies.toast.add({
+                color: 'success',
+                title: terminalDependencies.t(state.partial
+                    ? 'scanCleanup.completedPartialTitle'
+                    : 'scanCleanup.completedTitle'),
+                description: summaryText(state),
+                actions: [{
+                    label: terminalDependencies.t('scanCleanup.saveAs'),
+                    color: 'neutral' as const,
+                    variant: 'outline' as const,
+                    onClick: () => { void dependencies?.saveActiveDocumentAs(); },
+                }],
             });
             return;
+        } finally {
+            handoff.release();
         }
-        terminalDependencies.toast.add({
-            color: 'success',
-            title: terminalDependencies.t(state.partial
-                ? 'scanCleanup.completedPartialTitle'
-                : 'scanCleanup.completedTitle'),
-            description: summaryText(state),
-            actions: [{
-                label: terminalDependencies.t('scanCleanup.saveAs'),
-                color: 'neutral' as const,
-                variant: 'outline' as const,
-                onClick: () => { void dependencies?.saveActiveDocumentAs(); },
-            }],
-        });
-        return;
     }
 
     scanCleanupRun.activeJobId = null;
@@ -785,6 +875,47 @@ async function startScanCleanupRequest(
     }
     if (restored) acceptScanCleanupJobState(restored);
     return result;
+}
+
+async function surfacePendingCompletedOutputs(
+    capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
+) {
+    const terminalDependencies = dependencies;
+    if (!terminalDependencies) {
+        return;
+    }
+    let paths: readonly TDocumentRef[];
+    try {
+        paths = await capability.getPendingCompletedOutputs?.() ?? [];
+    } catch (error) {
+        BrowserLogger.warn('scan-cleanup', `Could not read completed output journal: ${getErrorMessage(error)}`);
+        return;
+    }
+    const openedPaths: TDocumentRef[] = [];
+    for (const path of paths) {
+        const {
+            handoff, opened,
+        } = await openGeneratedPdfWithHandoff(
+            terminalDependencies.openGeneratedPdf,
+            path,
+            null,
+        );
+        try {
+            if (handoff.invalidated || handoff.generation !== handoffGeneration) {
+                return;
+            }
+            if (opened) {
+                openedPaths.push(path);
+            }
+        } finally {
+            handoff.release();
+        }
+    }
+    if (openedPaths.length > 0) {
+        await capability.acknowledgeCompletedOutputs?.(openedPaths).catch(error => {
+            BrowserLogger.warn('scan-cleanup', `Could not acknowledge completed output journal: ${getErrorMessage(error)}`);
+        });
+    }
 }
 
 /**
@@ -956,6 +1087,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
             scanCleanupRun.activeJobId = null;
             clearRunGuard();
             persistActiveJob(null);
+            void surfacePendingCompletedOutputs(capability);
         } else {
             const owner = {
                 ownerId: scanCleanupRun.ownerId,
@@ -977,9 +1109,14 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                             'internal',
                         );
                     }
+                    if (!state) {
+                        void surfacePendingCompletedOutputs(capability);
+                    }
                 }
             })();
         }
+    } else {
+        void surfacePendingCompletedOutputs(capability);
     }
     return dispose;
 }

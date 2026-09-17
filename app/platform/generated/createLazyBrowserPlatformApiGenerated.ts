@@ -201,6 +201,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const scanCleanupSubscribeJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeJob.path);
     const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
     const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
+    const scanCleanupGetPendingCompletedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.getPendingCompletedOutputs.path);
+    const scanCleanupAcknowledgeCompletedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.acknowledgeCompletedOutputs.path);
     const scanCleanupGetSettingsMethod = lazyAsync(pathDescriptors.scanCleanup.getSettings.path);
     const scanCleanupUpdateSettingsMethod = lazyAsync(pathDescriptors.scanCleanup.updateSettings.path);
     const scanCleanupOnPreviewRawMethod = lazyEvent(pathDescriptors.scanCleanup.onPreviewRaw.path);
@@ -470,6 +472,8 @@ export function createLazyBrowserPlatformApiGenerated({
         subscribeJob: scanCleanupSubscribeJobMethod,
         reconnectJob: scanCleanupReconnectJobMethod,
         pruneGeneratedOutputs: scanCleanupPruneGeneratedOutputsMethod,
+        getPendingCompletedOutputs: scanCleanupGetPendingCompletedOutputsMethod,
+        acknowledgeCompletedOutputs: scanCleanupAcknowledgeCompletedOutputsMethod,
         getSettings: scanCleanupGetSettingsMethod,
         updateSettings: scanCleanupUpdateSettingsMethod,
         onPreviewRaw: scanCleanupOnPreviewRawMethod,

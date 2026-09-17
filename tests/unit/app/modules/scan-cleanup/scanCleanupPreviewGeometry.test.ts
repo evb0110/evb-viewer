@@ -52,7 +52,7 @@ import {
     toPreviewStyleRect,
 } from '@app/modules/scan-cleanup/geometry/placement';
 import {useScanCleanupViewportFrame} from '@app/modules/scan-cleanup/composables/useScanCleanupViewportFrame';
-import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPrefetcher';
+import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 
 function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCleanupPreviewMetadata {
     return {

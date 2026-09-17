@@ -941,6 +941,7 @@ function mountPreviewZoomHarness(options: {
     detailResultRef?: Ref<IScanCleanupPreviewResult | null>;
     layoutDetectionCompleteRef?: Ref<boolean>;
     manualZones?: IScanCleanupManualZones;
+    manualZonesRef?: Ref<IScanCleanupManualZones | undefined>;
     onUpdateManualZones?: (value: IScanCleanupManualZones) => void;
     onRequestDetail?: (
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
@@ -970,7 +971,7 @@ function mountPreviewZoomHarness(options: {
         totalPages: 3,
         manualSplit: null,
         resultCurrent: options.resultCurrentRef?.value ?? true,
-        manualZones: options.manualZones,
+        manualZones: options.manualZonesRef?.value ?? options.manualZones,
         disabled: disabled.value,
         readingOrder: 'ltr',
         zoneEditing: options.zoneEditing,
@@ -4398,6 +4399,93 @@ describe('Scan cleanup components', () => {
 
         expect(updateManualZones).toHaveBeenCalledOnce();
         expect(updateManualZones.mock.calls[0]![0].picture).toHaveLength(1);
+    });
+
+    it('clears a selected zone when an earlier zone is deleted', async () => {
+        const manualZonesRef = ref<IScanCleanupManualZones>({
+            picture: [
+                {
+                    layer: 'painter2',
+                    polygon: {
+                        points: [
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.3,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.3,
+                                yNormalized: 0.3,
+                            },
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.3,
+                            },
+                        ],
+                        rotationDegrees: 0,
+                    },
+                },
+                {
+                    layer: 'painter2',
+                    polygon: {
+                        points: [
+                            {
+                                xNormalized: 0.5,
+                                yNormalized: 0.5,
+                            },
+                            {
+                                xNormalized: 0.7,
+                                yNormalized: 0.5,
+                            },
+                            {
+                                xNormalized: 0.7,
+                                yNormalized: 0.7,
+                            },
+                            {
+                                xNormalized: 0.5,
+                                yNormalized: 0.7,
+                            },
+                        ],
+                        rotationDegrees: 0,
+                    },
+                },
+            ],
+            fill: [],
+        });
+        const harness = mountPreviewZoomHarness({
+            manualZonesRef,
+            viewMode: 'cleaned',
+            zoneEditing: true,
+        });
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 500, 400));
+        mockPointerCapture(editor);
+        const polygons = harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon');
+        polygons[0]!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 100,
+            clientY: 80,
+            pointerId: 54,
+        }));
+        polygons[0]!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 100,
+            clientY: 80,
+            pointerId: 54,
+        }));
+        await nextTick();
+        expect(harness.host.querySelectorAll('.zone-editor-polygon.is-selected')).toHaveLength(1);
+
+        manualZonesRef.value = {
+            picture: [manualZonesRef.value.picture[1]!],
+            fill: [],
+        };
+        await nextTick();
+        expect(harness.host.querySelector('.zone-editor-polygon.is-selected')).toBeNull();
     });
 
     it('selects an existing manual zone without emitting an unchanged zone list', () => {

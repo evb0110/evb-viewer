@@ -82,6 +82,7 @@ export interface IRunInitSequenceOptions {
         removedOcrDirectories: number;
     }>;
     cleanupStaleAppTempNamespaces?: () => Promise<number>;
+    reapOrphanedScanCleanupSidecars?: () => Promise<unknown>;
     createWindow(options?: {
         showStartupPlaceholder?: boolean;
         waitForInitialRendererReady?: boolean;
@@ -128,6 +129,7 @@ export interface IRunInitSequenceOptions {
     sweepStalePdfAnnotationIndexArtifacts?: () => Promise<unknown>;
     sweepStalePdfEmbeddedShapeIndexArtifacts?: () => Promise<unknown>;
     sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
+    sweepStaleScanCleanupScratchDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
     warmNativeToolProtocolHandshakes?: () => Promise<unknown>;
@@ -403,12 +405,14 @@ function createPostRendererReadyMaintenanceRunner(
     const {
         cleanupStaleWorkingCopyDirectories,
         cleanupStaleAppTempNamespaces,
+        reapOrphanedScanCleanupSidecars,
         logger,
         sweepStaleDefaultAppTempPdfs,
         sweepStalePdfAnnotationParseArtifacts,
         sweepStalePdfAnnotationIndexArtifacts,
         sweepStalePdfEmbeddedShapeIndexArtifacts,
         sweepStaleManagedScratchTempDirs,
+        sweepStaleScanCleanupScratchDirs,
         sweepStaleOcrTempArtifacts,
         pruneStaleDjvuArtifactJobs,
         warmNativeToolProtocolHandshakes,
@@ -424,6 +428,12 @@ function createPostRendererReadyMaintenanceRunner(
                         logger.info(`Removed stale EVB app temp namespaces: ${removed}`);
                     }
                 },
+            }]
+            : []),
+        ...(reapOrphanedScanCleanupSidecars
+            ? [{
+                label: 'orphaned scan-cleanup sidecars',
+                run: reapOrphanedScanCleanupSidecars,
             }]
             : []),
         {
@@ -470,6 +480,12 @@ function createPostRendererReadyMaintenanceRunner(
             ? [{
                 label: 'managed scratch temp directories',
                 run: sweepStaleManagedScratchTempDirs,
+            }]
+            : []),
+        ...(sweepStaleScanCleanupScratchDirs
+            ? [{
+                label: 'scan-cleanup scratch directories',
+                run: sweepStaleScanCleanupScratchDirs,
             }]
             : []),
         {

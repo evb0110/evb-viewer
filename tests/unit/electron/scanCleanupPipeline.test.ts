@@ -608,7 +608,11 @@ async function measurePipelineRasterPeak(
     // Both the lossless analysis manifest and the raster-final manifest are
     // built against, and launched against, the run's own temp root.
     expect(sidecarRoots.length).toBeGreaterThan(0);
-    expect(new Set(sidecarRoots)).toEqual(new Set([fixture.dir]));
+    const uniqueSidecarRoots = [...new Set(sidecarRoots)];
+    expect(uniqueSidecarRoots).toHaveLength(1);
+    expect(uniqueSidecarRoots[0]).not.toBe(fixture.dir);
+    expect(uniqueSidecarRoots[0]).toBeDefined();
+    expect(isPathWithinRoot(uniqueSidecarRoots[0]!, fixture.dir)).toBe(true);
     expect(manifestPaths.filter(path => !isPathWithinRoot(path, fixture.dir))).toEqual([]);
     return peakRasters;
 }
