@@ -1,0 +1,65 @@
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_08d12d38d8c771::t_c1344d1dcc0544 219-230,943-946
+packages/i18n-app/messages/de.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_08d12d38d8c771::t_2bfe1b3d95e8aa 157-162
+  s_08d12d38d8c771::t_85e42a00c04448 557,733,763-771,781-785,809,814
+tests/unit/electron/scanCleanupService.test.ts
+  s_08d12d38d8c771::t_0b274fe104ef15 1051-1054
+  s_08d12d38d8c771::t_f20b6e07dac413 993-994,998-999,1001,1008-1043,1045,1055-1060
+  s_08d12d38d8c771::t_2f53e959bd1e00 1044,1046-1050
+packages/i18n-app/messages/nl.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+packages/contracts/scan-cleanup/ipc.ts
+  s_08d12d38d8c771::t_c1344d1dcc0544 707
+packages/i18n-app/messages/es.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+packages/i18n-app/messages/pt.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+packages/i18n-app/messages/ptBr.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+packages/i18n-app/messages/it.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_08d12d38d8c771::t_2e16651c74d224 11,18,376,380
+app/modules/scan-cleanup/components/ScanCleanupToolbar.vue
+  s_08d12d38d8c771::t_2e16651c74d224 33,212-213,244,249,271,276
+tests/unit/contracts/scanCleanupIpcResultCodecs.test.ts
+  s_08d12d38d8c771::t_dde5f2c6573961 36-51
+packages/i18n-app/messages/ru.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 913-915
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_08d12d38d8c771::t_8e430ab3116f4c 351-355,2033-2060
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_08d12d38d8c771::t_1fbf41df99469d 2552,2581-2593,2606,2608-2609
+  s_08d12d38d8c771::t_0fff7e2c037c2b 2553-2580,2594-2605,2607,2610-2624
+app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts
+  s_08d12d38d8c771::t_7790eb51ad0fa7 118,240,242,355,812-814,816-821,826-833,837-850
+  s_08d12d38d8c771::t_2f53e959bd1e00 822-825
+  s_08d12d38d8c771::t_e8c8e102019827 834-836
+packages/i18n-app/messages/en.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 901-903
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_08d12d38d8c771::t_ff535854aeabf1 909-924,937-965
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_08d12d38d8c771::t_c1344d1dcc0544 1002
+packages/i18n-app/messages/fr.ts
+  s_08d12d38d8c771::t_1961389e55b5c4 452-454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "add46a10eb6663ab08df715d21e4e40235a1e3cf",
+  "prompts": {},
+  "sessions": {
+    "s_08d12d38d8c771": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae68-e8f7-7c70-995a-c6c58460c682",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
