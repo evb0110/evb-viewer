@@ -1,0 +1,49 @@
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_f1cd8c349c2626::t_f3ac655b22b826 4416
+  s_f1cd8c349c2626::t_c8156f5f078839 4347-4362,4371-4386
+  s_f1cd8c349c2626::t_2564cabae46b91 923,952,4340-4346,4363-4370,4387-4402,4404-4405,4408-4409,4411,4414-4415,4417-4424
+  s_f1cd8c349c2626::t_ff450b383ecd1d 4403,4406-4407,4410,4412-4413
+electron/workspaceCheckpointStore.ts
+  s_f1cd8c349c2626::t_c54126487ab473 1233
+  s_f1cd8c349c2626::t_97dd8ca4ca9923 1226-1227,1229-1232
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_f1cd8c349c2626::t_2730146992937e 665-699
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_f1cd8c349c2626::t_1473ab86ed5c97 232-255,257-280,282-291
+  s_f1cd8c349c2626::t_f953e8a400cd58 224
+electron/features/scan-cleanup/public/sidecarProcessRegistry.ts
+  s_f1cd8c349c2626::t_97dd8ca4ca9923 393-395
+app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts
+  s_f1cd8c349c2626::t_4eb0f26dcb00bf 471-473
+  s_f1cd8c349c2626::t_cd8ad84587799c 690-693,695-699
+  s_f1cd8c349c2626::t_23f051069a818e 279,310-351,365-367,474-476
+tests/unit/electron/scanCleanupGeneratedOutputs.test.ts
+  s_f1cd8c349c2626::t_2730146992937e 29,118,126-131,142-146
+  s_f1cd8c349c2626::t_97c2060323e5bc 5
+  s_f1cd8c349c2626::t_9f667631c1a802 132-141
+tests/unit/electron/scanCleanupDurability.test.ts
+  s_f1cd8c349c2626::t_2730146992937e 215,219,225,229-231,233-235,237-239,241-279
+app/modules/scan-cleanup/components/preview/PreviewShell.vue
+  s_f1cd8c349c2626::t_2d79a641d139e3 562-567,570,573
+  s_f1cd8c349c2626::t_c51fc35c313ad3 568-569,571-572,574-579,581-583
+  s_f1cd8c349c2626::t_d1bae4b9f00401 580
+electron/features/scan-cleanup/public/generatedOutputs.ts
+  s_f1cd8c349c2626::t_97dd8ca4ca9923 40,77-78,111,137
+  s_f1cd8c349c2626::t_2eca7f1e8b1548 88,99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f3749799d8313ba9b76e42509158406665e9e401",
+  "prompts": {},
+  "sessions": {
+    "s_f1cd8c349c2626": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aeee-4be6-7940-a703-15b108d175f2",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
