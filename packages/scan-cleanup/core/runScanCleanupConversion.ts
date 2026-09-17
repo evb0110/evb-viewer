@@ -51,8 +51,7 @@ import {
 } from '@evb/scan-cleanup/core/placementAnchors';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
-    assertCanonicalPdfPageSizes,
-    detectSourceDpiFromPageSizes,
+    detectPageRasterFromPageSize,
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
@@ -67,7 +66,6 @@ import {
     type IScanCleanupRasterRenderLimits,
     type IScanCleanupPageRasterSource,
     type IScanCleanupSidecarProtocolCapabilities,
-    type ISourceDpiDetectionResult,
     type IPdfPageSizeChunk,
     type TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
@@ -99,10 +97,7 @@ import {
     serializeLegacyScanCleanupCompactManifest,
     serializeScanCleanupCompactManifest,
 } from '@evb/scan-cleanup/core/compactManifest';
-import {
-    buildScanCleanupTextLayerPlan,
-    buildScanCleanupTextLayerPlanFromPageSizeMap,
-} from '@evb/scan-cleanup/core/sourceTextLayer';
+import {buildScanCleanupTextLayerPlanFromPageSizeMap} from '@evb/scan-cleanup/core/sourceTextLayer';
 import {
     buildScanCleanupStampBuildIds,
     hashScanCleanupNativeBinarySha256s,
@@ -115,7 +110,6 @@ import {
     sha256ScanCleanupFile,
 } from '@evb/scan-cleanup/core/provenanceStamp';
 import {
-    createPdfPageSizeStore,
     PDF_PAGE_SIZE_STORE_MAX_READ_PAGES,
     PdfPageSizeStore,
     toCropBoxPageSize,
@@ -133,8 +127,7 @@ import {
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupDroppedMatchWarningEventFromAccumulator,
-    resolveMatchedCanvasResamplePages,
-    resolveScanCleanupUnclassifiedPages,
+    resolveMatchedCanvasResamplePagesFromStore,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {
@@ -244,7 +237,6 @@ const FALLBACK_MIXED_LAYER_PPM = Uint8Array.from([
 // Native manifests admit a larger transport window, but the production
 // coordinator keeps its page plans, raster facts, and qpdf arguments to one
 // smaller resident batch. The larger native limit is not a document limit.
-const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const QPDF_MERGE_INPUT_WINDOW = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const STREAMING_JSONL_MAX_LINE_BYTES = 4 * 1024 * 1024;
 // Two output slots retain a composite PNG, a full RGB background and bounded
@@ -256,60 +248,72 @@ const PAGE_GEOMETRY_SIDECAR_SCHEMA_VERSION = 1;
 
 type TJsonlFileHandle = Awaited<ReturnType<typeof open>>;
 
-type TScanCleanupDpiDetails = IScanCleanupPageRasterSource | ISourceDpiDetectionResult;
+type TScanCleanupDpiDetails = IScanCleanupPageRasterSource;
 type TScanCleanupDocumentCanvas = NonNullable<
     ReturnType<typeof resolveScanCleanupDocumentCanvasFromAccumulator>
 >;
 
-function hasCompletePageRasterCoverage(
-    pageRasterByNumber: ReadonlyMap<number, IDetectedPageRaster>,
-    documentPageCount: number,
-) {
-    if (pageRasterByNumber.size !== documentPageCount) {
-        return false;
-    }
-    for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
-        if (!pageRasterByNumber.has(pageNumber)) {
-            return false;
-        }
-    }
-    return true;
+function createEmptyPageRasterSource(): IScanCleanupPageRasterSource {
+    return {
+        detected: false,
+        documentDpi: null,
+        getPageRaster: () => undefined,
+    };
 }
 
-/**
- * The old pdfimages result is still accepted by direct callers. Production
- * retention can return the bounded accessor instead, which lets final page
- * work ask for one raster fact without retaining a document-sized Map.
- */
+async function createPageGeometryRasterSource(
+    pageSizeStore: IPdfPageSizeStore,
+    documentPageCount: number,
+    signal: AbortSignal,
+): Promise<IScanCleanupPageRasterSource | null> {
+    let observedPages = 0;
+    let expectedPageNumber = 1;
+    let documentDpi = 0;
+    let everyPageHasRaster = true;
+    await pageSizeStore.forEachChunk(chunk => {
+        signal.throwIfAborted();
+        if (chunk.pageCount !== documentPageCount) {
+            throw new Error(
+                `Scan cleanup page-size store reported ${String(chunk.pageCount)} pages for ${String(documentPageCount)} document pages`,
+            );
+        }
+        for (const page of chunk.pages) {
+            if (page.pageNumber !== expectedPageNumber) {
+                throw new Error(
+                    `Scan cleanup page-size store returned page ${String(page.pageNumber)} where page ${String(expectedPageNumber)} was expected`,
+                );
+            }
+            expectedPageNumber += 1;
+            observedPages += 1;
+            const raster = detectPageRasterFromPageSize(page);
+            if (raster === undefined) {
+                everyPageHasRaster = false;
+                continue;
+            }
+            documentDpi = Math.max(documentDpi, raster.dpi);
+        }
+    });
+    if (
+        !everyPageHasRaster
+        || observedPages !== documentPageCount
+        || expectedPageNumber - 1 !== documentPageCount
+        || documentDpi <= 0
+    ) {
+        return null;
+    }
+    return {
+        detected: true,
+        documentDpi,
+        getPageRaster: async pageNumber => detectPageRasterFromPageSize(
+            await pageSizeStore.getPage(pageNumber),
+        ),
+    };
+}
+
 function resolvePageRasterSource(
     source: TScanCleanupDpiDetails,
-    documentPageCount: number,
 ): IScanCleanupPageRasterSource {
-    if ('getPageRaster' in source) {
-        return source;
-    }
-    let compactLayeredPageCount = 0;
-    for (const raster of source.pageRasterByNumber.values()) {
-        if (
-            raster.hasBilevelLayer === true
-            && raster.backgroundDpi !== undefined
-            && Number.isFinite(raster.backgroundDpi)
-            && raster.backgroundDpi > 0
-        ) {
-            compactLayeredPageCount += 1;
-        }
-    }
-    const hasCompleteCoverage = hasCompletePageRasterCoverage(
-        source.pageRasterByNumber,
-        documentPageCount,
-    );
-    return {
-        detected: source.pageRasterByNumber.size > 0,
-        documentDpi: source.documentDpi,
-        compactLayeredPageCount,
-        compactLayeredPageCountComplete: hasCompleteCoverage,
-        getPageRaster: pageNumber => source.pageRasterByNumber.get(pageNumber),
-    };
+    return source;
 }
 
 function scanCleanupUsesInkPlacement(
@@ -467,7 +471,7 @@ async function* readPageGeometrySidecarChunks(
         }
         chunkPages.push(decodePageGeometrySidecarPage(value, expectedPageNumber));
         expectedPageNumber += 1;
-        if (chunkPages.length >= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
+        if (chunkPages.length >= SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
             yield {
                 pageCount,
                 chunkIndex,
@@ -499,38 +503,6 @@ function createPageSizeStoreFromGeometrySidecar(path: string, signal: AbortSigna
     return new PdfPageSizeStore(() => readPageGeometrySidecarChunks(path, signal));
 }
 
-/**
- * Keep the old injectable array reader usable for focused tests and small
- * callers. The production path never enters this adapter. The returned store
- * still exposes bounded chunks to the rest of the conversion.
- */
-function createPageSizeStoreFromArrayReader(
-    readPageSizes: NonNullable<IRunScanCleanupPipelineDependencies['getPageSizes']>,
-    pdfPath: string,
-    options: Parameters<NonNullable<IRunScanCleanupPipelineDependencies['getPageSizes']>>[1],
-) {
-    return new PdfPageSizeStore(async function* () {
-        const pageSizes = await readPageSizes(pdfPath, options);
-        assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup conversion');
-        if (pageSizes.length > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
-            throw new RangeError(
-                `Scan cleanup legacy page-size arrays are limited to ${String(PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES)} pages`,
-            );
-        }
-        for (let start = 0; start < pageSizes.length; start += PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
-            const pages = pageSizes.slice(start, start + PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES);
-            yield {
-                pageCount: pageSizes.length,
-                chunkIndex: Math.floor(start / PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES),
-                firstPageNumber: start + 1,
-                offset: 0,
-                byteLength: 0,
-                pages,
-            };
-        }
-    });
-}
-
 /** Build a bounded source from detection metadata without copying all pages. */
 function createPageSizeStoreFromMetadata(
     metadataByPage: Partial<Record<string, IScanCleanupSourcePageMetadata>>,
@@ -544,12 +516,12 @@ function createPageSizeStoreFromMetadata(
         for (
             let firstPageNumber = 1;
             firstPageNumber <= documentPageCount;
-            firstPageNumber += PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES
+            firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES
         ) {
             const pages: IPdfPageSize[] = [];
             const lastPageNumber = Math.min(
                 documentPageCount,
-                firstPageNumber + PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES - 1,
+                firstPageNumber + SCAN_CLEANUP_STREAMING_BATCH_PAGES - 1,
             );
             for (let pageNumber = firstPageNumber; pageNumber <= lastPageNumber; pageNumber += 1) {
                 const page = metadataByPage[String(pageNumber)];
@@ -1043,10 +1015,10 @@ export async function validateScanCleanupBatchSummarySidecar(
                     expectedPageScope,
                     {
                         batchIndex: actualBatchCount,
-                        startOffset: actualBatchCount * PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
+                        startOffset: actualBatchCount * SCAN_CLEANUP_STREAMING_BATCH_PAGES,
                         endOffsetExclusive: Math.min(
                             expectedPageScope.length,
-                            (actualBatchCount + 1) * PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
+                            (actualBatchCount + 1) * SCAN_CLEANUP_STREAMING_BATCH_PAGES,
                         ),
                     },
                 );
@@ -1138,8 +1110,6 @@ function createLazyPageRasterSource({
     let compactLayeredPageCount = 0;
     let nextExpectedPageNumber = 1;
     let rasterProbeFailed = false;
-    let observedLegacyRasterMap = false;
-    let legacyRasterMapCoverageComplete = true;
     let documentDpi: number | null = null;
     const getPageRaster = (pageNumber: number) => {
         const cached = cache.get(pageNumber);
@@ -1186,16 +1156,7 @@ function createLazyPageRasterSource({
                     [pageNumber],
                 );
                 documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
-                if ('getPageRaster' in result) {
-                    return markObserved(await result.getPageRaster(pageNumber));
-                }
-                observedLegacyRasterMap = true;
-                legacyRasterMapCoverageComplete = legacyRasterMapCoverageComplete
-                    && hasCompletePageRasterCoverage(
-                        result.pageRasterByNumber,
-                        documentPageCount,
-                    );
-                return markObserved(result.pageRasterByNumber.get(pageNumber));
+                return markObserved(await result.getPageRaster(pageNumber));
             } catch (error) {
                 signal.throwIfAborted();
                 rasterProbeFailed = true;
@@ -1204,7 +1165,7 @@ function createLazyPageRasterSource({
             }
         })();
         cache.set(pageNumber, pending);
-        if (cache.size > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
+        if (cache.size > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
             const oldest = cache.keys().next().value;
             if (oldest !== undefined && oldest !== pageNumber) cache.delete(oldest);
         }
@@ -1222,8 +1183,7 @@ function createLazyPageRasterSource({
         },
         get compactLayeredPageCountComplete() {
             return !rasterProbeFailed
-                && nextExpectedPageNumber > documentPageCount
-                && (!observedLegacyRasterMap || legacyRasterMapCoverageComplete);
+                && nextExpectedPageNumber > documentPageCount;
         },
         getPageRaster,
     };
@@ -1435,7 +1395,7 @@ async function runStreamingScanCleanupConversion({
     requirePublishedRaster: NonNullable<IRunScanCleanupPipelineDependencies['requirePublishedRaster']>;
     provenance: IScanCleanupProvenanceInputs;
 }) {
-    if (documentPageCount <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES) {
+    if (documentPageCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
         throw new Error('Streaming scan cleanup requires an xlarge document');
     }
     // The native geometry sidecar was materialized during the parent canvas
@@ -1443,7 +1403,7 @@ async function runStreamingScanCleanupConversion({
     // batch; a child serves backward reads from geometry it materialized while
     // planning that batch so no consumer reopens the sidecar from page one.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
-    const boundedDpiSource = resolvePageRasterSource(dpiDetails, documentPageCount);
+    const boundedDpiSource = resolvePageRasterSource(dpiDetails);
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
     const outputHandle = await open(batchOutputsPath, 'w');
@@ -1454,7 +1414,7 @@ async function runStreamingScanCleanupConversion({
     try {
         for (const batch of iterateScanCleanupPageBatches(
             pageCount,
-            PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
+            SCAN_CLEANUP_STREAMING_BATCH_PAGES,
         )) {
             signal.throwIfAborted();
             const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
@@ -1489,7 +1449,6 @@ async function runStreamingScanCleanupConversion({
             };
             const {
                 getPageSizeStore: _getPageSizeStore,
-                getPageSizes: _getPageSizes,
                 detectSourceDpi: _detectSourceDpi,
                 ...dependenciesWithoutGeometryOverrides
             } = dependencies;
@@ -1616,7 +1575,6 @@ async function runStreamingScanCleanupConversion({
         const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
             documentPageCount,
             options: request.options,
-            pageRasterByNumber: new Map(),
             partialRun: !fullDocumentRun,
             sourceBytes: sourceFile.size,
             ...(boundedDpiSource.compactLayeredPageCount === undefined
@@ -1730,7 +1688,7 @@ export async function runScanCleanupConversion(
             request.options,
             request.placementAnchorSummary,
         );
-        const largeStreamingRun = documentPageCount > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES
+        const largeStreamingRun = documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
             && context?.smallCompatibilityRun !== true;
         const warnings = [...prepared.warnings];
         // Conditions raised before the summary exists still belong to it, so
@@ -1796,22 +1754,8 @@ export async function runScanCleanupConversion(
                     throw new Error('Scan cleanup xlarge conversion requires a bounded page-size store, not a metadata map');
                 }
                 pageSizeStore = createPageSizeStoreFromMetadata(suppliedMetadata, documentPageCount);
-            } else if (dependencies.getPageSizeStore !== undefined) {
-                pageSizeStore = await dependencies.getPageSizeStore(prepared.pdfPath, pageSizeOptions);
-            } else if (dependencies.getPageSizes !== undefined) {
-                if (largeStreamingRun) {
-                    throw new Error('Scan cleanup xlarge conversion requires getPageSizeStore');
-                }
-                pageSizeStore = createPageSizeStoreFromArrayReader(
-                    dependencies.getPageSizes,
-                    prepared.pdfPath,
-                    pageSizeOptions,
-                );
             } else {
-                if (!paths.pdfPageOpsBinary && !paths.pdfinfoBinary) {
-                    throw new Error('no PDF tool is available to read page geometry');
-                }
-                pageSizeStore = createPdfPageSizeStore(prepared.pdfPath, pageSizeOptions);
+                pageSizeStore = await dependencies.getPageSizeStore(prepared.pdfPath, pageSizeOptions);
             }
             const openedPageSizeStore = pageSizeStore;
             // Pull one scalar to validate the first chunk and discover the
@@ -1835,23 +1779,11 @@ export async function runScanCleanupConversion(
             );
         }
         const geometryPageSizeStore = pageSizeStore;
-        // The old array contract remains an explicitly small adapter. The
-        // production path keeps no page-sized geometry array once the source
-        // exceeds one resident streaming batch.
-        const pageSizes = documentPageCount <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES
-            ? await pageSizeStore.readRange(1, documentPageCount + 1)
-            : null;
-        const renderBoxByPage = pageSizes === null
-            ? null
-            : new Map(pageSizes.map(page => [
-                page.pageNumber,
-                page.renderBox ?? 'cropbox',
-            ] as const));
         const probesWholeDocument = request.options.matchPageSize
             || (request.sourcePageNumbers === undefined && request.sourcePageRange === undefined);
         const dpiProbePages = probesWholeDocument
             ? undefined
-            : pageNumbers.length <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES
+            : pageNumbers.length <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
                 ? collectScanCleanupPageScopeBatch(pageNumbers, {
                     batchIndex: 0,
                     startOffset: 0,
@@ -1867,9 +1799,9 @@ export async function runScanCleanupConversion(
         // as pdfimages without reopening and walking every image stream in a
         // second process. Mixed/vector documents keep the existing conservative
         // Poppler fallback.
-        const metadataDpiDetails = pageSizes
-            ? detectSourceDpiFromPageSizes(pageSizes)
-            : null;
+        const metadataDpiDetails = largeStreamingRun
+            ? null
+            : await createPageGeometryRasterSource(pageSizeStore, documentPageCount, signal);
         // Page geometry can name the dominant raster but not whether the PDF
         // already carries a compact bilevel foreground. Auto needs that
         // representation fact to distinguish an existing MRC text mask from
@@ -1886,11 +1818,7 @@ export async function runScanCleanupConversion(
                     documentPageCount,
                 })
                 : metadataDpiDetails !== null && paths.pdfimagesBinary === undefined
-                    ? {
-                        documentDpi: null,
-                        pageDpiByNumber: new Map<number, number>(),
-                        pageRasterByNumber: new Map(),
-                    }
+                    ? createEmptyPageRasterSource()
                     : await dependencies.detectSourceDpi(
                         prepared.pdfPath,
                         paths.pdfimagesBinary,
@@ -1900,11 +1828,11 @@ export async function runScanCleanupConversion(
                         Array.isArray(dpiProbePages) ? dpiProbePages : undefined,
                         (completedPages, totalPages) => emitProgress('probing', completedPages, totalPages),
                     ));
-        const structuralRasterSource = resolvePageRasterSource(structuralDpiDetails, documentPageCount);
+        const structuralRasterSource = resolvePageRasterSource(structuralDpiDetails);
         const dpiDetails = structuralRasterSource.detected
             ? structuralDpiDetails
             : metadataDpiDetails ?? structuralDpiDetails;
-        const dpiSource = resolvePageRasterSource(dpiDetails, documentPageCount);
+        const dpiSource = resolvePageRasterSource(dpiDetails);
         if (metadataDpiDetails && !structuralRasterSource.detected) {
             emitProgress('probing', dpiProbePageCount, dpiProbePageCount, dpiProbePages);
         }
@@ -2023,12 +1951,10 @@ export async function runScanCleanupConversion(
         // page that is not a spread at half the document's scale. Measuring the
         // sheet can only leave such a page padded, and the run names the pages
         // it had to measure that way.
-        const unclassifiedPages = request.options.matchPageSize && pageSizes
-            ? resolveScanCleanupUnclassifiedPages(pageSizes, request.options, request.layoutByPage)
-            : [];
-        const unclassifiedPageCount = pageSizes === null
+        const unclassifiedPages: number[] = [];
+        const unclassifiedPageCount = request.options.matchPageSize
             ? documentCanvasAccumulator.unclassifiedAutomaticPageCount
-            : unclassifiedPages.length;
+            : 0;
         if (unclassifiedPageCount > 0) {
             warn(
                 `Matched page size measured ${String(unclassifiedPageCount)} page(s) as whole sheets `
@@ -2046,22 +1972,25 @@ export async function runScanCleanupConversion(
         // two promises collide, matched page size wins and this run renders,
         // and it says so rather than shipping a document whose pages are the
         // same paper at visibly different resolutions.
-        const resampledRasterByPage = 'pageRasterByNumber' in dpiDetails
-            ? dpiDetails.pageRasterByNumber
-            : new Map<number, IDetectedPageRaster>();
-        const resampledPages = request.options.preserveOriginalQuality === true && pageSizes
-            ? resolveMatchedCanvasResamplePages(
-                pageSizes,
-                // Every page of the document, not only the ones this run
-                // produces: one page of a document that cannot share a pixel
-                // grid cannot be cleaned as if the rest of it could.
-                pageSizes.map(pageSize => pageSize.pageNumber),
-                request.options,
+        const resampleCanvas = request.options.matchPageSize
+            ? resolveScanCleanupDocumentCanvasFromAccumulator(
+                documentCanvasAccumulator,
                 SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                resampledRasterByPage,
-                paths.pdfimagesBinary !== undefined,
-                request.layoutByPage,
+                request.options,
+                layoutEvidenceComplete,
             )
+            : null;
+        const resampledPages = request.options.preserveOriginalQuality === true
+            && !largeStreamingRun
+            ? await resolveMatchedCanvasResamplePagesFromStore({
+                pageSizeStore,
+                documentPageCount,
+                canvas: resampleCanvas,
+                options: request.options,
+                rasterSource: dpiSource,
+                rasterDetectionAvailable: paths.pdfimagesBinary !== undefined,
+                ...(request.layoutByPage === undefined ? {} : {layoutByPage: request.layoutByPage}),
+            })
             : [];
         if (resampledPages.length > 0) {
             losslessRun = false;
@@ -2119,7 +2048,7 @@ export async function runScanCleanupConversion(
         // a genuinely small document. The xlarge parent keeps the accessor
         // open and asks it for the current native batch instead.
         const detectedRasterByPage = new Map<number, IDetectedPageRaster>();
-        if (documentPageCount <= PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES || context?.smallCompatibilityRun === true) {
+        if (documentPageCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES || context?.smallCompatibilityRun === true) {
             for (const pageNumber of pageNumbers) {
                 const raster = await dpiSource.getPageRaster(pageNumber);
                 if (raster !== undefined) detectedRasterByPage.set(pageNumber, raster);
@@ -2187,16 +2116,7 @@ export async function runScanCleanupConversion(
         }
         const guardrailByPage = new Map<number, IScanCleanupGuardrail>();
         const pageGeometryByNumber = new Map<number, IPdfPageSize>();
-        const readPageGeometry = async (pageNumber: number) => {
-            if (pageSizes !== null) {
-                const page = pageSizes[pageNumber - 1];
-                if (page === undefined) {
-                    throw new Error(`Scan cleanup has no geometry for page ${String(pageNumber)}`);
-                }
-                return page;
-            }
-            return geometryPageSizeStore.getPage(pageNumber);
-        };
+        const readPageGeometry = (pageNumber: number) => geometryPageSizeStore.getPage(pageNumber);
         const ensureGuardrail = async (
             pageNumber: number,
             cache: Map<number, IScanCleanupGuardrail> = guardrailByPage,
@@ -2768,7 +2688,7 @@ export async function runScanCleanupConversion(
                         operationSignal,
                         undefined,
                         analysisLimits,
-                        renderBoxByPage?.get(plan.pageNumber) ?? 'cropbox',
+                        pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                     );
                     await renderer(
                         paths,
@@ -2781,7 +2701,7 @@ export async function runScanCleanupConversion(
                         operationSignal,
                         undefined,
                         limits,
-                        renderBoxByPage?.get(plan.pageNumber) ?? 'cropbox',
+                        pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                     );
                     if (!canStreamRasters) {
                         const dimensions = rasterHandoff.format === 'ppm'
@@ -3032,7 +2952,7 @@ export async function runScanCleanupConversion(
                                 && metadata.half === 'full'
                                     ? resolveFullSourcePagePreservation(
                                         pageNumber,
-                                        pageSizes?.[pageNumber - 1],
+                                        pageGeometryByNumber.get(pageNumber),
                                     )
                                     : undefined;
                                 if (
@@ -3100,7 +3020,7 @@ export async function runScanCleanupConversion(
                         pageNumber,
                         pageMetadata,
                         renderedOutput,
-                        pageSizes?.[pageNumber - 1],
+                        pageGeometryByNumber.get(pageNumber),
                         detectedRasterByPage.get(pageNumber),
                     );
                     pageOutputPages.push({
@@ -3390,9 +3310,7 @@ export async function runScanCleanupConversion(
         // so affine pages can retain that searchable layer without retaining
         // any source image or paint operators. Cylindrically dewarped pages do
         // not have one PDF matrix and intentionally remain raster-only.
-        const textLayerPlan = pageSizes === null
-            ? buildScanCleanupTextLayerPlanFromPageSizeMap(outputPages, pageGeometryByNumber)
-            : buildScanCleanupTextLayerPlan(outputPages, pageSizes);
+        const textLayerPlan = buildScanCleanupTextLayerPlanFromPageSizeMap(outputPages, pageGeometryByNumber);
         if (
             textLayerPlan.pages.length > 0
             && paths.pdfPageOpsBinary !== undefined
@@ -3451,7 +3369,7 @@ export async function runScanCleanupConversion(
         const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
             documentPageCount,
             options: request.options,
-            pageRasterByNumber: detectedRasterByPage,
+            rasterByPage: detectedRasterByPage,
             partialRun: request.sourcePageNumbers !== undefined
                 || request.sourcePageRange !== undefined,
             sourceBytes: sourceFile.size,

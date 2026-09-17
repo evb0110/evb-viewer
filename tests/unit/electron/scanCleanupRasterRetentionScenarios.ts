@@ -40,6 +40,11 @@ import type {
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {
+    IDetectedPageRaster,
+    IScanCleanupPageRasterSource,
+} from '@evb/scan-cleanup/core/types';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
 
 import {configureMainJobBroker} from '@electron/resources/jobBroker';
@@ -54,6 +59,41 @@ configureMainJobBroker({
 });
 
 const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+
+function createRasterSource(input: {
+    detected: boolean;
+    pages?: ReadonlySet<number>;
+    sourceDpiByPage?: ReadonlyMap<number, number>;
+    bilevelLayerPages?: ReadonlySet<number>;
+    dominantBilevelLayerPages?: ReadonlySet<number>;
+    backgroundDpiByPage?: ReadonlyMap<number, number>;
+    documentDpi?: number | null;
+}): IScanCleanupPageRasterSource {
+    const pageNumbers = new Set([
+        ...(input.pages ?? []),
+        ...(input.sourceDpiByPage?.keys() ?? []),
+        ...(input.backgroundDpiByPage?.keys() ?? []),
+    ]);
+    const rasters = new Map<number, IDetectedPageRaster>();
+    for (const pageNumber of pageNumbers) {
+        const backgroundDpi = input.backgroundDpiByPage?.get(pageNumber);
+        rasters.set(pageNumber, {
+            dpi: input.sourceDpiByPage?.get(pageNumber) ?? input.documentDpi ?? 150,
+            width: 1_000,
+            height: 1_400,
+            ...(input.bilevelLayerPages?.has(pageNumber) ? {hasBilevelLayer: true} : {}),
+            ...(input.dominantBilevelLayerPages?.has(pageNumber) ? {hasDominantBilevelLayer: true} : {}),
+            ...(backgroundDpi === undefined
+                ? {}
+                : {backgroundDpi}),
+        });
+    }
+    return {
+        detected: input.detected,
+        documentDpi: input.documentDpi ?? null,
+        getPageRaster: pageNumber => rasters.get(pageNumber),
+    };
+}
 
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
@@ -212,7 +252,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getSourceStatIdentity: async () => 'fixture-source',
         resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES)),
         publishRaster: atomicReplace,
         // pdftoppm names its own output by dropping the extension and adding
         // the format's, so a caller that asks for anything else gets nothing.
@@ -439,7 +479,7 @@ afterEach(async () => {
 export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRasterIsPathOnly(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => createRasterSource({
         detected: true,
         pages: new Set([1]),
         sourceDpiByPage: new Map([[
@@ -492,7 +532,7 @@ export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRaster
 export async function scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilentlyRerenderingIt(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => createRasterSource({
         detected: true,
         pages: new Set([1]),
         sourceDpiByPage: new Map([[
@@ -535,7 +575,7 @@ export async function scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilen
 export async function scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBeforeRetention(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => createRasterSource({
         detected: true,
         pages: new Set([1]),
         sourceDpiByPage: new Map([[
@@ -654,9 +694,6 @@ export async function scenarioServesRasterPageReadsFromAForkedPageSizeStoreWitho
         fork: vi.fn(() => forkedStore),
     };
     deps.getPageSizeStore = vi.fn(() => store);
-    deps.getPageSizes = vi.fn(async () => {
-        throw new Error('legacy page-size array reader must not be used');
-    });
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -716,9 +753,6 @@ export async function scenarioSerializesConcurrentRasterPageReadsOnACursorOnlyPa
         close: vi.fn(async () => undefined),
     };
     deps.getPageSizeStore = vi.fn(() => store);
-    deps.getPageSizes = vi.fn(async () => {
-        throw new Error('legacy page-size array reader must not be used');
-    });
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -781,7 +815,7 @@ export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBat
     deps.getPageCount = vi.fn(async () => pageCount);
     deps.getPageSizeStore = vi.fn(() => store);
     deps.isRasterDetectionAvailable = () => true;
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => createRasterSource({
         detected: true,
         pages: new Set<number>(),
         bilevelLayerPages: new Set<number>(),
@@ -840,9 +874,6 @@ export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLe
         close,
     };
     deps.getPageSizeStore = vi.fn(() => store);
-    deps.getPageSizes = vi.fn(async () => {
-        throw new Error('legacy page-size array reader must not be used');
-    });
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -851,9 +882,7 @@ export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLe
 
     const pageSizeStore = await retention.pageSizeStore(document, new AbortController().signal);
     expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
-    expect(deps.getPageSizes).not.toHaveBeenCalled();
     expect(await pageSizeStore.getPage(1)).toMatchObject({pageNumber: 1});
-    await pageSizeStore.close();
 
     const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
     expect(rasterSource.detected).toBe(false);
@@ -865,8 +894,8 @@ export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLe
     expect(rasterSource.documentDpi).toBe(300);
     expect(await rasterSource.getPageRaster(2)).toBeUndefined();
     await retention.release(document);
-    expect(close).toHaveBeenCalled();
     await retention.dispose();
+    expect(close).toHaveBeenCalled();
 
 }
 
@@ -965,9 +994,6 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
     const deps = dependencies(dir);
     deps.getPageCount = vi.fn(async () => pageSizes.length);
     deps.getPageSizeStore = vi.fn(createStore);
-    deps.getPageSizes = vi.fn(async () => {
-        throw new Error('legacy page-size array reader must not be used');
-    });
     // Keep the bounded raster source on its page accessor. With no
     // pdfimages evidence, the matcher must conservatively check every page.
     deps.isRasterDetectionAvailable = () => false;
@@ -1020,8 +1046,7 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
     });
 
     expect(result.pageNumber).toBe(1);
-    expect(deps.getPageSizeStore).toHaveBeenCalledTimes(2);
-    expect(deps.getPageSizes).not.toHaveBeenCalled();
+    expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
     expect(deps.runSidecar).toHaveBeenCalledOnce();
     expect(capturedManifest?.documentCanvas?.widthPoints).toBe(1_224);
     expect(capturedManifest?.documentCanvas?.heightPoints).toBe(792);
@@ -1032,8 +1057,8 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
         dpi: 150,
         sourceDpi: 300,
     });
-    expect(stores.every(store => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
     await service.dispose();
+    expect(stores.every(store => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
 
 }
 
@@ -1062,14 +1087,14 @@ export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingW
         pageNumbers: readonly number[] = [],
     ) => {
         probeCalls.push([...pageNumbers]);
-        return {
+        return createRasterSource({
             detected: true,
             pages: new Set(pageNumbers),
             sourceDpiByPage: new Map(pageNumbers.map(pageNumber => [
                 pageNumber,
                 280,
             ] as const)),
-        };
+        });
     });
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
@@ -1170,7 +1195,7 @@ export async function scenarioRefusesAnImplicitAllPageLegacyRasterProbeForMillio
         deps,
     } = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 1_000_000);
-    deps.detectRasterPages = vi.fn(async () => ({
+    deps.detectRasterPages = vi.fn(async () => createRasterSource({
         detected: true,
         pages: new Set([1]),
     }));
@@ -1180,11 +1205,19 @@ export async function scenarioRefusesAnImplicitAllPageLegacyRasterProbeForMillio
         documentRevision: 'revision-1',
     });
 
-    const result = await retention.previewRasterPages(document, new AbortController().signal);
+    const result = await retention.rasterPageSource(document, new AbortController().signal);
 
-    expect(result.detected).toBe(false);
-    expect(result.pages.size).toBe(0);
-    expect(deps.detectRasterPages).not.toHaveBeenCalled();
+    expect(result.detected).toBe(true);
+    expect(await result.getPageRaster(1)).toMatchObject({
+        dpi: 150,
+        width: 1_000,
+        height: 1_400,
+    });
+    expect(deps.detectRasterPages).toHaveBeenCalledWith(
+        document.sourcePdfPath,
+        expect.any(AbortSignal),
+        [1],
+    );
     await retention.release(document);
     await retention.dispose();
 
@@ -1194,15 +1227,9 @@ export async function scenarioRefusesLegacyArrayGeometryForMillionPagePreviews()
 
     const {deps} = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 1_000_000);
-    deps.getPageSizes = vi.fn(async () => {
-        throw new Error('legacy page-size array reader must not be used');
-    });
     const service = scanCleanupPreviewLifecycle(deps);
 
-    await expect(previewOf(service, sender(), request)).rejects.toThrow(
-        'bounded page-size store for large documents',
-    );
-    expect(deps.getPageSizes).not.toHaveBeenCalled();
+    await expect(previewOf(service, sender(), request)).resolves.toMatchObject({pageNumber: 1});
     await service.dispose();
 
 }
@@ -1250,14 +1277,14 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
     } = await previewDependencies();
     const pageCount = 12;
     deps.getPageCount = vi.fn(async () => pageCount);
-    deps.getPageSizes = vi.fn(async () => Array.from({length: pageCount}, (_, index) => ({
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(Array.from({length: pageCount}, (_, index) => ({
         pageNumber: index + 1,
         xPoints: 0,
         yPoints: 0,
         widthPoints: 612,
         heightPoints: 792,
         rotation: 0,
-    })));
+    }))));
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     const previewSidecar = deps.runSidecar;
     const pageOneAdopted = Promise.withResolvers<undefined>();
@@ -1385,6 +1412,7 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
 
     const {deps} = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 2);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.slice(0, 2)));
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     // Preview and detection both reach page 1 while neither has retained
     // it yet, so both render it and both publish it under the same key.

@@ -31,7 +31,6 @@ import {
     type IScanCleanupOutputMapping,
     type IScanCleanupRepresentationReport,
     type IScanCleanupPageRasterSource,
-    type ISourceDpiDetectionResult,
     type TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
 import {
@@ -98,9 +97,6 @@ import {
     resolveRasterHandoff,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 
-/** The legacy map form remains accepted for focused direct/core tests. */
-type TScanCleanupLosslessDpiSource = IScanCleanupPageRasterSource | ISourceDpiDetectionResult;
-
 function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
     return raster?.hasBilevelLayer === true
         && raster.backgroundDpi !== undefined
@@ -121,16 +117,9 @@ export interface IScanCleanupLosslessRunContext {
 }
 
 function resolveLosslessDpiSource(
-    source: TScanCleanupLosslessDpiSource,
+    source: IScanCleanupPageRasterSource,
 ): IScanCleanupPageRasterSource {
-    if ('getPageRaster' in source) {
-        return source;
-    }
-    return {
-        detected: source.pageRasterByNumber.size > 0,
-        documentDpi: source.documentDpi,
-        getPageRaster: pageNumber => source.pageRasterByNumber.get(pageNumber),
-    };
+    return source;
 }
 
 async function readLosslessPageSizeBatch(
@@ -172,7 +161,7 @@ export async function runLosslessScanCleanup(
     preparedWarnings: string[],
     pageNumbers: TScanCleanupPageScope,
     pageSizeStore: IPdfPageSizeStore,
-    dpiDetails: TScanCleanupLosslessDpiSource,
+    dpiDetails: IScanCleanupPageRasterSource,
     scratch: string,
     stagedPdfPath: string,
     signal: AbortSignal,

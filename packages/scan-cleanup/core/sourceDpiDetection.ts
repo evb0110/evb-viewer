@@ -30,6 +30,11 @@ interface IPdfImagesProbe {
     pageUnits: number;
 }
 
+interface IPageRasterDetectionResult {
+    documentDpi: number | null;
+    rasterByPage: Map<number, IDetectedPageRaster>;
+}
+
 function getUniqueValidPages(pages: readonly number[] | undefined) {
     return Array.from(new Set((pages ?? []).filter(pageNumber =>
         Number.isSafeInteger(pageNumber) && pageNumber > 0,
@@ -118,8 +123,8 @@ function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
     };
 }
 
-function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
-    const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
+function parsePdfImagesListOutput(output: string): IPageRasterDetectionResult {
+    const rasterByPage = new Map<number, IDetectedPageRaster>();
     const bilevelPages = new Set<number>();
     const largestBilevelRasterByPage = new Map<number, {
         dpi: number;
@@ -206,10 +211,10 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
             continue;
         }
 
-        const dominant = pageRasterByNumber.get(pageNumber);
+        const dominant = rasterByPage.get(pageNumber);
         const dominantArea = dominant === undefined ? 0 : dominant.width * dominant.height;
         if (pixelArea > dominantArea || (pixelArea === dominantArea && dpi > dominant!.dpi)) {
-            pageRasterByNumber.set(pageNumber, {
+            rasterByPage.set(pageNumber, {
                 dpi,
                 width,
                 height,
@@ -217,7 +222,7 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
         }
     }
     for (const pageNumber of bilevelPages) {
-        const raster = pageRasterByNumber.get(pageNumber);
+        const raster = rasterByPage.get(pageNumber);
         if (!raster) continue;
         raster.hasBilevelLayer = true;
         const dominantArea = raster.width * raster.height;
@@ -249,26 +254,22 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
 
     return withDerivedPageDpi({
         documentDpi: null,
-        pageRasterByNumber,
+        rasterByPage,
     });
 }
 
 function withDerivedPageDpi(
-    result: Omit<ISourceDpiDetectionResult, 'pageDpiByNumber'>,
-): ISourceDpiDetectionResult {
-    const pageDpiByNumber = new Map<number, number>();
+    result: IPageRasterDetectionResult,
+): IPageRasterDetectionResult {
     let documentDpi = 0;
     for (const [
-        pageNumber,
-        raster,
-    ] of result.pageRasterByNumber) {
-        pageDpiByNumber.set(pageNumber, raster.dpi);
+        , raster,
+    ] of result.rasterByPage) {
         documentDpi = Math.max(documentDpi, raster.dpi);
     }
     return {
         documentDpi: documentDpi > 0 ? documentDpi : result.documentDpi,
-        pageDpiByNumber,
-        pageRasterByNumber: result.pageRasterByNumber,
+        rasterByPage: result.rasterByPage,
     };
 }
 
@@ -281,15 +282,15 @@ function withDerivedPageDpi(
  * returns null and keeps the conservative pdfimages fallback.
  */
 function mergeDpiDetectionResults(
-    target: ISourceDpiDetectionResult,
-    source: ISourceDpiDetectionResult,
+    target: IPageRasterDetectionResult,
+    source: IPageRasterDetectionResult,
 ) {
     target.documentDpi = Math.max(target.documentDpi ?? 0, source.documentDpi ?? 0) || null;
     for (const [
         pageNumber,
         raster,
-    ] of source.pageRasterByNumber) {
-        const existing = target.pageRasterByNumber.get(pageNumber);
+    ] of source.rasterByPage) {
+        const existing = target.rasterByPage.get(pageNumber);
         const existingArea = existing === undefined ? 0 : existing.width * existing.height;
         const incomingArea = raster.width * raster.height;
         if (incomingArea > existingArea || (incomingArea === existingArea && raster.dpi > (existing?.dpi ?? 0))) {
@@ -297,7 +298,7 @@ function mergeDpiDetectionResults(
             const hasBilevelLayer = raster.hasBilevelLayer === true || existing?.hasBilevelLayer === true;
             const hasDominantBilevelLayer = raster.hasDominantBilevelLayer === true
                 || existing?.hasDominantBilevelLayer === true;
-            target.pageRasterByNumber.set(pageNumber, {
+            target.rasterByPage.set(pageNumber, {
                 dpi: raster.dpi,
                 width: raster.width,
                 height: raster.height,
@@ -316,8 +317,15 @@ function mergeDpiDetectionResults(
                 existing.backgroundDpi = raster.backgroundDpi;
             }
         }
-        target.pageDpiByNumber.set(pageNumber, Math.max(target.pageDpiByNumber.get(pageNumber) ?? 0, raster.dpi));
     }
+}
+
+function toPageRasterSource(result: IPageRasterDetectionResult): ISourceDpiDetectionResult {
+    return {
+        detected: result.rasterByPage.size > 0,
+        documentDpi: result.documentDpi,
+        getPageRaster: pageNumber => result.rasterByPage.get(pageNumber),
+    };
 }
 
 export async function detectSourceDpiDetails(
@@ -331,11 +339,10 @@ export async function detectSourceDpiDetails(
     runCommand?: TScanCleanupRunCommand,
 ): Promise<ISourceDpiDetectionResult> {
     if (!pdfimagesBinary) {
-        return {
+        return toPageRasterSource({
             documentDpi: null,
-            pageDpiByNumber: new Map(),
-            pageRasterByNumber: new Map(),
-        };
+            rasterByPage: new Map(),
+        });
     }
     if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new Error('PDF DPI detection aborted');
@@ -343,10 +350,9 @@ export async function detectSourceDpiDetails(
     if (runCommand === undefined) throw new Error('PDF DPI detection requires a command runner');
 
     try {
-        const combinedResult: ISourceDpiDetectionResult = {
+        const combinedResult: IPageRasterDetectionResult = {
             documentDpi: null,
-            pageDpiByNumber: new Map(),
-            pageRasterByNumber: new Map(),
+            rasterByPage: new Map(),
         };
         const probes = buildPdfImagesProbes(pdfPath, pages);
         const totalPages = probes.reduce((total, probe) => total + probe.pageUnits, 0);
@@ -396,7 +402,7 @@ export async function detectSourceDpiDetails(
                 }
             },
         ));
-        return combinedResult;
+        return toPageRasterSource(combinedResult);
     } catch (err) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
@@ -404,11 +410,10 @@ export async function detectSourceDpiDetails(
         log('debug', `pdfimages detection failed: ${getErrorMessage(err)}`);
     }
 
-    return {
+    return toPageRasterSource({
         documentDpi: null,
-        pageDpiByNumber: new Map(),
-        pageRasterByNumber: new Map(),
-    };
+        rasterByPage: new Map(),
+    });
 }
 
 export async function detectSourceDpi(

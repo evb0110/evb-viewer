@@ -45,7 +45,7 @@ function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
 export function resolveScanCleanupCompactSourceBudget(input: {
     documentPageCount: number;
     options: IScanCleanupOptions;
-    pageRasterByNumber?: ReadonlyMap<number, IDetectedPageRaster>;
+    rasterByPage?: ReadonlyMap<number, IDetectedPageRaster>;
     compactLayeredPageCount?: number;
     partialRun: boolean;
     sourceBytes: number;
@@ -67,7 +67,7 @@ export function resolveScanCleanupCompactSourceBudget(input: {
         for (const [
             pageNumber,
             raster,
-        ] of input.pageRasterByNumber ?? []) {
+        ] of input.rasterByPage ?? []) {
             if (pageNumber >= 1 && pageNumber <= input.documentPageCount && isCompactLayeredRaster(raster)) {
                 count += 1;
             }

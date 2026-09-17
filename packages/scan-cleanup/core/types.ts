@@ -178,9 +178,11 @@ export interface IScanCleanupDetectionResultStore
     extends IScanCleanupResultStore<IScanCleanupDetectionResult> {}
 
 export interface ISourceDpiDetectionResult {
+    detected: boolean;
     documentDpi: number | null;
-    pageDpiByNumber: Map<number, number>;
-    pageRasterByNumber: Map<number, IDetectedPageRaster>;
+    getPageRaster: (
+        pageNumber: number,
+    ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
 }
 
 export function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
@@ -236,27 +238,24 @@ export function detectSourceDpiFromPageSizes(
     if (pageSizes.length === 0) {
         return null;
     }
-    const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
+    const rasterByPage = new Map<number, IDetectedPageRaster>();
     for (const page of pageSizes) {
         const raster = detectPageRasterFromPageSize(page);
         if (raster === undefined) {
             return null;
         }
-        pageRasterByNumber.set(page.pageNumber, raster);
+        rasterByPage.set(page.pageNumber, raster);
     }
-    const pageDpiByNumber = new Map<number, number>();
     let documentDpi = 0;
     for (const [
-        pageNumber,
-        raster,
-    ] of pageRasterByNumber) {
-        pageDpiByNumber.set(pageNumber, raster.dpi);
+        , raster,
+    ] of rasterByPage) {
         documentDpi = Math.max(documentDpi, raster.dpi);
     }
     return {
+        detected: true,
         documentDpi: documentDpi > 0 ? documentDpi : null,
-        pageDpiByNumber,
-        pageRasterByNumber,
+        getPageRaster: pageNumber => rasterByPage.get(pageNumber),
     };
 }
 
@@ -315,11 +314,6 @@ export interface IReadPdfPageSizesOptions {
     resolveSuspiciousCropBoxFallback?: boolean;
 }
 
-export type TScanCleanupGetPageSizes = (
-    pdfPath: string,
-    options: IReadPdfPageSizesOptions,
-) => Promise<IPdfPageSize[]>;
-
 /**
  * Open a bounded page-geometry view. The returned store owns its current
  * chunk and must be closed by the conversion or detection caller.
@@ -343,7 +337,7 @@ export type TScanCleanupDetectSourceDpi = (
     pageNumbers?: readonly number[],
     onProgress?: (completedPages: number, totalPages: number) => void,
     runCommand?: TScanCleanupRunCommand,
-) => Promise<IScanCleanupPageRasterSource | ISourceDpiDetectionResult>;
+) => Promise<IScanCleanupPageRasterSource>;
 
 export interface IScanCleanupRasterRenderLimits {
     expectedWidthPx: number;
@@ -488,9 +482,7 @@ export interface IRunScanCleanupPipelineRequest {
 
 export interface IRunScanCleanupPipelineDependencies {
     getPageCount: TScanCleanupGetPageCount;
-    getPageSizeStore?: TScanCleanupGetPageSizeStore;
-    /** Small-document/test compatibility adapter. Production uses getPageSizeStore. */
-    getPageSizes?: TScanCleanupGetPageSizes;
+    getPageSizeStore: TScanCleanupGetPageSizeStore;
     detectSourceDpi: TScanCleanupDetectSourceDpi;
     createRasterPipes?: (
         paths: readonly string[],

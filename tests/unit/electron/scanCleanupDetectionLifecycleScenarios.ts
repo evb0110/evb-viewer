@@ -46,6 +46,7 @@ import type {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
+import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
@@ -244,9 +245,15 @@ const DOCUMENT_PAGE_SIZES = [
     rotation: 0,
 }));
 // The same rectangle on the grid a 150 DPI preview renders it at.
+function pageSizesForCount(pageCount: number) {
+    return Array.from({length: pageCount}, (_value, index) => ({
+        ...DOCUMENT_PAGE_SIZES[index % DOCUMENT_PAGE_SIZES.length]!,
+        pageNumber: index + 1,
+    }));
+}
 
 function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return {
+    const result: IScanCleanupPreviewDependencies = {
         fileSystem: {
             copyFile,
             mkdir,
@@ -268,7 +275,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getSourceStatIdentity: async () => 'fixture-source',
         resolveQpdfBinary: () => '/usr/bin/qpdf',
         getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        getPageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES)),
         publishRaster: atomicReplace,
         // pdftoppm names its own output by dropping the extension and adding
         // the format's, so a caller that asks for anything else gets nothing.
@@ -474,6 +481,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         })),
         materializeRequest: materializeScanCleanupPreviewRequest,
     };
+    return result;
 }
 
 async function previewDependencies() {
@@ -824,6 +832,7 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
     const totalPages = 8;
     const deps = dependencies(dir);
     deps.getPageCount = vi.fn(async () => totalPages);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(pageSizesForCount(totalPages)));
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     // Stands in for reconcile_classification_batch: the cluster consensus a
     // page is judged against, and the cutter the sidecar then publishes, are
@@ -920,7 +929,7 @@ export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBuf
 export async function scenarioAnalyzesEveryPageOnTheSameCanonical150DPIGridAsFinalRendering(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map((page, index) => {
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES.map((page, index) => {
         const sourceDpi = [
             100,
             300,
@@ -933,7 +942,7 @@ export async function scenarioAnalyzesEveryPageOnTheSameCanonical150DPIGridAsFin
             dominantImageWidthPoints: page.widthPoints,
             dominantImageHeightPoints: page.heightPoints,
         };
-    }));
+    })));
     const renderedDpiByPage = new Map<number, number>();
     deps.renderPage = vi.fn(async (
         _paths,
@@ -1292,6 +1301,7 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
     const acquire = vi.fn(async () => ({release: vi.fn(() => true)}));
     deps.acquireDetectionLease = acquire;
     deps.getPageCount = vi.fn(async () => 8);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(pageSizesForCount(8)));
     const originalRenderPage = deps.renderPage;
     let activeRasters = 0;
     let peakRasters = 0;
@@ -1424,6 +1434,7 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
     const totalPages = 40;
     const deps = dependencies(dir);
     deps.getPageCount = vi.fn(async () => totalPages);
+    deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(pageSizesForCount(totalPages)));
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     const batches = [
         {
@@ -1553,9 +1564,6 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
     };
     deps.getPageCount = vi.fn(async () => totalPages);
     deps.getPageSizeStore = vi.fn(() => store);
-    deps.getPageSizes = vi.fn(async () => {
-        throw new Error('xlarge detection must use the bounded page-size store');
-    });
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     const firstBatchPublished = Promise.withResolvers<undefined>();
     const releaseFirstBatch = Promise.withResolvers<undefined>();

@@ -17,8 +17,10 @@ import {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     assertCanonicalPdfPageSizes,
+    type IScanCleanupPageRasterSource,
     type IPdfPageSize,
 } from '@evb/scan-cleanup/core/types';
+import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     resolveScanCleanupMatchedCanvasMaxPixels,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
@@ -521,6 +523,68 @@ export function resolveScanCleanupDocumentCanvasFromAccumulator(
         }, null);
         if (dominant !== null) buckets.push(dominant);
     }
+    const {
+        largest,
+        hasContinuousTone,
+    } = resolveScanCleanupCanvasSummaryRect(buckets);
+    if (largest === null) {
+        return null;
+    }
+    const maxPixels = resolveScanCleanupMatchedCanvasMaxPixels([hasContinuousTone ? 'color' : 'bw']);
+    const dpi = resolveCanvasDpi(largest, renderDpi, maxPixels);
+    const plan = {
+        widthPoints: largest.widthPoints,
+        heightPoints: largest.heightPoints,
+        ...resolveCanvasGrid(largest, dpi, maxPixels),
+    };
+    return Object.values(plan).every(value => Number.isFinite(value) && value > 0)
+        ? plan
+        : null;
+}
+
+/**
+ * Resolve the preview canvas from only the layout cohorts already observed.
+ * Unknown automatic pages are deliberately omitted while reconciliation is
+ * open, matching the page-array provisional planner without retaining those
+ * pages in memory.
+ */
+export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
+    accumulator: IScanCleanupDocumentCanvasAccumulator,
+    renderDpi: number,
+    options: IScanCleanupOptions,
+    layoutEvidenceComplete = false,
+): IScanCleanupDocumentCanvasPlan | null {
+    if (layoutEvidenceComplete) {
+        return resolveScanCleanupDocumentCanvasFromAccumulator(
+            accumulator,
+            renderDpi,
+            options,
+            true,
+        );
+    }
+    if (accumulator.producedPageCount === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
+        return null;
+    }
+    const buckets: IScanCleanupCanvasSummaryBucket[] = [accumulator.forced];
+    const observedBuckets = accumulator.firstObservedAutomaticShare === 2
+        ? [
+            accumulator.automaticSpread,
+            accumulator.automaticSingle,
+        ]
+        : [
+            accumulator.automaticSingle,
+            accumulator.automaticSpread,
+        ];
+    const dominant = observedBuckets.reduce<IScanCleanupCanvasSummaryBucket | null>((best, candidate) => {
+        if (candidate.count === 0) {
+            return best;
+        }
+        if (best === null || candidate.count > best.count) {
+            return candidate;
+        }
+        return best;
+    }, null);
+    if (dominant !== null) buckets.push(dominant);
     const {
         largest,
         hasContinuousTone,
@@ -1072,6 +1136,59 @@ export function resolveMatchedCanvasResamplePages(
         const carriesRaster = !rasterDetectionAvailable || rasterPages.has(pageNumber);
         return carriesRaster && Math.abs(scale - 1) > CANVAS_CONTENT_SCALE_EPSILON;
     });
+}
+
+/**
+ * Store-backed counterpart for conversion. Read geometry in bounded chunks and
+ * ask the raster source for only the same bounded window, so matched-canvas
+ * planning does not recreate a document-sized page array.
+ */
+export async function resolveMatchedCanvasResamplePagesFromStore(input: {
+    pageSizeStore: IPdfPageSizeStore;
+    documentPageCount: number;
+    canvas: IScanCleanupDocumentCanvasPlan | null;
+    options: IScanCleanupOptions;
+    rasterSource: IScanCleanupPageRasterSource;
+    rasterDetectionAvailable: boolean;
+    layoutByPage?: TScanCleanupLayoutByPage;
+}) {
+    const canvas = input.canvas;
+    if (canvas === null) {
+        return [];
+    }
+    const resampledPages: number[] = [];
+    await input.pageSizeStore.forEachChunk(async chunk => {
+        if (chunk.pageCount !== input.documentPageCount) {
+            throw new Error(
+                `Scan cleanup page-size store reported ${String(chunk.pageCount)} pages for ${String(input.documentPageCount)} document pages`,
+            );
+        }
+        const rasters = input.rasterDetectionAvailable
+            ? await Promise.all(chunk.pages.map(page => Promise.resolve(
+                input.rasterSource.getPageRaster(page.pageNumber),
+            )))
+            : chunk.pages.map(() => undefined);
+        for (const [
+            index,
+            pageSize,
+        ] of chunk.pages.entries()) {
+            const pageNumber = requirePageNumber(pageSize.pageNumber);
+            if (getScanCleanupPageOverride(input.options.pageOverrides, pageNumber).excluded) {
+                continue;
+            }
+            const carriesRaster = !input.rasterDetectionAvailable || rasters[index] !== undefined;
+            if (!carriesRaster) continue;
+            const shares = resolveSheetShares(input.options, pageNumber, input.layoutByPage);
+            const scale = resolveScanCleanupCanvasFitScale(
+                canvas,
+                resolveScanCleanupOutputPageRect(pageSize, shares),
+            );
+            if (Math.abs(scale - 1) > CANVAS_CONTENT_SCALE_EPSILON) {
+                resampledPages.push(pageNumber);
+            }
+        }
+    });
+    return resampledPages;
 }
 
 function rectFromPoints(points: Array<{

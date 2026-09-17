@@ -36,11 +36,22 @@ import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcRes
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@evb/scan-cleanup/core/pageBatches';
-import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {
+    createArrayBackedPdfPageSizeStore,
+    type IPdfPageSizeStore,
+} from '@evb/scan-cleanup/core/pdfPageSizes';
+import type {IScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/types';
 
 const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
 const MIB = 1024 * 1024;
+
+function rasterSource(detected: boolean): IScanCleanupPageRasterSource {
+    return {
+        detected,
+        getPageRaster: () => undefined,
+    };
+}
 
 const fileSystem = {
     copyFile,
@@ -615,24 +626,24 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
     /* Legacy FIFO Analyze transport coverage was removed when Analyze became
      * retained-PNG-only; Render conversion keeps its independent stream path. */
 
-    it('closes an unreturned result store when required finalization fails', async () => {
+    it('leaves the shared page-size store open for its retention owner', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-finalization-test-'));
         dirs.push(tempDir);
         const pageSizeSource = createLazyPageSizeStore(1);
-        pageSizeSource.store.close.mockRejectedValueOnce(new Error('page-size close failed'));
         const harness = createSinglePageDetectionHarness(tempDir, pageSizeSource);
 
-        await expect(runScanCleanupDetection(
+        const detection = await runScanCleanupDetection(
             createRequest(),
             new AbortController().signal,
             harness.retention,
             harness.dependencies,
             {rasterConcurrency: 1},
             () => undefined,
-        )).rejects.toThrow('page-size close failed');
+        );
+        resultStores.push(detection.resultStore);
 
-        expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
-        expect((await readdir(tempDir)).filter(name => name.startsWith('scan-cleanup-results-'))).toEqual([]);
+        expect(pageSizeSource.store.close).not.toHaveBeenCalled();
+        expect((await readdir(tempDir)).filter(name => name.startsWith('scan-cleanup-results-'))).toHaveLength(1);
     });
 
     it('preserves a successful result when document release fails after publication', async () => {
@@ -819,7 +830,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.store.readRange).not.toHaveBeenCalled();
         expect(pageSizeSource.store.getPage).toHaveBeenCalledTimes(2_048);
-        expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
+        expect(pageSizeSource.store.close).not.toHaveBeenCalled();
     }, 15_000);
 
     it('starts a million-page detection from bounded ranges and cancels between invocations', async () => {
@@ -915,7 +926,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         ]);
         expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
-        expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
+        expect(pageSizeSource.store.close).not.toHaveBeenCalled();
     }, 30_000);
 
     it.each([
@@ -951,18 +962,15 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => pageCount),
-            pageSizes: vi.fn(async () => Array.from({length: pageCount}, (_, index) => ({
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(Array.from({length: pageCount}, (_, index) => ({
                 pageNumber: index + 1,
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 72,
                 heightPoints: 72,
                 rotation: 0,
-            }))),
-            rasterPages: vi.fn(async () => ({
-                detected: false,
-                pages: new Set<number>(),
-            })),
+            })))),
+            rasterPages: vi.fn(async () => rasterSource(false)),
             retainedPaths: vi.fn(async () => new Map()),
             rasterScratchPath: vi.fn(async (_document, pageNumber) => join(tempDir, `analysis-${String(pageNumber)}.part.png`)),
             stagedRasterPath: vi.fn(async (_document, pageNumber) => join(tempDir, `analysis-${String(pageNumber)}.png`)),
@@ -1106,18 +1114,15 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => 1),
-            pageSizes: vi.fn(async () => [{
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore([{
                 pageNumber: 1,
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 100,
                 heightPoints: 200,
                 rotation: 0,
-            }]),
-            rasterPages: vi.fn(async () => ({
-                detected: true,
-                pages: new Set([1]),
-            })),
+            }])),
+            rasterPages: vi.fn(async () => rasterSource(true)),
             retainedPaths: vi.fn(async () => new Map([[
                 1,
                 {
@@ -1304,18 +1309,15 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => 1),
-            pageSizes: vi.fn(async () => [{
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore([{
                 pageNumber: 1,
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 200,
                 heightPoints: 120,
                 rotation: 0,
-            }]),
-            rasterPages: vi.fn(async () => ({
-                detected: true,
-                pages: new Set([1]),
-            })),
+            }])),
+            rasterPages: vi.fn(async () => rasterSource(true)),
             retainedPaths: vi.fn(async () => new Map([[
                 1,
                 {
@@ -1413,7 +1415,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => pageCount),
-            pageSizes: vi.fn(async () => Array.from({length: pageCount}, (_, index) => ({
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(Array.from({length: pageCount}, (_, index) => ({
                 pageNumber: index + 1,
                 xPoints: 0,
                 yPoints: 0,
@@ -1423,11 +1425,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 widthPoints: 1_440,
                 heightPoints: 1_440,
                 rotation: 0,
-            }))),
-            rasterPages: vi.fn(async () => ({
-                detected: false,
-                pages: new Set<number>(),
-            })),
+            })))),
+            rasterPages: vi.fn(async () => rasterSource(false)),
             retainedPaths: vi.fn(async () => new Map()),
             rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
             stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => join(
@@ -1489,7 +1488,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => 2),
-            pageSizes: vi.fn(async () => Array.from({length: 2}, (_, index) => ({
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(Array.from({length: 2}, (_, index) => ({
                 pageNumber: index + 1,
                 xPoints: 0,
                 yPoints: 0,
@@ -1497,11 +1496,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 widthPoints: 480,
                 heightPoints: 480,
                 rotation: 0,
-            }))),
-            rasterPages: vi.fn(async () => ({
-                detected: false,
-                pages: new Set<number>(),
-            })),
+            })))),
+            rasterPages: vi.fn(async () => rasterSource(false)),
             retainedPaths: vi.fn(async () => new Map([[
                 1,
                 retainedRaster,
@@ -1592,18 +1588,15 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => 1),
-            pageSizes: vi.fn(async () => [{
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore([{
                 pageNumber: 1,
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 72,
                 heightPoints: 72,
                 rotation: 0,
-            }]),
-            rasterPages: vi.fn(async () => ({
-                detected: false,
-                pages: new Set<number>(),
-            })),
+            }])),
+            rasterPages: vi.fn(async () => rasterSource(false)),
             retainedPaths: vi.fn(async () => new Map([[
                 1,
                 {
@@ -1674,28 +1667,40 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
         dirs.push(tempDir);
         const renderPage = vi.fn();
+        const outOfOrderPages = [
+            3,
+            1,
+            2,
+        ].map(pageNumber => ({
+            pageNumber,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 480,
+            heightPoints: 480,
+            rotation: 0,
+        }));
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: 3,
+            getPage: vi.fn(async pageNumber => outOfOrderPages[pageNumber - 1]!),
+            readRange: vi.fn(async () => outOfOrderPages),
+            forEachChunk: vi.fn(async onChunk => onChunk({
+                pageCount: 3,
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                offset: 0,
+                byteLength: 0,
+                pages: outOfOrderPages,
+            })),
+            close: vi.fn(async () => undefined),
+        };
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => 3),
             // Full-length geometry for the same document, in the wrong order:
             // detection reads a native page number as a source page number, so
             // page 2 would be classified against page 3's paper.
-            pageSizes: vi.fn(async () => [
-                3,
-                1,
-                2,
-            ].map(pageNumber => ({
-                pageNumber,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 480,
-                heightPoints: 480,
-                rotation: 0,
-            }))),
-            rasterPages: vi.fn(async () => ({
-                detected: false,
-                pages: new Set<number>(),
-            })),
+            pageSizeStore: vi.fn(async () => pageSizeStore),
+            rasterPages: vi.fn(async () => rasterSource(false)),
             retainedPaths: vi.fn(async () => new Map()),
             rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
             stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => join(
@@ -1724,7 +1729,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             {rasterConcurrency: 2},
             () => undefined,
         )).rejects.toThrow(
-            'Scan cleanup detection received page geometry out of document order: expected page 1 at index 0, received page 3',
+            'Scan cleanup page-size store returned page 3 where page 1 was expected',
         );
 
         expect(retention.rasterPages).not.toHaveBeenCalled();
@@ -1776,11 +1781,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => pageSizes.length),
-            pageSizes: vi.fn(async () => pageSizes),
-            rasterPages: vi.fn(async () => ({
-                detected: false,
-                pages: new Set<number>(),
-            })),
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(pageSizes)),
+            rasterPages: vi.fn(async () => rasterSource(false)),
             retainedPaths: vi.fn(async () => new Map()),
             rasterScratchPath: vi.fn(async (_document, pageNumber) => join(
                 tempDir,
