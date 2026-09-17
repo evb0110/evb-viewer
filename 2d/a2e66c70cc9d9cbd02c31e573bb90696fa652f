@@ -1,0 +1,19 @@
+scripts/ci/prepare-electron-e2e-build.sh
+  s_b32797d3797b44::t_6e7864e4e44609 40-42,57-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2da2e66c70cc9d9cbd02c31e573bb90696fa652f",
+  "prompts": {},
+  "sessions": {
+    "s_b32797d3797b44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d84b3e55-bbb4-4d74-bfe2-05f66ecdceb2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions.ts
+  s_82ddbe7e06254a::t_f75f4cfba4c524 51
+  s_82ddbe7e06254a::t_3f93652e4e5871 46-50,52,57-60,62-65
+tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsKeyboardNavigation.test.ts
+  s_82ddbe7e06254a::t_ce59a4e7b597d1 54,162,179,463,475-477,485,487-493,497,499-502,504,506-510,512
+  s_82ddbe7e06254a::t_198bf5da69cdb0 464-474,486,503,511
+  s_82ddbe7e06254a::t_10965aeb69b09c 63,478-484,494-496,498,505
+  s_82ddbe7e06254a::t_8026b36a28d6b2 513-514
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts
+  s_82ddbe7e06254a::t_ee54d2738f5f28 654-657
+app/modules/pdf-viewer/components/PdfThumbnails.vue
+  s_82ddbe7e06254a::t_d6de4c95067e4d 772-775,788,808-811,817
+  s_82ddbe7e06254a::t_d1b383210cfd05 116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a25242c800b890b273baf08db524068a9d3e4890",
+  "prompts": {},
+  "sessions": {
+    "s_82ddbe7e06254a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7850a226-5c2d-4ca6-b77b-c26a4f9bcd98",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

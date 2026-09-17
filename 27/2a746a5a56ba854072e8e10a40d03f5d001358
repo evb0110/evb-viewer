@@ -1,0 +1,86 @@
+docs/contributing/windows-tests/setup-and-repair.md
+  s_ec0aa991e6b801::t_e5ecdfaa0aa885 8-16,19-47,52
+  s_ec0aa991e6b801::t_79fa971e8bb0bf 48-51
+  s_ec0aa991e6b801::t_927147fe600c4d 17-18
+  s_ec0aa991e6b801::t_a8230a44ede682 86-87
+  s_ec0aa991e6b801::t_ec1303fa99dba5 154,307
+scripts/windows-test/host/goldenImageProvisioning.ts
+  s_ec0aa991e6b801::t_7d7d09cfe071e7 538-540,545-547,658
+  s_ec0aa991e6b801::t_e6f2bce0dab111 98-102
+  s_ec0aa991e6b801::t_373122cf9a0852 17-18,30
+  s_ec0aa991e6b801::t_d2ebed4a40aa7c 134-137
+  s_ec0aa991e6b801::t_8e1799d66e580a 26,73
+  s_ec0aa991e6b801::t_a36a3b60317fc3 331-336,338-353
+  s_ec0aa991e6b801::t_076d4bf9121c20 441-442
+  s_ec0aa991e6b801::t_925e933bef5004 469-472
+  s_ec0aa991e6b801::t_463259505e82ac 473
+  s_ec0aa991e6b801::t_e27b28246b053f 565
+  s_ec0aa991e6b801::t_d219cb0a3840ae 1-5,7-14,19-25,28,31-72,74-97,103-109,133,138-203,207-208,210-217,221-225,231-234,240-330,354-440,443-465,475-530,534-537,541-544,548-564,566-657,659-708
+  s_ec0aa991e6b801::t_b8bdd4d5a0fcd7 531-533
+  s_ec0aa991e6b801::t_1ede424c621731 6,115-132,466-468
+  s_ec0aa991e6b801::t_d9a953d7f0ad39 337
+  s_ec0aa991e6b801::t_b39544b9697fb8 110-114,474
+  s_ec0aa991e6b801::t_964c4fcbc92889 29
+  s_ec0aa991e6b801::t_d53af40b83f73a 15-16,204-206,209,218-220,226-230,235-239
+  s_ec0aa991e6b801::t_8ac95bb4fdcc24 27
+scripts/windows-test/host/assertGoldenImageTarget.ts
+  s_ec0aa991e6b801::t_964c4fcbc92889 1-88
+scripts/windows-test/host/hostRunner.ts
+  s_ec0aa991e6b801::t_397b0d3a28f9f4 668-717,719-725
+  s_ec0aa991e6b801::t_d53af40b83f73a 73,75-76,718
+  s_ec0aa991e6b801::t_f379b758c2b675 74,353,376
+scripts/windows-test/cli/runWindowsTestProvisionCli.ts
+  s_ec0aa991e6b801::t_2c55f8c67cc376 3-6,15-25,30,33-41,56,63-96,98-107,112-149,152-168,170-172,174-180,182-185,188
+  s_ec0aa991e6b801::t_76d2136c868f1b 47-55,57,60
+  s_ec0aa991e6b801::t_5434266cb5ef51 27-28
+  s_ec0aa991e6b801::t_d53af40b83f73a 26,29,42-45,108-111
+docs/internal/agents/utm-windows-tests.md
+  s_ec0aa991e6b801::t_7c5b1503438c36 12-38,41-43,49,65,92-94
+  s_ec0aa991e6b801::t_f4451892a7a189 39-40
+tests/unit/scripts/windows-test/goldenImageProvisioning.test.ts
+  s_ec0aa991e6b801::t_15cc1f93aa2572 368-374
+  s_ec0aa991e6b801::t_5ed43782cc7e0e 315-328
+  s_ec0aa991e6b801::t_a408d3906e7ff1 23
+  s_ec0aa991e6b801::t_07836abe5c116a 7,353
+  s_ec0aa991e6b801::t_8e4fc409ecc826 197-198,405-418
+  s_ec0aa991e6b801::t_fb2b7ef0fed6bd 123,131,154-163,242,258,359-367
+  s_ec0aa991e6b801::t_1d5478dfefa95b 312
+  s_ec0aa991e6b801::t_fae57342d75961 304-311,313-314
+  s_ec0aa991e6b801::t_f09091f8eb73bd 203-204,219-232
+  s_ec0aa991e6b801::t_6dc977be34892c 1-6,8-10,12-17,22,24-29,34-37,42-122,124-130,132-153,164-196,199-202,205-218,233-241,243-257,259-297,302-303,329-343,351,354-357,375-378,380-403,420-421
+  s_ec0aa991e6b801::t_c163d9d8dc0dd6 344-346
+  s_ec0aa991e6b801::t_d739903bf1e926 11,38-41,352,358,404
+  s_ec0aa991e6b801::t_b1eab0c8bee2a4 419
+  s_ec0aa991e6b801::t_b8819d20e6d546 18,21,30,33,298-301,347-350,379
+  s_ec0aa991e6b801::t_b7af5590f2930a 19-20,31-32
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_ec0aa991e6b801::t_7e68b201c4d8b6 651
+  s_ec0aa991e6b801::t_6937e0713e254f 645-650,652-653
+scripts/windows-test/host/runCoordinator.ts
+  s_ec0aa991e6b801::t_9888e798489d9f 286,708
+scripts/windows-test/cli/windowsTestArgs.ts
+  s_ec0aa991e6b801::t_b6f2a4a75f8af3 58-69,101-108,330-366
+  s_ec0aa991e6b801::t_3008c39ba270bf 367-369
+  s_ec0aa991e6b801::t_69964a5538b21a 370-372
+package.json
+  s_ec0aa991e6b801::t_75e77b3583259d 143
+tests/unit/scripts/windows-test/cliArgs.test.ts
+  s_ec0aa991e6b801::t_385f216c416df2 25,28,41,224-225,231-239,244-250,261,410-421,428,436-449
+  s_ec0aa991e6b801::t_494bb8d04e84e7 226-230,240-243,251-260,422-427,429-435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "272a746a5a56ba854072e8e10a40d03f5d001358",
+  "prompts": {},
+  "sessions": {
+    "s_ec0aa991e6b801": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ab26-5c82-7d72-bb75-f8e82e8dfc46",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

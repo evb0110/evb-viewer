@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/components/PdfContextMenuBase.vue
+  s_5cbe293bb62e02::t_2783b4c44227dc 183-184,186,201,216-219,225-228,247-248,250,253,257,264,294-296,301-305
+  s_5cbe293bb62e02::t_767a5c00295b2a 256,258,292-293
+app/assets/css/main.css
+  s_5cbe293bb62e02::t_2783b4c44227dc 306-308,832,835
+  s_5cbe293bb62e02::t_2bc511d023f993 1032
+app/modules/pdf-viewer/components/annotations/PdfAnnotationContextMenu.vue
+  s_5cbe293bb62e02::t_2783b4c44227dc 340-341
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e0431f1ebac235f06cdbcaf6b029a55cea101e6d",
+  "prompts": {},
+  "sessions": {
+    "s_5cbe293bb62e02": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8040c14e-f94a-4e49-9525-d5bcf2c09a06",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

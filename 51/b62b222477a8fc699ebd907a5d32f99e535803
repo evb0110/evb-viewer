@@ -1,0 +1,48 @@
+tests/unit/scripts/verifySentrySourcemapCanaries.test.ts
+  s_aae5ad4e7aafc7::t_d1d4a2e2bcccaf 333,335
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 20,26,160-161,173
+packages/contracts/diagnostics/diagnosticEventDefinitions.js
+  s_aae5ad4e7aafc7::t_1ae8a70bb764c1 6,13-15
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 1-5
+  s_aae5ad4e7aafc7::t_892be0f4af698e 7-12
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 3-4
+scripts/release/verify-sentry-sourcemap-canaries.mjs
+  s_aae5ad4e7aafc7::t_75fad397bbaee6 300
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 7,34,299
+packages/contracts/diagnostics/diagnosticEventDefinitions.d.ts
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 1-9,11-12
+  s_aae5ad4e7aafc7::t_9056cea9fac6aa 10
+docs/internal/operations/sentry-runbook.md
+  s_aae5ad4e7aafc7::t_74f27bd7714912 39-41,44-62,335
+  s_aae5ad4e7aafc7::t_457812866b241f 210-212
+scripts/release/send-sentry-sourcemap-canaries.mjs
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 14,22,24,183,208,212,214-215,228,250-259
+  s_aae5ad4e7aafc7::t_538ca016bfc639 260-261
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 13,305-313
+  s_aae5ad4e7aafc7::t_3ede9762ef5ec3 314-315
+tests/unit/architecture/sentryPrivacyEnvelopePolicy.test.ts
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 17,141,466-510
+  s_aae5ad4e7aafc7::t_7ddbb5d1885d21 511-513
+tests/unit/scripts/sendSentrySourcemapCanaries.test.ts
+  s_aae5ad4e7aafc7::t_d1d4a2e2bcccaf 173-180
+  s_aae5ad4e7aafc7::t_d5bb8bbbd61b55 21,29,163,165-172
+  s_aae5ad4e7aafc7::t_efd5b08b1844f1 191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51b62b222477a8fc699ebd907a5d32f99e535803",
+  "prompts": {},
+  "sessions": {
+    "s_aae5ad4e7aafc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a5e7-cee4-7103-b7e5-d003a49ba7b0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+native/macos-pdf-print-dialog/main.swift
+  s_1975bfb820f1e8::t_19dc2d6ca58534 21-29,31,39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "209851461cccfc14d1a8e8ce3c1d2b251e94e89b",
+  "prompts": {},
+  "sessions": {
+    "s_1975bfb820f1e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a8a4-9d84-7b11-a2fe-14830f05c7e3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

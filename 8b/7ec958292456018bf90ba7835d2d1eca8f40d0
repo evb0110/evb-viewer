@@ -1,0 +1,30 @@
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_4d578785952d39::t_22c20cfc91bb8e 5271-5313,5332-5342
+  s_4d578785952d39::t_62a46c0e49aa6c 5314-5331
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_4d578785952d39::t_afab15e2351ea3 326
+  s_4d578785952d39::t_e040d6f7dee0b6 438
+tests/unit/app/components/appProgressOverlay.test.ts
+  s_4d578785952d39::t_9fb6320e89b1b0 60,73-74
+  s_4d578785952d39::t_d0f01ddf223fd4 61-64,69-72,75
+  s_4d578785952d39::t_966e6624991896 1-18,20-27,29,32,34-59,76-94,96-124
+  s_4d578785952d39::t_317cd0d699389d 95
+  s_4d578785952d39::t_8588e2dbe683b9 28,30-31,33
+  s_4d578785952d39::t_c76bd3c5e03d7e 19,65-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8b7ec958292456018bf90ba7835d2d1eca8f40d0",
+  "prompts": {},
+  "sessions": {
+    "s_4d578785952d39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09d1a-bd17-7e30-b31d-00451db802b8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

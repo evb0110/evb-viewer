@@ -1,0 +1,93 @@
+scripts/release/cut-release.mjs
+  s_0c2539bd8e9dad::t_5dbab5884c3d77 342-343,371,384
+  s_0c2539bd8e9dad::t_5b992e17843721 76-77,122,130,382,391,396,476-479,637-643,823,1101
+  s_0c2539bd8e9dad::t_48d15814785ad1 2-5,51-53,55,61,93-96
+  s_0c2539bd8e9dad::t_682cde0bccba05 367-368
+  s_0c2539bd8e9dad::t_6e5f0cc34d9ad3 103
+  s_0c2539bd8e9dad::t_5688c5d149f6ee 312
+  s_0c2539bd8e9dad::t_61995d8a52b57f 425,430,438,453,457-475,480-496
+  s_0c2539bd8e9dad::t_7e727cc2d01128 313-327,329-341,344-354,356-360,363-366,370,372-374,376-379,381,383,385-388,390,402-406,408-410,413-414
+  s_0c2539bd8e9dad::t_5e03e7503e8220 1191-1194
+  s_0c2539bd8e9dad::t_b46c8d2a93a307 411,809-822,824-882,994-995,997-1002,1069-1100,1102-1114,1137-1170,1172-1177
+  s_b32797d3797b44::t_ab6a4eecf3e8f7 397-401,407,412
+  s_0c2539bd8e9dad::t_38795033ceec13 786-788,1133-1136
+  s_0c2539bd8e9dad::t_2bca09c9fdad4f 112-121,124-129,131-173,175-180,186-188,191,193,213,215
+  s_0c2539bd8e9dad::t_739034b24939ec 392-395,1003
+  s_0c2539bd8e9dad::t_5bc3f6cf230d64 54,328
+  s_0c2539bd8e9dad::t_b09b066f9a0d50 544-546,552-554,577-578,593,602-607,617,636,644,651-652
+  s_0c2539bd8e9dad::t_bbd9091ce7c5c9 362
+scripts/release/release-status.mjs
+  s_0c2539bd8e9dad::t_43a247309dbb6d 364-456,507,509,522,528-532,569
+  s_0c2539bd8e9dad::t_2276d506fcae75 506
+  s_0c2539bd8e9dad::t_7850ada0cf7c3d 20,55
+tests/unit/scripts/runAllGates.test.ts
+  s_0c2539bd8e9dad::t_b20d075b9a8ee4 22-26,48-49,54-61
+  s_0c2539bd8e9dad::t_f2d5d525cc06fa 50
+  s_0c2539bd8e9dad::t_86aaa0d38a49a4 62
+  s_0c2539bd8e9dad::t_6fca0f2ca15eec 51-53
+scripts/run-all-gates.mjs
+  s_0c2539bd8e9dad::t_93313239a3f1ef 25-29
+  s_0c2539bd8e9dad::t_b20d075b9a8ee4 130
+  s_0c2539bd8e9dad::t_e69dd900a25107 24
+tests/unit/scripts/releaseBranchSafety.test.ts
+  s_0c2539bd8e9dad::t_739034b24939ec 37-53,237-241,243-257,260-276,286-290,307-310,352-359
+  s_0c2539bd8e9dad::t_4aa79435012766 224,226-227
+  s_0c2539bd8e9dad::t_28b3668e92734e 231-236,242,258-259,277-285,291-306,311-349,351,360-362
+  s_0c2539bd8e9dad::t_3d6dd20d99021e 2-4,9,31-36,54-59,61
+  s_0c2539bd8e9dad::t_0b9fbcfe593d4b 181,183-184,200-203,207,225
+  s_0c2539bd8e9dad::t_12c2ff56874908 350
+  s_0c2539bd8e9dad::t_169aee010b3986 1
+tests/unit/scripts/releasePolicy.test.ts
+  s_0c2539bd8e9dad::t_739034b24939ec 1341-1344
+  s_0c2539bd8e9dad::t_9c8445b96c6185 264,266
+  s_0c2539bd8e9dad::t_6d7667f0b6960e 1317,1319,1323,1325,1332-1340,1345-1346
+scripts/release/release-cut-preflight.mjs
+  s_0c2539bd8e9dad::t_2276d506fcae75 14,16,28
+  s_0c2539bd8e9dad::t_315f5c77b07b40 6-9,12-13,17-27,30,33,38-39,42,44-47,51-58,65-67,70
+  s_0c2539bd8e9dad::t_739034b24939ec 68-69
+tests/unit/scripts/releaseStatus.test.ts
+  s_b32797d3797b44::t_7e62242f581c46 8,262-435
+  s_b32797d3797b44::t_d43e4594413c96 436
+docs/contributing/releasing.md
+  s_0c2539bd8e9dad::t_a01d17542223e4 3,6,9-17,23,26,29,43,63,67,73
+  s_0c2539bd8e9dad::t_7b99e2a7b60091 31
+  s_0c2539bd8e9dad::t_15f5298139820a 53
+tests/unit/scripts/cutRelease.test.ts
+  s_0c2539bd8e9dad::t_9adbf56332e640 17-20,416,908-918
+  s_0c2539bd8e9dad::t_afabe153e12fef 95,97,101,103-118,127-145,158-159,245,256,366,453-464,469-490,559,927-928,941,944
+  s_0c2539bd8e9dad::t_92afb378170126 201
+  s_0c2539bd8e9dad::t_2bc194ccdb2ffa 51
+  s_0c2539bd8e9dad::t_60baf8cc79e4a7 7,11,266-286,291,293-326,328-338
+  s_0c2539bd8e9dad::t_26f000f5b4b813 609-610,620-626
+  s_0c2539bd8e9dad::t_4aa79435012766 265
+  s_0c2539bd8e9dad::t_739034b24939ec 119-122,287-290,292,327,465-468,611-619,946
+  s_0c2539bd8e9dad::t_5688c5d149f6ee 49-50,52
+  s_0c2539bd8e9dad::t_a7addf039b43b9 177-200,202-204
+  s_0c2539bd8e9dad::t_48d5aaf5c71f8b 397-415
+scripts/release/shared.mjs
+  s_0c2539bd8e9dad::t_8146fcddd1623d 540,545,548-555
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ecbef841a09da0ee80e1f8666abd977d72230741",
+  "prompts": {},
+  "sessions": {
+    "s_0c2539bd8e9dad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a91e-eac5-75d0-86a0-d032527a8781",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b32797d3797b44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d84b3e55-bbb4-4d74-bfe2-05f66ecdceb2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

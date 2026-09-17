@@ -1,0 +1,19 @@
+nuxt.config.ts
+  s_86946a3feec145::t_05e76654d0a40f 144-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d1b0202fa6330f8ee68d76a02c2c1561e4d02f0",
+  "prompts": {},
+  "sessions": {
+    "s_86946a3feec145": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a693-a375-7ff2-a1ce-e60f11e7df38",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

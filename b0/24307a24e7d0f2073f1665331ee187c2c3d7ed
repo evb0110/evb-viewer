@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_ff095e70a6f8fb::t_5b027050a846d8 363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b024307a24e7d0f2073f1665331ee187c2c3d7ed",
+  "prompts": {},
+  "sessions": {
+    "s_ff095e70a6f8fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db74a63c-10a5-4a72-90cd-b67f7a8d490a",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
