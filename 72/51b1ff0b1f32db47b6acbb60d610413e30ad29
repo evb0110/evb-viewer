@@ -1,0 +1,34 @@
+tests/unit/electron/scanCleanupPreviewIpcScenarios.ts
+  s_0539f551feac96::t_e551f7b08d1365 420
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_0539f551feac96::t_e551f7b08d1365 433
+tests/unit/electron/scanCleanupPreviewRenderingScenarios.ts
+  s_0539f551feac96::t_e551f7b08d1365 513
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_0539f551feac96::t_e551f7b08d1365 440,1639,2506,2604,3212
+  s_0539f551feac96::t_ca2654aa0a9bf4 2713,4517,4715,5235
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_0539f551feac96::t_14b1c19f3121d1 642
+tests/unit/electron/scanCleanupPreviewCompositionScenarios.ts
+  s_0539f551feac96::t_e551f7b08d1365 503
+tests/unit/electron/scanCleanupDetectionLifecycleScenarios.ts
+  s_0539f551feac96::t_e551f7b08d1365 457
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_0539f551feac96::t_e551f7b08d1365 229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7251b1ff0b1f32db47b6acbb60d610413e30ad29",
+  "prompts": {},
+  "sessions": {
+    "s_0539f551feac96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0af20-8aa5-7373-8877-47fbfd4bbe2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
