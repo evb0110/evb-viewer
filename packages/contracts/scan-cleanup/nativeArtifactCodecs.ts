@@ -1,6 +1,5 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {
-    IScanCleanupContentDiagnostics,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
 } from '@contracts/scan-cleanup/ipc';
@@ -71,14 +70,9 @@ export class InvalidScanCleanupNativeArtifactError extends Error {
     }
 }
 
-export interface INativeScanCleanupAnalysisArtifactOutputV3 extends INativeScanCleanupAnalysisOutputV3 {
-    appliedMargins?: IScanCleanupAppliedMargins;
-    contentDiagnostics?: IScanCleanupContentDiagnostics;
-}
-
 export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCleanupPageMetadataV3 {
     sourcePageIndex?: number;
-    outputs?: INativeScanCleanupAnalysisArtifactOutputV3[];
+    outputs?: INativeScanCleanupAnalysisOutputV3[];
     tier1Verdict?: INativeScanCleanupPageMetadataV3['layoutClassification'];
     reconciled?: boolean;
     clusterAgreement?: number;
@@ -86,7 +80,7 @@ export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCle
 
 export type TNativeScanCleanupPreviewPageArtifactMetadataV3 = IScanCleanupPreviewPageMetadata
     & Omit<INativeScanCleanupPageArtifactMetadataV3, 'outputs'>
-    & {outputs?: Array<INativeScanCleanupAnalysisArtifactOutputV3 & {
+    & {outputs?: Array<INativeScanCleanupAnalysisOutputV3 & {
         appliedMargins: IScanCleanupAppliedMargins;
         contentBox: IScanCleanupPreviewMetadata['contentBox'];
     }>};
@@ -353,6 +347,18 @@ function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) 
         }
         source.protectedBlocks.forEach((item, index) => block(item, `${label}.protectedBlocks[${String(index)}]`));
     }
+}
+
+function inkConsistencyDiagnostics(value: unknown, artifact: TArtifact, label: string) {
+    const source = record(value, artifact, label);
+    integer(source.priorSampleCount, artifact, `${label}.priorSampleCount`);
+    for (const key of [
+        'priorSurvivalMedian',
+        'survivalBefore',
+        'survivalAfter',
+    ] as const) unit(source[key], artifact, `${label}.${key}`);
+    integer(source.addedInkPixels, artifact, `${label}.addedInkPixels`);
+    if (typeof source.applied !== 'boolean') fail(artifact, `${label}.applied must be boolean`);
 }
 
 function outputModeDiagnostics(value: unknown, artifact: TArtifact, label: string) {
@@ -763,8 +769,6 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'detectedSkewDegrees',
         'skewConfidence',
         'cutterXPx',
-        'cropX',
-        'cropY',
     ] as const) if (source[key] !== undefined && source[key] !== null) finite(source[key], artifact, key);
     if (source.layoutConfidence !== undefined) unit(source.layoutConfidence, artifact, 'layoutConfidence');
     if (source.dewarpConfidence !== undefined && source.dewarpConfidence !== null) unit(source.dewarpConfidence, artifact, 'dewarpConfidence');
@@ -790,7 +794,6 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'uniformCanvas',
         'canvasOverflow',
         'rasterScaleLimited',
-        'matchedInMemory',
         'matchedCanvasOpticalPlacement',
     ] as const) optionalBoolean(source, key, artifact);
     if (source.layeredForegroundKind !== undefined) oneOf(source.layeredForegroundKind, [
@@ -802,6 +805,9 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
     if (source.binarizationMode !== undefined && source.binarizationMode !== null) oneOf(source.binarizationMode, BINARIZATION_MODES, artifact, 'binarizationMode');
     if (source.binarizationDiagnostics !== undefined && source.binarizationDiagnostics !== null) binarizationDiagnostics(source.binarizationDiagnostics, artifact, 'binarizationDiagnostics');
     if (source.textToneDiagnostics !== undefined) textToneDiagnostics(source.textToneDiagnostics, artifact, 'textToneDiagnostics');
+    if (source.inkConsistencyDiagnostics !== undefined) {
+        inkConsistencyDiagnostics(source.inkConsistencyDiagnostics, artifact, 'inkConsistencyDiagnostics');
+    }
     if (source.pdfImagePlacement !== undefined) {
         const placement = record(source.pdfImagePlacement, artifact, 'pdfImagePlacement');
         for (const key of [

@@ -249,6 +249,37 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output))).toMatchObject({futureOutputDiagnostic: {producer: 'vNext'}});
     });
 
+    it('decodes native ink consistency diagnostics and rejects malformed values', () => {
+        const diagnostics = {
+            priorSampleCount: 12,
+            priorSurvivalMedian: 0.42,
+            survivalBefore: 0.31,
+            survivalAfter: 0.39,
+            addedInkPixels: 240,
+            applied: true,
+        };
+        const output = {
+            ...outputMetadata(),
+            inkConsistencyDiagnostics: diagnostics,
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            inkConsistencyDiagnostics: {
+                ...diagnostics,
+                survivalAfter: 1.01,
+            },
+        })).toThrow('inkConsistencyDiagnostics.survivalAfter');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            inkConsistencyDiagnostics: {
+                ...diagnostics,
+                addedInkPixels: 1.5,
+            },
+        })).toThrow('inkConsistencyDiagnostics.addedInkPixels');
+    });
+
     it('rejects malformed JSON and unsupported artifact versions as native failures', () => {
         for (const decode of [
             () => decodeNativeScanCleanupPageMetadataJson('{'),
