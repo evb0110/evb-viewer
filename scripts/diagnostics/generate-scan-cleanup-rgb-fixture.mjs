@@ -149,11 +149,18 @@ function makeRaster() {
             '10001',
         ],
     };
-    const drawText = (text, left, top, scale) => {
+    const drawText = (
+        text,
+        left,
+        top,
+        scale,
+        letterAdvanceScale = 6,
+        spaceAdvanceScale = 3,
+    ) => {
         let x = left;
         for (const letter of text) {
             if (letter === ' ') {
-                x += scale * 3;
+                x += scale * spaceAdvanceScale;
                 continue;
             }
             const glyph = glyphs[letter];
@@ -177,11 +184,11 @@ function makeRaster() {
                     }
                 }
             }
-            x += scale * 6;
+            x += scale * letterAdvanceScale;
         }
     };
-    drawText('RGB', 96, 48, 6);
-    drawText('CAMERA', 64, 132, 4);
+    drawText('RGB CAMERA', 28, 54, 4, 6, 15);
+    drawText('BASE TEXT', 42, 126, 4, 6, 15);
     // Isolated dark sensor specks exercise the texture guard without making a
     // connected text-like component.
     for (const [

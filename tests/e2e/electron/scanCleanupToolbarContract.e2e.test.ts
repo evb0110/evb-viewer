@@ -12,6 +12,10 @@ import {
     createLargeScannedFixturePdf,
     readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
+import {
+    isPdfCanvasInkCoverageSane,
+    renderPdfCanvasFidelityMetrics,
+} from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     clickVisibleToolbarButton,
@@ -145,5 +149,20 @@ describe('scan cleanup toolbar contract', () => {
                 textSnippet: '',
             })),
         );
+        const outputRasterMetrics = await Promise.all(
+            Array.from({length: 6}, (_, index) => renderPdfCanvasFidelityMetrics(
+                outputPath!,
+                index + 1,
+            )),
+        );
+        for (const [
+            index,
+            metrics,
+        ] of outputRasterMetrics.entries()) {
+            expect(
+                isPdfCanvasInkCoverageSane(metrics),
+                `page ${String(index + 1)} raster ink coverage`,
+            ).toBe(true);
+        }
     }, 360_000);
 });
