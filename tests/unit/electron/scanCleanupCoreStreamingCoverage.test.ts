@@ -226,6 +226,7 @@ function outputMetadata() {
             heightPx: 1,
         },
         warnings: [],
+        warningEvents: [],
     };
 }
 

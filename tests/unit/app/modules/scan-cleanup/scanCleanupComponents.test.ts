@@ -639,7 +639,7 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
             outputHeightPx: 800,
             canvasWidthPx: 500,
             canvasHeightPx: 800,
-            canvasPolicy: 'intrinsic' as const,
+            canvasPolicy: 'strict-maximum' as const,
             canvasOverflow: false,
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,

@@ -500,6 +500,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                     ],
                 ]},
                 warnings: [],
+                warningEvents: [],
             }));
         }),
         resolveBinary: () => '/cleanup',
