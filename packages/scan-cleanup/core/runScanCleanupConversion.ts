@@ -2555,6 +2555,8 @@ export async function runScanCleanupConversion(
                                 }
                             }
                         } catch (error) {
+                            signal.throwIfAborted();
+                            if (isAbortError(error)) throw error;
                             warn(
                                 `Page ${String(plan.pageNumber)} could not reuse its compact MRC foreground; `
                                 + `using raster reconstruction (${getErrorMessage(error)})`,
