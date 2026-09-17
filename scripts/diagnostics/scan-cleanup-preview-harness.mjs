@@ -109,7 +109,7 @@ const FORCED_PLACEMENT_DIVERGENCE_PX = 8;
 const INDEPENDENT_INK_THRESHOLD = 160;
 const INDEPENDENT_READER_THRESHOLD = 220;
 const INDEPENDENT_INK_SAMPLE_LIMIT = 64;
-const INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX = 40;
+const INDEPENDENT_WRONG_CALIBRATION_OFFSET_MIN_PX = 40;
 
 function printUsage() {
     process.stderr.write([
@@ -673,11 +673,26 @@ function comparePlacementSignatures(preview, final) {
     };
 }
 
+export function independentReaderScale(metadata, actualWidth, actualHeight) {
+    const outputWidth = metadata.outputWidthPx ?? metadata.canvasWidthPx;
+    const outputHeight = metadata.outputHeightPx ?? metadata.canvasHeightPx;
+    const contentWidth = metadata.matchedCanvasContentWidthPx ?? outputWidth;
+    const contentHeight = metadata.matchedCanvasContentHeightPx ?? outputHeight;
+    return {
+        x: actualWidth / metadata.canvasWidthPx * contentWidth / outputWidth,
+        y: actualHeight / metadata.canvasHeightPx * contentHeight / outputHeight,
+    };
+}
+
 async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, metadata, finalGeometry) {
     const expected = await loadGrayscaleImage(nativeOutputPath);
     const actual = await loadGrayscaleImage(finalRasterPath);
-    const scaleX = actual.width / metadata.canvasWidthPx;
-    const scaleY = actual.height / metadata.canvasHeightPx;
+    const independentScale = independentReaderScale(metadata, actual.width, actual.height);
+    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const wrongCalibrationOffsetPx = Math.max(
+        INDEPENDENT_WRONG_CALIBRATION_OFFSET_MIN_PX,
+        Math.ceil(contentWidth * 0.8),
+    );
     const finalPlacement = finalPlacementSignature(finalGeometry, actual.width, actual.height);
     const points = [];
     for (let y = 3; y < expected.height - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; y += 5) {
@@ -686,8 +701,8 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
             points.push({
                 expectedX: x,
                 expectedY: y,
-                finalX: Math.round(finalPlacement.destinationOrigin.xPx + x * scaleX),
-                finalY: Math.round(finalPlacement.destinationOrigin.yPx + y * scaleY),
+                finalX: Math.round(finalPlacement.destinationOrigin.xPx + x * independentScale.x),
+                finalY: Math.round(finalPlacement.destinationOrigin.yPx + y * independentScale.y),
             });
         }
     }
@@ -708,7 +723,7 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
     const wrongCalibrationMatches = points.filter(point => {
         for (let dy = -1; dy <= 1; dy += 1) {
             for (let dx = -1; dx <= 1; dx += 1) {
-                if (read(point.finalX + INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
+                if (read(point.finalX + wrongCalibrationOffsetPx + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
             }
         }
         return false;
