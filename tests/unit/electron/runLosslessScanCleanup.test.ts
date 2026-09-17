@@ -26,6 +26,7 @@ import type {
     IScanCleanupWorkerPaths,
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
+import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
 import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
 
@@ -147,10 +148,14 @@ describe('runLosslessScanCleanup', () => {
             forEachChunk: vi.fn(async () => undefined),
             close: vi.fn(async () => undefined),
         };
+        let observedPages = 0;
+        let compactLayeredPageCount = 0;
+        let compactLayeredPageCountComplete = false;
         const sourceDpi: IScanCleanupPageRasterSource = {
             detected: true,
             documentDpi: 300,
-            compactLayeredPageCountComplete: false,
+            compactLayeredPageCount,
+            compactLayeredPageCountComplete,
             getPageRaster: vi.fn((pageNumber: number) => ({
                 dpi: 300,
                 width: 2_550,
@@ -159,6 +164,13 @@ describe('runLosslessScanCleanup', () => {
                 backgroundDpi: 120,
                 pageNumber,
             })),
+            recordPageRaster: (_pageNumber, raster) => {
+                observedPages += 1;
+                if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+                compactLayeredPageCountComplete = observedPages === documentPageCount;
+                sourceDpi.compactLayeredPageCount = compactLayeredPageCount;
+                sourceDpi.compactLayeredPageCountComplete = compactLayeredPageCountComplete;
+            },
         };
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (
             _binaryPath,
@@ -239,5 +251,7 @@ describe('runLosslessScanCleanup', () => {
         } | null;};
         expect(report.compactSourceBudget).toMatchObject({compactLayeredPages: documentPageCount});
         expect(report.compactSourceBudget?.maxOutputBytes).toBeGreaterThan(0);
+        expect(sourceDpi.compactLayeredPageCount).toBe(documentPageCount);
+        expect(sourceDpi.compactLayeredPageCountComplete).toBe(true);
     }, 30_000);
 });

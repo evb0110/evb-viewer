@@ -5,6 +5,7 @@ import type {
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
+import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
 
 export type TSourceDpiLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
 export type {
@@ -320,10 +321,19 @@ function mergeDpiDetectionResults(
     }
 }
 
-function toPageRasterSource(result: IPageRasterDetectionResult): ISourceDpiDetectionResult {
+function toPageRasterSource(
+    result: IPageRasterDetectionResult,
+    compactLayeredPageCountComplete: boolean,
+): ISourceDpiDetectionResult {
+    let compactLayeredPageCount = 0;
+    for (const raster of result.rasterByPage.values()) {
+        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+    }
     return {
         detected: result.rasterByPage.size > 0,
         documentDpi: result.documentDpi,
+        compactLayeredPageCount,
+        compactLayeredPageCountComplete,
         getPageRaster: pageNumber => result.rasterByPage.get(pageNumber),
     };
 }
@@ -342,7 +352,7 @@ export async function detectSourceDpiDetails(
         return toPageRasterSource({
             documentDpi: null,
             rasterByPage: new Map(),
-        });
+        }, false);
     }
     if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new Error('PDF DPI detection aborted');
@@ -358,6 +368,7 @@ export async function detectSourceDpiDetails(
         const totalPages = probes.reduce((total, probe) => total + probe.pageUnits, 0);
         let nextProbeIndex = 0;
         let completedPages = 0;
+        let probeFailed = false;
         const runProbe = async (probe: IPdfImagesProbe) => {
             const commandOptions: IScanCleanupRunCommandOptions = {
                 commandLabel: 'pdfimages(-list)',
@@ -386,6 +397,7 @@ export async function detectSourceDpiDetails(
                 if (signal?.aborted) {
                     throw signal.reason instanceof Error ? signal.reason : err;
                 }
+                probeFailed = true;
                 log('debug', `pdfimages detection failed for pages ${probe.label}: ${getErrorMessage(err)}`);
             } finally {
                 completedPages += probe.pageUnits;
@@ -402,7 +414,7 @@ export async function detectSourceDpiDetails(
                 }
             },
         ));
-        return toPageRasterSource(combinedResult);
+        return toPageRasterSource(combinedResult, pages === undefined && !probeFailed);
     } catch (err) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
@@ -413,7 +425,7 @@ export async function detectSourceDpiDetails(
     return toPageRasterSource({
         documentDpi: null,
         rasterByPage: new Map(),
-    });
+    }, false);
 }
 
 export async function detectSourceDpi(

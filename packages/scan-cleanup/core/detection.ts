@@ -29,6 +29,7 @@ import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveSc
 import {
     detectPageRasterFromPageSize,
     detectSourceDpiFromPageSizes,
+    isScanCleanupCompactLayeredRaster,
     type IDetectedPageRaster,
     type IPdfPageSize,
     type IScanCleanupDetectionResultStore,
@@ -240,7 +241,7 @@ export function createScanCleanupDocumentRasterPages(
     let compactLayeredPageCount = 0;
     for (const raster of rasterByPage.values()) {
         documentDpi = Math.max(documentDpi, raster.dpi);
-        if (raster.hasBilevelLayer === true) {
+        if (isScanCleanupCompactLayeredRaster(raster)) {
             compactLayeredPageCount += 1;
         }
     }

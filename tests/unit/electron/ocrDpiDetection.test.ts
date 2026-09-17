@@ -124,6 +124,8 @@ describe('ocr dpi detection', () => {
             hasDominantBilevelLayer: true,
             backgroundDpi: 120,
         });
+        expect(result.compactLayeredPageCount).toBe(1);
+        expect(result.compactLayeredPageCountComplete).toBe(true);
     });
 
     it('does not treat an incidental small one-bit image as the dominant source grid', async () => {

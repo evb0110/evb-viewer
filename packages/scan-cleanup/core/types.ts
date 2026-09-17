@@ -139,6 +139,8 @@ export interface IScanCleanupPageRasterSource {
     compactLayeredPageCount?: number;
     /** True once every document page has had a raster fact lookup. */
     compactLayeredPageCountComplete?: boolean;
+    /** Record a bounded raster observation when the accessor itself is not the observer. */
+    recordPageRaster?: (pageNumber: number, raster: IDetectedPageRaster | undefined) => void;
     getPageRaster: (
         pageNumber: number,
     ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
@@ -180,9 +182,19 @@ export interface IScanCleanupDetectionResultStore
 export interface ISourceDpiDetectionResult {
     detected: boolean;
     documentDpi: number | null;
+    compactLayeredPageCount?: number;
+    compactLayeredPageCountComplete?: boolean;
+    recordPageRaster?: (pageNumber: number, raster: IDetectedPageRaster | undefined) => void;
     getPageRaster: (
         pageNumber: number,
     ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
+}
+
+export function isScanCleanupCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
+    return raster?.hasBilevelLayer === true
+        && raster.backgroundDpi !== undefined
+        && Number.isFinite(raster.backgroundDpi)
+        && raster.backgroundDpi > 0;
 }
 
 export function resolveSourceDpi(value: number | null | undefined, fallback = 300) {

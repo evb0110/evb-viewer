@@ -23,7 +23,10 @@ import type {
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
-import type {IDetectedPageRaster} from '@evb/scan-cleanup/core/types';
+import {
+    isScanCleanupCompactLayeredRaster,
+    type IDetectedPageRaster,
+} from '@evb/scan-cleanup/core/types';
 import {
     grantScanCleanupOutputAccess,
     materializeScanCleanupSourcePath,
@@ -123,6 +126,8 @@ function dpiDetails(
     return {
         detected: rasterByPage.size > 0,
         documentDpi,
+        compactLayeredPageCount: [...rasterByPage.values()].filter(isScanCleanupCompactLayeredRaster).length,
+        compactLayeredPageCountComplete: true,
         getPageRaster: (pageNumber: number) => rasterByPage.get(pageNumber),
     };
 }

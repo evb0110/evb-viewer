@@ -97,13 +97,6 @@ import {
     resolveRasterHandoff,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 
-function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
-    return raster?.hasBilevelLayer === true
-        && raster.backgroundDpi !== undefined
-        && Number.isFinite(raster.backgroundDpi)
-        && raster.backgroundDpi > 0;
-}
-
 /**
  * A streaming child may inherit the parent's document canvas. In that case the
  * child must not restart a full geometry-sidecar pass just to rediscover the
@@ -195,16 +188,6 @@ export async function runLosslessScanCleanup(
         };
     };
     let rasterizedCount = 0;
-    // A full lossless run may span many native batches. Count compact source
-    // pages as each bounded raster window is read instead of rebuilding a
-    // document-sized raster map just to calculate the publication budget.
-    const sourceReportedIncompleteCompactCount = dpiSource.compactLayeredPageCountComplete === false;
-    let compactLayeredPageCount = sourceReportedIncompleteCompactCount
-        ? 0
-        : dpiSource.compactLayeredPageCount ?? 0;
-    const shouldCountCompactPages = sourceReportedIncompleteCompactCount
-        || dpiSource.compactLayeredPageCount === undefined;
-    let compactLayeredPageCountComplete = !shouldCountCompactPages;
     const fullDocumentRun = request.sourcePageNumbers === undefined
         && request.sourcePageRange === undefined;
     const pagePlanResolver = createPagePlanResolver(request, log, 'lossless');
@@ -286,12 +269,11 @@ export async function runLosslessScanCleanup(
             pageNumber,
             await dpiSource.getPageRaster(pageNumber),
         ] as const)));
-        if (shouldCountCompactPages) {
-            for (const raster of batchRasterByNumber.values()) {
-                if (isCompactLayeredRaster(raster)) {
-                    compactLayeredPageCount += 1;
-                }
-            }
+        for (const [
+            pageNumber,
+            raster,
+        ] of batchRasterByNumber) {
+            dpiSource.recordPageRaster?.(pageNumber, raster);
         }
         const rasterPlans = batchPageNumbers.map(pageNumber => resolveRasterPlan(
             pageNumber,
@@ -479,15 +461,8 @@ export async function runLosslessScanCleanup(
             await Promise.all(pages.map(page => rm(page.pageMetadataPath, {force: true})));
         }
     }
-    if (
-        fullDocumentRun
-        && request.options.outputMode === 'auto'
-        && shouldCountCompactPages
-    ) {
-        // Every page in a full run has now been probed by the bounded loop, so
-        // the recount is complete even when the source metadata was partial.
-        compactLayeredPageCountComplete = true;
-    }
+    const compactLayeredPageCountComplete = dpiSource.compactLayeredPageCountComplete === true;
+    const compactLayeredPageCount = dpiSource.compactLayeredPageCount ?? 0;
     if (
         fullDocumentRun
         && request.options.outputMode === 'auto'

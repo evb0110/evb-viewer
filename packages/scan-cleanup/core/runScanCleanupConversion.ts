@@ -68,6 +68,7 @@ import {
     type IScanCleanupSidecarProtocolCapabilities,
     type IPdfPageSizeChunk,
     type TScanCleanupLog,
+    isScanCleanupCompactLayeredRaster,
 } from '@evb/scan-cleanup/core/types';
 import {
     mapScanCleanupPageScope,
@@ -1111,6 +1112,21 @@ function createLazyPageRasterSource({
     let nextExpectedPageNumber = 1;
     let rasterProbeFailed = false;
     let documentDpi: number | null = null;
+    const recordPageRaster = (pageNumber: number, raster: IDetectedPageRaster | undefined) => {
+        // Full conversion probes pages in document order. A later child repeats
+        // the same pages after the parent's canvas pass, so a scalar high-water
+        // mark counts each page once without a document-sized Set or Map. Any
+        // other order is refused rather than turning the budget into an
+        // unverified partial count.
+        if (pageNumber < nextExpectedPageNumber) return raster;
+        if (pageNumber !== nextExpectedPageNumber) {
+            rasterProbeFailed = true;
+            return raster;
+        }
+        nextExpectedPageNumber += 1;
+        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+        return raster;
+    };
     const getPageRaster = (pageNumber: number) => {
         const cached = cache.get(pageNumber);
         if (cached !== undefined) {
@@ -1118,33 +1134,9 @@ function createLazyPageRasterSource({
         }
         const pending = (async () => {
             signal.throwIfAborted();
-            const markObserved = (raster: IDetectedPageRaster | undefined) => {
-                // Full conversion probes pages in document order. A later
-                // child repeats the same pages after the parent's canvas pass,
-                // so a scalar high-water mark counts each page once without a
-                // document-sized Set or Map. Any other order is refused rather
-                // than turning the budget into an unverified partial count.
-                if (pageNumber < nextExpectedPageNumber) {
-                    return raster;
-                }
-                if (pageNumber !== nextExpectedPageNumber) {
-                    rasterProbeFailed = true;
-                    return raster;
-                }
-                nextExpectedPageNumber += 1;
-                if (
-                    raster?.hasBilevelLayer === true
-                    && raster.backgroundDpi !== undefined
-                    && Number.isFinite(raster.backgroundDpi)
-                    && raster.backgroundDpi > 0
-                ) {
-                    compactLayeredPageCount += 1;
-                }
-                return raster;
-            };
             if (pdfimagesBinary === undefined) {
                 rasterProbeFailed = true;
-                return markObserved(undefined);
+                return recordPageRaster(pageNumber, undefined);
             }
             try {
                 const result = await dependencies.detectSourceDpi(
@@ -1156,12 +1148,12 @@ function createLazyPageRasterSource({
                     [pageNumber],
                 );
                 documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
-                return markObserved(await result.getPageRaster(pageNumber));
+                return recordPageRaster(pageNumber, await result.getPageRaster(pageNumber));
             } catch (error) {
                 signal.throwIfAborted();
                 rasterProbeFailed = true;
                 log('debug', `Scan cleanup could not detect source raster for page ${String(pageNumber)}: ${getErrorMessage(error)}`);
-                return markObserved(undefined);
+                return recordPageRaster(pageNumber, undefined);
             }
         })();
         cache.set(pageNumber, pending);
@@ -1185,6 +1177,7 @@ function createLazyPageRasterSource({
             return !rasterProbeFailed
                 && nextExpectedPageNumber > documentPageCount;
         },
+        recordPageRaster,
         getPageRaster,
     };
 }
