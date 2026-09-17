@@ -14,6 +14,7 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    IScanCleanupOptions,
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputMode,
@@ -31,6 +32,7 @@ import {
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,
+    readPdfPageSizes,
     IPdfPageSize,
     IPdfPageSizeStore,
 } from '@electron/pdf/pdfPageSizes';
@@ -370,6 +372,8 @@ function resolvePreviewPageShares(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
     if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
@@ -419,6 +423,8 @@ export async function hasBoundedMatchedRasterResample(input: {
                 if (getScanCleanupPageOverride(
                     input.options.pageOverrides,
                     requirePageNumber(page.pageNumber),
+                    input.options.pageOverrideDefaults,
+                    input.options.marginsMm,
                 ).excluded) {
                     continue;
                 }
@@ -483,8 +489,14 @@ export interface IScanCleanupPreviewDependencies {
     getAvailableScratchBytes?: (directory: string) => Promise<number | null>;
     resolveRasterAdmissionPolicy: (
         supportsRasterStreaming: boolean,
+        options?: IScanCleanupOptions,
     ) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
+    /**
+     * Array geometry is retained only for compatibility fixtures. Production
+     * composition must use the bounded page-size store above.
+     */
+    getPageSizes?: typeof readPdfPageSizes;
     /** Native-backed bounded geometry reader used by production detection. */
     getPageSizeStore: (
         pdfPath: Parameters<typeof createPdfPageSizeStore>[0],
@@ -527,11 +539,14 @@ export interface IScanCleanupPreviewDependencies {
         jobId: string,
         signal: AbortSignal,
         rasterPolicy: IScanCleanupRasterAdmissionPolicy,
+        options?: IScanCleanupOptions,
     ) => Promise<{release: () => boolean}>;
     acquirePreviewLease?: (
         ownerId: string,
         visibility: TPreviewVisibility,
         signal: AbortSignal,
+        options?: IScanCleanupOptions,
+        rasterMaxPixels?: number,
     ) => Promise<{release: () => boolean}>;
     getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
@@ -569,6 +584,7 @@ export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention &
 
 export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,
     | 'acquirePreviewLease' | 'prefetchLeaseTimeoutMs' | 'extractMrcLayers' | 'mainJobScratch'
+    | 'resolveRasterAdmissionPolicy'
     | 'getPageSizeStore' | 'getTempDir' | 'resolveBinary' | 'runSidecar'
     | 'getPdftoppmBinary' | 'renderPage' | 'renderPagePpm' | 'getPageCount'
     | 'publishRaster' | 'resolvePageOpsBinary'

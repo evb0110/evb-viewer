@@ -50,7 +50,10 @@ export function createScanCleanupDetectionSignature(options: IScanCleanupOptions
     const pageOverrides = Object.keys(options.pageOverrides)
         .map(pageKey => {
             const signature = JSON.stringify(pageOverrideSignature(
-                getScanCleanupPageOverride(options.pageOverrides, requirePageNumber(Number(pageKey))),
+                getScanCleanupPageOverride(
+                    options.pageOverrides,
+                    requirePageNumber(Number(pageKey)),
+                ),
             ));
             return signature === defaultSignature ? null : [
                 pageKey,
@@ -87,7 +90,10 @@ export function createScanCleanupPlacementAnchorCalibrationSignature(options: IS
     const pageOverrides = Object.keys(options.pageOverrides)
         .map(pageKey => {
             const signature = JSON.stringify(placementAnchorCalibrationOverrideSignature(
-                getScanCleanupPageOverride(options.pageOverrides, requirePageNumber(Number(pageKey))),
+                getScanCleanupPageOverride(
+                    options.pageOverrides,
+                    requirePageNumber(Number(pageKey)),
+                ),
             ));
             return signature === defaultSignature ? null : [
                 pageKey,

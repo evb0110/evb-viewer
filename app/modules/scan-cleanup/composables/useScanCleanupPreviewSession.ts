@@ -140,6 +140,11 @@ export function createScanCleanupPreviewCacheKey(
     // move when another page's content box does.
     placementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
 ) {
+    attachScanCleanupPageOverrideDefaults(
+        previewOptions.pageOverrides,
+        previewOptions.pageOverrideDefaults,
+        previewOptions.marginsMm,
+    );
     const pageOverride = getScanCleanupPageOverride(
         previewOptions.pageOverrides,
         requirePageNumber(pageNumber),

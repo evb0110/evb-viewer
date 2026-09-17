@@ -63,7 +63,7 @@ import {
     classifyScanCleanupPreviewError as classifyPreviewError,
     resolveScanCleanupPreviewPath as resolvePreviewPath,
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolvePreviewRasterAdmissionPolicy,
-    SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES as PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
@@ -110,8 +110,6 @@ type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {
 };
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
-
-const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = PREVIEW_RASTER_SLOT_RESIDENT_BYTES;
 
 export function grantScanCleanupOutputAccess(
     outputPdfPath: string,
@@ -352,6 +350,8 @@ async function admitScanCleanupDetectionStore(
     const pageOverride = (pageNumber: number) => getScanCleanupPageOverride(
         request.options.pageOverrides,
         requirePageNumber(pageNumber),
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
     );
     const validate = async (pageNumber: number) => {
         const record = validateScanCleanupDetectionRecord(
@@ -522,8 +522,13 @@ export interface IScanCleanupService {
 
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
+    options: IScanCleanupStartRequest['options'],
 ): IScanCleanupRuntimePolicy {
-    const rasterPolicy = resolvePreviewRasterAdmissionPolicy();
+    const rasterPolicy = resolvePreviewRasterAdmissionPolicy(
+        mainJobBroker.getSnapshot().capacity,
+        process.platform !== 'win32',
+        options,
+    );
     return {
         ...rasterPolicy,
         logicalCpus: profile.logicalCpus,
@@ -717,6 +722,7 @@ export function createScanCleanupService(
                 };
                 const runtimePolicy = resolveScanCleanupRuntimePolicy(
                     getHostResourceProfileSnapshot(),
+                    request.options,
                 );
                 const progress: TScanCleanupProgress = {
                     stage: 'queued' as const,
@@ -769,7 +775,11 @@ export function createScanCleanupService(
                                 priority: 'user',
                                 resources: {
                                     cpuTokens: runtimePolicy.rasterConcurrency,
-                                    estimatedResidentBytes: runtimePolicy.rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                                    estimatedResidentBytes: runtimePolicy.rasterConcurrency
+                                        * resolveScanCleanupPreviewRasterSlotResidentBytes(
+                                            request.options,
+                                            runtimePolicy.rasterMaxPixels,
+                                        ),
                                     nativeProcesses: runtimePolicy.rasterConcurrency
                                         + Number(runtimePolicy.rasterStreaming),
                                     ioWeight: 4,

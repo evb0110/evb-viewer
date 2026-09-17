@@ -1,4 +1,3 @@
-import {createReadStream} from 'node:fs';
 import {
     mkdtemp,
     open,
@@ -13,11 +12,14 @@ import {
 } from 'node:path';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {isRecord} from '@contracts/runtimeGuards';
-import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {
+    openFileBackedScanCleanupResultStore,
+    RESULT_STORE_INDEX_BYTES,
+} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
 const DESCRIPTOR_FORMAT = 'evb-scan-cleanup-detection-result-store';
-const DESCRIPTOR_SCHEMA_VERSION = 1;
+const DESCRIPTOR_SCHEMA_VERSION = 2;
 const RESULT_RECORD_MAX_BYTES = 4 * 1024 * 1024;
 const HANDOFF_DIRECTORY_PREFIX = 'scan-cleanup-detection-handoff-';
 
@@ -28,6 +30,7 @@ function isSafeInteger(value: unknown): value is number {
 /** Plain data safe to pass through workerData. */
 export interface IScanCleanupDetectionResultStoreDescriptor {
     format: typeof DESCRIPTOR_FORMAT;
+    indexPath: string;
     pageCount: number;
     recordsPath: string;
     resultCount: number;
@@ -42,6 +45,28 @@ function serialize(result: IScanCleanupDetectionResult) {
     return line;
 }
 
+type TScanCleanupFileHandle = Awaited<ReturnType<typeof open>>;
+
+async function writeFully(
+    handle: TScanCleanupFileHandle,
+    data: Buffer,
+    position?: number,
+) {
+    let offset = 0;
+    while (offset < data.byteLength) {
+        const {bytesWritten} = await handle.write(
+            data,
+            offset,
+            data.byteLength - offset,
+            position === undefined ? undefined : position + offset,
+        );
+        if (bytesWritten <= 0) {
+            throw new Error('Scan cleanup detection result handoff made no write progress');
+        }
+        offset += bytesWritten;
+    }
+}
+
 function assertDescriptor(descriptor: unknown): asserts descriptor is IScanCleanupDetectionResultStoreDescriptor {
     if (
         !isRecord(descriptor)
@@ -53,15 +78,17 @@ function assertDescriptor(descriptor: unknown): asserts descriptor is IScanClean
         || descriptor.resultCount !== descriptor.pageCount
         || typeof descriptor.recordsPath !== 'string'
         || descriptor.recordsPath.length === 0
+        || typeof descriptor.indexPath !== 'string'
+        || descriptor.indexPath.length === 0
     ) {
         throw new Error('Invalid scan cleanup detection result-store descriptor');
     }
 }
 
 /**
- * Copy the result store into a worker-readable JSONL sidecar. The store is
- * read one bounded chunk at a time, so this handoff never recreates a result
- * array in the main process.
+ * Persist the result store as one worker-readable JSONL file plus a fixed-width
+ * page-offset index. The store is read one bounded chunk at a time, so this
+ * handoff never recreates a result array in the main process.
  */
 export async function persistScanCleanupDetectionResultStore(
     store: IScanCleanupDetectionResultStore,
@@ -71,14 +98,18 @@ export async function persistScanCleanupDetectionResultStore(
         throw new RangeError('Scan cleanup detection result store has an invalid page count');
     }
     const directory = await mkdtemp(join(rootDir, HANDOFF_DIRECTORY_PREFIX));
-    const recordsPath = join(directory, 'results.jsonl');
+    const recordsPath = join(directory, 'records.jsonl');
+    const indexPath = join(directory, 'index.bin');
     const descriptorPath = join(directory, 'descriptor.json');
     let recordsHandle: Awaited<ReturnType<typeof open>> | null = null;
+    let indexHandle: Awaited<ReturnType<typeof open>> | null = null;
     let published = false;
     try {
         recordsHandle = await open(recordsPath, 'w');
+        indexHandle = await open(indexPath, 'w');
         let expectedPageNumber = 1;
         let resultCount = 0;
+        let nextOffset = 0;
         await store.forEachChunk(async results => {
             for (const result of results) {
                 if (result.pageNumber !== expectedPageNumber) {
@@ -86,7 +117,20 @@ export async function persistScanCleanupDetectionResultStore(
                         `Scan cleanup detection result store returned page ${String(result.pageNumber)} where page ${String(expectedPageNumber)} was expected`,
                     );
                 }
-                await recordsHandle!.write(serialize(result));
+                const line = serialize(result);
+                const encodedOffset = Buffer.alloc(RESULT_STORE_INDEX_BYTES);
+                encodedOffset.writeBigUInt64LE(BigInt(nextOffset) + 1n, 0);
+                await writeFully(
+                    indexHandle!,
+                    encodedOffset,
+                    (result.pageNumber - 1) * RESULT_STORE_INDEX_BYTES,
+                );
+                const encodedLine = Buffer.from(line, 'utf8');
+                await writeFully(recordsHandle!, encodedLine);
+                nextOffset += encodedLine.byteLength;
+                if (!Number.isSafeInteger(nextOffset)) {
+                    throw new RangeError('Scan cleanup detection result handoff exceeds the offset limit');
+                }
                 expectedPageNumber += 1;
                 resultCount += 1;
             }
@@ -96,8 +140,11 @@ export async function persistScanCleanupDetectionResultStore(
         }
         await recordsHandle.close();
         recordsHandle = null;
+        await indexHandle.close();
+        indexHandle = null;
         const descriptor: IScanCleanupDetectionResultStoreDescriptor = {
             format: DESCRIPTOR_FORMAT,
+            indexPath,
             pageCount: store.pageCount,
             recordsPath,
             resultCount: store.resultCount,
@@ -110,6 +157,7 @@ export async function persistScanCleanupDetectionResultStore(
         return descriptor;
     } finally {
         await recordsHandle?.close();
+        await indexHandle?.close();
         if (!published) {
             await rm(directory, {
                 force: true,
@@ -119,71 +167,32 @@ export async function persistScanCleanupDetectionResultStore(
     }
 }
 
-async function* readResults(recordsPath: string): AsyncGenerator<IScanCleanupDetectionResult> {
-    const stream = createReadStream(recordsPath, {encoding: 'utf8'});
-    let pending = '';
-    try {
-        for await (const chunk of stream) {
-            if (typeof chunk !== 'string') {
-                throw new Error('Scan cleanup result handoff produced a non-text chunk');
-            }
-            pending += chunk;
-            if (Buffer.byteLength(pending, 'utf8') > RESULT_RECORD_MAX_BYTES) {
-                throw new Error('Scan cleanup result handoff contains an oversized record');
-            }
-            let newline = pending.indexOf('\n');
-            while (newline >= 0) {
-                const line = pending.slice(0, newline).trim();
-                pending = pending.slice(newline + 1);
-                if (line.length > 0) {
-                    yield JSON.parse(line) as IScanCleanupDetectionResult;
-                }
-                newline = pending.indexOf('\n');
-            }
-        }
-        const line = pending.trim();
-        if (line.length > 0) {
-            yield JSON.parse(line) as IScanCleanupDetectionResult;
-        }
-    } finally {
-        stream.destroy();
-    }
-}
-
-/** Open a worker-safe descriptor while retaining only one record at a time. */
+/** Open a worker-safe descriptor directly over its persisted files. */
 export async function openScanCleanupDetectionResultStoreDescriptor(
     descriptor: IScanCleanupDetectionResultStoreDescriptor,
 ): Promise<IScanCleanupDetectionResultStore> {
     assertDescriptor(descriptor);
-    if (!isAbsolute(descriptor.recordsPath)) {
+    if (!isAbsolute(descriptor.recordsPath) || !isAbsolute(descriptor.indexPath)) {
         throw new Error('Scan cleanup result handoff path must be absolute');
+    }
+    if (dirname(descriptor.recordsPath) !== dirname(descriptor.indexPath)) {
+        throw new Error('Scan cleanup result handoff files must share a directory');
     }
     const recordsStats = await stat(descriptor.recordsPath);
     if (!recordsStats.isFile()) {
         throw new Error('Scan cleanup result handoff path is not a file');
     }
-    const rootDir = dirname(descriptor.recordsPath);
-    const store = await createFileBackedScanCleanupDetectionResultStore({
-        pageCount: descriptor.pageCount,
-        rootDir,
-    });
-    let expectedPageNumber = 1;
-    try {
-        for await (const result of readResults(descriptor.recordsPath)) {
-            if (result.pageNumber !== expectedPageNumber) {
-                throw new Error('Scan cleanup result handoff pages are out of order');
-            }
-            await store.append(result);
-            expectedPageNumber += 1;
-        }
-        if (expectedPageNumber !== descriptor.pageCount + 1 || store.resultCount !== descriptor.resultCount) {
-            throw new Error('Scan cleanup result handoff is incomplete');
-        }
-        return store;
-    } catch (error) {
-        await store.close();
-        throw error;
+    const indexStats = await stat(descriptor.indexPath);
+    if (!indexStats.isFile()) {
+        throw new Error('Scan cleanup result handoff index is not a file');
     }
+    return openFileBackedScanCleanupResultStore<IScanCleanupDetectionResult>({
+        recordsPath: descriptor.recordsPath,
+        indexPath: descriptor.indexPath,
+        pageCount: descriptor.pageCount,
+        pageNumberOf: result => result.pageNumber,
+        resultCount: descriptor.resultCount,
+    });
 }
 
 export async function removeScanCleanupDetectionResultStoreDescriptor(

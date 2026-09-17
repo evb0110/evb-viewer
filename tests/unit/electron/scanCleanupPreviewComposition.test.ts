@@ -14,6 +14,12 @@ import {tmpdir} from 'os';
 import {join} from 'path';
 import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
 import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {mainJobBroker} from '@electron/resources/jobBroker';
+import {
+    resolveScanCleanupPreviewRasterAdmissionPolicy,
+    resolveScanCleanupPreviewRasterSlotResidentBytes,
+    type TScanCleanupRasterBudgetOptions,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
     scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt,
     scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime,
@@ -64,6 +70,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
             const entries = await defaultDependencies.fileSystem!.readdir(scratch, {withFileTypes: true});
             expect(entries.map(entry => entry.name)).toEqual(['source.pdf']);
             await expect(defaultDependencies.getSourceStatIdentity!(sourcePath)).resolves.toMatch(/^\d+:\d+$/u);
+            expect(defaultDependencies.getPageSizes).toBeUndefined();
+            expect(defaultDependencies.getPageSizeStore).toBeDefined();
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy(true);
             expect(rasterPolicy.rasterConcurrency).toBeGreaterThan(0);
             const signal = new AbortController().signal;
@@ -97,6 +105,92 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 recursive: true,
                 force: true,
             });
+        }
+    });
+    it('derives raster residency from the configured canvas pixel budget', () => {
+        const bilevel: TScanCleanupRasterBudgetOptions = {
+            preserveOriginalQuality: false,
+            outputMode: 'bw',
+            pageOverrides: {},
+        };
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(bilevel)).toBe(640_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'color',
+        }))
+            .toBe(320_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            preserveOriginalQuality: true,
+        }))
+            .toBe(320_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'auto',
+        }))
+            .toBe(640_000_000);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
+            ...bilevel,
+            outputMode: 'color',
+            pageOverrides: {'1': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'bw',
+            }},
+        }))
+            .toBe(640_000_000);
+    });
+    it('caps the admitted raster budget to a low-memory broker capacity', () => {
+        const capacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(
+            capacity,
+            false,
+            {
+                preserveOriginalQuality: false,
+                outputMode: 'color',
+                pageOverrides: {},
+            },
+        );
+        expect(policy.rasterConcurrency).toBe(1);
+        expect(policy.rasterMaxPixels).toBe(67_108_864);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(
+            undefined,
+            policy.rasterMaxPixels,
+        )).toBe(capacity.estimatedResidentBytes);
+    });
+    it('admits a low-memory preview lease with its reduced raster reservation', async () => {
+        const previousCapacity = mainJobBroker.getSnapshot().capacity;
+        const capacity = {
+            cpuTokens: 2,
+            estimatedResidentBytes: 256 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        };
+        mainJobBroker.reconfigureCapacity(capacity);
+        try {
+            const signal = new AbortController().signal;
+            const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy!(false);
+            const detectionLease = await defaultDependencies.acquireDetectionLease!(
+                'scan-cleanup-low-memory-test',
+                signal,
+                rasterPolicy,
+            );
+            expect(detectionLease.release()).toBe(true);
+            const lease = await defaultDependencies.acquirePreviewLease!(
+                'scan-cleanup-low-memory-test',
+                'visible',
+                signal,
+            );
+            expect(lease.release()).toBe(true);
+        } finally {
+            mainJobBroker.reconfigureCapacity(previousCapacity);
         }
     });
     const scenarios = [

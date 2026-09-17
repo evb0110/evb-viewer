@@ -14,7 +14,7 @@ import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanu
 
 /** A single result record must stay smaller than the native sidecar line cap. */
 const RESULT_STORE_MAX_LINE_BYTES = 4 * 1024 * 1024;
-const RESULT_STORE_INDEX_BYTES = 8;
+export const RESULT_STORE_INDEX_BYTES = 8;
 const RESULT_STORE_READ_CHUNK_BYTES = 64 * 1024;
 const RESULT_STORE_PREFIX = 'scan-cleanup-results-';
 
@@ -43,10 +43,32 @@ type TFileBackedScanCleanupFileSystem = NonNullable<
     IFileBackedScanCleanupResultStoreOptions<unknown>['fileSystem']
 >;
 
+export interface IOpenFileBackedScanCleanupResultStoreOptions<TRecord>
+    extends Omit<IFileBackedScanCleanupResultStoreOptions<TRecord>, 'rootDir' | 'fileSystem'> {
+    recordsPath: string;
+    indexPath: string;
+    resultCount: number;
+    fileSystem?: Pick<TFileBackedScanCleanupFileSystem, 'open'>;
+}
+
 function assertPageCount(pageCount: number) {
     if (!Number.isSafeInteger(pageCount) || pageCount < 0) {
         throw new RangeError('Scan cleanup result store page count must be a non-negative safe integer');
     }
+}
+
+function assertResultCount(resultCount: number, pageCount: number) {
+    if (!Number.isSafeInteger(resultCount) || resultCount < 0 || resultCount > pageCount) {
+        throw new RangeError('Scan cleanup result store result count must be within its page count');
+    }
+}
+
+function checkedIndexLength(pageCount: number) {
+    const length = BigInt(pageCount) * BigInt(RESULT_STORE_INDEX_BYTES);
+    if (length > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new RangeError('Scan cleanup result store index length exceeds the safe integer range');
+    }
+    return Number(length);
 }
 
 function assertPageNumber(pageNumber: number, pageCount: number) {
@@ -116,6 +138,8 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
     private readonly pageNumberOf: (record: TRecord) => number;
     private readonly maxReadPages: number;
     private readonly fileSystem: TFileBackedScanCleanupFileSystem;
+    private readonly writable: boolean;
+    private readonly removeDirectoryOnClose: boolean;
     private _resultCount = 0;
     private nextOffset = 0;
     private nextAppendPageNumber = 1;
@@ -127,19 +151,25 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         directory: string,
         recordsFile: Awaited<ReturnType<typeof open>>,
         indexFile: Awaited<ReturnType<typeof open>>,
-        options: Pick<IFileBackedScanCleanupResultStoreOptions<TRecord>, 'pageCount' | 'pageNumberOf' | 'maxReadPages'>,
+        options: Pick<IFileBackedScanCleanupResultStoreOptions<TRecord>, 'pageCount' | 'pageNumberOf' | 'maxReadPages'>
+            & Partial<Pick<IOpenFileBackedScanCleanupResultStoreOptions<TRecord>, 'resultCount'>>,
         fileSystem: TFileBackedScanCleanupFileSystem,
+        writable = true,
+        removeDirectoryOnClose = true,
     ) {
         this.directory = directory;
         this.recordsFile = recordsFile;
         this.indexFile = indexFile;
         this.fileSystem = fileSystem;
+        this.writable = writable;
+        this.removeDirectoryOnClose = removeDirectoryOnClose;
         this.pageCount = options.pageCount;
         this.pageNumberOf = options.pageNumberOf;
         this.maxReadPages = options.maxReadPages ?? SCAN_CLEANUP_STREAMING_BATCH_PAGES;
         if (!Number.isSafeInteger(this.maxReadPages) || this.maxReadPages < 1) {
             throw new RangeError('Scan cleanup result store read window must be a positive safe integer');
         }
+        this._resultCount = options.resultCount ?? 0;
     }
 
     public readonly pageCount: number;
@@ -156,6 +186,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
 
     private assertOpen() {
         if (this.closed) throw new Error('Scan cleanup result store is closed');
+    }
+
+    private assertWritable() {
+        if (!this.writable) throw new Error('Scan cleanup result store is read-only');
     }
 
     private async readOffset(pageNumber: number) {
@@ -234,6 +268,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         skipExistingCheck = false,
     ) {
         this.assertOpen();
+        this.assertWritable();
         assertPageNumber(pageNumber, this.pageCount);
         const recordPageNumber = this.pageNumberOf(record);
         if (recordPageNumber !== pageNumber) {
@@ -350,10 +385,12 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
                 this.recordsFile.close(),
                 this.indexFile.close(),
             ]);
-            await this.fileSystem.rm(this.directory, {
-                force: true,
-                recursive: true,
-            });
+            if (this.removeDirectoryOnClose) {
+                await this.fileSystem.rm(this.directory, {
+                    force: true,
+                    recursive: true,
+                });
+            }
         });
     }
 }
@@ -398,6 +435,51 @@ export async function createFileBackedScanCleanupResultStore<TRecord>(
             force: true,
             recursive: true,
         }).catch(() => undefined);
+        throw error;
+    }
+}
+
+/**
+ * Open an already-persisted result store without creating a second records
+ * file. The caller owns the handoff directory and removes it after the worker
+ * has finished reading, so closing this read-only view only closes its handles.
+ */
+export async function openFileBackedScanCleanupResultStore<TRecord>(
+    options: IOpenFileBackedScanCleanupResultStoreOptions<TRecord>,
+): Promise<IScanCleanupResultStore<TRecord>> {
+    assertPageCount(options.pageCount);
+    assertResultCount(options.resultCount, options.pageCount);
+    if (typeof options.pageNumberOf !== 'function') {
+        throw new TypeError('Scan cleanup result store requires a page-number reader');
+    }
+    const fileSystem: TFileBackedScanCleanupFileSystem = {
+        mkdtemp,
+        open: options.fileSystem?.open ?? open,
+        rm,
+    };
+    let recordsFile: Awaited<ReturnType<typeof open>> | null = null;
+    let indexFile: Awaited<ReturnType<typeof open>> | null = null;
+    try {
+        recordsFile = await fileSystem.open(options.recordsPath, 'r');
+        indexFile = await fileSystem.open(options.indexPath, 'r');
+        const indexStats = await indexFile.stat();
+        if (indexStats.size < checkedIndexLength(options.pageCount)) {
+            throw new Error('Scan cleanup result store index is truncated');
+        }
+        return new FileBackedScanCleanupResultStore(
+            options.recordsPath,
+            recordsFile,
+            indexFile,
+            options,
+            fileSystem,
+            false,
+            false,
+        );
+    } catch (error) {
+        await Promise.allSettled([
+            recordsFile?.close(),
+            indexFile?.close(),
+        ]);
         throw error;
     }
 }

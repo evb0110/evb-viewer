@@ -293,6 +293,8 @@ function resolveSheetShares(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
     if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
@@ -311,6 +313,8 @@ function isAutomaticLayout(options: IScanCleanupOptions, pageNumber: number) {
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     return pageOverride.manualSplit === null
         && resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride) === 'auto';
@@ -389,6 +393,8 @@ function addScanCleanupCanvasSummaryPage(
     const outputMode = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageSize.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     ).outputModeOverride
         ?? options.outputMode;
     bucket.hasContinuousTone ||= outputMode !== 'bw';
@@ -408,6 +414,8 @@ export function addScanCleanupDocumentCanvasPage(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageSize.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     if (pageOverride.excluded) {
         return false;
@@ -450,6 +458,8 @@ export function addScanCleanupDocumentCanvasObservedPage(
     if (getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageSize.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     ).excluded) {
         return;
     }
@@ -479,12 +489,22 @@ function resolveScanCleanupCanvasSummaryRect(
     };
 }
 
+function resolveCanvasMaxPixels(
+    configuredMaxPixels: number,
+    rasterMaxPixels: number | undefined,
+) {
+    return rasterMaxPixels === undefined
+        ? configuredMaxPixels
+        : Math.max(1, Math.min(configuredMaxPixels, Math.floor(rasterMaxPixels)));
+}
+
 /** Resolve the canvas from bounded summary state rather than page arrays. */
 export function resolveScanCleanupDocumentCanvasFromAccumulator(
     accumulator: IScanCleanupDocumentCanvasAccumulator,
     renderDpi: number,
     options: IScanCleanupOptions,
     layoutEvidenceComplete = false,
+    rasterMaxPixels?: number,
 ): IScanCleanupDocumentCanvasPlan | null {
     void options;
     if (accumulator.producedPageCount === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
@@ -519,7 +539,12 @@ export function resolveScanCleanupDocumentCanvasFromAccumulator(
                 accumulator.automaticSpread,
             ];
     }
-    return resolveScanCleanupDocumentCanvasPlanFromBuckets(buckets, renderDpi, dominantCandidates);
+    return resolveScanCleanupDocumentCanvasPlanFromBuckets(
+        buckets,
+        renderDpi,
+        dominantCandidates,
+        rasterMaxPixels,
+    );
 }
 
 /**
@@ -533,6 +558,7 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
     renderDpi: number,
     options: IScanCleanupOptions,
     layoutEvidenceComplete = false,
+    rasterMaxPixels?: number,
 ): IScanCleanupDocumentCanvasPlan | null {
     if (layoutEvidenceComplete) {
         return resolveScanCleanupDocumentCanvasFromAccumulator(
@@ -540,6 +566,7 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
             renderDpi,
             options,
             true,
+            rasterMaxPixels,
         );
     }
     if (accumulator.producedPageCount === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
@@ -555,13 +582,19 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
             accumulator.automaticSingle,
             accumulator.automaticSpread,
         ];
-    return resolveScanCleanupDocumentCanvasPlanFromBuckets(buckets, renderDpi, dominantCandidates);
+    return resolveScanCleanupDocumentCanvasPlanFromBuckets(
+        buckets,
+        renderDpi,
+        dominantCandidates,
+        rasterMaxPixels,
+    );
 }
 
 function resolveScanCleanupDocumentCanvasPlanFromBuckets(
     buckets: readonly IScanCleanupCanvasSummaryBucket[],
     renderDpi: number,
     dominantCandidates: readonly IScanCleanupCanvasSummaryBucket[] = [],
+    rasterMaxPixels?: number,
 ): IScanCleanupDocumentCanvasPlan | null {
     const dominant = dominantCandidates.reduce<IScanCleanupCanvasSummaryBucket | null>((best, candidate) => {
         if (candidate.count === 0) {
@@ -585,7 +618,10 @@ function resolveScanCleanupDocumentCanvasPlanFromBuckets(
     if (largest === null) {
         return null;
     }
-    const maxPixels = resolveScanCleanupMatchedCanvasMaxPixels([hasContinuousTone ? 'color' : 'bw']);
+    const maxPixels = resolveCanvasMaxPixels(
+        resolveScanCleanupMatchedCanvasMaxPixels([hasContinuousTone ? 'color' : 'bw']),
+        rasterMaxPixels,
+    );
     const dpi = resolveCanvasDpi(largest, renderDpi, maxPixels);
     const plan = {
         widthPoints: largest.widthPoints,
@@ -621,6 +657,8 @@ export function resolveScanCleanupUnclassifiedPages(
         .filter(pageSize => !getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded
             && isAutomaticLayout(options, pageSize.pageNumber)
             && readObservedLayout(layoutByPage, pageSize.pageNumber) === undefined)
@@ -650,6 +688,7 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
     options: IScanCleanupOptions,
     layoutByPage?: TScanCleanupLayoutByPage,
     layoutEvidenceComplete = false,
+    rasterMaxPixels?: number,
 ): IScanCleanupDocumentCanvasPlan | null {
     if (layoutEvidenceComplete) {
         return resolveScanCleanupDocumentCanvas(
@@ -657,12 +696,15 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
             renderDpi,
             options,
             layoutByPage,
+            rasterMaxPixels,
         );
     }
     const automaticEvidence = pageSizes.filter(pageSize => (
         !getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded
         && isAutomaticLayout(options, pageSize.pageNumber)
         && readObservedLayout(layoutByPage, pageSize.pageNumber) !== undefined
@@ -699,6 +741,7 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
         renderDpi,
         options,
         layoutByPage,
+        rasterMaxPixels,
     );
 }
 
@@ -724,6 +767,8 @@ export function resolveScanCleanupDroppedMatchWarningEvent(
         pageSize => getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded,
     )
         ? null
@@ -953,6 +998,7 @@ export function resolveScanCleanupDocumentCanvas(
     renderDpi: number,
     options: IScanCleanupOptions,
     layoutByPage?: TScanCleanupLayoutByPage,
+    rasterMaxPixels?: number,
 ): IScanCleanupDocumentCanvasPlan | null {
     // A page the user excluded is not on the sheet and must not decide its
     // size. A page outside a partial run's scope still is: it belongs to the
@@ -961,6 +1007,8 @@ export function resolveScanCleanupDocumentCanvas(
         pageSize => !getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded,
     );
     if (produced.length === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
@@ -982,13 +1030,18 @@ export function resolveScanCleanupDocumentCanvas(
             canvas = rect;
         }
     }
-    const maxPixels = resolveScanCleanupMatchedCanvasMaxPixels(produced.map(
-        pageSize => getScanCleanupPageOverride(
-            options.pageOverrides,
-            requirePageNumber(pageSize.pageNumber),
-        ).outputModeOverride
-            ?? options.outputMode,
-    ));
+    const maxPixels = resolveCanvasMaxPixels(
+        resolveScanCleanupMatchedCanvasMaxPixels(produced.map(
+            pageSize => getScanCleanupPageOverride(
+                options.pageOverrides,
+                requirePageNumber(pageSize.pageNumber),
+                options.pageOverrideDefaults,
+                options.marginsMm,
+            ).outputModeOverride
+                ?? options.outputMode,
+        )),
+        rasterMaxPixels,
+    );
     const dpi = resolveCanvasDpi(canvas, renderDpi, maxPixels);
     const plan = {
         widthPoints: canvas.widthPoints,
@@ -1117,7 +1170,12 @@ export function resolveMatchedCanvasResamplePages(
     return pageNumbers.filter(pageNumber => {
         const validPageNumber = requirePageNumber(pageNumber);
         const pageSize = pageSizes[pageNumber - 1];
-        if (!pageSize || getScanCleanupPageOverride(options.pageOverrides, validPageNumber).excluded) {
+        if (!pageSize || getScanCleanupPageOverride(
+            options.pageOverrides,
+            validPageNumber,
+            options.pageOverrideDefaults,
+            options.marginsMm,
+        ).excluded) {
             return false;
         }
         const scale = resolveScanCleanupCanvasFitScale(canvas, resolveScanCleanupOutputPageRect(

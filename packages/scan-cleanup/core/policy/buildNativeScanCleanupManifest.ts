@@ -87,6 +87,8 @@ export interface IBuildNativeScanCleanupManifestInput {
      * its page pool from it while most inputs are still unrendered.
      */
     stagedInputPeakPixels?: number;
+    /** Optional host-admission cap that must also bound native page rasters. */
+    rasterMaxPixels?: number;
 }
 
 /**
@@ -354,6 +356,7 @@ function assembleNativeScanCleanupManifest({
     rasterWindow,
     stagedInputWindow,
     stagedInputPeakPixels,
+    rasterMaxPixels,
 }: IBuildNativeScanCleanupManifestInput, allowedPathRoot: string | null): INativeScanCleanupManifestV3 {
     if (pages.length > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
         throw new ScanCleanupContractError(
@@ -412,6 +415,8 @@ function assembleNativeScanCleanupManifest({
                     pageOverride: getScanCleanupPageOverride(
                         options.pageOverrides,
                         requirePageNumber(page.pageNumber),
+                        options.pageOverrideDefaults,
+                        options.marginsMm,
                     ),
                     dpi: page.dpi,
                     ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
@@ -460,6 +465,7 @@ function assembleNativeScanCleanupManifest({
             };
             const maxPixels = resolveScanCleanupPipelineMaxPixels(
                 resolvedOptions.outputMode === 'auto' ? undefined : resolvedOptions.outputMode,
+                rasterMaxPixels,
             );
             return {
                 inputPath: page.inputPath,

@@ -332,6 +332,7 @@ export async function runLosslessScanCleanup(
             qualityPath: 'lossless',
             hostMemoryBytes: policy.totalRamBytes,
             options: request.options,
+            ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
                 ...(request.options.autoDewarpDepth === undefined
@@ -406,6 +407,8 @@ export async function runLosslessScanCleanup(
                 const pageOverride = getScanCleanupPageOverride(
                     request.options.pageOverrides,
                     requirePageNumber(sourcePageNumber),
+                    request.options.pageOverrideDefaults,
+                    request.options.marginsMm,
                 );
                 if (metadata.excluded) {
                     summary.excludedPages += 1;
@@ -496,6 +499,7 @@ export async function runLosslessScanCleanup(
             SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
             request.options,
             true,
+            policy.rasterMaxPixels,
         )
         : null;
     const documentCanvas = context.documentCanvas === undefined
@@ -768,6 +772,8 @@ export async function runLosslessScanCleanup(
             rotationDegrees: metadata?.rotationDegrees ?? getScanCleanupPageOverride(
                 request.options.pageOverrides,
                 requirePageNumber(pageNumber),
+                request.options.pageOverrideDefaults,
+                request.options.marginsMm,
             ).rotationDegrees,
             excluded: metadata?.excluded === true,
             blank: metadata?.excluded !== true,

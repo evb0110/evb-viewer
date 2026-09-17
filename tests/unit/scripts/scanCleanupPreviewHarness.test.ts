@@ -7,6 +7,7 @@ import {
     compareMetrics,
     independentReaderScale,
     independentReaderWrongCalibrationOffset,
+    measureOverlayContainment,
     weightAgreementViolations,
     weightUniformity,
 } from '@scripts/diagnostics/scan-cleanup-preview-harness.mjs';
@@ -49,6 +50,33 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
 }
 
 describe('scan cleanup preview weight agreement', () => {
+    it('counts an ink pixel whose cell intersects a subpixel overlay edge', () => {
+        const bitmap = {
+            data: (() => {
+                const data = new Uint8Array(2 * 100).fill(255);
+                data[0] = 0;
+                return data;
+            })(),
+            height: 100,
+            width: 2,
+        };
+
+        expect(measureOverlayContainment(
+            bitmap,
+            {
+                bottom: 1,
+                left: 0,
+                right: 1,
+                top: 0.51,
+            },
+            0.01,
+            0.03,
+        )).toMatchObject({
+            containment: 1,
+            pass: true,
+        });
+    });
+
     it('maps cropped native output into the matched canvas before reading ink', () => {
         expect(independentReaderScale({
             canvasHeightPx: 120,
