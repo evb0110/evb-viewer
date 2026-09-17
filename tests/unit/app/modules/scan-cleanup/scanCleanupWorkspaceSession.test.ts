@@ -2552,7 +2552,8 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('shows active cancellation intent and restores it after a refusal', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
-        const mounted = mountSession(`cancel-intent-${Date.now()}`);
+        const documentRevision = 'cancel-intent-revision';
+        const mounted = mountSession(`cancel-intent-${Date.now()}`, {documentRevision: () => documentRevision});
         onTestFinished(() => mounted.unmount());
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
@@ -2600,7 +2601,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.run.cancelRequested.value).toBe(true);
         expect(harness.value.cancel).toHaveBeenCalledWith(
             'cancel-intent-job',
-            expect.objectContaining({ownerId: expect.any(String)}),
+            expect.objectContaining({
+                ownerId: expect.any(String),
+                documentRevision,
+            }),
         );
 
         cancelReply.resolve(false);
