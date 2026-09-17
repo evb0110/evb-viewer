@@ -1562,15 +1562,12 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
-        for (const [
-            index,
-            page,
-        ] of manifest.pages.entries()) {
+        for (const [index] of manifest.pages.entries()) {
             onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
                 totalPages: manifest.pages.length,
-                pageNumber: page.sourcePageIndex + 1,
+                pageNumber: index + 1,
                 classification: 'single-uncut-page',
                 confidence: 0.9,
             });
