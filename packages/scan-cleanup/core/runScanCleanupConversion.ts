@@ -29,7 +29,6 @@ import type {
     TNativeScanCleanupProgressV3,
     TScanCleanupProgress,
     TScanCleanupSummary,
-    TScanCleanupSummaryWarningEvent,
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
@@ -156,6 +155,7 @@ import {
 import {
     createEmptyScanCleanupSummary,
     createScanCleanupProgressReporter,
+    createScanCleanupSummaryWarningReporter,
     reportScanCleanupSummaryWarningEvent,
 } from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
@@ -171,7 +171,6 @@ import {DETECTION_DPI} from '@evb/scan-cleanup/core/detection';
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {
     describePageNumbers,
-    formatScanCleanupWarningEvent,
     toScanCleanupDpiThousandths,
 } from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {
@@ -1354,8 +1353,7 @@ async function runStreamingScanCleanupConversion({
     stagedPdfPath,
     publishTempPath,
     scratch,
-    warnings,
-    warningEvents,
+    summary,
     geometrySidecarPath,
     dpiDetails,
     detectionResultStore,
@@ -1378,8 +1376,7 @@ async function runStreamingScanCleanupConversion({
     stagedPdfPath: string;
     publishTempPath: string;
     scratch: string;
-    warnings: string[];
-    warningEvents: TScanCleanupSummaryWarningEvent[];
+    summary: TScanCleanupSummary;
     geometrySidecarPath: string;
     dpiDetails: TScanCleanupDpiDetails;
     detectionResultStore?: NonNullable<IRunScanCleanupPipelineRequest['detectionResultStore']>;
@@ -1389,7 +1386,7 @@ async function runStreamingScanCleanupConversion({
     provenance: IScanCleanupProvenanceInputs;
 }) {
     if (documentPageCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
-        throw new Error('Streaming scan cleanup requires an xlarge document');
+        throw new ScanCleanupContractError('Streaming scan cleanup requires an xlarge document');
     }
     // The native geometry sidecar was materialized during the parent canvas
     // pass. Children share a sequential cursor and advance it through each
@@ -1401,7 +1398,6 @@ async function runStreamingScanCleanupConversion({
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
     const outputHandle = await open(batchOutputsPath, 'w');
     const summaryHandle = await open(batchSummariesPath, 'w');
-    const summary = createEmptyScanCleanupSummary(pageCount, warnings, warningEvents);
     const completedPageNumbers = new Set<number>();
     let batchCount = 0;
     try {
@@ -1521,7 +1517,7 @@ async function runStreamingScanCleanupConversion({
             );
         }
         if (batchCount === 0 || summary.outputPages === 0) {
-            throw new Error('evb-scan-cleanup produced no output pages');
+            throw new ScanCleanupContractError('evb-scan-cleanup produced no output pages');
         }
         await validateScanCleanupBatchSummarySidecar(
             batchSummariesPath,
@@ -1551,7 +1547,7 @@ async function runStreamingScanCleanupConversion({
             stat(preparedPdfPath),
             stat(stagedPdfPath),
         ]);
-        if (outputFile.size <= 0) throw new Error('PDF assembler produced an empty file');
+        if (outputFile.size <= 0) throw new ScanCleanupContractError('PDF assembler produced an empty file');
         const fullDocumentRun = request.sourcePageNumbers === undefined
             && request.sourcePageRange === undefined;
         if (
@@ -1683,23 +1679,13 @@ export async function runScanCleanupConversion(
         );
         const largeStreamingRun = documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
             && context?.smallCompatibilityRun !== true;
-        const warnings = [...prepared.warnings];
-        // Conditions raised before the summary exists still belong to it, so
-        // they are collected in the same typed shape and handed over with the
-        // sentences they produced.
-        const warningEvents: TScanCleanupSummaryWarningEvent[] = [];
-        // What the run tells the user reaches them through the summary, and
-        // the same sentence belongs in the log.
-        const warn = (message: string) => {
-            warnings.push(message);
-            log('warn', `Scan cleanup: ${message}`);
-        };
+        const summary = createEmptyScanCleanupSummary(pageCount, prepared.warnings);
+        const warn = createScanCleanupSummaryWarningReporter(summary, log);
         const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
-            warningEvents.push({
+            reportScanCleanupSummaryWarningEvent(summary, {
                 event,
                 ...(pageNumber === undefined ? {} : {pageNumber: requirePageNumber(pageNumber)}),
-            });
-            warn(formatScanCleanupWarningEvent(event, pageNumber));
+            }, warn);
         };
         emitProgress('normalizing', 1, 1);
         // The lossless path assembles with evb-pdf-page-ops, so it needs the
@@ -1999,11 +1985,11 @@ export async function runScanCleanupConversion(
             losslessRun = false;
         }
         if (request.options.preserveOriginalQuality && !largeStreamingRun && resampledPages.length === 0) {
-            const summary = await runLosslessScanCleanup(
+            const losslessSummary = await runLosslessScanCleanup(
                 request,
                 paths,
                 prepared.pdfPath,
-                warnings,
+                prepared.warnings,
                 pageNumbers,
                 geometryPageSizeStore,
                 dpiDetails,
@@ -2027,15 +2013,18 @@ export async function runScanCleanupConversion(
                             ? {}
                             : {skipDocumentCanvasMeasurement: context.skipDocumentCanvasMeasurement}),
                     },
+                summary,
             );
-            if ((await stat(stagedPdfPath)).size <= 0) throw new Error('Lossless PDF assembler produced an empty file');
+            if ((await stat(stagedPdfPath)).size <= 0) {
+                throw new ScanCleanupContractError('Lossless PDF assembler produced an empty file');
+            }
             await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
             emitProgress('handoff', 0, pageCount, []);
             await copyFile(stagedPdfPath, publishTempPath);
             signal.throwIfAborted();
             await rename(publishTempPath, request.outputPdfPath);
             emitProgress('handoff', pageCount, pageCount, pageNumbers);
-            return summary;
+            return losslessSummary;
         }
         // A compatibility map is populated only for the bounded child run or
         // a genuinely small document. The xlarge parent keeps the accessor
@@ -2088,7 +2077,7 @@ export async function runScanCleanupConversion(
                 return outputMode;
             }
             if (isOutputPageNumber(pageNumber)) {
-                throw new Error(
+                throw new ScanCleanupContractError(
                     `Scan cleanup page ${String(pageNumber)} has no locked Auto output-mode decision`,
                 );
             }
@@ -2149,7 +2138,9 @@ export async function runScanCleanupConversion(
                 }
             }
             if (guardrail === undefined) {
-                throw new Error(`Scan cleanup has no trusted raster geometry for page ${String(pageNumber)}`);
+                throw new ScanCleanupContractError(
+                    `Scan cleanup has no trusted raster geometry for page ${String(pageNumber)}`,
+                );
             }
             cache.set(pageNumber, guardrail);
             return guardrail;
@@ -2276,8 +2267,7 @@ export async function runScanCleanupConversion(
                 stagedPdfPath,
                 publishTempPath,
                 scratch,
-                warnings,
-                warningEvents,
+                summary,
                 geometrySidecarPath,
                 dpiDetails,
                 ...(request.detectionResultStore === undefined
@@ -2592,15 +2582,11 @@ export async function runScanCleanupConversion(
         const outputPages: IRenderedCleanupOutputPage[] = [];
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
         const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
-        const summary = createEmptyScanCleanupSummary(pageCount, warnings, warningEvents);
         // The engine's own account of what it had to do to a page, a page it
         // could not hold at the document's scale, a raster it could not
         // publish. It travels with the summary and is logged here, so a run
         // that quietly compromised says where.
-        const report = (message: string) => {
-            summary.warnings.push(message);
-            log('warn', `Scan cleanup: ${message}`);
-        };
+        const report = createScanCleanupSummaryWarningReporter(summary, log);
         const fittedMarginBoxPages = new Set<number>();
         const renderedPageNumbers = new Set<number>();
         const rasterizedPageNumbers = new Set<number>();
@@ -2968,8 +2954,7 @@ export async function runScanCleanupConversion(
                             + `foreground ${foregroundHeader.width}x${foregroundHeader.height}, `
                             + `expected ${expectedForegroundWidth}x${expectedForegroundHeight}); `
                             + `using ${fallbackDescription}`;
-                            summary.warnings.push(warning);
-                            log('error', `Scan cleanup: ${warning}`);
+                            report(warning, 'error');
                         } else {
                             backgroundPath = candidateBackgroundPath;
                             backgroundIsColor = backgroundHeader.isColor;
@@ -3072,7 +3057,9 @@ export async function runScanCleanupConversion(
             }}, report);
         }
         summary.outputPages = outputPages.length;
-        if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');
+        if (outputPages.length === 0) {
+            throw new ScanCleanupContractError('evb-scan-cleanup produced no output pages');
+        }
         const combineManifestPages = outputPages.map(output => {
             const pageWidthPoints = output.metadata.matchedCanvasTargetWidthPoints
                 ?? output.metadata.canvasWidthPx / output.dpi * 72;
@@ -3191,7 +3178,9 @@ export async function runScanCleanupConversion(
         const effectiveOptions = mapScanCleanupPageScope(pageNumbers, (sourcePage) => {
             const page = manifestPageBySource.get(sourcePage);
             if (page === undefined) {
-                throw new Error(`Scan cleanup lost manifest page ${String(sourcePage)} during batching`);
+                throw new ScanCleanupContractError(
+                    `Scan cleanup lost manifest page ${String(sourcePage)} during batching`,
+                );
             }
             return {
                 sourcePage,
@@ -3358,7 +3347,7 @@ export async function runScanCleanupConversion(
             stat(prepared.pdfPath),
             stat(stagedPdfPath),
         ]);
-        if (outputFile.size <= 0) throw new Error('PDF assembler produced an empty file');
+        if (outputFile.size <= 0) throw new ScanCleanupContractError('PDF assembler produced an empty file');
         const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
             documentPageCount,
             options: request.options,

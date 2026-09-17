@@ -28,7 +28,11 @@ import type { TJobId } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {ComputedRef} from 'vue';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
-import {formatScanCleanupPreAnalysisProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import {
+    formatScanCleanupEta,
+    formatScanCleanupPreAnalysisProgress,
+    resolveScanCleanupEtaWidestText,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
@@ -41,7 +45,6 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
-import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
@@ -344,22 +347,17 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const progressPercent = computed(() => preAnalysisProgress.value.totalUnits === 0
         ? 0
         : preAnalysisProgress.value.completedUnits / preAnalysisProgress.value.totalUnits * 100);
-    const {
-        progressEtaText,
-        progressEtaWidestText,
-    } = useScanCleanupPageEta(computed(() => {
+    const progressEtaText = computed(() => {
         const state = jobState.value;
-        if (state === null || detectionIsTerminal(state)) {
-            return null;
+        if (state !== null
+            && !detectionIsTerminal(state)
+            && preAnalysisProgress.value.completedUnits >= preAnalysisProgress.value.totalUnits
+        ) {
+            return t('scanCleanup.detectAll.reconciling');
         }
-        return {
-            completedAtMs: state.updatedAtMs > 0 ? state.updatedAtMs : createEpochMs(),
-            completedUnits: preAnalysisProgress.value.completedUnits,
-            phaseKey: 'analysis',
-            runKey: state.jobId,
-            totalUnits: preAnalysisProgress.value.totalUnits,
-        };
-    }), computed(() => t('scanCleanup.detectAll.reconciling')));
+        return formatScanCleanupEta(state?.progress.etaSeconds, t, state?.progress.stage);
+    });
+    const progressEtaWidestText = computed(() => resolveScanCleanupEtaWidestText(t));
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
     const preAnalysisWidestParts = computed(() => formatScanCleanupPreAnalysisProgress({

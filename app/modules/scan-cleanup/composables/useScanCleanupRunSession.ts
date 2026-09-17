@@ -39,18 +39,17 @@ import {
     startScanCleanup,
     type TScanCleanupRendererStartResult,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
-import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import {
+    formatScanCleanupEta,
+    formatScanCleanupProgress,
+    resolveScanCleanupEtaWidestText,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {formatFailurePresentationDescription} from '@app/composables/useFailureToast';
 
-const ETA_PAGE_STAGES = new Set([
-    'rasterizing',
-    'classifying',
-    'rendering',
-]);
 // Large detection jobs hand their complete result store to main through an
 // opaque id. Keep legacy object maps only for the explicit small-document
 // compatibility path, even if a misconfigured or expired handoff leaves the
@@ -357,7 +356,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         completed: progress.value.totalUnits,
         total: progress.value.totalUnits,
     }));
-    const progressEtaPendingText = computed(() => t('scanCleanup.etaPending'));
     const pageProgressComplete = computed(() => [
         'classifying',
         'rendering',
@@ -381,21 +379,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ? t('scanCleanup.almostDone')
                 : t('scanCleanup.finishingPhase');
         }
-        const etaSeconds = progress.value.etaSeconds;
-        if (etaSeconds === undefined || !ETA_PAGE_STAGES.has(progress.value.stage)) {
-            return progressEtaPendingText.value;
-        }
-        return etaSeconds >= 60
-            ? t('scanCleanup.etaMinutes', {minutes: Math.max(1, Math.ceil(etaSeconds / 60))})
-            : t('scanCleanup.etaSeconds', {seconds: Math.max(1, etaSeconds)});
+        return formatScanCleanupEta(progress.value.etaSeconds, t, progress.value.stage);
     });
-    const progressEtaWidestText = computed(() => [
-        progressEtaPendingText.value,
-        t('scanCleanup.etaMinutes', {minutes: 999}),
-        t('scanCleanup.etaSeconds', {seconds: 999}),
-        t('scanCleanup.finishingPhase'),
-        t('scanCleanup.almostDone'),
-    ].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest));
+    const progressEtaWidestText = computed(() => resolveScanCleanupEtaWidestText(t));
     const progressText = computed(() => `${progressParts.value.text}. ${progressEtaText.value}`);
     const runLabel = computed(() => options.sourcePageNumbers.value === null
         ? t('scanCleanup.cleanUp')

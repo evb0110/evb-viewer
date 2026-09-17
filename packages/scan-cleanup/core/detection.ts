@@ -56,6 +56,7 @@ import {
     resolveScanCleanupDocumentCanvasFromAccumulator,
     scanCleanupDocumentCanvasSignature,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
+import {createScanCleanupProgressEtaEstimator} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     isCropBoxOrientationMismatch,
     isMateriallySmallerCropBox,
@@ -767,6 +768,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
 
     let rasterizedPages = 0;
     let analyzedPages = 0;
+    const etaEstimator = createScanCleanupProgressEtaEstimator();
     const mediaBoxRetryCandidates: Array<{
         pageNumber: number;
         result: IScanCleanupDetectionResult;
@@ -776,13 +778,30 @@ async function runBatchedScanCleanupDetection<TDocument>(
     // list through progress. A batch-local list still lets the UI identify the
     // pages represented by the latest native frame without retaining a million
     // page numbers in the workflow.
-    const publishRasterizing = () => publish([], {
-        stage: 'rasterizing',
-        completedUnits: rasterizedPages,
-        totalUnits: totalPages,
-        percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
-        completedPageNumbers: [],
-    }, documentCanvasSignature());
+    const progressWithEta = (
+        stage: TScanCleanupProgress['stage'],
+        completedUnits: number,
+        totalUnits: number,
+        progress: Pick<TScanCleanupProgress, 'percent' | 'completedPageNumbers' | 'completedPageNumbersTruncated'>,
+    ): TScanCleanupProgress => {
+        const etaSeconds = etaEstimator.update(stage, completedUnits, totalUnits, performance.now());
+        return {
+            stage,
+            completedUnits,
+            totalUnits,
+            ...progress,
+            ...(etaSeconds === undefined ? {} : {etaSeconds}),
+        };
+    };
+    const publishRasterizing = () => publish([], progressWithEta(
+        'rasterizing',
+        rasterizedPages,
+        totalPages,
+        {
+            percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
+            completedPageNumbers: [],
+        },
+    ), documentCanvasSignature());
     publishRasterizing();
 
     for (const batch of iterateScanCleanupPageBatches(
@@ -1329,13 +1348,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
                                 return;
                             }
-                            publish(takePublishableResults(), {
-                                stage: 'detecting',
-                                completedUnits: analyzedPages,
-                                totalUnits: totalPages,
-                                percent: totalPages === 0 ? 100 : analyzedPages / totalPages * 100,
-                                ...completedPageProgress(reportedPageNumbers, analyzedPages),
-                            }, documentCanvasSignature());
+                            publish(takePublishableResults(), progressWithEta(
+                                'detecting',
+                                analyzedPages,
+                                totalPages,
+                                {
+                                    percent: totalPages === 0 ? 100 : analyzedPages / totalPages * 100,
+                                    ...completedPageProgress(reportedPageNumbers, analyzedPages),
+                                },
+                            ), documentCanvasSignature());
                             return;
                         }
                         if (
@@ -1352,13 +1373,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         if (!shouldPublishLargeProgress(completedUnits >= totalPages)) {
                             return;
                         }
-                        publish(takePublishableResults(), {
-                            stage: 'detecting',
+                        publish(takePublishableResults(), progressWithEta(
+                            'detecting',
                             completedUnits,
-                            totalUnits: totalPages,
-                            percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
-                            ...completedPageProgress(reportedPageNumbers, completedUnits),
-                        }, documentCanvasSignature(completedUnits >= totalPages));
+                            totalPages,
+                            {
+                                percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
+                                ...completedPageProgress(reportedPageNumbers, completedUnits),
+                            },
+                        ), documentCanvasSignature(completedUnits >= totalPages));
                     }
                 },
                 {

@@ -18,6 +18,12 @@ const COUNTED_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
     'rendering',
     'detecting',
 ]);
+const ETA_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
+    'rasterizing',
+    'classifying',
+    'rendering',
+    'detecting',
+]);
 
 const USER_FACING_STAGE: Readonly<Partial<Record<
     TScanCleanupProgressStage,
@@ -27,6 +33,28 @@ const USER_FACING_STAGE: Readonly<Partial<Record<
     extracting: 'normalizing',
     collecting: 'assembling',
 };
+
+export const formatScanCleanupEta = (
+    etaSeconds: number | undefined,
+    t: TTranslateFn,
+    stage?: TScanCleanupProgressStage,
+) => {
+    if (etaSeconds === undefined || stage !== undefined && !ETA_STAGES.has(stage)) {
+        return t('scanCleanup.etaPending');
+    }
+    return etaSeconds >= 60
+        ? t('scanCleanup.etaMinutes', {minutes: Math.max(1, Math.ceil(etaSeconds / 60))})
+        : t('scanCleanup.etaSeconds', {seconds: Math.max(1, etaSeconds)});
+};
+
+export const resolveScanCleanupEtaWidestText = (t: TTranslateFn) => [
+    t('scanCleanup.etaPending'),
+    t('scanCleanup.etaMinutes', {minutes: 999}),
+    t('scanCleanup.etaSeconds', {seconds: 999}),
+    t('scanCleanup.finishingPhase'),
+    t('scanCleanup.almostDone'),
+    t('scanCleanup.detectAll.reconciling'),
+].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest);
 
 export const formatScanCleanupProgress = (progress: IScanCleanupProgressCounts, t: TTranslateFn) => {
     const phase = t(`scanCleanup.runProgress.${USER_FACING_STAGE[progress.stage] ?? progress.stage}`);

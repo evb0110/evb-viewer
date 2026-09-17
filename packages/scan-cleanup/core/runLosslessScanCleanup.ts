@@ -11,6 +11,7 @@ import type {
     INativeScanCleanupPageMetadataV3,
     IScanCleanupDocumentCanvasPlan,
     TScanCleanupOutputHalf,
+    TScanCleanupSummary,
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -76,6 +77,7 @@ import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResol
 import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
     createEmptyScanCleanupSummary,
+    createScanCleanupSummaryWarningReporter,
     reportScanCleanupSummaryWarningEvent,
 } from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
@@ -163,6 +165,7 @@ export async function runLosslessScanCleanup(
     policy: IScanCleanupRuntimePolicy,
     dependencies: IRunScanCleanupPipelineDependencies,
     context: IScanCleanupLosslessRunContext = {},
+    initialSummary?: TScanCleanupSummary,
 ) {
     // The assembler crops in the source page's own user space, so a page that
     // is handed another page's box writes a wrong document rather than a
@@ -192,11 +195,8 @@ export async function runLosslessScanCleanup(
         && request.sourcePageRange === undefined;
     const pagePlanResolver = createPagePlanResolver(request, log, 'lossless');
     emitProgress('rasterizing', 0, pageNumbers.length, []);
-    const summary = createEmptyScanCleanupSummary(pageNumbers.length, preparedWarnings);
-    const warn = (message: string) => {
-        summary.warnings.push(message);
-        log('warn', `Scan cleanup: ${message}`);
-    };
+    const summary = initialSummary ?? createEmptyScanCleanupSummary(pageNumbers.length, preparedWarnings);
+    const warn = createScanCleanupSummaryWarningReporter(summary, log);
     // Every condition this run reports travels twice: as the sentence the user
     // reads and as the typed event it was formatted from. A consumer of the run
     // — the CLI summary, a caller checking what a lossless conversion had to do
@@ -344,7 +344,10 @@ export async function runLosslessScanCleanup(
             allowedPathRoot: paths.tempDir,
         });
         const pages = manifest.pages;
-        const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
+        const manifestPath = join(
+            scratch,
+            `lossless-analysis-manifest-${String(batch.batchIndex)}.json`,
+        );
         await writeFile(manifestPath, JSON.stringify(manifest));
         for (const [
             index,
