@@ -234,6 +234,16 @@ export function resolveScanCleanupProcessedPages(
     ) {
         return new Set();
     }
+    if (state.progress.completedPageNumbersTruncated === true) {
+        const completedPageCount = Math.max(
+            0,
+            Math.min(totalPages, state.progress.completedUnits),
+        );
+        return new Set(Array.from(
+            {length: completedPageCount},
+            (_, index) => index + 1,
+        ));
+    }
     return new Set((state.progress.completedPageNumbers ?? [])
         .filter(pageNumber => pageNumber <= totalPages));
 }
