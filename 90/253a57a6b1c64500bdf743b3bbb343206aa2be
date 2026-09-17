@@ -1,0 +1,19 @@
+app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings.ts
+  s_1de0db3cf14fae::t_80267d7525864d 403-407,432-441
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "90253a57a6b1c64500bdf743b3bbb343206aa2be",
+  "prompts": {},
+  "sessions": {
+    "s_1de0db3cf14fae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c705-7142-941a-529991d43f23",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
