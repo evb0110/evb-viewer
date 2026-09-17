@@ -513,14 +513,14 @@ function createPageSizeStoreFromGeometrySidecar(path: string, signal: AbortSigna
     return new PdfPageSizeStore(() => readPageGeometrySidecarChunks(path, signal));
 }
 
-/** Build a bounded source from detection metadata without copying all pages. */
+/** Build a bounded source from supplied detection metadata without copying all pages. */
 function createPageSizeStoreFromMetadata(
     metadataByPage: Partial<Record<string, IScanCleanupSourcePageMetadata>>,
     documentPageCount: number,
 ) {
     return new PdfPageSizeStore(async function* () {
         // Keep this adapter's execution asynchronous like the native sidecar
-        // reader. It is only used for supplied test/detection metadata.
+        // reader. It consumes supplied detection metadata for bounded runs.
         await Promise.resolve();
         let chunkIndex = 0;
         for (
@@ -1543,8 +1543,8 @@ async function runStreamingScanCleanupConversion({
                 // A child owns no geometry lifecycle. The parent closes the
                 // one native sidecar store in its outer finally block.
                 getPageSizeStore: () => createNonClosingPageSizeStore(pageSizeStore),
-                // Reuse the parent's bounded source accessor. In the legacy
-                // test shape this adapter still reads only the current batch.
+                // Reuse the parent's bounded source accessor. The child reads
+                // only its current batch while the parent owns the store.
                 detectSourceDpi: () => Promise.resolve(boundedDpiSource),
                 requirePublishedRaster,
             };
@@ -2152,9 +2152,9 @@ export async function runScanCleanupConversion(
             emitProgress('handoff', pageCount, pageCount, pageNumbers);
             return losslessSummary;
         }
-        // A compatibility map is populated only for the bounded child run or
-        // a genuinely small document. The xlarge parent keeps the accessor
-        // open and asks it for the current native batch instead.
+        // Materialize raster facts only for the bounded child or a genuinely
+        // small document. The xlarge parent keeps the accessor open and asks
+        // it for the current native batch instead.
         const detectedRasterByPage = new Map<number, IDetectedPageRaster>();
         if (documentPageCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES || context?.smallCompatibilityRun === true) {
             for (const pageNumber of pageNumbers) {

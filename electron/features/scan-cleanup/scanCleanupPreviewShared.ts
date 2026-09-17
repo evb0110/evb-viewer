@@ -299,8 +299,8 @@ export interface IBoundedPreviewGeometry {
 
 /**
  * Read the document geometry as bounded chunks and retain only the constant
- * canvas summary plus the requested page. The compatibility array path is
- * kept in runPreview for injected tests; production never enters it.
+ * canvas summary plus the requested page. Preview and detection use this same
+ * store contract, so neither path needs a document-sized page array.
  */
 export async function readBoundedPreviewGeometry(
     store: IPdfPageSizeStore,

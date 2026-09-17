@@ -583,11 +583,10 @@ export function scanCleanupDetectionOwner(
                                 : {createRasterPipes: dependencies.createRasterPipes}),
                             runSidecar: dependencies.runSidecar,
                         };
-                        // Keep production detection on bounded stores. The
-                        // preview-only aggregate readers remain on the raw
-                        // retention object for compatibility with the preview
-                        // pipeline and focused tests, but never cross this
-                        // boundary into document-scale detection.
+                        // Preview and detection share the retained document's
+                        // bounded stores. Keep this view narrow so detection
+                        // reuses their ownership without taking a
+                        // document-sized snapshot.
                         const detectionRetention: IScanCleanupDetectionRetention<IRetainedDocument> = {
                             openDocument: request => rawRasterRetention.openDocument(request, ownerId),
                             pageCount: rawRasterRetention.pageCount,
