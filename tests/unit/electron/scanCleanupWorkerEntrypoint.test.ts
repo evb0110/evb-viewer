@@ -156,7 +156,11 @@ describe('scan cleanup worker entrypoint', () => {
             expect.stringContaining('Run failed after'),
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {},
+                context: {
+                    stage: 'worker',
+                    errorCode: 'unknown',
+                    failureClass: 'unknown',
+                },
                 cause: expect.objectContaining({message: 'Scan cleanup worker received an invalid runtime policy'}),
             },
         );
@@ -232,7 +236,11 @@ describe('scan cleanup worker entrypoint', () => {
             expect.stringContaining('sidecar exited with code 3'),
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {},
+                context: {
+                    stage: 'worker',
+                    errorCode: 'unknown',
+                    failureClass: 'unknown',
+                },
                 cause: failure,
             },
         );

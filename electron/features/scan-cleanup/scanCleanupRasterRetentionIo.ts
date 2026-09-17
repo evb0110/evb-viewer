@@ -18,7 +18,11 @@ export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn'
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'retention-io',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }

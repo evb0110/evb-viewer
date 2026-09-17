@@ -194,7 +194,11 @@ export function reportScanCleanupRunError(
         error,
         {
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {},
+            context: {
+                stage: 'renderer-run',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         },
     );
     setScanCleanupRunError(
@@ -473,7 +477,11 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 undefined,
                 {
                     code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'renderer-result',
+                        errorCode: 'unknown',
+                        failureClass: 'unknown',
+                    },
                 },
             );
             createFailureToastPresenter(terminalDependencies.toast)({
@@ -527,7 +535,11 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 state.error,
                 {
                     code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'renderer-run',
+                        errorCode: 'unknown',
+                        failureClass: 'unknown',
+                    },
                 },
             );
             createFailureToastPresenter(terminalDependencies.toast)({

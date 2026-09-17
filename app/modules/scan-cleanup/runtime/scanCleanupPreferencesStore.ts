@@ -377,7 +377,11 @@ function queueRemoteUpdate(
         }
         BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {},
+            context: {
+                stage: 'renderer-settings',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
             pendingRemoteGlobalWriteSettledFailure = true;
@@ -462,7 +466,11 @@ async function hydratePreferences() {
     } catch (error) {
         BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {
             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {},
+            context: {
+                stage: 'renderer-settings',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         throw error;
     } finally {
@@ -528,7 +536,11 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
         } catch (error) {
             BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {
                 code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                context: {},
+                context: {
+                    stage: 'renderer-settings',
+                    errorCode: 'unknown',
+                    failureClass: 'unknown',
+                },
             });
             schedulePersistenceRetry();
             return Promise.reject(error);
@@ -683,7 +695,11 @@ export function loadScanCleanupDocumentSettings(
             } catch (error) {
                 BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {
                     code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'renderer-settings',
+                        errorCode: 'unknown',
+                        failureClass: 'unknown',
+                    },
                 });
                 throw error;
             }

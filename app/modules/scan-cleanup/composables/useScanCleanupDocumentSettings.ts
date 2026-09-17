@@ -466,7 +466,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                     documentSettingsLoadFailure.value = {
                         ...(existingFailure ? {failure: existingFailure} : initializeRendererFailureReporter().captureForPresentation({
                             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                            context: {},
+                            context: {
+                                stage: 'renderer-settings',
+                                errorCode: 'unknown',
+                                failureClass: 'unknown',
+                            },
                             local: {
                                 source: 'scan-cleanup',
                                 message: 'Failed to load document settings',

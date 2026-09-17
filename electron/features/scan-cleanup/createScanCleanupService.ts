@@ -70,6 +70,10 @@ import {
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {
+    getScanCleanupDiagnosticErrorCode,
+    getScanCleanupDiagnosticFailureClass,
+} from '@contracts/diagnostics/diagnosticCodes';
 import {createEpochMs} from '@contracts/timestamps';
 import {
     createJobId,
@@ -466,7 +470,11 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 `Scan cleanup job failed: ${message}`,
                 {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'job-service',
+                        errorCode: getScanCleanupDiagnosticErrorCode(cause),
+                        failureClass: getScanCleanupDiagnosticFailureClass(cause),
+                    },
                     cause,
                 },
             );

@@ -12,6 +12,8 @@ import {
     DIAGNOSTIC_DEFINITIONS,
     DIAGNOSTIC_EVENT_DEFINITIONS,
     decodeDiagnosticContext,
+    getScanCleanupDiagnosticErrorCode,
+    getScanCleanupDiagnosticFailureClass,
     type DiagnosticCode,
     type DiagnosticContext,
 } from '@contracts/diagnostics/diagnosticCodes';
@@ -305,6 +307,32 @@ describe('diagnostic contracts', () => {
             && (definition.stackPolicy === 'source' || definition.stackPolicy === 'call-site')
             && !Object.hasOwn(definition, 'message')
         ))).toBe(true);
+    });
+
+    it('keeps scan-cleanup diagnostic failures split by stage and error class', () => {
+        expect(decodeDiagnosticContext('MAIN_SCAN_CLEANUP_FAILED', {
+            stage: 'retention-io',
+            errorCode: 'SCAN_CLEANUP_OUTPUT_MISSING',
+            failureClass: 'internal-invariant',
+        })).toEqual({
+            stage: 'retention-io',
+            errorCode: 'SCAN_CLEANUP_OUTPUT_MISSING',
+            failureClass: 'internal-invariant',
+        });
+        expect(decodeDiagnosticContext('MAIN_SCAN_CLEANUP_FAILED', {
+            stage: 'worker',
+            errorCode: 'encrypted',
+            failureClass: 'user-document',
+        })).toEqual({
+            stage: 'worker',
+            errorCode: 'encrypted',
+            failureClass: 'user-document',
+        });
+        expect(getScanCleanupDiagnosticErrorCode({code: 'SCAN_CLEANUP_CONTRACT_VIOLATION'}))
+            .toBe('SCAN_CLEANUP_CONTRACT_VIOLATION');
+        expect(getScanCleanupDiagnosticFailureClass({code: 'SCAN_CLEANUP_CONTRACT_VIOLATION'}))
+            .toBe('internal-invariant');
+        expect(getScanCleanupDiagnosticFailureClass({code: 'encrypted'})).toBe('user-document');
     });
 
     it('keeps synthetic Sentry event identity in the shared diagnostics registry', () => {
