@@ -1,0 +1,23 @@
+tests/unit/electron/scanCleanupRasterRetention.test.ts
+  s_1de0db3cf14fae::t_9fa9ed78ae6b4d 27,112-114
+tests/unit/electron/scanCleanupRasterRetentionScenarios.ts
+  s_1de0db3cf14fae::t_9fa9ed78ae6b4d 1519-1548
+electron/features/scan-cleanup/scanCleanupRasterRetention.ts
+  s_1de0db3cf14fae::t_9fa9ed78ae6b4d 914
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1e03968a9911fa514b30ddefd659e5869bed458c",
+  "prompts": {},
+  "sessions": {
+    "s_1de0db3cf14fae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c705-7142-941a-529991d43f23",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
