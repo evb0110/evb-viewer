@@ -356,6 +356,14 @@ function isLiveScanCleanupJobState(state: TScanCleanupJobState | null) {
     ].includes(state.status);
 }
 
+function isTerminalScanCleanupJobState(state: TScanCleanupJobState | null) {
+    return state !== null && [
+        'completed',
+        'failed',
+        'canceled',
+    ].includes(state.status);
+}
+
 function clearRunGuard() {
     scanCleanupRun.inFlight = false;
     pendingStart = null;
@@ -407,6 +415,9 @@ async function abandonUnobservedScanCleanupRun(
         .then(() => capability.cancel(jobId, owner))
         .catch(() => false);
     if (scanCleanupRun.activeJobId !== jobId) {
+        return false;
+    }
+    if (scanCleanupRun.jobState?.jobId === jobId && isTerminalScanCleanupJobState(scanCleanupRun.jobState)) {
         return false;
     }
     scanCleanupRun.activeJobId = null;
@@ -683,11 +694,7 @@ function acceptScanCleanupJobState(state: TScanCleanupJobState) {
     } else {
         clearScanCleanupRunLivenessTimer();
     }
-    if ([
-        'completed',
-        'failed',
-        'canceled',
-    ].includes(state.status)) {
+    if (isTerminalScanCleanupJobState(state)) {
         void handleTerminalState(state);
     }
 }

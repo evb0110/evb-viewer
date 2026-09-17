@@ -389,6 +389,60 @@ describe('scan cleanup run coordinator', () => {
         expect(coordinator.isScanCleanupRunning.value).toBe(false);
     });
 
+    it('preserves a terminal state observed while abandoning an unobserved run', async () => {
+        const terminal = {
+            ...runningJobState(requireJobId('terminal-during-abandon')),
+            status: 'canceled' as const,
+        } satisfies TScanCleanupJobState;
+        const terminalState = {mark: () => undefined};
+        const cancel = vi.fn(async () => {
+            terminalState.mark();
+            return true;
+        });
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(async () => null),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => startResult('terminal-during-abandon', '/managed/terminal-during-abandon.pdf')),
+            cancel,
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async () => {
+                throw new Error('subscription transport failed');
+            }),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        terminalState.mark = () => {
+            coordinator.scanCleanupRun.jobState = terminal;
+        };
+
+        try {
+            await expect(coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/terminal-during-abandon.pdf',
+                options: createScanCleanupOptions(),
+            })).resolves.toMatchObject({
+                started: true,
+                jobId: 'terminal-during-abandon',
+            });
+
+            expect(cancel).toHaveBeenCalledWith('terminal-during-abandon', ownerContext);
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('terminal-during-abandon');
+            expect(coordinator.scanCleanupRun.jobState).toEqual(terminal);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
+    });
+
     it('disposes an installed coordinator and clears the guard when a start rejects', async () => {
         const onJobState = vi.fn(() => () => undefined);
         const toastAdd = vi.fn();
