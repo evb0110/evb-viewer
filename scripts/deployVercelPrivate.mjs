@@ -167,6 +167,10 @@ function configureLandingBuild(sourceRoot) {
         ...packageJson.scripts,
         build: landingBuildCommand,
     };
+    // The landing workspace owns its Nuxt postinstall. Root hooks prepare the
+    // desktop app and require native resources excluded from this deploy.
+    delete packageJson.scripts.prepare;
+    delete packageJson.scripts.postinstall;
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
 }
 

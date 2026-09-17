@@ -1028,6 +1028,11 @@ describe('private Vercel deployment source', () => {
         let prepared: IPreparedPrivateDeploySource | undefined;
 
         try {
+            const manifest = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+            manifest.scripts.prepare = 'pnpm run fetch:runtime-binaries';
+            manifest.scripts.postinstall = 'pnpm run check:electron:install';
+            writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify(manifest));
+            commitFixtureChanges(projectRoot);
             prepared = preparePrivateDeploySource({
                 deployTarget: 'landing',
                 projectRoot,
@@ -1036,6 +1041,9 @@ describe('private Vercel deployment source', () => {
             expect(existsSync(path.join(prepared.sourceRoot, 'landing', 'app', 'index.ts')))
                 .toBe(true);
             expect(existsSync(path.join(prepared.sourceRoot, 'native'))).toBe(false);
+            const scripts = JSON.parse(readFileSync(path.join(prepared.sourceRoot, 'package.json'), 'utf8')).scripts;
+            expect(scripts.prepare).toBeUndefined();
+            expect(scripts.postinstall).toBeUndefined();
             expect(readFileSync(
                 path.join(prepared.sourceRoot, 'pnpm-workspace.yaml'),
                 'utf8',
