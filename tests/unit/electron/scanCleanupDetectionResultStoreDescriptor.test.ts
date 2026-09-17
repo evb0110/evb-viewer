@@ -71,7 +71,7 @@ describe('scan cleanup detection result-store handoff', () => {
         expect(reopened.pageCount).toBe(3);
         expect(reopened.resultCount).toBe(3);
         expect(await reopened.readRange(2, 3)).toEqual([{pageNumber: 2}]);
-        await expect(reopened.append({pageNumber: 1})).rejects.toThrow('read-only');
+        await expect(reopened.append(results[0]!)).rejects.toThrow('read-only');
         expect(await readdir(dirname(descriptor.recordsPath))).toEqual([
             'descriptor.json',
             'index.bin',

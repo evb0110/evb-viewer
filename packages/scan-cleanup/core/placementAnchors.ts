@@ -38,7 +38,12 @@ function resolveInkSample(
     half: TScanCleanupOutputHalf,
     referenceHeightPoints: number,
 ): IScanCleanupPlacementAnchorSummarySample | undefined {
-    const pageOverride = getScanCleanupPageOverride(options.pageOverrides, result.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        result.pageNumber,
+        options.pageOverrideDefaults,
+        options.marginsMm,
+    );
     if (
         pageOverride.excluded
         || resolveScanCleanupOutputPlacement(options.pageAlignment, pageOverride, half) !== 'ink'
@@ -123,7 +128,12 @@ export async function buildScanCleanupPlacementAnchorSummary({
     await resultStore.forEachChunk(results => {
         signal.throwIfAborted();
         for (const result of results) {
-            const pageOverride = getScanCleanupPageOverride(options.pageOverrides, result.pageNumber);
+            const pageOverride = getScanCleanupPageOverride(
+                options.pageOverrides,
+                result.pageNumber,
+                options.pageOverrideDefaults,
+                options.marginsMm,
+            );
             if (pageOverride.excluded) continue;
             referenceHeightPoints = Math.max(
                 referenceHeightPoints,

@@ -63,7 +63,6 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
 import {
     parseJobId,
@@ -790,7 +789,6 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         ? undefined
         : decodePageOverride(options.pageOverrideDefaults, createScanCleanupInputBudget());
     const pageOverrides = decodeScanCleanupPageOverrides(options.pageOverrides);
-    attachScanCleanupPageOverrideDefaults(pageOverrides, pageOverrideDefaults, marginsMm);
     return {
         preserveOriginalQuality: options.preserveOriginalQuality,
         layoutMode,

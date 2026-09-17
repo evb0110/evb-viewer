@@ -404,6 +404,8 @@ function assembleNativeScanCleanupManifest({
                     pageOverride: getScanCleanupPageOverride(
                         options.pageOverrides,
                         requirePageNumber(page.pageNumber),
+                        options.pageOverrideDefaults,
+                        options.marginsMm,
                     ),
                     dpi: page.dpi,
                     ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),

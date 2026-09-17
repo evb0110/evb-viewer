@@ -53,6 +53,8 @@ export function resolveReusablePagePlanResult(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     const observedLayout = layoutByPage?.[String(pageNumber)];
     if (evidence === undefined) {

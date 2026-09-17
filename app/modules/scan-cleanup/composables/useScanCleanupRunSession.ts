@@ -16,7 +16,6 @@ import type {
 } from 'vue';
 import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
-    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupOutputPlacement,
     SCAN_CLEANUP_OUTPUT_HALVES,
@@ -109,11 +108,6 @@ interface IUseScanCleanupRunSessionOptions {
 }
 
 export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptions) => {
-    attachScanCleanupPageOverrideDefaults(
-        options.settings.pageOverrides,
-        options.settings.pageOverrideDefaults,
-        options.settings.marginsMm,
-    );
     const {t} = useTypedI18n();
 
     function formatStartFailure(
@@ -187,6 +181,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return selected.some(page => !getScanCleanupPageOverride(
                 options.settings.pageOverrides,
                 requirePageNumber(page, Math.max(1, options.totalPages.value)),
+                options.settings.pageOverrideDefaults,
+                options.settings.marginsMm,
             ).excluded);
         }
         const totalPages = runPageCount.value;
@@ -254,6 +250,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             const pageOverride = getScanCleanupPageOverride(
                 resolvedOptions.pageOverrides,
                 requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                resolvedOptions.pageOverrideDefaults,
+                resolvedOptions.marginsMm,
             );
             if (pageOverride.excluded) {
                 continue;
@@ -673,6 +671,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 const pageOverride = getScanCleanupPageOverride(
                     requestOptions.pageOverrides,
                     requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                    requestOptions.pageOverrideDefaults,
+                    requestOptions.marginsMm,
                 );
                 if (
                     !pageOverride.excluded

@@ -63,6 +63,7 @@ export function updateScanCleanupPageOverrides(
     overrides: TScanCleanupPageOverrides,
     pages: Iterable<number>,
     update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    pageOverrideDefaults: IScanCleanupPageOverride | undefined,
     documentMargins?: IScanCleanupMarginsMm,
 ) {
     for (const page of pages) {
@@ -70,7 +71,12 @@ export function updateScanCleanupPageOverrides(
             continue;
         }
         const pageNumber = requirePageNumber(page);
-        const current = getScanCleanupPageOverride(overrides, pageNumber);
+        const current = getScanCleanupPageOverride(
+            overrides,
+            pageNumber,
+            pageOverrideDefaults,
+            documentMargins,
+        );
         setScanCleanupPageOverride(
             overrides,
             pageNumber,

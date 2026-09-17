@@ -1243,6 +1243,8 @@ function resolveBatchPlacementAnchors(
         const pageOverride = getScanCleanupPageOverride(
             baseRequest.options.pageOverrides,
             requirePageNumber(pageNumber),
+            baseRequest.options.pageOverrideDefaults,
+            baseRequest.options.marginsMm,
         );
         const evidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
         const metadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
@@ -1945,6 +1947,8 @@ export async function runScanCleanupConversion(
                         const pageOverride = getScanCleanupPageOverride(
                             request.options.pageOverrides,
                             requirePageNumber(pageNumber),
+                            request.options.pageOverrideDefaults,
+                            request.options.marginsMm,
                         );
                         // Probe every page in the ordered geometry pass, even
                         // when an override excludes its output. The full-run
@@ -2117,6 +2121,8 @@ export async function runScanCleanupConversion(
             const pageOverride = getScanCleanupPageOverride(
                 request.options.pageOverrides,
                 requirePageNumber(pageNumber),
+                request.options.pageOverrideDefaults,
+                request.options.marginsMm,
             );
             if (pageOverride.excluded) {
                 return 'color' as const;
@@ -2410,6 +2416,8 @@ export async function runScanCleanupConversion(
             const pageOverride = getScanCleanupPageOverride(
                 request.options.pageOverrides,
                 requirePageNumber(plan.pageNumber),
+                request.options.pageOverrideDefaults,
+                request.options.marginsMm,
             );
             const geometryRejection = resolveSourceMrcReuseRejection(
                 pageGeometryByNumber.get(plan.pageNumber)!,

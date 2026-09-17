@@ -426,6 +426,8 @@ export async function runLosslessScanCleanup(
                 const pageOverride = getScanCleanupPageOverride(
                     request.options.pageOverrides,
                     requirePageNumber(sourcePageNumber),
+                    request.options.pageOverrideDefaults,
+                    request.options.marginsMm,
                 );
                 if (metadata.excluded) {
                     summary.excludedPages += 1;
@@ -772,6 +774,8 @@ export async function runLosslessScanCleanup(
             rotationDegrees: metadata?.rotationDegrees ?? getScanCleanupPageOverride(
                 request.options.pageOverrides,
                 requirePageNumber(pageNumber),
+                request.options.pageOverrideDefaults,
+                request.options.marginsMm,
             ).rotationDegrees,
             excluded: metadata?.excluded === true,
             blank: metadata?.excluded !== true,

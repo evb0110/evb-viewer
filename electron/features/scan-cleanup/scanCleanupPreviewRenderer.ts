@@ -26,7 +26,6 @@ import {
     resolvePreviewRasterPlan,
 } from '@evb/scan-cleanup/core/detection';
 import {
-    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPlacementOffset,
@@ -107,11 +106,6 @@ export async function scanCleanupPreviewRenderer(
     if (!dependencies.readFile) {
         throw new Error('Scan cleanup preview rendering requires an injected readFile capability');
     }
-    attachScanCleanupPageOverrideDefaults(
-        request.options.pageOverrides,
-        request.options.pageOverrideDefaults,
-        request.options.marginsMm,
-    );
     const document = await retention.openDocument(request, claimId);
     const scratch = managedScratchPath ?? await fileSystem.mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-preview-'))
         .catch(async (error: unknown) => {
@@ -316,7 +310,12 @@ export async function scanCleanupPreviewRenderer(
         sourceDpi = legacyGeometry
             ? sourceRasterPage!.sourceDpiByPage?.get(request.pageNumber) ?? sourceDpi
             : boundedRasterPage?.dpi ?? sourceDpi;
-        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+        const pageOverride = getScanCleanupPageOverride(
+            request.options.pageOverrides,
+            request.pageNumber,
+            request.options.pageOverrideDefaults,
+            request.options.marginsMm,
+        );
         if (request.detail === undefined) {
             const outputMode = resolveScanCleanupEffectiveOutputMode({
                 options: request.options,

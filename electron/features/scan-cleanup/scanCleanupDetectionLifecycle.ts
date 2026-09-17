@@ -11,7 +11,6 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {
     runScanCleanupDetection,
     SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES,
@@ -357,11 +356,6 @@ export function scanCleanupDetectionOwner(
         if (!isAbsolute(request.sourcePdfPath)) {
             throw new Error('Source must be an absolute path');
         }
-        attachScanCleanupPageOverrideDefaults(
-            request.options.pageOverrides,
-            request.options.pageOverrideDefaults,
-            request.options.marginsMm,
-        );
         const detectionSignature = createScanCleanupDetectionSignature(request.options);
         const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
         const lease = claimScanCleanupDetectionResultStore(
@@ -547,11 +541,6 @@ export function scanCleanupDetectionOwner(
                             sender.id,
                             job.signal,
                             dependencies,
-                        );
-                        attachScanCleanupPageOverrideDefaults(
-                            materializedRequest.options.pageOverrides,
-                            materializedRequest.options.pageOverrideDefaults,
-                            materializedRequest.options.marginsMm,
                         );
                         const fileSystem = dependencies.fileSystem;
                         if (fileSystem === undefined) {

@@ -291,6 +291,8 @@ function resolveSheetShares(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
     if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
@@ -309,6 +311,8 @@ function isAutomaticLayout(options: IScanCleanupOptions, pageNumber: number) {
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     return pageOverride.manualSplit === null
         && resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride) === 'auto';
@@ -387,6 +391,8 @@ function addScanCleanupCanvasSummaryPage(
     const outputMode = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageSize.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     ).outputModeOverride
         ?? options.outputMode;
     bucket.hasContinuousTone ||= outputMode !== 'bw';
@@ -406,6 +412,8 @@ export function addScanCleanupDocumentCanvasPage(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageSize.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     if (pageOverride.excluded) {
         return;
@@ -447,6 +455,8 @@ export function addScanCleanupDocumentCanvasObservedPage(
     if (getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageSize.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     ).excluded) {
         return;
     }
@@ -564,6 +574,8 @@ export function resolveScanCleanupUnclassifiedPages(
         .filter(pageSize => !getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded
             && isAutomaticLayout(options, pageSize.pageNumber)
             && readObservedLayout(layoutByPage, pageSize.pageNumber) === undefined)
@@ -606,6 +618,8 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
         !getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded
         && isAutomaticLayout(options, pageSize.pageNumber)
         && readObservedLayout(layoutByPage, pageSize.pageNumber) !== undefined
@@ -667,6 +681,8 @@ export function resolveScanCleanupDroppedMatchWarningEvent(
         pageSize => getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded,
     )
         ? null
@@ -904,6 +920,8 @@ export function resolveScanCleanupDocumentCanvas(
         pageSize => !getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).excluded,
     );
     if (produced.length === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
@@ -929,6 +947,8 @@ export function resolveScanCleanupDocumentCanvas(
         pageSize => getScanCleanupPageOverride(
             options.pageOverrides,
             requirePageNumber(pageSize.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
         ).outputModeOverride
             ?? options.outputMode,
     ));
@@ -1060,7 +1080,12 @@ export function resolveMatchedCanvasResamplePages(
     return pageNumbers.filter(pageNumber => {
         const validPageNumber = requirePageNumber(pageNumber);
         const pageSize = pageSizes[pageNumber - 1];
-        if (!pageSize || getScanCleanupPageOverride(options.pageOverrides, validPageNumber).excluded) {
+        if (!pageSize || getScanCleanupPageOverride(
+            options.pageOverrides,
+            validPageNumber,
+            options.pageOverrideDefaults,
+            options.marginsMm,
+        ).excluded) {
             return false;
         }
         const scale = resolveScanCleanupCanvasFitScale(canvas, resolveScanCleanupOutputPageRect(

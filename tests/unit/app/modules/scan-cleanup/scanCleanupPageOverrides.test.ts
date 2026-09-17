@@ -3,10 +3,13 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupOptions,
+    TScanCleanupOutputHalf,
+} from '@contracts/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
-    attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
@@ -20,10 +23,37 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 
 describe('scan cleanup page overrides', () => {
+    it('keeps detection settings stable across an options serialization boundary', () => {
+        const options: IScanCleanupOptions = {
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'bw',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            readingOrder: 'ltr',
+            skipBlankPages: false,
+            pageOverrides: {},
+            pageOverrideDefaults: createScanCleanupPageOverride({excluded: true}),
+        };
+        const serializedOptions = JSON.parse(JSON.stringify(options)) as IScanCleanupOptions;
+
+        expect(createScanCleanupDetectionSignature(serializedOptions))
+            .toBe(createScanCleanupDetectionSignature(options));
+        expect(options.pageOverrides).toEqual({});
+    });
+
     it('estimates a million-page scalar exclusion without expanding page state', () => {
         const pageOverrides = {};
         const pageOverrideDefaults = createScanCleanupPageOverride({excluded: true});
-        attachScanCleanupPageOverrideDefaults(pageOverrides, pageOverrideDefaults);
 
         expect(estimateScanCleanupOutputPages(1_000_000, {
             layoutMode: 'auto',
@@ -38,7 +68,7 @@ describe('scan cleanup page overrides', () => {
 
     it('merges sparse page values over stable defaults and removes reset entries', () => {
         const overrides = {};
-        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3))).toEqual({
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3), undefined)).toEqual({
             rotationDegrees: 0,
             layoutOverride: 'auto',
             excluded: false,
@@ -51,7 +81,7 @@ describe('scan cleanup page overrides', () => {
                 rotationDegrees: 0,
             },
         }));
-        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3))).toMatchObject({
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3), undefined)).toMatchObject({
             rotationDegrees: 90,
             manualSplit: {
                 xNormalized: 0.5,
@@ -65,7 +95,7 @@ describe('scan cleanup page overrides', () => {
     it('preserves and resets a per-page manual deskew angle', () => {
         const overrides = {};
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({manualSkewDegrees: -2.3}));
-        expect(getScanCleanupPageOverride(overrides, requirePageNumber(2)).manualSkewDegrees).toBe(-2.3);
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(2), undefined).manualSkewDegrees).toBe(-2.3);
 
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride());
         expect(overrides).toEqual({});
@@ -102,7 +132,7 @@ describe('scan cleanup page overrides', () => {
             bottomMm: 8,
         };
         setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({marginsMm: asymmetricMargins}), documentMargins);
-        expect(resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, requirePageNumber(3))))
+        expect(resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, requirePageNumber(3), undefined)))
             .toEqual(asymmetricMargins);
     });
 

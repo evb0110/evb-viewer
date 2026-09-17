@@ -2103,7 +2103,7 @@ describe('Scan cleanup components', () => {
         const applyLeaderOverrides = vi.fn();
         const resetPageOverrides = vi.fn();
         const resetScopeOverrides = vi.fn((pages: Iterable<number>) => {
-            updateScanCleanupPageOverrides(pageOverrides, pages, () => createScanCleanupPageOverride());
+            updateScanCleanupPageOverrides(pageOverrides, pages, () => createScanCleanupPageOverride(), undefined);
         });
         const resetControlOverride = vi.fn((control: string, pages: Iterable<number>) => {
             updateScanCleanupPageOverrides(pageOverrides, pages, current => {
@@ -2121,7 +2121,7 @@ describe('Scan cleanup components', () => {
                     });
                 }
                 return current;
-            });
+            }, undefined);
         });
         const updateSelectionMargins = vi.fn((
             _target: string,
@@ -2136,7 +2136,7 @@ describe('Scan cleanup components', () => {
                     rightMm: value,
                     bottomMm: value,
                 },
-            }), settings.marginsMm);
+            }), undefined, settings.marginsMm);
         });
         const settingsScope = ref<'all' | 'page' | 'selected'>('all');
         workspaceSession.value = {
@@ -2148,7 +2148,7 @@ describe('Scan cleanup components', () => {
             cancelRequested: ref(false),
             canDetectAll: ref(false),
             canRun: ref(false),
-            currentPageOverride: ref(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2))),
+            currentPageOverride: ref(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined)),
             detectionCancelRequested: ref(false),
             detectionError: ref(''),
             detectionPending: ref(false),
@@ -2251,7 +2251,7 @@ describe('Scan cleanup components', () => {
                 updateScanCleanupPageOverrides(pageOverrides, pages, current => ({
                     ...current,
                     layoutOverride: value,
-                }));
+                }), undefined);
                 selectionLayoutOverride.value = {
                     empty: false,
                     mixed: false,
@@ -2329,8 +2329,8 @@ describe('Scan cleanup components', () => {
         layout.value = 'keep-right';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
-        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1)).layoutOverride).toBe('keep-right');
-        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2)).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1), undefined).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('keep-right');
         expect({
             layoutMode: settings.layoutMode,
             outputMode: settings.outputMode,
@@ -2348,8 +2348,8 @@ describe('Scan cleanup components', () => {
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
-        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1)).layoutOverride).toBe('keep-right');
-        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2)).layoutOverride).toBe('keep-left');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1), undefined).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('keep-left');
         settings.preserveOriginalQuality = true;
         await nextTick();
         expect(harness.host.querySelector<HTMLSelectElement>(

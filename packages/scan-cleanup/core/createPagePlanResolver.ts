@@ -56,6 +56,8 @@ export function createPagePlanResolver(
             const pageOverride = getScanCleanupPageOverride(
                 input.options.pageOverrides,
                 requirePageNumber(pageNumber),
+                input.options.pageOverrideDefaults,
+                input.options.marginsMm,
             );
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 const alignment = pageOverride.placementOverrides?.[half]

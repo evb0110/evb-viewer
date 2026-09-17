@@ -11,7 +11,6 @@ import type {
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 import {
-    attachScanCleanupPageOverrideDefaults,
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
@@ -108,11 +107,6 @@ function yieldToDetectionReconciliation() {
 }
 
 export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetectionSessionOptions) => {
-    attachScanCleanupPageOverrideDefaults(
-        options.settings.pageOverrides,
-        options.settings.pageOverrideDefaults,
-        options.settings.marginsMm,
-    );
     const {t} = useTypedI18n();
     const starting = ref(false);
     const autoPending = ref(false);
@@ -271,6 +265,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 getScanCleanupPageOverride(
                     options.settings.pageOverrides,
                     requirePageNumber(pageNumber, options.totalPages.value),
+                    options.settings.pageOverrideDefaults,
+                    options.settings.marginsMm,
                 ),
             );
             if (classification !== undefined) layouts.set(pageNumber, classification);
@@ -416,10 +412,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     });
     function pageOverrideSignature(pageNumber: number) {
         const pageOverride = pageNumber === 0
-            ? getScanCleanupPageOverrideDefaults(options.settings.pageOverrides)
+            ? getScanCleanupPageOverrideDefaults(
+                options.settings.pageOverrideDefaults,
+                options.settings.marginsMm,
+            )
             : getScanCleanupPageOverride(
                 options.settings.pageOverrides,
                 requirePageNumber(pageNumber),
+                options.settings.pageOverrideDefaults,
+                options.settings.marginsMm,
             );
         return JSON.stringify({
             layoutOverride: pageOverride.layoutOverride,

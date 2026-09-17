@@ -74,7 +74,6 @@ import {
     type TJobId,
 } from '@contracts/shared';
 import {
-    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
@@ -337,6 +336,8 @@ async function admitScanCleanupDetectionStore(
     const pageOverride = (pageNumber: number) => getScanCleanupPageOverride(
         request.options.pageOverrides,
         requirePageNumber(pageNumber),
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
     );
     const validate = async (pageNumber: number) => {
         const record = validateScanCleanupDetectionRecord(
@@ -610,11 +611,6 @@ export function createScanCleanupService(
                 }
                 const partial = request.sourcePageNumbers !== undefined
                                 || request.sourcePageRange !== undefined;
-                attachScanCleanupPageOverrideDefaults(
-                    request.options.pageOverrides,
-                    request.options.pageOverrideDefaults,
-                    request.options.marginsMm,
-                );
                 const detectionSignature = createScanCleanupDetectionSignature(request.options);
                 if (
                     request.detectionResultStoreId !== undefined

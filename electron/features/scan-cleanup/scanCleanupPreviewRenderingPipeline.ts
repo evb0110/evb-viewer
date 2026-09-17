@@ -142,7 +142,12 @@ export function resolveFallbackDetailDpi(
     sourceRasterDetected: boolean,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
-    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        request.pageNumber,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     const swapsAxes = pageOverride.rotationDegrees === 90 || pageOverride.rotationDegrees === 270;
     const margins = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
     const widthAtPreviewDpi = (swapsAxes ? raw.height : raw.width)
@@ -429,7 +434,12 @@ export async function runDetailPreview(
     const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
     const binary = dependencies.resolveBinary();
     if (!binary) throw new Error('Scan cleanup native tool is unavailable');
-    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        request.options.pageOverrides,
+        request.pageNumber,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     const effectiveOptions = request.options.matchPageSize
         ? {
             ...request.options,

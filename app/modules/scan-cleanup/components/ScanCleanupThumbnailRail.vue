@@ -293,6 +293,7 @@ const props = defineProps<{
     diagnostics?: ReadonlyMap<number, IScanCleanupPreviewPageMetadata>;
     documentOutputMode: TScanCleanupOutputModeSetting;
     preserveOriginalQuality: boolean;
+    pageOverrideDefaults: IScanCleanupPageOverride | undefined;
     recommendedOutputModes?: ReadonlyMap<number, TScanCleanupOutputMode>;
     recommendedOutputModeConfidences?: ReadonlyMap<number, number>;
     recommendedOutputModeReasons?: ReadonlyMap<number, TScanCleanupOutputModeRecommendationReason>;
@@ -476,6 +477,7 @@ function pageOverride(page: number) {
     return getScanCleanupPageOverride(
         props.overrides,
         requirePageNumber(page, Math.max(1, props.totalPages)),
+        props.pageOverrideDefaults,
     );
 }
 

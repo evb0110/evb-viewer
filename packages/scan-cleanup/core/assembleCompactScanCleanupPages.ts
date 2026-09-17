@@ -108,6 +108,8 @@ export function resolveCompactSourcePreservation(
     const pageOverride = getScanCleanupPageOverride(
         request.options.pageOverrides,
         requirePageNumber(sourcePageNumber),
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
     );
     // Auto is allowed to retain a compact source page when cleanup made no
     // raster change. JPX/JBIG2 are supported by EVB Viewer's configured PDF.js

@@ -21,7 +21,6 @@ import {
 } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineDependencies,
@@ -59,11 +58,6 @@ export async function runScanCleanupPipeline(
     log: TWorkerLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
 ): Promise<TScanCleanupSummary> {
-    attachScanCleanupPageOverrideDefaults(
-        request.options.pageOverrides,
-        request.options.pageOverrideDefaults,
-        request.options.marginsMm,
-    );
     return runScanCleanupConversion(
         request,
         paths,

@@ -411,6 +411,8 @@ function resolvePreviewPageShares(
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
     );
     const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
     if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
@@ -460,6 +462,8 @@ export async function hasBoundedMatchedRasterResample(input: {
                 if (getScanCleanupPageOverride(
                     input.options.pageOverrides,
                     requirePageNumber(page.pageNumber),
+                    input.options.pageOverrideDefaults,
+                    input.options.marginsMm,
                 ).excluded) {
                     continue;
                 }
