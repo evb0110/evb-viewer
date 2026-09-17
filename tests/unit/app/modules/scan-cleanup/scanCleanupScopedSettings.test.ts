@@ -268,6 +268,38 @@ describe('scan cleanup selection override state', () => {
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).manualZones).toEqual(manualZones);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(2)).manualZones).toBeUndefined();
 
+        selection.updatePageOverride(1, createScanCleanupPageOverride({
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: true,
+            manualSplit: {
+                xNormalized: 0.4,
+                rotationDegrees: 90,
+            },
+            manualSkewDegrees: 1,
+            manualContentBoxes: {full: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.3,
+                heightNormalized: 0.4,
+                rotationDegrees: 90,
+            }},
+            manualZones,
+        }));
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).toMatchObject({
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: true,
+            manualSplit: null,
+            manualContentBoxes: {},
+            manualZones: {
+                picture: [],
+                fill: [],
+            },
+        });
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)))
+            .not.toHaveProperty('manualSkewDegrees');
+
         selection.updateRotation(90);
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).toMatchObject({
             rotationDegrees: 90,

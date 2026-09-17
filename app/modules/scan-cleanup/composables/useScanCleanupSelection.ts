@@ -148,9 +148,13 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function updatePageOverride(page: number, value: IScanCleanupPageOverride) {
-        updateOverrides([page], previous => previous.rotationDegrees === value.rotationDegrees
-            ? value
-            : updateScanCleanupPageOverrideRotation(value, value.rotationDegrees));
+        updateOverrides([page], previous => updateScanCleanupPageOverrideRotation(
+            {
+                ...value,
+                rotationDegrees: previous.rotationDegrees,
+            },
+            value.rotationDegrees,
+        ));
     }
 
     function updateLayoutOverride(
