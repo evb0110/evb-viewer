@@ -2,31 +2,35 @@ import {
     describe, it, expect, afterEach, vi,
 } from 'vitest';
 import {
-    lstat, mkdtemp, readFile, rm, writeFile, copyFile, mkdir, open, readdir, stat,
+    lstat, mkdtemp, readFile, rm, writeFile, readdir, stat,
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
 import {
-    defaultDependencies, scanCleanupPreviewLifecycle, materializeScanCleanupPreviewRequest, type IScanCleanupPreviewService,
+    defaultDependencies, scanCleanupPreviewLifecycle,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
-import {EventEmitter} from 'node:events';
-import type {
-    IScanCleanupDetectionRequest, IScanCleanupPreviewRequest,
-} from '@contracts/electronApiScanCleanup';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
-import {atomicReplace} from '@electron/utils/atomicReplace';
-import {readScanCleanupFixtureFile} from '@tests/unit/electron/readScanCleanupFixtureFile';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
-import type {
-    IScanCleanupDetectionSubscriber, IScanCleanupPreviewDependencies,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {
-    resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy, SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+    createScanCleanupPreviewDependencies,
+    createScanCleanupPreviewTestDirectory,
+    detectionRequest,
+    DOCUMENT_CANVAS,
+    DOCUMENT_PAGE_SIZES,
+    lifecycleSender,
+    PNG,
+    previewOf,
+    request,
+    SETTLED_SINGLE_LAYOUT_BY_PAGE,
+    sender,
+    waitForRelease,
+} from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {
     configureMainJobBroker, mainJobBroker,
 } from '@electron/resources/jobBroker';
@@ -45,189 +49,17 @@ configureMainJobBroker({
     tier: 'high',
 });
 
-const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
-
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
-function rasterPixels(width: number, height: number) {
-    const pixels = Buffer.alloc(width * height * 3);
-    for (let index = 0; index < width * height; index += 1) {
-        pixels[index * 3] = index % 251;
-        pixels[index * 3 + 1] = (index * 7) % 253;
-        pixels[index * 3 + 2] = (index * 13) % 257 % 256;
-    }
-    return pixels;
-}
-
-function ppmWithDimensions(width: number, height: number) {
-    return Buffer.concat([
-        Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'),
-        rasterPixels(width, height),
-    ]);
-}
-
 const dirs: string[] = [];
-const request: IScanCleanupPreviewRequest = {
-    ownerId: 'preview-owner',
-    documentRevision: 'revision-1',
-    requestId: requireRequestId('preview-request-1'),
-    sourcePdfPath: '/document.pdf',
-    pageNumber: requirePageNumber(1),
-    options: {
-        preserveOriginalQuality: false,
-        layoutMode: 'auto',
-        outputMode: 'bw',
-        readingOrder: 'ltr',
-        thickness: 0,
-        crop: true,
-        matchPageSize: true,
-        pageAlignment: 'top-center',
-        marginsMm: {
-            leftMm: 5,
-            topMm: 5,
-            rightMm: 5,
-            bottomMm: 5,
-        },
-        despeckle: true,
-        skipBlankPages: false,
-        pageOverrides: {},
-    },
-};
-const detectionRequest: IScanCleanupDetectionRequest = {
-    ownerId: request.ownerId,
-    documentRevision: request.documentRevision,
-    sourcePdfPath: request.sourcePdfPath,
-    options: request.options,
-};
-
-function sender(id = 1) {
-    return {
-        id,
-        isDestroyed: () => false,
-        send: vi.fn(),
-        on: vi.fn(),
-        once: vi.fn(),
-        removeListener: vi.fn(),
-    } satisfies IScanCleanupDetectionSubscriber;
-}
-
-class LifecycleSender extends EventEmitter {
-    readonly id: number;
-    destroyed = false;
-    readonly isDestroyed = () => this.destroyed;
-    readonly send = vi.fn();
-
-    constructor(id: number) {
-        super();
-        this.id = id;
-    }
-}
-
-function isScanCleanupDetectionSubscriber(sender: LifecycleSender): sender is LifecycleSender & IScanCleanupDetectionSubscriber {
-    return typeof sender.id === 'number'
-        && typeof sender.isDestroyed === 'function'
-        && typeof sender.send === 'function'
-        && typeof sender.on === 'function'
-        && typeof sender.once === 'function'
-        && typeof sender.removeListener === 'function';
-}
-
-function lifecycleSender(id = 100): LifecycleSender & IScanCleanupDetectionSubscriber {
-    const sender = new LifecycleSender(id);
-    if (!isScanCleanupDetectionSubscriber(sender)) {
-        throw new Error('test lifecycle sender is incomplete');
-    }
-    return sender;
-}
-
-// Cancellation is a result rather than a rejection on this service, so a test
-// that expects a rendered preview says so once instead of narrowing everywhere.
-function previewOf(
-    service: IScanCleanupPreviewService,
-    subscriber: IScanCleanupDetectionSubscriber,
-    previewRequest: IScanCleanupPreviewRequest,
-) {
-    const pending = (async () => {
-        const result = await service.preview(subscriber, previewRequest);
-        // Cancellation is reported to the renderer as a result; a test that
-        // asked for a rendered preview still wants to see it as the abort it is.
-        if (result.canceled === true) throw new DOMException('Canceled scan cleanup preview', 'AbortError');
-        return result;
-    })();
-    // The service holds its own handler on the underlying run, so this derived
-    // promise carries one too: a test attaches its assertion a turn later.
-    void pending.catch(() => undefined);
-    return pending;
-}
-
 async function setup() {
-    const dir = await mkdtemp(join(tmpdir(), 'scan-cleanup-preview-test-'));
+    const dir = await createScanCleanupPreviewTestDirectory();
     dirs.push(dir);
     return dir;
 }
 
-async function waitForRelease(release: Promise<unknown>, signal: AbortSignal) {
-    await new Promise<void>((resolve, reject) => {
-        const onAbort = () => reject(signal.reason);
-        if (signal.aborted) {
-            onAbort();
-            return;
-        }
-        signal.addEventListener('abort', onAbort, {once: true});
-        void release.then(() => {
-            signal.removeEventListener('abort', onAbort);
-            resolve();
-        }, reject);
-    });
-}
-
-// The paper rectangle the source pages carry. A cropped output may extend past
-// it by the requested margins, but matching keeps this document rectangle and
-// fits the complete padded output inside it.
-const DOCUMENT_PAGE_SIZES = [
-    1,
-    2,
-    3,
-].map(pageNumber => ({
-    pageNumber,
-    xPoints: 0,
-    yPoints: 0,
-    widthPoints: 612,
-    heightPoints: 792,
-    rotation: 0,
-}));
-// The same rectangle on the grid a 150 DPI preview renders it at.
-const PREVIEW_DPI = 150;
-const DOCUMENT_CANVAS = {
-    widthPoints: 612,
-    heightPoints: 792,
-    widthPx: Math.floor(612 / 72 * PREVIEW_DPI),
-    heightPx: Math.floor(792 / 72 * PREVIEW_DPI),
-};
-const SETTLED_SINGLE_LAYOUT_BY_PAGE = {
-    '1': 'single-uncut-page',
-    '2': 'single-uncut-page',
-    '3': 'single-uncut-page',
-} as const;
-
 function dependencies(dir: string): IScanCleanupPreviewDependencies {
-    return {
-        fileSystem: {
-            copyFile,
-            mkdir,
-            mkdtemp,
-            open,
-            readFile: readScanCleanupFixtureFile,
-            readdir,
-            rm,
-            stat,
-            writeFile,
-        },
-        getAvailableScratchBytes: async () => Number.MAX_SAFE_INTEGER,
-        resolveRasterAdmissionPolicy: supportsRasterStreaming => resolveScanCleanupRasterAdmissionPolicy(
-            mainJobBroker.getSnapshot().capacity,
-            supportsRasterStreaming,
-        ),
+    return createScanCleanupPreviewDependencies(dir, {
         acquirePreviewLease: (ownerId, visibility, signal) => mainJobBroker.acquire({
             ownerId,
             kind: 'scan-cleanup-preview',
@@ -253,215 +85,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             perOwnerLimit: 1,
             signal,
         }),
-        getSourceStatIdentity: async () => 'fixture-source',
-        resolveQpdfBinary: () => '/usr/bin/qpdf',
-        getPageCount: vi.fn(async () => 3),
-        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
-        publishRaster: atomicReplace,
-        // pdftoppm names its own output by dropping the extension and adding
-        // the format's, so a caller that asks for anything else gets nothing.
-        renderPage: vi.fn(async (_paths, _log, _page, _source, outputPath) => {
-            await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
-        }),
-        renderPagePpm: vi.fn(async (_paths, _log, _page, _source, outputPath, _dpi, _env, _signal, crop) => {
-            await writeFile(
-                `${outputPath.replace(/\.ppm$/u, '')}.ppm`,
-                ppmWithDimensions(crop?.width ?? 1, crop?.height ?? 1),
-            );
-        }),
-        runSidecar: vi.fn(async (_binary, manifestPath) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-                pageMetadataPath: string;
-                options: {outputMode: 'auto' | 'bw' | 'mixed' | 'grayscale' | 'color'};
-                outputs: Array<{
-                    outputPath: string;
-                    metadataPath: string
-                }>
-            }>};
-            const page = manifest.pages[0]!;
-            const output = page.outputs[0]!;
-            await writeFile(page.pageMetadataPath, JSON.stringify({
-                canvasScope: 'page',
-                layoutClassification: 'single-uncut-page',
-                detectedSkewDegrees: 0.4,
-                skewConfidence: 2.4,
-                cutterXPx: null,
-                rotationDegrees: 0,
-                excluded: false,
-                blankOutputsSkipped: 0,
-                outputCount: 1,
-                recommendedOutputMode: 'mixed',
-                recommendedOutputModeConfidence: 0.92,
-                recommendedOutputModeReason: 'text-with-pictures',
-            }));
-            await writeFile(output.outputPath, PNG);
-            await writeFile(output.metadataPath, JSON.stringify({
-                canvasScope: 'page',
-                half: 'full',
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.9,
-                detectedSkewDegrees: 0.4,
-                skewConfidence: 2.4,
-                skewApplied: true,
-                sourceRegion: {
-                    xPx: 0,
-                    yPx: 0,
-                    widthPx: 1,
-                    heightPx: 1,
-                },
-                contentBox: {
-                    xPx: 0,
-                    yPx: 0,
-                    widthPx: 1,
-                    heightPx: 1,
-                },
-                contentDiagnostics: {
-                    sideConfidence: {
-                        left: 0.7,
-                        top: 0.6,
-                        right: 0.8,
-                        bottom: 0.5,
-                    },
-                    textMask: {
-                        analysisWidthPx: 1,
-                        analysisHeightPx: 1,
-                        inkPixels: 1,
-                        lineCount: 1,
-                        bounds: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
-                        },
-                    },
-                    acceptedTrims: [{
-                        side: 'top',
-                        iteration: 1,
-                        score: 0.9,
-                        threshold: 0.4,
-                        contentDistanceSum: 90,
-                        garbageDistanceSum: 10,
-                        removedBlocks: [{
-                            bounds: {
-                                xPx: 0,
-                                yPx: 0,
-                                widthPx: 1,
-                                heightPx: 1,
-                            },
-                            pictureMaskOverlapPixels: 0,
-                            headingEvidence: false,
-                            grayscaleEvidence: false,
-                        }],
-                    }],
-                    protectedBlocks: [{
-                        bounds: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
-                        },
-                        pictureMaskOverlapPixels: 1,
-                        headingEvidence: true,
-                        grayscaleEvidence: false,
-                    }],
-                },
-                textToneDiagnostics: {
-                    applied: true,
-                    rule: 'applied',
-                    textLineCount: 24,
-                    textInkPixels: 12_400,
-                    pictureFraction: 0,
-                    outsideMidtoneFraction: 0.04,
-                    outsideMidtoneLargestComponentFraction: 0.002,
-                    outsideMidtoneLargestComponentWidthFraction: 0.9,
-                    outsideMidtoneLargestComponentHeightFraction: 0.01,
-                    inkAnchor: 133,
-                    blackPoint: 96.05263157894737,
-                    slope: 1.623931623931624,
-                },
-                appliedMargins: {
-                    leftPx: 0,
-                    topPx: 0,
-                    rightPx: 0,
-                    bottomPx: 0,
-                },
-                outputWidthPx: 1,
-                outputHeightPx: 1,
-                canvasWidthPx: 1,
-                canvasHeightPx: 1,
-                placementOffsetXPx: 0,
-                placementOffsetYPx: 0,
-                cutterXPx: null,
-                inputWidthPx: 1,
-                inputHeightPx: 1,
-                rotationDegrees: 0,
-                resamplePasses: 1,
-                outputMode: page.options.outputMode === 'auto' ? 'mixed' : page.options.outputMode,
-                illuminationNormalized: true,
-                despeckleFallback: true,
-                forwardTransform: {matrix: [
-                    [
-                        1,
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        1,
-                        0,
-                    ],
-                    [
-                        0,
-                        0,
-                        1,
-                    ],
-                ]},
-                inverseTransform: {matrix: [
-                    [
-                        1,
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        1,
-                        0,
-                    ],
-                    [
-                        0,
-                        0,
-                        1,
-                    ],
-                ]},
-                warnings: [],
-            }));
-        }),
-        resolveBinary: () => '/cleanup',
-        resolvePageOpsBinary: () => '/page-ops',
-        getTempDir: () => dir,
-        open,
-        stat,
-        mainJobScratch: {using: async (_prefix, run) => {
-            const scratch = await mkdtemp(join(dir, 'scan-cleanup-preview-'));
-            try {
-                return await run(scratch);
-            } finally {
-                await rm(scratch, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-        }},
-        nativeAllowedPathRoot: dir,
-        readFile: readScanCleanupFixtureFile,
-        getPdftoppmBinary: () => '/pdftoppm',
-        materializeWorkingCopy: vi.fn(async sourcePdfPath => ({
-            logicalRef: sourcePdfPath,
-            physicalWorkingCopyPath: sourcePdfPath,
-            sourceFingerprint: '',
-        })),
-        materializeRequest: materializeScanCleanupPreviewRequest,
-    };
+    });
 }
 
 async function previewFixture() {
@@ -1783,43 +1407,46 @@ export async function scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocu
 
     const {deps} = await previewDependencies();
     const acquire = vi.spyOn(mainJobBroker, 'acquire');
-    const service = scanCleanupPreviewLifecycle(deps);
-    const owner = sender();
-    await previewOf(service, owner, {
-        ...request,
-        visible: true,
-    });
-    await previewOf(service, owner, {
-        ...request,
-        pageNumber: requirePageNumber(2),
-    });
+    try {
+        const service = scanCleanupPreviewLifecycle(deps);
+        const owner = sender();
+        await previewOf(service, owner, {
+            ...request,
+            visible: true,
+        });
+        await previewOf(service, owner, {
+            ...request,
+            pageNumber: requirePageNumber(2),
+        });
 
-    const priorities = acquire.mock.calls
-        .filter(([request_]) => request_.kind === 'scan-cleanup-preview')
-        .map(([request_]) => ({
-            admissionClass: request_.admissionClass,
-            ownerId: request_.ownerId,
-            perOwnerLimit: request_.perOwnerLimit,
-            priority: request_.priority,
-            nativeProcesses: request_.resources.nativeProcesses,
-        }));
-    expect(priorities).toEqual([
-        {
-            admissionClass: undefined,
-            ownerId: 'scan-cleanup:1:preview-owner',
-            perOwnerLimit: undefined,
-            priority: 'visible',
-            nativeProcesses: 1,
-        },
-        {
-            admissionClass: undefined,
-            ownerId: 'scan-cleanup:1:preview-owner',
-            perOwnerLimit: undefined,
-            priority: 'background',
-            nativeProcesses: 1,
-        },
-    ]);
-    acquire.mockRestore();
+        const priorities = acquire.mock.calls
+            .filter(([request_]) => request_.kind === 'scan-cleanup-preview')
+            .map(([request_]) => ({
+                admissionClass: request_.admissionClass,
+                ownerId: request_.ownerId,
+                perOwnerLimit: request_.perOwnerLimit,
+                priority: request_.priority,
+                nativeProcesses: request_.resources.nativeProcesses,
+            }));
+        expect(priorities).toEqual([
+            {
+                admissionClass: undefined,
+                ownerId: 'scan-cleanup:1:preview-owner',
+                perOwnerLimit: undefined,
+                priority: 'visible',
+                nativeProcesses: 1,
+            },
+            {
+                admissionClass: undefined,
+                ownerId: 'scan-cleanup:1:preview-owner',
+                perOwnerLimit: undefined,
+                priority: 'background',
+                nativeProcesses: 1,
+            },
+        ]);
+    } finally {
+        acquire.mockRestore();
+    }
 
 }
 
@@ -2058,7 +1685,7 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
     await expect(detail).resolves.toMatchObject({pageNumber: 1});
     await service.dispose();
     expect(activeLeases).toBe(0);
-    expect(handles).toHaveLength(0);
+    expect(handles.size).toBe(0);
     expect(stores.every(entry => entry.closed)).toBe(true);
     expect(owner1.listenerCount('destroyed')).toBe(0);
     expect(owner1.listenerCount('render-process-gone')).toBe(0);

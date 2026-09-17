@@ -1,5 +1,3 @@
-import {readFileSync} from 'node:fs';
-import {resolve} from 'node:path';
 import {
     describe,
     expect,
@@ -8,27 +6,20 @@ import {
 } from 'vitest';
 import {FEATURE_REGISTRATION_DESCRIPTORS} from '@electron/platform-ipc/featureRegistrationTable';
 import {registerLazyPlatformFeature} from '@electron/platform-ipc/registerFeatureIpcAdapters';
+import {disposeScanCleanupMainBindings} from '@electron/features/scan-cleanup/scanCleanupMainBindings';
+
+const mocks = vi.hoisted(() => ({previewService: {dispose: vi.fn(async () => undefined)}}));
+
+vi.mock('@electron/features/scan-cleanup/scanCleanupPreviewLifecycle', () => ({
+    defaultDependencies: {},
+    scanCleanupPreviewLifecycle: () => mocks.previewService,
+}));
+vi.mock('@electron/features/scan-cleanup/createScanCleanupService', () => ({createScanCleanupService: () => ({})}));
+vi.mock('@electron/features/scan-cleanup/createScanCleanupSettingsStore', () => ({createScanCleanupSettingsStore: () => ({})}));
+vi.mock('electron', () => ({app: {getPath: () => '/tmp/scan-cleanup-main-bindings-test'}}));
 
 describe('scan-cleanup main binding lifecycle', () => {
-    it('wires the idempotent disposer into the real lazy binding export', () => {
-        const source = readFileSync(resolve(
-            process.cwd(),
-            'electron/features/scan-cleanup/scanCleanupMainBindings.ts',
-        ), 'utf8');
-
-        expect(source).toMatch(/disposePreviewServicePromise \?\?= previewService\.dispose\(\)/u);
-        expect(source).toMatch(/export function disposeScanCleanupMainBindings\(\)/u);
-        expect(source).toMatch(/Object\.assign\(featureBindings, \{disposeScanCleanupMainBindings\}\)/u);
-    });
-
-    it('retains the real binding disposer and invokes it once across shutdown calls', async () => {
-        const disposePreview = vi.fn(async () => undefined);
-        let disposal: Promise<void> | null = null;
-        const disposeScanCleanupMainBindings = () => {
-            disposal ??= disposePreview();
-            return disposal;
-        };
-
+    it('invokes the real binding disposer once across repeated shutdown calls', async () => {
         const first = disposeScanCleanupMainBindings();
         const second = disposeScanCleanupMainBindings();
 
@@ -37,7 +28,7 @@ describe('scan-cleanup main binding lifecycle', () => {
             first,
             second,
         ]);
-        expect(disposePreview).toHaveBeenCalledOnce();
+        expect(mocks.previewService.dispose).toHaveBeenCalledOnce();
     });
 
     it('does not load or dispose a lazy feature before it has been used', async () => {
