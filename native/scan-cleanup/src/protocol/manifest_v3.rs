@@ -794,6 +794,9 @@ impl ManifestV3 {
                 ));
             }
         }
+        // This projection is intentionally separate from the lexical alias
+        // pass below: the admission ceiling applies to every declared path,
+        // including paths that are later rejected as aliases.
         for path in self
             .input_paths()
             .into_iter()
@@ -897,6 +900,9 @@ impl ManifestV3 {
     }
 
     fn validate_destination_paths(&self) -> Result<(), NativeError> {
+        // Keep lexical normalization here. Execution preflight separately
+        // resolves ancestors and inode identities, so symlink aliases cannot
+        // turn this manifest-level check into an authority decision.
         let inputs = self
             .input_paths()
             .into_iter()

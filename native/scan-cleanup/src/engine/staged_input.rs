@@ -281,6 +281,9 @@ pub(crate) fn assert_paths_within_root(
     paths: &StagedPathPlan,
     root: &Path,
 ) -> Result<(), NativeError> {
+    // This pass answers the allowed-root question using canonical ancestors.
+    // preflight_paths below intentionally performs the separate lexical and
+    // inode identity checks needed for input/output aliasing.
     let canonical_root = fs::canonicalize(root).map_err(|error| {
         invalid(format!(
             "Allowed path root is not an existing directory: {} ({error})",
@@ -312,6 +315,9 @@ pub(crate) fn assert_paths_within_root(
 }
 
 pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError> {
+    // The path plan was snapshotted once by staged_path_plan; this pass walks
+    // that snapshot for aliases and file identities without rebuilding the
+    // manifest's destination list.
     let mut input_paths = HashSet::new();
     let mut input_files = HashSet::new();
     for path in &paths.input_paths {
