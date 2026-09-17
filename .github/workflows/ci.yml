@@ -201,6 +201,7 @@ jobs:
         with:
           path: |
             .tmp/scan-cleanup
+            .tmp/pdf-image-combine
             .tmp/pdf-page-ops
           key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
