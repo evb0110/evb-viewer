@@ -449,6 +449,9 @@ export default {
         'saveAs': 'Enregistrer sous…',
         'cancel': 'Annuler le nettoyage',
         'canceling': 'Annulation…',
+        'finishing': 'Finalisation…',
+        'cancelFinishing': 'Le nettoyage se termine et ne peut plus être annulé.',
+        'cancelRefused': 'Le nettoyage n’a pas pu être annulé. Réessayez.',
         'canceled': 'Le nettoyage des scans a été annulé.',
         'failed': 'Le nettoyage des scans a échoué.',
         'progressPhases': {

@@ -2549,6 +2549,79 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('shows active cancellation intent and restores it after a refusal', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`cancel-intent-${Date.now()}`);
+        onTestFinished(() => mounted.unmount());
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        const cancelReply = Promise.withResolvers<boolean>();
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: requireJobId('cancel-intent-job'),
+            outputPdfPath: '/managed/cancel-intent-job.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: requireJobId('cancel-intent-job'),
+            status: 'running',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        });
+        const runningState: TScanCleanupJobState = {
+            jobId: requireJobId('cancel-intent-job'),
+            status: 'running',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: requireEpochMs(Date.now()),
+        };
+        vi.mocked(harness.value.getJobState).mockResolvedValue(runningState);
+        vi.mocked(harness.value.cancel).mockReturnValue(cancelReply.promise);
+        await mounted.session.run.run();
+        expect(mounted.session.run.isRunning.value).toBe(true);
+
+        const cancel = mounted.session.run.cancel();
+        await nextTick();
+        expect(mounted.session.run.cancelRequested.value).toBe(true);
+        expect(harness.value.cancel).toHaveBeenCalledWith(
+            'cancel-intent-job',
+            expect.objectContaining({ownerId: expect.any(String)}),
+        );
+
+        cancelReply.resolve(false);
+        await cancel;
+        expect(mounted.session.run.cancelRequested.value).toBe(false);
+        expect(mounted.session.run.cancelStatusText.value).toBe('scanCleanup.cancelRefused');
+        harness.emitRun({
+            jobId: requireJobId('cancel-intent-job'),
+            status: 'canceled',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: requireEpochMs(Date.now() + 1),
+        });
+        await nextTick();
+    });
+
     it('waits for a complete detection pass for a non-auto run', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

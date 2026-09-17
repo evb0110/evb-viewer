@@ -216,7 +216,18 @@ function sendScanCleanupState(sender: WebContents, state: TScanCleanupJobState) 
 function publicState(
     snapshot: TMainJobSnapshot<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError> | null,
 ) {
-    return snapshot?.progress ?? null;
+    if (!snapshot) {
+        return null;
+    }
+    if (snapshot.status === 'canceling' || snapshot.status === 'committing') {
+        return {
+            jobId: snapshot.progress.jobId,
+            status: snapshot.status,
+            progress: snapshot.progress.progress,
+            updatedAtMs: snapshot.updatedAtMs,
+        } satisfies TScanCleanupJobState;
+    }
+    return snapshot.progress;
 }
 
 function ownerActor(sender: WebContents, owner: IScanCleanupOwnerContext) {
@@ -929,7 +940,10 @@ export function createScanCleanupService(
             const subscription: IScanCleanupProgressSubscription = {unsubscribe: null};
             subscriptions.set(jobId, subscription);
             const unsubscribe = jobs.subscribe(jobId, actor, state => {
-                sendScanCleanupState(sender, state.progress);
+                const publicProgress = publicState(state);
+                if (publicProgress) {
+                    sendScanCleanupState(sender, publicProgress);
+                }
             }, () => {
                 forgetProgressSubscription(sender.id, jobId, subscription);
             });

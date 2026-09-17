@@ -449,6 +449,9 @@ export default {
         'saveAs': 'Guardar como…',
         'cancel': 'Cancelar limpieza',
         'canceling': 'Cancelando…',
+        'finishing': 'Finalizando…',
+        'cancelFinishing': 'La limpieza está finalizando y ya no se puede cancelar.',
+        'cancelRefused': 'No se pudo cancelar la limpieza. Inténtalo de nuevo.',
         'canceled': 'Se canceló la limpieza del escaneo.',
         'failed': 'La limpieza del escaneo falló.',
         'progressPhases': {

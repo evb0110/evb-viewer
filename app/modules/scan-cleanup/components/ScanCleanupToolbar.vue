@@ -30,7 +30,7 @@
                     aria-live="polite"
                 >
                     <span class="scan-cleanup-run-meter-phase">
-                        {{ transitionText || progressPhaseText }}
+                        {{ transitionText || cancelStatusText || progressPhaseText }}
                     </span>
                     <template v-if="!transitionText && progressCountText">
                         <span class="scan-cleanup-run-meter-separator" aria-hidden="true">·</span>
@@ -209,8 +209,8 @@
                     color="neutral"
                     variant="outline"
                     size="sm"
-                    :label="cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
-                    :disabled="cancelRequested"
+                    :label="finishing ? t('scanCleanup.finishing') : cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
+                    :disabled="cancelRequested || finishing"
                     @click="emit('cancel')"
                 />
                 <AppTooltip
@@ -241,10 +241,12 @@ const {
     canDetectAll,
     canRun,
     cancelRequested,
+    cancelStatusText = '',
     detectionCancelRequested,
     detectionError,
     detectionProgressText,
     detectionProgressWidestText,
+    finishing = false,
     isDetecting,
     isRunning,
     outputEstimate,
@@ -266,10 +268,12 @@ const {
     canDetectAll: boolean;
     canRun: boolean;
     cancelRequested: boolean;
+    cancelStatusText?: string;
     detectionCancelRequested: boolean;
     detectionError: string;
     detectionProgressText: string;
     detectionProgressWidestText: string;
+    finishing?: boolean;
     isDetecting: boolean;
     isRunning: boolean;
     outputEstimate: string;

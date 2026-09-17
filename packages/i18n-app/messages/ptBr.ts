@@ -449,6 +449,9 @@ export default {
         'saveAs': 'Salvar como…',
         'cancel': 'Cancelar limpeza',
         'canceling': 'Cancelando…',
+        'finishing': 'Concluindo…',
+        'cancelFinishing': 'A limpeza está sendo finalizada e não pode mais ser cancelada.',
+        'cancelRefused': 'Não foi possível cancelar a limpeza. Tente novamente.',
         'canceled': 'A limpeza de digitalização foi cancelada.',
         'failed': 'Falha na limpeza de digitalização.',
         'progressPhases': {

@@ -449,6 +449,9 @@ export default {
         'saveAs': 'Speichern unter…',
         'cancel': 'Bereinigung abbrechen',
         'canceling': 'Wird abgebrochen…',
+        'finishing': 'Wird abgeschlossen…',
+        'cancelFinishing': 'Die Bereinigung wird abgeschlossen und kann nicht mehr abgebrochen werden.',
+        'cancelRefused': 'Die Bereinigung konnte nicht abgebrochen werden. Versuchen Sie es erneut.',
         'canceled': 'Die Scanbereinigung wurde abgebrochen.',
         'failed': 'Die Scanbereinigung ist fehlgeschlagen.',
         'progressPhases': {

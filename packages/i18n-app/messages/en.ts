@@ -898,6 +898,9 @@ export default {
         'saveAs': 'Save as…',
         'cancel': 'Cancel cleanup',
         'canceling': 'Canceling…',
+        'finishing': 'Finishing…',
+        'cancelFinishing': 'Cleanup is finishing and can no longer be canceled.',
+        'cancelRefused': 'Cleanup could not be canceled. Try again.',
         'canceled': 'Scan cleanup was canceled.',
         'failed': 'Scan cleanup failed.',
         'progressPhases': {

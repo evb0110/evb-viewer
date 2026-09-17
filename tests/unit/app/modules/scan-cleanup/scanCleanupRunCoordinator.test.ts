@@ -906,6 +906,22 @@ describe('scan cleanup run coordinator', () => {
             2,
             4,
         ]);
+        expect([...resolveScanCleanupProcessedPages({
+            ...runningState,
+            status: 'canceling',
+        }, '/source/book.pdf', '/source/book.pdf', 6)]).toEqual([
+            5,
+            2,
+            4,
+        ]);
+        expect([...resolveScanCleanupProcessedPages({
+            ...runningState,
+            status: 'committing',
+        }, '/source/book.pdf', '/source/book.pdf', 6)]).toEqual([
+            5,
+            2,
+            4,
+        ]);
         expect(resolveScanCleanupProcessedPages(
             runningState,
             '/source/book.pdf',
@@ -916,6 +932,37 @@ describe('scan cleanup run coordinator', () => {
             ...runningState,
             status: 'canceled',
         }, '/source/book.pdf', '/source/book.pdf', 6).size).toBe(0);
+    });
+
+    it('returns a distinct commit-window cancellation outcome', async () => {
+        const committing: TScanCleanupJobState = {
+            ...runningJobState(requireJobId('job-committing')),
+            status: 'committing',
+        };
+        const value = stubCapability(() => undefined, () => 'job-committing');
+        vi.mocked(value.start).mockResolvedValue(startResult('job-committing'));
+        vi.mocked(value.cancel).mockResolvedValue(false);
+        vi.mocked(value.getJobState).mockResolvedValue(committing);
+        vi.mocked(value.subscribeJob).mockResolvedValue(committing);
+        capability.value = value;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/committing.pdf',
+                options: createScanCleanupOptions(),
+            });
+
+            await expect(coordinator.cancelScanCleanup()).resolves.toBe('committing');
+            expect(coordinator.scanCleanupRun.jobState?.status).toBe('committing');
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+            expect(value.getJobState).toHaveBeenCalledWith('job-committing', ownerContext);
+        } finally {
+            coordinator.scanCleanupRun.activeJobId = null;
+            coordinator.scanCleanupRun.jobState = null;
+            coordinator.scanCleanupRun.inFlight = false;
+        }
     });
 
     it('does not infer sparse page identities from a truncated completion count', async () => {

@@ -8,12 +8,14 @@
             :can-detect-all="canDetectAll"
             :can-run="canRun"
             :cancel-requested="cancelRequested"
+            :cancel-status-text="cancelStatusText"
             :detection-cancel-requested="detectionCancelRequested"
             :detection-error="detectionError"
             :run-error="runError"
             :detection-progress-text="detectionProgressText"
             :detection-progress-widest-text="detectionProgressWidestText"
             :is-detecting="detectionPending"
+            :finishing="finishing"
             :is-running="isRunning"
             :output-estimate="outputEstimate"
             :percent="meterPercent"
@@ -371,9 +373,11 @@ const {
 const {
     cancel,
     cancelRequested,
+    cancelStatusText,
     canRun,
     dismissError: dismissRunError,
     error: runError,
+    finishing,
     isRunning,
     ownerId,
     processedPages,

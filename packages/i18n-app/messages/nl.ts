@@ -449,6 +449,9 @@ export default {
         'saveAs': 'Opslaan als…',
         'cancel': 'Opschoning annuleren',
         'canceling': 'Annuleren…',
+        'finishing': 'Bezig met afronden…',
+        'cancelFinishing': 'De opschoning wordt afgerond en kan niet meer worden geannuleerd.',
+        'cancelRefused': 'De opschoning kon niet worden geannuleerd. Probeer het opnieuw.',
         'canceled': 'De scanopschoning is geannuleerd.',
         'failed': 'De scanopschoning is mislukt.',
         'progressPhases': {

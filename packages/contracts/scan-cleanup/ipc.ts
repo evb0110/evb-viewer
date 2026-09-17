@@ -704,7 +704,7 @@ interface IScanCleanupJobBase {
 }
 
 export type TScanCleanupJobState =
-    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff'}
+    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff' | 'committing'}
     | IScanCleanupJobBase & {
         status: 'completed';
         outputPdfPath: string;

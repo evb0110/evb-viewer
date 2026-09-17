@@ -33,6 +33,22 @@ const failedState = {
 };
 
 describe('scan cleanup job state diagnostics', () => {
+    it('accepts the public commit-window state', () => {
+        const committing = {
+            jobId: 'job-committing',
+            status: 'committing',
+            progress: {
+                stage: 'handoff',
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+            },
+            updatedAtMs: 2,
+        };
+
+        expect(decodeScanCleanupJobState(committing)).toEqual(committing);
+    });
+
     it('preserves the closed main failure receipt on a failed projection', () => {
         expect(decodeScanCleanupJobState(failedState)).toEqual(failedState);
     });

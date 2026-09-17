@@ -348,6 +348,11 @@ const translations: Record<string, string> = {
     'scanCleanup.etaMinutes': 'Current task: about {minutes} min',
     'scanCleanup.etaSeconds': 'Current task: about {seconds} sec',
     'scanCleanup.finishingPhase': 'Finishing current task…',
+    'scanCleanup.cancel': 'Cancel cleanup',
+    'scanCleanup.canceling': 'Canceling…',
+    'scanCleanup.finishing': 'Finishing…',
+    'scanCleanup.cancelFinishing': 'Cleanup is finishing and can no longer be canceled.',
+    'scanCleanup.cancelRefused': 'Cleanup could not be canceled. Try again.',
     'scanCleanup.almostDone': 'Almost done',
     'scanCleanup.cancelingDetection': 'Stopping background analysis…',
     'scanCleanup.runProgress.rasterizing': 'Preparing cleanup pages',
@@ -2023,6 +2028,36 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(meter?.textContent).toContain('Current task: about 4 min');
         rectSpy.mockRestore();
+    });
+
+    it('disables cancellation during the commit window and explains why', () => {
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: true,
+            canRun: false,
+            cancelRequested: false,
+            cancelStatusText: 'Cleanup is finishing and can no longer be canceled.',
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: '',
+            detectionProgressWidestText: '',
+            finishing: true,
+            isDetecting: false,
+            isRunning: true,
+            outputEstimate: '',
+            percent: 100,
+            progressCountText: '120 / 120',
+            progressPhaseText: 'Building PDF',
+            progressText: 'Building PDF',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+        })));
+
+        const button = harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+        expect(button?.textContent).toContain('Finishing…');
+        expect(button?.disabled).toBe(true);
+        expect(harness.host.querySelector('.scan-cleanup-run-meter')?.textContent)
+            .toContain('Cleanup is finishing and can no longer be canceled.');
     });
 
     it('prioritizes and dismisses a persisted cleanup failure while detection restarts', () => {

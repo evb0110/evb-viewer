@@ -449,6 +449,9 @@ export default {
         'saveAs': 'Salva con nome...',
         'cancel': 'Annulla la pulizia',
         'canceling': 'Annullamento…',
+        'finishing': 'Completamento…',
+        'cancelFinishing': 'La pulizia è in fase di completamento e non può più essere annullata.',
+        'cancelRefused': 'Non è stato possibile annullare la pulizia. Riprova.',
         'canceled': 'La pulizia delle scansioni è stata annullata.',
         'failed': 'Pulizia delle scansioni non riuscita.',
         'progressPhases': {

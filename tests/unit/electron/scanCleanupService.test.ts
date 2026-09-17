@@ -990,16 +990,74 @@ describe('scan cleanup service', () => {
             });
         });
         const service = createScanCleanupService();
-        const webContents: WebContents = new LifecycleWebContents(42) as never;
+        const lifecycleSender = new LifecycleWebContents(42);
+        const webContents: WebContents = lifecycleSender as never;
         const started = await service.start(webContents, startRequest);
         if (!started.started) throw new Error('Expected scan cleanup to start');
         const signal = await entered.promise;
+        expect(service.subscribe(webContents, started.jobId, owner)).not.toBeNull();
+        lifecycleSender.send.mockClear();
 
-        webContents.emit(eventName);
+        lifecycleSender.emit(eventName);
 
         await vi.waitFor(() => expect(signal.aborted).toBe(true));
         await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
             .toMatchObject({status: 'canceled'}));
+    });
+
+    it('projects registry cancellation and commit states to subscribed renderers', () => {
+        let listener: ((state: unknown) => void) | null = null;
+        const snapshot = {
+            jobId: 'job-committing',
+            owner: {
+                webContentsId: 42,
+                ownerId: owner.ownerId,
+                documentRevision: owner.documentRevision,
+            },
+            operationKind: 'critical-write',
+            status: 'committing',
+            progress: {
+                jobId: 'job-committing',
+                status: 'handoff',
+                progress: {
+                    stage: 'handoff',
+                    completedUnits: 1,
+                    totalUnits: 1,
+                    percent: 100,
+                },
+                updatedAtMs: 1,
+            },
+            createdAtMs: 1,
+            updatedAtMs: 2,
+        };
+        const jobs = {
+            cancel: vi.fn(() => false),
+            get: vi.fn(() => snapshot),
+            subscribe: vi.fn((_jobId: string, _actor: unknown, next: (state: unknown) => void) => {
+                listener = next;
+                return () => undefined;
+            }),
+        };
+        const webContents = sender();
+        const service = createScanCleanupService(jobs as never);
+
+        expect(service.subscribe(webContents, 'job-committing', owner)).toMatchObject({status: 'committing'});
+        listener?.(snapshot);
+        listener?.({
+            ...snapshot,
+            status: 'canceling',
+            updatedAtMs: 3,
+        });
+        expect(webContents.send).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({status: 'canceling'}),
+        );
+        expect(webContents.send).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({status: 'committing'}),
+        );
+        expect(service.cancel(webContents, 'job-committing', owner)).toBe(false);
+        expect(jobs.cancel).toHaveBeenCalledOnce();
     });
 
     it('detaches across main-frame navigation and rebinds on reconnect', async () => {

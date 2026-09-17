@@ -154,6 +154,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     // — is work the user must be able to stop.
     const isRunning = computed(() => isScanCleanupRunning.value || transition.value !== 'idle');
     let interruptPendingTransition: (() => void) | null = null;
+    const cancelRefusal = ref('');
+    const finishing = computed(() => scanCleanupRun.ownerId === options.ownerId
+        && scanCleanupRun.jobState?.status === 'committing');
+    const cancelStatusText = computed(() => finishing.value
+        ? t('scanCleanup.cancelFinishing')
+        : cancelRefusal.value);
     const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
         || (scanCleanupRun.ownerId === options.ownerId
             && scanCleanupRun.jobState?.status === 'canceling'));
@@ -548,6 +554,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             };
         };
         stopRequested.value = false;
+        cancelRefusal.value = '';
         const stopWait = new Promise<void>(resolve => {
             interruptPendingTransition = resolve;
         });
@@ -723,7 +730,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.
-                if (result.started) await cancelScanCleanup();
+                if (result.started) await requestActiveJobCancellation();
                 return;
             }
             if (!result.started) {
@@ -753,6 +760,15 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
     }
 
+    async function requestActiveJobCancellation() {
+        const outcome = await cancelScanCleanup();
+        if (outcome === 'refused') {
+            stopRequested.value = false;
+            cancelRefusal.value = t('scanCleanup.cancelRefused');
+        }
+        return outcome;
+    }
+
     async function cancel() {
         if (cancelRequested.value || !isRunning.value) {
             return;
@@ -762,7 +778,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             interruptPendingTransition?.();
             return;
         }
-        await cancelScanCleanup();
+        // Set local intent before crossing IPC so the button changes even if
+        // the registry's canceling event is delayed.
+        stopRequested.value = true;
+        cancelRefusal.value = '';
+        await requestActiveJobCancellation();
     }
 
     function dismissError() {
@@ -786,10 +806,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     return {
         cancel,
         cancelRequested,
+        cancelStatusText,
         canRun,
         dismissError,
         error,
         errorCode,
+        finishing,
         isRunning,
         processedPages,
         progress,

@@ -115,6 +115,7 @@ export const isScanCleanupRunning = computed(() => Boolean(
             'running',
             'canceling',
             'handoff',
+            'committing',
         ].includes(scanCleanupRun.jobState.status)
     ),
 ));
@@ -236,7 +237,9 @@ export function resolveScanCleanupProcessedPages(
         || ![
             'queued',
             'running',
+            'canceling',
             'handoff',
+            'committing',
         ].includes(state.status)
     ) {
         return new Set();
@@ -349,6 +352,7 @@ function isLiveScanCleanupJobState(state: TScanCleanupJobState | null) {
         'running',
         'canceling',
         'handoff',
+        'committing',
     ].includes(state.status);
 }
 
@@ -805,15 +809,45 @@ export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TSc
     return startRequestPromise;
 }
 
-export async function cancelScanCleanup() {
+export type TScanCleanupCancelOutcome = 'accepted' | 'committing' | 'refused';
+
+export async function cancelScanCleanup(): Promise<TScanCleanupCancelOutcome> {
     const capability = getScanCleanupCapability();
-    return Boolean(capability && scanCleanupRun.activeJobId
-        && scanCleanupRun.ownerId
-        && scanCleanupRun.ownerDocumentRevision
-        && await capability.cancel(scanCleanupRun.activeJobId, {
-            ownerId: scanCleanupRun.ownerId,
-            documentRevision: scanCleanupRun.ownerDocumentRevision,
-        }));
+    const jobId = scanCleanupRun.activeJobId;
+    const ownerId = scanCleanupRun.ownerId;
+    const documentRevision = scanCleanupRun.ownerDocumentRevision;
+    if (!capability || !jobId || !ownerId || !documentRevision) {
+        return 'refused';
+    }
+    const owner = {
+        ownerId,
+        documentRevision,
+    };
+    if (await capability.cancel(jobId, owner)) {
+        return 'accepted';
+    }
+
+    // The boolean cancel IPC predates the public committing state. Read the
+    // authoritative record when the registry refuses a request so the
+    // renderer can explain the commit-window outcome instead of treating it
+    // as a silent no-op.
+    const authoritativeState = await capability.getJobState(jobId, owner).catch(() => null);
+    const state = authoritativeState
+        ?? (scanCleanupRun.jobState?.jobId === jobId ? scanCleanupRun.jobState : null);
+    if (state && state.jobId === jobId) {
+        acceptScanCleanupJobState(state);
+    }
+    if (state?.status === 'committing') {
+        return 'committing';
+    }
+    if (state?.status === 'canceling' || [
+        'completed',
+        'failed',
+        'canceled',
+    ].includes(state?.status ?? '')) {
+        return 'accepted';
+    }
+    return 'refused';
 }
 
 export function setScanCleanupWorkspaceOwnerOpen(ownerId: string, open: boolean) {
