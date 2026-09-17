@@ -229,6 +229,89 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
+    it('clears terminal run state before opening a recovered output queued behind it', async () => {
+        const storage = new Map<string, string>();
+        vi.stubGlobal('sessionStorage', {
+            clear: () => storage.clear(),
+            getItem: (key: string) => storage.get(key) ?? null,
+            removeItem: (key: string) => storage.delete(key),
+            setItem: (key: string, value: string) => storage.set(key, value),
+        });
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        const pendingOutputs = Promise.withResolvers<TDocumentRef[]>();
+        const terminalOpen = Promise.withResolvers<boolean>();
+        const terminalPath = '/managed/terminal.pdf';
+        const recoveredPath = '/managed/recovered-after-terminal.pdf' as TDocumentRef;
+        interface IRunState {
+            activeJobId: TJobId | null;
+            inFlight: boolean;
+        }
+        const currentRunState: {value: IRunState | undefined} = {value: undefined};
+        const recoveryStateAtOpen: Array<{
+            activeJobId: TJobId | null;
+            inFlight: boolean;
+        }> = [];
+        const openGeneratedPdf = vi.fn((path: string) => {
+            if (path === terminalPath) {
+                return terminalOpen.promise;
+            }
+            recoveryStateAtOpen.push({
+                activeJobId: currentRunState.value?.activeJobId ?? null,
+                inFlight: currentRunState.value?.inFlight ?? false,
+            });
+            return Promise.resolve(true);
+        });
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        capability.value = {
+            ...stubCapability(next => { listener = next; }, () => 'job-terminal'),
+            getPendingCompletedOutputs: vi.fn(() => pendingOutputs.promise),
+            acknowledgeCompletedOutputs,
+        } satisfies IScanCleanupCapability;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        currentRunState.value = coordinator.scanCleanupRun;
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: vi.fn()},
+        });
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/terminal.pdf',
+                options: createScanCleanupOptions(),
+            });
+            listener(completedState('job-terminal', terminalPath));
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                terminalPath,
+                expect.any(AbortSignal),
+            ));
+
+            pendingOutputs.resolve([recoveredPath]);
+            await Promise.resolve();
+            expect(openGeneratedPdf).toHaveBeenCalledOnce();
+            expect(coordinator.scanCleanupRun.activeJobId).toBe('job-terminal');
+            expect(coordinator.scanCleanupRun.inFlight).toBe(true);
+
+            terminalOpen.resolve(true);
+            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
+                recoveredPath,
+                expect.any(AbortSignal),
+            ));
+            await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([recoveredPath]));
+            expect(recoveryStateAtOpen).toEqual([{
+                activeJobId: null,
+                inFlight: false,
+            }]);
+        } finally {
+            terminalOpen.resolve(true);
+            pendingOutputs.resolve([]);
+            cleanup();
+            storage.clear();
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('bounds each recovered output open and continues to later journal entries', async () => {
         vi.useFakeTimers();
         const storage = new Map<string, string>();

@@ -277,10 +277,14 @@ interface IGeneratedPdfHandoff {
     generation: number;
     invalidated: boolean;
     jobId: TJobId | null;
+    release: () => void;
 }
 
 let handoffGeneration = 0;
+let handoffInvalidationVersion = 0;
 let activeGeneratedPdfHandoff: IGeneratedPdfHandoff | null = null;
+let generatedPdfHandoffTail = Promise.resolve();
+let generatedPdfHandoffQueueLength = 0;
 
 /**
  * Resolves as soon as the open answers or the handoff deadline fires, and keeps
@@ -317,12 +321,60 @@ async function openGeneratedPdfWithHandoff(
     outputPdfPath: string,
     jobId: TJobId | null,
 ): Promise<IGeneratedPdfHandoffResult> {
+    const requestInvalidationVersion = handoffInvalidationVersion;
+    const waitsForPreviousHandoff = generatedPdfHandoffQueueLength > 0;
+    generatedPdfHandoffQueueLength += 1;
+    const previousHandoff = generatedPdfHandoffTail;
+    let releaseQueue!: () => void;
+    let queueReleased = false;
+    const queueSlot = new Promise<void>(resolve => {
+        releaseQueue = resolve;
+    });
+    const releaseQueueSlot = () => {
+        if (queueReleased) {
+            return;
+        }
+        queueReleased = true;
+        generatedPdfHandoffQueueLength -= 1;
+        releaseQueue();
+    };
+    generatedPdfHandoffTail = previousHandoff.then(() => queueSlot);
+    if (waitsForPreviousHandoff) {
+        await previousHandoff;
+    }
+    if (requestInvalidationVersion !== handoffInvalidationVersion) {
+        if (jobId !== null) {
+            terminalJobs.delete(jobId);
+        }
+        releaseQueueSlot();
+        return {
+            handoff: {
+                controller: new AbortController(),
+                generation: handoffGeneration,
+                invalidated: true,
+                jobId,
+                release: () => undefined,
+            },
+            opened: false,
+        };
+    }
     handoffGeneration += 1;
+    let released = false;
     const handoff: IGeneratedPdfHandoff = {
         controller: new AbortController(),
         generation: handoffGeneration,
         invalidated: false,
         jobId,
+        release: () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            if (activeGeneratedPdfHandoff === handoff) {
+                activeGeneratedPdfHandoff = null;
+            }
+            releaseQueueSlot();
+        },
     };
     activeGeneratedPdfHandoff = handoff;
     const deadline = setTimeout(
@@ -339,9 +391,6 @@ async function openGeneratedPdfWithHandoff(
         opened = false;
     } finally {
         clearTimeout(deadline);
-        if (activeGeneratedPdfHandoff === handoff) {
-            activeGeneratedPdfHandoff = null;
-        }
     }
     return {
         handoff,
@@ -351,12 +400,15 @@ async function openGeneratedPdfWithHandoff(
 
 function invalidateGeneratedPdfHandoff() {
     const handoff = activeGeneratedPdfHandoff;
+    if (!handoff && generatedPdfHandoffQueueLength === 0) {
+        return;
+    }
+    handoffInvalidationVersion += 1;
+    handoffGeneration += 1;
     if (!handoff) {
         return;
     }
     handoff.invalidated = true;
-    activeGeneratedPdfHandoff = null;
-    handoffGeneration += 1;
     // The job goes back to unreported before the abort is visible anywhere. A
     // replacement coordinator can be installed and replayed synchronously in
     // the same tick as disposal, and the abandoned handler only resumes a
@@ -366,6 +418,7 @@ function invalidateGeneratedPdfHandoff() {
         terminalJobs.delete(handoff.jobId);
     }
     handoff.controller.abort(new Error('Scan cleanup coordinator was disposed'));
+    handoff.release();
 }
 
 function clearRunGuard() {
@@ -475,58 +528,62 @@ async function handleTerminalState(state: TScanCleanupJobState) {
             state.outputPdfPath,
             state.jobId,
         );
-        if (handoff.invalidated) {
-            // The renderer that owned this handoff went away. Its terminal
-            // state was released back to the next coordinator installation as
-            // the handoff was invalidated, and a replay may already have been
-            // accepted since, so this abandoned attempt only steps aside.
-            return;
-        }
-        if (handoff.generation !== handoffGeneration) {
-            return;
-        }
-        scanCleanupRun.activeJobId = null;
-        clearRunGuard();
-        persistActiveJob(null);
-        if (!opened) {
-            const failure = BrowserLogger.error(
-                'scan-cleanup',
-                'Opening the generated scan cleanup PDF failed',
-                undefined,
-                {
-                    code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {},
-                },
-            );
-            createFailureToastPresenter(terminalDependencies.toast)({
-                failure,
-                title: terminalDependencies.t('scanCleanup.openResultFailed'),
-                description: state.outputPdfPath,
+        try {
+            if (handoff.invalidated) {
+                // The renderer that owned this handoff went away. Its terminal
+                // state was released back to the next coordinator installation as
+                // the handoff was invalidated, and a replay may already have been
+                // accepted since, so this abandoned attempt only steps aside.
+                return;
+            }
+            if (handoff.generation !== handoffGeneration) {
+                return;
+            }
+            scanCleanupRun.activeJobId = null;
+            clearRunGuard();
+            persistActiveJob(null);
+            if (!opened) {
+                const failure = BrowserLogger.error(
+                    'scan-cleanup',
+                    'Opening the generated scan cleanup PDF failed',
+                    undefined,
+                    {
+                        code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+                        context: {},
+                    },
+                );
+                createFailureToastPresenter(terminalDependencies.toast)({
+                    failure,
+                    title: terminalDependencies.t('scanCleanup.openResultFailed'),
+                    description: state.outputPdfPath,
+                });
+                return;
+            }
+            const completedOutputPath = parseDocumentRef(state.outputPdfPath);
+            if (completedOutputPath !== null) {
+                const capability = getScanCleanupCapability();
+                const acknowledgeCompletedOutputs = capability?.acknowledgeCompletedOutputs;
+                if (acknowledgeCompletedOutputs) {
+                    await acknowledgeCompletedOutputs([completedOutputPath]).catch(() => undefined);
+                }
+            }
+            terminalDependencies.toast.add({
+                color: 'success',
+                title: terminalDependencies.t(state.partial
+                    ? 'scanCleanup.completedPartialTitle'
+                    : 'scanCleanup.completedTitle'),
+                description: summaryText(state),
+                actions: [{
+                    label: terminalDependencies.t('scanCleanup.saveAs'),
+                    color: 'neutral' as const,
+                    variant: 'outline' as const,
+                    onClick: () => { void dependencies?.saveActiveDocumentAs(); },
+                }],
             });
             return;
+        } finally {
+            handoff.release();
         }
-        const completedOutputPath = parseDocumentRef(state.outputPdfPath);
-        if (completedOutputPath !== null) {
-            const capability = getScanCleanupCapability();
-            const acknowledgeCompletedOutputs = capability?.acknowledgeCompletedOutputs;
-            if (acknowledgeCompletedOutputs) {
-                await acknowledgeCompletedOutputs([completedOutputPath]).catch(() => undefined);
-            }
-        }
-        terminalDependencies.toast.add({
-            color: 'success',
-            title: terminalDependencies.t(state.partial
-                ? 'scanCleanup.completedPartialTitle'
-                : 'scanCleanup.completedTitle'),
-            description: summaryText(state),
-            actions: [{
-                label: terminalDependencies.t('scanCleanup.saveAs'),
-                color: 'neutral' as const,
-                variant: 'outline' as const,
-                onClick: () => { void dependencies?.saveActiveDocumentAs(); },
-            }],
-        });
-        return;
     }
 
     scanCleanupRun.activeJobId = null;
@@ -694,11 +751,15 @@ async function surfacePendingCompletedOutputs(
             path,
             null,
         );
-        if (handoff.invalidated || handoff.generation !== handoffGeneration) {
-            return;
-        }
-        if (opened) {
-            openedPaths.push(path);
+        try {
+            if (handoff.invalidated || handoff.generation !== handoffGeneration) {
+                return;
+            }
+            if (opened) {
+                openedPaths.push(path);
+            }
+        } finally {
+            handoff.release();
         }
     }
     if (openedPaths.length > 0) {
