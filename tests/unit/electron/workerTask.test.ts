@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as TScanCleanupIpcModule from '@contracts/scan-cleanup/ipc';
 
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
@@ -45,6 +46,17 @@ const mocks = vi.hoisted<{
     },
     terminateResult: null,
 }));
+
+const scanCleanupIpcMocks = vi.hoisted(() => ({decodeScratchShortfall: vi.fn()}));
+
+vi.mock('@contracts/scan-cleanup/ipc', async importOriginal => {
+    const original = await importOriginal<typeof TScanCleanupIpcModule>();
+    scanCleanupIpcMocks.decodeScratchShortfall.mockImplementation(original.decodeScanCleanupScratchShortfall);
+    return {
+        ...original,
+        decodeScanCleanupScratchShortfall: scanCleanupIpcMocks.decodeScratchShortfall,
+    };
+});
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: (message: string) => mocks.logged.push({
@@ -175,6 +187,7 @@ describe('workerTask', () => {
         mocks.workerRecords.length = 0;
         mocks.terminateResult = null;
         mocks.logged.length = 0;
+        scanCleanupIpcMocks.decodeScratchShortfall.mockClear();
     });
 
     it('normalizes streaming worker constructor errors as startup errors', async () => {
@@ -790,6 +803,26 @@ describe('workerTask', () => {
                 availableBytes: 512,
                 requiredBytes: 1_024,
             },
+        });
+    });
+
+    it('uses the shared scratch-shortfall decoder at the worker boundary', async () => {
+        const {createWorkerTaskErrorFrame} = await import('@electron/utils/workerTask');
+        const encoded = {
+            availableBytes: 'decoded by the contract',
+            requiredBytes: 'decoded by the contract',
+        };
+        scanCleanupIpcMocks.decodeScratchShortfall.mockReturnValue({
+            availableBytes: 512,
+            requiredBytes: 1_024,
+        });
+
+        const frame = createWorkerTaskErrorFrame({scratchShortfall: encoded});
+
+        expect(scanCleanupIpcMocks.decodeScratchShortfall).toHaveBeenCalledWith(encoded);
+        expect(frame.scratchShortfall).toEqual({
+            availableBytes: 512,
+            requiredBytes: 1_024,
         });
     });
 

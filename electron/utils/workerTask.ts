@@ -5,7 +5,10 @@ import {
     type ResourceLimits,
 } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
-import type {IScanCleanupScratchShortfall} from '@contracts/scan-cleanup/ipc';
+import {
+    decodeScanCleanupScratchShortfall,
+    type IScanCleanupScratchShortfall,
+} from '@contracts/scan-cleanup/ipc';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
@@ -113,21 +116,14 @@ function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
 }
 
 function getScratchShortfallProperty(error: unknown): IScanCleanupScratchShortfall | undefined {
-    if (!isRecord(error) || !isRecord(error.scratchShortfall)) {
+    if (!isRecord(error)) {
         return undefined;
     }
-    const {
-        availableBytes,
-        requiredBytes,
-    } = error.scratchShortfall;
-    const isByteCount = (value: unknown): value is number | null => value === null
-        || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
-    return isByteCount(availableBytes) && isByteCount(requiredBytes)
-        ? {
-            availableBytes,
-            requiredBytes,
-        }
-        : undefined;
+    try {
+        return decodeScanCleanupScratchShortfall(error.scratchShortfall);
+    } catch {
+        return undefined;
+    }
 }
 
 export function createWorkerTaskErrorFrame(
