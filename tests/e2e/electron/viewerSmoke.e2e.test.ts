@@ -1389,7 +1389,10 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(initialPreviewState.skeletonWidth).toBeGreaterThan(0);
         expect(initialPreviewState.skeletonHeight).toBeGreaterThan(0);
 
-        await session.page.waitForSelector('.preview-result-layer img.preview-pixel', {
+        // A pixel can be visible while the previous preview frame is pinned.
+        // The edit overlay is mounted only after the current frame commits,
+        // which is the readiness boundary required by the geometry checks.
+        await session.page.waitForSelector('.preview-result-layer .uniform-canvas .content-overlay', {
             timeout: 60_000,
             visible: true,
         });
@@ -1410,29 +1413,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const readAllMargins = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
             .map(input => Number(input.value));
         const marginsBefore = await session.page.evaluate(readAllMargins);
-        const incrementCenter = await session.page.evaluate(() => {
-            const input = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
-            let scope: HTMLElement | null = input;
-            while (scope && !scope.querySelector('[data-slot="increment"] button')) {
-                scope = scope.parentElement;
-            }
-            const button = scope?.querySelector<HTMLButtonElement>('[data-slot="increment"] button');
-            if (!button) {
-                return null;
-            }
-            const bounds = button.getBoundingClientRect();
-            return {
-                x: bounds.x + bounds.width / 2,
-                y: bounds.y + bounds.height / 2,
-            };
-        });
-        expect(incrementCenter).not.toBeNull();
-        for (let click = 0; click < 3; click += 1) {
-            await session.page.mouse.click(incrementCenter!.x, incrementCenter!.y);
-            await new Promise(resolve => setTimeout(resolve, 160));
-        }
-        const marginsAfterClicks = await session.page.evaluate(readAllMargins);
-        expect(marginsAfterClicks).toEqual(marginsBefore.map(value => value + 3));
+        await session.page.focus('input[data-margin-side="topMm"]');
         const readPreviewGeometry = () => {
             const paper = document.querySelector<HTMLElement>('.uniform-canvas');
             const raster = paper?.querySelector<HTMLElement>('.placed-image');
@@ -1472,6 +1453,28 @@ describe('Electron E2E - Viewer Smoke', () => {
         const baselineGeometry = await session.page.evaluate(readPreviewGeometry);
         expect(baselineGeometry).not.toBeNull();
         expect(baselineGeometry?.contained).toBe(true);
+        const incrementCenter = await session.page.evaluate(() => {
+            const input = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            let scope: HTMLElement | null = input;
+            while (scope && !scope.querySelector('[data-slot="increment"] button')) {
+                scope = scope.parentElement;
+            }
+            const button = scope?.querySelector<HTMLButtonElement>('[data-slot="increment"] button');
+            if (!button) {
+                return null;
+            }
+            const bounds = button.getBoundingClientRect();
+            return {
+                x: bounds.x + bounds.width / 2,
+                y: bounds.y + bounds.height / 2,
+            };
+        });
+        expect(incrementCenter).not.toBeNull();
+        for (let click = 0; click < 3; click += 1) {
+            await session.page.mouse.click(incrementCenter!.x, incrementCenter!.y);
+        }
+        const marginsAfterClicks = await session.page.evaluate(readAllMargins);
+        expect(marginsAfterClicks).toEqual(marginsBefore.map(value => value + 3));
         await session.page.click('input[data-margin-side="topMm"]', {count: 3});
         await session.page.type('input[data-margin-side="topMm"]', '25');
         await session.page.keyboard.press('Enter');
@@ -1568,9 +1571,13 @@ describe('Electron E2E - Viewer Smoke', () => {
             timeout: 10_000,
             visible: true,
         });
-        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
-            '.scan-thumbnail-overlay[data-classification]',
-        )).some(item => item.dataset.classification !== 'unclassified'), {timeout: 60_000});
+        await waitForFunctionInPage(session.page, () => {
+            const surface = document.querySelector<HTMLElement>('.scan-cleanup-surface');
+            return surface?.dataset.detectionStatus === 'completed'
+                && Array.from(document.querySelectorAll<HTMLElement>(
+                    '.scan-thumbnail-overlay[data-classification]',
+                )).some(item => item.dataset.classification !== 'unclassified');
+        }, {timeout: 60_000});
         const classifiedRows = await session.page.$$eval(
             '.scan-thumbnail-rail .document-thumbnail-list__item',
             rows => rows.filter(row => {
@@ -1632,14 +1639,21 @@ describe('Electron E2E - Viewer Smoke', () => {
             visible: true,
         });
 
-        const reentryState = await session.page.evaluate(() => ({
-            hasResult: document.querySelector('.preview-result-layer') !== null,
-            classifications: Array.from(document.querySelectorAll<HTMLElement>(
-                '.scan-thumbnail-overlay[data-classification]',
-            )).map(overlay => overlay.dataset.classification),
-        }));
+        const reentryState = await session.page.evaluate(() => ({hasResult: document.querySelector('.preview-result-layer') !== null}));
         expect(reentryState.hasResult).toBe(false);
-        expect(reentryState.classifications.some(classification => classification !== 'unclassified')).toBe(true);
+        await waitForFunctionInPage(session.page, () => {
+            const surface = document.querySelector<HTMLElement>('.scan-cleanup-surface');
+            return surface?.dataset.detectionStatus === 'completed'
+                && Array.from(document.querySelectorAll<HTMLElement>(
+                    '.scan-thumbnail-overlay[data-classification]',
+                )).some(item => item.dataset.classification !== 'unclassified');
+        }, {timeout: 60_000});
+        const reentryClassifications = await session.page.$$eval(
+            '.scan-thumbnail-overlay[data-classification]',
+            overlays => overlays.map(overlay => overlay.getAttribute('data-classification')),
+        );
+        expect(reentryClassifications.some(classification => classification !== null && classification !== 'unclassified'))
+            .toBe(true);
         await waitForFunctionInPage(session.page, () => {
             const skeleton = document.querySelector<HTMLElement>('.preview-skeleton-page');
             const bounds = skeleton?.getBoundingClientRect();
