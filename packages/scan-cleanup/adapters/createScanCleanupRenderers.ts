@@ -10,7 +10,10 @@ import {
     shouldUseMediaBoxForSuspiciousCrop,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {getErrorMessage} from '@contracts/getErrorMessage';
-import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import {
+    readPngDimensions,
+    readPpmDimensions,
+} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
@@ -278,6 +281,26 @@ export function createScanCleanupRenderers(
                 || (renderBox !== 'cropbox' && geometry?.fallbackToMediaBoxPages.has(pageNumber) === true),
         );
     };
+    const validateRenderedDimensions = async (
+        format: 'png' | 'ppm',
+        outputPath: string,
+        limits: IScanCleanupRasterRenderLimits | undefined,
+    ) => {
+        const dimensions = format === 'png'
+            ? await readPngDimensions(outputPath)
+            : await readPpmDimensions(outputPath);
+        const maxDimensionPx = limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx;
+        const maxPixels = limits?.maxPixels ?? fallbackLimits.maxPixels;
+        if (
+            dimensions.width > maxDimensionPx
+            || dimensions.height > maxDimensionPx
+            || dimensions.width * dimensions.height > maxPixels
+        ) {
+            throw new RangeError(
+                `${format.toUpperCase()} raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
+            );
+        }
+    };
     const renderPageToPng: TScanCleanupRenderPage = async (
         paths,
         log,
@@ -307,18 +330,7 @@ export function createScanCleanupRenderers(
                 renderBox,
             );
             signal?.throwIfAborted();
-            const dimensions = await readPngDimensions(outputPngPath);
-            const maxDimensionPx = limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx;
-            const maxPixels = limits?.maxPixels ?? fallbackLimits.maxPixels;
-            if (
-                dimensions.width > maxDimensionPx
-                || dimensions.height > maxDimensionPx
-                || dimensions.width * dimensions.height > maxPixels
-            ) {
-                throw new RangeError(
-                    `PNG raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
-                );
-            }
+            await validateRenderedDimensions('png', outputPngPath, limits);
             signal?.throwIfAborted();
         } catch (error) {
             // The renderer error is the useful failure. A best-effort cleanup
@@ -340,20 +352,28 @@ export function createScanCleanupRenderers(
         limits,
         renderBox,
     ) => {
-        await renderPageWithResolvedBox(
-            'ppm',
-            paths,
-            log,
-            pageNumber,
-            sourcePdfPath,
-            outputPpmPath,
-            dpi,
-            popplerEnv,
-            signal,
-            crop,
-            limits,
-            renderBox,
-        );
+        try {
+            await renderPageWithResolvedBox(
+                'ppm',
+                paths,
+                log,
+                pageNumber,
+                sourcePdfPath,
+                outputPpmPath,
+                dpi,
+                popplerEnv,
+                signal,
+                crop,
+                limits,
+                renderBox,
+            );
+            signal?.throwIfAborted();
+            await validateRenderedDimensions('ppm', outputPpmPath, limits);
+            signal?.throwIfAborted();
+        } catch (error) {
+            await rm(outputPpmPath, {force: true}).catch(() => undefined);
+            throw error;
+        }
     };
     return {
         renderPage: renderPageToPng,
