@@ -1,0 +1,22 @@
+packages/scan-cleanup/adapters/createScanCleanupRenderers.ts
+  s_8adb599a641687::t_23f78b97c65f2d 249,283
+  s_8adb599a641687::t_f73dcecbf277e6 31-37,200-235,246,251-257,261,263-270,273-276
+tests/unit/electron/scanCleanupRenderers.test.ts
+  s_8adb599a641687::t_f73dcecbf277e6 139,184-187,200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "98e24f4e2a161b8b3a7e0cc9ea5a9d46c9d68b09",
+  "prompts": {},
+  "sessions": {
+    "s_8adb599a641687": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae02-c6ea-79a2-87b4-3542db609d01",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
