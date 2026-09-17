@@ -148,6 +148,20 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         expect(result.estimatedBytes).toBe(workingBytes * 2 + canonicalBytes);
     });
 
+    it('includes retained native output rasters in each page estimate', async () => {
+        const result = await resolveRasterHandoff([{
+            renderDpi: 300,
+            additionalScratchBytes: 123_456,
+            raster: {
+                dpi: 300,
+                height: 100,
+                width: 100,
+            },
+        }], '/scratch', vi.fn(async () => null));
+
+        expect(result.estimatedBytes).toBe(100 * 100 * 3 + 64 * 1024 + 123_456);
+    });
+
     it('admits the widest window that fits and narrows it under scratch pressure', async () => {
         // 3,000 × 3,000 pages, each staged beside the copy its render publishes
         // from: 54 MiB of scratch per resident page.

@@ -27,6 +27,8 @@ export interface IScanCleanupRasterHandoffPlan {
     additionalRenderDpis?: readonly number[];
     /** Simultaneous raw copies of the primary render (producer/native). */
     renderCopies?: number;
+    /** Scratch retained by bounded native outputs for this page. */
+    additionalScratchBytes?: number;
     raster: {
         dpi: number;
         width: number;
@@ -98,6 +100,14 @@ function estimateRawRasterBytes(
             }
             pageBytes += additionalBytes;
         }
+        const additionalScratchBytes = plan.additionalScratchBytes ?? 0;
+        if (
+            !Number.isSafeInteger(additionalScratchBytes)
+            || additionalScratchBytes < 0
+        ) {
+            return null;
+        }
+        pageBytes += additionalScratchBytes;
         if (!Number.isSafeInteger(pageBytes)) {
             return null;
         }

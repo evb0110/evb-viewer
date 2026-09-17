@@ -3854,7 +3854,9 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+        // Accounting for retained native output rasters can move this largest
+        // page from raw PPM to PNG handoff while the DPI clamp stays intact.
+        expect(pipelineDependencies.renderPage).toHaveBeenCalled();
         expect(requestedRenderDpi).toBe(1_200);
         expect(finalDpi).toBe(948);
         expect(16_000 * 16_000 * (finalDpi / 1_200) ** 2).toBeLessThanOrEqual(160_000_000);
@@ -4047,6 +4049,17 @@ describe('scan cleanup pipeline', () => {
             renderedDpis.push(dpi);
             await writeFile(outputPath, PPM);
         });
+        pipelineDependencies.renderPage = vi.fn(async (
+            _paths,
+            _log,
+            _page,
+            _source,
+            outputPath,
+            dpi,
+        ) => {
+            renderedDpis.push(dpi);
+            await writeFile(outputPath, PNG);
+        });
 
         await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
@@ -4063,7 +4076,6 @@ describe('scan cleanup pipeline', () => {
             },
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(renderedDpis.toSorted((left, right) => left - right)).toEqual([
             150,
             150,

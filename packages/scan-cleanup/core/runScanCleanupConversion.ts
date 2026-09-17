@@ -243,6 +243,10 @@ const FALLBACK_MIXED_LAYER_PPM = Uint8Array.from([
 const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const QPDF_MERGE_INPUT_WINDOW = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const STREAMING_JSONL_MAX_LINE_BYTES = 4 * 1024 * 1024;
+// Two output slots retain a composite PNG, a full RGB background and bounded
+// bilevel/alpha planes. Six RGB equivalents per source page covers those files
+// and their small metadata and encoding overhead conservatively.
+const SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS = 6;
 const PAGE_GEOMETRY_SIDECAR_FORMAT = 'evb-scan-cleanup-page-geometry';
 const PAGE_GEOMETRY_SIDECAR_SCHEMA_VERSION = 1;
 
@@ -2202,23 +2206,27 @@ export async function runScanCleanupConversion(
             if (guardrail === undefined && requiresBilevelQuality(pageNumber)) {
                 signal.throwIfAborted();
                 const probePath = join(scratch, `size-probe-${pageNumber}.png`);
-                await dependencies.renderPage(
-                    paths,
-                    log,
-                    pageNumber,
-                    prepared.pdfPath,
-                    probePath,
-                    SCAN_CLEANUP_SIZE_PROBE_DPI,
-                    undefined,
-                    signal,
-                    undefined,
-                    undefined,
-                    page.renderBox ?? 'cropbox',
-                );
-                guardrail = {
-                    dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
-                    ...await readPngDimensions(probePath),
-                };
+                try {
+                    await dependencies.renderPage(
+                        paths,
+                        log,
+                        pageNumber,
+                        prepared.pdfPath,
+                        probePath,
+                        SCAN_CLEANUP_SIZE_PROBE_DPI,
+                        undefined,
+                        signal,
+                        undefined,
+                        undefined,
+                        page.renderBox ?? 'cropbox',
+                    );
+                    guardrail = {
+                        dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
+                        ...await readPngDimensions(probePath),
+                    };
+                } finally {
+                    await rm(probePath, {force: true}).catch(() => undefined);
+                }
             }
             if (guardrail === undefined) {
                 throw new Error(`Scan cleanup has no trusted raster geometry for page ${String(pageNumber)}`);
@@ -2433,10 +2441,18 @@ export async function runScanCleanupConversion(
             }));
         }
         const canonicalAnalysisDpi = DETECTION_DPI;
+        const estimateNativeOutputScratchBytes = (plan: ReturnType<typeof capRasterPlanDpi>) => {
+            const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
+            const height = Math.max(1, Math.ceil(plan.guardrail.height * plan.dpi / plan.guardrail.dpi));
+            const pixelBytes = width * height * 3;
+            const outputBytes = pixelBytes * SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS;
+            return Number.isSafeInteger(outputBytes) ? outputBytes : Number.MAX_SAFE_INTEGER;
+        };
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
             additionalRenderDpis: [canonicalAnalysisDpi],
+            additionalScratchBytes: estimateNativeOutputScratchBytes(plan),
             // A streaming slot can hold the producer/native working copies and
             // one canonical file until native reports that page complete.
             renderCopies: supportsRasterStreaming ? 2 : 1,
