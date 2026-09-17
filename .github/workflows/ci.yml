@@ -201,6 +201,7 @@ jobs:
         with:
           path: |
             .tmp/scan-cleanup
+            .tmp/pdf-image-combine
             .tmp/pdf-page-ops
           key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
@@ -556,7 +557,7 @@ jobs:
 
       - name: Install PDF audit tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils python3-numpy python3-opencv python3-pil qpdf
+        run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
