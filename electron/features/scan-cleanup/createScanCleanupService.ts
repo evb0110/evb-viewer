@@ -224,7 +224,7 @@ function publicState(
             jobId: snapshot.progress.jobId,
             status: snapshot.status,
             progress: snapshot.progress.progress,
-            updatedAtMs: snapshot.updatedAtMs,
+            updatedAtMs: createEpochMs(snapshot.updatedAtMs),
         } satisfies TScanCleanupJobState;
     }
     return snapshot.progress;

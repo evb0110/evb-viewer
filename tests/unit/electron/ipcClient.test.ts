@@ -91,7 +91,7 @@ describe('createTypedIpcEventSubscriber diagnostics', () => {
         const ipcRenderer: Pick<IpcRenderer, 'on' | 'removeListener' | 'send'> = {
             on: vi.fn((channel, listener) => {
                 listeners.set(channel, listener as (_event: unknown, payload: unknown) => void);
-                return ipcRenderer;
+                return Object.create(null) as IpcRenderer;
             }),
             removeListener: vi.fn(),
             send: vi.fn(),

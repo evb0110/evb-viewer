@@ -1042,8 +1042,14 @@ describe('scan cleanup service', () => {
         const service = createScanCleanupService(jobs as never);
 
         expect(service.subscribe(webContents, 'job-committing', owner)).toMatchObject({status: 'committing'});
-        listener?.(snapshot);
-        listener?.({
+        const notify = (state: unknown) => {
+            if (!listener) {
+                throw new Error('Expected a scan cleanup state listener');
+            }
+            listener(state);
+        };
+        notify(snapshot);
+        notify({
             ...snapshot,
             status: 'canceling',
             updatedAtMs: 3,
