@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale.ts
+  s_e9512e2e77fe46::t_4ebcc095011be5 132-134,136,257-263,267,345-347
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_e9512e2e77fe46::t_8be9842624dfd8 1240-1269
+tests/unit/app/modules/pdf-viewer/composables/usePdfScale.test.ts
+  s_e9512e2e77fe46::t_bb53a8d0556680 23,28-31,97-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "801be8e9ec5d6764179bdb503742a4a83affe051",
+  "prompts": {},
+  "sessions": {
+    "s_e9512e2e77fe46": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b163-ed56-7d90-81d5-21c42f96eae4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
