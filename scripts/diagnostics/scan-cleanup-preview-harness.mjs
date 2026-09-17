@@ -110,6 +110,7 @@ const INDEPENDENT_INK_THRESHOLD = 160;
 const INDEPENDENT_READER_THRESHOLD = 220;
 const INDEPENDENT_INK_SAMPLE_LIMIT = 64;
 const INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX = 40;
+const INDEPENDENT_WRONG_CALIBRATION_OFFSET_RATIO = 0.4;
 
 function printUsage() {
     process.stderr.write([
@@ -676,8 +677,32 @@ function comparePlacementSignatures(preview, final) {
 async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, metadata, finalGeometry) {
     const expected = await loadGrayscaleImage(nativeOutputPath);
     const actual = await loadGrayscaleImage(finalRasterPath);
-    const scaleX = actual.width / metadata.canvasWidthPx;
-    const scaleY = actual.height / metadata.canvasHeightPx;
+    const placement = resolvePreviewMetadataPlacement(metadata);
+    const imageStyle = toPreviewStyleRect(
+        {
+            xPx: 0,
+            yPx: 0,
+            widthPx: metadata.outputWidthPx,
+            heightPx: metadata.outputHeightPx,
+        }, placement,
+    );
+    const imageRect = pixelRectFromStyle(
+        imageStyle,
+        placement.canvasWidthPx,
+        placement.canvasHeightPx,
+    );
+    const rasterScaleX = (imageRect.right - imageRect.left) / expected.width;
+    const rasterScaleY = (imageRect.bottom - imageRect.top) / expected.height;
+    const canvasScaleX = actual.width / metadata.canvasWidthPx;
+    const canvasScaleY = actual.height / metadata.canvasHeightPx;
+    // Keep the negative control outside the dense content region on small
+    // canvases too. A fixed 40-pixel shift can land on another glyph after a
+    // reduced-scale placement, which would make the control test the fixture's
+    // letter spacing instead of a wrong geometry calibration.
+    const wrongCalibrationOffsetPx = Math.max(
+        INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX,
+        Math.ceil(actual.width * INDEPENDENT_WRONG_CALIBRATION_OFFSET_RATIO),
+    );
     const finalPlacement = finalPlacementSignature(finalGeometry, actual.width, actual.height);
     const points = [];
     for (let y = 3; y < expected.height - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; y += 5) {
@@ -686,8 +711,8 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
             points.push({
                 expectedX: x,
                 expectedY: y,
-                finalX: Math.round(finalPlacement.destinationOrigin.xPx + x * scaleX),
-                finalY: Math.round(finalPlacement.destinationOrigin.yPx + y * scaleY),
+                finalX: Math.round(finalPlacement.destinationOrigin.xPx + x * rasterScaleX * canvasScaleX),
+                finalY: Math.round(finalPlacement.destinationOrigin.yPx + y * rasterScaleY * canvasScaleY),
             });
         }
     }
@@ -708,7 +733,7 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
     const wrongCalibrationMatches = points.filter(point => {
         for (let dy = -1; dy <= 1; dy += 1) {
             for (let dx = -1; dx <= 1; dx += 1) {
-                if (read(point.finalX + INDEPENDENT_WRONG_CALIBRATION_OFFSET_PX + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
+                if (read(point.finalX + wrongCalibrationOffsetPx + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
             }
         }
         return false;
