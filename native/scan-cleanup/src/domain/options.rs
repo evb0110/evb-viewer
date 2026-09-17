@@ -577,6 +577,16 @@ impl CleanupOptions {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.max_pixels > DEFAULT_MAX_PIXELS {
+            return Err(format!(
+                "maxPixels must not exceed the default raster guardrail of {DEFAULT_MAX_PIXELS}"
+            ));
+        }
+        if self.max_dimension > DEFAULT_MAX_DIMENSION {
+            return Err(format!(
+                "maxDimensionPx must not exceed the default raster guardrail of {DEFAULT_MAX_DIMENSION}"
+            ));
+        }
         if !self.dpi.is_finite() || self.dpi <= 0.0 {
             return Err("DPI must be positive and finite".into());
         }

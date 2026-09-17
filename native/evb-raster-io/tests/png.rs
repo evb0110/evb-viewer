@@ -337,6 +337,23 @@ fn admission_precedes_allocation_and_inflate() {
 }
 
 #[test]
+fn ordinary_decode_rejects_excessive_inflation_before_reserving() {
+    let row = vec![0; 100_000 + 1];
+    let compressed_png = make_png(100_000, 1, PngColorType::Gray8, &row, None, false);
+    let limits = DecodeLimits {
+        max_pixels: u64::MAX,
+        max_dimension: u32::MAX,
+        max_compressed_bytes: 1024 * 1024,
+    };
+
+    assert!(matches!(
+        decode_png(compressed_png.as_slice(), limits),
+        Err(RasterError::TooLarge(message))
+            if message.contains("expansion limit")
+    ));
+}
+
+#[test]
 fn rejects_truncation_and_short_or_long_inflated_payloads() {
     for name in [
         "truncated-chunk.png",

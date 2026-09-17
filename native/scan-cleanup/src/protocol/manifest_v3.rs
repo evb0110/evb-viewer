@@ -717,6 +717,17 @@ impl ManifestV3 {
                     ));
                 }
             }
+            if page.options.max_pixels > crate::DEFAULT_MAX_PIXELS
+                || page.options.max_dimension > crate::DEFAULT_MAX_DIMENSION
+            {
+                return Err(NativeError::new(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Page {} raster guardrails exceed the native admission limits",
+                        page.source_page_index.saturating_add(1),
+                    ),
+                ));
+            }
             page.options.validate().map_err(|error| {
                 invalid(format!(
                     "Page {}: {error}",
@@ -1144,6 +1155,25 @@ mod tests {
         let error = manifest.validate().unwrap_err();
         assert_eq!(error.code, NativeErrorCode::TooLarge);
         assert!(error.message.contains("manifest batch"));
+    }
+
+    #[test]
+    fn manifest_rejects_raster_guardrails_above_native_defaults_as_too_large() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].options.max_pixels = crate::DEFAULT_MAX_PIXELS + 1;
+        let error = manifest.validate().unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(error.message.contains("raster guardrails"));
+
+        manifest.pages[0].options.max_pixels = crate::DEFAULT_MAX_PIXELS;
+        manifest.pages[0].options.max_dimension = crate::DEFAULT_MAX_DIMENSION + 1;
+        let error = manifest.validate().unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
     }
 
     #[test]
