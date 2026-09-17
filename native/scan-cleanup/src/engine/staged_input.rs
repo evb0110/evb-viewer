@@ -1,9 +1,14 @@
 //! Stream and staged raster input coordination.
+//!
+//! The manifest metadata directory is admitted and preflighted before this
+//! module materializes streamed pages. Its randomized `create_new` temporary
+//! protects that materialization boundary while the directory is treated as
+//! process-owned for the duration of the operation.
 use crate::engine::resource_planning::{
     CleanupOptionsView, PageDescriptor, PlanningManifest, PlanningOperation,
 };
 use crate::io::MAX_STREAM_INPUT_BYTES;
-use crate::io::{copy_bounded_cancelable, raster, BoundedIoError};
+use crate::io::{copy_bounded_cancelable, open_randomized_temporary, raster, BoundedIoError};
 use crate::protocol::manifest_v3::{normalized_path, ManifestV3, Operation, Page};
 use evb_native_support::{output::existing_file_identity, NativeError, NativeErrorCode};
 use std::collections::HashSet;
@@ -428,12 +433,25 @@ pub(crate) fn materialize_stream_page(
             temporary_input: None,
         });
     }
-    let temporary_input = stream_materialized_path(page, index);
+    let temporary_base = stream_materialized_path(page, index);
+    let (mut destination, temporary_input) =
+        open_randomized_temporary(&temporary_base, &mut |bytes| {
+            getrandom::fill(bytes)
+                .map_err(|error| format!("unable to obtain random bytes: {error}"))
+        })
+        .map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::Io,
+                format!(
+                    "Unable to reserve streamed scan-cleanup page {}: {error}",
+                    page.source_page_index.saturating_add(1)
+                ),
+            )
+        })?;
     let copy_result = (|| -> Result<(), BoundedIoError> {
         if is_canceled() {
             return Err(BoundedIoError::Canceled);
         }
-        let mut destination = fs::File::create(&temporary_input)?;
         #[cfg(unix)]
         {
             use crate::io::copy_bounded_nonblocking_stream_cancelable;
@@ -458,6 +476,7 @@ pub(crate) fn materialize_stream_page(
         Ok(())
     })();
     if let Err(error) = copy_result {
+        drop(destination);
         let _ = fs::remove_file(&temporary_input);
         let code = match &error {
             #[cfg(unix)]
@@ -1045,6 +1064,43 @@ mod tests {
             .unwrap();
         producer.join().unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"late");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn precreated_stream_materialization_path_is_not_followed() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-randomized-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("page.fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let descriptor = staged_page(fifo.clone(), dir.join("page.json"), 0, true, 64);
+        let predicted_path = stream_materialized_path(&descriptor, 0);
+        let protected = dir.join("protected");
+        fs::write(&protected, b"must survive").unwrap();
+        std::os::unix::fs::symlink(&protected, &predicted_path).unwrap();
+        let producer = std::thread::spawn(move || {
+            fs::write(fifo, b"streamed page").unwrap();
+        });
+
+        let materialized = materialize_stream_page(0, &descriptor, || false).unwrap();
+        producer.join().unwrap();
+        assert_eq!(fs::read(&protected).unwrap(), b"must survive");
+        assert!(fs::symlink_metadata(&predicted_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let actual_path = materialized.page.input_path.clone();
+        assert_ne!(actual_path, predicted_path);
+        drop(materialized);
+        assert!(!actual_path.exists());
         let _ = fs::remove_dir_all(dir);
     }
 
