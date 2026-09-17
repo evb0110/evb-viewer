@@ -621,8 +621,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             let detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             let hasAuthoritativeDetectionStore = detectionResultStoreId !== null;
             if (
-                requestedPageNumbers === null
-                && runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+                runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
                 && detectionResultStoreId === null
             ) {
                 if (await refreshDetectionOnce()) {
