@@ -11,8 +11,8 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupLayoutByPage,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
-import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,
@@ -96,6 +96,12 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
                     heightPx: 1,
                 },
                 contentBox: null,
+                cropRect: {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 1,
+                    heightPx: 1,
+                },
                 appliedMargins: {
                     leftPx: 0,
                     topPx: 0,
@@ -106,6 +112,8 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
                 outputHeightPx: 1,
                 canvasWidthPx: 1,
                 canvasHeightPx: 1,
+                canvasPolicy: 'intrinsic',
+                canvasOverflow: false,
                 placementOffsetXPx: 0,
                 placementOffsetYPx: 0,
                 forwardTransform: null,
@@ -115,6 +123,7 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
                 rotationDegrees: 0,
                 canvasScope: 'page',
                 resamplePasses: 0,
+                rasterScaleLimited: false,
                 warnings: [],
             },
         })),

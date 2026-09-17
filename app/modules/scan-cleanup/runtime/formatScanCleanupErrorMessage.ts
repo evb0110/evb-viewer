@@ -2,7 +2,7 @@ import { getErrorMessage } from '@app/utils/error';
 import type {
     IScanCleanupScratchShortfall,
     TScanCleanupErrorCode,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     TTranslateFn,
     TTranslationKey,

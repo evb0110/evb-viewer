@@ -7,14 +7,14 @@ import type {
     TScanCleanupLayoutClassification,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
+import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -22,7 +22,7 @@ import {
     SCAN_CLEANUP_OUTPUT_HALVES,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     beginScanCleanupAttempt,
     cancelScanCleanup,

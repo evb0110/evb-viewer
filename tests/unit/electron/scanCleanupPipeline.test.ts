@@ -19,7 +19,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputMode,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
@@ -437,6 +437,7 @@ async function writeCleanupOutput(
             heightPx: 10,
         },
         warnings: [],
+        warningEvents: [],
     }));
 }
 
@@ -1635,6 +1636,7 @@ describe('scan cleanup pipeline', () => {
                 outputMode: 'color',
                 contentBox: null,
                 warnings: [],
+                warningEvents: [],
             }));
         });
         const pipelineDependencies = dependencies(runSidecar);
@@ -2501,6 +2503,7 @@ describe('scan cleanup pipeline', () => {
                         heightPx: 10,
                     },
                     warnings: [],
+                    warningEvents: [],
                 }));
             }
         });
@@ -2598,6 +2601,7 @@ describe('scan cleanup pipeline', () => {
                 layeredWritten: false,
                 contentBox: null,
                 warnings: [],
+                warningEvents: [],
             }));
         });
         const pipelineDependencies = dependencies(runSidecar);
@@ -2706,6 +2710,7 @@ describe('scan cleanup pipeline', () => {
                     layoutClassification: 'single-uncut-page',
                     skewApplied: true,
                     outputMode: 'color',
+                    warningEvents: [],
                 }));
             }
         });
@@ -3204,6 +3209,7 @@ describe('scan cleanup pipeline', () => {
                     ]},
                     contentBox: null,
                     warnings: [],
+                    warningEvents: [],
                 }));
             },
         );
@@ -4508,6 +4514,7 @@ describe('scan cleanup pipeline', () => {
                     layoutClassification: 'single-uncut-page',
                     skewApplied: false,
                     outputMode: 'bw',
+                    warningEvents: [],
                 }));
             }
         });
@@ -4705,6 +4712,7 @@ describe('scan cleanup pipeline', () => {
                     layoutClassification: 'single-uncut-page',
                     skewApplied: false,
                     outputMode: 'bw',
+                    warningEvents: [],
                 }));
             }
         });
@@ -5224,6 +5232,7 @@ describe('scan cleanup pipeline', () => {
                         renderDpi: 300,
                         matchedCanvasTargetWidthPoints: pageGeometry[index]?.widthPoints ?? null,
                         matchedCanvasTargetHeightPoints: pageGeometry[index]?.heightPoints ?? null,
+                        warningEvents: [],
                     }));
                 }
             }

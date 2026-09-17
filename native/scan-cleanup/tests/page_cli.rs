@@ -1870,7 +1870,7 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
         }
     });
     observer_ready.wait();
-    let result = evb_scan_cleanup::cli::run_with_cancellation(
+    let result = evb_scan_cleanup::adapters::batch_cli::run_with_cancellation(
         vec![
             "--manifest".to_string(),
             manifest.to_string_lossy().into_owned(),

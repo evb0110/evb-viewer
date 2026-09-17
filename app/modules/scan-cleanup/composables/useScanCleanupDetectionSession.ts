@@ -9,7 +9,7 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     attachScanCleanupPageOverrideDefaults,
     estimateScanCleanupOutputPages,
@@ -18,9 +18,9 @@ import {
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
 import { createDisposalFlag } from '@app/utils/createDisposalFlag';

@@ -31,6 +31,7 @@ describe('buildWorkspaceCheckpoint', () => {
             ...createTabViewSessionState(toolbar),
             surfaceMode: 'scan-cleanup' as const,
             scanCleanup: {
+                ownerId: 'cleanup-owner',
                 previewPage: 138_000,
                 previewViewMode: 'original' as const,
                 pageMapping: Object.fromEntries(

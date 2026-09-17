@@ -1,7 +1,7 @@
 import type {
     IScanCleanupManualZones,
     TScanCleanupPictureZoneLayer,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {MaybeRefOrGetter} from 'vue';
 import {
     cloneScanCleanupZonePolygon,

@@ -4,7 +4,11 @@ import {
     workerData,
 } from 'worker_threads';
 import {basename} from 'path';
-import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {
+    getScanCleanupDiagnosticErrorCode,
+    getScanCleanupDiagnosticFailureClass,
+} from '@contracts/diagnostics/diagnosticCodes';
 import { decodeScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { createLogger } from '@electron/utils/createLogger';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
@@ -31,7 +35,11 @@ function logScanCleanupWorkerMessage(level: 'debug' | 'error' | 'info' | 'warn',
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'worker',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }
@@ -111,7 +119,11 @@ try {
             + (error instanceof Error ? `${getErrorMessage(error)}\n${error.stack ?? ''}` : String(error)),
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {},
+                context: {
+                    stage: 'worker',
+                    errorCode: getScanCleanupDiagnosticErrorCode(error),
+                    failureClass: getScanCleanupDiagnosticFailureClass(error),
+                },
                 cause: error,
             },
         );

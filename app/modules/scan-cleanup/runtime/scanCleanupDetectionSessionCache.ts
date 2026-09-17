@@ -1,8 +1,8 @@
 import type {
     IScanCleanupDetectionResult,
     TScanCleanupDetectionJobState,
-} from '@contracts/electronApiScanCleanup';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 export interface IScanCleanupDetectionSessionCacheEntry {
     ownerId: string;

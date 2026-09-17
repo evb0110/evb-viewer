@@ -7,7 +7,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     TScanCleanupLayoutByPage,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     addScanCleanupDocumentCanvasObservedPage,
     addScanCleanupDocumentCanvasPage,
@@ -32,7 +32,7 @@ import {
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
     placeScanCleanupCanvasBox,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     parsePdfInfoPageGeometry,
     parsePdfPageSizesPayload,

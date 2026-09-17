@@ -24,7 +24,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
     TScanCleanupProgress,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     createArrayBackedPdfPageSizeStore,
@@ -226,6 +226,7 @@ function outputMetadata() {
             heightPx: 1,
         },
         warnings: [],
+        warningEvents: [],
     };
 }
 

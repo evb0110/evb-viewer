@@ -8,10 +8,10 @@ import type {
     IScanCleanupPlacementAnchorCalibrationRequest,
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TJobId} from '@contracts/shared';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
@@ -23,7 +23,7 @@ import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {getErrorMessage} from '@electron/utils/error';
 import {createStableJobBrokerOwnerId} from '@electron/resources/jobBroker';
 import {
@@ -66,7 +66,11 @@ function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', messa
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'detection',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }
@@ -585,11 +589,10 @@ export function scanCleanupDetectionOwner(
                                 : {createRasterPipes: dependencies.createRasterPipes}),
                             runSidecar: dependencies.runSidecar,
                         };
-                        // Keep production detection on bounded stores. The
-                        // preview-only aggregate readers remain on the raw
-                        // retention object for compatibility with the preview
-                        // pipeline and focused tests, but never cross this
-                        // boundary into document-scale detection.
+                        // Preview and detection share the retained document's
+                        // bounded stores. Keep this view narrow so detection
+                        // reuses their ownership without taking a
+                        // document-sized snapshot.
                         const detectionRetention: IScanCleanupDetectionRetention<IRetainedDocument> = {
                             openDocument: request => rawRasterRetention.openDocument(request, ownerId),
                             pageCount: rawRasterRetention.pageCount,

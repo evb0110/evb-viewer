@@ -192,15 +192,15 @@ import type {
     TScanCleanupOutputMode,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     resetScanCleanupOptionsToDefaults,
     resolveScanCleanupNonDefaultSettings,
     type TScanCleanupNonDefaultSettingKey,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSettingsBadges';
 import {formatScanCleanupSettingsBadge} from '@app/modules/scan-cleanup/runtime/formatScanCleanupSettingsBadge';
-import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     attachScanCleanupPageOverrideDefaults,
     areScanCleanupMarginsMmEqual,
@@ -211,7 +211,7 @@ import {
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/public';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';

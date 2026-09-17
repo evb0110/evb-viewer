@@ -4,9 +4,9 @@ import {
     it,
 } from 'vitest';
 import {reactive} from 'vue';
-import type {IScanCleanupPageOverride} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
-import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
+import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     dismissScanCleanupFirstRunGuidance,

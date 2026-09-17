@@ -15,7 +15,7 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupJobState,
     IScanCleanupScratchShortfall,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
@@ -30,7 +30,7 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
+import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 import {
     createScanCleanupGeneratedOutputPath,
@@ -67,6 +67,10 @@ import {
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {
+    getScanCleanupDiagnosticErrorCode,
+    getScanCleanupDiagnosticFailureClass,
+} from '@contracts/diagnostics/diagnosticCodes';
 import {createEpochMs} from '@contracts/timestamps';
 import {
     createJobId,
@@ -76,7 +80,7 @@ import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     claimScanCleanupDetectionResultStore,
     isScanCleanupDetectionResultStoreRegistered,
@@ -476,7 +480,11 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 `Scan cleanup job failed: ${message}`,
                 {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
-                    context: {},
+                    context: {
+                        stage: 'job-service',
+                        errorCode: getScanCleanupDiagnosticErrorCode(cause),
+                        failureClass: getScanCleanupDiagnosticFailureClass(cause),
+                    },
                     cause,
                 },
             );

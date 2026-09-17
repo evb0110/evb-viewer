@@ -2,12 +2,12 @@ import type {
     IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 export type TScanCleanupPageOverrideUpdate = (

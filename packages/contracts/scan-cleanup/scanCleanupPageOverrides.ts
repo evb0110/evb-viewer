@@ -25,11 +25,7 @@ export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverri
     manualSplit: null,
 });
 
-export const SCAN_CLEANUP_OUTPUT_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const satisfies readonly TScanCleanupOutputHalf[];
+export {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 
 export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
     return options.matchPageSize

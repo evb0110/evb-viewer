@@ -4,11 +4,11 @@ import type {
     IScanCleanupPlacementAnchor,
     TScanCleanupLayoutByPage,
     TScanCleanupOutputHalf,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TScanCleanupLog} from '@evb/scan-cleanup/core/types';
 import {resolveReusablePagePlanResult} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 
 const SCAN_CLEANUP_OUTPUT_HALVES = [

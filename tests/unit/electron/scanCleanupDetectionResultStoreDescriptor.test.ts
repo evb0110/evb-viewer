@@ -17,7 +17,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     openScanCleanupDetectionResultStoreDescriptor,

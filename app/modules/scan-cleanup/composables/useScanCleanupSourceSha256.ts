@@ -1,6 +1,6 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireLeaseId} from '@contracts/shared';
-import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
+import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {isDesktopPlatformActive} from '@app/utils/platform';

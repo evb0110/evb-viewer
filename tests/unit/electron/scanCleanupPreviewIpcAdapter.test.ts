@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 import type {IpcMainInvokeEvent} from 'electron';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {registerPlatformFeatureHandlers} from '@electron/platform-ipc/validatedIpcRegistrar';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {

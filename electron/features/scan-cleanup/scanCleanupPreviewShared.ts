@@ -18,7 +18,7 @@ import type {
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputMode,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -28,7 +28,7 @@ import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,
@@ -301,8 +301,8 @@ export interface IBoundedPreviewGeometry {
 
 /**
  * Read the document geometry as bounded chunks and retain only the constant
- * canvas summary plus the requested page. The compatibility array path is
- * kept in runPreview for injected tests; production never enters it.
+ * canvas summary plus the requested page. Preview and detection use this same
+ * store contract, so neither path needs a document-sized page array.
  */
 export async function readBoundedPreviewGeometry(
     store: IPdfPageSizeStore,

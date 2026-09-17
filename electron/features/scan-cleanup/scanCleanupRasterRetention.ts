@@ -1,6 +1,6 @@
 import {randomUUID} from 'crypto';
 import {join} from 'path';
-import type { IScanCleanupPreviewRequest } from '@contracts/electronApiScanCleanup';
+import type { IScanCleanupPreviewRequest } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveRasterHandoff} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createLogger} from '@electron/utils/createLogger';

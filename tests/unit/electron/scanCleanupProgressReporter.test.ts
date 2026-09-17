@@ -7,7 +7,7 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupSummaryWarningEvent,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createEmptyScanCleanupSummary,

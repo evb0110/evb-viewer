@@ -12,7 +12,7 @@ import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
     TScanCleanupJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
 

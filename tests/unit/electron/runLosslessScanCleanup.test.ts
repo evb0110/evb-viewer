@@ -13,7 +13,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {
     IPdfPageSize,

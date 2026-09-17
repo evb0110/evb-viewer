@@ -16,7 +16,7 @@ import {
     type TScanCleanupOutputMode,
     type TScanCleanupOutputHalf,
     type TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     findSerializableErrorEnvelope,
     SERIALIZABLE_ERROR_PREFIX,
@@ -27,7 +27,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
+import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
@@ -35,7 +35,7 @@ import {
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {
     ComputedRef,
     Ref,

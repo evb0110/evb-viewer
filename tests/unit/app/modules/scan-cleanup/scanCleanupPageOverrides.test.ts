@@ -6,7 +6,7 @@ import {
 import type {
     IScanCleanupOptions,
     TScanCleanupOutputHalf,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
@@ -20,7 +20,7 @@ import {
     resolveScanCleanupPlacementOffset,
     setScanCleanupPageOverride,
     shouldShowScanCleanupOutputEstimate,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 describe('scan cleanup page overrides', () => {
     it('keeps detection settings stable across an options serialization boundary', () => {

@@ -23,7 +23,7 @@ import {
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';

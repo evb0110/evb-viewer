@@ -8,7 +8,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
     IScanCleanupPlacementAnchorCalibrationRequest,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';

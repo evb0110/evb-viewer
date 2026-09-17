@@ -5,7 +5,7 @@ import type {
     IScanCleanupScratchShortfall,
     IScanCleanupOptions,
     TScanCleanupOutputModeSetting,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     decodeScanCleanupScratchShortfall,
     SCAN_CLEANUP_ERROR_CODES,

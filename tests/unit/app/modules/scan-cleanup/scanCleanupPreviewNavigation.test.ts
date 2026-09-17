@@ -32,7 +32,7 @@ import type {
     IScanCleanupPlacementAnchorCalibration,
     IScanCleanupPlacementAnchorSummary,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
@@ -178,6 +178,7 @@ function previewResult(pageNumber: number, requestId?: string): TScanCleanupPrev
                 layoutConfidence: 0.9,
                 sourceRegion: pixelRect,
                 contentBox: pixelRect,
+                cropRect: pixelRect,
                 appliedMargins: {
                     leftPx: 0,
                     topPx: 0,
@@ -188,6 +189,8 @@ function previewResult(pageNumber: number, requestId?: string): TScanCleanupPrev
                 outputHeightPx: 1335,
                 canvasWidthPx: 883,
                 canvasHeightPx: 1335,
+                canvasPolicy: 'intrinsic',
+                canvasOverflow: false,
                 placementOffsetXPx: 0,
                 placementOffsetYPx: 0,
                 cutterXPx: null,
@@ -195,6 +198,7 @@ function previewResult(pageNumber: number, requestId?: string): TScanCleanupPrev
                 inputHeightPx: 1335,
                 rotationDegrees: 0,
                 resamplePasses: 1,
+                rasterScaleLimited: false,
             },
         }],
     };

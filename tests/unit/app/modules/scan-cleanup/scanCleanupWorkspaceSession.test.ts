@@ -24,7 +24,7 @@ import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import * as platform from '@app/utils/platform';
-import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -42,8 +42,8 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
     TScanCleanupPageOutputMapping,
-} from '@contracts/electronApiScanCleanup';
-import type * as scanCleanupPageOverridesModule from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type * as scanCleanupPageOverridesModule from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {
@@ -68,7 +68,7 @@ const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | nu
 // under test in `derives the document's layouts once per change`.
 const layoutReductions = vi.hoisted(() => ({count: 0}));
 
-vi.mock('@contracts/scanCleanupPageOverrides', async importOriginal => {
+vi.mock('@contracts/scan-cleanup/scanCleanupPageOverrides', async importOriginal => {
     const original = await importOriginal<typeof scanCleanupPageOverridesModule>();
     return {
         ...original,

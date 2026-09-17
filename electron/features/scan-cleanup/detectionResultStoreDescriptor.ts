@@ -10,7 +10,7 @@ import {
     isAbsolute,
     join,
 } from 'node:path';
-import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     openFileBackedScanCleanupResultStore,

@@ -146,7 +146,11 @@ describe('runScanCleanupWorkerTask', () => {
             expect.stringContaining('native pipeline failed'),
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {},
+                context: {
+                    stage: 'worker-task',
+                    errorCode: 'unknown',
+                    failureClass: 'unknown',
+                },
                 cause: failure,
             },
         );

@@ -1,8 +1,8 @@
 import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupPreviewRequest,
-} from '@contracts/electronApiScanCleanup';
-import {scanCleanupLayoutSignature} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {scanCleanupLayoutSignature} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 // PNG preview bytes are read by the rendering-owned pipeline, never document PDFs.
 

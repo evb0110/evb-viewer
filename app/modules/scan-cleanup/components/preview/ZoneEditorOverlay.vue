@@ -74,7 +74,7 @@ import type {
     IScanCleanupManualZones,
     IScanCleanupNormalizedZonePolygon,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
 import {
     cloneScanCleanupZonePolygon,

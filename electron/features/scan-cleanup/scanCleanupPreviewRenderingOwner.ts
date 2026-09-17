@@ -4,8 +4,8 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupErrorEnvelope,
     TScanCleanupPreviewWireResult,
-} from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,

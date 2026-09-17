@@ -13,7 +13,9 @@ import type {
     IScanCleanupReconciliationMetadata,
     IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
+    TScanCleanupCanvasPolicy,
     TScanCleanupCanvasScope,
+    TScanCleanupContentTrimSide,
     TScanCleanupLayoutByPage,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
@@ -51,6 +53,10 @@ import type {
     TRequestId,
 } from '@contracts/shared';
 import type {TEpochMs} from '@contracts/timestamps';
+export type {
+    TScanCleanupCanvasPolicy,
+    TScanCleanupContentTrimSide,
+} from '@contracts/scan-cleanup/domain';
 
 export interface IScanCleanupOwnerContext {
     /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
@@ -208,8 +214,6 @@ export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerConte
     retainPages?: readonly number[];
 }
 
-export type TScanCleanupCanvasPolicy = 'intrinsic' | 'strict-maximum';
-
 /**
  * The single rectangle and pixel grid every matched output of a document is
  * normalized onto: the same absolute PDF points and the same pixel dimensions
@@ -238,8 +242,6 @@ export interface IScanCleanupContentTextMaskSummary {
     lineCount: number;
     bounds?: IScanCleanupPixelRect;
 }
-
-export type TScanCleanupContentTrimSide = 'left' | 'top' | 'right' | 'bottom';
 
 export interface IScanCleanupContentBlockEvidence {
     bounds: IScanCleanupPixelRect;
@@ -295,6 +297,7 @@ export interface IScanCleanupPageDiagnostics {
 export interface IScanCleanupPageOutputDiagnostics {
     half: TScanCleanupOutputHalf;
     contentDiagnostics?: IScanCleanupContentDiagnostics;
+    textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
 }
 
 export interface IScanCleanupPreviewMetadata {
@@ -307,8 +310,8 @@ export interface IScanCleanupPreviewMetadata {
     manualSkew?: boolean;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
-    /** Applied crop in deskewed/dewarped page-region coordinates; absent in older metadata. */
-    cropRect?: IScanCleanupPixelRect;
+    /** Applied crop in deskewed/dewarped page-region coordinates. */
+    cropRect: IScanCleanupPixelRect;
     /** Optional for metadata produced before native protocol v2 gained A4 diagnostics. */
     contentDiagnostics?: IScanCleanupContentDiagnostics;
     appliedMargins: IScanCleanupAppliedMargins;
@@ -326,9 +329,9 @@ export interface IScanCleanupPreviewMetadata {
     /** Logical matched-page canvas dimensions; never smaller than the intrinsic raster. */
     canvasWidthPx: number;
     canvasHeightPx: number;
-    /** Matched-canvas decision; optional only for metadata written by older native binaries. */
-    canvasPolicy?: TScanCleanupCanvasPolicy;
-    canvasOverflow?: boolean;
+    /** Matched-canvas decision. */
+    canvasPolicy: TScanCleanupCanvasPolicy;
+    canvasOverflow: boolean;
     matchedCanvasTargetWidthPx?: number | null;
     matchedCanvasTargetHeightPx?: number | null;
     matchedCanvasTargetWidthPoints?: number | null;
@@ -367,7 +370,7 @@ export interface IScanCleanupPreviewMetadata {
     sourceDpi?: number;
     renderDpi?: number;
     requestedRenderDpi?: number;
-    rasterScaleLimited?: boolean;
+    rasterScaleLimited: boolean;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
     /** Evidence and exact monotone curve shared by preview, export, and detail tiles. */
@@ -386,7 +389,7 @@ export interface IScanCleanupPreviewMetadata {
 
 export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliationMetadata, IScanCleanupPageDiagnostics {
     layoutClassification: IScanCleanupPreviewMetadata['layoutClassification'];
-    layoutConfidence?: number;
+    layoutConfidence: number;
     cutterXPx: number | null;
     splitSeam?: IScanCleanupSplitSeamPolyline;
     splitAbstained?: boolean;

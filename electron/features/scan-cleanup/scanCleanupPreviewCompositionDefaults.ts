@@ -43,7 +43,7 @@ import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHan
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     type IScanCleanupRasterAdmissionPolicy,
@@ -56,7 +56,11 @@ function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', messa
     if (level === 'error') {
         logger.error(message, {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {},
+            context: {
+                stage: 'preview-composition',
+                errorCode: 'unknown',
+                failureClass: 'unknown',
+            },
         });
         return;
     }

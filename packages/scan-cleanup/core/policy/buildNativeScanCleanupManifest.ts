@@ -9,13 +9,13 @@ import type {
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputMode,
-} from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
     SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
 } from '@contracts/scan-cleanup/stagedInputWindow';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {

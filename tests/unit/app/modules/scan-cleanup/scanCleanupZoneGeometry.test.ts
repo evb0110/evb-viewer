@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {IScanCleanupNormalizedZonePolygon} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupNormalizedZonePolygon} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     createScanCleanupRectangleZone,
     moveScanCleanupZonePolygon,

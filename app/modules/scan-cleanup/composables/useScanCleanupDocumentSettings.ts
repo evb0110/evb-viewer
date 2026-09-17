@@ -3,7 +3,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     TScanCleanupPageAlignment,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {ComputedRef} from 'vue';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
@@ -12,14 +12,14 @@ import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     cloneScanCleanupPreferenceValue,
     isScanCleanupSourceSha256,
     type IScanCleanupGlobalPreferences,
     type IScanCleanupDocumentPreferencePatch,
-} from '@contracts/scanCleanupSettings';
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     captureScanCleanupDocumentPersistenceToken,
     flushScanCleanupPreferencesStore,
@@ -474,7 +474,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                     documentSettingsLoadFailure.value = {
                         ...(existingFailure ? {failure: existingFailure} : initializeRendererFailureReporter().captureForPresentation({
                             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                            context: {},
+                            context: {
+                                stage: 'renderer-settings',
+                                errorCode: 'unknown',
+                                failureClass: 'unknown',
+                            },
                             local: {
                                 source: 'scan-cleanup',
                                 message: 'Failed to load document settings',

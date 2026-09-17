@@ -2,7 +2,7 @@ import type {
     IScanCleanupNormalizedZonePoint,
     IScanCleanupNormalizedZonePolygon,
     TScanCleanupPageRotation,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 export type TScanCleanupZoneKind = 'picture' | 'fill';
 export type TScanCleanupZoneCorner = 'nw' | 'ne' | 'se' | 'sw';
