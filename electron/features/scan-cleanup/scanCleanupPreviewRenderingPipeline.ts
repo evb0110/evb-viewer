@@ -39,13 +39,13 @@ import {
     logScanCleanupMessage,
     readPreviewBytes,
 } from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
-import {
-    DETAIL_TILE_MAX_PIXELS,
-    DEFAULT_SOURCE_DPI,
-    BASE_ANALYSIS_CACHE_PAGE_LIMIT,
-    BASE_ANALYSIS_CACHE_BYTE_LIMIT,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 const logger = createLogger('scan-cleanup-preview-pipeline');
+const DETAIL_TILE_MAX_PIXELS = 4_000_000;
+const DEFAULT_SOURCE_DPI = 300;
+const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
+// Canonical cleaned previews are retained only so detail tiles can replay the
+// exact page-global pixel transform without growing the main-process heap.
+const BASE_ANALYSIS_CACHE_BYTE_LIMIT = 64 * 1024 * 1024;
 export async function persistBaseAnalysisArtifacts(
     outputs: IBasePreviewAnalysis['outputs'],
     canonicalRasters: Partial<Record<IScanCleanupPreviewMetadata['half'], Uint8Array>>,

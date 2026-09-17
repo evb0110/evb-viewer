@@ -95,7 +95,7 @@ const [
     importTs('../scanCleanupDetectionCache.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
-    importTs('../../app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentationPin.ts'),
+    importTs('../../app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts'),
 ]);
 
 const WEIGHT_DEVIATION_LIMIT = 0.15;

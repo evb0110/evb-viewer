@@ -1,4 +1,3 @@
-import {PAGE_MEASUREMENT_CACHE_MAX_ENTRIES} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {
     IPdfPageSize,
     IPdfPageSizeStore,
@@ -14,6 +13,7 @@ import type {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 
 const logger = createLogger('scan-cleanup-raster-measurement');
+const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
 
 export function resolveScanCleanupDocumentMeasurement<TValue>(
     slot: {

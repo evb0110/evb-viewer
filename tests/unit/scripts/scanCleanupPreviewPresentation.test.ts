@@ -24,7 +24,7 @@ import {
 import {
     commitScanCleanupPreviewPresentationSettle,
     resolveScanCleanupPreviewPresentationCommit,
-} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentationPin';
+} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 
 const stableComparison = {
     half: 'left',

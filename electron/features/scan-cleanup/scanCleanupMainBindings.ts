@@ -4,8 +4,10 @@ import type {IpcMainInvokeEvent} from 'electron';
 import type {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scanCleanupSettings';
-import {defaultDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewCompositionDefaults';
-import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {
+    defaultDependencies,
+    scanCleanupPreviewLifecycle,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 

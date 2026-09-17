@@ -9,6 +9,7 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupDetectionStartResult,
 } from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 import type {TJobId} from '@contracts/shared';
 import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
@@ -50,7 +51,6 @@ import type {
     TDetectionSnapshot,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
-import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -66,6 +66,20 @@ export interface IScanCleanupActiveDetectionJob {
     readonly jobId: TJobId;
     readonly request: IScanCleanupDetectionRequest;
     readonly signature: string;
+}
+
+function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
+    if (
+        progress.completedUnits > 0
+        && progress.completedPageNumbers?.length === 0
+        && progress.completedPageNumbersTruncated !== true
+    ) {
+        return {
+            ...progress,
+            completedPageNumbersTruncated: true,
+        };
+    }
+    return progress;
 }
 
 /**

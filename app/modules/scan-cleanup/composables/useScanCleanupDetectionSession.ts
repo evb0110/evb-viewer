@@ -1,5 +1,6 @@
 import type {
     IScanCleanupDetectionResult,
+    IScanCleanupScratchShortfall,
     IScanCleanupSourcePageMetadata,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
@@ -27,6 +28,7 @@ import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import type { TJobId } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {ComputedRef} from 'vue';
+import type {TTranslateFn} from '@i18n-app';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
 import {formatScanCleanupPreAnalysisProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {
@@ -43,10 +45,33 @@ import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
+import {formatBytes} from '@app/utils/formatters';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
+
+/**
+ * Formats the only detection failure that gives the user an actionable
+ * storage remedy. The figures stay typed at the bridge and are localized at
+ * the detection session's UI boundary.
+ */
+export function formatScanCleanupScratchMessage(
+    t: TTranslateFn,
+    shortfall: IScanCleanupScratchShortfall | undefined,
+) {
+    const headline = t('scanCleanup.errors.insufficientScratch');
+    if (
+        shortfall === undefined
+        || shortfall.requiredBytes === null
+        || shortfall.availableBytes === null
+    ) {
+        return headline;
+    }
+    return `${headline} ${t('scanCleanup.errors.insufficientScratchSpace', {
+        required: formatBytes(shortfall.requiredBytes),
+        available: formatBytes(shortfall.availableBytes),
+    })}`;
+}
 
 const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
 const DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;

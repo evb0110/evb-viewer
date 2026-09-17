@@ -10,14 +10,13 @@ import type {
     IScanCleanupPageRasterSource,
 } from '@evb/scan-cleanup/core/types';
 import { detectPageRasterFromPageSize } from '@evb/scan-cleanup/core/types';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
-    RAW_RASTER_RETENTION_PREFIX,
-    RASTER_PAGE_SOURCE_CACHE_LIMIT,
-    RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES,
-    PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
-    rasterFromLegacyProbe,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
+    DETECTION_DPI,
+    PREVIEW_DPI,
+    type IScanCleanupDocumentRasterPages,
+} from '@evb/scan-cleanup/core/detection';
+import {PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {readScanCleanupPngDimensions as readPngDimensions} from '@evb/scan-cleanup/core/rasterValidation';
 import type {
     IRetainedDocument,
@@ -45,6 +44,33 @@ import {
     createScanCleanupRasterMeasurements,
 } from '@electron/features/scan-cleanup/scanCleanupRasterMeasurement';
 const logger = createLogger('scan-cleanup-raster-retention');
+const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
+const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
+// Keep fallback page probes within the same bounded unit as detection and
+// source-DPI probing. The raster cache and decoded page window stay bounded
+// independently of this page-number batch size.
+const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+
+function rasterFromLegacyProbe(
+    source: IScanCleanupDocumentRasterPages,
+    pageNumber: number,
+): IDetectedPageRaster | undefined {
+    if (!source.pages.has(pageNumber)) {
+        return undefined;
+    }
+    const raster: IDetectedPageRaster = {
+        // The old injected result has no pixel dimensions. Detection only
+        // needs a valid raster record when a test exercises this adapter.
+        dpi: source.sourceDpiByPage?.get(pageNumber) ?? DETECTION_DPI,
+        width: 1,
+        height: 1,
+    };
+    if (source.bilevelLayerPages?.has(pageNumber)) raster.hasBilevelLayer = true;
+    if (source.dominantBilevelLayerPages?.has(pageNumber)) raster.hasDominantBilevelLayer = true;
+    const backgroundDpi = source.backgroundDpiByPage?.get(pageNumber);
+    if (backgroundDpi !== undefined) raster.backgroundDpi = backgroundDpi;
+    return raster;
+}
 export function scanCleanupRasterRetention(
     dependencies: IScanCleanupRasterDependencies,
 ): IScanCleanupRasterRetention {
