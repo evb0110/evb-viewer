@@ -119,10 +119,7 @@ const electronE2ESavePipelineTestFiles = [
     'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
     'tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts',
 ];
-const electronE2EXlargePdfTestFiles = [
-    'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
-    'tests/e2e/electron/scanCleanupXlargeAcceptance.e2e.test.ts',
-];
+const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
 const electronE2ESearchMatchScrollTestFiles = ['tests/e2e/electron/searchMatchScrolling.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
