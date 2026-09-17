@@ -390,7 +390,7 @@ export type TScanCleanupRunSidecar = (
     onProgress: TScanCleanupSidecarProgress,
     options?: {
         priority?: 'background';
-        allowedPathRoot?: string;
+        allowedPathRoot: string;
     },
 ) => Promise<IScanCleanupSidecarProtocolCapabilities | undefined> | Promise<void>;
 

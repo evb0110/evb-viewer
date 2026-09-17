@@ -89,12 +89,14 @@ function buildManifest(workDir, inputPath) {
             options: {
                 dpi: 100,
                 layout: 'force-two-page',
+                despeckle: true,
                 manualSplit: {
                     xNormalized: 0.5,
                     rotationDegrees: 0,
                 },
                 matchPageSize: true,
                 cropContent: true,
+                pageAlignment: 'top-center',
                 manualContentBoxes: {
                     left: fullBox,
                     right: fullBox,

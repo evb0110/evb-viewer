@@ -22,10 +22,11 @@ use crate::{
     },
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
-        binary_to_gray, paper_reference, picture_protection_radius,
-        postprocess_binary_with_diagnostics_and_raw, resolve_binarization_diagnostics,
-        resolve_spread_binarization_plans, BinarizationDiagnostics, SpreadBinarizationPlan,
-        BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
+        binary_to_gray, is_horizontally_fused_extent_admissible, paper_reference,
+        picture_protection_radius, postprocess_binary_with_diagnostics_and_raw,
+        resolve_binarization_diagnostics, resolve_spread_binarization_plans,
+        BinarizationDiagnostics, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR,
+        BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -60,7 +61,7 @@ use crate::{
         apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
         outside_tonal_evidence_with_mask, OutsideTonalEvidence, TextToneDiagnostics,
     },
-    CleanupOptions, OrthogonalRotation, OutputMode,
+    CleanupOptions, OrthogonalRotation, OutputMode, ResolvedOutputMode,
 };
 use rayon::prelude::*;
 use scan_primitives::{
@@ -219,6 +220,7 @@ pub(crate) fn quantize_decimal(value: f64, decimals: u32) -> i64 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupMetadata {
+    pub version: u32,
     pub source_page_index: usize,
     pub half: PageHalf,
     pub detected_skew_degrees: f64,
@@ -1131,7 +1133,7 @@ struct PreparedPage<'a> {
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
 }
 
 struct PreparedAnalysis {
@@ -1163,7 +1165,7 @@ struct PreparedAnalysis {
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
 }
 
 struct AnalysisArtifact {
@@ -1192,7 +1194,7 @@ struct AnalysisArtifact {
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
-    resolved_output_mode: OutputMode,
+    resolved_output_mode: ResolvedOutputMode,
     analysis_threshold: Option<u8>,
     text_axis: Option<TextAxisHint>,
 }
@@ -2223,19 +2225,20 @@ fn prepare_page<'a>(
     // illumination normalization enabled here made preview invent a visual
     // change while the compact PDF assembler correctly wanted to preserve the
     // source objects. Explicit Color remains user-controlled and may normalize.
-    let auto_resolved_color =
-        options.output_mode == OutputMode::Auto && resolved_output_mode == OutputMode::Color;
+    let auto_resolved_color = options.output_mode == OutputMode::Auto
+        && resolved_output_mode == ResolvedOutputMode::Color;
     let mut resolved_options;
-    let options = if resolved_output_mode == options.output_mode && !auto_resolved_color {
-        options
-    } else {
-        resolved_options = options.clone();
-        resolved_options.output_mode = resolved_output_mode;
-        if auto_resolved_color {
-            resolved_options.normalize_illumination = false;
-        }
-        &resolved_options
-    };
+    let options =
+        if resolved_output_mode.as_output_mode() == options.output_mode && !auto_resolved_color {
+            options
+        } else {
+            resolved_options = options.clone();
+            resolved_options.output_mode = resolved_output_mode.as_output_mode();
+            if auto_resolved_color {
+                resolved_options.normalize_illumination = false;
+            }
+            &resolved_options
+        };
     let rotated_source = match options.rotation {
         OrthogonalRotation::None => Cow::Borrowed(source),
         rotation => Cow::Owned(rotate_orthogonal(source, rotation)),
@@ -2923,7 +2926,7 @@ fn restore_genuine_horizontal_rules(
         let height = component.bottom - component.top + 1;
         let horizontal_rule = width >= minimum_span
             && width >= height.saturating_mul(4)
-            && height <= maximum_thickness
+            && is_horizontally_fused_extent_admissible(component, maximum_thickness)
             && component.area >= width;
         if !horizontal_rule {
             continue;

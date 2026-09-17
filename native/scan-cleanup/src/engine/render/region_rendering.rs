@@ -317,18 +317,20 @@ pub(crate) fn render_page(
         timings,
     );
     let auto_resolved_color = options.output_mode == OutputMode::Auto
-        && prepared.resolved_output_mode == OutputMode::Color;
+        && prepared.resolved_output_mode == ResolvedOutputMode::Color;
+    let resolved_output_mode = prepared.resolved_output_mode;
     let mut resolved_options;
-    let options = if prepared.resolved_output_mode == options.output_mode && !auto_resolved_color {
-        options
-    } else {
-        resolved_options = options.clone();
-        resolved_options.output_mode = prepared.resolved_output_mode;
-        if auto_resolved_color {
-            resolved_options.normalize_illumination = false;
-        }
-        &resolved_options
-    };
+    let options =
+        if resolved_output_mode.as_output_mode() == options.output_mode && !auto_resolved_color {
+            options
+        } else {
+            resolved_options = options.clone();
+            resolved_options.output_mode = resolved_output_mode.as_output_mode();
+            if auto_resolved_color {
+                resolved_options.normalize_illumination = false;
+            }
+            &resolved_options
+        };
     let PreparedPage {
         rotated_source,
         normalized,
@@ -357,7 +359,7 @@ pub(crate) fn render_page(
         output_mode_recommendation,
         preserve_confirmed_photo_tones,
         use_soft_alpha_foreground,
-        resolved_output_mode: _,
+        resolved_output_mode,
     } = prepared;
     let working_regions = output_regions(
         normalized.width(),
@@ -501,6 +503,7 @@ pub(crate) fn render_page(
                 text_vicinity_mask: text_vicinity_mask.as_deref(),
                 trusted_foreground_mask: trusted_foreground_mask.as_ref(),
                 options,
+                resolved_output_mode,
                 source_page_index,
                 split: &split,
                 spread_plan: spread_plan.as_ref(),
@@ -660,6 +663,7 @@ fn assemble_region_result(
         mixed_layers,
         effectively_blank,
         metadata: CleanupMetadata {
+            version: crate::protocol::manifest_v3::VERSION,
             source_page_index,
             half,
             detected_skew_degrees: deskew.angle_degrees,
@@ -759,6 +763,7 @@ struct OutputProcessingInput<'a> {
     rendered_tone_alpha: Option<GrayImage>,
     canonical_routing_sample: &'a GrayImage,
     options: &'a CleanupOptions,
+    resolved_output_mode: ResolvedOutputMode,
     spread_plan: Option<&'a SpreadBinarizationPlan>,
     calibration: PageCalibration,
     source_page_index: usize,
@@ -808,6 +813,7 @@ struct OutputModeProcessingInput<'a> {
     rendered_trusted_foreground_mask: Option<BinaryImage>,
     canonical_routing_sample: &'a GrayImage,
     options: &'a CleanupOptions,
+    resolved_output_mode: ResolvedOutputMode,
     spread_plan: Option<&'a SpreadBinarizationPlan>,
     calibration: PageCalibration,
     source_page_index: usize,
@@ -861,6 +867,7 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
         rendered_trusted_foreground_mask,
         canonical_routing_sample,
         options,
+        resolved_output_mode,
         spread_plan,
         calibration,
         source_page_index,
@@ -890,7 +897,7 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
     } = input;
     let mut ink_consistency_diagnostics = None;
     let mut conservation_warnings = Vec::new();
-    let mut emitted_output_mode = options.output_mode;
+    let mut emitted_output_mode = resolved_output_mode.as_output_mode();
     let (
         image,
         color_image,
@@ -900,12 +907,15 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
         mixed_layers,
     ) = if fail_closed_blank {
         (
-            if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+            if matches!(
+                resolved_output_mode,
+                ResolvedOutputMode::Bw | ResolvedOutputMode::Mixed
+            ) {
                 CleanupRaster::Bilevel(BinaryImage::new(output_width, output_height))
             } else {
                 CleanupRaster::Gray(GrayImage::new(output_width, output_height, 255))
             },
-            if options.output_mode == OutputMode::Color && rendered_color.is_some() {
+            if resolved_output_mode == ResolvedOutputMode::Color && rendered_color.is_some() {
                 Some(RgbImage::new(output_width, output_height, [255; 3]))
             } else {
                 None
@@ -916,8 +926,8 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
             None,
         )
     } else {
-        match options.output_mode {
-            OutputMode::Bw => {
+        match resolved_output_mode {
+            ResolvedOutputMode::Bw => {
                 let BilevelProcessingOutput {
                     image,
                     binarization_mode,
@@ -969,7 +979,7 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                     mixed_layers,
                 )
             }
-            OutputMode::Mixed => {
+            ResolvedOutputMode::Mixed => {
                 let MixedProcessingOutput {
                     image,
                     color_image,
@@ -1022,13 +1032,13 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                     mixed_layers,
                 )
             }
-            OutputMode::Grayscale | OutputMode::Color => {
+            ResolvedOutputMode::Grayscale | ResolvedOutputMode::Color => {
                 let ContinuousOutputOutput {
                     image,
                     color_image,
                     mixed_layers,
                 } = process_continuous_output(ContinuousOutputInput {
-                    output_mode: options.output_mode,
+                    output_mode: resolved_output_mode.as_output_mode(),
                     rendered_gray,
                     rendered_color,
                     rendered_width: output_width,
@@ -1037,7 +1047,6 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                 });
                 (image, color_image, None, None, false, mixed_layers)
             }
-            OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
         }
     };
     OutputModeProcessingOutput {
@@ -1069,6 +1078,7 @@ fn process_region_output(
         mut rendered_tone_alpha,
         canonical_routing_sample,
         options,
+        resolved_output_mode,
         spread_plan,
         calibration,
         source_page_index,
@@ -1155,6 +1165,7 @@ fn process_region_output(
         rendered_trusted_foreground_mask,
         canonical_routing_sample,
         options,
+        resolved_output_mode,
         spread_plan,
         calibration,
         source_page_index,
@@ -1676,6 +1687,7 @@ pub(crate) struct Input<'a> {
     pub text_vicinity_mask: Option<&'a BinaryImage>,
     pub trusted_foreground_mask: Option<&'a BinaryImage>,
     pub options: &'a CleanupOptions,
+    pub resolved_output_mode: ResolvedOutputMode,
     pub source_page_index: usize,
     pub split: &'a SplitResult,
     pub spread_plan: Option<&'a SpreadBinarizationPlan>,
@@ -3384,6 +3396,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         text_vicinity_mask,
         trusted_foreground_mask,
         options,
+        resolved_output_mode,
         source_page_index,
         split,
         spread_plan,
@@ -3573,6 +3586,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, super::Analy
         rendered_tone_alpha,
         canonical_routing_sample,
         options,
+        resolved_output_mode,
         spread_plan,
         calibration,
         source_page_index,

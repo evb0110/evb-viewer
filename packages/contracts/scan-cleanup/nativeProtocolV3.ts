@@ -8,6 +8,7 @@ import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
+    IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupDespeckleLevel,
@@ -20,6 +21,7 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/domain';
 import type {
+    IScanCleanupAppliedMargins,
     IScanCleanupMarginsMm,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
@@ -29,6 +31,7 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
+import type {IScanCleanupContentDiagnostics} from '@contracts/scan-cleanup/ipc';
 import {
     decodeScanCleanupPageNumber,
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
@@ -138,10 +141,12 @@ export interface INativeScanCleanupDewarpModelV3 {
 }
 
 export interface INativeScanCleanupOutputMetadataV3 {
+    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     sourcePageIndex?: number;
     half?: TScanCleanupOutputHalf;
     sourceRegion?: IScanCleanupPixelRect;
     cropRect?: IScanCleanupPixelRect;
+    renderRegion?: IScanCleanupPixelRect;
     inputWidthPx?: number;
     inputHeightPx?: number;
     outputWidthPx: number;
@@ -151,6 +156,9 @@ export interface INativeScanCleanupOutputMetadataV3 {
     canvasWidthPx: number;
     canvasHeightPx: number;
     layoutClassification: TScanCleanupLayoutClassification;
+    layoutConfidence?: number;
+    cutterXPx?: number | null;
+    splitGeometry?: IScanCleanupPixelPolygon[];
     splitSeam?: IScanCleanupSplitSeamPolyline;
     splitAbstained?: boolean;
     detectedSkewDegrees?: number;
@@ -163,6 +171,7 @@ export interface INativeScanCleanupOutputMetadataV3 {
     layeredBackgroundDpi?: number;
     layeredForegroundDpi?: number;
     trustedMrcBackgroundPreserved?: boolean;
+    trustedSelectionApplied?: boolean;
     illuminationNormalized?: boolean;
     textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
@@ -172,6 +181,13 @@ export interface INativeScanCleanupOutputMetadataV3 {
     dewarpConfidence?: number | null;
     dewarpModel?: INativeScanCleanupDewarpModelV3 | null;
     contentBox?: IScanCleanupPixelRect | null;
+    contentDiagnostics?: IScanCleanupContentDiagnostics;
+    appliedMargins?: IScanCleanupAppliedMargins;
+    softMarginsPx?: [number, number, number, number];
+    uniformCanvas?: boolean;
+    canvasPolicy?: 'intrinsic' | 'strict-maximum';
+    canvasOverflow?: boolean;
+    inkConsistencyDiagnostics?: INativeScanCleanupInkConsistencyDiagnosticsV3;
     /**
      * Unstructured native diagnostics. Every condition the pipeline aggregates
      * or displays as a decision travels in `warningEvents` instead; artifacts
@@ -180,6 +196,13 @@ export interface INativeScanCleanupOutputMetadataV3 {
     warnings?: string[];
     warningEvents?: TScanCleanupWarningEvent[];
     renderDpi?: number;
+    sourceDpi?: number;
+    requestedRenderDpi?: number;
+    rasterScaleLimited?: boolean;
+    resamplePasses?: number;
+    canvasScope?: TScanCleanupCanvasScope;
+    matchedCanvasTargetWidthPx?: number | null;
+    matchedCanvasTargetHeightPx?: number | null;
     matchedCanvasTargetWidthPoints?: number | null;
     matchedCanvasTargetHeightPoints?: number | null;
     matchedCanvasContentWidthPx?: number | null;
@@ -203,6 +226,15 @@ export interface INativeScanCleanupOutputMetadataV3 {
     inverseTransform?: IScanCleanupPreviewAffine | null;
     dewarpMapping?: INativeScanCleanupReusableGeometryV3['dewarpMapping'];
     rotationDegrees: TScanCleanupPageRotation;
+}
+
+export interface INativeScanCleanupInkConsistencyDiagnosticsV3 {
+    priorSampleCount: number;
+    priorSurvivalMedian: number;
+    survivalBefore: number;
+    survivalAfter: number;
+    addedInkPixels: number;
+    applied: boolean;
 }
 
 export type TNativeScanCleanupTextToneRuleV3 =
@@ -230,6 +262,8 @@ export interface INativeScanCleanupTextToneDiagnosticsV3 {
 export interface INativeScanCleanupAnalysisOutputV3 {
     half: TScanCleanupOutputHalf;
     contentBox?: IScanCleanupPixelRect | null;
+    contentDiagnostics?: IScanCleanupContentDiagnostics;
+    appliedMargins?: IScanCleanupAppliedMargins;
     textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
     cropRect: IScanCleanupPixelRect;
     sourceRegion: IScanCleanupPixelRect;
@@ -443,6 +477,8 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 export interface INativeScanCleanupPageMetadataV3 {
+    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
+    sourcePageIndex?: number;
     layoutClassification: TScanCleanupLayoutClassification;
     layoutConfidence?: number;
     cutterXPx: number | null;
@@ -460,6 +496,11 @@ export interface INativeScanCleanupPageMetadataV3 {
     softAlphaForegroundRecommendation?: boolean;
     outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
     splitDiagnostics?: INativeScanCleanupSplitDiagnosticsV3;
+    documentPrior?: IScanCleanupDocumentPrior;
+    textAxis?: IScanCleanupTextAxis;
+    tier1Verdict?: TScanCleanupLayoutClassification;
+    reconciled?: boolean;
+    clusterAgreement?: number;
 }
 
 /** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */
@@ -873,7 +914,7 @@ const progress = s.refine(s.refine(s.object({
             && value.stage !== 'page-complete'
             && value.stage !== 'page-input-required'
             && value.stage !== 'page-input-released'
-        : true,
+        : value.pageNumber <= value.totalPages,
 'Invalid evb-scan-cleanup progress page number');
 const successResult = s.object({
     status: s.oneOf(['success'] as const),
@@ -907,8 +948,8 @@ const resultEnvelope = s.object({
  * change cannot turn one aggregate into per-page noise.
  */
 export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
+    // Native render metadata producers.
     'matched-canvas-content-fitted',
-    'matched-canvas-content-fitted-pages',
     'matched-canvas-margins-reduced',
     'matched-canvas-margins-unavailable',
     'matched-canvas-paper-downscaled',
@@ -916,13 +957,15 @@ export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
     'matched-canvas-intrinsic-overflow',
     'matched-canvas-spread-headroom-trimmed',
     'matched-canvas-fold-columns-discarded',
+    'render-dpi-limited',
+    // Lossless document assembly producers.
+    'matched-canvas-content-fitted-pages',
     'matched-canvas-dropped',
     'matched-canvas-geometry-unmeasured',
     'matched-canvas-pages-resampled',
     'matched-canvas-pages-scaled-in-place',
     'matched-canvas-document-dpi-normalized',
     'matched-canvas-page-dpi-capped',
-    'render-dpi-limited',
 ] as const;
 
 export type TScanCleanupWarningEventCode = typeof SCAN_CLEANUP_WARNING_EVENT_CODES[number];

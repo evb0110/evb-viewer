@@ -280,6 +280,75 @@ describe('scan-cleanup IPC request codecs', () => {
         }
     });
 
+    it('shares normalized edge tolerance and accepts closed automatic split bounds', () => {
+        const edgeBoxes = [
+            {
+                xNormalized: 0,
+                yNormalized: 0,
+                widthNormalized: 1,
+                heightNormalized: 1,
+            },
+            {
+                xNormalized: 0.75,
+                yNormalized: 0,
+                widthNormalized: 0.25,
+                heightNormalized: 1,
+            },
+            {
+                xNormalized: 0,
+                yNormalized: 0.75,
+                widthNormalized: 1,
+                heightNormalized: 0.25,
+            },
+            {
+                xNormalized: 0.75,
+                yNormalized: 0.75,
+                widthNormalized: 0.25,
+                heightNormalized: 0.25,
+            },
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.9 + Number.EPSILON,
+                heightNormalized: 0.8,
+            },
+        ];
+        for (const contentBox of edgeBoxes) {
+            for (const xNormalized of [
+                0,
+                1,
+            ]) {
+                expect(() => decodeStartArgs([{
+                    ...request,
+                    pagePlanEvidenceByPage: {'12': {
+                        ...request.pagePlanEvidenceByPage['12'],
+                        automaticSplit: {
+                            xNormalized,
+                            rotationDegrees: 0,
+                        },
+                        outputs: {full: {
+                            ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                            contentBox: {
+                                ...contentBox,
+                                rotationDegrees: 0,
+                            },
+                        }},
+                    }},
+                }])).not.toThrow();
+            }
+        }
+        expect(() => decodeStartArgs([{
+            ...request,
+            pagePlanEvidenceByPage: {'12': {
+                ...request.pagePlanEvidenceByPage['12'],
+                automaticSplit: {
+                    xNormalized: 1.01,
+                    rotationDegrees: 0,
+                },
+            }},
+        }])).toThrow('automatic split');
+    });
+
     it('carries one scalar page override default beside sparse page entries', () => {
         const pageOverrideDefaults = {
             rotationDegrees: 90,

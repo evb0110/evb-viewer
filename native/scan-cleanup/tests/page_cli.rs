@@ -546,6 +546,7 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         .all(|event| event["progress"]["recommendedOutputMode"].is_null()));
     for page_metadata in [&bw_page_metadata, &gray_page_metadata] {
         let page: Value = serde_json::from_slice(&fs::read(page_metadata).unwrap()).unwrap();
+        assert_eq!(page["version"], 3);
         assert!(page["recommendedOutputMode"].is_null());
     }
     assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
@@ -557,6 +558,10 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         serde_json::from_slice::<Value>(&fs::read(&bw_metadata).unwrap()).unwrap()
             ["bilevelWritten"],
         true
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&bw_metadata).unwrap()).unwrap()["version"],
+        3
     );
     assert!(gray_output.exists());
     assert!(!gray_pbm.exists());
@@ -1686,6 +1691,7 @@ fn matched_canvas_places_an_automatic_crop_by_content_alignment() {
             "sourcePageIndex": 0,
             "pageMetadataPath": page_metadata,
             "options": {
+                "despeckle": true,
                 "dpi": 100.0,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -1763,6 +1769,7 @@ fn matched_canvas_places_a_crop_where_the_callers_ink_anchor_says_it_sat() {
             "sourcePageIndex": 0,
             "pageMetadataPath": page_metadata,
             "options": {
+                "despeckle": true,
                 "dpi": 100.0,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -2762,6 +2769,9 @@ fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
             "sourcePageIndex": 0,
             "pageMetadataPath": scratch.path(&format!("{label}-page.json")),
             "options": {
+                "despeckle": true,
+                "outputMode": "bw",
+                "pageAlignment": "top-center",
                 "dpi": 300,
                 "layout": "force-two-page",
                 "normalizeIllumination": false,
@@ -2896,6 +2906,9 @@ fn over_analysis_edge_spread_analysis_matches_canonical_leaf_ink_and_content() {
             "sourcePageIndex": 0,
             "pageMetadataPath": scratch.path(&format!("{label}-page.json")),
             "options": {
+                "despeckle": true,
+                "outputMode": "bw",
+                "pageAlignment": "top-center",
                 "dpi": 300,
                 "layout": "force-two-page",
                 "normalizeIllumination": false,
@@ -3253,7 +3266,7 @@ fn per_page_ocr_mode_writes_atomic_png_and_metadata() {
             metadata.to_str().unwrap(),
             "--ocr-mode",
             "--options",
-            r#"{"dpi":300,"normalizeIllumination":false}"#,
+            r#"{"dpi":300,"despeckle":true,"outputMode":"bw","cropContent":true,"matchPageSize":true,"pageAlignment":"top-center","normalizeIllumination":false}"#,
         ])
         .output()
         .unwrap();
@@ -3313,6 +3326,11 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
             "sourcePageIndex": 7,
             "pageMetadataPath": scratch.path("spread-page.json"),
             "options": {
+                "despeckle": true,
+                "outputMode": "bw",
+                "cropContent": true,
+                "matchPageSize": true,
+                "pageAlignment": "top-center",
                 "dpi": 150,
                 "layout": "force-two-page",
                 "rotationDegrees": 90,
@@ -3438,6 +3456,11 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
                 "sourcePageIndex": 0,
                 "pageMetadataPath": spread_page_metadata,
                 "options": {
+                    "despeckle": true,
+                    "outputMode": "bw",
+                    "cropContent": true,
+                    "matchPageSize": true,
+                    "pageAlignment": "top-center",
                     "dpi": 150,
                     "normalizeIllumination": false
                 },
@@ -3451,6 +3474,11 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
                 "sourcePageIndex": 1,
                 "pageMetadataPath": single_page_metadata,
                 "options": {
+                    "despeckle": true,
+                    "outputMode": "bw",
+                    "cropContent": true,
+                    "matchPageSize": true,
+                    "pageAlignment": "top-center",
                     "dpi": 150,
                     "layout": "force-single",
                     "normalizeIllumination": false
@@ -3554,6 +3582,11 @@ fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
             "sourcePageIndex": 40,
             "pageMetadataPath": metadata_first,
             "options": {
+                "despeckle": true,
+                "outputMode": "bw",
+                "cropContent": true,
+                "matchPageSize": true,
+                "pageAlignment": "top-center",
                 "dpi": 150.0,
                 "layout": "auto",
                 "normalizeIllumination": false
@@ -3641,6 +3674,8 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
                 "sourcePageIndex": index,
                 "pageMetadataPath": scratch.path(&format!("parallel-determinism-page-{index}.json")),
                 "options": {
+                    "despeckle": true,
+                    "pageAlignment": "top-center",
                     "dpi": 150,
                     "layout": "force-single",
                     "cropContent": false,
@@ -3738,6 +3773,11 @@ fn sigterm_terminates_parallel_batch_promptly() {
                 "sourcePageIndex": index,
                 "pageMetadataPath": metadata,
                 "options": {
+                    "despeckle": true,
+                    "outputMode": "bw",
+                    "cropContent": true,
+                    "matchPageSize": true,
+                    "pageAlignment": "top-center",
                     "dpi": 150,
                     "layout": "auto"
                 },
@@ -3847,6 +3887,7 @@ fn batch_applies_per_output_placement_over_document_default() {
                 "sourcePageIndex": 0,
                 "pageMetadataPath": scratch.path("uniform-small-page.json"),
                 "options": {
+                    "despeckle": true,
                     "dpi": 300,
                     "layout": "force-single",
                     "normalizeIllumination": false,
@@ -3863,6 +3904,7 @@ fn batch_applies_per_output_placement_over_document_default() {
                 "sourcePageIndex": 1,
                 "pageMetadataPath": scratch.path("uniform-large-page.json"),
                 "options": {
+                    "despeckle": true,
                     "dpi": 300,
                     "layout": "force-single",
                     "normalizeIllumination": false,
@@ -3992,6 +4034,8 @@ fn matched_canvas_real_binary_keeps_native_density_on_one_physical_rectangle() {
             "sourcePageIndex": index,
             "pageMetadataPath": scratch.path(&format!("matched-physical-page-{index}.json")),
             "options": {
+                "despeckle": true,
+                "pageAlignment": "top-center",
                 "dpi": dpi,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -4019,6 +4063,7 @@ fn matched_canvas_real_binary_keeps_native_density_on_one_physical_rectangle() {
         "sourcePageIndex": 2,
         "pageMetadataPath": scratch.path("matched-physical-color-page.json"),
         "options": {
+            "despeckle": true,
             "dpi": 100,
             "layout": "force-single",
             "normalizeIllumination": false,
@@ -4128,6 +4173,7 @@ fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
             "sourcePageIndex": index,
             "pageMetadataPath": scratch.path(&format!("matched-oversized-page-{index}.json")),
             "options": {
+                "despeckle": true,
                 "dpi": 300,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -4217,6 +4263,7 @@ fn matched_canvas_keeps_rotation_and_margins_inside_the_document_rectangle() {
             "sourcePageIndex": index,
             "pageMetadataPath": scratch.path(&format!("matched-rotation-page-{index}.json")),
             "options": {
+                "despeckle": true,
                 "dpi": 300,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -4307,6 +4354,7 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
             "sourcePageIndex": 0,
             "pageMetadataPath": scratch.path("matched-preview-page.json"),
             "options": {
+                "despeckle": true,
                 "dpi": 300,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -4428,6 +4476,7 @@ fn matched_canvas_preview_matches_final_placement_for_a_sparse_wide_spread_leaf(
             "sourcePageIndex": 0,
             "pageMetadataPath": scratch.path("matched-sparse-spread-preview-page.json"),
             "options": {
+                "despeckle": true,
                 "dpi": 100,
                 "layout": "force-two-page",
                 "manualSplit": {
@@ -4588,6 +4637,7 @@ fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() 
             "sourcePageIndex": 0,
             "pageMetadataPath": scratch.path("matched-spread-preview-page.json"),
             "options": {
+                "despeckle": true,
                 "dpi": 150,
                 "layout": "force-two-page",
                 "normalizeIllumination": false,
@@ -4720,6 +4770,7 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
                     "sourcePageIndex": 0,
                     "pageMetadataPath": page_metadata_path,
                     "options": {
+                        "despeckle": true,
                         "dpi": 300,
                         "layout": "force-single",
                         "normalizeIllumination": false,
@@ -4801,6 +4852,8 @@ fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
             "sourcePageIndex": 0,
             "pageMetadataPath": scratch.path("asymmetric-margins-page.json"),
             "options": {
+                "despeckle": true,
+                "pageAlignment": "top-center",
                 "dpi": 150,
                 "layout": "force-single",
                 "normalizeIllumination": false,
@@ -5136,9 +5189,11 @@ fn matched_canvas_places_a_spread_half_at_the_same_scale_as_an_unsplit_page() {
             "dpi": 100,
             "layout": layout,
             "normalizeIllumination": false,
+            "despeckle": true,
             "cropContent": false,
             "outputMode": "grayscale",
             "matchPageSize": true,
+            "pageAlignment": "top-center",
             "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
         })
     };
@@ -5258,9 +5313,11 @@ fn matched_canvas_measures_a_kept_half_by_the_paper_it_kept() {
             "dpi": 100,
             "layout": layout,
             "normalizeIllumination": false,
+            "despeckle": true,
             "cropContent": false,
             "outputMode": "grayscale",
             "matchPageSize": true,
+            "pageAlignment": "top-center",
             "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
         })
     };
@@ -5374,6 +5431,8 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
                 "sourcePageIndex": 0,
                 "pageMetadataPath": scratch.path("matched-tolerance-page.json"),
                 "options": {
+                    "despeckle": true,
+                    "pageAlignment": "top-center",
                     "dpi": 100,
                     "layout": "force-single",
                     "normalizeIllumination": false,
@@ -5447,6 +5506,8 @@ fn matched_canvas_reserves_requested_output_padding_inside_the_physical_page() {
                 "sourcePageIndex": 0,
                 "pageMetadataPath": scratch.path("matched-overflow-page.json"),
                 "options": {
+                    "despeckle": true,
+                    "pageAlignment": "top-center",
                     "dpi": 100,
                     "layout": "force-single",
                     "normalizeIllumination": false,
@@ -5545,6 +5606,8 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
                 "sourcePageIndex": 0,
                 "pageMetadataPath": scratch.path("matched-undersized-page.json"),
                 "options": {
+                    "despeckle": true,
+                    "pageAlignment": "top-center",
                     "dpi": 100,
                     "layout": "force-single",
                     "normalizeIllumination": false,
@@ -5619,6 +5682,7 @@ fn matched_canvas_preview_reserves_padding_inside_the_physical_page() {
                 "sourcePageIndex": 0,
                 "pageMetadataPath": scratch.path("matched-overflow-preview-page.json"),
                 "options": {
+                    "despeckle": true,
                     "dpi": 150,
                     "layout": "force-single",
                     "normalizeIllumination": false,
@@ -5936,6 +6000,8 @@ fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_p
                 "pageMetadataPath": spread_metadata,
                 "outputs": [],
                 "options": {
+                    "despeckle": true,
+                    "pageAlignment": "top-center",
                     "dpi": 150,
                     "layout": "force-two-page",
                     "normalizeIllumination": false,
@@ -6076,6 +6142,8 @@ fn cli_content_box_only_inherits_local_rejected_rail_authority() {
             "sourcePageIndex": index,
             "pageMetadataPath": page_metadata_path,
             "options": {
+                "despeckle": true,
+                "pageAlignment": "top-center",
                 "dpi": 150,
                 "sourceDpi": 150,
                 "sourceBackgroundDpi": 150,

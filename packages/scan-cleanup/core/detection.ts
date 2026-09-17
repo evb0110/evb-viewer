@@ -1262,19 +1262,11 @@ async function runBatchedScanCleanupDetection<TDocument>(
             );
         }
         const reportedPageNumbers = new Set<number>();
-        const resolveSourcePageNumber = (
-            pageNumber: number | undefined,
-            preferSourcePageNumber = false,
-        ) => {
+        const resolveSourcePageNumber = (pageNumber: number | undefined) => {
             if (pageNumber === undefined) {
                 return undefined;
             }
-            if (preferSourcePageNumber && batchPageSet.has(pageNumber)) {
-                return pageNumber;
-            }
-            return sourcePageByManifestIndex.get(pageNumber) ?? (
-                batchPageSet.has(pageNumber) ? pageNumber : undefined
-            );
+            return sourcePageByManifestIndex.get(pageNumber);
         };
         const recordResult = (
             nativeProgress: TNativeScanCleanupProgressV3,
@@ -1367,7 +1359,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         nativeProgress.stage === 'page-input-required'
                         && nativeProgress.pageNumber !== undefined
                     ) {
-                        const sourcePageNumber = resolveSourcePageNumber(nativeProgress.pageNumber, true);
+                        const sourcePageNumber = resolveSourcePageNumber(nativeProgress.pageNumber);
                         if (sourcePageNumber === undefined) {
                             throw new ScanCleanupContractError(
                                 `Scan cleanup detection requested unknown page ${String(nativeProgress.pageNumber)}`,
@@ -1383,7 +1375,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         nativeProgress.stage === 'page-input-released'
                         && nativeProgress.pageNumber !== undefined
                     ) {
-                        const sourcePageNumber = resolveSourcePageNumber(nativeProgress.pageNumber, true);
+                        const sourcePageNumber = resolveSourcePageNumber(nativeProgress.pageNumber);
                         if (sourcePageNumber === undefined) {
                             throw new ScanCleanupContractError(
                                 `Scan cleanup detection released unknown page ${String(nativeProgress.pageNumber)}`,

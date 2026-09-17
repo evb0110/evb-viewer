@@ -10,8 +10,8 @@ use crate::engine::page_statistics::{
 };
 use crate::engine::page_workflow::{run_classification, run_page, PageRunResult};
 use crate::engine::resource_planning::{
-    manifest_cache, page_cache_for, page_worker_threads, processing_worker_threads, run_page_jobs,
-    run_regular_page_jobs, PageDescriptor, PlanningOperation,
+    manifest_cache, page_cache_for, page_worker_threads, processing_worker_threads,
+    run_page_jobs_with_worker_threads, run_regular_page_jobs, PageDescriptor, PlanningOperation,
 };
 use crate::engine::staged_input::{
     acquire_staged_page_input, assert_paths_within_root, finish_staged_rerun, page_from_staged,
@@ -21,7 +21,10 @@ use crate::engine::staged_input::{
 };
 use crate::{
     protocol::{
-        manifest_v3::{AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode},
+        manifest_v3::{
+            AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
+            MAX_MANIFEST_PAGES_PER_BATCH,
+        },
         progress::{Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
     },
@@ -39,7 +42,11 @@ use std::{
     sync::Mutex,
 };
 
-const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
+// Keep the materialized compatibility sanitizer bounded by the same page
+// admission contract as the wire page vector. Eight KiB per page leaves room
+// for normal authored options while preventing a byte-sized manifest from
+// turning the additive unknown-field pass into an unbounded allocation.
+const MAX_MANIFEST_BYTES: usize = MAX_MANIFEST_PAGES_PER_BATCH * 8 * 1024;
 const CANCELLATION_EXIT_CODE: i32 = 130;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -54,6 +61,9 @@ enum ScanCleanupCliInvocation {
     },
     Manifest {
         path: PathBuf,
+        // A root is a manifest-sidecar containment affordance. Direct mode
+        // intentionally retains its exit-code-only CLI contract for callers
+        // that already own the input and output paths.
         allowed_path_root: Option<PathBuf>,
     },
 }
@@ -205,6 +215,9 @@ fn run_inner(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error
     };
     let cache = manifest_cache(PlanningOperation::Render, None);
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
+    // Direct mode is an exit-code-only CLI: a successful page has already
+    // published its output and metadata, while only manifest mode emits the
+    // sidecar ResultEnvelope protocol line.
     run_page(
         &page,
         CanvasScope::Page,
@@ -218,6 +231,8 @@ fn run_inner(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error
 }
 
 fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box<dyn Error>> {
+    // Rootless manifest execution remains a direct-CLI affordance; sidecar
+    // callers provide the process-owned root through their adapter contract.
     let manifest: ManifestV3 =
         deserialize_json_file_bounded(path, MAX_MANIFEST_BYTES, "v3 batch manifest")?;
     manifest.validate_for_execution()?;
@@ -276,6 +291,11 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         planning_operation(manifest.operation),
         manifest.host_memory_bytes,
     );
+    // Compute the memory-derived page pool once. The render prepass and the
+    // final page run share this plan so a batch does not reread every raster
+    // header merely to arrive at the same worker count.
+    let worker_threads = page_worker_threads(manifest)?;
+    let processing_threads = processing_worker_threads();
     let total_pages = manifest.pages.len();
     // Pages finish out of order under the worker pool, but the progress stream is
     // a monotone per-page sequence, so each page's event waits for its
@@ -325,8 +345,6 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     } else {
         let planning_pages = manifest.pages.iter().map(planning_page).collect::<Vec<_>>();
         let samples = if planning_pages.iter().any(page_needs_ink_sample) {
-            let worker_threads = page_worker_threads(manifest)?;
-            let processing_threads = processing_worker_threads();
             run_regular_page_jobs(
                 manifest,
                 |(_, page)| derive_page_ink_sample(page),
@@ -342,7 +360,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     let run_analysis =
         |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
             let page = page_from_staged(&manifest.pages[index], descriptor);
-            let lease = staged_lease(manifest, &page);
+            let lease = staged_lease(manifest, index, &page);
             let result = with_announced_staged_page_input(&lease, &announce_lease, || {
                 let page_cache = page_cache_for(descriptor, &cache)?;
                 run_classification(
@@ -384,9 +402,14 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             Ok(result)
         };
     let mut page_results = if analyzing {
-        run_page_jobs(manifest, run_analysis)?
+        run_page_jobs_with_worker_threads(
+            manifest,
+            run_analysis,
+            worker_threads,
+            processing_threads,
+        )?
     } else {
-        run_page_jobs(manifest, run_one)?
+        run_page_jobs_with_worker_threads(manifest, run_one, worker_threads, processing_threads)?
     };
 
     // Reconciliation only ever revises classification-pass results; a render pass
@@ -402,7 +425,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         );
         let rerun = |index, prior| {
             let page = &manifest.pages[index];
-            let lease = staged_lease(manifest, page);
+            let lease = staged_lease(manifest, index, page);
             let stream_input = planning_page(page).stream_input;
             acquire_staged_page_input(&lease, &announce_lease)?;
             let rerun_result =

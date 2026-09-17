@@ -30,6 +30,7 @@ use std::{
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PageResultMetadata {
+    pub(crate) version: u32,
     pub(crate) source_page_index: usize,
     pub(crate) layout_classification: LayoutClassification,
     pub(crate) layout_confidence: f64,
@@ -499,6 +500,7 @@ pub(crate) fn run_page(
         return Err(invalid("OCR mode changed output dimensions").into());
     }
     let page_metadata = PageResultMetadata {
+        version: crate::protocol::manifest_v3::VERSION,
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.layout_confidence,
@@ -561,14 +563,9 @@ pub(crate) fn run_page(
     let matched_canvas = if final_render && options.match_page_size && !options.ocr_mode {
         let canvas = document_canvas
             .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
-        // PDF page matching is a physical-points contract, not a
-        // same-number-of-pixels contract. Reusing the document's finest raster
-        // grid upscaled lower-DPI B&W/Mixed pages after cleanup, adding no
-        // information while changing stroke geometry and bloating masks. Each
-        // page keeps the DPI at which it was actually cleaned.
-        let mut canvas = geometry_canvas(&canvas);
-        canvas = canvas.at_dpi(options.dpi);
-        validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
+        // PDF page matching is a physical-points contract. Each page keeps
+        // the DPI at which it was actually cleaned.
+        let canvas = matched_canvas_for_options(canvas, &options)?;
         Some(canvas)
     } else {
         None
@@ -860,8 +857,7 @@ pub(crate) fn run_page(
             let fold_side_near_paper_run =
                 if matched_placement.is_some() || !options.match_page_size || options.ocr_mode {
                     0
-                } else if let Some(canvas) = document_canvas.map(|canvas| geometry_canvas(&canvas))
-                {
+                } else if let Some(canvas) = document_canvas {
                     let fit = canvas_fit_for(
                         output.image.width(),
                         output.image.height(),
@@ -992,6 +988,7 @@ pub(crate) fn run_classification(
     )
     .map_err(map_analysis_error)?;
     let page_metadata = PageResultMetadata {
+        version: crate::protocol::manifest_v3::VERSION,
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.confidence,
