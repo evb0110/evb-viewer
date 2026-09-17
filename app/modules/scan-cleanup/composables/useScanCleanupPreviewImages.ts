@@ -24,6 +24,15 @@ interface IScanCleanupPendingCleanedFrame<TPresentation> {
     transitionKey: string;
 }
 
+export type TScanCleanupPreviewFrameRevealOutcome = 'published' | 'dropped';
+
+interface IScanCleanupDisplayedFrameWaiter {
+    abort?: () => void;
+    resolve: (outcome: TScanCleanupPreviewFrameRevealOutcome) => void;
+    result: IScanCleanupPreviewResult;
+    signal?: AbortSignal;
+}
+
 export interface IScanCleanupPreviewImageSwap {
     currentUrl: string;
     entering: boolean;
@@ -126,10 +135,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     let presentationPin: IScanCleanupPreviewPresentationPin | null = null;
     let unscopedFrameGeneration = 0;
     const loadedPendingCleanedUrls = new Set<string>();
-    const displayedFrameWaiters: Array<{
-        resolve: () => void;
-        result: IScanCleanupPreviewResult;
-    }> = [];
+    const displayedFrameWaiters: IScanCleanupDisplayedFrameWaiter[] = [];
 
     function revokeBlobUrl(url: string) {
         URL.revokeObjectURL(url);
@@ -149,7 +155,10 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             if (url) revokeBlobUrl(url);
             Reflect.deleteProperty(detailPixelUrls, half);
         }
-        for (const waiter of displayedFrameWaiters.splice(0)) waiter.resolve();
+        for (const waiter of displayedFrameWaiters.splice(0)) {
+            if (waiter.signal && waiter.abort) waiter.signal.removeEventListener('abort', waiter.abort);
+            waiter.resolve('dropped');
+        }
     }
 
     function loadRawPixelSwap(url: string) {
@@ -194,6 +203,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     }
 
     function clearPendingCleanedFrame() {
+        const droppedFrame = pendingCleanedFrame;
         for (const half of Object.keys(pendingCleanedPixelUrls) as TScanCleanupOutputHalf[]) {
             const url = pendingCleanedPixelUrls[half];
             if (url) revokeBlobUrl(url);
@@ -201,6 +211,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         }
         loadedPendingCleanedUrls.clear();
         pendingCleanedFrame = null;
+        if (droppedFrame) resolveDisplayedFrameWaiters(droppedFrame.result, 'dropped');
     }
 
     function pendingFrameLoaded() {
@@ -214,12 +225,16 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         return pendingCleanedFrame?.kind !== 'provisional';
     }
 
-    function resolveDisplayedFrameWaiters(result: IScanCleanupPreviewResult) {
+    function resolveDisplayedFrameWaiters(
+        result: IScanCleanupPreviewResult,
+        outcome: TScanCleanupPreviewFrameRevealOutcome,
+    ) {
         for (let index = displayedFrameWaiters.length - 1; index >= 0; index -= 1) {
             const waiter = displayedFrameWaiters[index];
             if (waiter?.result !== result) continue;
             displayedFrameWaiters.splice(index, 1);
-            waiter.resolve();
+            if (waiter.signal && waiter.abort) waiter.signal.removeEventListener('abort', waiter.abort);
+            waiter.resolve(outcome);
         }
     }
 
@@ -257,7 +272,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         }
         loadedPendingCleanedUrls.clear();
         pendingCleanedFrame = null;
-        resolveDisplayedFrameWaiters(nextResult);
+        resolveDisplayedFrameWaiters(nextResult, 'published');
         onImagesChanged?.(hadPreviousResult);
     }
 
@@ -313,13 +328,16 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         }
     }
 
-    function revealLatestFrame() {
+    function revealLatestFrame(signal?: AbortSignal): Promise<TScanCleanupPreviewFrameRevealOutcome> {
         const latestResult = toRaw(toValue(result));
         if (
             !latestResult
             || latestResult === displayedCleanedFrame.value?.result
         ) {
-            return Promise.resolve();
+            return Promise.resolve('published');
+        }
+        if (signal?.aborted) {
+            return Promise.resolve('dropped');
         }
         const transitionKey = presentationTransitionKey === undefined
             ? `run-reveal:${String(++unscopedFrameGeneration)}`
@@ -336,10 +354,23 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             result: latestResult,
             transitionKey,
         } satisfies IScanCleanupPendingCleanedFrame<TPresentation>;
-        const revealed = new Promise<void>(resolve => displayedFrameWaiters.push({
-            resolve,
-            result: latestResult,
-        }));
+        let waiter: IScanCleanupDisplayedFrameWaiter;
+        const revealed = new Promise<TScanCleanupPreviewFrameRevealOutcome>(resolve => {
+            waiter = {
+                resolve,
+                result: latestResult,
+                ...(signal === undefined ? {} : {signal}),
+            };
+            waiter.abort = () => {
+                const index = displayedFrameWaiters.indexOf(waiter);
+                if (index < 0) return;
+                displayedFrameWaiters.splice(index, 1);
+                if (pendingCleanedFrame?.result === latestResult) clearPendingCleanedFrame();
+                resolve('dropped');
+            };
+            displayedFrameWaiters.push(waiter);
+            signal?.addEventListener('abort', waiter.abort, {once: true});
+        });
         pendingCleanedFrame = nextFrame;
         for (const output of latestResult.outputs) {
             pendingCleanedPixelUrls[output.metadata.half] = pngUrl(output.imageData);

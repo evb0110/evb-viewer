@@ -4,7 +4,36 @@ mod tests {
     use crate::protocol::manifest_v3::CanvasScope;
     use crate::split::{FoldBand, FoldBandUnmeasuredReason};
     use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
-    use std::io::Cursor;
+    use std::{
+        io::Cursor,
+        sync::atomic::AtomicBool,
+    };
+
+    #[test]
+    fn canceled_render_policy_returns_a_typed_error_before_rendering() {
+        let canceled = AtomicBool::new(true);
+        let source = GrayImage::new(12, 10, 220);
+        let options = CleanupOptions::default();
+        let error = match clean_page_with_color_and_calibration_config(
+            &source,
+            None,
+            None,
+            None,
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy::COMPLETE.with_cancellation(&canceled),
+            &mut PageStageTimings::default(),
+        ) {
+            Ok(_) => panic!("canceled render unexpectedly completed"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, AnalysisError::Canceled(message) if message == crate::engine::CANCELLATION_MESSAGE));
+    }
     use zune_jpeg::{
         zune_core::{colorspace::ColorSpace, options::DecoderOptions},
         JpegDecoder,
@@ -5658,6 +5687,7 @@ mod tests {
                 create_mixed_composite: true,
                 recommend_output_mode: true,
                 analyze_layout: true,
+                cancellation: None,
             },
             &mut timings,
         )
@@ -6610,9 +6640,11 @@ mod tests {
                 create_mixed_composite: true,
                 recommend_output_mode: false,
                 analyze_layout: true,
+                cancellation: None,
             },
             &mut PageStageTimings::default(),
-        );
+        )
+        .expect("unrotated page preparation should succeed");
 
         match prepared.rotated_source {
             Some(Cow::Borrowed(borrowed)) => assert!(
@@ -6650,9 +6682,11 @@ mod tests {
                     create_mixed_composite: true,
                     recommend_output_mode: false,
                     analyze_layout: true,
+                    cancellation: None,
                 },
                 &mut PageStageTimings::default(),
-            );
+            )
+            .expect("page preparation should succeed");
 
             assert!(
                 prepared.rotated_source.is_none(),

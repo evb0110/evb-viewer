@@ -2,9 +2,15 @@ import {spawn} from 'child_process';
 import {constants as fsConstants} from 'fs';
 import {
     access,
+    lstat,
+    readFile,
+    rename,
     stat,
+    unlink,
 } from 'fs/promises';
-import {basename} from 'path';
+import {
+    basename, resolve,
+} from 'path';
 import {
     constants as osConstants,
     setPriority,
@@ -46,11 +52,163 @@ interface IRunScanCleanupSidecarOptions {
      * widen the boundary it is checked against.
      */
     allowedPathRoot?: string;
+    /**
+     * Receives a promise that settles after deferred publication recovery
+     * completes. The manifest owner retains its scratch until it succeeds.
+     */
+    onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
 const SCAN_CLEANUP_TERMINATION_GRACE_MS = 1_500;
 const SCAN_CLEANUP_TERMINATION_FALLBACK_MS = SCAN_CLEANUP_TERMINATION_GRACE_MS + 2_000;
+const SCAN_CLEANUP_PUBLICATION_JOURNAL_SUFFIX = '.evb-publication-journal.json';
+
+interface IScanCleanupPublicationJournalEntry {
+    original: string;
+    backup: string | null;
+    remove: boolean;
+}
+
+interface IScanCleanupPublicationJournal {
+    version: number;
+    manifestPath: string;
+    committed: boolean;
+    entries: IScanCleanupPublicationJournalEntry[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isNotFound(error: unknown): error is NodeJS.ErrnoException {
+    return error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+function parsePublicationJournal(value: unknown): IScanCleanupPublicationJournal {
+    if (!isRecord(value)
+        || value.version !== 1
+        || typeof value.manifestPath !== 'string'
+        || (value.committed !== undefined && typeof value.committed !== 'boolean')
+        || !Array.isArray(value.entries)) {
+        throw new Error('scan-cleanup publication recovery journal has an invalid shape');
+    }
+    const entries: IScanCleanupPublicationJournalEntry[] = [];
+    for (const entry of value.entries) {
+        if (!isRecord(entry)
+            || typeof entry.original !== 'string'
+            || (entry.remove !== undefined && typeof entry.remove !== 'boolean')) {
+            throw new Error('scan-cleanup publication recovery journal contains an invalid entry');
+        }
+        const remove = entry.remove === true;
+        if (remove
+            ? entry.backup !== undefined && entry.backup !== null
+            : typeof entry.backup !== 'string') {
+            throw new Error('scan-cleanup publication recovery journal contains an invalid entry');
+        }
+        entries.push({
+            original: entry.original,
+            backup: typeof entry.backup === 'string' ? entry.backup : null,
+            remove,
+        });
+    }
+    return {
+        version: value.version,
+        manifestPath: value.manifestPath,
+        committed: value.committed === true,
+        entries,
+    };
+}
+
+/**
+ * Replays native publication backups after a sidecar exits before its own
+ * transaction can restore or discard them. The journal is named by the exact
+ * manifest path, and its embedded path prevents a copied journal from being
+ * applied to another run.
+ */
+export async function replayScanCleanupPublicationJournal(manifestPath: string) {
+    const journalPath = `${manifestPath}${SCAN_CLEANUP_PUBLICATION_JOURNAL_SUFFIX}`;
+    let contents: string;
+    try {
+        contents = await readFile(journalPath, 'utf8');
+    } catch (error) {
+        if (isNotFound(error)) return false;
+        throw error;
+    }
+    const journal = parsePublicationJournal(JSON.parse(contents) as unknown);
+    if (resolve(journal.manifestPath) !== resolve(manifestPath)) {
+        throw new Error('scan-cleanup publication recovery journal belongs to another manifest');
+    }
+    if (journal.committed) {
+        for (const entry of journal.entries) {
+            if (entry.backup === null) continue;
+            let backupStats;
+            try {
+                backupStats = await lstat(entry.backup);
+            } catch (error) {
+                if (isNotFound(error)) continue;
+                throw error;
+            }
+            if (!backupStats.isFile()) {
+                throw new Error(`publication backup is not a regular file: ${entry.backup}`);
+            }
+            await unlink(entry.backup);
+        }
+        await unlink(journalPath);
+        return true;
+    }
+    for (const entry of [...journal.entries].reverse()) {
+        if (entry.remove) {
+            try {
+                const originalStats = await lstat(entry.original);
+                if (originalStats.isDirectory()) {
+                    throw new Error(`cannot remove ${entry.original}, it is a directory`);
+                }
+                await unlink(entry.original);
+            } catch (error) {
+                if (!isNotFound(error)) throw error;
+            }
+            continue;
+        }
+        const backup = entry.backup;
+        if (backup === null) {
+            throw new Error(`publication recovery entry has no backup: ${entry.original}`);
+        }
+        let backupStats;
+        try {
+            backupStats = await lstat(backup);
+        } catch (error) {
+            if (!isNotFound(error)) throw error;
+            try {
+                const originalStats = await lstat(entry.original);
+                if (originalStats.isDirectory()) {
+                    throw new Error(`cannot restore ${entry.original} over a directory`);
+                }
+                continue;
+            } catch (originalError) {
+                if (isNotFound(originalError)) {
+                    throw new Error(`publication backup is missing: ${backup}`);
+                }
+                throw originalError;
+            }
+        }
+        if (!backupStats.isFile()) {
+            throw new Error(`publication backup is not a regular file: ${backup}`);
+        }
+        try {
+            const originalStats = await lstat(entry.original);
+            if (originalStats.isDirectory()) {
+                throw new Error(`cannot restore ${entry.original} over a directory`);
+            }
+            await unlink(entry.original);
+        } catch (error) {
+            if (!isNotFound(error)) throw error;
+        }
+        await rename(backup, entry.original);
+    }
+    await unlink(journalPath);
+    return true;
+}
 
 function throwIfError(error: Error | null) {
     if (error !== null) {
@@ -149,6 +307,12 @@ async function streamScanCleanupSidecar(
         'pipe',
         'pipe',
     ]}));
+    let childClosed = false;
+    let runDeferredRecovery: (() => void) | null = null;
+    child.once('close', () => {
+        childClosed = true;
+        runDeferredRecovery?.();
+    });
     if (options.priority === 'background' && child.pid !== undefined) {
         try {
             setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
@@ -176,6 +340,7 @@ async function streamScanCleanupSidecar(
     // error the working-copy owner can see, so a bound that expires quarantines
     // the source bytes instead of authorising their deletion.
     const terminateForFatalError = () => {
+        void ensureDeferredRecovery();
         if (terminationPromise !== null) {
             return terminationPromise;
         }
@@ -206,12 +371,62 @@ async function streamScanCleanupSidecar(
     const withTerminationProof = <T>(error: T, terminated: boolean) => (
         terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
     );
+    let publicationReplayPromise: Promise<boolean> | null = null;
+    let deferredRecoveryPromise: Promise<boolean> | null = null;
+    let resolveDeferredRecovery: ((recovered: boolean) => void) | null = null;
+    let deferredRecoverySettled = false;
+    const settleDeferredRecovery = (recovered: boolean) => {
+        if (deferredRecoverySettled) return;
+        deferredRecoverySettled = true;
+        resolveDeferredRecovery?.(recovered);
+    };
+    const ensureDeferredRecovery = () => {
+        if (deferredRecoveryPromise === null) {
+            deferredRecoveryPromise = new Promise<boolean>(resolve => {
+                resolveDeferredRecovery = resolve;
+            });
+            const recoveryCallback = options.onRecoveryPending?.(deferredRecoveryPromise);
+            if (recoveryCallback !== undefined) {
+                void recoveryCallback.catch(error => {
+                    log('warn', `Deferred scan-cleanup recovery owner failed: ${String(error)}`);
+                });
+            }
+        }
+        runDeferredRecovery?.();
+        return deferredRecoveryPromise;
+    };
+    const replayPublicationJournal = async (terminationConfirmed = false): Promise<boolean> => {
+        if (!terminationConfirmed && !childClosed) {
+            log('warn', 'Retaining scan-cleanup publication journal until the sidecar close is observed');
+            return false;
+        }
+        publicationReplayPromise ??= (async () => {
+            try {
+                if (await replayScanCleanupPublicationJournal(manifestPath)) {
+                    log('warn', `Recovered staged scan-cleanup destinations from ${basename(manifestPath)}`);
+                }
+                return true;
+            } catch (error) {
+                log('warn', `Could not recover staged scan-cleanup destinations: ${String(error)}`);
+                return false;
+            }
+        })();
+        const recovered = await publicationReplayPromise;
+        settleDeferredRecovery(recovered);
+        return recovered;
+    };
+    runDeferredRecovery = () => {
+        if (deferredRecoveryPromise === null || !childClosed) return;
+        void replayPublicationJournal(true);
+    };
+    if (childClosed) runDeferredRecovery();
     const fatalSettlement = new Promise<never>((_resolve, reject) => {
         settleFatal = () => {
-            void terminateForFatalError().then((terminated) => {
+            void terminateForFatalError().then(async (terminated) => {
                 if (!terminated) {
                     log('warn', describeUnprovenTermination());
                 }
+                await replayPublicationJournal(terminated);
                 if (protocolError !== null) {
                     reject(withTerminationProof(protocolError, terminated));
                     return;
@@ -275,6 +490,7 @@ async function streamScanCleanupSidecar(
         if (!terminated) {
             log('warn', describeUnprovenTermination());
         }
+        await replayPublicationJournal(terminated);
         throw withTerminationProof(terminal, terminated);
     };
     let aborting = false as boolean;
@@ -334,10 +550,13 @@ async function streamScanCleanupSidecar(
             if (!terminated) {
                 log('warn', describeUnprovenTermination());
             }
+            await replayPublicationJournal(terminated);
             throw withTerminationProof(abortErrorFromSignal(signal), terminated);
         }
+        if (nativeFailure !== null) await replayPublicationJournal();
         throwIfError(nativeFailure);
         if (result.code !== 0) {
+            await replayPublicationJournal();
             const envelope = parseNativeScanCleanupStderr(protocol.stderr);
             if (envelope) throw new NativeScanCleanupError(envelope.code, envelope.message);
             throw new NativeScanCleanupError(
@@ -346,6 +565,7 @@ async function streamScanCleanupSidecar(
             );
         }
         if (terminalResult !== 'success') {
+            await replayPublicationJournal();
             throw new NativeScanCleanupError('native-failure', 'evb-scan-cleanup returned no terminal result envelope');
         }
     } finally {

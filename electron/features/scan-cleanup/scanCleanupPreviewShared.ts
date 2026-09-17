@@ -137,6 +137,10 @@ export interface IRetainedDocument {
     // rendered from the bytes it replaced.
     sourceStatIdentity: string;
     pageCount: Promise<number> | null;
+    // One bounded page-geometry source is shared by every preview and
+    // detection consumer. Cursor-capable stores hand out forked views while
+    // retention keeps the source lifetime on the document.
+    pageSizeStore: Promise<IPdfPageSizeStore> | null;
     // Legacy preview compatibility keeps its injected page-size array here.
     // Production detection and preview geometry use pageSizeStore instead, so
     // a retained document never allocates one record per source page.
@@ -165,6 +169,10 @@ export interface IRetainedDocument {
     // whole-document result remains separate and lazy for matched lossless
     // decisions.
     rasterPageByPage: Map<number, Promise<IScanCleanupDocumentRasterPages>>;
+    // Sender ownership survives a released preview claim while the document
+    // remains in the bounded retention cache, so renderer death can evict the
+    // cache entry even after its last active job settled.
+    rendererOwners: Set<number>;
     pinned: number;
     claims: Map<string, number>;
     removeWhenIdle: boolean;
@@ -247,6 +255,7 @@ export interface IScanCleanupRasterRetention {
     remove(path: string): void;
     release(document: IRetainedDocument, claimId?: string): Promise<void>;
     invalidate(sourcePdfPath: string, documentRevision: string, claimId?: string): void;
+    invalidateSender(senderId: number): void;
     dispose(): Promise<void>;
 }
 
@@ -601,11 +610,11 @@ export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDep
 export type IScanCleanupDetectionRetentionView = Pick<IScanCleanupRasterRetention,
     | 'openDocument' | 'pageCount' | 'pageSizeStore' | 'rasterPageSource'
     | 'retainedPaths' | 'claimRaster' | 'rasterScratchPath' | 'stagedRasterPath'
-    | 'retain' | 'releaseRaster' | 'release'>;
+    | 'retain' | 'releaseRaster' | 'release' | 'invalidateSender'>;
 
 export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention & Pick<
     IScanCleanupRasterRetention,
-    'invalidate'
+    'invalidate' | 'invalidateSender'
 >;
 
 export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,

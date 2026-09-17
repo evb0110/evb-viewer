@@ -866,6 +866,8 @@ export default {
             'runRecoveryFailed': 'Scan cleanup could not be recovered after the renderer session was restored.',
             'insufficientScratch': 'Not enough free space on the temporary disk to analyze this document.',
             'insufficientScratchSpace': 'Free up disk space and try again: {required} is needed, {available} is free.',
+            'previewFrameDropped': 'The cleaned preview was discarded before cleanup could start. Review the preview and try again.',
+            'previewFrameTimeout': 'The cleaned preview did not finish loading before cleanup started. Try again.',
         },
         'cancelingDetection': 'Stopping background analysis…',
         'startingCleanup': 'Starting cleanup…',
