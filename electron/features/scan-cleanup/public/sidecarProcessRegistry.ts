@@ -246,6 +246,13 @@ async function readProcessIdentity(pid: number, platform: NodeJS.Platform) {
     return null;
 }
 
+let ownerIdentityPromise: Promise<IScanCleanupProcessIdentity | null> | null = null;
+
+function getOwnerIdentity() {
+    ownerIdentityPromise ??= readProcessIdentity(process.pid, process.platform);
+    return ownerIdentityPromise;
+}
+
 function defaultIsProcessAlive(pid: number) {
     try {
         process.kill(pid, 0);
@@ -293,7 +300,7 @@ export async function registerScanCleanupSidecar(
         `${SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX}${randomUUID()}.json`,
     );
     const processIdentity = await readProcessIdentity(input.pid, process.platform);
-    const ownerIdentity = await readProcessIdentity(process.pid, process.platform);
+    const ownerIdentity = await getOwnerIdentity();
     const entry: IScanCleanupSidecarRegistryEntry = {
         version: 1,
         pid: input.pid,
