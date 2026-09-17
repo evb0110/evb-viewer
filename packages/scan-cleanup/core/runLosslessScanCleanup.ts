@@ -278,6 +278,9 @@ export async function runLosslessScanCleanup(
     }> = [];
     const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
     const nativeOptionsBySource = new Map<number, INativeScanCleanupOptionsV3>();
+    const rasterizedPageNumbers = new Set<number>();
+    const classifiedPageNumbers = new Set<number>();
+    const collectedPageNumbers = new Set<number>();
     let classifiedCount = 0;
     let collectedCount = 0;
     for (const batch of iterateScanCleanupPageBatches(pageNumbers.length)) {
@@ -308,7 +311,6 @@ export async function runLosslessScanCleanup(
             raster: plan.raster,
         })), scratch, dependencies.getAvailableScratchBytes);
         logRasterHandoff(log, 'lossless analysis', rasterHandoff);
-        const batchRasterizedPageNumbers = new Set<number>();
         const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
             signal.throwIfAborted();
             const extension = rasterHandoff.format;
@@ -331,8 +333,8 @@ export async function runLosslessScanCleanup(
                     pageSizeByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                 );
                 rasterizedCount += 1;
-                batchRasterizedPageNumbers.add(plan.pageNumber);
-                emitProgress('rasterizing', rasterizedCount, pageNumbers.length, batchRasterizedPageNumbers);
+                rasterizedPageNumbers.add(plan.pageNumber);
+                emitProgress('rasterizing', rasterizedCount, pageNumbers.length, rasterizedPageNumbers);
                 return {
                     inputPath,
                     analysisInputPath: inputPath,
@@ -377,8 +379,7 @@ export async function runLosslessScanCleanup(
         ] of pages.entries()) {
             nativeOptionsBySource.set(batchPageNumbers[index]!, page.options);
         }
-        const classifiedPageNumbers = new Set<number>();
-        emitProgress('classifying', classifiedCount, pageNumbers.length, []);
+        emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
         try {
             await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
                 // Native reports page numbers relative to this manifest. Keep
@@ -406,7 +407,7 @@ export async function runLosslessScanCleanup(
                 }
                 emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
             }, {allowedPathRoot: paths.tempDir});
-            emitProgress('collecting', collectedCount, pageNumbers.length, []);
+            emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
         } finally {
             // Metadata is decoded below before this batch is discarded. The
             // raster inputs can go as soon as the sidecar exits, so a long run
@@ -421,9 +422,10 @@ export async function runLosslessScanCleanup(
                 const metadata = decodeNativeScanCleanupPageMetadataJson(
                     await readFile(page.pageMetadataPath, 'utf8'),
                 );
-                collectedCount += 1;
-                emitProgress('collecting', collectedCount, pageNumbers.length);
                 const sourcePageNumber = batchPageNumbers[index]!;
+                collectedPageNumbers.add(sourcePageNumber);
+                collectedCount += 1;
+                emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
                 pageMetadataBySource.set(sourcePageNumber, metadata);
                 const pageOverride = getScanCleanupPageOverride(
                     request.options.pageOverrides,

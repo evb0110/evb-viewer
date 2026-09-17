@@ -2653,6 +2653,8 @@ export async function runScanCleanupConversion(
         };
         const fittedMarginBoxPages = new Set<number>();
         const renderedPageNumbers = new Set<number>();
+        const rasterizedPageNumbers = new Set<number>();
+        const collectedPageNumbers = new Set<number>();
         const releasedAnalysisPages = new Set<number>();
         const manifestPageBySource = new Map<number, INativeScanCleanupPageV3>();
         let collectedPages = 0;
@@ -2686,7 +2688,6 @@ export async function runScanCleanupConversion(
             const manifestPath = join(scratch, `cleanup-manifest-${String(batch.batchIndex)}.json`);
             await writeFile(manifestPath, JSON.stringify(manifest));
             let rasterizedCount = batch.startOffset;
-            const rasterizedPageNumbers = new Set<number>();
             emitProgress(
                 canStreamRasters ? 'rendering' : 'rasterizing',
                 batch.startOffset,
@@ -2827,7 +2828,7 @@ export async function runScanCleanupConversion(
             // this barrier only ensures every scratch release has settled before
             // collection begins.
             await Promise.allSettled(analysisReleasePromises);
-            emitProgress('collecting', collectedPages, pageCount, []);
+            emitProgress('collecting', collectedPages, pageCount, collectedPageNumbers);
             for (const [
                 pageIndex,
                 page,
@@ -2837,8 +2838,9 @@ export async function runScanCleanupConversion(
                     await readFile(page.pageMetadataPath, 'utf8'),
                 );
                 const sourcePageNumber = page.sourcePageIndex + 1;
+                collectedPageNumbers.add(sourcePageNumber);
                 pageMetadataBySource.set(sourcePageNumber, pageMetadata);
-                emitProgress('collecting', collectedPages + pageIndex + 1, pageCount);
+                emitProgress('collecting', collectedPages + pageIndex + 1, pageCount, collectedPageNumbers);
                 if (pageMetadata.excluded) {
                     summary.excludedPages += 1;
                     emptyOutputMappings.push({
