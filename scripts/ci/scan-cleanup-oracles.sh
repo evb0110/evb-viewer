@@ -92,12 +92,13 @@ run_export_oracles() {
     --from 1 \
     --to 1 \
     --out "$output_root/word-loss.json" \
-    --fail-on text-loss
+    --fail-on any
 
   node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
     --source "$rgb_output/source.pdf" \
     --pages 1 \
-    --out "$rgb_output/preview"
+    --out "$rgb_output/preview" \
+    --check
 
   node scripts/diagnostics/scan-cleanup-word-loss-audit.mjs \
     --source "$rgb_output/source.pdf" \
@@ -106,7 +107,7 @@ run_export_oracles() {
     --from 1 \
     --to 1 \
     --out "$rgb_output/word-loss.json" \
-    --fail-on text-loss
+    --fail-on any
 }
 
 run_affected_oracles() {
