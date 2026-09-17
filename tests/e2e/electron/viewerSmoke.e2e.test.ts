@@ -259,13 +259,10 @@ const DJVU_HIGH_ZOOM_PRESSURE_DURATION_MS = 5_500;
 const SPLIT_RESIZE_ANCHOR_TOLERANCE = 0.08;
 
 async function clickEnabledDialogButton(page: IElectronE2ESession['page'], label: string) {
-    // The dialog re-renders while its native conversion controls settle, so an
-    // element handle captured before the click can be detached by the time it
-    // is clicked. Locate and click in one page evaluation instead.
-    await waitForFunctionInPage(page, text => Array.from(
-        document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-    ).some(button => button.textContent?.trim() === text && !button.disabled), {timeout: 30_000}, label);
-    const clicked = await page.evaluate(text => {
+    // The dialog re-renders while its native conversion controls settle. Keep
+    // the enabled check and click in one page task so no stale DOM snapshot can
+    // separate them.
+    await waitForFunctionInPage(page, text => {
         const button = Array.from(
             document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
         ).find(candidate => candidate.textContent?.trim() === text && !candidate.disabled);
@@ -274,8 +271,7 @@ async function clickEnabledDialogButton(page: IElectronE2ESession['page'], label
         }
         button.click();
         return true;
-    }, label);
-    expect(clicked).toBe(true);
+    }, {timeout: 30_000}, label);
 }
 
 async function clickActiveTabCloseWithPointer(session: IElectronE2ESession) {
