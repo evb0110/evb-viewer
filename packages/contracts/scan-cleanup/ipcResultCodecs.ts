@@ -939,6 +939,9 @@ export function decodeStartResult(value: unknown) {
         jobId,
         error: value.error,
         errorCode: value.errorCode,
+        ...(value.scratchShortfall === undefined
+            ? {}
+            : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
     };
 }
 
@@ -961,6 +964,9 @@ export function decodeDetectionStartResult(value: unknown) {
         jobId,
         error: value.error,
         errorCode: value.errorCode,
+        ...(value.scratchShortfall === undefined
+            ? {}
+            : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
     };
 }
 
@@ -1029,6 +1035,9 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
             error: value.error,
             errorCode: value.errorCode,
             ...(failure === undefined ? {} : {failure}),
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
         };
     }
     throw new Error('invalid scan-cleanup job status');

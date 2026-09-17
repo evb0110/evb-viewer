@@ -683,7 +683,7 @@ describe('scan cleanup run coordinator', () => {
                 updatedAtMs: requireEpochMs(Date.now()),
             });
             expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
-                .toBe('scanCleanup.failed (sidecar failed)');
+                .toBe('scanCleanup.errors.nativeFailure (sidecar failed)');
             expect(coordinator.getScanCleanupRunError('another-owner')).toBe('');
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'error'})));
             const failureToast = toastAdd.mock.calls.at(-1)?.[0];

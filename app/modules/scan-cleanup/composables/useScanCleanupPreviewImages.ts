@@ -117,6 +117,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     presentationTransitionKey?: MaybeRefOrGetter<string>,
     frameIsSettled: (presentation: TPresentation) => boolean = () => true,
 ) => {
+    const {t} = useTypedI18n();
     const rawPixelSwap = ref(createPreviewImageSwap());
     const cleanedPixelSwaps = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewImageSwap>>>({});
     let rawPixelSwapCompletionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -238,7 +239,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         ) {
             presentationPin = resetScanCleanupPreviewPresentationSettle(presentationPin);
         }
-        cleanedFrameError.value = 'Failed to decode the cleaned preview image.';
+        cleanedFrameError.value = t('scanCleanup.preview.cleanedImageDecodeFailed');
     }
 
     function clearPendingCleanedFrame() {

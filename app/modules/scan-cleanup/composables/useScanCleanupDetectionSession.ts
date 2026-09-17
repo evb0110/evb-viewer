@@ -42,7 +42,10 @@ import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/p
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
-import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {
+    formatScanCleanupErrorByCode,
+    formatScanCleanupErrorMessage,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
@@ -821,10 +824,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             // the English exception appended to it.
             error.value = state.errorCode === 'insufficient-scratch'
                 ? formatScanCleanupScratchMessage(t, state.scratchShortfall)
-                : formatScanCleanupErrorMessage(
-                    t('scanCleanup.detectAll.failed'),
-                    state.error,
-                );
+                : formatScanCleanupErrorByCode(t, state.errorCode, state.error);
             errorCode.value = state.errorCode;
         } else if (state.status === 'completed') {
             error.value = '';
@@ -897,10 +897,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (isStale()) {
                 scheduleAutoDetect();
             } else {
-                error.value = formatScanCleanupErrorMessage(
-                    t('scanCleanup.detectAll.failed'),
-                    caught,
-                );
+                error.value = formatScanCleanupErrorByCode(t, 'internal', caught);
                 errorCode.value = 'internal';
             }
             return;
@@ -918,9 +915,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         if (!result.started) {
-            error.value = result.errorCode === 'tools-unavailable'
-                ? t('scanCleanup.runDisabled.unavailable')
-                : formatScanCleanupErrorMessage(t('scanCleanup.detectAll.failed'), result.error);
+            error.value = formatScanCleanupErrorByCode(t, result.errorCode, result.error, result.scratchShortfall);
             errorCode.value = result.errorCode;
             return;
         }
@@ -1047,10 +1042,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ) {
                 return;
             }
-            placementAnchorCalibrationError.value = formatScanCleanupErrorMessage(
-                t('scanCleanup.detectAll.failed'),
-                caught,
-            );
+            placementAnchorCalibrationError.value = formatScanCleanupErrorByCode(t, 'internal', caught);
             error.value = placementAnchorCalibrationError.value;
             errorCode.value = 'internal';
             placementAnchorSummary.value = null;

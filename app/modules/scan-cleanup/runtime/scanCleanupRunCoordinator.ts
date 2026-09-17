@@ -15,7 +15,7 @@ import {
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createFailureToastPresenter} from '@app/composables/useFailureToast';
-import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {dismissScanCleanupFirstRunGuidanceInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
@@ -611,9 +611,11 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     persistActiveJob(null);
 
     if (state.status === 'failed') {
-        const error = formatScanCleanupErrorMessage(
-            terminalDependencies.t('scanCleanup.failed'),
+        const error = formatScanCleanupErrorByCode(
+            terminalDependencies.t,
+            state.errorCode,
             state.error,
+            state.scratchShortfall,
         );
         if (scanCleanupRun.ownerId) {
             reportScanCleanupRunError(

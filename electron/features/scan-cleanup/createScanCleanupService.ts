@@ -14,6 +14,7 @@ import type {
     TScanCleanupStartResult,
     TScanCleanupErrorCode,
     TScanCleanupJobState,
+    IScanCleanupScratchShortfall,
 } from '@contracts/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -57,15 +58,13 @@ import {
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
-    ScanCleanupNativeToolUnavailableError,
-} from '@evb/scan-cleanup/core/errors';
+import {ScanCleanupNativeToolUnavailableError} from '@evb/scan-cleanup/core/errors';
 import {
     classifyScanCleanupPreviewError as classifyPreviewError,
     resolveScanCleanupPreviewPath as resolvePreviewPath,
     resolveScanCleanupPreviewRasterAdmissionPolicy as resolvePreviewRasterAdmissionPolicy,
     SCAN_CLEANUP_PREVIEW_RASTER_SLOT_RESIDENT_BYTES as PREVIEW_RASTER_SLOT_RESIDENT_BYTES,
+    scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {createEpochMs} from '@contracts/timestamps';
@@ -105,7 +104,10 @@ interface IScanCleanupJobResult {
     summary: TScanCleanupSummary;
 }
 
-type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {failure?: FailureReceipt};
+type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {
+    failure?: FailureReceipt;
+    scratchShortfall?: IScanCleanupScratchShortfall;
+};
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
@@ -436,6 +438,7 @@ function terminalProgress(
             error: error.message,
             errorCode: error.code,
             ...(error.failure === undefined ? {} : {failure: error.failure}),
+            ...(error.scratchShortfall === undefined ? {} : {scratchShortfall: error.scratchShortfall}),
         };
 }
 
@@ -451,6 +454,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 return {
                     code: classifyPreviewError(cause, true),
                     message,
+                    ...scanCleanupScratchShortfall(cause),
                 };
             }
             const existingFailure = getWorkerTaskFailureReceipt(cause);
@@ -466,6 +470,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 code: classifyPreviewError(cause, false),
                 message,
                 ...(failure === undefined ? {} : {failure}),
+                ...scanCleanupScratchShortfall(cause),
             };
         },
         terminalProgress: {
@@ -556,7 +561,7 @@ export function createScanCleanupService(
                 return {
                     started: false,
                     jobId,
-                    error: 'Source must be an absolute path',
+                    error: '',
                     errorCode: 'invalid-request',
                 };
             }
@@ -628,7 +633,7 @@ export function createScanCleanupService(
                         return {
                             started: false,
                             jobId,
-                            error: 'Placement calibration is stale for this document',
+                            error: '',
                             errorCode: 'invalid-request',
                         };
                     }
@@ -648,7 +653,7 @@ export function createScanCleanupService(
                     return {
                         started: false,
                         jobId,
-                        error: 'Detection results are no longer available for this document',
+                        error: '',
                         errorCode: isScanCleanupDetectionResultStoreRegistered(request.detectionResultStoreId)
                             ? 'invalid-request'
                             : 'detection-results-unavailable',
@@ -668,20 +673,20 @@ export function createScanCleanupService(
                     return {
                         started: false,
                         jobId,
-                        error: SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+                        error: '',
                         errorCode: 'too-large',
                     };
                 }
                 if (detectionResultStoreLease !== null) {
                     try {
                         await admitScanCleanupDetectionStore(request, detectionResultStoreLease.resultStore);
-                    } catch (error) {
+                    } catch {
                         await detectionResultStoreLease.release();
                         detectionResultStoreLease = null;
                         return {
                             started: false,
                             jobId,
-                            error: error instanceof Error ? error.message : 'Detection results are incomplete',
+                            error: '',
                             errorCode: 'invalid-request',
                         };
                     }

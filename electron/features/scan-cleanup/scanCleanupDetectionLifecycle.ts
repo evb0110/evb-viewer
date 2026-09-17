@@ -461,7 +461,7 @@ export function scanCleanupDetectionOwner(
                 return {
                     started: false,
                     jobId,
-                    error: 'Source must be an absolute path',
+                    error: '',
                     errorCode: 'invalid-request',
                 };
             }

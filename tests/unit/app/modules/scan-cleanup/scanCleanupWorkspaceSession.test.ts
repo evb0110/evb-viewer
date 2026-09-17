@@ -689,7 +689,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
         mounted.unmount();
     });
 
@@ -1212,7 +1212,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.errorCode.value).toBe('too-large');
-        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
         mounted.unmount();
     });
 
@@ -1277,12 +1277,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.has(20_001)).toBe(false);
 
-        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.errorCode.value).toBe('too-large');
-        expect(mounted.session.run.error.value).toContain('20,000');
+        expect(mounted.session.run.error.value).toContain('scanCleanup.errors.tooLarge');
         mounted.unmount();
     });
 
@@ -1598,7 +1598,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         const failed = mountSession(`preview-sequence-failure-${Date.now()}`);
 
         expect(failed.session.preview.loading.value).toBe(true);
-        await vi.waitFor(() => expect(failed.session.preview.error.value).toBe('preview boundary failed'));
+        await vi.waitFor(() => expect(failed.session.preview.error.value)
+            .toBe('scanCleanup.errors.internal (preview boundary failed)'));
         expect(failed.session.preview.errorCode.value).toBe('internal');
         expect(failed.session.preview.loading.value).toBe(false);
         expect(failed.session.preview.result.value).toBeNull();
@@ -1669,7 +1670,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = typedHarness.value;
         const typed = mountSession(`preview-typed-error-${Date.now()}`);
 
-        await vi.waitFor(() => expect(typed.session.preview.error.value).toBe('Preview exceeds native limits'));
+        await vi.waitFor(() => expect(typed.session.preview.error.value)
+            .toBe('scanCleanup.errors.tooLarge (Preview exceeds native limits)'));
         expect(typed.session.preview.errorCode.value).toBe('too-large');
         typed.unmount();
 
@@ -3351,7 +3353,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
-            .toBe('scanCleanup.failed (scan-cleanup IPC codec failed)');
+            .toBe('scanCleanup.errors.internal (scan-cleanup IPC codec failed)');
         mounted.unmount();
     });
 
@@ -3374,7 +3376,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(mounted.session.run.error.value).toMatch(
-            /^scanCleanup\.runDisabled\.unavailable\nError ID: [0-9a-f]{8}$/u,
+            /^scanCleanup\.errors\.toolsUnavailable \(Scan cleanup is unavailable\)\nError ID: [0-9a-f]{8}$/u,
         );
         expect(mounted.session.run.errorCode.value).toBe('tools-unavailable');
         mounted.unmount();
@@ -3392,7 +3394,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
-            .toBe('scanCleanup.detectAll.failed (uniform detection failed)');
+            .toBe('scanCleanup.errors.nativeFailure (uniform detection failed)');
         expect(getScanCleanupRunErrorCode(mounted.session.run.ownerId)).toBe('native-failure');
         mounted.unmount();
     });

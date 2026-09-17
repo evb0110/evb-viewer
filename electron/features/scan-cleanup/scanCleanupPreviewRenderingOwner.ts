@@ -2,10 +2,14 @@ import type {
     IScanCleanupOwnerContext,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
+    IScanCleanupErrorEnvelope,
     TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
-import {classifyScanCleanupPreviewError as classifyScanCleanupError} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import {
+    classifyScanCleanupPreviewError as classifyScanCleanupError,
+    scanCleanupScratchShortfall,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -50,7 +54,7 @@ interface IScanCleanupPreviewProgress {
     percent: number;
 }
 
-interface IScanCleanupPreviewError extends IMainJobErrorEnvelope {code: string;}
+interface IScanCleanupPreviewError extends IMainJobErrorEnvelope, Pick<IScanCleanupErrorEnvelope, 'scratchShortfall'> {}
 
 export function scanCleanupPreviewRenderingOwner(
     dependencies: IScanCleanupRenderingDependencies,
@@ -105,6 +109,7 @@ export function scanCleanupPreviewRenderingOwner(
         toError: (cause, kind) => ({
             code: classifyScanCleanupError(cause, kind === 'canceled'),
             message: getErrorMessage(cause) || 'Scan cleanup preview failed',
+            ...scanCleanupScratchShortfall(cause),
             ...(kind === 'canceled' ? {name: 'AbortError'} : {}),
         }),
         terminalProgress: {
@@ -481,6 +486,7 @@ export function scanCleanupPreviewRenderingOwner(
                     throw new Error(encodeSerializableErrorEnvelope({
                         code: classifyScanCleanupError(error, false),
                         message: getErrorMessage(error) || 'Scan cleanup preview failed',
+                        ...scanCleanupScratchShortfall(error),
                     }));
                 }),
             });
@@ -496,10 +502,7 @@ export function scanCleanupPreviewRenderingOwner(
                 }
                 const serialized = snapshot.error.message.match(/^EVB_SERIALIZABLE_ERROR:(.*)$/s)?.[1];
                 if (serialized !== undefined) {
-                    const error = JSON.parse(serialized) as {
-                        code: string;
-                        message: string
-                    };
+                    const error = JSON.parse(serialized) as IScanCleanupErrorEnvelope;
                     throw new Error(encodeSerializableErrorEnvelope(error));
                 }
                 throw new Error(encodeSerializableErrorEnvelope(snapshot.error));

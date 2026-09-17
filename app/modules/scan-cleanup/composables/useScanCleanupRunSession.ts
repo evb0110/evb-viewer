@@ -40,7 +40,10 @@ import {
     type TScanCleanupRendererStartResult,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
-import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {
+    formatScanCleanupErrorByCode,
+    formatScanCleanupErrorMessage,
+} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {
@@ -59,11 +62,6 @@ const ETA_PAGE_STAGES = new Set([
 // compatibility path, even if a misconfigured or expired handoff leaves the
 // id absent.
 const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
-const SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE =
-    'Ink placement for documents over 20,000 pages is unavailable. Select a bounded page range or choose another alignment.';
-const SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE =
-    'Ink placement evidence is unavailable for a selected page. Run detection again or choose another alignment.';
-
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
     /**
@@ -122,10 +120,15 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (result.fallback === 'already-running') {
             return t('scanCleanup.errors.alreadyRunning');
         }
-        if (result.fallback === 'unavailable' || result.errorCode === 'tools-unavailable') {
+        if (result.fallback === 'unavailable') {
             return t('scanCleanup.runDisabled.unavailable');
         }
-        return formatScanCleanupErrorMessage(t('scanCleanup.failed'), result.error);
+        return formatScanCleanupErrorByCode(
+            t,
+            result.errorCode,
+            result.error,
+            result.scratchShortfall,
+        );
     }
 
     function formatReconciliationFailure(error: ScanCleanupRunReconciliationError) {
@@ -343,10 +346,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return placementAnchorCalibrationError.value;
         }
         if (inkPlacementCapacityExceeded.value) {
-            return SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE;
+            return t('scanCleanup.errors.tooLarge');
         }
         if (isInkPlacementAnchorMissing()) {
-            return SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE;
+            return t('scanCleanup.errors.inkPlacementMissing');
         }
         if (getScanCleanupCapability() === null) {
             return t('scanCleanup.runDisabled.unavailable');
@@ -426,7 +429,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (inkPlacementCapacityExceeded.value) {
             reportScanCleanupRunError(
                 options.ownerId,
-                SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+                t('scanCleanup.errors.tooLarge'),
                 options.sourcePath.value,
                 'too-large',
                 options.documentRevision.value,
@@ -436,7 +439,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (isInkPlacementAnchorMissing()) {
             reportScanCleanupRunError(
                 options.ownerId,
-                SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
+                t('scanCleanup.errors.inkPlacementMissing'),
                 options.sourcePath.value,
                 'internal',
                 options.documentRevision.value,
@@ -643,7 +646,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isInkPlacementAnchorMissing()) {
                 reportScanCleanupRunError(
                     options.ownerId,
-                    SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
+                    t('scanCleanup.errors.inkPlacementMissing'),
                     requestSourcePdfPath,
                     'internal',
                     requestDocumentRevision,
@@ -737,7 +740,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 options.ownerId,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? formatReconciliationFailure(caught)
-                    : formatScanCleanupErrorMessage(t('scanCleanup.failed'), caught),
+                    : formatScanCleanupErrorByCode(t, 'internal', caught),
                 requestSourcePdfPath,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? caught.errorCode

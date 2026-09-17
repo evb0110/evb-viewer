@@ -109,12 +109,25 @@ export function decodeScanCleanupScratchShortfall(value: unknown): IScanCleanupS
     };
 }
 
-export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {}
+export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
 
 export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanupErrorEnvelope {
-    return isRecord(value)
-        && isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
-        && typeof value.message === 'string';
+    if (
+        !isRecord(value)
+        || !isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
+        || typeof value.message !== 'string'
+    ) {
+        return false;
+    }
+    if (value.scratchShortfall === undefined) {
+        return true;
+    }
+    try {
+        decodeScanCleanupScratchShortfall(value.scratchShortfall);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
@@ -593,7 +606,8 @@ export type TScanCleanupDetectionStartResult =
         started: false;
         jobId: TJobId;
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };
 
 export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
@@ -702,7 +716,8 @@ export type TScanCleanupJobState =
         status: 'failed';
         error: string;
         errorCode: TScanCleanupErrorCode;
-        failure?: FailureReceipt
+        failure?: FailureReceipt;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };
 
 export type TScanCleanupStartResult =
@@ -715,5 +730,6 @@ export type TScanCleanupStartResult =
         started: false;
         jobId: TJobId;
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        scratchShortfall?: IScanCleanupScratchShortfall
     };

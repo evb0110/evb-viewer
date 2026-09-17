@@ -26,6 +26,10 @@ const failedState = {
         occurredAt: 1,
         severity: 'error',
     },
+    scratchShortfall: {
+        availableBytes: 512,
+        requiredBytes: 1_024,
+    },
 };
 
 describe('scan cleanup job state diagnostics', () => {

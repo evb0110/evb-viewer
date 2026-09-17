@@ -49,6 +49,7 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
+import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {
     createScanCleanupNaturalPageOrder,
     type TScanCleanupOrderedPages,
@@ -984,11 +985,21 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     return;
                 }
                 const envelope = findSerializableErrorEnvelope(caught, isScanCleanupErrorEnvelope);
-                error.value = envelope?.message
-                    ?? (caught instanceof Error && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? getErrorMessage(caught)
-                        : t('scanCleanup.preview.unavailable'));
-                errorCode.value = envelope?.code ?? 'internal';
+                if (envelope) {
+                    error.value = formatScanCleanupErrorByCode(
+                        t,
+                        envelope.code,
+                        envelope.message,
+                        envelope.scratchShortfall,
+                    );
+                    errorCode.value = envelope.code;
+                } else {
+                    error.value = caught instanceof Error
+                        && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
+                        ? formatScanCleanupErrorByCode(t, 'internal', caught)
+                        : t('scanCleanup.preview.unavailable');
+                    errorCode.value = 'internal';
+                }
             } finally {
                 if (requestSequence === sequence) loading.value = false;
             }

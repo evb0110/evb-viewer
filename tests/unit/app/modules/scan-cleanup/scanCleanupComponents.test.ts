@@ -3210,7 +3210,7 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(frameWidth()).toBe('500');
         expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
-            .toContain('Failed to decode the cleaned preview image.');
+            .toContain('scanCleanup.preview.cleanedImageDecodeFailed');
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
 
         const recoveredSettled = structuredClone(competingSettled);

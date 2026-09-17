@@ -83,11 +83,10 @@ import {
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@evb/scan-cleanup/core/pageBatches';
 import {
-    ScanCleanupContractError,
     ScanCleanupMissingOutputError,
     ScanCleanupNativeToolUnavailableError,
     ScanCleanupPdfValidationError,
-    SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+    ScanCleanupTooLargeError,
     ScanCleanupStreamingEvidenceError,
 } from '@evb/scan-cleanup/core/errors';
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
@@ -331,7 +330,7 @@ function assertScanCleanupInkAnchorCapacity(
         && scanCleanupUsesInkPlacement(options)
         && placementAnchorSummary === undefined
     ) {
-        throw new ScanCleanupContractError(SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE);
+        throw new ScanCleanupTooLargeError();
     }
 }
 

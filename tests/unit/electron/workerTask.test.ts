@@ -752,6 +752,47 @@ describe('workerTask', () => {
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
     });
 
+    it('carries typed scratch figures across the worker result frame', async () => {
+        mocks.throwConstructorError = false;
+        const {
+            createWorkerTaskErrorFrame,
+            runResultWorkerTask,
+        } = await import('@electron/utils/workerTask');
+        const {ScanCleanupInsufficientScratchError} = await import('@evb/scan-cleanup/core/errors');
+        const workerFrame = createWorkerTaskErrorFrame(
+            new ScanCleanupInsufficientScratchError(512, 1_024),
+            {source: 'scan-cleanup'},
+        );
+        expect(workerFrame).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        });
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: workerFrame.message,
+            errorFrame: JSON.parse(JSON.stringify(workerFrame)) as unknown,
+        };
+
+        const error = await runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        }).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({
+            code: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 512,
+                requiredBytes: 1_024,
+            },
+        });
+    });
+
     it('carries the cancelled worker\'s unproven termination onto the abort rejection', async () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();

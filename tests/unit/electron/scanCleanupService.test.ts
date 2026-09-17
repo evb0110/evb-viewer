@@ -335,7 +335,7 @@ describe('scan cleanup service', () => {
         if (result.started) {
             throw new Error('xlarge ink placement unexpectedly started');
         }
-        expect(result.error).toContain('20,000');
+        expect(result.error).toBe('');
         expect(mocks.runWorker).not.toHaveBeenCalled();
         expect(close).not.toHaveBeenCalled();
         await releaseScanCleanupDetectionResultStores([detectionResultStoreId]);
