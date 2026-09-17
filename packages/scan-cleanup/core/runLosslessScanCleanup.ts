@@ -464,7 +464,10 @@ export async function runLosslessScanCleanup(
             await Promise.all(pages.map(page => rm(page.pageMetadataPath, {force: true})));
         }
     }
-    const compactLayeredPageCountComplete = dpiSource.compactLayeredPageCountComplete === true;
+    // A source that has no compact-layer probe is still a valid page raster
+    // source. Only an explicit incomplete result proves that automatic source
+    // budgeting cannot be trusted.
+    const compactLayeredPageCountComplete = dpiSource.compactLayeredPageCountComplete !== false;
     const compactLayeredPageCount = dpiSource.compactLayeredPageCount ?? 0;
     if (
         fullDocumentRun

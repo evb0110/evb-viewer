@@ -4871,7 +4871,9 @@ describe('scan cleanup pipeline', () => {
         // A page measured that way can still turn out to be a spread, which
         // lands it on the rectangle without being scaled to it, so the run
         // names it rather than leaving it to be found.
-        expect(partialEvidence.warnings).toEqual([expect.stringContaining('Matched page size measured 1 page(s) as whole sheets')]);
+        expect(partialEvidence.warnings).toHaveLength(1);
+        expect(partialEvidence.warnings[0]).toContain('Matched page size measured 1 page(s) as whole sheets');
+        expect(partialEvidence.warnings[0]).toContain('without being scaled to it: 2');
         // Once detection has settled there is nothing left to report.
         expect((await measuredCanvas(sheets, {}, {layoutByPage: {
             '1': 'two-page-spread',

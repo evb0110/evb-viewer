@@ -31,7 +31,12 @@ export interface IScanCleanupAllowedRoot {
  * scoped to that manifest because its build-time verdict shares the same
  * filesystem snapshot and the native boundary performs the final check.
  */
-export interface IScanCleanupPathResolutionCache {readonly canonicalPathByExistingPath: Map<string, string>;}
+export interface IScanCleanupPathResolutionCache {
+    readonly canonicalPathByExistingPath: Map<string, string>;
+    /** Only these two root spellings are stable enough to reuse without a fresh probe. */
+    readonly configuredRootPath?: string;
+    readonly canonicalRootPath?: string;
+}
 
 const issuedAllowedRoots = new WeakSet<IScanCleanupAllowedRoot>();
 
@@ -43,7 +48,15 @@ export function createScanCleanupPathResolutionCache(
         canonicalPathByExistingPath.set(allowedRoot.configuredPath, allowedRoot.canonicalPath);
         canonicalPathByExistingPath.set(allowedRoot.canonicalPath, allowedRoot.canonicalPath);
     }
-    return {canonicalPathByExistingPath};
+    return {
+        canonicalPathByExistingPath,
+        ...(allowedRoot === undefined
+            ? {}
+            : {
+                configuredRootPath: allowedRoot.configuredPath,
+                canonicalRootPath: allowedRoot.canonicalPath,
+            }),
+    };
 }
 
 function isMissingEntry(error: unknown) {
@@ -65,7 +78,12 @@ function canonicalizeThroughExistingAncestor(
     let ancestor = candidatePath;
     for (;;) {
         const cachedCanonicalAncestor = pathResolutionCache?.canonicalPathByExistingPath.get(ancestor);
-        if (cachedCanonicalAncestor !== undefined) {
+        const canReuseCachedRoot = cachedCanonicalAncestor !== undefined
+            && (
+                ancestor === pathResolutionCache?.configuredRootPath
+                || ancestor === pathResolutionCache?.canonicalRootPath
+            );
+        if (canReuseCachedRoot) {
             return missingSegments.length === 0
                 ? cachedCanonicalAncestor
                 : join(cachedCanonicalAncestor, ...missingSegments);

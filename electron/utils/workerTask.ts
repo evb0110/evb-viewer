@@ -238,7 +238,14 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
 
     if (payload.ok === false) {
         const errorFrame = parseWorkerTaskErrorFrame(payload.errorFrame);
-        if (typeof payload.error !== 'string' && errorFrame === null) {
+        // A present frame is part of the worker protocol, so an invalid frame
+        // makes the whole result untrusted even when the legacy error string
+        // happens to be valid. Falling back would discard structured fields
+        // such as cancellation, retryability, and termination evidence.
+        if (
+            ('errorFrame' in payload && errorFrame === null)
+            || (typeof payload.error !== 'string' && errorFrame === null)
+        ) {
             return null;
         }
         return {

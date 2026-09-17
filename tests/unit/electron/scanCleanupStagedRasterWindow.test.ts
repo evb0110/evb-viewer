@@ -118,6 +118,36 @@ describe('createStagedRasterWindow', () => {
         expect(resident.size).toBe(0);
     });
 
+    it('reprobes every batch candidate after a partial batch failure', async () => {
+        const resident = new Set<number>();
+        const batchError = new Error('batch publish failed');
+        const controller = createStagedRasterWindow({
+            pages: [
+                1,
+                2,
+            ],
+            window: 2,
+            stage: vi.fn(async () => undefined),
+            stageBatch: vi.fn(async pageNumbers => {
+                resident.add(pageNumbers[0]!);
+                throw batchError;
+            }),
+            unstage: vi.fn(async pageNumber => {
+                resident.delete(pageNumber);
+            }),
+            isStaged: vi.fn(async pageNumber => resident.has(pageNumber)),
+        });
+
+        await expect(controller.acquire(1)).rejects.toBe(batchError);
+        expect(controller.residentPages()).toEqual([1]);
+        expect(resident).toEqual(new Set([1]));
+
+        await controller.acquire(1);
+        controller.release(1);
+        await controller.dispose();
+        expect(resident.size).toBe(0);
+    });
+
     it('keeps at most one window of rasters on disk across a long document', async () => {
         const pages = Array.from({length: 148}, (_, index) => index + 1);
         const harness = createRecordingWindow(pages, 3);

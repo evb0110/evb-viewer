@@ -44,7 +44,7 @@ export const formatScanCleanupEta = (
     }
     return etaSeconds >= 60
         ? t('scanCleanup.etaMinutes', {minutes: Math.max(1, Math.ceil(etaSeconds / 60))})
-        : t('scanCleanup.etaSeconds', {seconds: Math.max(1, etaSeconds)});
+        : t('scanCleanup.etaSeconds', {seconds: Math.max(1, Math.ceil(etaSeconds))});
 };
 
 export const resolveScanCleanupEtaWidestText = (t: TTranslateFn) => [

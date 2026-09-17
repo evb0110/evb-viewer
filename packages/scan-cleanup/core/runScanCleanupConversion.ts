@@ -244,6 +244,13 @@ const STREAMING_JSONL_MAX_LINE_BYTES = 4 * 1024 * 1024;
 // bilevel/alpha planes. Six RGB equivalents per source page covers those files
 // and their small metadata and encoding overhead conservatively.
 const SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS = 6;
+// Keep an overflowed per-page output estimate finite while leaving room for a
+// complete bounded batch and its fixed merge working set to remain a safe
+// integer. A finite estimate lets scratch admission report a real shortfall
+// instead of treating the batch as unmeasurable and admitting it.
+const SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES = Math.floor(
+    Number.MAX_SAFE_INTEGER / (SCAN_CLEANUP_STREAMING_BATCH_PAGES * 4),
+);
 const PAGE_GEOMETRY_SIDECAR_FORMAT = 'evb-scan-cleanup-page-geometry';
 const PAGE_GEOMETRY_SIDECAR_SCHEMA_VERSION = 1;
 
@@ -258,6 +265,7 @@ function createEmptyPageRasterSource(): IScanCleanupPageRasterSource {
     return {
         detected: false,
         documentDpi: null,
+        compactLayeredPageCountComplete: true,
         getPageRaster: () => undefined,
     };
 }
@@ -305,6 +313,7 @@ async function createPageGeometryRasterSource(
     return {
         detected: true,
         documentDpi,
+        compactLayeredPageCountComplete: true,
         getPageRaster: async pageNumber => detectPageRasterFromPageSize(
             await pageSizeStore.getPage(pageNumber),
         ),
@@ -1451,7 +1460,7 @@ async function runStreamingScanCleanupConversion({
                 renderCopies: supportsRasterStreaming ? 2 : 1,
                 additionalScratchBytes: Number.isSafeInteger(outputBytes)
                     ? outputBytes
-                    : Number.MAX_SAFE_INTEGER,
+                    : SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES,
             });
         }
         if (largestBatchBytes === null) continue;
@@ -1906,6 +1915,7 @@ export async function runScanCleanupConversion(
         const documentCanvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
         let layoutEvidenceComplete = true;
         let finestCanvasDpi = 0;
+        const unclassifiedPages: number[] = [];
         const geometrySidecarPath = largeStreamingRun
             ? join(scratch, 'scan-cleanup-page-geometry.jsonl')
             : null;
@@ -1960,12 +1970,14 @@ export async function runScanCleanupConversion(
                         const observedLayout = detectionResult?.classification
                             ?? request.layoutByPage?.[String(pageNumber)];
                         if (observedLayout === undefined) layoutEvidenceComplete = false;
-                        addScanCleanupDocumentCanvasPage(
+                        if (addScanCleanupDocumentCanvasPage(
                             documentCanvasAccumulator,
                             page,
                             request.options,
                             observedLayout,
-                        );
+                        )) {
+                            unclassifiedPages.push(pageNumber);
+                        }
                         const pageOverride = getScanCleanupPageOverride(
                             request.options.pageOverrides,
                             requirePageNumber(pageNumber),
@@ -2017,7 +2029,6 @@ export async function runScanCleanupConversion(
         // page that is not a spread at half the document's scale. Measuring the
         // sheet can only leave such a page padded, and the run names the pages
         // it had to measure that way.
-        const unclassifiedPages: number[] = [];
         const unclassifiedPageCount = request.options.matchPageSize
             ? documentCanvasAccumulator.unclassifiedAutomaticPageCount
             : 0;
@@ -2389,7 +2400,9 @@ export async function runScanCleanupConversion(
             const height = Math.max(1, Math.ceil(plan.guardrail.height * plan.dpi / plan.guardrail.dpi));
             const pixelBytes = width * height * 3;
             const outputBytes = pixelBytes * SCAN_CLEANUP_NATIVE_OUTPUT_RASTER_EQUIVALENTS;
-            return Number.isSafeInteger(outputBytes) ? outputBytes : Number.MAX_SAFE_INTEGER;
+            return Number.isSafeInteger(outputBytes)
+                ? outputBytes
+                : SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES;
         };
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,

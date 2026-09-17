@@ -46,6 +46,7 @@ describe('scan cleanup ETA caption', () => {
     it('formats pending, seconds, and minutes from the worker value', () => {
         expect(formatScanCleanupEta(undefined, t)).toBe('scanCleanup.etaPending');
         expect(formatScanCleanupEta(1, t)).toBe('scanCleanup.etaSeconds seconds=1');
+        expect(formatScanCleanupEta(1.1, t)).toBe('scanCleanup.etaSeconds seconds=2');
         expect(formatScanCleanupEta(60, t)).toBe('scanCleanup.etaMinutes minutes=1');
     });
 

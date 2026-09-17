@@ -526,10 +526,11 @@ describe('scan cleanup run coordinator', () => {
             });
             await vi.waitFor(() => expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
                 .toContain('scanCleanup.errors.insufficientScratch'));
-            expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
-                .toContain('scanCleanup.errors.insufficientScratchSpace');
-            expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
-                .not.toContain('raw ENOSPC detail');
+            const error = coordinator.getScanCleanupRunError(ownerContext.ownerId);
+            expect(error).toContain('scanCleanup.errors.insufficientScratchSpace');
+            expect(error).toContain('"available":"520.0 MB"');
+            expect(error).toContain('"required":"1.07 GB"');
+            expect(error).not.toContain('raw ENOSPC detail');
         } finally {
             cleanup();
         }

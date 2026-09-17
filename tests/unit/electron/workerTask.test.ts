@@ -953,8 +953,8 @@ describe('workerTask', () => {
         };
         const { runResultWorkerTask } = await import('@electron/utils/workerTask');
 
-        // A frame that fails validation falls back to the plain message rather
-        // than letting an untyped value reach the quarantine decision.
+        // A frame that fails validation invalidates the complete result rather
+        // than letting the untyped fallback message hide a protocol error.
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
             workerData: { ok: true },
@@ -962,7 +962,31 @@ describe('workerTask', () => {
             createWorkerExitError: code => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
-        expect((error as Error).message).toBe('pdftoppm failed');
+        expect((error as Error).message).toBe('invalid payload');
+    });
+
+    it('rejects a result frame with an invalid scratch shortfall', async () => {
+        mocks.throwConstructorError = false;
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: 'not enough scratch',
+            errorFrame: {
+                message: 'not enough scratch',
+                scratchShortfall: {
+                    availableBytes: 'not-a-number',
+                    requiredBytes: 1_024,
+                },
+            },
+        };
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+
+        await expect(runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        })).rejects.toThrow('invalid payload');
     });
 
     it('restarts inactivity timeouts when a streaming worker reports progress', async () => {

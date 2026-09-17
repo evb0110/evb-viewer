@@ -20,7 +20,7 @@ describe('ocr dpi detection', () => {
         mocks.runOcrCommand.mockReset();
     });
 
-    it('derives every page raster from verified full-page image metadata', () => {
+    it('derives every page raster from verified full-page image metadata', async () => {
         const result = detectSourceDpiFromPageSizes([
             {
                 pageNumber: 1,
@@ -49,12 +49,21 @@ describe('ocr dpi detection', () => {
         ]);
 
         expect(result?.documentDpi).toBe(360);
-        expect(result?.getPageRaster(1)).toEqual({
+        const [
+            firstRaster,
+            secondRaster,
+        ] = await Promise.all(
+            [
+                result?.getPageRaster(1),
+                result?.getPageRaster(2),
+            ],
+        );
+        expect(firstRaster).toEqual({
             dpi: 360,
             width: 2198,
             height: 3350,
         });
-        expect(result?.getPageRaster(2)).toEqual({
+        expect(secondRaster).toEqual({
             dpi: 360,
             width: 2120,
             height: 3202,

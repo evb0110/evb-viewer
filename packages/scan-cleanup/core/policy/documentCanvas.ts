@@ -410,7 +410,7 @@ export function addScanCleanupDocumentCanvasPage(
         requirePageNumber(pageSize.pageNumber),
     );
     if (pageOverride.excluded) {
-        return;
+        return false;
     }
     accumulator.producedPageCount += 1;
     if (!isAutomaticLayout(options, pageSize.pageNumber)) {
@@ -420,7 +420,7 @@ export function addScanCleanupDocumentCanvasPage(
             options,
             resolveSheetShares(options, pageSize.pageNumber, {[String(pageSize.pageNumber)]: observedLayout}),
         );
-        return;
+        return false;
     }
     if (observedLayout === undefined) {
         accumulator.unclassifiedAutomaticPageCount += 1;
@@ -430,9 +430,10 @@ export function addScanCleanupDocumentCanvasPage(
             options,
             1,
         );
-        return;
+        return true;
     }
     addScanCleanupDocumentCanvasObservedPage(accumulator, pageSize, options, observedLayout);
+    return false;
 }
 
 /**
@@ -489,21 +490,26 @@ export function resolveScanCleanupDocumentCanvasFromAccumulator(
     if (accumulator.producedPageCount === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
         return null;
     }
-    const buckets: IScanCleanupCanvasSummaryBucket[] = [accumulator.forced];
+    let buckets: IScanCleanupCanvasSummaryBucket[] = [accumulator.forced];
+    let dominantCandidates: readonly IScanCleanupCanvasSummaryBucket[] = [];
     if (layoutEvidenceComplete) {
-        buckets.push(
+        buckets = [
+            ...buckets,
             accumulator.automaticSingle,
             accumulator.automaticSpread,
             accumulator.automaticUnclassified,
-        );
+        ];
     } else {
         // Unknown automatic pages must still contribute their whole sheet.
         // A partial observation cannot safely halve the document canvas: an
         // unclassified page may be a single sheet even when the first verdict
         // was a spread. This is the same conservative answer as the legacy
         // page-array planner and keeps an all-unknown document measurable.
-        buckets.push(accumulator.automaticUnclassified);
-        const observedBuckets = accumulator.firstObservedAutomaticShare === 2
+        buckets = [
+            ...buckets,
+            accumulator.automaticUnclassified,
+        ];
+        dominantCandidates = accumulator.firstObservedAutomaticShare === 2
             ? [
                 accumulator.automaticSpread,
                 accumulator.automaticSingle,
@@ -512,34 +518,8 @@ export function resolveScanCleanupDocumentCanvasFromAccumulator(
                 accumulator.automaticSingle,
                 accumulator.automaticSpread,
             ];
-        const dominant = observedBuckets.reduce<IScanCleanupCanvasSummaryBucket | null>((best, candidate) => {
-            if (candidate.count === 0) {
-                return best;
-            }
-            if (best === null || candidate.count > best.count) {
-                return candidate;
-            }
-            return best;
-        }, null);
-        if (dominant !== null) buckets.push(dominant);
     }
-    const {
-        largest,
-        hasContinuousTone,
-    } = resolveScanCleanupCanvasSummaryRect(buckets);
-    if (largest === null) {
-        return null;
-    }
-    const maxPixels = resolveScanCleanupMatchedCanvasMaxPixels([hasContinuousTone ? 'color' : 'bw']);
-    const dpi = resolveCanvasDpi(largest, renderDpi, maxPixels);
-    const plan = {
-        widthPoints: largest.widthPoints,
-        heightPoints: largest.heightPoints,
-        ...resolveCanvasGrid(largest, dpi, maxPixels),
-    };
-    return Object.values(plan).every(value => Number.isFinite(value) && value > 0)
-        ? plan
-        : null;
+    return resolveScanCleanupDocumentCanvasPlanFromBuckets(buckets, renderDpi, dominantCandidates);
 }
 
 /**
@@ -566,7 +546,7 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
         return null;
     }
     const buckets: IScanCleanupCanvasSummaryBucket[] = [accumulator.forced];
-    const observedBuckets = accumulator.firstObservedAutomaticShare === 2
+    const dominantCandidates = accumulator.firstObservedAutomaticShare === 2
         ? [
             accumulator.automaticSpread,
             accumulator.automaticSingle,
@@ -575,7 +555,15 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
             accumulator.automaticSingle,
             accumulator.automaticSpread,
         ];
-    const dominant = observedBuckets.reduce<IScanCleanupCanvasSummaryBucket | null>((best, candidate) => {
+    return resolveScanCleanupDocumentCanvasPlanFromBuckets(buckets, renderDpi, dominantCandidates);
+}
+
+function resolveScanCleanupDocumentCanvasPlanFromBuckets(
+    buckets: readonly IScanCleanupCanvasSummaryBucket[],
+    renderDpi: number,
+    dominantCandidates: readonly IScanCleanupCanvasSummaryBucket[] = [],
+): IScanCleanupDocumentCanvasPlan | null {
+    const dominant = dominantCandidates.reduce<IScanCleanupCanvasSummaryBucket | null>((best, candidate) => {
         if (candidate.count === 0) {
             return best;
         }
@@ -584,11 +572,16 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
         }
         return best;
     }, null);
-    if (dominant !== null) buckets.push(dominant);
+    const selectedBuckets = dominant === null
+        ? buckets
+        : [
+            ...buckets,
+            dominant,
+        ];
     const {
         largest,
         hasContinuousTone,
-    } = resolveScanCleanupCanvasSummaryRect(buckets);
+    } = resolveScanCleanupCanvasSummaryRect(selectedBuckets);
     if (largest === null) {
         return null;
     }
@@ -1157,22 +1150,32 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
         return [];
     }
     const resampledPages: number[] = [];
+    let expectedPageNumber = 1;
     await input.pageSizeStore.forEachChunk(async chunk => {
         if (chunk.pageCount !== input.documentPageCount) {
             throw new Error(
                 `Scan cleanup page-size store reported ${String(chunk.pageCount)} pages for ${String(input.documentPageCount)} document pages`,
             );
         }
+        const pageNumbers = chunk.pages.map(pageSize => requirePageNumber(pageSize.pageNumber));
+        for (const pageNumber of pageNumbers) {
+            if (pageNumber !== expectedPageNumber) {
+                throw new Error(
+                    `Scan cleanup page-size store returned page ${String(pageNumber)} where page ${String(expectedPageNumber)} was expected`,
+                );
+            }
+            expectedPageNumber += 1;
+        }
         const rasters = input.rasterDetectionAvailable
-            ? await Promise.all(chunk.pages.map(page => Promise.resolve(
-                input.rasterSource.getPageRaster(page.pageNumber),
+            ? await Promise.all(pageNumbers.map(pageNumber => Promise.resolve(
+                input.rasterSource.getPageRaster(pageNumber),
             )))
             : chunk.pages.map(() => undefined);
         for (const [
             index,
             pageSize,
         ] of chunk.pages.entries()) {
-            const pageNumber = requirePageNumber(pageSize.pageNumber);
+            const pageNumber = pageNumbers[index]!;
             if (getScanCleanupPageOverride(input.options.pageOverrides, pageNumber).excluded) {
                 continue;
             }
@@ -1188,6 +1191,11 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
             }
         }
     });
+    if (expectedPageNumber - 1 !== input.documentPageCount) {
+        throw new Error(
+            `Scan cleanup page-size store returned ${String(expectedPageNumber - 1)} pages for ${String(input.documentPageCount)} document pages`,
+        );
+    }
     return resampledPages;
 }
 

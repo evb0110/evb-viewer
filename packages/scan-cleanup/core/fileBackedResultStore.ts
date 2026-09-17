@@ -201,7 +201,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
                 position,
             );
             if (bytesRead === 0) break;
-            const part = chunk.subarray(0, bytesRead);
+            // `recordsFile.read` reuses `chunk` on the next iteration. Copy the
+            // bytes before retaining them so a record that spans reads cannot
+            // have its earlier chunks overwritten by the final read.
+            const part = Buffer.from(chunk.subarray(0, bytesRead));
             const newline = part.indexOf(0x0a);
             if (newline >= 0) {
                 chunks.push(part.subarray(0, newline));

@@ -340,7 +340,7 @@ export function serializeNativeScanCleanupOptions(
     };
 }
 
-export function assembleNativeScanCleanupManifest({
+function assembleNativeScanCleanupManifest({
     operation,
     analysisPurpose,
     renderMode,
@@ -504,4 +504,18 @@ export function buildRunnableNativeScanCleanupManifest(
     input: IBuildRunnableNativeScanCleanupManifestInput,
 ): INativeScanCleanupManifestV3 {
     return assembleNativeScanCleanupManifest(input, input.allowedPathRoot);
+}
+
+/**
+ * Build a shape-only manifest for geometry and protocol tests.
+ *
+ * This wrapper deliberately fixes path validation to `null` and must never be
+ * used for a manifest passed to a native sidecar. Runnable callers use
+ * {@link buildRunnableNativeScanCleanupManifest}, which requires its allowed
+ * path root and validates every emitted path.
+ */
+export function buildShapeOnlyNativeScanCleanupManifest(
+    input: IBuildNativeScanCleanupManifestInput,
+): INativeScanCleanupManifestV3 {
+    return assembleNativeScanCleanupManifest(input, null);
 }

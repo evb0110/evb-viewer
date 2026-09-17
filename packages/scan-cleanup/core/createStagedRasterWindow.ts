@@ -287,14 +287,22 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                 observeResident();
             } catch (error) {
                 for (const candidate of batch) {
-                    if (held.get(candidate) === 'ready') {
-                        try {
-                            if (await dependencies.isStaged(candidate)) continue;
-                        } catch {
-                            // The original batch failure is authoritative. A
-                            // failed re-probe means this page is not safe to
-                            // retain, so it falls through to the cleanup.
+                    let isReadable = false;
+                    try {
+                        isReadable = await dependencies.isStaged(candidate);
+                    } catch {
+                        // The original batch failure is authoritative. A
+                        // failed re-probe means this page is not safe to
+                        // retain, so it falls through to the cleanup.
+                    }
+                    if (isReadable) {
+                        held.set(candidate, 'ready');
+                        released.delete(candidate);
+                        if (!admitted.has(candidate)) {
+                            admitted.add(candidate);
+                            dependencies.onStaged?.(candidate);
                         }
+                        continue;
                     }
                     held.delete(candidate);
                 }
