@@ -665,6 +665,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
     createBestEffortCleanupSteps: context => [
         {
             label: 'feature-registration-disposal',
+            timeoutMs: 6_000,
             run: () => featureRegistrationRuntime?.disposeAll(),
         },
         {

@@ -526,6 +526,11 @@ export function scanCleanupDetectionOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
+                onCancel: reason => {
+                    if (reason === 'Renderer destroyed' || reason === 'Renderer process gone') {
+                        rawRasterRetention.invalidateSender(sender.id);
+                    }
+                },
                 run: async job => {
                     let lease: {release: () => boolean} | null = null;
                     try {

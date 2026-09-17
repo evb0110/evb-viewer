@@ -31,6 +31,24 @@ import {
 import {scanCleanupPreviewRenderer} from '@electron/features/scan-cleanup/scanCleanupPreviewRenderer';
 import {previewIdentityKey} from '@electron/features/scan-cleanup/scanCleanupPreviewSupport';
 import {removeBaseAnalysisArtifacts} from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
+
+const PREVIEW_DISPOSAL_TIMEOUT_MS = 2_000;
+
+async function waitForPreviewDisposal(pending: Promise<void>) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            pending,
+            new Promise<void>(resolve => {
+                timer = setTimeout(resolve, PREVIEW_DISPOSAL_TIMEOUT_MS);
+                timer.unref();
+            }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
+    }
+}
+
 export interface IScanCleanupPreviewRenderingOwner {
     preview: (
         sender: IScanCleanupDetectionSubscriber,
@@ -40,6 +58,7 @@ export interface IScanCleanupPreviewRenderingOwner {
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupPreviewCancelRequest,
     ) => boolean;
+    invalidateSender?: (senderId: number) => void;
     dispose: () => Promise<void>;
 }
 
@@ -195,6 +214,7 @@ export function scanCleanupPreviewRenderingOwner(
             entry,
         ] of active) {
             if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
+                entry.canceledAsResult = true;
                 entry.cancel('Stale scan cleanup preview document');
             }
         }
@@ -321,16 +341,32 @@ export function scanCleanupPreviewRenderingOwner(
         return canceled;
     };
     return {
+        invalidateSender(senderId: number) {
+            const senderPrefix = `${String(senderId)}\u0000`;
+            for (const [
+                key,
+                entry,
+            ] of active) {
+                if (key.startsWith(senderPrefix)) entry.cancel('Renderer destroyed');
+            }
+            for (const key of visiblePages.keys()) {
+                if (key.startsWith(senderPrefix)) visiblePages.delete(key);
+            }
+        },
         async dispose() {
             for (const entry of active.values()) {
                 entry.cancel('Scan cleanup preview service disposed');
             }
-            await Promise.allSettled([...active.values()].map(entry => entry.tail));
+            const activeTails = Promise.allSettled([...active.values()].map(entry => entry.tail)).then(() => undefined);
+            const registryReset = previewJobs.clearForTests().catch(() => undefined);
+            await waitForPreviewDisposal(Promise.all([
+                activeTails,
+                registryReset,
+            ]).then(() => undefined));
             active.clear();
             visiblePages.clear();
             deferredBaseAnalysisInvalidations.clear();
             baseAnalysisPins.clear();
-            await previewJobs.clearForTests();
             await disposeBaseAnalysisCache();
         },
         preview(sender, request) {
@@ -374,6 +410,7 @@ export function scanCleanupPreviewRenderingOwner(
                     && (request.detail !== undefined || entry.pageNumber === request.pageNumber)
                 ) {
                     superseded.push(entry);
+                    entry.canceledAsResult = true;
                     entry.cancel('Superseded scan cleanup preview');
                 }
             }
@@ -402,6 +439,7 @@ export function scanCleanupPreviewRenderingOwner(
             };
             const entryStateRef: {current?: IPreviewEntry} = {};
             const jobId = createJobId('scan-cleanup-preview');
+            const claimId = `${brokerOwnerId(sender, request)}:${jobId}`;
             const handle = previewJobs.start({
                 jobId,
                 owner: {
@@ -425,11 +463,14 @@ export function scanCleanupPreviewRenderingOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
-                onCancel: () => {
+                onCancel: reason => {
+                    if (reason === 'Renderer destroyed' || reason === 'Renderer process gone') {
+                        rawRasterRetention.invalidateSender(sender.id);
+                    }
                     if (entryStateRef.current && manuallyCanceled.has(entryStateRef.current)) return;
                     releaseCanceledPreviewResources(
                         request,
-                        jobId,
+                        claimId,
                         entryStateRef.current?.sourcePdfPath,
                     );
                     visiblePages.delete(documentPrefix);
@@ -463,7 +504,7 @@ export function scanCleanupPreviewRenderingOwner(
                             scratchPath,
                             baseAnalysisPins,
                             scheduleBaseAnalysisRemoval,
-                            handle.jobId,
+                            claimId,
                             releaseBaseAnalysisPin,
                         );
                         if (context.signal.aborted) throw context.signal.reason;
@@ -489,7 +530,7 @@ export function scanCleanupPreviewRenderingOwner(
                     return snapshot.result;
                 }
                 if (snapshot.status === 'canceled') {
-                    if (entryStateRef.current?.canceledAsResult === true || snapshot.error.message.startsWith('Dropped scan cleanup preview')) {
+                    if (entryStateRef.current?.canceledAsResult === true) {
                         return {canceled: true} as const;
                     }
                     throw Object.assign(new Error(snapshot.error.message), snapshot.error);
@@ -525,7 +566,7 @@ export function scanCleanupPreviewRenderingOwner(
                 cancel,
                 generation,
                 pageNumber: request.pageNumber,
-                claimId: handle.jobId,
+                claimId,
                 tail: settledTail,
             };
             entryStateRef.current = entryState;

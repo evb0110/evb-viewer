@@ -31,6 +31,7 @@ export function closeScanCleanupPageSizeStores(
 ) {
     const stores = document.pageSizeStores;
     document.pageSizeStores = new Set();
+    document.pageSizeStore = null;
     document.rasterPageSourceStore = null;
     document.rasterPageSource = null;
     const closing = Promise.all([...stores].map(store => store.close().catch(error => {

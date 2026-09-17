@@ -162,17 +162,35 @@ export function createScanCleanupRasterMeasurements(input: {
             ...(fork === undefined ? {} : {fork}),
         };
     };
-    const resolvePageSizeStore = (document: IRetainedDocument, signal: AbortSignal) => resolveScanCleanupRasterPageSizeStore({
-        dependencies: input.dependencies,
-        document,
-        signal,
-        disposed: input.disposed,
-        generation: input.documentGenerations.get(document) ?? 0,
-        currentGeneration: () => input.documentGenerations.get(document) ?? 0,
-        resolvePageCount,
-        resolvePreviewPageSizes,
-        observePageSizeStore,
-    });
+    const resolvePageSizeStore = (document: IRetainedDocument, signal: AbortSignal) => (
+        resolveScanCleanupDocumentMeasurement(
+            {
+                read: () => document.pageSizeStore,
+                write: value => {
+                    document.pageSizeStore = value;
+                },
+            },
+            signal,
+            () => resolveScanCleanupRasterPageSizeStore({
+                dependencies: input.dependencies,
+                document,
+                signal,
+                disposed: input.disposed,
+                generation: input.documentGenerations.get(document) ?? 0,
+                currentGeneration: () => input.documentGenerations.get(document) ?? 0,
+                resolvePageCount,
+                resolvePreviewPageSizes,
+                observePageSizeStore,
+            }),
+        )
+            .then(store => {
+                signal.throwIfAborted();
+                const fork = store.fork?.();
+                if (fork === undefined) return store;
+                document.pageSizeStores.add(fork);
+                return fork;
+            })
+    );
     return {
         resolvePageCount,
         resolvePreviewPageSizes,
