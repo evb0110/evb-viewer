@@ -553,6 +553,67 @@ describe('scan-cleanup provenance stamp contract', () => {
         })).toThrow('intersecting');
     });
 
+    it('uses shared normalized bounds for edge boxes and split evidence', () => {
+        const record = effectiveOptions(1);
+        record.options.renderCrop = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.9 + Number.EPSILON,
+            heightNormalized: 0.8,
+            rotationDegrees: 0,
+        };
+        record.options.manualSplit = {
+            xNormalized: 0.5,
+            rotationDegrees: 0,
+        };
+        record.options.automaticSplit = {
+            xNormalized: 0,
+            rotationDegrees: 0,
+        };
+        const build = () => buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [record],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
+            buildIds: buildFixtureBuildIds(),
+        });
+
+        expect(build).not.toThrow();
+        for (const xNormalized of [
+            0,
+            1,
+            0.019,
+            0.981,
+        ]) {
+            const invalid = effectiveOptions(1);
+            invalid.options.manualSplit = {
+                xNormalized,
+                rotationDegrees: 0,
+            };
+            expect(() => buildScanCleanupProvenanceStamp({
+                sourceSha256: 'a'.repeat(64),
+                effectiveOptions: [invalid],
+                outputMappings: [{
+                    sourcePage: 1,
+                    half: 'full',
+                    outputOrdinal: 1,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blank: false,
+                }],
+                pagePlanDigests: [buildScanCleanupPagePlanDigest(1, invalid.options, {})],
+                buildIds: buildFixtureBuildIds(),
+            })).toThrow('manualSplit');
+        }
+    });
+
     it('rejects non-finite and internally inconsistent nested provenance diagnostics', () => {
         const nonFiniteRecord = effectiveOptions(1);
         nonFiniteRecord.options.automaticSkewDegrees = {full: Number.POSITIVE_INFINITY};

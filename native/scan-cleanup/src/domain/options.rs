@@ -281,8 +281,9 @@ pub const MANUAL_SPLIT_MIN: f64 = 0.02;
 pub const MANUAL_SPLIT_MAX: f64 = 0.98;
 /// Complements computed as `1 - x` in a different f64 rounding order can
 /// overshoot 1.0 by ~1e-16; a sub-nanometer tolerance rejects real geometry
-/// errors while accepting float noise.
-const BOUNDS_EPSILON: f64 = 1e-9;
+/// errors while accepting float noise. Keep this value aligned with the
+/// TypeScript normalized geometry contract.
+pub const SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON: f64 = 1e-9;
 const POLYGON_AREA_EPSILON: f64 = 1e-12;
 
 fn polygon_cross(a: NormalizedZonePoint, b: NormalizedZonePoint, c: NormalizedZonePoint) -> f64 {
@@ -717,7 +718,9 @@ impl CleanupOptions {
         }
         if let Some(split) = self.automatic_split {
             if !split.x.is_finite()
-                || !(0.0..=1.0).contains(&split.x)
+                || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                    ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                    .contains(&split.x)
                 || split.rotation != self.rotation
             {
                 return Err(
@@ -786,12 +789,16 @@ impl CleanupOptions {
             if ![rect.x, rect.y, rect.width, rect.height]
                 .into_iter()
                 .all(f64::is_finite)
-                || rect.x < 0.0
-                || rect.y < 0.0
+                || rect.x < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.y < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
                 || rect.width <= 0.0
                 || rect.height <= 0.0
-                || rect.x + rect.width > 1.0 + BOUNDS_EPSILON
-                || rect.y + rect.height > 1.0 + BOUNDS_EPSILON
+                || rect.x > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.y > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.width > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.height > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.x + rect.width > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                || rect.y + rect.height > 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
                 || rect.rotation != self.rotation
             {
                 return Err(format!(
@@ -810,7 +817,11 @@ impl CleanupOptions {
         .filter_map(|(label, anchor)| anchor.map(|anchor| (label, anchor)))
         {
             let value = anchor.y_normalized;
-            if !value.is_finite() || !(-BOUNDS_EPSILON..=1.0 + BOUNDS_EPSILON).contains(&value) {
+            if !value.is_finite()
+                || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                    ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                    .contains(&value)
+            {
                 return Err(format!(
                     "{label} placement anchor must be finite and normalized (yNormalized={value})",
                 ));
@@ -844,8 +855,12 @@ impl CleanupOptions {
                 || polygon.points.iter().any(|point| {
                     !point.x.is_finite()
                         || !point.y.is_finite()
-                        || !(0.0..=1.0).contains(&point.x)
-                        || !(0.0..=1.0).contains(&point.y)
+                        || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                            ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                            .contains(&point.x)
+                        || !(-SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+                            ..=1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON)
+                            .contains(&point.y)
                 })
             {
                 return Err("Manual zone polygons must be finite, bounded, non-degenerate, simple, and authored under the page rotation".into());

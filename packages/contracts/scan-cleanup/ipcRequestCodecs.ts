@@ -32,6 +32,7 @@ import {
     SCAN_CLEANUP_MANUAL_SPLIT_MAX,
     SCAN_CLEANUP_MANUAL_SPLIT_MIN,
     SCAN_CLEANUP_MARGIN_MAX_MM,
+    SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
 } from '@contracts/scan-cleanup/geometry';
 import {
     consumeScanCleanupPages,
@@ -253,9 +254,6 @@ export function decodeScanCleanupPagePlanEvidence(
                 value.automaticSplit.xNormalized,
                 'automatic split x',
             );
-            if (xNormalized <= 0 || xNormalized >= 1) {
-                throw new Error('invalid scan-cleanup automatic split');
-            }
             return {
                 xNormalized,
                 rotationDegrees: decodeGeometryRotation(
@@ -622,8 +620,13 @@ function decodeScanCleanupPageRotation(
 
 function decodeNormalizedValue(value: unknown, label: string) {
     const decoded = decodeFiniteNumber(value, label);
-    if (decoded < 0 || decoded > 1) throw new Error(`invalid scan-cleanup ${label}`);
-    return decoded;
+    if (
+        decoded < -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || decoded > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+    ) {
+        throw new Error(`invalid scan-cleanup ${label}`);
+    }
+    return Math.min(1, Math.max(0, decoded));
 }
 
 function decodeManualSplitValue(value: unknown) {
@@ -653,8 +656,8 @@ function decodeNormalizedRect(
     if (
         rect.widthNormalized <= 0
         || rect.heightNormalized <= 0
-        || rect.xNormalized + rect.widthNormalized > 1
-        || rect.yNormalized + rect.heightNormalized > 1
+        || rect.xNormalized + rect.widthNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
+        || rect.yNormalized + rect.heightNormalized > 1 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON
         || !isScanCleanupPageRotation(rect.rotationDegrees)
     ) {
         throw new Error(`invalid scan-cleanup ${label}`);

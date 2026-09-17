@@ -2,7 +2,7 @@ use super::{
     CleanupOptions, DerivedRasterError, DespeckleLevel, ManualContentBoxes, ManualZones, MarginsMm,
     NormalizedRect, NormalizedSplit, NormalizedZonePoint, NormalizedZonePolygon,
     OrthogonalRotation, OutputMode, PageAlignment, PictureZoneLayer, PlacementAnchor,
-    PlacementAnchors, PlacementOverrides,
+    PlacementAnchors, PlacementOverrides, SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON,
 };
 use crate::domain::geometry::PageHalf;
 use scan_primitives::Rect;
@@ -119,6 +119,46 @@ fn manual_split_validation_uses_the_safe_cutter_interval() {
             ..CleanupOptions::default()
         };
         options.validate().unwrap();
+    }
+}
+
+#[test]
+fn normalized_bounds_accept_float_noise_and_closed_automatic_splits() {
+    for x in [
+        -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON * 0.5,
+        0.0,
+        1.0,
+        1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON * 0.5,
+    ] {
+        let options = CleanupOptions {
+            automatic_split: Some(NormalizedSplit {
+                x,
+                rotation: OrthogonalRotation::None,
+            }),
+            render_crop: Some(NormalizedRect {
+                x: -SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON * 0.5,
+                y: 0.0,
+                width: 1.0 + SCAN_CLEANUP_NORMALIZED_BOUNDS_EPSILON * 0.5,
+                height: 1.0,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..CleanupOptions::default()
+        };
+        options.validate().unwrap();
+    }
+
+    for x in [-0.01, 1.01] {
+        let options = CleanupOptions {
+            automatic_split: Some(NormalizedSplit {
+                x,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..CleanupOptions::default()
+        };
+        assert!(
+            options.validate().is_err(),
+            "automatic split x={x} was accepted"
+        );
     }
 }
 
