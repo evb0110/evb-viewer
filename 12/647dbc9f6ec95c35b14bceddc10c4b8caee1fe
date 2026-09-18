@@ -1,0 +1,24 @@
+tests/unit/app/modules/pdf-viewer/pdfViewportGeometry.test.ts
+  s_097971b99ad78b::t_bc0a32e869b80a 44-75
+  s_097971b99ad78b::t_0d4ae4f59468ac 42-43,76-77
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_097971b99ad78b::t_3b0483241f7b1e 142
+app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry.ts
+  s_097971b99ad78b::t_e36bdd93012b05 44-45,50,63,119-120,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "12647dbc9f6ec95c35b14bceddc10c4b8caee1fe",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
