@@ -1,10 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 static SIGTERM_CANCELED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(unix)]
 extern "C" fn handle_sigterm(_: libc::c_int) {
-    SIGTERM_CANCELED.store(true, Ordering::Release);
+    SIGTERM_CANCELED.store(true, std::sync::atomic::Ordering::Release);
 }
 
 #[cfg(unix)]
