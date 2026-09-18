@@ -847,7 +847,7 @@ export async function executeWindowsTestRun(
                 : await guest.stageAndVerifyFiles(
                     clonedVmId,
                     filesToStage,
-                    deadlines.commandTimeoutMs,
+                    deadlines.stageFileMs,
                 );
             await throwIfCanceled('desktop-ready');
             if (!batchHandled) {

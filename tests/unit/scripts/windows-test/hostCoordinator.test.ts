@@ -482,7 +482,7 @@ async function createHarness(options: IHarnessOptions = {}) {
             cancelGraceMs: 300,
             heartbeatStaleAfterMs: 1_000,
             commandTimeoutMs: 200,
-            stageFileMs: 200,
+            stageFileMs: 1_000,
         },
     };
 
@@ -528,7 +528,8 @@ describe('windows test run coordinator', () => {
 
     it('uses the optional batch staging hook before publishing the guest job', async () => {
         const harness = await createHarness();
-        harness.guest.channel.stageAndVerifyFiles = async (_vmId, files) => {
+        harness.guest.channel.stageAndVerifyFiles = async (_vmId, files, timeoutMs) => {
+            expect(timeoutMs).toBe(1_000);
             harness.guest.calls.push(`batch ${files.length}`);
             return true;
         };
