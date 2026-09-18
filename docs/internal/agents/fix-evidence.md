@@ -95,9 +95,11 @@ real-app step to a verifier that can.
 
 ## Red `main`
 
-Before diagnosing a red run for your commit, run `node scripts/ci/ci-health.mjs`
-and read its attribution for the SHA. An inherited failure already has an owner;
-do not re-diagnose it. A failure your commit introduced in the required set is
+Wait for the required verdict only: `ci.yml` and its `gates_ok`, about 12
+minutes. The extended and nightly tiers report separately and do not block your
+push. Before diagnosing a red run for your commit, run
+`node scripts/ci/ci-health.mjs --sha <your sha>` and read its attribution. A
+failure marked INHERITED already has an owner; do not re-diagnose it. A failure your commit introduced in the required set is
 yours: repair it promptly or revert your commit. Do not widen a tolerance, skip a
 test, or mark a step allowed to fail to get green.
 
