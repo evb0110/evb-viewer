@@ -11,6 +11,7 @@ import {
     vi,
 } from 'vitest';
 import { nextTick } from 'vue';
+import { requireEpochMs } from '@contracts/timestamps';
 import type { ISerializedElement } from '@tests/helpers/serializeDomElement';
 import { compileAppStylesheet } from '@tests/helpers/compileAppStylesheet';
 import { resolveAnnotationCommentRowMetrics } from '@app/utils/pdfAnnotationCommentRowMetrics';
@@ -27,7 +28,7 @@ import {
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string) => key}),
+    useTypedI18n: () => ({t: (key: string) => key === 'annotations.page' ? 'Стр.' : key}),
 }));
 
 const ACTIVE_COMMENT_INDEX = 2;
@@ -166,6 +167,77 @@ afterEach(() => {
 });
 
 describe('annotation comment row geometry in Chromium', () => {
+    it('keeps whole preview lines and the colour chip inside narrow cards', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.setContent(buildPageMarkup(
+                await compileAppStylesheet(await harvestUtilityCandidates()),
+                collectCompiledComponentStyles(),
+            ));
+            for (const scale of ANNOTATION_COMMENT_UI_SCALE_MATRIX) {
+                applyRootFontSizePx(16 * scale);
+                const list = mountAnnotationCommentsList({comments: [{
+                    annotationId: null,
+                    author: 'evb',
+                    color: '#ffd400',
+                    id: 'narrow-highlight',
+                    modifiedAt: requireEpochMs(1_789_711_800_000),
+                    pageIndex: 3,
+                    pageNumber: 4,
+                    source: 'pdf',
+                    stableKey: 'ann:3:narrow-highlight',
+                    subtype: 'Squiggly',
+                    kindLabel: 'Выделение',
+                    text: 'Genealogical Classification of Semitic',
+                    uid: null,
+                }]});
+                await nextTick();
+                await page.evaluate(uiScale => {
+                    document.documentElement.style.setProperty('--app-ui-scale', String(uiScale));
+                }, scale);
+                await page.evaluate(measurePaintedGeometry, serializeDomElement(list.host.firstElementChild!));
+                for (const width of [
+                    200,
+                    240,
+                    320,
+                    480,
+                ]) {
+                    const geometry = await page.evaluate(sidebarWidth => {
+                        document.querySelector<HTMLElement>('#sidebar')!.style.width = `${sidebarWidth}px`;
+                        const header = document.querySelector<HTMLElement>('.note-item-top')!;
+                        const chip = document.querySelector<HTMLElement>('.note-item-color-chip')!;
+                        const preview = document.querySelector<HTMLElement>('.note-item-text')!;
+                        const meta = document.querySelector<HTMLElement>('.note-item-meta')!;
+                        const lineHeight = Number.parseFloat(getComputedStyle(preview).lineHeight);
+                        return {
+                            headerHeight: header.getBoundingClientRect().height,
+                            headerLineHeight: Number.parseFloat(getComputedStyle(header).lineHeight),
+                            chipTop: chip.getBoundingClientRect().top,
+                            headerBottom: header.getBoundingClientRect().bottom,
+                            previewLines: preview.getBoundingClientRect().height / lineHeight,
+                            previewBottom: preview.getBoundingClientRect().bottom,
+                            metaTop: meta.getBoundingClientRect().top,
+                            metaHeight: meta.getBoundingClientRect().height,
+                            metaLineHeight: Number.parseFloat(getComputedStyle(meta).lineHeight),
+                            authorClipped: meta.firstElementChild!.scrollWidth > meta.firstElementChild!.clientWidth,
+                        };
+                    }, width);
+                    expect(geometry.headerHeight).toBeCloseTo(geometry.headerLineHeight, 1);
+                    expect(geometry.chipTop).toBeLessThan(geometry.headerBottom);
+                    expect(geometry.previewLines).toBeCloseTo(Math.round(geometry.previewLines), 2);
+                    expect(geometry.previewLines).toBeGreaterThanOrEqual(1);
+                    expect(geometry.previewBottom).toBeLessThanOrEqual(geometry.metaTop);
+                    expect(geometry.metaHeight).toBeCloseTo(geometry.metaLineHeight, 1);
+                    expect(geometry.authorClipped).toBe(false);
+                }
+                list.unmount();
+            }
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
     it('paints the list it rendered on exactly the virtualization stride at every supported UI scale', async () => {
         const browser = await chromium.launch({headless: true});
         try {

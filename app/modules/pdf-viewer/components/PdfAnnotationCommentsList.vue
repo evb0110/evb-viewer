@@ -768,21 +768,23 @@ function setTool(tool: TAnnotationTool) {
 
 .note-item-top {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     gap: var(--app-sidebar-row-gap);
-    flex-wrap: wrap;
+    white-space: nowrap;
     font-size: var(--app-sidebar-caption-font-size);
 }
 
 .note-item-page {
+    flex-shrink: 0;
     font-weight: 700;
     color: var(--ui-text-highlighted);
 }
 
 .note-item-type {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-2xs);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--ui-text-muted);
 }
 
@@ -818,6 +820,8 @@ function setTool(tool: TAnnotationTool) {
 }
 
 .note-item-text {
+    flex-shrink: 0;
+    min-height: 2lh;
     font-size: var(--app-sidebar-row-font-size);
     line-height: 1.35;
     color: var(--ui-text-highlighted);
@@ -826,6 +830,7 @@ function setTool(tool: TAnnotationTool) {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
 }
 
 .note-item-shape-style {
@@ -910,11 +915,24 @@ function setTool(tool: TAnnotationTool) {
 
 .note-item-meta {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: space-between;
     gap: var(--app-sidebar-row-gap);
     font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-toned);
+    white-space: nowrap;
+}
+
+.note-item-meta > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.note-item-meta > span:first-child {
+    flex-shrink: 0;
+    max-width: 50%;
 }
 
 .note-item-replies {
