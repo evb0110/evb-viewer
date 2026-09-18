@@ -1,0 +1,52 @@
+tests/e2e/electron/helpers/rendererErrorObservation.ts
+  s_ecea10291e4b09::t_abc1c9bb6353c0 1-20,24-32,36-66,68-71,74-97,101-108,156-182
+  s_ecea10291e4b09::t_3cf977de70ad51 72-73
+  s_ecea10291e4b09::t_3442c85a9ef5cc 137-155
+  s_ecea10291e4b09::t_f74e744a3b12b2 98-100
+  s_ecea10291e4b09::t_7055570db651a8 109-136
+  s_ecea10291e4b09::t_4dc23cb329f9f7 67
+  s_ecea10291e4b09::t_041772f7d21310 21-23
+  s_ecea10291e4b09::t_edeee250d91b73 33-35
+tests/e2e/electron/helpers/viewportPageObservation.ts
+  s_ecea10291e4b09::t_bf86f3ee14a107 1-183
+  s_ecea10291e4b09::t_a1110c3c17704f 184-189
+tests/e2e/electron/flingNavigationHandoff.e2e.test.ts
+  s_ecea10291e4b09::t_b1d0ba308d3820 253
+  s_ecea10291e4b09::t_97b86eb4775487 200
+  s_ecea10291e4b09::t_8bcbd25db36de0 359-362,372-374,394,405
+  s_ecea10291e4b09::t_710948ebfb14d5 249,251-252,254-256
+  s_ecea10291e4b09::t_ac9298db4abd64 406
+  s_ecea10291e4b09::t_e661c00bc32bb3 364-366
+  s_ecea10291e4b09::t_04b0a8eb179bdb 286
+  s_ecea10291e4b09::t_58b66e297bf1a8 404
+  s_ecea10291e4b09::t_eb47ceba04d1c6 1-23,25-31,33-34,37,39-198,201-243,250,257-285,287-327,329-358,363,367-371,392-393,395,397-398,400-403,407-412
+  s_ecea10291e4b09::t_a5983b0736a057 199
+  s_ecea10291e4b09::t_c951c7ae4758eb 36
+  s_ecea10291e4b09::t_2f307ff3555a46 35,38
+  s_ecea10291e4b09::t_e96d88b2f09c7f 396,399
+  s_ecea10291e4b09::t_de4649f035fe63 244-248
+  s_ecea10291e4b09::t_cff72ea3ce349f 375-391
+  s_ecea10291e4b09::t_35845c50d2fafe 328
+  s_ecea10291e4b09::t_e138d39b008d4a 24
+  s_ecea10291e4b09::t_6f47281418287b 32
+vitest.shared.config.ts
+  s_ecea10291e4b09::t_a5a03bb7408216 108
+tests/e2e/electron/helpers/startTrustedWheelFling.ts
+  s_ecea10291e4b09::t_2532273c892e61 1-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a3d67ef2d27fbfd89101cf2dbeda0f096f8f74ff",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
