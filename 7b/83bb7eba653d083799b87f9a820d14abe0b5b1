@@ -1,0 +1,39 @@
+app/modules/workspace-shell/annotations/deleteAnnotationById.ts
+  s_976089fc6d5505::t_670da5dc94e126 3,6-17,27,37
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_976089fc6d5505::t_374dd1df63c786 78,808-810
+app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts
+  s_976089fc6d5505::t_1d405c459cbfdb 608-616,715
+tests/unit/app/modules/workspace-shell/composables/useAnnotationContextMenu.test.ts
+  s_976089fc6d5505::t_3dba1462a31c37 63-64,66-80
+  s_976089fc6d5505::t_aaa25c28e7c23f 65
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_976089fc6d5505::t_1d405c459cbfdb 138,228
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_976089fc6d5505::t_1d405c459cbfdb 327,1160
+app/modules/workspace-shell/composables/useAnnotationContextMenu.ts
+  s_976089fc6d5505::t_3dba1462a31c37 38-40,64-66
+app/modules/workspace-shell/annotations/createAnnotationOverlayRuntime.ts
+  s_976089fc6d5505::t_374dd1df63c786 77-79
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindows.test.ts
+  s_976089fc6d5505::t_98b232aeaea66f 1137-1170
+tests/unit/app/modules/workspace-shell/annotations/deleteAnnotationById.test.ts
+  s_976089fc6d5505::t_3dba1462a31c37 52,61,67,71,80-98,103-111,119,136
+  s_976089fc6d5505::t_67b76f585db74a 72-79,99-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7b83bb7eba653d083799b87f9a820d14abe0b5b1",
+  "prompts": {},
+  "sessions": {
+    "s_976089fc6d5505": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de31aaeb-4c7c-433d-9ae0-938a1e4139bf",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
