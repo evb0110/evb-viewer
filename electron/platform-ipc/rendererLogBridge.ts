@@ -1,4 +1,3 @@
-import { getErrorMessage } from '@electron/utils/error';
 import { clamp } from 'es-toolkit/math';
 import type {
     IRendererLogEntry,
@@ -142,15 +141,19 @@ function normalizeRendererLogSpecialObject(value: object, depth: number) {
     if (value instanceof RegExp) {
         return String(value);
     }
-    if (value instanceof Error) {
-        const normalizedError: Record<string, unknown> = {
-            name: value.name,
-            message: getErrorMessage(value),
+    // BrowserLogger sends plain error records over IPC. Preserve their scalar
+    // details before the generic nested-object depth limit discards them.
+    if (value instanceof Error || (
+        isRecord(value)
+        && typeof value.name === 'string'
+        && typeof value.message === 'string'
+        && typeof value.stack === 'string'
+    )) {
+        return {
+            name: clampString(value.name, RENDERER_LOG_MAX_SECTION_CHARS),
+            message: clampString(value.message, RENDERER_LOG_MAX_MESSAGE_CHARS),
+            stack: clampString(value.stack, RENDERER_LOG_MAX_DATA_CHARS),
         };
-        if (depth === 0) {
-            normalizedError.stack = clampString(value.stack, RENDERER_LOG_MAX_MESSAGE_CHARS);
-        }
-        return normalizedError;
     }
     if (ArrayBuffer.isView(value)) {
         const typedArray = value;

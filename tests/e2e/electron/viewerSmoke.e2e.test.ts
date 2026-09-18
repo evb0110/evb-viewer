@@ -1385,33 +1385,8 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(initialPreviewState.skeletonWidth).toBeGreaterThan(0);
         expect(initialPreviewState.skeletonHeight).toBeGreaterThan(0);
 
-        // A pixel can be visible while the previous preview frame is pinned.
-        // The edit overlay is mounted only after the current frame commits,
-        // which is the readiness boundary required by the geometry checks.
-        await session.page.waitForSelector('.preview-result-layer .uniform-canvas .content-overlay', {
-            timeout: 60_000,
-            visible: true,
-        });
-        const previewText = await session.page.evaluate(() => document.body.innerText);
-        expect(previewText).not.toContain('Preview isn\'t available');
-        expect(previewText).not.toContain('could not be cloned');
-        expect(previewText).not.toContain('Could not be cloned');
-
-        const marginControls = await session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
-            .map(input => input.dataset.marginSide));
-        expect([...marginControls].sort()).toEqual([
-            'bottomMm',
-            'leftMm',
-            'rightMm',
-            'topMm',
-        ]);
-
-        const readAllMargins = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
-            .map(input => Number(input.value));
-        const marginsBefore = await session.page.evaluate(readAllMargins);
-        await session.page.focus('input[data-margin-side="topMm"]');
         const readPreviewGeometry = () => {
-            const paper = document.querySelector<HTMLElement>('.uniform-canvas');
+            const paper = document.querySelector<HTMLElement>('.preview-result-layer .uniform-canvas');
             const raster = paper?.querySelector<HTMLElement>('.placed-image');
             const content = paper?.querySelector<HTMLElement>('.content-overlay');
             const marginBoundary = paper?.querySelector<HTMLElement>('.margin-boundary-overlay');
@@ -1422,6 +1397,19 @@ describe('Electron E2E - Viewer Smoke', () => {
             const rasterBounds = raster.getBoundingClientRect();
             const contentBounds = content.getBoundingClientRect();
             const marginBoundaryBounds = marginBoundary.getBoundingClientRect();
+            const isVisible = (element: HTMLElement, bounds: DOMRect) => {
+                const style = getComputedStyle(element);
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && bounds.width > 0
+                    && bounds.height > 0;
+            };
+            if (!isVisible(paper, paperBounds)
+                || !isVisible(raster, rasterBounds)
+                || !isVisible(content, contentBounds)
+                || !isVisible(marginBoundary, marginBoundaryBounds)) {
+                return null;
+            }
             const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
                 && inner.top >= outer.top - 1
                 && inner.right <= outer.right + 1
@@ -1446,7 +1434,36 @@ describe('Electron E2E - Viewer Smoke', () => {
                 },
             };
         };
-        const baselineGeometry = await session.page.evaluate(readPreviewGeometry);
+        const previewText = await session.page.evaluate(() => document.body.innerText);
+        expect(previewText).not.toContain('Preview isn\'t available');
+        expect(previewText).not.toContain('could not be cloned');
+        expect(previewText).not.toContain('Could not be cloned');
+
+        const marginControls = await session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
+            .map(input => input.dataset.marginSide));
+        expect([...marginControls].sort()).toEqual([
+            'bottomMm',
+            'leftMm',
+            'rightMm',
+            'topMm',
+        ]);
+
+        const readAllMargins = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
+            .map(input => Number(input.value));
+        const marginsBefore = await session.page.evaluate(readAllMargins);
+        await session.page.focus('input[data-margin-side="topMm"]');
+        // A pixel can be visible while the previous preview frame is pinned.
+        // Capture the first complete visible geometry in the same page task that
+        // waits for it, so detection cannot expose a replacement gap to baseline.
+        const baselineGeometryHandle = await waitForFunctionInPage(
+            session.page,
+            readPreviewGeometry,
+            {timeout: 60_000},
+        );
+        const baselineGeometry = await baselineGeometryHandle.jsonValue() as NonNullable<
+            ReturnType<typeof readPreviewGeometry>
+        >;
+        await baselineGeometryHandle.dispose();
         expect(baselineGeometry).not.toBeNull();
         expect(baselineGeometry?.contained).toBe(true);
         const incrementCenter = await session.page.evaluate(() => {

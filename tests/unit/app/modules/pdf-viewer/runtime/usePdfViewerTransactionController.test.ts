@@ -55,6 +55,44 @@ describe('usePdfViewerTransactionController', () => {
         });
     });
 
+    it.each([
+        0,
+        2,
+    ])('drops an obsolete target when the document shrinks to %i pages', (pageCount) => {
+        const navigationState = createNavigationState();
+        const numPages = ref(10);
+        const controller = usePdfViewerTransactionController({
+            navigationState,
+            currentPage: ref(3),
+            visibleRange: ref({
+                start: 3,
+                end: 3,
+            }),
+            numPages,
+            viewMode: ref('single'),
+            pdfDocument: shallowRef(null),
+            userViewportInteractionEpoch: ref(0),
+        });
+        expect(controller.targetPage.value).toBe(3);
+        numPages.value = pageCount;
+        expect(controller.activeTransaction.value).toBeNull();
+        expect(controller.targetPage.value).toBeNull();
+        navigationState.value = {
+            ...navigationState.value,
+            status: 'idle',
+            targetPage: null,
+        };
+        numPages.value = 5;
+        expect(controller.activeTransaction.value).toBeNull();
+        navigationState.value = {
+            ...navigationState.value,
+            status: 'navigating',
+            targetPage: 2,
+            txn: 8,
+        };
+        expect(controller.targetPage.value).toBe(2);
+    });
+
     it('commits visible range only for the active transaction id', () => {
         const currentPage = ref(1);
         const visibleRange = ref({

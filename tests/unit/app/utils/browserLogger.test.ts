@@ -283,6 +283,27 @@ describe('BrowserLogger', () => {
         })}));
     });
 
+    it('preserves nested errors in JSON console captures as well as forwarded logs', async () => {
+        const {
+            windowStub, rendererLog,
+        } = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        const sinks = spyOnConsole();
+        const logger = await importBrowserLogger();
+        const error = new RangeError('Invalid page during teardown');
+        logger.warn('pdf-viewer', 'Failed to invalidate', {
+            category: 'operation',
+            error,
+        });
+        const captured = JSON.parse(JSON.stringify(sinks.warn.mock.calls[0]?.[1]));
+        expect(captured.error).toMatchObject({
+            name: 'RangeError',
+            message: error.message,
+            stack: error.stack,
+        });
+        expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({data: captured}));
+    });
+
     it('suppresses everything at the silent level', async () => {
         const {
             windowStub,

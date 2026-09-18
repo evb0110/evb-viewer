@@ -293,7 +293,7 @@ function emitLog(
     }
 
     const timestamp = createIsoTimestamp();
-    const resolved = resolveLazyValue(data);
+    const resolved = serializeForRendererLog(resolveLazyValue(data));
     if (options.writeConsole !== false) {
         writeToConsole(level, `[${timestamp}] [${section}] ${message}`, resolved);
     }
@@ -303,7 +303,7 @@ function emitLog(
         section,
         message,
         timestamp,
-        data: serializeForRendererLog(resolved),
+        data: resolved,
         ...(options.failureRef ? {failureRef: options.failureRef} : {}),
     });
 }
