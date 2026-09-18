@@ -174,6 +174,13 @@ async function hasCurrentProvisioning(
                 `${windowsTestGuestLayout.root}\\worker\\guestWorker.cjs`,
             ],
         ],
+        [
+            path.join(workerDirectory, 'pdf.worker.mjs'),
+            [
+                `${SYSTEM_BOOTSTRAP_DIRECTORY}\\pdf.worker.mjs`,
+                `${windowsTestGuestLayout.root}\\worker\\pdf.worker.mjs`,
+            ],
+        ],
     ];
     for (const entry of await readdir(path.join(sourceDirectory, 'powershell'), {withFileTypes: true})) {
         if (entry.isFile() && entry.name.endsWith('.ps1')) {
@@ -244,6 +251,11 @@ async function resolveProvisionFiles(
             path.join(workerDirectory, 'guestWorker.cjs.map'),
             guestFile('guestWorker.cjs.map'),
             'prepared guest worker map',
+        ],
+        [
+            path.join(workerDirectory, 'pdf.worker.mjs'),
+            guestFile('pdf.worker.mjs'),
+            'prepared PDF.js worker',
         ],
         [
             nodeArchivePath,

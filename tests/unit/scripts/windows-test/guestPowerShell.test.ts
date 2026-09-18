@@ -245,6 +245,8 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('configure-failed');
         expect(bootstrap).toContain('complete=v2');
         expect(bootstrap).toContain('powershell-copy');
+        expect(bootstrap).toContain('pdf-worker-copy');
+        expect(installer).toContain('call :copy-required pdf.worker.mjs');
         expect(bootstrap).toContain('query user');
         expect(bootstrap).toContain('user-startup-launcher-copy');
         expect(bootstrap).toContain('call :record');

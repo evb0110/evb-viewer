@@ -12,6 +12,7 @@ call :copy-required start-worker.cmd "%EVB_SYSTEM%\start-worker.cmd"
 call :copy-required node.zip "%EVB_SYSTEM%\node.zip"
 call :copy-required guestWorker.cjs "%EVB_SYSTEM%\guestWorker.cjs"
 call :copy-required guestWorker.cjs.map "%EVB_SYSTEM%\guestWorker.cjs.map"
+call :copy-required pdf.worker.mjs "%EVB_SYSTEM%\pdf.worker.mjs"
 if not exist "%~dp0powershell" (
   echo required-artifact-powershell;exit=2
   exit /b 22

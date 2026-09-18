@@ -108,6 +108,7 @@ async function createFixtureSources(root: string, repositoryRoot: string) {
     await mkdir(toolsDirectory, {recursive: true});
     await writeFile(path.join(workerDirectory, 'guestWorker.cjs'), 'worker');
     await writeFile(path.join(workerDirectory, 'guestWorker.cjs.map'), 'map');
+    await writeFile(path.join(workerDirectory, 'pdf.worker.mjs'), 'pdf worker');
     const nodeArchivePath = path.join(toolsDirectory, 'node.zip');
     await writeFile(nodeArchivePath, 'node archive');
     return {
@@ -150,6 +151,7 @@ function createGuest(clock: ReturnType<typeof createManualClock>, options: {
             }
             if (currentProvisioning) {
                 if (guestPath.endsWith('guestWorker.cjs')) { return 'worker'; }
+                if (guestPath.endsWith('pdf.worker.mjs')) { return 'pdf worker'; }
                 const name = path.win32.basename(guestPath);
                 if (name === 'system-bootstrap-worker.cmd' || name === 'start-worker.cmd' || name.endsWith('.ps1')) {
                     return readFile(path.join(process.cwd(), 'scripts', 'windows-test', 'guest',
@@ -356,6 +358,7 @@ describe('headless golden image provisioning', () => {
         expect(fixture.guestFixture.staged).toContain('C:\\EVBViewerTests\\staging\\golden-heal-provision-test\\install-system-bootstrap.cmd');
         expect(fixture.guestFixture.staged).toContain('C:\\EVBViewerTests\\staging\\golden-heal-provision-test\\node.zip');
         expect(fixture.guestFixture.staged).toContain('C:\\EVBViewerTests\\staging\\golden-heal-provision-test\\guestWorker.cjs.map');
+        expect(fixture.guestFixture.staged.some(file => file.endsWith('\\pdf.worker.mjs'))).toBe(true);
         expect(fixture.guestFixture.staged.some(file => file.endsWith('\\powershell\\register-worker-logon-task.ps1'))).toBe(true);
         expect(fixture.guestFixture.executions.map(command => command[0])).toEqual([
             'cmd.exe',
@@ -400,12 +403,20 @@ describe('headless golden image provisioning', () => {
         await expect(readFile(path.join(fixture.root, 'secrets', 'test-account.secret'))).rejects.toThrow();
     });
 
-    it('refreshes outdated provisioning despite a healthy heartbeat and qualifies the new boot', async () => {
+    it.each([
+        'outdated bootstrap',
+        'missing PDF.js worker',
+    ])('refreshes %s despite a healthy heartbeat and qualifies the new boot', async (reason) => {
         const clock = createManualClock();
         const fixture = await createOptions({
             initialHeartbeat: freshHeartbeat('boot-ready', clock.nowIso()),
-            currentProvisioning: false,
+            currentProvisioning: reason !== 'outdated bootstrap',
         });
+        const readGuestText = fixture.guestFixture.guest.readGuestText;
+        fixture.guestFixture.guest.readGuestText = async (...args) => {
+            if (reason === 'missing PDF.js worker' && fixture.guestFixture.staged.length === 0 && args[1].endsWith('pdf.worker.mjs')) { return null; }
+            return readGuestText(...args);
+        };
         roots.push(fixture.root);
 
         const result = await healWindowsTestGoldenImage(fixture.dependencies);

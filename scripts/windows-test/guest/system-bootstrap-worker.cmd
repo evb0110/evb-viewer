@@ -42,7 +42,7 @@ if "%EVB_FAILURE%"=="1" (
   >>"%EVB_MARKER%" echo step=configure-failed;exit=1
   exit /b 1
 )
-for %%F in (node.zip guestWorker.cjs guestWorker.cjs.map start-worker.cmd test-account.secret) do if not exist "%EVB_STAGE%%%F" (
+for %%F in (node.zip guestWorker.cjs guestWorker.cjs.map pdf.worker.mjs start-worker.cmd test-account.secret) do if not exist "%EVB_STAGE%%%F" (
   >>"%EVB_MARKER%" echo step=required-artifact-%%F;exit=2
   set "EVB_FAILURE=1"
 )
@@ -67,6 +67,8 @@ copy /Y "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\worker\guestWorker.cjs" >nul 2>
 call :record worker-copy %ERRORLEVEL%
 copy /Y "%EVB_STAGE%guestWorker.cjs.map" "%EVB_ROOT%\worker\guestWorker.cjs.map" >nul 2>&1
 call :record worker-map-copy %ERRORLEVEL%
+copy /Y "%EVB_STAGE%pdf.worker.mjs" "%EVB_ROOT%\worker\pdf.worker.mjs" >nul 2>&1
+call :record pdf-worker-copy %ERRORLEVEL%
 xcopy /E /I /Y "%EVB_STAGE%powershell" "%EVB_ROOT%\worker\powershell" >nul 2>&1
 call :record powershell-copy %ERRORLEVEL%
 if not exist "%EVB_ROOT%\worker\powershell\start-worker-logon.ps1" call :record logon-entrypoint-missing 2
