@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue
+  s_ecea10291e4b09::t_9cee1aa23a196e 918-922
+  s_ecea10291e4b09::t_14280845a71714 826-830
+tests/integration/browser/annotationCommentRowScale.test.ts
+  s_ecea10291e4b09::t_05f36352b5718f 212-219,225-230
+  s_ecea10291e4b09::t_596ef30a812c35 242-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e79539e5cbf50eb7dacf08a4e9c39085c861a160",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

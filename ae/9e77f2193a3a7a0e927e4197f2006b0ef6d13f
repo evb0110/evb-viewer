@@ -1,0 +1,43 @@
+.github/workflows/ci-extended.yml
+  s_ecea10291e4b09::t_8193a3d2f3b24c 14-18,20-21
+  s_ecea10291e4b09::t_91be2bbaafec25 131,143,167,199,228,250,318,343
+docs/contributing/releasing.md
+  s_ecea10291e4b09::t_9b265bea4e0032 49
+docs/contributing/ci.md
+  s_ecea10291e4b09::t_250af37c962f1a 110-140
+  s_ecea10291e4b09::t_3f470e56278d07 73-75,77,79-83
+tests/unit/scripts/waitForExactShaCi.test.ts
+  s_ecea10291e4b09::t_b267dce01e0011 335
+  s_ecea10291e4b09::t_7c6df73d470143 100,158-220,226-281
+  s_ecea10291e4b09::t_635fb8e10f659c 12,114,282-283
+docs/contributing/release-guardrails.md
+  s_ecea10291e4b09::t_0b2819fdd38211 20,22,48
+scripts/release/cut-release.mjs
+  s_ecea10291e4b09::t_1635a75e89a02d 48-56,87,332,337,342-343,347,349,353,355-356,361-362,366,371-373,375-376,380-384,388-397,414-415,417,430,460-511,520-526,528,531,547-548,579-582,624-628,637-638,746,765-772,806-810
+scripts/release/github-workflow-run.mjs
+  s_ecea10291e4b09::t_b6e04c26d1663c 64-67,74
+scripts/release/wait-for-exact-sha-ci.mjs
+  s_ecea10291e4b09::t_3b1d81f6679aac 1-6,29-31,43-67,99-100,105,178-181,183-224,226-228,232,234,240-245,247-256,262,276,283,286-301,312,314-315,320,327,329,334-386,391-393,395,398
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_ecea10291e4b09::t_ceb850a5293fb3 334-336,338-340,342-343
+tests/unit/scripts/cutRelease.test.ts
+  s_ecea10291e4b09::t_d6b23907ed01e4 8,12,57-60,178,461-493,598,604-707
+tests/unit/scripts/releaseBranchSafety.test.ts
+  s_ecea10291e4b09::t_8c9fb23f9a3a4c 301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ae9e77f2193a3a7a0e927e4197f2006b0ef6d13f",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
