@@ -10,10 +10,21 @@
 // Usage: node scripts/ci/ci-health.mjs [--days 7] [--limit 300] [--jobs 40]
 //        [--workflow ci.yml] [--branch main] [--json]
 //
+// The second mode answers one commit's question instead of the trend:
+//
+//        node scripts/ci/ci-health.mjs --sha <rev> [--json]
+//        node scripts/ci/ci-health.mjs --attribute        (rev: origin/main)
+//
+// It prints the required and extended tiers' per-job result for that commit
+// and marks every failure NEW or INHERITED, with the first bad SHA per failing
+// job. Run it before diagnosing a red main: an INHERITED failure belongs to
+// another commit and re-diagnosing it costs a turn for nothing.
+//
 // Needs an authenticated `gh`. It only reads the Actions API; it is not a
 // CI job and produces no verdict.
 
 import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 
 /** @typedef {{id: number, run_number: number, run_attempt?: number, head_sha: string, status: string, conclusion: string | null, created_at: string, html_url?: string}} IRun */
@@ -21,8 +32,29 @@ import {parseArgs} from 'node:util';
 /** @typedef {{run: IRun, job: IJob, verdict: 'red' | 'green'}} IJobVerdict */
 /** @typedef {{name: string, state: 'streak' | 'flapping', firstRed: {sha: string, subject: string, runNumber: number, date: string}, olderThanWindow: boolean, redRuns: number, greenRuns: number, evidence: {lines: string[], more: number, unavailable: boolean}}} IAttribution */
 /** @typedef {IAttribution & {firstRedRunId: number, firstRedJobId: number}} IRawAttribution */
+/** @typedef {{sha: string, subject: string, runNumber: number, date: string}} IFirstBad */
+/** @typedef {{name: string, conclusion: string | null | undefined, attribution: 'NEW' | 'INHERITED' | null, firstBad: IFirstBad | null, olderThanWindow: boolean}} IShaJobVerdict */
+/** @typedef {{tier: string, workflow: string, found: boolean, run: IRun | null, jobs: IShaJobVerdict[]}} IShaTier */
+
+// The tiers a commit is judged by. The required tier is the verdict branch
+// protection and the release cutter read; the extended tier reports without
+// blocking. Nightly is deliberately absent: it is not about a commit.
+export const TIER_WORKFLOWS = [
+    {
+        tier: 'required',
+        workflow: 'ci.yml',
+    },
+    {
+        tier: 'extended',
+        workflow: 'ci-extended.yml',
+    },
+];
 
 const {values: options} = parseArgs({options: {
+    attribute: {
+        default: false,
+        type: 'boolean',
+    },
     branch: {
         default: 'main',
         type: 'string',
@@ -41,6 +73,10 @@ const {values: options} = parseArgs({options: {
     },
     limit: {
         default: '300',
+        type: 'string',
+    },
+    sha: {
+        default: '',
         type: 'string',
     },
     workflow: {
@@ -71,8 +107,8 @@ function ghOptional(args) {
     }
 }
 
-/** @template T @param {string} endpoint @param {string} jq @returns {T[]} */
-function ghLines(endpoint, jq) {
+/** @template T @param {string} endpoint @param {string} jq @param {boolean} [quiet=false] @returns {T[]} */
+function ghLines(endpoint, jq, quiet = false) {
     return gh([
         'api',
         '--paginate',
@@ -81,7 +117,7 @@ function ghLines(endpoint, jq) {
         endpoint,
         '--jq',
         jq,
-    ])
+    ], quiet)
         .split('\n')
         .filter(Boolean)
         .map(line => JSON.parse(line));
@@ -367,6 +403,119 @@ export function summarizeAttribution(inspected) {
         });
 }
 
+/**
+ * One commit's verdict in one tier. `INHERITED` means the job was already
+ * failing on the previous run of that tier that produced a verdict for it, so
+ * this commit did not cause it. `firstBad` walks the consecutive red streak
+ * back to the run that started it.
+ *
+ * @param {{run: IRun, jobs: IJob[]}[]} inspected
+ * @param {string} sha
+ * @returns {{found: boolean, run: IRun | null, jobs: IShaJobVerdict[]}}
+ */
+export function classifyShaJobs(inspected, sha) {
+    const chronological = [...inspected].sort(compareInspectedRuns);
+    const targetIndex = chronological.findLastIndex(entry => entry.run.head_sha.startsWith(sha));
+    const target = chronological[targetIndex];
+    if (!target) {
+        return {
+            found: false,
+            jobs: [],
+            run: null,
+        };
+    }
+    const earlier = chronological.slice(0, targetIndex);
+
+    return {
+        found: true,
+        run: target.run,
+        jobs: target.jobs
+            // gates_ok only restates the other jobs; the run conclusion
+            // already carries the aggregate, and listing it would name the
+            // aggregate as a thing the commit broke.
+            .filter(job => job.name !== 'gates_ok')
+            .sort((left, right) => left.name.localeCompare(right.name))
+            .map((job) => {
+                if (job.conclusion !== 'failure') {
+                    return {
+                        attribution: null,
+                        conclusion: job.conclusion,
+                        firstBad: null,
+                        name: job.name,
+                        olderThanWindow: false,
+                    };
+                }
+                // A skipped or cancelled job proves nothing either way, so the
+                // streak only looks at runs that reached a verdict for it.
+                const history = earlier
+                    .map(entry => ({
+                        entry,
+                        verdict: entry.jobs.find(candidate => candidate.name === job.name)?.conclusion,
+                    }))
+                    .filter(item => item.verdict === 'failure' || item.verdict === 'success');
+                let index = history.length - 1;
+                let firstBad = target;
+                while (index >= 0 && history[index].verdict === 'failure') {
+                    firstBad = history[index].entry;
+                    index -= 1;
+                }
+
+                return {
+                    attribution: history.length > 0 && history[history.length - 1].verdict === 'failure'
+                        ? 'INHERITED'
+                        : 'NEW',
+                    conclusion: job.conclusion,
+                    firstBad: {
+                        date: runDate(firstBad.run.created_at),
+                        runNumber: firstBad.run.run_number,
+                        sha: firstBad.run.head_sha.slice(0, 10),
+                        subject: gitSubject(firstBad.run.head_sha),
+                    },
+                    name: job.name,
+                    olderThanWindow: index < 0 && firstBad.run.id === chronological[0]?.run.id,
+                };
+            }),
+    };
+}
+
+/** @param {IShaTier[]} tiers @param {string} sha @returns {string} */
+export function formatShaReport(tiers, sha) {
+    const lines = [`CI attribution for ${sha.slice(0, 10)}: ${gitSubject(sha)}`];
+    /** @type {string[]} */
+    const newFailures = [];
+    /** @type {string[]} */
+    const inheritedFailures = [];
+
+    for (const tier of tiers) {
+        if (!tier.found || !tier.run) {
+            lines.push(`  ${tier.tier} (${tier.workflow}): no run for this commit`);
+            continue;
+        }
+        const state = tier.run.status === 'completed' ? tier.run.conclusion ?? 'unknown' : tier.run.status;
+        const superseded = state === 'cancelled' ? ' (superseded, not a verdict)' : '';
+        lines.push(`  ${tier.tier} (${tier.workflow}) run ${tier.run.id}: ${state}${superseded}`);
+        const failed = tier.jobs.filter(job => job.conclusion === 'failure');
+        for (const job of failed) {
+            (job.attribution === 'NEW' ? newFailures : inheritedFailures).push(job.name);
+            const since = job.olderThanWindow ? 'first bad at or before' : 'first bad';
+            lines.push(
+                `    ${job.attribution} ${job.name}: ${since} ${job.firstBad?.sha} `
+                + `(run #${job.firstBad?.runNumber}, ${job.firstBad?.date}) ${job.firstBad?.subject}`,
+            );
+        }
+        const passed = tier.jobs.filter(job => job.conclusion === 'success').length;
+        const other = tier.jobs.length - passed - failed.length;
+        lines.push(`    ${passed} passed, ${failed.length} failed, ${other} skipped or cancelled`);
+    }
+
+    lines.push(newFailures.length > 0
+        ? `verdict: this commit broke ${newFailures.join(', ')}`
+        : inheritedFailures.length > 0
+            ? `verdict: every failure is inherited; do not re-diagnose ${inheritedFailures.join(', ')}`
+            : 'verdict: no failing job attributable to this commit');
+    return `${lines.join('\n')}\n`;
+}
+
 /** @param {IRawAttribution[]} attribution @returns {IAttribution[]} */
 function loadAttributionEvidence(attribution) {
     return attribution.map(entry => {
@@ -449,27 +598,120 @@ export function formatReport(runs, jobs, scope, attribution = []) {
     return `${lines.join('\n')}\n`;
 }
 
-function main() {
+/** @param {string} workflow @param {number} days @param {number} limit @param {boolean} [quiet=false] @returns {IRun[]} */
+function listPushRuns(workflow, days, limit, quiet = false) {
+    return ghLines(
+        `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${options.branch}`
+        + `&event=push&per_page=100&created=>=${sinceDate(days)}`,
+        '.workflow_runs[] | {id, run_number, run_attempt, head_sha, status, conclusion, created_at, html_url}',
+        quiet,
+    ).slice(0, limit);
+}
+
+/** @param {IRun} run @returns {{run: IRun, jobs: IJob[]}} */
+function withJobs(run) {
+    return {
+        jobs: /** @type {IJob[]} */ (ghLines(
+            `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
+            '.jobs[] | {id, name, conclusion, started_at, completed_at, steps: [.steps[] | {name, conclusion}]}',
+        )),
+        run,
+    };
+}
+
+/** @param {string} rev @returns {string} */
+function resolveRevision(rev) {
+    try {
+        return execFileSync('git', [
+            'rev-parse',
+            rev,
+        ], {
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        }).trim();
+    } catch {
+        // Already a SHA, or a revision this checkout does not know. The run
+        // lookup is a prefix match, so hand it through unchanged.
+        return rev;
+    }
+}
+
+function reportSha() {
     const days = Number(options.days);
     const limit = Number(options.limit);
     const jobsToInspect = Number(options.jobs);
-    /** @type {IRun[]} */
-    const runs = ghLines(
-        `repos/{owner}/{repo}/actions/workflows/${options.workflow}/runs?branch=${options.branch}`
-        + `&event=push&per_page=100&created=>=${sinceDate(days)}`,
-        '.workflow_runs[] | {id, run_number, run_attempt, head_sha, status, conclusion, created_at, html_url}',
-    ).slice(0, limit);
+    const sha = resolveRevision(options.sha || `${options.branch === 'main' ? 'origin/main' : options.branch}`);
+    /** @type {IShaTier[]} */
+    const tiers = TIER_WORKFLOWS.map(({
+        tier, workflow,
+    }) => {
+        // A tier whose workflow file does not exist on the branch being asked
+        // about reports nothing rather than aborting the other tier's answer.
+        // Anything else, a network error above all, has to surface: silently
+        // reading it as "no run" would report a green commit for an outage.
+        let runs = [];
+        try {
+            runs = listPushRuns(workflow, days, limit, true);
+        } catch (error) {
+            const message = String(/** @type {{stderr?: unknown}} */ (error)?.stderr ?? '');
+            if (!message.includes('HTTP 404')) {
+                throw error;
+            }
+            return {
+                found: false,
+                jobs: [],
+                run: null,
+                tier,
+                workflow,
+            };
+        }
+        const newestFirst = runs
+            .filter(run => run.status === 'completed')
+            .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.id - left.id);
+        const targetPosition = Math.max(0, newestFirst.findIndex(run => run.head_sha.startsWith(sha)));
+        const window = newestFirst.slice(targetPosition, targetPosition + jobsToInspect).map(withJobs);
+        return {
+            ...classifyShaJobs(window, sha),
+            tier,
+            workflow,
+        };
+    });
+
+    if (options.json) {
+        process.stdout.write(`${JSON.stringify({
+            sha,
+            subject: gitSubject(sha),
+            tiers,
+            newFailures: tiers.flatMap(tier => tier.jobs
+                .filter(job => job.attribution === 'NEW')
+                .map(job => job.name)),
+            inheritedFailures: tiers.flatMap(tier => tier.jobs
+                .filter(job => job.attribution === 'INHERITED')
+                .map(job => job.name)),
+        }, null, 2)}\n`);
+        return;
+    }
+    process.stdout.write(formatShaReport(tiers, sha));
+}
+
+function main() {
+    if (options.attribute || options.sha) {
+        reportSha();
+        return;
+    }
+    const days = Number(options.days);
+    const limit = Number(options.limit);
+    const jobsToInspect = Number(options.jobs);
+    const runs = listPushRuns(options.workflow, days, limit);
     const inspected = runs
         .filter(run => run.status === 'completed' && run.conclusion !== 'cancelled')
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.id - left.id)
         .slice(0, jobsToInspect)
-        .map(run => ({
-            jobs: /** @type {IJob[]} */ (ghLines(
-                `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
-                '.jobs[] | {id, name, conclusion, started_at, completed_at, steps: [.steps[] | {name, conclusion}]}',
-            )),
-            run,
-        }));
+        .map(withJobs);
     const runSummary = summarizeRuns(runs);
     const jobSummary = summarizeJobs(inspected);
     const attribution = loadAttributionEvidence(summarizeAttribution(inspected));
@@ -488,4 +730,8 @@ function main() {
     }, attribution));
 }
 
-main();
+// The classification helpers are unit tested against recorded API shapes, so
+// importing this module must not reach the network.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+    main();
+}
