@@ -1,4 +1,4 @@
-import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/public';
+import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/public/domContracts';
 import { readViewerSurface } from '@app/modules/viewer-invariants/readViewerSurface';
 import {
     clearViewerDiagnosticNotices,

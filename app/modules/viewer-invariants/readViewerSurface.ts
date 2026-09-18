@@ -1,4 +1,4 @@
-import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/public';
+import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/public/domContracts';
 import type {
     IViewerInvariantNoteWindow,
     IViewerInvariantOverlay,
