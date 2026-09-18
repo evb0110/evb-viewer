@@ -335,7 +335,8 @@ describe('PdfDocumentSession range loading', () => {
         documentState.cleanup();
         farPageReady.resolve(farPage);
 
-        await expect(farScroll).rejects.toThrow('Rendering cancelled: PDF page request became stale');
+        await expect(farScroll).resolves.toBe(false);
+        expect(farPage.cleanup).toHaveBeenCalled();
         expect(documentState.pageMetrics.value).toEqual([]);
         expect(documentState.numPages.value).toBe(0);
     });

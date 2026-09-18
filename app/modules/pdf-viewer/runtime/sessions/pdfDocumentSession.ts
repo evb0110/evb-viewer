@@ -39,6 +39,7 @@ import {
     createStalePdfDocumentError,
     registerPdfDocumentPageLeaseOwner,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
 import {
     disposePdfPageRasterScheduler,
     ensurePdfPageRasterScheduler,
@@ -427,6 +428,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return inFlight;
         }
 
+        const isStaleMetricLoad = () => version !== getRenderVersion() || document !== pdfDocument.value;
         let loadPromise: Promise<IPdfPageMetric | null> | null = null;
         loadPromise = (async () => {
             /**
@@ -438,8 +440,20 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
              * following canvas render waiting forever on PDF.js internals. The
              * cache already evicts old proxies, so ownership should stay there.
              */
-            const page = await pageCache.getPage(pageNumber);
-            if (version !== getRenderVersion() || document !== pdfDocument.value) {
+            let page: IPdfPage;
+            try {
+                page = await pageCache.getPage(pageNumber);
+            } catch (error) {
+                // The cache rejects a request that outlived its document, for
+                // example a fast scroll still hydrating when the tab closes.
+                // A superseded metric load has nothing to report, and several
+                // callers hydrate fire-and-forget.
+                if (isRenderingCancelledError(error) && isStaleMetricLoad()) {
+                    return null;
+                }
+                throw error;
+            }
+            if (isStaleMetricLoad()) {
                 return null;
             }
 
