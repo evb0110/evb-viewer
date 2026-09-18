@@ -55,6 +55,7 @@ const FLING_DURATION_MS = 3_200;
 // Late enough that the burst is unmistakably in its inertial tail, early
 // enough that more than two seconds of tail follow the click.
 const CLICK_AFTER_MS = 1_000;
+const CLOSE_AFTER_MS = 400;
 const NAVIGATION_DEADLINE_MS = 2_000;
 const HOLD_AFTER_BURST_MS = 2_000;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'fling-navigation-handoff');
@@ -144,8 +145,12 @@ async function resolveClickablePoint(page: Page, selector: string, ariaLabel?: s
  * Runs a decaying wheel burst and delivers one trusted click part-way through
  * it, without pausing the burst.
  */
-async function flingAndClickDuringTail(page: Page, target: IPoint, options: {durationMs?: number;} = {}) {
+async function flingAndClickDuringTail(page: Page, target: IPoint, options: {
+    clickAfterMs?: number;
+    durationMs?: number;
+} = {}) {
     const durationMs = options.durationMs ?? FLING_DURATION_MS;
+    const clickAfterMs = options.clickAfterMs ?? CLICK_AFTER_MS;
     const centre = await resolveViewportCentre(page);
     const sampler = await installViewportPageSampler(page);
     const fling = await startTrustedWheelFling(page, {
@@ -156,7 +161,7 @@ async function flingAndClickDuringTail(page: Page, target: IPoint, options: {dur
         durationMs,
     });
 
-    await delay(CLICK_AFTER_MS);
+    await delay(clickAfterMs);
     await page.mouse.click(target.x, target.y);
     const clickElapsedMs = Date.now() - fling.startedAt;
 
@@ -336,8 +341,11 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
             viewportPage: sample.viewportPage,
         })), artifact).toEqual([]);
         expect(settled.viewportPage, artifact).toBe(1);
-        // P3 again, this time for a page the navigation chose.
-        expect(settled.toolbarText, artifact).toBe('1');
+        // P3 again. Comparing the toolbar with the page the window actually
+        // shows, rather than with the requested page, is what catches the
+        // reported counter freeze: the toolbar can read the target while the
+        // superseded scroll has carried the window somewhere else.
+        expect(settled.toolbarText, artifact).toBe(String(settled.viewportPage));
     }, 180_000);
 
     // P4. Closing the tab in the middle of the tail must not surface an error.
@@ -355,7 +363,10 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         const errors = await observeRendererErrors(session.page);
 
         try {
-            const run = await flingAndClickDuringTail(session.page, closePoint);
+            // Close early in the burst, while the viewer still has the most
+            // page work in flight, which is where a destroyed transport and a
+            // superseded page metric load can surface as an error.
+            const run = await flingAndClickDuringTail(session.page, closePoint, {clickAfterMs: CLOSE_AFTER_MS});
             const report = await errors.collect();
             // Closing the last document tab leaves the start page, so the
             // observable outcome is that this document's tab is gone and no
