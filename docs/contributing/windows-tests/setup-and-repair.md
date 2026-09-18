@@ -24,13 +24,15 @@ pnpm windows:test --suite smoke
 
 `windows:test:heal` starts the configured golden VM, waits for QEMU guest-agent
 transport, and first checks whether a fresh interactive unlocked EVBTester
-heartbeat already appears. If it does not, the command generates a strong
+heartbeat already appears and its bootstrap, launcher, worker and PowerShell
+helpers match the prepared source files. If either check fails, the command generates a strong
 ASCII test-account password, stages the checked-in SYSTEM bootstrap together
 with the prepared worker, Node archive, PowerShell helpers, startup policy and
 secret, runs the bootstrap as the guest-agent SYSTEM service, reboots, and
 waits for a new boot ID and interactive heartbeat. It then stops the golden
 VM and records its qualification in the image manifest. Re-running the command
-is safe and skips staging when the heartbeat is already healthy.
+skips staging only when both the heartbeat and installed files are current.
+A healthy old worker must not prevent newer startup fixes from reaching the image.
 
 The command never asks for a password and never prints one. The generated
 secret is written only to

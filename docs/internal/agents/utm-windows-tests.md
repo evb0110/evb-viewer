@@ -23,7 +23,8 @@ pnpm windows:test --suite smoke
 
 `windows:test:heal` is the one-command golden-image repair. It starts only the
 configured golden UUID, waits for QEMU guest-agent transport, skips work when a
-fresh interactive unlocked EVBTester heartbeat is already present, or stages
+fresh interactive unlocked EVBTester heartbeat is present and the installed
+bootstrap, launcher, worker and PowerShell helpers match the prepared sources, or stages
 and runs the checked-in SYSTEM bootstrap, prepared worker, Node archive,
 PowerShell helpers, startup policy and generated account secret before a
 reboot. It waits for a new boot ID and heartbeat, records image qualification,

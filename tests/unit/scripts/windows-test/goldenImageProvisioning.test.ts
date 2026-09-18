@@ -121,10 +121,12 @@ function createGuest(clock: ReturnType<typeof createManualClock>, options: {
     initialHeartbeat: ReturnType<typeof freshHeartbeat> | null;
     installerExitCode?: number;
     markerAvailable?: boolean;
+    currentProvisioning?: boolean;
 }) {
     let bootId = options.initialHeartbeat?.bootId ?? 'boot-old';
     let heartbeat = options.initialHeartbeat;
     let bootstrapComplete = false;
+    let currentProvisioning = options.currentProvisioning ?? true;
     const staged: string[] = [];
     const executions: string[][] = [];
     const guest: IWindowsTestGuestChannel = {
@@ -146,6 +148,14 @@ function createGuest(clock: ReturnType<typeof createManualClock>, options: {
             if (guestPath.endsWith('system-bootstrap-complete.marker')) {
                 return bootstrapComplete ? 'complete=v2\n' : null;
             }
+            if (currentProvisioning) {
+                if (guestPath.endsWith('guestWorker.cjs')) { return 'worker'; }
+                const name = path.win32.basename(guestPath);
+                if (name === 'system-bootstrap-worker.cmd' || name === 'start-worker.cmd' || name.endsWith('.ps1')) {
+                    return readFile(path.join(process.cwd(), 'scripts', 'windows-test', 'guest',
+                        ...(name.endsWith('.ps1') ? ['powershell'] : []), name), 'utf8');
+                }
+            }
             return null;
         },
         pullGuestFile: async () => false,
@@ -163,6 +173,7 @@ function createGuest(clock: ReturnType<typeof createManualClock>, options: {
             }
             if (command[0] === 'cmd.exe') {
                 bootstrapComplete = true;
+                currentProvisioning = true;
                 return {
                     exitCode: options.installerExitCode ?? 0,
                     stdout: '',
@@ -240,6 +251,7 @@ async function createOptions(overrides: {
     initialHeartbeat?: ReturnType<typeof freshHeartbeat> | null;
     installerExitCode?: number;
     markerAvailable?: boolean;
+    currentProvisioning?: boolean;
 } = {}) {
     const root = await mkdtemp(path.join('/tmp', 'evb-windows-golden-heal-'));
     const layout = windowsTestHostLayout(root);
@@ -256,6 +268,7 @@ async function createOptions(overrides: {
         initialHeartbeat: overrides.initialHeartbeat ?? null,
         ...(overrides.installerExitCode === undefined ? {} : {installerExitCode: overrides.installerExitCode}),
         ...(overrides.markerAvailable === undefined ? {} : {markerAvailable: overrides.markerAvailable}),
+        ...(overrides.currentProvisioning === undefined ? {} : {currentProvisioning: overrides.currentProvisioning}),
     });
     const utmFixture = createUtm();
     const dependencies: IWindowsTestGoldenProvisionDependencies = {
@@ -385,6 +398,24 @@ describe('headless golden image provisioning', () => {
         expect(fixture.guestFixture.executions).toEqual([]);
         expect(fixture.utmFixture.calls.stop).toEqual(['request']);
         await expect(readFile(path.join(fixture.root, 'secrets', 'test-account.secret'))).rejects.toThrow();
+    });
+
+    it('refreshes outdated provisioning despite a healthy heartbeat and qualifies the new boot', async () => {
+        const clock = createManualClock();
+        const fixture = await createOptions({
+            initialHeartbeat: freshHeartbeat('boot-ready', clock.nowIso()),
+            currentProvisioning: false,
+        });
+        roots.push(fixture.root);
+
+        const result = await healWindowsTestGoldenImage(fixture.dependencies);
+
+        expect(result.alreadyProvisioned).toBe(false);
+        expect(fixture.guestFixture.staged.some(file => file.endsWith('\\system-bootstrap-worker.cmd'))).toBe(true);
+        expect(fixture.guestFixture.executions.some(command => command[0] === 'shutdown.exe')).toBe(true);
+        expect(fixture.utmFixture.calls.stop).toEqual(['request']);
+        const manifest = await loadWindowsTestImageManifest(fixture.dependencies.manifestPath);
+        expect(isQualifiedWindowsTestImage(manifest)).toBe(true);
     });
 
     it('stops the golden and records redacted evidence when bootstrap fails', async () => {

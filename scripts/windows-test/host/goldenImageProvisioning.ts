@@ -2,6 +2,7 @@ import {
     chmod,
     lstat,
     mkdir,
+    readFile,
     readdir,
     realpath,
     rename,
@@ -41,6 +42,7 @@ const WINDOWS_TEST_NODE_ARCHIVE_RELATIVE_PATH = path.join(
 );
 
 const SYSTEM_BOOTSTRAP_COMPLETE_FILE = `${windowsTestGuestLayout.stateDir}\\system-bootstrap-complete.marker`;
+const SYSTEM_BOOTSTRAP_DIRECTORY = 'C:\\Windows\\System32\\GroupPolicy\\Machine\\Scripts\\Startup';
 
 interface IGoldenProvisionFile {
     hostPath: string;
@@ -144,6 +146,59 @@ async function requireRegularFile(filePath: string, label: string) {
     if (details.isSymbolicLink() || !details.isFile()) {
         throw new Error(`The ${label} ${filePath} is not a regular file.`);
     }
+}
+
+async function hasCurrentProvisioning(
+    options: IWindowsTestGoldenProvisionDependencies,
+    assertTarget: () => Promise<unknown>,
+    timeoutMs: number,
+) {
+    const sourceDirectory = path.join(options.sources.repositoryRoot, 'scripts', 'windows-test', 'guest');
+    const workerDirectory = options.sources.workerDirectory ?? path.join(options.layout.toolsCacheDir, 'worker');
+    const files: Array<[string, string[]]> = [
+        [
+            path.join(sourceDirectory, 'system-bootstrap-worker.cmd'),
+            [`${SYSTEM_BOOTSTRAP_DIRECTORY}\\system-bootstrap-worker.cmd`],
+        ],
+        [
+            path.join(sourceDirectory, 'start-worker.cmd'),
+            [
+                `${SYSTEM_BOOTSTRAP_DIRECTORY}\\start-worker.cmd`,
+                `${windowsTestGuestLayout.root}\\worker\\start-worker.cmd`,
+            ],
+        ],
+        [
+            path.join(workerDirectory, 'guestWorker.cjs'),
+            [
+                `${SYSTEM_BOOTSTRAP_DIRECTORY}\\guestWorker.cjs`,
+                `${windowsTestGuestLayout.root}\\worker\\guestWorker.cjs`,
+            ],
+        ],
+    ];
+    for (const entry of await readdir(path.join(sourceDirectory, 'powershell'), {withFileTypes: true})) {
+        if (entry.isFile() && entry.name.endsWith('.ps1')) {
+            files.push([
+                path.join(sourceDirectory, 'powershell', entry.name),
+                [
+                    `${SYSTEM_BOOTSTRAP_DIRECTORY}\\powershell\\${entry.name}`,
+                    `${windowsTestGuestLayout.root}\\worker\\powershell\\${entry.name}`,
+                ],
+            ]);
+        }
+    }
+    for (const [
+        source,
+        destinations,
+    ] of files) {
+        const expected = await readFile(source, 'utf8');
+        for (const destination of destinations) {
+            await assertTarget();
+            if (await options.guest.readGuestText(options.config.goldenVmId, destination, timeoutMs) !== expected) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 async function resolveProvisionFiles(
@@ -558,6 +613,8 @@ export async function healWindowsTestGoldenImage(
             if (initial.heartbeat.guestTestMarker !== options.imageManifest.guestTestMarker) {
                 throw new Error('The golden heartbeat marker does not match the image manifest.');
             }
+        }
+        if (initial.heartbeat !== null && await hasCurrentProvisioning(options, assertTarget, deadlines.commandTimeoutMs)) {
             alreadyProvisioned = true;
             record('interactive-heartbeat', 'skipped');
         } else {
@@ -635,6 +692,9 @@ export async function healWindowsTestGoldenImage(
             }
             if (afterReboot.heartbeat.guestTestMarker !== options.imageManifest.guestTestMarker) {
                 throw new Error('The healed golden heartbeat marker does not match the image manifest.');
+            }
+            if (!await hasCurrentProvisioning(options, assertTarget, deadlines.commandTimeoutMs)) {
+                throw new Error('The healed golden image still has outdated bootstrap or worker files after reboot.');
             }
             record('interactive-heartbeat', 'completed');
         }

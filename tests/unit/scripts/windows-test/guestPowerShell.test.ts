@@ -250,6 +250,8 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('call :record');
         expect(launcher).toContain('task-marker.json');
         expect(launcher).toContain('worker-launch-marker.txt');
+        expect(launcher).toContain('worker-launcher.stderr.log');
+        expect(launcher).not.toContain('2>"%EVB_ROOT%\\state\\worker.stderr.log"');
         expect(launcher).toContain('EVBTester');
         expect(launcher).toContain('guestWorker.cjs');
         expect(launcher).toContain('start-worker-logon.ps1');

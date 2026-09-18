@@ -23,6 +23,8 @@ call :copy-required scripts.ini "C:\Windows\System32\GroupPolicy\Machine\Scripts
 schtasks.exe /create /sc onstart /tn "EVB Windows Test SYSTEM Bootstrap" /tr "cmd.exe /c C:\Windows\System32\GroupPolicy\Machine\Scripts\Startup\system-bootstrap-worker.cmd" /ru SYSTEM /f >nul 2>&1
 call :record task-create %ERRORLEVEL%
 if "%EVB_FAILURE%"=="1" exit /b 22
+if exist "%EVB_ROOT%\state\system-bootstrap-complete.marker" del "%EVB_ROOT%\state\system-bootstrap-complete.marker"
+if exist "%EVB_ROOT%\state\system-bootstrap-complete.marker" exit /b 23
 schtasks.exe /run /tn "EVB Windows Test SYSTEM Bootstrap" >nul 2>&1
 exit /b %ERRORLEVEL%
 
