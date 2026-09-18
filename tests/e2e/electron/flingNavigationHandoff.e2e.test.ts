@@ -57,7 +57,7 @@ const FLING_DURATION_MS = 3_200;
 const CLICK_AFTER_MS = 1_000;
 const NAVIGATION_DEADLINE_MS = 2_000;
 const HOLD_AFTER_BURST_MS = 2_000;
-const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'methodology', 'pilot');
+const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'fling-navigation-handoff');
 
 interface IPoint {
     x: number;
