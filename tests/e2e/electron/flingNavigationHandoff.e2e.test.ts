@@ -24,6 +24,7 @@ import {
 import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
 import {
     installViewportPageSampler,
+    isToolbarPageVisible,
     readViewportPageObservation,
     waitForViewportQuiet,
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
@@ -56,6 +57,11 @@ const FLING_DURATION_MS = 3_200;
 // enough that more than two seconds of tail follow the click.
 const CLICK_AFTER_MS = 1_000;
 const CLOSE_AFTER_MS = 400;
+// A separate, ordinary gesture after the burst has ended. Not a fling.
+const FOLLOW_UP_WHEEL_DELTA_Y = 180;
+const FOLLOW_UP_WHEEL_MS = 600;
+const FOLLOW_UP_RESPONSE_DEADLINE_MS = 500;
+const FOLLOW_UP_MIN_SCROLL_PX = 8;
 const NAVIGATION_DEADLINE_MS = 2_000;
 const HOLD_AFTER_BURST_MS = 2_000;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'fling-navigation-handoff');
@@ -291,7 +297,7 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         expect(dispatchedWheelEvents, artifact).toBeGreaterThan(150);
         expect(settled.viewportPage, artifact).not.toBeNull();
         expect(settled.viewportPage, artifact).toBeGreaterThan(FLING_START_PAGE);
-        expect(settled.toolbarText, artifact).toBe(String(settled.viewportPage));
+        expect(isToolbarPageVisible(settled), artifact).toBe(true);
     }, 180_000);
 
     // P1 and P2. The click is delivered by page.mouse.click on the real toolbar
@@ -341,11 +347,63 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
             viewportPage: sample.viewportPage,
         })), artifact).toEqual([]);
         expect(settled.viewportPage, artifact).toBe(1);
-        // P3 again. Comparing the toolbar with the page the window actually
-        // shows, rather than with the requested page, is what catches the
-        // reported counter freeze: the toolbar can read the target while the
-        // superseded scroll has carried the window somewhere else.
-        expect(settled.toolbarText, artifact).toBe(String(settled.viewportPage));
+        // P3 again. Requiring the toolbar to name a page the window actually
+        // shows, rather than the requested page, is what catches the reported
+        // counter freeze: the toolbar can read the target while the superseded
+        // scroll has carried the window somewhere else.
+        expect(isToolbarPageVisible(settled), artifact).toBe(true);
+    }, 180_000);
+
+    // P5. Winning over the tail must not cost the document its scrolling. Once
+    // the burst is over and the navigation has landed, the next ordinary wheel
+    // gesture is a new intention and has to move the window again.
+    it('keeps the next wheel gesture working after a navigation lands during a fling', async () => {
+        const session = sessionFixture.getSession();
+        await goToPageForSetup(session.page, FLING_START_PAGE);
+        const firstPagePoint = await resolveClickablePoint(
+            session.page,
+            '.page-controls button[aria-label]',
+            'First Page',
+        );
+
+        await flingAndClickDuringTail(session.page, firstPagePoint);
+        await waitForViewportQuiet(session.page);
+        const before = await readViewportPageObservation(session.page);
+
+        const centre = await resolveViewportCentre(session.page);
+        const sampler = await installViewportPageSampler(session.page);
+        const gesture = await startTrustedWheelFling(session.page, {
+            x: centre.x,
+            y: centre.y,
+            initialDeltaY: FOLLOW_UP_WHEEL_DELTA_Y,
+            finalDeltaY: FOLLOW_UP_WHEEL_DELTA_Y,
+            durationMs: FOLLOW_UP_WHEEL_MS,
+        });
+        const dispatchedWheelEvents = await gesture.finished;
+        const gestureSamples = await sampler.read();
+        await sampler.stop();
+        await waitForViewportQuiet(session.page);
+        const after = await readViewportPageObservation(session.page);
+
+        const firstMovement = gestureSamples.find(
+            sample => sample.scrollTop >= before.scrollTop + FOLLOW_UP_MIN_SCROLL_PX,
+        );
+        const artifact = writeArtifact('fling-follow-up-gesture.json', {
+            after,
+            before,
+            dispatchedWheelEvents,
+            errorEvidence: await collectSuiteErrorEvidence(session.page),
+            firstMovement,
+            scenario: 'p5-wheel-gesture-after-navigation-during-fling',
+            summary: summarizeSamples(gestureSamples),
+        });
+
+        expect(before.viewportPage, artifact).toBe(1);
+        expect(firstMovement, artifact).toBeDefined();
+        expect(firstMovement!.elapsedMs, artifact).toBeLessThanOrEqual(FOLLOW_UP_RESPONSE_DEADLINE_MS);
+        expect(after.scrollTop, artifact).toBeGreaterThan(before.scrollTop);
+        expect(after.viewportPage, artifact).toBeGreaterThan(1);
+        expect(isToolbarPageVisible(after), artifact).toBe(true);
     }, 180_000);
 
     // P4. Closing the tab in the middle of the tail must not surface an error.

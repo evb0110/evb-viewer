@@ -34,8 +34,8 @@ export interface ITrustedWheelFlingRun {
 const DEFAULT_INTERVAL_MS = 16;
 
 function resolveDecayPerMs(options: ITrustedWheelFlingOptions) {
-    if (options.finalDeltaY <= 0 || options.initialDeltaY <= options.finalDeltaY) {
-        throw new Error('A decaying fling needs initialDeltaY greater than a positive finalDeltaY');
+    if (options.finalDeltaY <= 0 || options.initialDeltaY < options.finalDeltaY) {
+        throw new Error('A wheel burst needs initialDeltaY at least a positive finalDeltaY');
     }
     return Math.log(options.initialDeltaY / options.finalDeltaY) / options.durationMs;
 }

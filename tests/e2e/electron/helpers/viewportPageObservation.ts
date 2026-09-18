@@ -11,7 +11,17 @@ export interface IViewportPageCoverage {
     page: number;
     /** Height of the page rectangle that falls inside the viewport rectangle. */
     coveredHeight: number;
+    /** Full height of the page rectangle. */
+    height: number;
 }
+
+/**
+ * A page counts as shown when it covers at least this fraction of the smaller
+ * of its own height and the viewport height. Two pages can qualify at once;
+ * which of them the toolbar names is a product decision this contract leaves
+ * open.
+ */
+export const VISIBLE_PAGE_MIN_COVERAGE_RATIO = 0.25;
 
 export interface IViewportPageSample {
     elapsedMs: number;
@@ -21,8 +31,25 @@ export interface IViewportPageSample {
     viewportPage: number | null;
     /** Fraction of the viewport height the dominant page covers. */
     viewportCoverage: number;
+    viewportHeight: number;
     scrollTop: number;
     pages: IViewportPageCoverage[];
+}
+
+/**
+ * Whether the page the toolbar names is one of the pages the window shows.
+ */
+export function isToolbarPageVisible(sample: IViewportPageSample) {
+    const named = Number(sample.toolbarText);
+    if (!Number.isSafeInteger(named)) {
+        return false;
+    }
+    const coverage = sample.pages.find(entry => entry.page === named);
+    if (!coverage) {
+        return false;
+    }
+    return coverage.coveredHeight
+        >= VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(coverage.height, sample.viewportHeight);
 }
 
 export interface IViewportPageSamplerHandle {
@@ -88,6 +115,7 @@ const SAMPLER_SOURCE = () => {
                     pages.push({
                         page: pageNumber,
                         coveredHeight,
+                        height: rect.height,
                     });
                 }
             }
@@ -100,6 +128,7 @@ const SAMPLER_SOURCE = () => {
             toolbarText: readToolbarText(),
             viewportPage: dominant?.page ?? null,
             viewportCoverage: dominant && viewportHeight > 0 ? dominant.coveredHeight / viewportHeight : 0,
+            viewportHeight,
             scrollTop: viewport?.scrollTop ?? -1,
             pages,
         });
