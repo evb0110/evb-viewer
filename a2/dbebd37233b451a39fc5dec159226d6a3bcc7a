@@ -1,0 +1,19 @@
+native/scan-cleanup/src/main.rs
+  s_13ee9085066437::t_6368f621ae832e 1,7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a2dbebd37233b451a39fc5dec159226d6a3bcc7a",
+  "prompts": {},
+  "sessions": {
+    "s_13ee9085066437": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34d69bed-5fb1-427c-9435-58c267e92a0d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
