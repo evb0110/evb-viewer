@@ -35,6 +35,14 @@ function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSou
     };
 }
 
+function wheelPacket(timeStamp: number, deltaY = 40, deltaX = 0) {
+    return {
+        timeStamp,
+        deltaX,
+        deltaY,
+    };
+}
+
 function createViewportContainer() {
     const container = document.createElement('div');
     // Keep the detached test viewport unbounded so the write port receives
@@ -150,7 +158,10 @@ describe('document viewer chassis authority', () => {
         const staleAfterWheel = authority.viewportWritePort.beginIntent('resize-restore');
         observeDocumentViewportWheelInteraction(
             authority.viewportWritePort,
-            'scroll',
+            {
+                intent: 'scroll',
+                event: wheelPacket(0),
+            },
             container,
         );
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(false);
@@ -168,10 +179,123 @@ describe('document viewer chassis authority', () => {
         })).toBe(true);
         observeDocumentViewportWheelInteraction(
             authority.viewportWritePort,
-            'zoom',
+            {
+                intent: 'zoom',
+                event: wheelPacket(16),
+            },
             container,
         );
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
+    });
+
+    describe('a command issued during a fling', () => {
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        function scrollPacket(port: ReturnType<typeof createDocumentViewerRuntime>['viewportWritePort'], timeStamp: number, deltaY = 40) {
+            return observeDocumentViewportWheelInteraction(port, {
+                intent: 'scroll',
+                event: wheelPacket(timeStamp, deltaY),
+            });
+        }
+
+        it('outlives the inertial tail and lands where it aimed', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+
+            expect(scrollPacket(port, 0)).toBe('user-input');
+            expect(scrollPacket(port, 16)).toBe('user-input');
+            port.fenceCommandAgainstLiveGesture(30);
+            const navigation = port.beginIntent('navigate:734');
+
+            expect(port.userScrollSuppressed.value).toBe(true);
+            expect(scrollPacket(port, 32, 38)).toBe('command-residue');
+            // Chromium coalesces packets under load, so a tail packet can be
+            // larger than the one before it without being a new gesture.
+            expect(scrollPacket(port, 96, 140)).toBe('command-residue');
+            expect(port.isCommandResidueLive(100)).toBe(true);
+            expect(port.apply(container, {
+                intent: navigation,
+                reason: 'navigation',
+                top: 700,
+            })).toBe(true);
+        });
+
+        it('yields to a new gesture after a quiet gap', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+
+            scrollPacket(port, 0);
+            port.fenceCommandAgainstLiveGesture(10);
+            const navigation = port.beginIntent('navigate:734');
+
+            expect(scrollPacket(port, 400)).toBe('user-input');
+            expect(port.userScrollSuppressed.value).toBe(false);
+            expect(port.isCommandResidueLive(400)).toBe(false);
+            expect(port.apply(container, {
+                intent: navigation,
+                reason: 'navigation',
+                top: 700,
+            })).toBe(false);
+        });
+
+        it('treats a reversal as a new gesture, since inertia never reverses', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+
+            scrollPacket(port, 0, -60);
+            port.fenceCommandAgainstLiveGesture(10);
+
+            expect(scrollPacket(port, 16, -55)).toBe('command-residue');
+            expect(scrollPacket(port, 32, 20)).toBe('user-input');
+            expect(port.userScrollSuppressed.value).toBe(false);
+        });
+
+        it('keeps a diagonal tail whose larger axis alternates as one gesture', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const diagonalPacket = (timeStamp: number, deltaY: number, deltaX: number) => (
+                observeDocumentViewportWheelInteraction(port, {
+                    intent: 'scroll',
+                    event: wheelPacket(timeStamp, deltaY, deltaX),
+                })
+            );
+
+            diagonalPacket(0, 12, 10);
+            port.fenceCommandAgainstLiveGesture(10);
+
+            expect(diagonalPacket(16, 9, 11)).toBe('command-residue');
+            expect(diagonalPacket(32, 8, 7)).toBe('command-residue');
+            expect(diagonalPacket(48, 0, 5)).toBe('command-residue');
+            expect(diagonalPacket(64, -6, -5)).toBe('user-input');
+        });
+
+        it('restores scrolling once the tail goes quiet', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+
+            scrollPacket(port, 0);
+            port.fenceCommandAgainstLiveGesture(10);
+            scrollPacket(port, 16);
+            vi.advanceTimersByTime(199);
+            expect(port.userScrollSuppressed.value).toBe(true);
+
+            vi.advanceTimersByTime(1);
+            expect(port.userScrollSuppressed.value).toBe(false);
+        });
+
+        it('leaves scrolling alone when no gesture is in flight', () => {
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+
+            scrollPacket(port, 0);
+            port.fenceCommandAgainstLiveGesture(500);
+
+            expect(port.userScrollSuppressed.value).toBe(false);
+            expect(scrollPacket(port, 510)).toBe('user-input');
+        });
     });
 
     it('resets a stale viewport offset synchronously when a document generation begins', () => {

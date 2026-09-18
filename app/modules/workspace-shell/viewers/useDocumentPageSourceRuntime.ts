@@ -826,6 +826,13 @@ export const useDocumentPageSourceRuntime = (options: {
         if (chassisAuthority && event?.isTrusted !== true) {
             return;
         }
+        if (viewportWritePort.isCommandResidueLive()) {
+            // The compositor can apply one more inertial delta before scroll
+            // suppression reaches it. That offset belongs to the superseded
+            // gesture, so it must not invalidate the command's pending write.
+            layoutLifecycle.refreshLayoutTransactionAnchor();
+            return;
+        }
         layoutLifecycle.cancelPendingRestore();
         viewportWritePort.observeUserScroll(viewerContainer.value);
         layoutLifecycle.refreshLayoutTransactionAnchor();
@@ -916,6 +923,9 @@ export const useDocumentPageSourceRuntime = (options: {
     ) {
         if (navigationSource !== 'wheel') {
             pagedWheelNavigation.reset();
+            // An explicit command is newer than a fling still emitting inertial
+            // packets, so that gesture can no longer cancel or displace it.
+            chassisAuthority?.viewportWritePort.fenceCommandAgainstLiveGesture();
         }
         const normalized = chassisAuthority?.navigate(pageNumber)
             ?? Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));

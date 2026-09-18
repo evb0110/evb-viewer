@@ -89,6 +89,36 @@ its siblings and pushes the scroll rail beyond the sidebar's clip edge. The
 global status row owns no sidebar compensation; the app shell already reserves
 its height outside the workspace row.
 
+## Wheel gestures and explicit commands
+
+Viewport intent is ordered by when the user expressed it, not by when its
+events arrive. A fling is expressed once, at finger lift, and the platform then
+emits inertial wheel packets for a second or more. A toolbar, sidebar or
+keyboard command issued during that tail is the newer intent, even though tail
+packets keep arriving after it.
+
+`createWheelGestureStream.ts` groups packets into gestures. A quiet gap of
+`WHEEL_GESTURE_IDLE_MS` or a reversal starts a new gesture. Delta size is not
+used, because Chromium coalesces packets while the main thread is busy and so
+inflates a tail packet exactly when the viewer is under load.
+
+The viewport write port owns the rule. `queueNavigationRequest` calls
+`fenceCommandAgainstLiveGesture` for every source except `wheel`. Packets of
+the fenced gesture are `command-residue`: `observeDocumentViewportWheelInteraction`
+does not advance the interaction epoch for them and the chassis dispatches them
+to no renderer, so they cannot cancel the command. Chromium makes wheel events
+non-cancelable after the first of a sequence, so residue cannot be swallowed.
+The port instead raises `userScrollSuppressed`, which the chassis applies as
+`overflow: hidden` on the viewport. Authored `scrollTop` writes still land, the
+stable scrollbar gutter keeps the layout width, and the port restores scrolling
+when the gesture goes quiet or a new gesture begins. A new gesture remains
+trusted physical input and supersedes the command as before.
+
+`documentViewerRuntime.test.ts` covers the fence and `pdfViewportSessionBehavior.test.ts`
+covers a pending navigation surviving residue. Both halves were also confirmed
+in Chromium with the real write port: without the fence the command never
+lands, and with it the command lands on its target and stays there.
+
 ## Current-page resolution per renderer stack
 
 Each renderer stack answers "which page is the user looking at?" with its own

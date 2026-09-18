@@ -291,14 +291,16 @@ function releaseResizeAnchorForViewportInteraction() {
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     releaseResizeAnchorForViewportInteraction();
     // Physical scrolling must fence pending authored restores before the
-    // browser mutates scrollTop. Zoom gestures instead need the layout
-    // lifecycle's anchor restore; bumping the epoch on every streamed zoom
-    // tick would cancel that restore one frame after it was captured.
-    observeDocumentViewportWheelInteraction(
+    // browser mutates scrollTop. The inertial tail of a gesture that a newer
+    // command superseded is not physical input and reaches no renderer.
+    const owner = observeDocumentViewportWheelInteraction(
         chassisAuthority.viewportWritePort,
-        interaction.intent,
+        interaction,
         chassisAuthority.viewportElement.value ?? undefined,
     );
+    if (owner === 'command-residue') {
+        return;
+    }
     chassisAuthority.dispatchViewportWheel(interaction);
 }
 
@@ -569,7 +571,11 @@ const chassisViewportStyle = computed(() => {
         {
             // The opening shell may suppress scrolling, but once ready the
             // renderer owns axis overflow (including fit-width scrollbar lock).
-            overflow: policy.overflow === 'hidden' ? 'hidden' : undefined,
+            // Residue of a superseded wheel gesture must not move the viewport.
+            // The stable gutter keeps this from changing the layout width.
+            overflow: policy.overflow === 'hidden' || chassisAuthority.viewportWritePort.userScrollSuppressed.value
+                ? 'hidden'
+                : undefined,
             scrollbarGutter: policy.scrollbarGutter,
             '--document-open-surface-margin': policy.committedMargin === null
                 ? undefined

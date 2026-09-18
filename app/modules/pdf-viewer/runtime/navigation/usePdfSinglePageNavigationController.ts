@@ -611,6 +611,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     function queueNavigationRequest(request: IPdfNavigationRequest) {
         if (request.source !== 'wheel') {
             wheelNavigationCursorPage.value = null;
+            // An explicit command is newer than a fling still emitting inertial
+            // packets, so that gesture can no longer cancel or displace it.
+            options.viewportWritePort.fenceCommandAgainstLiveGesture();
         }
         intentSequence += 1;
         queuedNavigation = {

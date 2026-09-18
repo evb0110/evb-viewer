@@ -161,7 +161,8 @@ function createViewportFixture(input: {
     const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
     const emitEffectiveZoom = vi.fn();
-    const {port} = createTestPdfViewportWritePort();
+    const viewportWrites = createTestPdfViewportWritePort();
+    const {port} = viewportWrites;
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
     const root = document.createElement('div');
     const app = createApp(defineComponent({
@@ -228,6 +229,7 @@ function createViewportFixture(input: {
         isActive,
         outputScale,
         viewport,
+        viewportWrites,
         viewMode,
         zoom,
         zoomMode,
@@ -541,6 +543,50 @@ describe('PdfViewportSession behavior', () => {
             }
             expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision + 1);
 
+        } finally {
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            fixture.app.unmount();
+        }
+    });
+
+    it('keeps a distant navigation alive through the inertial tail of an older fling', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: () => false,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            fixture.viewport.visibleRange.value = {
+                start: 1,
+                end: 1,
+            };
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(64));
+
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
+            // The command declares itself newer than any gesture in flight.
+            expect(fixture.viewportWrites.commandFences).toHaveLength(1);
+            await vi.waitFor(() => {
+                expect(fixture.viewport.demand.value.requiredPages).toContain(64);
+            });
+            const cancellationRevision = fixture.viewport.cancelRasterRevision.value;
+
+            // The compositor applies one more inertial delta before scroll
+            // suppression reaches it.
+            fixture.viewportWrites.setCommandResidueLive(true);
+            fixture.container.scrollTop = 200;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision);
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.pendingTargetPage.value).toBe(64);
+            expect(fixture.viewport.demand.value.requiredPages).toContain(64);
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             fixture.app.unmount();

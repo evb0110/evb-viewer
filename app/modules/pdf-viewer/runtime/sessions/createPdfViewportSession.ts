@@ -892,6 +892,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (
             wasAuthorityScroll
             || zoomSnapSuppressedForClass.value
+            // The compositor can apply one more inertial delta before scroll
+            // suppression reaches it. That offset belongs to the superseded
+            // gesture, not to the user taking the viewport.
+            || viewportWritePort.isCommandResidueLive()
         ) {
             navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
             projectViewportVisibleRange(container, numPages.value);

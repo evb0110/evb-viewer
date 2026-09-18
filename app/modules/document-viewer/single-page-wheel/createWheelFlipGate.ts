@@ -1,7 +1,7 @@
 import type { TWheelDirection } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
+import { WHEEL_GESTURE_IDLE_MS } from '@app/modules/document-viewer/input/createWheelGestureStream';
 
 const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
-const SAME_DIRECTION_GESTURE_IDLE_MS = 200;
 const SAME_DIRECTION_GESTURE_MAX_BLOCK_MS = 420;
 const SAME_DIRECTION_GESTURE_HARD_RELEASE_MS = 700;
 const SAME_DIRECTION_TRACKPAD_DELTA_MAX_PX = 40;
@@ -76,7 +76,7 @@ function isInSameDirectionGesture(
         && lastFlipDirection === direction
         && !hasInteriorScrollSinceLastFlip
         && sinceLastWheelPacketMs >= 0
-        && sinceLastWheelPacketMs < SAME_DIRECTION_GESTURE_IDLE_MS
+        && sinceLastWheelPacketMs < WHEEL_GESTURE_IDLE_MS
         && sinceLastFlipMs >= 0
     );
     if (!isSameGesture) {

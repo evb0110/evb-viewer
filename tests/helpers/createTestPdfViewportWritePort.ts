@@ -1,3 +1,4 @@
+import { ref } from 'vue';
 import type {
     IPdfViewportWrite,
     IPdfViewportWritePort,
@@ -8,6 +9,9 @@ export function createTestPdfViewportWritePort() {
     let interactionEpoch = 0;
     let revision = 0;
     let sequence = 0;
+    const commandFences: number[] = [];
+    const userScrollSuppressed = ref(false);
+    let commandResidueLive = false;
     const port: IPdfViewportWritePort = {
         beginIntent(intentId) {
             return {
@@ -30,9 +34,19 @@ export function createTestPdfViewportWritePort() {
             interactionEpoch += 1;
         },
         observeUserScroll: () => {},
+        fenceCommandAgainstLiveGesture: () => {
+            commandFences.push(++sequence);
+        },
+        observeWheelPacket: () => commandResidueLive ? 'command-residue' : 'user-input',
+        isCommandResidueLive: () => commandResidueLive,
+        userScrollSuppressed,
     };
     return {
         port,
         writes,
+        commandFences,
+        setCommandResidueLive(live: boolean) {
+            commandResidueLive = live;
+        },
     };
 }
