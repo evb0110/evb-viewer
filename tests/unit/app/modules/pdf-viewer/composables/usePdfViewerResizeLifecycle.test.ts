@@ -811,12 +811,20 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         isResizing.value = false;
         resizeObserverMock.callback?.();
+        await nextTick();
+        // Pane relocation can reset scrollTop during the final Vue patch,
+        // even without a ResizeObserver size change. Restore before timers
+        // or raster work, using the same semantic viewport owner.
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(semanticAnchor);
+        expect(submitResizeIntent).not.toHaveBeenCalled();
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(25);
         await Promise.resolve();
 
         expect(submitResizeIntent).toHaveBeenCalledExactlyOnceWith(semanticAnchor);
-        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
-        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(3, semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
+        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(4, semanticAnchor);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
         expect(computeFitWidthScale).toHaveBeenLastCalledWith(null, {
             page: 4,

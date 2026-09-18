@@ -727,7 +727,10 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             return;
         }
 
-        await nextTick();
+        // Moving a pane into its surviving Teleport target can reset native
+        // scroll offsets without changing its size. Reproject after that DOM
+        // patch, before paint; raster settlement must not delay the viewport.
+        await reapplyResizeAnchorPreviewAfterLayout(dragResizeAnchor);
         await delay(PDF_RESIZE_DRAG_SETTLE_MS);
         if (
             runId !== dragSettleRunId
