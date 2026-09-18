@@ -1,0 +1,29 @@
+docs/internal/agents/recorded-automation.md
+  s_5fc578ce506341::t_4d5f7d04fcb35f 57-59
+scripts/electron-run/appRendererUrl.ts
+  s_5fc578ce506341::t_1bfad0b1b7401b 1-43
+scripts/electron-run/electronRunNuxtServer.ts
+  s_5fc578ce506341::t_df51e4583a0471 56-57
+scripts/electron-run/sessionRecording.ts
+  s_5fc578ce506341::t_18b89761ac9fa1 21,165,226,231,240,260-261
+scripts/electron-run/rendererReadiness.ts
+  s_5fc578ce506341::t_5be5ddb77cff5e 12-15,17-20
+tests/unit/scripts/diagnosticFrameCapture.test.ts
+  s_5fc578ce506341::t_d400c20258285b 59,166-174,176-185,198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2b7442ae5ab67b693e30e6563cafa629f7bef0f2",
+  "prompts": {},
+  "sessions": {
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
