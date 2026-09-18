@@ -139,6 +139,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         geometry = createPdfViewportGeometryFromLayout(metrics, {
             width: container.clientWidth,
             height: container.clientHeight,
+            paddingInline: options.scaledMargin.value,
         }, geometryRevision, options.getPhysicalScrollOrigin?.()
             ?? getLayoutPhysicalScrollOrigin(metrics, getGeometryAnchorPage()));
         return geometry;

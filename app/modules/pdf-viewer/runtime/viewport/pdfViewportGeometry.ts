@@ -41,11 +41,13 @@ export function createPdfViewportGeometryFromLayout(
     metrics: IPdfPageLayoutMetrics,
     viewport: {
         width: number;
-        height: number
+        height: number;
+        paddingInline?: number;
     },
     revision: number,
     physicalScrollOrigin = 0,
 ): IPdfViewportGeometry {
+    const paddingInline = Math.max(0, viewport.paddingInline ?? 0);
     const getPageRect = (index: number): IPdfViewportRect => {
         const rowIndex = metrics.base.pageRowIndices[index] ?? 0;
         const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? index + 1;
@@ -58,7 +60,7 @@ export function createPdfViewportGeometryFromLayout(
             );
         }
         rowWidth += Math.max(0, rowEndPage - rowStartPage) * metrics.gap;
-        let left = Math.max(0, (viewport.width - rowWidth) / 2);
+        let left = Math.max(paddingInline, (viewport.width - rowWidth) / 2);
         for (let page = rowStartPage; page < index + 1; page += 1) {
             left += getLayoutPageWidth(
                 metrics,
@@ -114,9 +116,10 @@ export function createPdfViewportGeometryFromLayout(
             viewport.width,
             maxPageWidth * metrics.scale
                 * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
-                + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0),
+                + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0)
+                + paddingInline * 2,
         )
-        : Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width));
+        : Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width + paddingInline));
     return {
         revision,
         insetTop: metrics.paddingTop,

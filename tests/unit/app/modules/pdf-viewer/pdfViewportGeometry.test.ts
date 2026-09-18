@@ -39,6 +39,42 @@ describe('pdfViewportGeometry', () => {
         },
     ];
 
+    it('includes page-track padding when projecting a horizontally panned zoomed page', () => {
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: [{
+                width: 600,
+                height: 800,
+            }],
+            totalPages: 1,
+            viewMode: 'single',
+            scale: 3,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) throw new Error('Expected layout');
+        const geometry = createPdfViewportGeometryFromLayout(layout, {
+            width: 1_000,
+            height: 800,
+            paddingInline: 20,
+        }, 1);
+        expect(geometry.contentWidth).toBe(1_840);
+        const anchor = resolveAnchorFromScroll(geometry, {
+            left: 400,
+            top: 600,
+        });
+        expect(anchor.pageXFraction).toBe(880 / 1_800);
+        const resized = createPdfViewportGeometryFromLayout(layout, {
+            width: 800,
+            height: 800,
+            paddingInline: 20,
+        }, 2);
+        expect(resolveScrollForAnchor(resized, anchor)).toEqual({
+            left: 500,
+            top: 600,
+        });
+    });
+
     it('retains a semantic resize anchor when narrow geometry clamps its projected scroll', () => {
         const wide = computePdfViewportGeometry({
             revision: 1,
