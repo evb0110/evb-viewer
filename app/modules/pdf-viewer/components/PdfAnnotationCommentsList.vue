@@ -823,8 +823,11 @@ function setTool(tool: TAnnotationTool) {
     flex-shrink: 0;
     box-sizing: content-box;
     min-height: 2lh;
-    /* Room for a wavy underline below the last clamped line. */
-    padding-bottom: 3px;
+
+    /* Room for a wavy underline below the last clamped line. Expressed against
+       the line box so the room grows with the text at every UI scale, the way
+       the underline it protects does. */
+    padding-bottom: 0.3lh;
     font-size: var(--app-sidebar-row-font-size);
     line-height: 1.35;
     color: var(--ui-text-highlighted);
@@ -912,8 +915,11 @@ function setTool(tool: TAnnotationTool) {
 .note-item-text-mark--squiggly {
     text-decoration: underline wavy;
     text-decoration-color: var(--note-item-marker-color);
-    text-decoration-thickness: 0.75px;
-    text-underline-offset: 3px;
+
+    /* Em units so the wave stays inside the padding the preview reserves for it
+       when the UI scale changes the row's font size. */
+    text-decoration-thickness: 0.07em;
+    text-underline-offset: 0.27em;
 }
 
 .note-item-meta {

@@ -209,13 +209,25 @@ describe('annotation comment row geometry in Chromium', () => {
                         const chip = document.querySelector<HTMLElement>('.note-item-color-chip')!;
                         const preview = document.querySelector<HTMLElement>('.note-item-text')!;
                         const meta = document.querySelector<HTMLElement>('.note-item-meta')!;
-                        const lineHeight = Number.parseFloat(getComputedStyle(preview).lineHeight);
+                        const mark = document.querySelector<HTMLElement>('.note-item-text-mark--squiggly')!;
+                        const previewStyle = getComputedStyle(preview);
+                        const markStyle = getComputedStyle(mark);
+                        const lineHeight = Number.parseFloat(previewStyle.lineHeight);
+                        // The preview reserves padding below its clamped lines so the
+                        // wavy underline of the last one is not cut off, so the text
+                        // lines are the content box, not the border box.
+                        const decorationRoomPx = Number.parseFloat(previewStyle.paddingBottom);
                         return {
                             headerHeight: header.getBoundingClientRect().height,
                             headerLineHeight: Number.parseFloat(getComputedStyle(header).lineHeight),
                             chipTop: chip.getBoundingClientRect().top,
                             headerBottom: header.getBoundingClientRect().bottom,
-                            previewLines: preview.getBoundingClientRect().height / lineHeight,
+                            decorationRoomPx,
+                            decorationReachPx: Number.parseFloat(markStyle.textUnderlineOffset)
+                                + Number.parseFloat(markStyle.textDecorationThickness),
+                            previewLines: (preview.getBoundingClientRect().height
+                                - Number.parseFloat(previewStyle.paddingTop)
+                                - decorationRoomPx) / lineHeight,
                             previewBottom: preview.getBoundingClientRect().bottom,
                             metaTop: meta.getBoundingClientRect().top,
                             metaHeight: meta.getBoundingClientRect().height,
@@ -227,6 +239,9 @@ describe('annotation comment row geometry in Chromium', () => {
                     expect(geometry.chipTop).toBeLessThan(geometry.headerBottom);
                     expect(geometry.previewLines).toBeCloseTo(Math.round(geometry.previewLines), 2);
                     expect(geometry.previewLines).toBeGreaterThanOrEqual(1);
+                    // The reserved room has to cover what the decoration actually
+                    // draws below the baseline at this scale, or the wave is clipped.
+                    expect(geometry.decorationRoomPx).toBeGreaterThanOrEqual(geometry.decorationReachPx);
                     expect(geometry.previewBottom).toBeLessThanOrEqual(geometry.metaTop);
                     expect(geometry.metaHeight).toBeCloseTo(geometry.metaLineHeight, 1);
                     expect(geometry.authorClipped).toBe(false);
